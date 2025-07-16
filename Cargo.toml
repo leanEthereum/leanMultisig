@@ -1,0 +1,38 @@
+[package]
+name = "leanSig"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.unreachable_pub = "warn"
+rust.unused_must_use = "deny"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.dead_code = "allow"
+rustdoc.all = "warn"
+
+[lints.clippy]
+# all lints that are on by default (correctness, suspicious, style, complexity, perf)
+all = { level = "warn", priority = -1 }
+
+# new lints that are still under development
+nursery = { level = "warn", priority = -1 }
+# avoid lints that are too pedantic
+doc_markdown = "allow"
+
+# lints which are rather strict or have occasional false positives
+pedantic = { level = "warn", priority = -1 }
+# avoid lints that are too pedantic
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+many_single_char_names = "allow"
+should_panic_without_expect = "allow"
+similar_names = "allow"
+suboptimal_flops = "allow"
+cast_sign_loss = "allow"
+
+
+[dependencies]
