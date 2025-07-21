@@ -1,5 +1,5 @@
 [package]
-name = "leanVm"
+name = "lean-vm"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,3 +9,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+p3-baby-bear.workspace = true
+p3-koala-bear.workspace = true
+p3-field.workspace = true
