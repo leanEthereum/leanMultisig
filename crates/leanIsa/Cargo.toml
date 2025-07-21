@@ -1,5 +1,5 @@
 [package]
-name = "leanIsa"
+name = "lean-isa"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
