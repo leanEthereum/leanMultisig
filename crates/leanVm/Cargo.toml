@@ -12,3 +12,8 @@ workspace = true
 p3-baby-bear.workspace = true
 p3-koala-bear.workspace = true
 p3-field.workspace = true
+
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

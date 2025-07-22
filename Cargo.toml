@@ -39,3 +39,6 @@ lean-vm = { path = "crates/leanVm" }
 p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
 p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
 p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+
+thiserror = "2.0"
+proptest = "1.7"
