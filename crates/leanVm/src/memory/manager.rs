@@ -201,7 +201,7 @@ mod tests {
                 // the amount that caused overflow
                 assert_eq!(delta, 1);
             }
-            other => panic!("Unexpected error: {:?}", other),
+            other => panic!("Unexpected error: {other:?}"),
         }
     }
 
@@ -226,8 +226,7 @@ mod tests {
         };
 
         // Simulate a memory segment with a small preallocated length.
-        // This ensures `.resize()` or `.try_reserve()` can trigger a `VecCapacityExceeded` failure.
-        manager.memory.data[0] = vec![MemoryCell::NONE; usize::MAX.min(4)];
+        manager.memory.data[0] = vec![MemoryCell::NONE; 4];
 
         // Attempt to load the data starting at the failing address.
         // This should fail due to memory limitations.

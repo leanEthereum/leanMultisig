@@ -102,22 +102,21 @@ mod tests {
                 assert_eq!(original.offset, usize::MAX);
                 assert_eq!(added, 1);
             }
-            _ => panic!("Expected overflow error, got: {:?}", result),
+            _ => panic!("Expected overflow error, got: {result:?}"),
         }
     }
 
     proptest! {
         #[test]
         fn test_add_does_not_overflow(addr in any::<MemoryAddress>(), delta in 0usize..1_000_000) {
+            let result = addr + delta;
             // Only test when offset + delta won't overflow
             if let Some(expected_offset) = addr.offset.checked_add(delta) {
-                let result = addr + delta;
                 prop_assert_eq!(result, Ok(MemoryAddress {
                     segment_index: addr.segment_index,
                     offset: expected_offset,
                 }));
             } else {
-                let result = addr + delta;
                 prop_assert!(matches!(
                     result,
                     Err(MathError::MemoryAddressAddUsizeOffsetExceeded(_))
