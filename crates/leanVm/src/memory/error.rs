@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use thiserror::Error;
 
 use super::{address::MemoryAddress, val::MemoryValue};
+use crate::types::math_errors::MathError;
 
 #[derive(Debug, Eq, PartialEq, Error)]
 pub enum MemoryError<F>
@@ -31,4 +32,8 @@ where
         "Memory overflow: the requested memory address is too large and exceeds the machine's capacity."
     )]
     VecCapacityExceeded,
+
+    /// Error related to mathematical operations.
+    #[error(transparent)]
+    Math(#[from] MathError),
 }
