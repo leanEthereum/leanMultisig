@@ -15,10 +15,15 @@ impl Add<usize> for MemoryAddress {
     type Output = Result<Self, MathError>;
 
     fn add(self, other: usize) -> Result<Self, MathError> {
+        // Try to compute the new offset by adding `other` to the current offset.
+        //
+        // This uses `checked_add` to safely detect any potential `usize` overflow.
         self.offset
             .checked_add(other)
             .map(|offset| Self {
+                // Keep the same segment index.
                 segment_index: self.segment_index,
+                // Use the new (safe) offset.
                 offset,
             })
             .ok_or_else(|| MathError::MemoryAddressAddUsizeOffsetExceeded(Box::new((self, other))))
