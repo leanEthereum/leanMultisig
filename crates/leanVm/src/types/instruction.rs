@@ -1,25 +1,23 @@
 use std::collections::BTreeMap;
 
-use p3_koala_bear::KoalaBear;
-
 type Label = String;
-type F = KoalaBear;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Bytecode {
-    pub instructions: Vec<Instruction>,
-    pub hints: BTreeMap<usize, Vec<Hint>>, // pc -> hints
+pub struct Bytecode<F> {
+    pub instructions: Vec<Instruction<F>>,
+    pub hints: BTreeMap<usize, Vec<Hint<F>>>, // pc -> hints
     pub public_input_start: usize,
     pub ending_pc: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MemOrConstant {
+pub enum MemOrConstant<F> {
     Constant(F),
     MemoryAfterFp { shift: usize }, // m[fp + shift]
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MemOrFpOrConstant {
+pub enum MemOrFpOrConstant<F> {
     MemoryAfterFp { shift: usize }, // m[fp + shift]
     Fp,
     Constant(F),
@@ -38,21 +36,21 @@ pub enum Operation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Instruction {
+pub enum Instruction<F> {
     Computation {
         operation: Operation,
-        arg_a: MemOrConstant,
+        arg_a: MemOrConstant<F>,
         arg_b: MemOrFp,
-        res: MemOrConstant,
+        res: MemOrConstant<F>,
     },
     Deref {
         shift_0: usize,
         shift_1: usize,
-        res: MemOrFpOrConstant,
+        res: MemOrFpOrConstant<F>,
     }, // res = m[m[fp + shift_0] + shift_1]
     JumpIfNotZero {
-        condition: MemOrConstant,
-        dest: MemOrConstant,
+        condition: MemOrConstant<F>,
+        dest: MemOrConstant<F>,
         updated_fp: MemOrFp,
     },
     Poseidon2_16 {
@@ -72,21 +70,21 @@ pub enum Instruction {
 
 /// Hints does not appear in the verified bytecode, but are useful during execution
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Hint {
+pub enum Hint<F> {
     RequestMemory {
         offset: usize, // the pointer to the allocated memory range will be stored at m[fp + offset]
-        size: MemOrConstant,
+        size: MemOrConstant<F>,
         /// if vectorized == true, the start of the allocated memory will be aligned to 8 field elements
         /// m[8X...] and we set m[fp + offset] = X
         vectorized: bool,
     },
     DecomposeBits {
         res_offset: usize, // m[fp + res_offset..fp + res_offset + 31] will contain the decomposed bits
-        to_decompose: MemOrConstant,
+        to_decompose: MemOrConstant<F>,
     },
     // Debug purpose
     Print {
         line_info: String,
-        content: Vec<MemOrConstant>,
+        content: Vec<MemOrConstant<F>>,
     },
 }
