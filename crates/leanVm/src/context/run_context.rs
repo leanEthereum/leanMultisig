@@ -1,6 +1,6 @@
 use crate::memory::address::MemoryAddress;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RunContext {
     /// The address in memory of the current instruction to be executed.
     pub(crate) pc: MemoryAddress,

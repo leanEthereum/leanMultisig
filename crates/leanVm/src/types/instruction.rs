@@ -1,5 +1,6 @@
-use p3_koala_bear::KoalaBear;
 use std::collections::BTreeMap;
+
+use p3_koala_bear::KoalaBear;
 
 type Label = String;
 type F = KoalaBear;
