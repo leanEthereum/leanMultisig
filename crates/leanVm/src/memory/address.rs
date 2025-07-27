@@ -3,7 +3,7 @@ use std::{fmt::Display, ops::Add};
 #[cfg(test)]
 use proptest::prelude::*;
 
-use crate::types::math_errors::MathError;
+use crate::errors::math::MathError;
 
 #[derive(Eq, Ord, Hash, PartialEq, PartialOrd, Clone, Copy, Debug, Default)]
 pub struct MemoryAddress {

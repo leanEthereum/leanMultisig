@@ -1,6 +1,7 @@
 use p3_field::PrimeField64;
 
-use super::{address::MemoryAddress, cell::MemoryCell, error::MemoryError, val::MemoryValue};
+use super::{address::MemoryAddress, cell::MemoryCell, val::MemoryValue};
+use crate::errors::memory::MemoryError;
 
 #[derive(Debug, Default)]
 pub struct Memory {

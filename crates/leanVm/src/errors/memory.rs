@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-use super::{address::MemoryAddress, val::MemoryValue};
-use crate::types::math_errors::MathError;
+use super::math::MathError;
+use crate::memory::{address::MemoryAddress, val::MemoryValue};
 
 #[derive(Debug, Eq, PartialEq, Error)]
 pub enum MemoryError<F>

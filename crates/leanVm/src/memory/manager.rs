@@ -1,6 +1,7 @@
 use p3_field::PrimeField64;
 
-use super::{address::MemoryAddress, error::MemoryError, mem::Memory, val::MemoryValue};
+use super::{address::MemoryAddress, mem::Memory, val::MemoryValue};
+use crate::errors::memory::MemoryError;
 
 /// A high level manager for the memory.
 #[derive(Debug, Default)]
@@ -102,7 +103,7 @@ mod tests {
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
-    use crate::{memory::cell::MemoryCell, types::math_errors::MathError};
+    use crate::{errors::math::MathError, memory::cell::MemoryCell};
 
     type F = BabyBear;
 
