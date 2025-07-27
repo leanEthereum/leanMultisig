@@ -36,4 +36,14 @@ where
     /// Error related to mathematical operations.
     #[error(transparent)]
     Math(#[from] MathError),
+
+    /// Error when a memory value is expected to be an integer, but it is an address to another memory location.
+    #[error("Memory value should be an integer.")]
+    ValueNotInteger,
+
+    #[error("Memory at address {0:?} is uninitialized.")]
+    UninitializedMemory(MemoryAddress),
+
+    #[error("Memory addresses must be relocatable")]
+    AddressNotRelocatable,
 }

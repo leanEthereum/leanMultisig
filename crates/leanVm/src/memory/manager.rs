@@ -95,6 +95,15 @@ impl MemoryManager {
         // This is simply ptr + data.len(), and it may also fail on overflow.
         (ptr + data.len()).map_err(MemoryError::Math)
     }
+
+    /// Retrieves the value stored at a given memory address.
+    #[must_use]
+    pub fn get<F>(&self, address: MemoryAddress) -> Option<MemoryValue<F>>
+    where
+        F: PrimeField64,
+    {
+        self.memory.get(address)
+    }
 }
 
 #[cfg(test)]
