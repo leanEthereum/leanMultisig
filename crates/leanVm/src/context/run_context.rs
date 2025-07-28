@@ -1,7 +1,7 @@
 use p3_field::PrimeField64;
 
 use crate::{
-    bytecode::operand::MemOrConstant,
+    bytecode::operand::{MemOrConstant, MemOrFp, MemOrFpOrConstant},
     errors::{memory::MemoryError, vm::VirtualMachineError},
     memory::{address::MemoryAddress, manager::MemoryManager, val::MemoryValue},
 };
