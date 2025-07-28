@@ -50,7 +50,7 @@ impl VirtualMachine {
 
             if is_zero {
                 // **Condition is zero**: The jump is not taken. Advance the `pc` by one.
-                (*self.run_context.pc() + 1)?
+                self.run_context.pc().add_usize(1)?
             } else {
                 // **Condition is non-zero**: Execute the jump.
                 //
@@ -64,7 +64,7 @@ impl VirtualMachine {
             }
         } else {
             // For any instruction other than `JumpIfNotZero`, advance the `pc` by one.
-            (*self.run_context.pc() + 1)?
+            self.run_context.pc().add_usize(1)?
         };
 
         // Update the virtual machine's program counter with the calculated next address.
@@ -86,7 +86,7 @@ impl VirtualMachine {
                 MemOrFp::Fp => self.run_context.fp,
                 // The instruction specifies updating `fp` to a value from memory.
                 MemOrFp::MemoryAfterFp { shift } => {
-                    let addr = (*self.run_context.fp() + *shift)?;
+                    let addr = self.run_context.fp().add_usize(*shift)?;
                     let value = self
                         .memory_manager
                         .get(addr)
@@ -189,7 +189,11 @@ mod tests {
         let pc = MemoryAddress::new(0, 10);
         let fp = MemoryAddress::new(1, 5);
         // Pre-load memory with a zero value at the address `fp + 1`, which will be our condition.
-        let mut vm = setup_vm(pc, fp, &[((fp + 1).unwrap(), MemoryValue::Int(F::ZERO))]);
+        let mut vm = setup_vm(
+            pc,
+            fp,
+            &[(fp.add_usize::<F>(1).unwrap(), MemoryValue::Int(F::ZERO))],
+        );
         // Define a JNZ instruction where the condition points to the zero value.
         let instruction = Instruction::JumpIfNotZero::<F> {
             condition: MemOrConstant::MemoryAfterFp { shift: 1 },
@@ -215,9 +219,15 @@ mod tests {
             fp,
             &[
                 // The condition value (non-zero).
-                ((fp + 1).unwrap(), MemoryValue::Int(F::from_u64(42))),
+                (
+                    fp.add_usize::<F>(1).unwrap(),
+                    MemoryValue::Int(F::from_u64(42)),
+                ),
                 // The destination address for the jump.
-                ((fp + 2).unwrap(), MemoryValue::Address(jump_target)),
+                (
+                    fp.add_usize::<F>(2).unwrap(),
+                    MemoryValue::Address(jump_target),
+                ),
             ],
         );
         // Define a JNZ instruction pointing to the condition and destination.
@@ -242,7 +252,7 @@ mod tests {
             pc,
             fp,
             &[(
-                (fp + 1).unwrap(),
+                fp.add_usize::<F>(1).unwrap(),
                 MemoryValue::Address(MemoryAddress::new(8, 8)),
             )],
         );
@@ -287,7 +297,7 @@ mod tests {
         let mut vm = setup_vm(
             MemoryAddress::new(0, 0),
             fp,
-            &[((fp + 3).unwrap(), MemoryValue::Address(new_fp))],
+            &[(fp.add_usize::<F>(3).unwrap(), MemoryValue::Address(new_fp))],
         );
         // Define a JNZ instruction where `updated_fp` points to the new address in memory.
         let instruction = Instruction::JumpIfNotZero::<F> {
@@ -309,7 +319,10 @@ mod tests {
         let mut vm = setup_vm(
             MemoryAddress::new(0, 0),
             fp,
-            &[((fp + 3).unwrap(), MemoryValue::Int(F::from_u64(99)))],
+            &[(
+                fp.add_usize::<F>(3).unwrap(),
+                MemoryValue::Int(F::from_u64(99)),
+            )],
         );
         // Define a JNZ instruction where `updated_fp` points to this integer value.
         let instruction = Instruction::JumpIfNotZero::<F> {
