@@ -13,6 +13,15 @@ pub struct MemoryAddress {
     pub offset: usize,
 }
 
+impl MemoryAddress {
+    pub const fn new(segment_index: usize, offset: usize) -> Self {
+        Self {
+            segment_index,
+            offset,
+        }
+    }
+}
+
 impl Add<usize> for MemoryAddress {
     type Output = Result<Self, MathError>;
 
