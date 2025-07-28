@@ -3,7 +3,7 @@ use p3_field::PrimeField64;
 use crate::{
     context::run_context::RunContext,
     errors::{memory::MemoryError, vm::VirtualMachineError},
-    memory::{manager::MemoryManager, val::MemoryValue},
+    memory::manager::MemoryManager,
     types::instruction::{Instruction, MemOrFp},
 };
 
@@ -46,12 +46,7 @@ impl VirtualMachine {
                 .get_value(condition, &self.memory_manager)?;
 
             // A jump condition must be a field element.
-            //
-            // An address is considered non-zero by convention.
-            let is_zero = match condition_val {
-                MemoryValue::Int(felt) => felt.is_zero(),
-                MemoryValue::Address(_) => false,
-            };
+            let is_zero = condition_val.to_f()?.is_zero();
 
             if is_zero {
                 // **Condition is zero**: The jump is not taken. Advance the `pc` by one.

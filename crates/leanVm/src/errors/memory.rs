@@ -44,6 +44,9 @@ where
     #[error("Memory at address {0:?} is uninitialized.")]
     UninitializedMemory(MemoryAddress),
 
-    #[error("Memory addresses must be relocatable")]
-    AddressNotRelocatable,
+    #[error("Memory address is expected but we got an integer.")]
+    ExpectedMemoryAddress,
+
+    #[error("Inteer is expected but we got a memory address.")]
+    ExpectedInteger,
 }

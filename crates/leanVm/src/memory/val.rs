@@ -11,16 +11,14 @@ pub enum MemoryValue<F> {
     Int(F),
 }
 
-impl<F> TryInto<MemoryAddress> for MemoryValue<F>
+impl<F> MemoryValue<F>
 where
     F: PrimeField64,
 {
-    type Error = MemoryError<F>;
-
-    fn try_into(self) -> Result<MemoryAddress, Self::Error> {
+    pub const fn to_f(&self) -> Result<F, MemoryError<F>> {
         match self {
-            Self::Address(addr) => Ok(addr),
-            Self::Int(_) => Err(MemoryError::AddressNotRelocatable),
+            Self::Address(_) => Err(MemoryError::ExpectedInteger),
+            Self::Int(f) => Ok(*f),
         }
     }
 }
@@ -54,41 +52,41 @@ mod tests {
     type F = BabyBear;
 
     #[test]
-    fn test_try_into_memory_address_ok() {
+    fn test_to_f_ok() {
+        // Create an integer value
+        let field_elem = F::from_u64(12345);
+
+        // Wrap it in a MemoryValue::Int variant
+        let val: MemoryValue<F> = MemoryValue::Int(field_elem);
+
+        // Call to_f()
+        let result = val.to_f();
+
+        // Assert it succeeds
+        assert!(result.is_ok());
+
+        // Assert the returned value is equal to the original
+        assert_eq!(result.unwrap(), field_elem);
+    }
+
+    #[test]
+    fn test_to_f_err_on_address() {
         // Construct a MemoryAddress.
         let addr = MemoryAddress {
-            segment_index: 3,
-            offset: 42,
+            segment_index: 1,
+            offset: 99,
         };
 
         // Wrap it in a MemoryValue::Address variant
         let val: MemoryValue<F> = MemoryValue::Address(addr);
 
-        // Try converting it into a MemoryAddress
-        let result: Result<MemoryAddress, MemoryError<F>> = val.try_into();
-
-        // Assert it succeeds
-        assert!(result.is_ok());
-
-        // Assert the returned address is equal to the original
-        assert_eq!(result.unwrap(), addr);
-    }
-
-    #[test]
-    fn test_try_into_memory_address_err_on_int() {
-        // Create an integer value
-        let field_elem = F::from_u64(17);
-
-        // Wrap it in a MemoryValue::Int variant
-        let val: MemoryValue<BabyBear> = MemoryValue::Int(field_elem);
-
-        // Try converting it into a MemoryAddress
-        let result: Result<MemoryAddress, MemoryError<BabyBear>> = val.try_into();
+        // Call to_f()
+        let result = val.to_f();
 
         // Assert it fails
         assert!(result.is_err());
 
-        // Assert the specific error is AddressNotRelocatable
-        assert_eq!(result.unwrap_err(), MemoryError::AddressNotRelocatable);
+        // Assert the specific error is ExpectedInteger
+        assert_eq!(result.unwrap_err(), MemoryError::ExpectedInteger);
     }
 }
