@@ -1,9 +1,9 @@
 use p3_field::PrimeField64;
 
 use crate::{
+    bytecode::operand::MemOrConstant,
     errors::{memory::MemoryError, vm::VirtualMachineError},
     memory::{address::MemoryAddress, manager::MemoryManager, val::MemoryValue},
-    types::instruction::MemOrConstant,
 };
 
 #[derive(Debug, Default)]

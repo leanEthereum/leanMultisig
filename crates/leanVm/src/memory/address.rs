@@ -14,6 +14,7 @@ pub struct MemoryAddress {
 }
 
 impl MemoryAddress {
+    #[must_use]
     pub const fn new(segment_index: usize, offset: usize) -> Self {
         Self {
             segment_index,
