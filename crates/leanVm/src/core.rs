@@ -1,10 +1,10 @@
 use p3_field::PrimeField64;
 
 use crate::{
+    bytecode::{instruction::Instruction, operand::MemOrFp},
     context::run_context::RunContext,
     errors::{memory::MemoryError, vm::VirtualMachineError},
     memory::manager::MemoryManager,
-    types::instruction::{Instruction, MemOrFp},
 };
 
 #[derive(Debug, Default)]
@@ -130,8 +130,8 @@ mod tests {
 
     use super::*;
     use crate::{
+        bytecode::{operand::MemOrConstant, operation::Operation},
         memory::{address::MemoryAddress, val::MemoryValue},
-        types::instruction::{MemOrConstant, Operation},
     };
 
     type F = BabyBear;
