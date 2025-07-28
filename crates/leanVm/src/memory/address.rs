@@ -1,9 +1,11 @@
 use std::{fmt::Display, ops::Add};
 
+use p3_field::PrimeField64;
 #[cfg(test)]
 use proptest::prelude::*;
 
-use crate::errors::math::MathError;
+use super::val::MemoryValue;
+use crate::errors::{math::MathError, memory::MemoryError};
 
 #[derive(Eq, Ord, Hash, PartialEq, PartialOrd, Clone, Copy, Debug, Default)]
 pub struct MemoryAddress {
@@ -36,6 +38,20 @@ impl Display for MemoryAddress {
     }
 }
 
+impl<F> TryFrom<MemoryValue<F>> for MemoryAddress
+where
+    F: PrimeField64,
+{
+    type Error = MemoryError<F>;
+
+    fn try_from(value: MemoryValue<F>) -> Result<Self, Self::Error> {
+        match value {
+            MemoryValue::Address(addr) => Ok(addr),
+            MemoryValue::Int(_) => Err(MemoryError::ExpectedMemoryAddress),
+        }
+    }
+}
+
 #[cfg(test)]
 impl Arbitrary for MemoryAddress {
     type Parameters = ();
@@ -58,9 +74,13 @@ impl Arbitrary for MemoryAddress {
 
 #[cfg(test)]
 mod tests {
+    use p3_baby_bear::BabyBear;
+    use p3_field::PrimeCharacteristicRing;
     use proptest::prelude::*;
 
     use super::*;
+
+    type F = BabyBear;
 
     #[test]
     fn test_add_usize_success() {
@@ -123,5 +143,44 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn test_try_into_memory_address_ok() {
+        // Construct a MemoryAddress.
+        let addr = MemoryAddress {
+            segment_index: 3,
+            offset: 42,
+        };
+
+        // Wrap it in a MemoryValue::Address variant
+        let val: MemoryValue<F> = MemoryValue::Address(addr);
+
+        // Try converting it into a MemoryAddress
+        let result: Result<MemoryAddress, MemoryError<F>> = val.try_into();
+
+        // Assert it succeeds
+        assert!(result.is_ok());
+
+        // Assert the returned address is equal to the original
+        assert_eq!(result.unwrap(), addr);
+    }
+
+    #[test]
+    fn test_try_into_memory_address_err_on_int() {
+        // Create an integer value
+        let field_elem = F::from_u64(17);
+
+        // Wrap it in a MemoryValue::Int variant
+        let val: MemoryValue<F> = MemoryValue::Int(field_elem);
+
+        // Try converting it into a MemoryAddress
+        let result: Result<MemoryAddress, MemoryError<F>> = val.try_into();
+
+        // Assert it fails
+        assert!(result.is_err());
+
+        // Assert the specific error is ExpectedMemoryAddress
+        assert_eq!(result.unwrap_err(), MemoryError::ExpectedMemoryAddress);
     }
 }

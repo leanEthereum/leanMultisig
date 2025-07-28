@@ -1,4 +1,10 @@
-use crate::memory::address::MemoryAddress;
+use p3_field::PrimeField64;
+
+use crate::{
+    errors::{memory::MemoryError, vm::VirtualMachineError},
+    memory::{address::MemoryAddress, manager::MemoryManager, val::MemoryValue},
+    types::instruction::MemOrConstant,
+};
 
 #[derive(Debug, Default)]
 pub struct RunContext {
@@ -24,5 +30,133 @@ impl RunContext {
     #[must_use]
     pub const fn fp(&self) -> &MemoryAddress {
         &self.fp
+    }
+
+    /// Resolves a `MemOrConstant` operand to its final value.
+    ///
+    /// - If the operand is a constant, it returns the constant.
+    /// - If it's a memory location, it computes the address relative to `fp` and fetches the value from memory.
+    pub fn get_value<F>(
+        &self,
+        operand: &MemOrConstant<F>,
+        memory: &MemoryManager,
+    ) -> Result<MemoryValue<F>, VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        match operand {
+            MemOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
+            MemOrConstant::MemoryAfterFp { shift } => {
+                let addr = (self.fp + *shift)?;
+                memory
+                    .get(addr)
+                    .ok_or_else(|| MemoryError::UninitializedMemory(addr).into())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use p3_baby_bear::BabyBear;
+    use p3_field::PrimeCharacteristicRing;
+
+    use super::*;
+
+    type F = BabyBear;
+
+    #[test]
+    fn test_get_value_constant() {
+        // Create a dummy RunContext with pc and fp.
+        let ctx = RunContext::new(
+            MemoryAddress {
+                segment_index: 0,
+                offset: 0,
+            },
+            MemoryAddress {
+                segment_index: 1,
+                offset: 0,
+            },
+        );
+
+        // A constant operand with field element 42.
+        let operand = MemOrConstant::Constant(F::from_u64(42));
+
+        // Run `get_value` with an unused memory manager (memory is not needed for constants).
+        let memory = MemoryManager::default();
+
+        // It should return the wrapped constant as a MemoryValue::Int.
+        let result = ctx.get_value(&operand, &memory).unwrap();
+        assert_eq!(result, MemoryValue::Int(F::from_u64(42)));
+    }
+
+    #[test]
+    fn test_get_value_memory_after_fp_success() {
+        let mut memory = MemoryManager::default();
+
+        // Add a segment that will be used for `fp`.
+        let fp = memory.add(); // segment_index = 0, offset = 0
+
+        // Shift = 2, so address to read is fp + 2 => offset 2 in the same segment.
+        let addr_to_read = MemoryAddress {
+            segment_index: fp.segment_index,
+            offset: fp.offset + 2,
+        };
+
+        // Insert a value at that address manually.
+        let expected_val = MemoryValue::Int(F::from_u64(99));
+        memory
+            .memory
+            .insert(addr_to_read, expected_val.clone())
+            .unwrap();
+
+        // Create a RunContext with that fp.
+        let ctx = RunContext::new(
+            MemoryAddress {
+                segment_index: 0,
+                offset: 0,
+            }, // dummy pc
+            fp,
+        );
+
+        // The operand asks to read memory at fp + 2.
+        let operand = MemOrConstant::MemoryAfterFp { shift: 2 };
+
+        // Call get_value, which should fetch the value we inserted.
+        let result = ctx.get_value(&operand, &memory).unwrap();
+        assert_eq!(result, expected_val);
+    }
+
+    #[test]
+    fn test_get_value_memory_after_fp_uninitialized_memory() {
+        let mut memory = MemoryManager::default();
+
+        // Create a segment and set fp to its base.
+        let fp = memory.add(); // segment_index = 0, offset = 0
+
+        // We won't insert anything, so all memory is uninitialized.
+
+        // Shift = 1 → fp + 1 points to offset 1 (which is uninitialized).
+        let operand: MemOrConstant<F> = MemOrConstant::MemoryAfterFp { shift: 1 };
+
+        // Set up context.
+        let ctx = RunContext::new(
+            MemoryAddress {
+                segment_index: 0,
+                offset: 0,
+            }, // dummy pc
+            fp,
+        );
+
+        // Calling get_value should return a VirtualMachineError::MemoryError::UninitializedMemory.
+        let err = ctx.get_value(&operand, &memory).unwrap_err();
+
+        match err {
+            VirtualMachineError::Memory(MemoryError::UninitializedMemory(addr)) => {
+                assert_eq!(addr.segment_index, fp.segment_index);
+                assert_eq!(addr.offset, fp.offset + 1);
+            }
+            other => panic!("Unexpected error: {other:?}"),
+        }
     }
 }

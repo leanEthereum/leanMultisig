@@ -104,8 +104,8 @@ pub enum Instruction<F> {
         /// The value that the result of the double dereference must be equal to.
         res: MemOrFpOrConstant<F>,
     },
-    /// A conditional jump, called `JUZ` (Jump Unless Zero)
-    /// .
+    /// A conditional jump, called `JUZ` (Jump Unless Zero).
+    ///
     /// Changes the `pc` if `condition` is non-zero.
     JumpIfNotZero {
         /// The value to check. The jump is taken if this value is not zero.
