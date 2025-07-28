@@ -105,6 +105,22 @@ impl VirtualMachine {
 
         Ok(())
     }
+
+    /// Updates the program counter and frame pointer based on the executed instruction.
+    fn update_registers<F>(
+        &mut self,
+        instruction: &Instruction<F>,
+    ) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // Update the program counter.
+        self.update_pc(instruction)?;
+        // Update the frame pointer.
+        self.update_fp(instruction)?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
