@@ -3,7 +3,7 @@ use p3_field::PrimeField64;
 use crate::{
     errors::{memory::MemoryError, vm::VirtualMachineError},
     memory::{address::MemoryAddress, manager::MemoryManager, val::MemoryValue},
-    types::instruction::MemOrConstant,
+    types::instruction::{MemOrConstant, MemOrFp, MemOrFpOrConstant},
 };
 
 #[derive(Debug, Default)]
@@ -47,7 +47,56 @@ impl RunContext {
         match operand {
             MemOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
             MemOrConstant::MemoryAfterFp { shift } => {
-                let addr = (self.fp + *shift)?;
+                let addr = self.fp.add_usize(*shift)?;
+                memory
+                    .get(addr)
+                    .ok_or_else(|| MemoryError::UninitializedMemory(addr).into())
+            }
+        }
+    }
+
+    /// Resolves a `MemOrFp` operand to its final value.
+    ///
+    /// - If the operand is the frame pointer `Fp`, it returns the `fp` address itself.
+    /// - If it's a memory location, it computes the address relative to `fp` and fetches the value.
+    pub fn get_value_from_mem_or_fp<F>(
+        &self,
+        operand: &MemOrFp,
+        memory: &MemoryManager,
+    ) -> Result<MemoryValue<F>, VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        match operand {
+            MemOrFp::Fp => Ok(MemoryValue::Address(self.fp)),
+            MemOrFp::MemoryAfterFp { shift } => {
+                let addr = self.fp.add_usize(*shift)?;
+                memory
+                    .get(addr)
+                    .ok_or_else(|| MemoryError::UninitializedMemory(addr).into())
+            }
+        }
+    }
+
+    /// Resolves a `MemOrFpOrConstant` operand to its final value.
+    ///
+    /// This is a comprehensive resolver that handles all three potential operand types:
+    /// - a constant value,
+    /// - a memory location relative to `fp`,
+    /// - the `fp` register itself.
+    pub fn get_value_from_mem_or_fp_or_constant<F>(
+        &self,
+        operand: &MemOrFpOrConstant<F>,
+        memory: &MemoryManager,
+    ) -> Result<MemoryValue<F>, VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        match operand {
+            MemOrFpOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
+            MemOrFpOrConstant::Fp => Ok(MemoryValue::Address(self.fp)),
+            MemOrFpOrConstant::MemoryAfterFp { shift } => {
+                let addr = self.fp.add_usize(*shift)?;
                 memory
                     .get(addr)
                     .ok_or_else(|| MemoryError::UninitializedMemory(addr).into())
@@ -158,5 +207,47 @@ mod tests {
             }
             other => panic!("Unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_get_value_from_mem_or_fp_or_constant_is_constant() {
+        let ctx = RunContext::new(MemoryAddress::new(0, 0), MemoryAddress::new(1, 0));
+        let operand = MemOrFpOrConstant::Constant(F::from_u64(123));
+        let memory = MemoryManager::default();
+        let result = ctx
+            .get_value_from_mem_or_fp_or_constant(&operand, &memory)
+            .unwrap();
+        assert_eq!(result, MemoryValue::Int(F::from_u64(123)));
+    }
+
+    #[test]
+    fn test_get_value_from_mem_or_fp_or_constant_is_fp() {
+        let fp_addr = MemoryAddress::new(1, 10);
+        let ctx = RunContext::new(MemoryAddress::new(0, 0), fp_addr);
+        let operand = MemOrFpOrConstant::<F>::Fp;
+        let memory = MemoryManager::default();
+        let result = ctx
+            .get_value_from_mem_or_fp_or_constant(&operand, &memory)
+            .unwrap();
+        assert_eq!(result, MemoryValue::Address(fp_addr));
+    }
+
+    #[test]
+    fn test_get_value_from_mem_or_fp_or_constant_is_mem_success() {
+        let mut memory = MemoryManager::default();
+        let fp = memory.add();
+        let addr_to_read = fp.add_usize::<F>(7).unwrap();
+        let expected_val = MemoryValue::<F>::Address(MemoryAddress::new(5, 5));
+        memory
+            .memory
+            .insert(addr_to_read, expected_val.clone())
+            .unwrap();
+
+        let ctx = RunContext::new(MemoryAddress::new(0, 0), fp);
+        let operand = MemOrFpOrConstant::MemoryAfterFp { shift: 7 };
+        let result = ctx
+            .get_value_from_mem_or_fp_or_constant(&operand, &memory)
+            .unwrap();
+        assert_eq!(result, expected_val);
     }
 }

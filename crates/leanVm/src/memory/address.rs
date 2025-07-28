@@ -1,5 +1,6 @@
 use std::{fmt::Display, ops::Add};
 
+use num_traits::cast::ToPrimitive;
 use p3_field::PrimeField64;
 #[cfg(test)]
 use proptest::prelude::*;
@@ -14,30 +15,51 @@ pub struct MemoryAddress {
 }
 
 impl MemoryAddress {
+    #[must_use]
     pub const fn new(segment_index: usize, offset: usize) -> Self {
         Self {
             segment_index,
             offset,
         }
     }
-}
 
-impl Add<usize> for MemoryAddress {
-    type Output = Result<Self, MathError>;
-
-    fn add(self, other: usize) -> Result<Self, MathError> {
+    /// Add a `usize` to the address.
+    pub fn add_usize<F: PrimeField64>(self, other: usize) -> Result<Self, MathError<F>> {
         // Try to compute the new offset by adding `other` to the current offset.
         //
         // This uses `checked_add` to safely detect any potential `usize` overflow.
         self.offset
             .checked_add(other)
             .map(|offset| Self {
-                // Keep the same segment index.
                 segment_index: self.segment_index,
-                // Use the new (safe) offset.
                 offset,
             })
             .ok_or_else(|| MathError::MemoryAddressAddUsizeOffsetExceeded(Box::new((self, other))))
+    }
+}
+
+impl<F> Add<&F> for MemoryAddress
+where
+    F: PrimeField64,
+{
+    type Output = Result<Self, MathError<F>>;
+
+    fn add(self, other: &F) -> Self::Output {
+        // This chained operation safely calculates the new offset.
+        // - Cast the current `usize` offset to a `u64` to match the field element's type.
+        // - Add the field element's canonical `u64` value, checking for arithmetic overflow.
+        // - Chain another operation to convert the `u64` result back into a `usize`.
+        // - If any of the chained steps returned `None`, create the specific overflow error.
+        let new_offset = ((self.offset as u64).checked_add(other.as_canonical_u64()))
+            .and_then(|x| x.to_usize())
+            .ok_or_else(|| {
+                MathError::MemoryAddressAddFieldOffsetExceeded(Box::new((self, *other)))
+            })?;
+
+        // If the addition was successful, create a new address with
+        // - the same segment,
+        // - the newly calculated offset.
+        Ok(Self::new(self.segment_index, new_offset))
     }
 }
 
@@ -97,7 +119,7 @@ mod tests {
             segment_index: 2,
             offset: 100,
         };
-        let result = addr + 25;
+        let result = addr.add_usize::<F>(25);
         assert_eq!(
             result,
             Ok(MemoryAddress {
@@ -113,7 +135,7 @@ mod tests {
             segment_index: 5,
             offset: 500,
         };
-        let result = addr + 0;
+        let result = addr.add_usize::<F>(0);
         assert_eq!(result, Ok(addr));
     }
 
@@ -123,7 +145,7 @@ mod tests {
             segment_index: 1,
             offset: usize::MAX,
         };
-        let result = addr + 1;
+        let result = addr.add_usize::<F>(1);
         match result {
             Err(MathError::MemoryAddressAddUsizeOffsetExceeded(boxed)) => {
                 let (original, added) = *boxed;
@@ -138,7 +160,7 @@ mod tests {
     proptest! {
         #[test]
         fn test_add_does_not_overflow(addr in any::<MemoryAddress>(), delta in 0usize..1_000_000) {
-            let result = addr + delta;
+            let result = addr.add_usize::<F>(delta);
             // Only test when offset + delta won't overflow
             if let Some(expected_offset) = addr.offset.checked_add(delta) {
                 prop_assert_eq!(result, Ok(MemoryAddress {
@@ -191,5 +213,48 @@ mod tests {
 
         // Assert the specific error is ExpectedMemoryAddress
         assert_eq!(result.unwrap_err(), MemoryError::ExpectedMemoryAddress);
+    }
+
+    #[test]
+    fn test_add_field_element_success() {
+        // Setup: An initial address and a field element to add.
+        let addr = MemoryAddress::new(2, 100);
+        let val = F::from_u64(50);
+
+        // Execute: Add the field element to the address using the `+` operator.
+        let result = addr + &val;
+
+        // Verify: The result should be `Ok` and the offset should be updated correctly,
+        // while the segment index remains the same.
+        assert_eq!(result, Ok(MemoryAddress::new(2, 150)));
+    }
+
+    #[test]
+    fn test_add_field_element_zero() {
+        // Setup: An initial address.
+        let addr = MemoryAddress::new(3, 123);
+        let val = F::ZERO;
+
+        // Execute: Add zero to the address.
+        let result = addr + &val;
+
+        // Verify: The address should remain unchanged.
+        assert_eq!(result, Ok(addr));
+    }
+
+    #[test]
+    fn test_add_field_element_overflow() {
+        // Setup: An address with the maximum possible offset.
+        let addr = MemoryAddress::new(1, usize::MAX);
+        let val = F::ONE;
+
+        // Execute: Add 1, which should cause an overflow.
+        let result = addr + &val;
+
+        // Verify: The result should be an `Err` with the specific offset overflow variant.
+        assert!(matches!(
+            result,
+            Err(MathError::MemoryAddressAddFieldOffsetExceeded(_))
+        ));
     }
 }

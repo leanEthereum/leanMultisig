@@ -1,10 +1,16 @@
+#![allow(
+    clippy::unnecessary_wraps,
+    clippy::missing_const_for_fn,
+    clippy::unused_self
+)]
+
 use p3_field::PrimeField64;
 
 use crate::{
     context::run_context::RunContext,
     errors::{memory::MemoryError, vm::VirtualMachineError},
-    memory::manager::MemoryManager,
-    types::instruction::{Instruction, MemOrFp},
+    memory::{address::MemoryAddress, manager::MemoryManager},
+    types::instruction::{Instruction, MemOrConstant, MemOrFp, MemOrFpOrConstant, Operation},
 };
 
 #[derive(Debug, Default)]
@@ -50,7 +56,7 @@ impl VirtualMachine {
 
             if is_zero {
                 // **Condition is zero**: The jump is not taken. Advance the `pc` by one.
-                (*self.run_context.pc() + 1)?
+                self.run_context.pc().add_usize(1)?
             } else {
                 // **Condition is non-zero**: Execute the jump.
                 //
@@ -64,7 +70,7 @@ impl VirtualMachine {
             }
         } else {
             // For any instruction other than `JumpIfNotZero`, advance the `pc` by one.
-            (*self.run_context.pc() + 1)?
+            self.run_context.pc().add_usize(1)?
         };
 
         // Update the virtual machine's program counter with the calculated next address.
@@ -86,7 +92,7 @@ impl VirtualMachine {
                 MemOrFp::Fp => self.run_context.fp,
                 // The instruction specifies updating `fp` to a value from memory.
                 MemOrFp::MemoryAfterFp { shift } => {
-                    let addr = (*self.run_context.fp() + *shift)?;
+                    let addr = self.run_context.fp().add_usize(*shift)?;
                     let value = self
                         .memory_manager
                         .get(addr)
@@ -119,6 +125,173 @@ impl VirtualMachine {
         // Update the frame pointer.
         self.update_fp(instruction)?;
 
+        Ok(())
+    }
+
+    /// Executes a single instruction, forming one step of the VM's execution cycle.
+    ///
+    /// This function is the engine of the virtual machine. It orchestrates the two main phases
+    /// of a single step: execution and register update.
+    ///
+    /// 1.  **Execution:** It first matches on the `instruction` variant to dispatch to the appropriate
+    ///     helper method. These helpers are responsible for fetching operands, performing the instruction's core logic, and
+    ///     verifying any required assertions (e.g., that a computed value matches an expected one).
+    ///
+    /// 2.  **Register Update:** If the execution phase completes successfully, this function then
+    ///     calls `update_registers` to advance the program counter (`pc`) and frame pointer (`fp`)
+    ///     to prepare for the next instruction.
+    pub fn run_instruction<F>(
+        &mut self,
+        instruction: &Instruction<F>,
+    ) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // Dispatch to the appropriate execution logic based on the instruction type.
+        match instruction {
+            // Handle arithmetic operations like ADD and MUL.
+            Instruction::Computation {
+                operation,
+                arg_a,
+                arg_b,
+                res,
+            } => self.execute_computation(operation, arg_a, arg_b, res)?,
+
+            // Handle double-dereference memory operations.
+            Instruction::Deref {
+                shift_0,
+                shift_1,
+                res,
+            } => self.execute_deref(*shift_0, *shift_1, res)?,
+
+            // The `JumpIfNotZero` instruction has no execution logic; its effects
+            // (changing pc and fp) are handled entirely within the register update phase.
+            Instruction::JumpIfNotZero { .. } => {}
+
+            // Handle the Poseidon2 (16-element) precompile.
+            Instruction::Poseidon2_16 { shift } => self.execute_poseidon2_16(*shift)?,
+
+            // Handle the Poseidon2 (24-element) precompile.
+            Instruction::Poseidon2_24 { shift } => self.execute_poseidon2_24(*shift)?,
+
+            // Handle the extension field multiplication precompile.
+            Instruction::ExtensionMul { args } => self.execute_extension_mul(*args)?,
+        }
+
+        // After the instruction's core logic has been successfully executed,
+        // update the pc and fp registers to prepare for the next cycle.
+        self.update_registers(instruction)
+    }
+
+    /// Executes a computation instruction (ADD or MUL) and asserts the result.
+    fn execute_computation<F>(
+        &self,
+        operation: &Operation,
+        arg_a: &MemOrConstant<F>,
+        arg_b: &MemOrFp,
+        res: &MemOrConstant<F>,
+    ) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // Resolve the values of the two input operands.
+        let val_a = self.run_context.get_value(arg_a, &self.memory_manager)?;
+        let val_b = self
+            .run_context
+            .get_value_from_mem_or_fp(arg_b, &self.memory_manager)?;
+
+        // Perform the arithmetic operation.
+        let computed = match operation {
+            Operation::Add => (val_a + val_b)?,
+            Operation::Mul => (val_a * val_b)?,
+        };
+
+        // Resolve the expected result from the `res` operand in memory.
+        let expected = self.run_context.get_value(res, &self.memory_manager)?;
+
+        // Assert that the computed result matches the value in memory.
+        if computed != expected {
+            // If they don't match, return the new, more descriptive error.
+            return Err(VirtualMachineError::AssertEqFailed { computed, expected });
+        }
+
+        Ok(())
+    }
+
+    /// Executes a double-dereference instruction (`res = m[m[fp + shift_0] + shift_1]`) and asserts the result.
+    ///
+    /// This function handles instructions that require reading a pointer from one memory
+    /// location to access a value at another.
+    ///
+    /// # Errors
+    /// This function will return an `Err` if:
+    /// - Any memory access targets an uninitialized memory cell.
+    /// - The first memory access at `m[fp + shift_0]` does not yield a valid `MemoryAddress`.
+    /// - The final, dereferenced value does not match the expected value specified by `res`.
+    fn execute_deref<F>(
+        &self,
+        shift_0: usize,
+        shift_1: usize,
+        res: &MemOrFpOrConstant<F>,
+    ) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // Get the address of the cell that holds the pointer.
+        let pointer_addr = self.run_context.fp().add_usize(shift_0)?;
+
+        // Get the value from that cell, which must be an address (our pointer).
+        let pointer_val = self
+            .memory_manager
+            .get(pointer_addr)
+            .ok_or(MemoryError::UninitializedMemory(pointer_addr))?;
+        let pointer = MemoryAddress::try_from(pointer_val)?;
+
+        // Get the final address by adding the second shift to our pointer.
+        let final_addr = pointer.add_usize(shift_1)?;
+
+        // Get the final value from the dereferenced address.
+        let final_val = self
+            .memory_manager
+            .get(final_addr)
+            .ok_or(MemoryError::UninitializedMemory(final_addr))?;
+
+        // Resolve the expected result from the `res` operand.
+        let expected_res = self
+            .run_context
+            .get_value_from_mem_or_fp_or_constant(res, &self.memory_manager)?;
+
+        // Assert that the dereferenced value matches the expected result.
+        if final_val != expected_res {
+            return Err(VirtualMachineError::AssertEqFailed {
+                computed: final_val,
+                expected: expected_res,
+            });
+        }
+        Ok(())
+    }
+
+    fn execute_poseidon2_16<F>(&self, _shift: usize) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // TODO: implement this instruction.
+        Ok(())
+    }
+
+    fn execute_poseidon2_24<F>(&self, _shift: usize) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // TODO: implement this instruction.
+        Ok(())
+    }
+
+    fn execute_extension_mul<F>(&self, _args: [usize; 3]) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // TODO: implement this instruction.
         Ok(())
     }
 }
@@ -189,7 +362,11 @@ mod tests {
         let pc = MemoryAddress::new(0, 10);
         let fp = MemoryAddress::new(1, 5);
         // Pre-load memory with a zero value at the address `fp + 1`, which will be our condition.
-        let mut vm = setup_vm(pc, fp, &[((fp + 1).unwrap(), MemoryValue::Int(F::ZERO))]);
+        let mut vm = setup_vm(
+            pc,
+            fp,
+            &[(fp.add_usize::<F>(1).unwrap(), MemoryValue::Int(F::ZERO))],
+        );
         // Define a JNZ instruction where the condition points to the zero value.
         let instruction = Instruction::JumpIfNotZero::<F> {
             condition: MemOrConstant::MemoryAfterFp { shift: 1 },
@@ -215,9 +392,15 @@ mod tests {
             fp,
             &[
                 // The condition value (non-zero).
-                ((fp + 1).unwrap(), MemoryValue::Int(F::from_u64(42))),
+                (
+                    fp.add_usize::<F>(1).unwrap(),
+                    MemoryValue::Int(F::from_u64(42)),
+                ),
                 // The destination address for the jump.
-                ((fp + 2).unwrap(), MemoryValue::Address(jump_target)),
+                (
+                    fp.add_usize::<F>(2).unwrap(),
+                    MemoryValue::Address(jump_target),
+                ),
             ],
         );
         // Define a JNZ instruction pointing to the condition and destination.
@@ -242,7 +425,7 @@ mod tests {
             pc,
             fp,
             &[(
-                (fp + 1).unwrap(),
+                fp.add_usize::<F>(1).unwrap(),
                 MemoryValue::Address(MemoryAddress::new(8, 8)),
             )],
         );
@@ -287,7 +470,7 @@ mod tests {
         let mut vm = setup_vm(
             MemoryAddress::new(0, 0),
             fp,
-            &[((fp + 3).unwrap(), MemoryValue::Address(new_fp))],
+            &[(fp.add_usize::<F>(3).unwrap(), MemoryValue::Address(new_fp))],
         );
         // Define a JNZ instruction where `updated_fp` points to the new address in memory.
         let instruction = Instruction::JumpIfNotZero::<F> {
@@ -309,7 +492,10 @@ mod tests {
         let mut vm = setup_vm(
             MemoryAddress::new(0, 0),
             fp,
-            &[((fp + 3).unwrap(), MemoryValue::Int(F::from_u64(99)))],
+            &[(
+                fp.add_usize::<F>(3).unwrap(),
+                MemoryValue::Int(F::from_u64(99)),
+            )],
         );
         // Define a JNZ instruction where `updated_fp` points to this integer value.
         let instruction = Instruction::JumpIfNotZero::<F> {
