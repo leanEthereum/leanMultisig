@@ -24,4 +24,6 @@ where
         computed: MemoryValue<F>,
         expected: MemoryValue<F>,
     },
+    #[error("Too many unknown operands.")]
+    TooManyUnknownOperands,
 }

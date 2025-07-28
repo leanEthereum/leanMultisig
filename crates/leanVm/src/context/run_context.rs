@@ -36,11 +36,11 @@ impl RunContext {
     ///
     /// - If the operand is a constant, it returns the constant.
     /// - If it's a memory location, it computes the address relative to `fp` and fetches the value from memory.
-    pub fn get_value_from_mem_or_constant<F>(
+    pub fn value_from_mem_or_constant<F>(
         &self,
         operand: &MemOrConstant<F>,
         memory: &MemoryManager,
-    ) -> Result<MemoryValue<F>, VirtualMachineError<F>>
+    ) -> Result<MemoryValue<F>, MemoryError<F>>
     where
         F: PrimeField64,
     {
@@ -50,7 +50,7 @@ impl RunContext {
                 let addr = self.fp.add_usize(*shift)?;
                 memory
                     .get(addr)
-                    .ok_or_else(|| MemoryError::UninitializedMemory(addr).into())
+                    .ok_or(MemoryError::UninitializedMemory(addr))
             }
         }
     }
@@ -59,11 +59,11 @@ impl RunContext {
     ///
     /// - If the operand is the frame pointer `Fp`, it returns the `fp` address itself.
     /// - If it's a memory location, it computes the address relative to `fp` and fetches the value.
-    pub fn get_value_from_mem_or_fp<F>(
+    pub fn value_from_mem_or_fp<F>(
         &self,
         operand: &MemOrFp,
         memory: &MemoryManager,
-    ) -> Result<MemoryValue<F>, VirtualMachineError<F>>
+    ) -> Result<MemoryValue<F>, MemoryError<F>>
     where
         F: PrimeField64,
     {
@@ -73,7 +73,7 @@ impl RunContext {
                 let addr = self.fp.add_usize(*shift)?;
                 memory
                     .get(addr)
-                    .ok_or_else(|| MemoryError::UninitializedMemory(addr).into())
+                    .ok_or(MemoryError::UninitializedMemory(addr))
             }
         }
     }
@@ -84,7 +84,7 @@ impl RunContext {
     /// - a constant value,
     /// - a memory location relative to `fp`,
     /// - the `fp` register itself.
-    pub fn get_value_from_mem_or_fp_or_constant<F>(
+    pub fn value_from_mem_or_fp_or_constant<F>(
         &self,
         operand: &MemOrFpOrConstant<F>,
         memory: &MemoryManager,
@@ -131,13 +131,11 @@ mod tests {
         // A constant operand with field element 42.
         let operand = MemOrConstant::Constant(F::from_u64(42));
 
-        // Run `get_value_from_mem_or_constant` with an unused memory manager (memory is not needed for constants).
+        // Run `value_from_mem_or_constant` with an unused memory manager (memory is not needed for constants).
         let memory = MemoryManager::default();
 
         // It should return the wrapped constant as a MemoryValue::Int.
-        let result = ctx
-            .get_value_from_mem_or_constant(&operand, &memory)
-            .unwrap();
+        let result = ctx.value_from_mem_or_constant(&operand, &memory).unwrap();
         assert_eq!(result, MemoryValue::Int(F::from_u64(42)));
     }
 
@@ -173,10 +171,8 @@ mod tests {
         // The operand asks to read memory at fp + 2.
         let operand = MemOrConstant::MemoryAfterFp { shift: 2 };
 
-        // Call get_value_from_mem_or_constant, which should fetch the value we inserted.
-        let result = ctx
-            .get_value_from_mem_or_constant(&operand, &memory)
-            .unwrap();
+        // Call value_from_mem_or_constant, which should fetch the value we inserted.
+        let result = ctx.value_from_mem_or_constant(&operand, &memory).unwrap();
         assert_eq!(result, expected_val);
     }
 
@@ -201,13 +197,13 @@ mod tests {
             fp,
         );
 
-        // Calling get_value_from_mem_or_constant should return a VirtualMachineError::MemoryError::UninitializedMemory.
+        // Calling value_from_mem_or_constant should return a VirtualMachineError::MemoryError::UninitializedMemory.
         let err = ctx
-            .get_value_from_mem_or_constant(&operand, &memory)
+            .value_from_mem_or_constant(&operand, &memory)
             .unwrap_err();
 
         match err {
-            VirtualMachineError::Memory(MemoryError::UninitializedMemory(addr)) => {
+            MemoryError::UninitializedMemory(addr) => {
                 assert_eq!(addr.segment_index, fp.segment_index);
                 assert_eq!(addr.offset, fp.offset + 1);
             }
@@ -221,7 +217,7 @@ mod tests {
         let operand = MemOrFpOrConstant::Constant(F::from_u64(123));
         let memory = MemoryManager::default();
         let result = ctx
-            .get_value_from_mem_or_fp_or_constant(&operand, &memory)
+            .value_from_mem_or_fp_or_constant(&operand, &memory)
             .unwrap();
         assert_eq!(result, MemoryValue::Int(F::from_u64(123)));
     }
@@ -233,7 +229,7 @@ mod tests {
         let operand = MemOrFpOrConstant::<F>::Fp;
         let memory = MemoryManager::default();
         let result = ctx
-            .get_value_from_mem_or_fp_or_constant(&operand, &memory)
+            .value_from_mem_or_fp_or_constant(&operand, &memory)
             .unwrap();
         assert_eq!(result, MemoryValue::Address(fp_addr));
     }
@@ -252,7 +248,7 @@ mod tests {
         let ctx = RunContext::new(MemoryAddress::new(0, 0), fp);
         let operand = MemOrFpOrConstant::MemoryAfterFp { shift: 7 };
         let result = ctx
-            .get_value_from_mem_or_fp_or_constant(&operand, &memory)
+            .value_from_mem_or_fp_or_constant(&operand, &memory)
             .unwrap();
         assert_eq!(result, expected_val);
     }

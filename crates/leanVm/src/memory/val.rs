@@ -73,6 +73,24 @@ where
     }
 }
 
+impl<F> From<MemoryAddress> for MemoryValue<F>
+where
+    F: PrimeField64,
+{
+    fn from(addr: MemoryAddress) -> Self {
+        Self::Address(addr)
+    }
+}
+
+impl<F> From<F> for MemoryValue<F>
+where
+    F: PrimeField64,
+{
+    fn from(f: F) -> Self {
+        Self::Int(f)
+    }
+}
+
 #[cfg(test)]
 impl<F> Arbitrary for MemoryValue<F>
 where

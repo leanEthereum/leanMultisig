@@ -1,10 +1,14 @@
 use p3_field::PrimeField64;
 
 use crate::{
-    bytecode::{instruction::Instruction, operand::MemOrFp},
+    bytecode::{
+        instruction::Instruction,
+        operand::{MemOrConstant, MemOrFp, MemOrFpOrConstant},
+        operation::Operation,
+    },
     context::run_context::RunContext,
-    errors::{memory::MemoryError, vm::VirtualMachineError},
-    memory::manager::MemoryManager,
+    errors::{math::MathError, memory::MemoryError, vm::VirtualMachineError},
+    memory::{manager::MemoryManager, val::MemoryValue},
 };
 
 #[derive(Debug, Default)]
@@ -43,7 +47,7 @@ impl VirtualMachine {
             // This will return an error if the memory location is uninitialized.
             let condition_val = self
                 .run_context
-                .get_value_from_mem_or_constant(condition, &self.memory_manager)?;
+                .value_from_mem_or_constant(condition, &self.memory_manager)?;
 
             // A jump condition must be a field element.
             let is_zero = condition_val.to_f()?.is_zero();
@@ -57,7 +61,7 @@ impl VirtualMachine {
                 // First, resolve the `dest` operand to get the target address value.
                 let dest_val = self
                     .run_context
-                    .get_value_from_mem_or_constant(dest, &self.memory_manager)?;
+                    .value_from_mem_or_constant(dest, &self.memory_manager)?;
 
                 // The resolved destination value must be a valid address.
                 //
@@ -121,6 +125,171 @@ impl VirtualMachine {
         // Update the frame pointer.
         self.update_fp(instruction)?;
 
+        Ok(())
+    }
+
+    /// Executes a single instruction, forming one step of the VM's execution cycle.
+    ///
+    /// This function is the engine of the virtual machine. It orchestrates the two main phases
+    /// of a single step: execution and register update.
+    ///
+    /// 1.  **Execution:** It first matches on the `instruction` variant to dispatch to the appropriate
+    ///     helper method. These helpers are responsible for fetching operands, performing the instruction's core logic, and
+    ///     verifying any required assertions (e.g., that a computed value matches an expected one).
+    ///
+    /// 2.  **Register Update:** If the execution phase completes successfully, this function then
+    ///     calls `update_registers` to advance the program counter (`pc`) and frame pointer (`fp`)
+    ///     to prepare for the next instruction.
+    pub fn run_instruction<F>(
+        &mut self,
+        instruction: &Instruction<F>,
+    ) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // Dispatch to the appropriate execution logic based on the instruction type.
+        match instruction {
+            // Handle arithmetic operations like ADD and MUL.
+            Instruction::Computation {
+                operation,
+                arg_a,
+                arg_b,
+                res,
+            } => self.execute_computation(operation, arg_a, arg_b, res)?,
+
+            // Handle double-dereference memory operations.
+            Instruction::Deref {
+                shift_0,
+                shift_1,
+                res,
+            } => self.execute_deref(*shift_0, *shift_1, res)?,
+
+            // The `JumpIfNotZero` instruction has no execution logic; its effects
+            // (changing pc and fp) are handled entirely within the register update phase.
+            Instruction::JumpIfNotZero { .. } => {}
+
+            // Handle the Poseidon2 (16-element) precompile.
+            Instruction::Poseidon2_16 { shift } => self.execute_poseidon2_16(*shift)?,
+
+            // Handle the Poseidon2 (24-element) precompile.
+            Instruction::Poseidon2_24 { shift } => self.execute_poseidon2_24(*shift)?,
+
+            // Handle the extension field multiplication precompile.
+            Instruction::ExtensionMul { args } => self.execute_extension_mul(*args)?,
+        }
+
+        // After the instruction's core logic has been successfully executed,
+        // update the pc and fp registers to prepare for the next cycle.
+        self.update_registers(instruction)
+    }
+
+    /// Executes a computation instruction (`res = arg_a op arg_b`), handling deduction and assertion.
+    ///
+    /// This function implements the core logic for `ADD` and `MUL` instructions. It follows
+    /// a "constraint satisfaction" model:
+    ///
+    /// 1.  **Deduction:** If exactly one of the three operands (`res`, `arg_a`, `arg_b`) is unknown
+    ///     (i.e., its memory cell is uninitialized), the function computes its value from the other
+    ///     two and writes it to memory.
+    /// 2.  **Assertion:** If all three operands are already known, the function computes `arg_a op arg_b`
+    ///     and asserts that it equals the value of `res`.
+    fn execute_computation<F>(
+        &mut self,
+        operation: &Operation,
+        arg_a: &MemOrConstant<F>,
+        arg_b: &MemOrFp,
+        res: &MemOrConstant<F>,
+    ) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        let memory_manager = &self.memory_manager;
+        let run_ctx = &self.run_context;
+
+        let val_a = run_ctx.value_from_mem_or_constant(arg_a, memory_manager);
+        let val_b = run_ctx.value_from_mem_or_fp(arg_b, memory_manager);
+        let val_res = run_ctx.value_from_mem_or_constant(res, memory_manager);
+
+        match (val_a, val_b, val_res) {
+            // Case 1: a OP b = c — compute c
+            (Ok(MemoryValue::Int(a)), Ok(MemoryValue::Int(b)), Ok(MemoryValue::Address(addr))) => {
+                let c = operation.compute(a, b);
+                self.memory_manager.memory.insert(addr, c)?;
+            }
+            // Case 2: a OP b = c — recover b
+            (Ok(MemoryValue::Int(a)), Ok(MemoryValue::Address(addr)), Ok(MemoryValue::Int(c))) => {
+                let b = operation
+                    .inverse_compute(c, a)
+                    .ok_or(MathError::DivisionByZero)?;
+                self.memory_manager.memory.insert(addr, b)?;
+            }
+            // Case 3: a OP b = c — recover a
+            (Ok(MemoryValue::Address(addr)), Ok(MemoryValue::Int(b)), Ok(MemoryValue::Int(c))) => {
+                let a = operation
+                    .inverse_compute(c, b)
+                    .ok_or(MathError::DivisionByZero)?;
+                self.memory_manager.memory.insert(addr, a)?;
+            }
+            // Case 4: a OP b = c — assert equality
+            (Ok(MemoryValue::Int(a)), Ok(MemoryValue::Int(b)), Ok(MemoryValue::Int(c))) => {
+                let computed = operation.compute(a, b);
+                if computed != c {
+                    return Err(VirtualMachineError::AssertEqFailed {
+                        computed: computed.into(),
+                        expected: c.into(),
+                    });
+                }
+            }
+            _ => return Err(VirtualMachineError::TooManyUnknownOperands),
+        }
+
+        Ok(())
+    }
+
+    /// Executes a double-dereference instruction (`res = m[m[fp + shift_0] + shift_1]`) and asserts the result.
+    ///
+    /// This function handles instructions that require reading a pointer from one memory
+    /// location to access a value at another.
+    ///
+    /// # Errors
+    /// This function will return an `Err` if:
+    /// - Any memory access targets an uninitialized memory cell.
+    /// - The first memory access at `m[fp + shift_0]` does not yield a valid `MemoryAddress`.
+    /// - The final, dereferenced value does not match the expected value specified by `res`.
+    fn execute_deref<F>(
+        &self,
+        _shift_0: usize,
+        _shift_1: usize,
+        _res: &MemOrFpOrConstant<F>,
+    ) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // TODO: implement this instruction.
+        Ok(())
+    }
+
+    fn execute_poseidon2_16<F>(&self, _shift: usize) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // TODO: implement this instruction.
+        Ok(())
+    }
+
+    fn execute_poseidon2_24<F>(&self, _shift: usize) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // TODO: implement this instruction.
+        Ok(())
+    }
+
+    fn execute_extension_mul<F>(&self, _args: [usize; 3]) -> Result<(), VirtualMachineError<F>>
+    where
+        F: PrimeField64,
+    {
+        // TODO: implement this instruction.
         Ok(())
     }
 }
