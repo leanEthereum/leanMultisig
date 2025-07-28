@@ -43,7 +43,7 @@ impl VirtualMachine {
             // This will return an error if the memory location is uninitialized.
             let condition_val = self
                 .run_context
-                .get_value(condition, &self.memory_manager)?;
+                .get_value_from_mem_or_constant(condition, &self.memory_manager)?;
 
             // A jump condition must be a field element.
             let is_zero = condition_val.to_f()?.is_zero();
@@ -55,7 +55,9 @@ impl VirtualMachine {
                 // **Condition is non-zero**: Execute the jump.
                 //
                 // First, resolve the `dest` operand to get the target address value.
-                let dest_val = self.run_context.get_value(dest, &self.memory_manager)?;
+                let dest_val = self
+                    .run_context
+                    .get_value_from_mem_or_constant(dest, &self.memory_manager)?;
 
                 // The resolved destination value must be a valid address.
                 //

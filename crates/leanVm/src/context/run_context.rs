@@ -36,7 +36,7 @@ impl RunContext {
     ///
     /// - If the operand is a constant, it returns the constant.
     /// - If it's a memory location, it computes the address relative to `fp` and fetches the value from memory.
-    pub fn get_value<F>(
+    pub fn get_value_from_mem_or_constant<F>(
         &self,
         operand: &MemOrConstant<F>,
         memory: &MemoryManager,
@@ -131,11 +131,13 @@ mod tests {
         // A constant operand with field element 42.
         let operand = MemOrConstant::Constant(F::from_u64(42));
 
-        // Run `get_value` with an unused memory manager (memory is not needed for constants).
+        // Run `get_value_from_mem_or_constant` with an unused memory manager (memory is not needed for constants).
         let memory = MemoryManager::default();
 
         // It should return the wrapped constant as a MemoryValue::Int.
-        let result = ctx.get_value(&operand, &memory).unwrap();
+        let result = ctx
+            .get_value_from_mem_or_constant(&operand, &memory)
+            .unwrap();
         assert_eq!(result, MemoryValue::Int(F::from_u64(42)));
     }
 
@@ -171,8 +173,10 @@ mod tests {
         // The operand asks to read memory at fp + 2.
         let operand = MemOrConstant::MemoryAfterFp { shift: 2 };
 
-        // Call get_value, which should fetch the value we inserted.
-        let result = ctx.get_value(&operand, &memory).unwrap();
+        // Call get_value_from_mem_or_constant, which should fetch the value we inserted.
+        let result = ctx
+            .get_value_from_mem_or_constant(&operand, &memory)
+            .unwrap();
         assert_eq!(result, expected_val);
     }
 
@@ -197,8 +201,10 @@ mod tests {
             fp,
         );
 
-        // Calling get_value should return a VirtualMachineError::MemoryError::UninitializedMemory.
-        let err = ctx.get_value(&operand, &memory).unwrap_err();
+        // Calling get_value_from_mem_or_constant should return a VirtualMachineError::MemoryError::UninitializedMemory.
+        let err = ctx
+            .get_value_from_mem_or_constant(&operand, &memory)
+            .unwrap_err();
 
         match err {
             VirtualMachineError::Memory(MemoryError::UninitializedMemory(addr)) => {
