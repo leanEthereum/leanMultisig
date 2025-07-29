@@ -8,7 +8,7 @@ use crate::{
     },
     context::run_context::RunContext,
     errors::{math::MathError, memory::MemoryError, vm::VirtualMachineError},
-    memory::{manager::MemoryManager, val::MemoryValue},
+    memory::{address::MemoryAddress, manager::MemoryManager, val::MemoryValue},
 };
 
 #[derive(Debug, Default)]
@@ -246,26 +246,73 @@ impl VirtualMachine {
         Ok(())
     }
 
-    /// Executes a double-dereference instruction (`res = m[m[fp + shift_0] + shift_1]`) and asserts the result.
+    /// Executes the `DEREF` instruction: `res = m[m[fp + shift_0] + shift_1]`.
     ///
-    /// This function handles instructions that require reading a pointer from one memory
-    /// location to access a value at another.
+    /// It operates using a constraint satisfaction model with two primary modes:
     ///
-    /// # Errors
-    /// This function will return an `Err` if:
-    /// - Any memory access targets an uninitialized memory cell.
-    /// - The first memory access at `m[fp + shift_0]` does not yield a valid `MemoryAddress`.
-    /// - The final, dereferenced value does not match the expected value specified by `res`.
+    /// 1.  **Deduction of `res`**: If the `res` operand points to an unwritten memory
+    ///     location, this function performs the double-dereference to find the final
+    ///     value and writes it into `res`'s location.
+    ///
+    /// 2.  **Constraint of `m[...]`**: If `res` holds a known value, that value is
+    ///     written to the final dereferenced address. The underlying memory model
+    ///     ensures this write is consistent, effectively asserting that
+    ///     `m[m[...]]` must equal the known `res` value.
     fn execute_deref<F>(
-        &self,
-        _shift_0: usize,
-        _shift_1: usize,
-        _res: &MemOrFpOrConstant<F>,
+        &mut self,
+        shift_0: usize,
+        shift_1: usize,
+        res: &MemOrFpOrConstant<F>,
     ) -> Result<(), VirtualMachineError<F>>
     where
         F: PrimeField64,
     {
-        // TODO: implement this instruction.
+        // Resolve the `res` operand first to determine which execution path to take.
+        //
+        // This will either be
+        // - a known `Int`,
+        // - an `Address` to an unwritten cell.
+        let res_lookup_result = self
+            .run_context
+            .value_from_mem_or_fp_or_constant(res, &self.memory_manager)?;
+
+        // Calculate the address of the first-level pointer, `fp + shift_0`.
+        let ptr_shift_0_addr = self.run_context.fp.add_usize(shift_0)?;
+
+        // Read the pointer from memory. It must be a `MemoryAddress` type.
+        let ptr: MemoryAddress = self
+            .memory_manager
+            .get(ptr_shift_0_addr)
+            .ok_or(MemoryError::UninitializedMemory(ptr_shift_0_addr))?
+            .try_into()?;
+
+        // Calculate the final, second-level address: `ptr + shift_1`.
+        let ptr_shift_1_addr = ptr.add_usize(shift_1)?;
+
+        // Branch execution based on whether `res` was a known value or an unwritten address.
+        match res_lookup_result {
+            // Case 1: `res` is an unwritten memory location.
+            //
+            // We deduce its value by reading from the final address.
+            MemoryValue::Address(addr) => {
+                // Read the value from the final dereferenced address `m[ptr + shift_1]`.
+                let value = self
+                    .memory_manager
+                    .get(ptr_shift_1_addr)
+                    .ok_or(MemoryError::UninitializedMemory(ptr_shift_1_addr))?;
+
+                // Write the deduced value into `res`'s memory location.
+                self.memory_manager.memory.insert(addr, value)?;
+            }
+            // Case 2: `res` is a known integer value.
+            //
+            // We use this value to constrain the memory at the final address.
+            MemoryValue::Int(value) => {
+                // Write the known `res` value to the final dereferenced address.
+                self.memory_manager.memory.insert(ptr_shift_1_addr, value)?;
+            }
+        }
+
         Ok(())
     }
 

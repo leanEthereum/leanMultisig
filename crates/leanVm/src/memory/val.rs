@@ -73,6 +73,20 @@ where
     }
 }
 
+impl<F> Add<usize> for MemoryValue<F>
+where
+    F: PrimeField64,
+{
+    type Output = Result<Self, MemoryError<F>>;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        match self {
+            Self::Address(addr) => Ok(Self::Address(addr.add_usize(rhs)?)),
+            Self::Int(int) => Ok(Self::Int(int + F::from_usize(rhs))),
+        }
+    }
+}
+
 impl<F> From<MemoryAddress> for MemoryValue<F>
 where
     F: PrimeField64,
