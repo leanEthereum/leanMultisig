@@ -104,6 +104,17 @@ impl MemoryManager {
     {
         self.memory.get(address)
     }
+
+    /// Retrieves an array of values stored from a given memory address.
+    pub fn get_array<F, const DIM: usize>(
+        &self,
+        start_address: MemoryAddress,
+    ) -> Result<[MemoryValue<F>; DIM], MemoryError<F>>
+    where
+        F: PrimeField64,
+    {
+        self.memory.get_array(start_address)
+    }
 }
 
 #[cfg(test)]
