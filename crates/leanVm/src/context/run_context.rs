@@ -154,10 +154,7 @@ mod tests {
 
         // Insert a value at that address manually.
         let expected_val = MemoryValue::Int(F::from_u64(99));
-        memory
-            .memory
-            .insert(addr_to_read, expected_val.clone())
-            .unwrap();
+        memory.memory.insert(addr_to_read, expected_val).unwrap();
 
         // Create a RunContext with that fp.
         let ctx = RunContext::new(
@@ -240,10 +237,7 @@ mod tests {
         let fp = memory.add();
         let addr_to_read = fp.add_usize::<F>(7).unwrap();
         let expected_val = MemoryValue::<F>::Address(MemoryAddress::new(5, 5));
-        memory
-            .memory
-            .insert(addr_to_read, expected_val.clone())
-            .unwrap();
+        memory.memory.insert(addr_to_read, expected_val).unwrap();
 
         let ctx = RunContext::new(MemoryAddress::new(0, 0), fp);
         let operand = MemOrFpOrConstant::MemoryAfterFp { shift: 7 };

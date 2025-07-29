@@ -77,7 +77,7 @@ impl MemoryManager {
         // This reverse order allows any required memory segment resizing
         // (e.g., length extension or capacity reservation) to occur *once*
         // at the highest offset instead of repeatedly during writes.
-        for (num, value) in data.iter().enumerate().rev() {
+        for (num, &value) in data.iter().enumerate().rev() {
             // Compute the target address: ptr + num.
             //
             // This operation may fail if it causes overflow.
@@ -87,7 +87,7 @@ impl MemoryManager {
             //
             // This enforces the write-once rule — it will fail if the cell is already
             // initialized with a different value.
-            self.memory.insert(addr, value.clone())?;
+            self.memory.insert(addr, value)?;
         }
 
         // After writing all values, compute and return the address after the last item.
@@ -168,12 +168,12 @@ mod tests {
         assert_eq!(end_addr.offset, base_addr.offset + values.len());
 
         // Verify that each value was inserted correctly at its expected offset.
-        for (i, expected) in values.iter().enumerate() {
+        for (i, &expected) in values.iter().enumerate() {
             let addr = MemoryAddress {
                 segment_index: base_addr.segment_index,
                 offset: base_addr.offset + i,
             };
-            assert_eq!(manager.memory.get(addr), Some(expected.clone()));
+            assert_eq!(manager.memory.get(addr), Some(expected));
         }
     }
 

@@ -7,10 +7,19 @@ use proptest::prelude::*;
 use super::address::MemoryAddress;
 use crate::errors::memory::MemoryError;
 
-#[derive(Eq, Ord, Hash, PartialEq, PartialOrd, Clone, Debug)]
+#[derive(Eq, Ord, Hash, PartialEq, PartialOrd, Clone, Copy, Debug)]
 pub enum MemoryValue<F> {
     Address(MemoryAddress),
     Int(F),
+}
+
+impl<F> Default for MemoryValue<F>
+where
+    F: PrimeField64,
+{
+    fn default() -> Self {
+        Self::Int(F::default())
+    }
 }
 
 impl<F> MemoryValue<F>
@@ -58,7 +67,7 @@ where
     type Output = Result<Self, MemoryError<F>>;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        match (self.clone(), rhs.clone()) {
+        match (self, rhs) {
             // Case 1 (Success): Multiply two integers.
             (Self::Int(a), Self::Int(b)) => Ok(Self::Int(a * b)),
 
@@ -266,7 +275,7 @@ mod tests {
         let val2 = MemoryValue::Int(F::from_u64(5));
 
         // Action: Attempt to multiply them.
-        let err = (val1.clone() * val2.clone()).unwrap_err();
+        let err = (val1 * val2).unwrap_err();
 
         // Verify: The operation should fail with the specific `InvalidMul` error,
         // containing the values that caused the failure.
@@ -280,7 +289,7 @@ mod tests {
         let val2 = MemoryValue::<F>::Address(MemoryAddress::new(2, 20));
 
         // Action: Attempt to multiply them.
-        let err = (val1.clone() * val2.clone()).unwrap_err();
+        let err = (val1 * val2).unwrap_err();
 
         // Verify: The operation should fail with the `InvalidMul` error.
         assert!(matches!(err, MemoryError::InvalidMul(boxed) if *boxed == (val1, val2)));

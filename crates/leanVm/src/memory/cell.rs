@@ -206,7 +206,7 @@ mod tests {
 
         // Test on a valid integer cell.
         let int_val = MemoryValue::Int(F::from_u64(123));
-        let int_cell = MemoryCell::from(int_val.clone());
+        let int_cell = MemoryCell::from(int_val);
         assert_eq!(int_cell.value(), Some(int_val));
 
         // Test on a valid address cell.
@@ -214,7 +214,7 @@ mod tests {
             segment_index: 5,
             offset: 10,
         });
-        let addr_cell = MemoryCell::from(addr_val.clone());
+        let addr_cell = MemoryCell::from(addr_val);
         assert_eq!(addr_cell.value(), Some(addr_val));
     }
 
@@ -272,7 +272,7 @@ mod tests {
             val in any::<MemoryValue<F>>()
         ) {
             // Convert the generated MemoryValue to a MemoryCell.
-            let cell = MemoryCell::from(val.clone());
+            let cell = MemoryCell::from(val);
 
             // Convert the MemoryCell back to a MemoryValue.
             let roundtrip_val = MemoryValue::<F>::from(cell);

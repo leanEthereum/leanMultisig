@@ -378,7 +378,7 @@ mod tests {
                 vm.memory_manager.add();
             }
             // Insert the value at the specified address, panicking on failure for test simplicity.
-            vm.memory_manager.memory.insert(*addr, val.clone()).unwrap();
+            vm.memory_manager.memory.insert(*addr, *val).unwrap();
         }
         // Return the fully configured VM.
         vm
