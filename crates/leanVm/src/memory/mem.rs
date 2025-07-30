@@ -166,7 +166,7 @@ impl Memory {
         // Iterate from 0 to DIM-1 to read each element of the vector.
         for (i, res) in result.iter_mut().enumerate().take(DIM) {
             // Calculate the address of the current element by adding the index `i` to the start offset.
-            let current_addr = start_address.add_usize(i).map_err(MemoryError::Math)?;
+            let current_addr = (start_address + i).map_err(MemoryError::Math)?;
 
             // Retrieve the value from the calculated address.
             let mem_val = self
@@ -198,7 +198,7 @@ impl Memory {
         // Iterate from 0 to DIM-1 to read each element of the vector.
         for (i, o) in out.iter_mut().enumerate().take(DIM) {
             // Calculate the address of the current element by adding the index `i` to the start offset.
-            let addr = start_address.add_usize(i)?;
+            let addr = (start_address + i)?;
 
             // Attempt to retrieve the value from the memory and convert it into type `V`.
             let v = self
@@ -414,7 +414,7 @@ mod tests {
         for (i, &val) in values_to_insert.iter().enumerate() {
             memory
                 // Calculate the address for the current item: `start_addr + i`.
-                .insert(start_addr.add_usize(i).unwrap(), val)
+                .insert((start_addr + i).unwrap(), val)
                 .unwrap();
         }
 

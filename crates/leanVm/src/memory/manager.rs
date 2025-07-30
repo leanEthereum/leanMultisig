@@ -80,7 +80,7 @@ impl MemoryManager {
             // Compute the target address: ptr + num.
             //
             // This operation may fail if it causes overflow.
-            let addr = ptr.add_usize(num).map_err(MemoryError::Math)?;
+            let addr = (ptr + num).map_err(MemoryError::Math)?;
 
             // Attempt to write the value into memory at the computed address.
             //
@@ -92,7 +92,7 @@ impl MemoryManager {
         // After writing all values, compute and return the address after the last item.
         //
         // This is simply ptr + data.len(), and it may also fail on overflow.
-        ptr.add_usize(data.len()).map_err(MemoryError::Math)
+        (ptr + data.len()).map_err(MemoryError::Math)
     }
 
     /// Retrieves the value stored at a given memory address.

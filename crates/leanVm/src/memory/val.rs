@@ -75,7 +75,7 @@ impl Add<usize> for MemoryValue {
 
     fn add(self, rhs: usize) -> Self::Output {
         match self {
-            Self::Address(addr) => Ok(Self::Address(addr.add_usize(rhs)?)),
+            Self::Address(addr) => Ok(Self::Address((addr + rhs)?)),
             Self::Int(int) => Ok(Self::Int(int + F::from_usize(rhs))),
         }
     }

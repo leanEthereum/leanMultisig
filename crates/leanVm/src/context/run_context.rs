@@ -42,7 +42,7 @@ impl RunContext {
         match operand {
             MemOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
             MemOrConstant::MemoryAfterFp { shift } => {
-                let addr = self.fp.add_usize(*shift)?;
+                let addr = (self.fp + *shift)?;
                 memory
                     .get(addr)
                     .ok_or(MemoryError::UninitializedMemory(addr))
@@ -62,7 +62,7 @@ impl RunContext {
         match operand {
             MemOrFp::Fp => Ok(MemoryValue::Address(self.fp)),
             MemOrFp::MemoryAfterFp { shift } => {
-                let addr = self.fp.add_usize(*shift)?;
+                let addr = (self.fp + *shift)?;
                 memory
                     .get(addr)
                     .ok_or(MemoryError::UninitializedMemory(addr))
@@ -85,7 +85,7 @@ impl RunContext {
             MemOrFpOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
             MemOrFpOrConstant::Fp => Ok(MemoryValue::Address(self.fp)),
             MemOrFpOrConstant::MemoryAfterFp { shift } => {
-                let addr = self.fp.add_usize(*shift)?;
+                let addr = (self.fp + *shift)?;
                 memory
                     .get(addr)
                     .ok_or_else(|| MemoryError::UninitializedMemory(addr).into())
@@ -222,7 +222,7 @@ mod tests {
     fn test_get_value_from_mem_or_fp_or_constant_is_mem_success() {
         let mut memory = MemoryManager::default();
         let fp = memory.add();
-        let addr_to_read = fp.add_usize(7).unwrap();
+        let addr_to_read = (fp + 7).unwrap();
         let expected_val = MemoryValue::Address(MemoryAddress::new(5, 5));
         memory.memory.insert(addr_to_read, expected_val).unwrap();
 

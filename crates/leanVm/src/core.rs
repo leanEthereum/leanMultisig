@@ -64,7 +64,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
 
             if is_zero {
                 // **Condition is zero**: The jump is not taken. Advance the `pc` by one.
-                self.run_context.pc().add_usize(1)?
+                (*self.run_context.pc() + 1)?
             } else {
                 // **Condition is non-zero**: Execute the jump.
                 //
@@ -80,7 +80,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
             }
         } else {
             // For any instruction other than `JumpIfNotZero`, advance the `pc` by one.
-            self.run_context.pc().add_usize(1)?
+            (*self.run_context.pc() + 1)?
         };
 
         // Update the virtual machine's program counter with the calculated next address.
@@ -99,7 +99,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
                 MemOrFp::Fp => self.run_context.fp,
                 // The instruction specifies updating `fp` to a value from memory.
                 MemOrFp::MemoryAfterFp { shift } => {
-                    let addr = self.run_context.fp().add_usize(*shift)?;
+                    let addr = (*self.run_context.fp() + *shift)?;
                     let value = self
                         .memory_manager
                         .get(addr)
@@ -272,7 +272,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
             .value_from_mem_or_fp_or_constant(res, &self.memory_manager)?;
 
         // Calculate the address of the first-level pointer, `fp + shift_0`.
-        let ptr_shift_0_addr = self.run_context.fp.add_usize(shift_0)?;
+        let ptr_shift_0_addr = (self.run_context.fp + shift_0)?;
 
         // Read the pointer from memory. It must be a `MemoryAddress` type.
         let ptr: MemoryAddress = self
@@ -282,7 +282,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
             .try_into()?;
 
         // Calculate the final, second-level address: `ptr + shift_1`.
-        let ptr_shift_1_addr = ptr.add_usize(shift_1)?;
+        let ptr_shift_1_addr = (ptr + shift_1)?;
 
         // Branch execution based on whether `res` was a known value or an unwritten address.
         match res_lookup_result {
@@ -326,7 +326,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         // Read Pointers from Memory
         //
         // The instruction specifies 4 consecutive pointers starting at `fp + shift`.
-        let base_ptr_addr = self.run_context.fp.add_usize(shift)?;
+        let base_ptr_addr = (self.run_context.fp + shift)?;
         let ptrs: [MemoryValue; 4] = self.memory_manager.get_array(base_ptr_addr)?;
 
         // Convert the `MemoryValue` pointers to `MemoryAddress`.
@@ -452,11 +452,7 @@ mod tests {
         let pc = MemoryAddress::new(0, 10);
         let fp = MemoryAddress::new(1, 5);
         // Pre-load memory with a zero value at the address `fp + 1`, which will be our condition.
-        let mut vm = setup_vm(
-            pc,
-            fp,
-            &[(fp.add_usize(1).unwrap(), MemoryValue::Int(F::ZERO))],
-        );
+        let mut vm = setup_vm(pc, fp, &[((fp + 1).unwrap(), MemoryValue::Int(F::ZERO))]);
         // Define a JNZ instruction where the condition points to the zero value.
         let instruction = Instruction::JumpIfNotZero {
             condition: MemOrConstant::MemoryAfterFp { shift: 1 },
@@ -482,9 +478,9 @@ mod tests {
             fp,
             &[
                 // The condition value (non-zero).
-                (fp.add_usize(1).unwrap(), MemoryValue::Int(F::from_u64(42))),
+                ((fp + 1).unwrap(), MemoryValue::Int(F::from_u64(42))),
                 // The destination address for the jump.
-                (fp.add_usize(2).unwrap(), MemoryValue::Address(jump_target)),
+                ((fp + 2).unwrap(), MemoryValue::Address(jump_target)),
             ],
         );
         // Define a JNZ instruction pointing to the condition and destination.
@@ -509,7 +505,7 @@ mod tests {
             pc,
             fp,
             &[(
-                fp.add_usize(1).unwrap(),
+                (fp + 1).unwrap(),
                 MemoryValue::Address(MemoryAddress::new(8, 8)),
             )],
         );
@@ -554,7 +550,7 @@ mod tests {
         let mut vm = setup_vm(
             MemoryAddress::new(0, 0),
             fp,
-            &[(fp.add_usize(3).unwrap(), MemoryValue::Address(new_fp))],
+            &[((fp + 3).unwrap(), MemoryValue::Address(new_fp))],
         );
         // Define a JNZ instruction where `updated_fp` points to the new address in memory.
         let instruction = Instruction::JumpIfNotZero {
@@ -576,7 +572,7 @@ mod tests {
         let mut vm = setup_vm(
             MemoryAddress::new(0, 0),
             fp,
-            &[(fp.add_usize(3).unwrap(), MemoryValue::Int(F::from_u64(99)))],
+            &[((fp + 3).unwrap(), MemoryValue::Int(F::from_u64(99)))],
         );
         // Define a JNZ instruction where `updated_fp` points to this integer value.
         let instruction = Instruction::JumpIfNotZero {

@@ -25,20 +25,6 @@ impl MemoryAddress {
             offset,
         }
     }
-
-    /// Add a `usize` to the address.
-    pub fn add_usize(self, other: usize) -> Result<Self, MathError> {
-        // Try to compute the new offset by adding `other` to the current offset.
-        //
-        // This uses `checked_add` to safely detect any potential `usize` overflow.
-        self.offset
-            .checked_add(other)
-            .map(|offset| Self {
-                segment_index: self.segment_index,
-                offset,
-            })
-            .ok_or_else(|| MathError::MemoryAddressAddUsizeOffsetExceeded(Box::new((self, other))))
-    }
 }
 
 impl Add<&F> for MemoryAddress {
@@ -60,6 +46,23 @@ impl Add<&F> for MemoryAddress {
         // - the same segment,
         // - the newly calculated offset.
         Ok(Self::new(self.segment_index, new_offset))
+    }
+}
+
+impl Add<usize> for MemoryAddress {
+    type Output = Result<Self, MathError>;
+
+    fn add(self, other: usize) -> Self::Output {
+        // Try to compute the new offset by adding `other` to the current offset.
+        //
+        // This uses `checked_add` to safely detect any potential `usize` overflow.
+        self.offset
+            .checked_add(other)
+            .map(|offset| Self {
+                segment_index: self.segment_index,
+                offset,
+            })
+            .ok_or_else(|| MathError::MemoryAddressAddUsizeOffsetExceeded(Box::new((self, other))))
     }
 }
 
@@ -113,7 +116,7 @@ mod tests {
             segment_index: 2,
             offset: 100,
         };
-        let result = addr.add_usize(25);
+        let result = addr + 25;
         assert_eq!(
             result,
             Ok(MemoryAddress {
@@ -129,7 +132,7 @@ mod tests {
             segment_index: 5,
             offset: 500,
         };
-        let result = addr.add_usize(0);
+        let result = addr + 0;
         assert_eq!(result, Ok(addr));
     }
 
@@ -139,7 +142,7 @@ mod tests {
             segment_index: 1,
             offset: usize::MAX,
         };
-        let result = addr.add_usize(1);
+        let result = addr + 1;
         match result {
             Err(MathError::MemoryAddressAddUsizeOffsetExceeded(boxed)) => {
                 let (original, added) = *boxed;
@@ -154,7 +157,7 @@ mod tests {
     proptest! {
         #[test]
         fn test_add_does_not_overflow(addr in any::<MemoryAddress>(), delta in 0usize..1_000_000) {
-            let result = addr.add_usize(delta);
+            let result = addr + delta;
             // Only test when offset + delta won't overflow
             if let Some(expected_offset) = addr.offset.checked_add(delta) {
                 prop_assert_eq!(result, Ok(MemoryAddress {
