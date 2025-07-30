@@ -14,7 +14,7 @@ use crate::{
 
 const DIMENSION: usize = 8;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct VirtualMachine<PERM16, PERM24> {
     pub(crate) run_context: RunContext,
     pub memory_manager: MemoryManager,
@@ -23,6 +23,15 @@ pub struct VirtualMachine<PERM16, PERM24> {
 }
 
 impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
+    pub fn new(poseidon2_16: PERM16, poseidon2_24: PERM24) -> Self {
+        Self {
+            run_context: RunContext::default(),
+            memory_manager: MemoryManager::default(),
+            poseidon2_16,
+            poseidon2_24,
+        }
+    }
+
     /// Advances the program counter (`pc`) to the next instruction.
     ///
     /// This function embodies the control flow logic of the zkVM. For most instructions,
@@ -403,6 +412,8 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
 mod tests {
     use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
+    use p3_koala_bear::Poseidon2KoalaBear;
+    use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
     use crate::{
@@ -411,6 +422,8 @@ mod tests {
     };
 
     type F = BabyBear;
+    type Poseidon16 = Poseidon2KoalaBear<16>;
+    type Poseidon24 = Poseidon2KoalaBear<24>;
 
     /// Creates and configures a `VirtualMachine` instance for testing purposes.
     ///
@@ -423,9 +436,12 @@ mod tests {
         pc: MemoryAddress,
         fp: MemoryAddress,
         initial_memory: &[(MemoryAddress, MemoryValue<F>)],
-    ) -> VirtualMachine {
+    ) -> VirtualMachine<Poseidon16, Poseidon24> {
+        let poseidon_16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+        let poseidon_24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+
         // Create a new VM with default values.
-        let mut vm = VirtualMachine::default();
+        let mut vm = VirtualMachine::new(poseidon_16, poseidon_24);
         // Set the initial program counter and frame pointer.
         vm.run_context.pc = pc;
         vm.run_context.fp = fp;

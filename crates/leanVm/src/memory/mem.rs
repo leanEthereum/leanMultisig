@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use p3_field::PrimeField64;
 
 use super::{address::MemoryAddress, cell::MemoryCell, val::MemoryValue};
@@ -110,7 +112,6 @@ impl Memory {
     pub(crate) fn get<F>(&self, address: MemoryAddress) -> Option<MemoryValue<F>>
     where
         F: PrimeField64,
-        MemoryValue<F>: From<MemoryCell>,
     {
         let MemoryAddress {
             segment_index,
@@ -126,6 +127,31 @@ impl Memory {
             .get(segment_index)
             .and_then(|segment| segment.get(offset))
             .and_then(|mem_cell| mem_cell.value())
+    }
+
+    /// Retrieves and converts the value stored at a given memory address into a desired type `V`.
+    ///
+    /// # Arguments
+    /// * `address`: The `MemoryAddress` specifying the location of the cell to retrieve.
+    pub(crate) fn get_as<F, V>(&self, address: MemoryAddress) -> Result<Option<V>, MemoryError<F>>
+    where
+        F: PrimeField64,
+        V: TryFrom<MemoryValue<F>, Error = MemoryError<F>>,
+    {
+        // Attempt to retrieve the raw memory value at the given address.
+        match self.get(address) {
+            // If the address is valid and contains a value:
+            Some(value) => {
+                // Attempt to convert the `MemoryValue<F>` into the desired type `V`.
+                //
+                // If conversion fails, the error will be propagated.
+                let converted = V::try_from(value)?;
+                // Return the successfully converted value wrapped in `Some`.
+                Ok(Some(converted))
+            }
+            // If the address is invalid or the cell is uninitialized, return `None`.
+            None => Ok(None),
+        }
     }
 
     /// Retrieves a fixed-size array of field elements starting from a given address.
@@ -163,6 +189,39 @@ impl Memory {
 
         // Return the completed array.
         Ok(result)
+    }
+
+    /// Retrieves and converts a fixed-size array of memory values starting from a given address.
+    ///
+    /// This method reads `DIM` consecutive memory cells starting from `start_address`,
+    /// attempts to convert each `MemoryValue<F>` into type `V`, and returns them as an array.
+    pub(crate) fn get_array_as<F, V, const DIM: usize>(
+        &self,
+        start_address: MemoryAddress,
+    ) -> Result<[V; DIM], MemoryError<F>>
+    where
+        F: PrimeField64,
+        V: TryFrom<MemoryValue<F>, Error = MemoryError<F>>,
+    {
+        // Initialize an array to store the result.
+        let mut out: [MaybeUninit<V>; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        // Iterate from 0 to DIM-1 to read each element of the vector.
+        for (i, o) in out.iter_mut().enumerate().take(DIM) {
+            // Calculate the address of the current element by adding the index `i` to the start offset.
+            let addr = start_address.add_usize(i)?;
+
+            // Attempt to retrieve the value from the memory and convert it into type `V`.
+            let v = self
+                .get_as(addr)?
+                .ok_or(MemoryError::UninitializedMemory(addr))?;
+
+            // SAFETY: The memory value has been successfully retrieved and converted.
+            *o = MaybeUninit::new(v);
+        }
+
+        // SAFETY: All elements have been initialized above in the loop
+        Ok(unsafe { std::mem::transmute_copy::<_, [V; DIM]>(&out) })
     }
 }
 
