@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeField64};
+use p3_field::{BasedVectorSpace, Field, PrimeField64};
 use p3_symmetric::Permutation;
 
 use crate::{
@@ -7,7 +7,7 @@ use crate::{
         operand::{MemOrConstant, MemOrFp, MemOrFpOrConstant},
         operation::Operation,
     },
-    constant::{DIMENSION, F},
+    constant::{DIMENSION, EF, F},
     context::run_context::RunContext,
     errors::{math::MathError, memory::MemoryError, vm::VirtualMachineError},
     memory::{address::MemoryAddress, manager::MemoryManager, val::MemoryValue},
@@ -380,11 +380,13 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     where
         PERM24: Permutation<[F; 3 * DIMENSION]>,
     {
-        // Load 6 pointers from memory at `fp + shift`.
+        // Read Pointers from Memory
+        //
+        // The instruction specifies 6 consecutive pointers starting at `fp + shift`.
         let ptr_addr = (self.run_context.fp + shift)?;
         let ptrs: [MemoryAddress; 6] = self.memory_manager.memory.get_array_as(ptr_addr)?;
 
-        // Destructure input and output vector pointers.
+        // Convert the raw memory values into memory addresses.
         let [
             ptr_arg_0,
             ptr_arg_1,
@@ -394,31 +396,38 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
             ptr_res_2,
         ] = ptrs;
 
-        // Load input vectors of length DIMENSION from memory.
-        let in0 = self
+        // Read Input Vectors
+        //
+        // Each is an 8-element array of field elements.
+        let arg0 = self
             .memory_manager
             .memory
             .get_array_as::<F, DIMENSION>(ptr_arg_0)?;
-        let in1 = self
+        let arg1 = self
             .memory_manager
             .memory
             .get_array_as::<F, DIMENSION>(ptr_arg_1)?;
-        let in2 = self
+        let arg2 = self
             .memory_manager
             .memory
             .get_array_as::<F, DIMENSION>(ptr_arg_2)?;
 
-        // Concatenate the three inputs into a single 24-element state.
-        let mut state: [F; 3 * DIMENSION] = [in0, in1, in2].concat().try_into().unwrap();
+        // Perform Hashing
+        //
+        // Concatenate the three input vectors into a single 24-element array for the permutation.
+        let mut state = [arg0, arg1, arg2].concat().try_into().unwrap();
 
-        // Apply the Poseidon permutation.
+        // Apply the Poseidon2 permutation to the state.
         self.poseidon2_24.permute_mut(&mut state);
 
-        // Split and write the outputs to the designated memory locations.
+        // Write Output Vectors
+        //
+        // Split the permuted state back into three 8-element output vectors.
         let res0: [F; DIMENSION] = state[..DIMENSION].try_into().unwrap();
         let res1: [F; DIMENSION] = state[DIMENSION..2 * DIMENSION].try_into().unwrap();
         let res2: [F; DIMENSION] = state[2 * DIMENSION..].try_into().unwrap();
 
+        // Write the output vectors to the memory locations pointed to by the result pointers.
         self.memory_manager.load_data(ptr_res_0, &res0)?;
         self.memory_manager.load_data(ptr_res_1, &res1)?;
         self.memory_manager.load_data(ptr_res_2, &res2)?;
@@ -426,8 +435,57 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         Ok(())
     }
 
-    fn execute_extension_mul(&self, _args: [usize; 3]) -> Result<(), VirtualMachineError> {
-        // TODO: implement this instruction.
+    /// Executes the `ExtensionMul` instruction.
+    ///
+    /// Multiplies two extension field elements stored in memory and writes the result back.
+    ///
+    /// ## Memory Layout
+    /// The instruction takes three argument offsets `[a, b, c]` from the frame pointer `fp`:
+    ///
+    /// - `fp + a`: address of a pointer to the first operand
+    /// - `fp + b`: address of a pointer to the second operand
+    /// - `fp + c`: address of a pointer to the output location
+    ///
+    /// The multiplication is:
+    ///
+    /// ```text
+    /// m_vec[ptr_out] = EF::from(m_vec[ptr_lhs]) * EF::from(m_vec[ptr_rhs])
+    /// ```
+    ///
+    /// where `ptr_lhs`, `ptr_rhs`, and `ptr_out` are memory addresses stored at `fp + args[0..=2]`.
+    fn execute_extension_mul(&mut self, args: [usize; 3]) -> Result<(), VirtualMachineError> {
+        // Get the frame pointer.
+        let fp = self.run_context.fp;
+
+        // Read the memory addresses where the operands and result will reside.
+        let ptr_lhs: MemoryAddress = self.memory_manager.memory.get_as((fp + args[0])?)?;
+        let ptr_rhs: MemoryAddress = self.memory_manager.memory.get_as((fp + args[1])?)?;
+        let ptr_out: MemoryAddress = self.memory_manager.memory.get_as((fp + args[2])?)?;
+
+        // Load the `[F; EF::DIMENSION]` input arrays from memory and convert them into EF elements.
+        let lhs = EF::from_basis_coefficients_slice(
+            &self
+                .memory_manager
+                .memory
+                .get_array_as::<F, DIMENSION>(ptr_lhs)?,
+        )
+        .unwrap();
+
+        let rhs = EF::from_basis_coefficients_slice(
+            &self
+                .memory_manager
+                .memory
+                .get_array_as::<F, DIMENSION>(ptr_rhs)?,
+        )
+        .unwrap();
+
+        // Perform the field multiplication in the extension field.
+        let product = lhs * rhs;
+
+        // Write the result converted back into `[F; EF::DIMENSION]` to memory.
+        let result_coeffs: &[F] = product.as_basis_coefficients_slice();
+        self.memory_manager.load_data(ptr_out, result_coeffs)?;
+
         Ok(())
     }
 }
