@@ -60,9 +60,9 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
                 .value_from_mem_or_constant(condition, &self.memory_manager)?;
 
             // A jump condition must be a field element.
-            let is_zero = condition_val.to_f()?.is_zero();
+            let f: F = condition_val.try_into()?;
 
-            if is_zero {
+            if f.is_zero() {
                 // **Condition is zero**: The jump is not taken. Advance the `pc` by one.
                 (*self.run_context.pc() + 1)?
             } else {
@@ -351,7 +351,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         // Convert the state to an array of field
         let mut state_f: [F; DIMENSION * 2] = [F::ZERO; DIMENSION * 2];
         for i in 0..DIMENSION {
-            state_f[i] = state[i].to_f()?;
+            state_f[i] = state[i].try_into()?;
         }
 
         // Apply the Poseidon2 permutation to the state.

@@ -19,11 +19,13 @@ impl Default for MemoryValue {
     }
 }
 
-impl MemoryValue {
-    pub const fn to_f(&self) -> Result<F, MemoryError> {
-        match self {
-            Self::Address(_) => Err(MemoryError::ExpectedInteger),
-            Self::Int(f) => Ok(*f),
+impl TryFrom<MemoryValue> for F {
+    type Error = MemoryError;
+
+    fn try_from(value: MemoryValue) -> Result<Self, Self::Error> {
+        match value {
+            MemoryValue::Int(f) => Ok(f),
+            MemoryValue::Address(_) => Err(MemoryError::ExpectedInteger),
         }
     }
 }
@@ -124,14 +126,11 @@ mod tests {
         // Wrap it in a MemoryValue::Int variant
         let val: MemoryValue = MemoryValue::Int(field_elem);
 
-        // Call to_f()
-        let result = val.to_f();
-
-        // Assert it succeeds
-        assert!(result.is_ok());
+        // Call
+        let result: F = val.try_into().unwrap();
 
         // Assert the returned value is equal to the original
-        assert_eq!(result.unwrap(), field_elem);
+        assert_eq!(result, field_elem);
     }
 
     #[test]
@@ -145,8 +144,8 @@ mod tests {
         // Wrap it in a MemoryValue::Address variant
         let val: MemoryValue = MemoryValue::Address(addr);
 
-        // Call to_f()
-        let result = val.to_f();
+        // Call
+        let result: Result<F, MemoryError> = val.try_into();
 
         // Assert it fails
         assert!(result.is_err());
