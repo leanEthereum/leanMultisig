@@ -6,7 +6,10 @@ use p3_field::PrimeField64;
 use proptest::prelude::*;
 
 use super::val::MemoryValue;
-use crate::errors::{math::MathError, memory::MemoryError};
+use crate::{
+    constant::F,
+    errors::{math::MathError, memory::MemoryError},
+};
 
 #[derive(Eq, Ord, Hash, PartialEq, PartialOrd, Clone, Copy, Debug, Default)]
 pub struct MemoryAddress {
@@ -24,7 +27,7 @@ impl MemoryAddress {
     }
 
     /// Add a `usize` to the address.
-    pub fn add_usize<F: PrimeField64>(self, other: usize) -> Result<Self, MathError<F>> {
+    pub fn add_usize(self, other: usize) -> Result<Self, MathError> {
         // Try to compute the new offset by adding `other` to the current offset.
         //
         // This uses `checked_add` to safely detect any potential `usize` overflow.
@@ -38,11 +41,8 @@ impl MemoryAddress {
     }
 }
 
-impl<F> Add<&F> for MemoryAddress
-where
-    F: PrimeField64,
-{
-    type Output = Result<Self, MathError<F>>;
+impl Add<&F> for MemoryAddress {
+    type Output = Result<Self, MathError>;
 
     fn add(self, other: &F) -> Self::Output {
         // This chained operation safely calculates the new offset.
@@ -69,13 +69,10 @@ impl Display for MemoryAddress {
     }
 }
 
-impl<F> TryFrom<MemoryValue<F>> for MemoryAddress
-where
-    F: PrimeField64,
-{
-    type Error = MemoryError<F>;
+impl TryFrom<MemoryValue> for MemoryAddress {
+    type Error = MemoryError;
 
-    fn try_from(value: MemoryValue<F>) -> Result<Self, Self::Error> {
+    fn try_from(value: MemoryValue) -> Result<Self, Self::Error> {
         match value {
             MemoryValue::Address(addr) => Ok(addr),
             MemoryValue::Int(_) => Err(MemoryError::ExpectedMemoryAddress),
@@ -105,13 +102,10 @@ impl Arbitrary for MemoryAddress {
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
     use proptest::prelude::*;
 
     use super::*;
-
-    type F = BabyBear;
 
     #[test]
     fn test_add_usize_success() {
@@ -119,7 +113,7 @@ mod tests {
             segment_index: 2,
             offset: 100,
         };
-        let result = addr.add_usize::<F>(25);
+        let result = addr.add_usize(25);
         assert_eq!(
             result,
             Ok(MemoryAddress {
@@ -135,7 +129,7 @@ mod tests {
             segment_index: 5,
             offset: 500,
         };
-        let result = addr.add_usize::<F>(0);
+        let result = addr.add_usize(0);
         assert_eq!(result, Ok(addr));
     }
 
@@ -145,7 +139,7 @@ mod tests {
             segment_index: 1,
             offset: usize::MAX,
         };
-        let result = addr.add_usize::<F>(1);
+        let result = addr.add_usize(1);
         match result {
             Err(MathError::MemoryAddressAddUsizeOffsetExceeded(boxed)) => {
                 let (original, added) = *boxed;
@@ -160,7 +154,7 @@ mod tests {
     proptest! {
         #[test]
         fn test_add_does_not_overflow(addr in any::<MemoryAddress>(), delta in 0usize..1_000_000) {
-            let result = addr.add_usize::<F>(delta);
+            let result = addr.add_usize(delta);
             // Only test when offset + delta won't overflow
             if let Some(expected_offset) = addr.offset.checked_add(delta) {
                 prop_assert_eq!(result, Ok(MemoryAddress {
@@ -185,10 +179,10 @@ mod tests {
         };
 
         // Wrap it in a MemoryValue::Address variant
-        let val: MemoryValue<F> = MemoryValue::Address(addr);
+        let val: MemoryValue = MemoryValue::Address(addr);
 
         // Try converting it into a MemoryAddress
-        let result: Result<MemoryAddress, MemoryError<F>> = val.try_into();
+        let result: Result<MemoryAddress, MemoryError> = val.try_into();
 
         // Assert it succeeds
         assert!(result.is_ok());
@@ -203,10 +197,10 @@ mod tests {
         let field_elem = F::from_u64(17);
 
         // Wrap it in a MemoryValue::Int variant
-        let val: MemoryValue<F> = MemoryValue::Int(field_elem);
+        let val: MemoryValue = MemoryValue::Int(field_elem);
 
         // Try converting it into a MemoryAddress
-        let result: Result<MemoryAddress, MemoryError<F>> = val.try_into();
+        let result: Result<MemoryAddress, MemoryError> = val.try_into();
 
         // Assert it fails
         assert!(result.is_err());

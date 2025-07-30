@@ -1,32 +1,26 @@
 use std::ops::{Add, Mul};
 
-use p3_field::PrimeField64;
+use p3_field::PrimeCharacteristicRing;
 #[cfg(test)]
 use proptest::prelude::*;
 
 use super::address::MemoryAddress;
-use crate::errors::memory::MemoryError;
+use crate::{constant::F, errors::memory::MemoryError};
 
 #[derive(Eq, Ord, Hash, PartialEq, PartialOrd, Clone, Copy, Debug)]
-pub enum MemoryValue<F> {
+pub enum MemoryValue {
     Address(MemoryAddress),
     Int(F),
 }
 
-impl<F> Default for MemoryValue<F>
-where
-    F: PrimeField64,
-{
+impl Default for MemoryValue {
     fn default() -> Self {
         Self::Int(F::default())
     }
 }
 
-impl<F> MemoryValue<F>
-where
-    F: PrimeField64,
-{
-    pub const fn to_f(&self) -> Result<F, MemoryError<F>> {
+impl MemoryValue {
+    pub const fn to_f(&self) -> Result<F, MemoryError> {
         match self {
             Self::Address(_) => Err(MemoryError::ExpectedInteger),
             Self::Int(f) => Ok(*f),
@@ -34,11 +28,8 @@ where
     }
 }
 
-impl<F> Add for MemoryValue<F>
-where
-    F: PrimeField64,
-{
-    type Output = Result<Self, MemoryError<F>>;
+impl Add for MemoryValue {
+    type Output = Result<Self, MemoryError>;
 
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
@@ -60,11 +51,8 @@ where
     }
 }
 
-impl<F> Mul for MemoryValue<F>
-where
-    F: PrimeField64,
-{
-    type Output = Result<Self, MemoryError<F>>;
+impl Mul for MemoryValue {
+    type Output = Result<Self, MemoryError>;
 
     fn mul(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
@@ -82,11 +70,8 @@ where
     }
 }
 
-impl<F> Add<usize> for MemoryValue<F>
-where
-    F: PrimeField64,
-{
-    type Output = Result<Self, MemoryError<F>>;
+impl Add<usize> for MemoryValue {
+    type Output = Result<Self, MemoryError>;
 
     fn add(self, rhs: usize) -> Self::Output {
         match self {
@@ -96,29 +81,20 @@ where
     }
 }
 
-impl<F> From<MemoryAddress> for MemoryValue<F>
-where
-    F: PrimeField64,
-{
+impl From<MemoryAddress> for MemoryValue {
     fn from(addr: MemoryAddress) -> Self {
         Self::Address(addr)
     }
 }
 
-impl<F> From<F> for MemoryValue<F>
-where
-    F: PrimeField64,
-{
+impl From<F> for MemoryValue {
     fn from(f: F) -> Self {
         Self::Int(f)
     }
 }
 
 #[cfg(test)]
-impl<F> Arbitrary for MemoryValue<F>
-where
-    F: p3_field::PrimeField64,
-{
+impl Arbitrary for MemoryValue {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
@@ -135,13 +111,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
     use crate::errors::math::MathError;
-
-    type F = BabyBear;
 
     #[test]
     fn test_to_f_ok() {
@@ -149,7 +122,7 @@ mod tests {
         let field_elem = F::from_u64(12345);
 
         // Wrap it in a MemoryValue::Int variant
-        let val: MemoryValue<F> = MemoryValue::Int(field_elem);
+        let val: MemoryValue = MemoryValue::Int(field_elem);
 
         // Call to_f()
         let result = val.to_f();
@@ -170,7 +143,7 @@ mod tests {
         };
 
         // Wrap it in a MemoryValue::Address variant
-        let val: MemoryValue<F> = MemoryValue::Address(addr);
+        let val: MemoryValue = MemoryValue::Address(addr);
 
         // Call to_f()
         let result = val.to_f();
@@ -245,8 +218,8 @@ mod tests {
         // Setup: Create two address values.
         let addr1 = MemoryAddress::new(1, 10);
         let addr2 = MemoryAddress::new(2, 20);
-        let val1 = MemoryValue::<F>::Address(addr1);
-        let val2 = MemoryValue::<F>::Address(addr2);
+        let val1 = MemoryValue::Address(addr1);
+        let val2 = MemoryValue::Address(addr2);
 
         // Action: Attempt to add the two addresses.
         let err = (val1 + val2).unwrap_err();
@@ -285,8 +258,8 @@ mod tests {
     #[test]
     fn test_mul_two_addresses_fails() {
         // Setup: Create two address values.
-        let val1 = MemoryValue::<F>::Address(MemoryAddress::new(1, 10));
-        let val2 = MemoryValue::<F>::Address(MemoryAddress::new(2, 20));
+        let val1 = MemoryValue::Address(MemoryAddress::new(1, 10));
+        let val2 = MemoryValue::Address(MemoryAddress::new(2, 20));
 
         // Action: Attempt to multiply them.
         let err = (val1 * val2).unwrap_err();

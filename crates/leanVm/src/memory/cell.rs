@@ -1,8 +1,9 @@
 use std::ops::{Deref, DerefMut};
 
-use p3_field::PrimeField64;
+use p3_field::{PrimeCharacteristicRing, PrimeField64};
 
 use super::{address::MemoryAddress, val::MemoryValue};
+use crate::constant::F;
 
 /// A memory cell used by the VM for storing 64-bit field elements with metadata.
 ///
@@ -63,19 +64,16 @@ impl MemoryCell {
         self.0 & Self::ACCESS_MASK == Self::ACCESS_MASK
     }
 
-    pub(crate) fn value<F>(self) -> Option<MemoryValue<F>>
+    pub(crate) fn value(self) -> Option<MemoryValue>
     where
-        MemoryValue<F>: From<Self>,
+        MemoryValue: From<Self>,
     {
         self.is_some().then(|| self.into())
     }
 }
 
-impl<F> From<MemoryValue<F>> for MemoryCell
-where
-    F: PrimeField64,
-{
-    fn from(value: MemoryValue<F>) -> Self {
+impl From<MemoryValue> for MemoryCell {
+    fn from(value: MemoryValue) -> Self {
         match value {
             // If it's an integer, store its u64 representation.
             // The ADDRESS_MASK bit will be 0 by default.
@@ -101,10 +99,7 @@ where
     }
 }
 
-impl<F> From<MemoryCell> for MemoryValue<F>
-where
-    F: PrimeField64,
-{
+impl From<MemoryCell> for MemoryValue {
     fn from(cell: MemoryCell) -> Self {
         // Check the address flag to determine the type of value.
         if (cell.0 & MemoryCell::ADDRESS_MASK) == MemoryCell::ADDRESS_MASK {
@@ -127,13 +122,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
     use proptest::prelude::*;
 
     use super::*;
-
-    type F = BabyBear;
 
     #[test]
     fn test_is_none_and_is_some() {
@@ -143,18 +135,18 @@ mod tests {
         assert!(!none_cell.is_some());
 
         // A cell with a value (even zero) should be some.
-        let some_cell = MemoryCell::from(MemoryValue::<F>::Int(F::from_u64(42)));
+        let some_cell = MemoryCell::from(MemoryValue::Int(F::from_u64(42)));
         assert!(!some_cell.is_none());
         assert!(some_cell.is_some());
 
-        let zero_cell = MemoryCell::from(MemoryValue::<F>::Int(F::ZERO));
+        let zero_cell = MemoryCell::from(MemoryValue::Int(F::ZERO));
         assert!(!zero_cell.is_none());
         assert!(zero_cell.is_some());
     }
 
     #[test]
     fn test_mark_and_check_accessed() {
-        let mut cell = MemoryCell::from(MemoryValue::<F>::Int(F::from_u64(99)));
+        let mut cell = MemoryCell::from(MemoryValue::Int(F::from_u64(99)));
 
         // Initially not accessed.
         assert!(!cell.is_accessed());
@@ -182,7 +174,7 @@ mod tests {
         assert_eq!(none_cell.0, MemoryCell::NONE_MASK | MemoryCell::ACCESS_MASK);
 
         // Mark an ADDRESS cell as accessed
-        let mut addr_cell = MemoryCell::from(MemoryValue::<F>::Address(MemoryAddress {
+        let mut addr_cell = MemoryCell::from(MemoryValue::Address(MemoryAddress {
             segment_index: 1,
             offset: 2,
         }));
@@ -202,7 +194,7 @@ mod tests {
     fn test_value_method() {
         // Test on a NONE cell.
         let none_cell = MemoryCell::NONE;
-        assert_eq!(none_cell.value::<F>(), None);
+        assert_eq!(none_cell.value(), None);
 
         // Test on a valid integer cell.
         let int_val = MemoryValue::Int(F::from_u64(123));
@@ -210,7 +202,7 @@ mod tests {
         assert_eq!(int_cell.value(), Some(int_val));
 
         // Test on a valid address cell.
-        let addr_val = MemoryValue::<F>::Address(MemoryAddress {
+        let addr_val = MemoryValue::Address(MemoryAddress {
             segment_index: 5,
             offset: 10,
         });
@@ -228,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_conversion_from_address_value() {
-        let val = MemoryValue::<F>::Address(MemoryAddress {
+        let val = MemoryValue::Address(MemoryAddress {
             segment_index: 10,
             offset: 20,
         });
@@ -244,12 +236,12 @@ mod tests {
     fn test_conversion_to_int_value() {
         // Raw u64 for an integer.
         let int_cell = MemoryCell(42);
-        let val = MemoryValue::<F>::from(int_cell);
+        let val = MemoryValue::from(int_cell);
         assert_eq!(val, MemoryValue::Int(F::from_u64(42)));
 
         // An integer cell can also be marked accessed; the flag should be ignored.
         let accessed_int_cell = MemoryCell(42 | MemoryCell::ACCESS_MASK);
-        let accessed_val = MemoryValue::<F>::from(accessed_int_cell);
+        let accessed_val = MemoryValue::from(accessed_int_cell);
         assert_eq!(accessed_val, MemoryValue::Int(F::from_u64(42)));
     }
 
@@ -257,7 +249,7 @@ mod tests {
     fn test_conversion_to_address_value() {
         let raw_addr = (50u64 << 32) | 100u64 | MemoryCell::ADDRESS_MASK;
         let addr_cell = MemoryCell(raw_addr);
-        let val = MemoryValue::<F>::from(addr_cell);
+        let val = MemoryValue::from(addr_cell);
 
         let expected = MemoryValue::Address(MemoryAddress {
             segment_index: 50,
@@ -269,13 +261,13 @@ mod tests {
     proptest! {
         #[test]
         fn proptest_roundtrip_conversion(
-            val in any::<MemoryValue<F>>()
+            val in any::<MemoryValue>()
         ) {
             // Convert the generated MemoryValue to a MemoryCell.
             let cell = MemoryCell::from(val);
 
             // Convert the MemoryCell back to a MemoryValue.
-            let roundtrip_val = MemoryValue::<F>::from(cell);
+            let roundtrip_val = MemoryValue::from(cell);
 
             // Assert that the original and round-tripped values are identical.
             prop_assert_eq!(val, roundtrip_val);

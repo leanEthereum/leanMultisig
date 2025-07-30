@@ -1,4 +1,4 @@
-use p3_field::PrimeField64;
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
 use p3_symmetric::Permutation;
 
 use crate::{
@@ -7,12 +7,11 @@ use crate::{
         operand::{MemOrConstant, MemOrFp, MemOrFpOrConstant},
         operation::Operation,
     },
+    constant::{DIMENSION, F},
     context::run_context::RunContext,
     errors::{math::MathError, memory::MemoryError, vm::VirtualMachineError},
     memory::{address::MemoryAddress, manager::MemoryManager, val::MemoryValue},
 };
-
-const DIMENSION: usize = 8;
 
 #[derive(Debug)]
 pub struct VirtualMachine<PERM16, PERM24> {
@@ -45,10 +44,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     /// 2.  If this value is **zero**, the program continues sequentially, and the **`pc`** is incremented by 1.
     /// 3.  If the value is **non-zero**, a jump is executed. The `dest` operand is resolved to find the
     ///     target `MemoryAddress`, which then becomes the new **`pc`**.
-    pub fn update_pc<F>(
-        &mut self,
-        instruction: &Instruction<F>,
-    ) -> Result<(), VirtualMachineError<F>>
+    pub fn update_pc(&mut self, instruction: &Instruction) -> Result<(), VirtualMachineError>
     where
         F: PrimeField64,
     {
@@ -93,10 +89,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     }
 
     /// Updates the frame pointer (`fp`) based on the executed instruction.
-    pub fn update_fp<F>(
-        &mut self,
-        instruction: &Instruction<F>,
-    ) -> Result<(), VirtualMachineError<F>>
+    pub fn update_fp(&mut self, instruction: &Instruction) -> Result<(), VirtualMachineError>
     where
         F: PrimeField64,
     {
@@ -127,10 +120,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     }
 
     /// Updates the program counter and frame pointer based on the executed instruction.
-    fn update_registers<F>(
-        &mut self,
-        instruction: &Instruction<F>,
-    ) -> Result<(), VirtualMachineError<F>>
+    fn update_registers(&mut self, instruction: &Instruction) -> Result<(), VirtualMachineError>
     where
         F: PrimeField64,
     {
@@ -154,12 +144,8 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     /// 2.  **Register Update:** If the execution phase completes successfully, this function then
     ///     calls `update_registers` to advance the program counter (`pc`) and frame pointer (`fp`)
     ///     to prepare for the next instruction.
-    pub fn run_instruction<F>(
-        &mut self,
-        instruction: &Instruction<F>,
-    ) -> Result<(), VirtualMachineError<F>>
+    pub fn run_instruction(&mut self, instruction: &Instruction) -> Result<(), VirtualMachineError>
     where
-        F: PrimeField64,
         PERM16: Permutation<[F; DIMENSION * 2]>,
     {
         // Dispatch to the appropriate execution logic based on the instruction type.
@@ -208,16 +194,13 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     ///     two and writes it to memory.
     /// 2.  **Assertion:** If all three operands are already known, the function computes `arg_a op arg_b`
     ///     and asserts that it equals the value of `res`.
-    fn execute_computation<F>(
+    fn execute_computation(
         &mut self,
         operation: &Operation,
-        arg_a: &MemOrConstant<F>,
+        arg_a: &MemOrConstant,
         arg_b: &MemOrFp,
-        res: &MemOrConstant<F>,
-    ) -> Result<(), VirtualMachineError<F>>
-    where
-        F: PrimeField64,
-    {
+        res: &MemOrConstant,
+    ) -> Result<(), VirtualMachineError> {
         let memory_manager = &self.memory_manager;
         let run_ctx = &self.run_context;
 
@@ -273,15 +256,12 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     ///     written to the final dereferenced address. The underlying memory model
     ///     ensures this write is consistent, effectively asserting that
     ///     `m[m[...]]` must equal the known `res` value.
-    fn execute_deref<F>(
+    fn execute_deref(
         &mut self,
         shift_0: usize,
         shift_1: usize,
-        res: &MemOrFpOrConstant<F>,
-    ) -> Result<(), VirtualMachineError<F>>
-    where
-        F: PrimeField64,
-    {
+        res: &MemOrFpOrConstant,
+    ) -> Result<(), VirtualMachineError> {
         // Resolve the `res` operand first to determine which execution path to take.
         //
         // This will either be
@@ -339,16 +319,15 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     /// frame pointer (`fp`).
     ///
     /// The operation is: `Poseidon2(m_vec[ptr_0], m_vec[ptr_1]) -> (m_vec[ptr_2], m_vec[ptr_3])`
-    fn execute_poseidon2_16<F>(&mut self, shift: usize) -> Result<(), VirtualMachineError<F>>
+    fn execute_poseidon2_16(&mut self, shift: usize) -> Result<(), VirtualMachineError>
     where
-        F: PrimeField64,
         PERM16: Permutation<[F; 2 * DIMENSION]>,
     {
         // Read Pointers from Memory
         //
         // The instruction specifies 4 consecutive pointers starting at `fp + shift`.
         let base_ptr_addr = self.run_context.fp.add_usize(shift)?;
-        let ptrs: [MemoryValue<F>; 4] = self.memory_manager.get_array(base_ptr_addr)?;
+        let ptrs: [MemoryValue; 4] = self.memory_manager.get_array(base_ptr_addr)?;
 
         // Convert the `MemoryValue` pointers to `MemoryAddress`.
         let ptr_arg_0: MemoryAddress = ptrs[0].try_into()?;
@@ -359,8 +338,8 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         // Read Input Vectors
         //
         // Read the 8-element vectors from the locations pointed to by `ptr_arg_0` and `ptr_arg_1`.
-        let arg0: [MemoryValue<F>; DIMENSION] = self.memory_manager.get_array(ptr_arg_0)?;
-        let arg1: [MemoryValue<F>; DIMENSION] = self.memory_manager.get_array(ptr_arg_1)?;
+        let arg0: [MemoryValue; DIMENSION] = self.memory_manager.get_array(ptr_arg_0)?;
+        let arg1: [MemoryValue; DIMENSION] = self.memory_manager.get_array(ptr_arg_1)?;
 
         // Perform Hashing
         //
@@ -391,18 +370,12 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         Ok(())
     }
 
-    fn execute_poseidon2_24<F>(&self, _shift: usize) -> Result<(), VirtualMachineError<F>>
-    where
-        F: PrimeField64,
-    {
+    fn execute_poseidon2_24(&self, _shift: usize) -> Result<(), VirtualMachineError> {
         // TODO: implement this instruction.
         Ok(())
     }
 
-    fn execute_extension_mul<F>(&self, _args: [usize; 3]) -> Result<(), VirtualMachineError<F>>
-    where
-        F: PrimeField64,
-    {
+    fn execute_extension_mul(&self, _args: [usize; 3]) -> Result<(), VirtualMachineError> {
         // TODO: implement this instruction.
         Ok(())
     }
@@ -410,7 +383,6 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
     use p3_koala_bear::Poseidon2KoalaBear;
     use rand::{SeedableRng, rngs::StdRng};
@@ -421,7 +393,6 @@ mod tests {
         memory::{address::MemoryAddress, val::MemoryValue},
     };
 
-    type F = BabyBear;
     type Poseidon16 = Poseidon2KoalaBear<16>;
     type Poseidon24 = Poseidon2KoalaBear<24>;
 
@@ -435,7 +406,7 @@ mod tests {
     fn setup_vm(
         pc: MemoryAddress,
         fp: MemoryAddress,
-        initial_memory: &[(MemoryAddress, MemoryValue<F>)],
+        initial_memory: &[(MemoryAddress, MemoryValue)],
     ) -> VirtualMachine<Poseidon16, Poseidon24> {
         let poseidon_16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
         let poseidon_24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
@@ -463,7 +434,7 @@ mod tests {
         // Setup: Initialize a VM with the PC at (0, 5).
         let mut vm = setup_vm(MemoryAddress::new(0, 5), MemoryAddress::new(1, 0), &[]);
         // Define a non-jump instruction (e.g., a computation).
-        let instruction = Instruction::Computation::<F> {
+        let instruction = Instruction::Computation {
             operation: Operation::Add,
             arg_a: MemOrConstant::Constant(F::ONE),
             arg_b: MemOrFp::Fp,
@@ -484,10 +455,10 @@ mod tests {
         let mut vm = setup_vm(
             pc,
             fp,
-            &[(fp.add_usize::<F>(1).unwrap(), MemoryValue::Int(F::ZERO))],
+            &[(fp.add_usize(1).unwrap(), MemoryValue::Int(F::ZERO))],
         );
         // Define a JNZ instruction where the condition points to the zero value.
-        let instruction = Instruction::JumpIfNotZero::<F> {
+        let instruction = Instruction::JumpIfNotZero {
             condition: MemOrConstant::MemoryAfterFp { shift: 1 },
             dest: MemOrConstant::Constant(F::from_u64(99)), // This destination should be ignored.
             updated_fp: MemOrFp::Fp,
@@ -511,19 +482,13 @@ mod tests {
             fp,
             &[
                 // The condition value (non-zero).
-                (
-                    fp.add_usize::<F>(1).unwrap(),
-                    MemoryValue::Int(F::from_u64(42)),
-                ),
+                (fp.add_usize(1).unwrap(), MemoryValue::Int(F::from_u64(42))),
                 // The destination address for the jump.
-                (
-                    fp.add_usize::<F>(2).unwrap(),
-                    MemoryValue::Address(jump_target),
-                ),
+                (fp.add_usize(2).unwrap(), MemoryValue::Address(jump_target)),
             ],
         );
         // Define a JNZ instruction pointing to the condition and destination.
-        let instruction = Instruction::JumpIfNotZero::<F> {
+        let instruction = Instruction::JumpIfNotZero {
             condition: MemOrConstant::MemoryAfterFp { shift: 1 },
             dest: MemOrConstant::MemoryAfterFp { shift: 2 },
             updated_fp: MemOrFp::Fp,
@@ -544,12 +509,12 @@ mod tests {
             pc,
             fp,
             &[(
-                fp.add_usize::<F>(1).unwrap(),
+                fp.add_usize(1).unwrap(),
                 MemoryValue::Address(MemoryAddress::new(8, 8)),
             )],
         );
         // Define a JNZ instruction where the condition points to the address.
-        let instruction = Instruction::JumpIfNotZero::<F> {
+        let instruction = Instruction::JumpIfNotZero {
             condition: MemOrConstant::MemoryAfterFp { shift: 1 },
             dest: MemOrConstant::Constant(F::ONE),
             updated_fp: MemOrFp::Fp,
@@ -569,7 +534,7 @@ mod tests {
         let fp = MemoryAddress::new(1, 5);
         let mut vm = setup_vm(MemoryAddress::new(0, 0), fp, &[]);
         // Define a JNZ instruction that specifies the FP should not change (`MemOrFp::Fp`).
-        let instruction = Instruction::JumpIfNotZero::<F> {
+        let instruction = Instruction::JumpIfNotZero {
             condition: MemOrConstant::Constant(F::ONE),
             dest: MemOrConstant::Constant(F::ONE),
             updated_fp: MemOrFp::Fp,
@@ -589,10 +554,10 @@ mod tests {
         let mut vm = setup_vm(
             MemoryAddress::new(0, 0),
             fp,
-            &[(fp.add_usize::<F>(3).unwrap(), MemoryValue::Address(new_fp))],
+            &[(fp.add_usize(3).unwrap(), MemoryValue::Address(new_fp))],
         );
         // Define a JNZ instruction where `updated_fp` points to the new address in memory.
-        let instruction = Instruction::JumpIfNotZero::<F> {
+        let instruction = Instruction::JumpIfNotZero {
             condition: MemOrConstant::Constant(F::ONE),
             dest: MemOrConstant::Constant(F::ONE),
             updated_fp: MemOrFp::MemoryAfterFp { shift: 3 },
@@ -611,13 +576,10 @@ mod tests {
         let mut vm = setup_vm(
             MemoryAddress::new(0, 0),
             fp,
-            &[(
-                fp.add_usize::<F>(3).unwrap(),
-                MemoryValue::Int(F::from_u64(99)),
-            )],
+            &[(fp.add_usize(3).unwrap(), MemoryValue::Int(F::from_u64(99)))],
         );
         // Define a JNZ instruction where `updated_fp` points to this integer value.
-        let instruction = Instruction::JumpIfNotZero::<F> {
+        let instruction = Instruction::JumpIfNotZero {
             condition: MemOrConstant::Constant(F::ONE),
             dest: MemOrConstant::Constant(F::ONE),
             updated_fp: MemOrFp::MemoryAfterFp { shift: 3 },

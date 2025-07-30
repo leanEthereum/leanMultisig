@@ -1,28 +1,24 @@
 use std::fmt::Debug;
 
-use p3_field::PrimeField64;
 use thiserror::Error;
 
 use super::{math::MathError, memory::MemoryError};
 use crate::memory::val::MemoryValue;
 
 #[derive(Debug, Error)]
-pub enum VirtualMachineError<F>
-where
-    F: PrimeField64,
-{
+pub enum VirtualMachineError {
     #[error(transparent)]
-    Memory(#[from] MemoryError<F>),
+    Memory(#[from] MemoryError),
     #[error(transparent)]
-    Math(#[from] MathError<F>),
+    Math(#[from] MathError),
     #[error(
         "Assertion failed: computed value '{:?}' != expected value '{:?}'.",
         computed,
         expected
     )]
     AssertEqFailed {
-        computed: MemoryValue<F>,
-        expected: MemoryValue<F>,
+        computed: MemoryValue,
+        expected: MemoryValue,
     },
     #[error("Too many unknown operands.")]
     TooManyUnknownOperands,

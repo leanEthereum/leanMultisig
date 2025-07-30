@@ -1,16 +1,12 @@
 use std::fmt::Debug;
 
-use p3_field::PrimeField64;
 use thiserror::Error;
 
 use super::math::MathError;
 use crate::memory::{address::MemoryAddress, val::MemoryValue};
 
 #[derive(Debug, Eq, PartialEq, Error)]
-pub enum MemoryError<F>
-where
-    F: PrimeField64,
-{
+pub enum MemoryError {
     /// Error for when an operation targets a memory segment that has not been allocated.
     #[error(
         "Memory access out of bounds: cannot access segment {}, as only {} segments are allocated.",
@@ -26,7 +22,7 @@ where
         0.1,
         0.2
     )]
-    InconsistentMemory(Box<(MemoryAddress, MemoryValue<F>, MemoryValue<F>)>),
+    InconsistentMemory(Box<(MemoryAddress, MemoryValue, MemoryValue)>),
 
     /// Error for when a memory operation would exceed the maximum capacity of a segment vector.
     #[error(
@@ -36,7 +32,7 @@ where
 
     /// Error related to mathematical operations.
     #[error(transparent)]
-    Math(#[from] MathError<F>),
+    Math(#[from] MathError),
 
     /// Error when a memory value is expected to be an integer, but it is an address to another memory location.
     #[error("Memory value should be an integer.")]
@@ -55,5 +51,5 @@ where
     MemoryAddressAdd(Box<(MemoryAddress, MemoryAddress)>),
 
     #[error("Operation failed: {} * {}, can't multiply these two values", 0.0, 0.1)]
-    InvalidMul(Box<(MemoryValue<F>, MemoryValue<F>)>),
+    InvalidMul(Box<(MemoryValue, MemoryValue)>),
 }

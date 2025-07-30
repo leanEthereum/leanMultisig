@@ -8,7 +8,7 @@ use super::{
 /// The ISA is minimal and includes basic arithmetic, memory operations, control flow,
 /// and powerful precompiles for hashing and extension field arithmetic.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Instruction<F> {
+pub enum Instruction {
     /// Performs a basic arithmetic computation: `res = arg_a op arg_b`.
     ///
     /// This corresponds to the `ADD` and `MUL` opcodes in the design document.
@@ -16,11 +16,11 @@ pub enum Instruction<F> {
         /// The arithmetic operation to perform (`Add` or `Mul`).
         operation: Operation,
         /// The first operand of the computation.
-        arg_a: MemOrConstant<F>,
+        arg_a: MemOrConstant,
         /// The second operand of the computation.
         arg_b: MemOrFp,
         /// The memory location or constant that the result must be equal to.
-        res: MemOrConstant<F>,
+        res: MemOrConstant,
     },
     /// Performs a memory dereference: `res = m[m[fp + shift_0] + shift_1]`.
     ///
@@ -31,16 +31,16 @@ pub enum Instruction<F> {
         /// The offset added to the pointer from the first access to get the final address.
         shift_1: usize,
         /// The value that the result of the double dereference must be equal to.
-        res: MemOrFpOrConstant<F>,
+        res: MemOrFpOrConstant,
     },
     /// A conditional jump, called `JUZ` (Jump Unless Zero).
     ///
     /// Changes the `pc` if `condition` is non-zero.
     JumpIfNotZero {
         /// The value to check. The jump is taken if this value is not zero.
-        condition: MemOrConstant<F>,
+        condition: MemOrConstant,
         /// The destination `pc` for the jump.
-        dest: MemOrConstant<F>,
+        dest: MemOrConstant,
         /// The new value for the frame pointer (`fp`) after the instruction.
         updated_fp: MemOrFp,
     },

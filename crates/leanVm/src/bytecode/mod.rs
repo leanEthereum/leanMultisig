@@ -10,11 +10,11 @@ pub mod operation;
 
 /// Represents the compiled bytecode of a program for the zkVM.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Bytecode<F> {
+pub struct Bytecode {
     /// A vector of instructions that form the executable part of the program.
     ///
     /// The Program Counter (pc) iterates over this vector.
-    pub instructions: Vec<Instruction<F>>,
+    pub instructions: Vec<Instruction>,
 
     /// A map from a program counter (pc) value to a list of `Hint`s.
     ///
@@ -22,7 +22,7 @@ pub struct Bytecode<F> {
     ///
     /// In this zkVM, they are crucial for managing memory allocations in the absence
     /// of an `ap` register.
-    pub hints: BTreeMap<usize, Vec<Hint<F>>>,
+    pub hints: BTreeMap<usize, Vec<Hint>>,
 
     /// The memory offset from the frame pointer (fp) where the public input for the program begins.
     pub public_input_start: usize,

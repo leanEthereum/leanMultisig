@@ -1,5 +1,3 @@
-use p3_field::PrimeField64;
-
 use crate::{
     bytecode::operand::{MemOrConstant, MemOrFp, MemOrFpOrConstant},
     errors::{memory::MemoryError, vm::VirtualMachineError},
@@ -36,14 +34,11 @@ impl RunContext {
     ///
     /// - If the operand is a constant, it returns the constant.
     /// - If it's a memory location, it computes the address relative to `fp` and fetches the value from memory.
-    pub fn value_from_mem_or_constant<F>(
+    pub fn value_from_mem_or_constant(
         &self,
-        operand: &MemOrConstant<F>,
+        operand: &MemOrConstant,
         memory: &MemoryManager,
-    ) -> Result<MemoryValue<F>, MemoryError<F>>
-    where
-        F: PrimeField64,
-    {
+    ) -> Result<MemoryValue, MemoryError> {
         match operand {
             MemOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
             MemOrConstant::MemoryAfterFp { shift } => {
@@ -59,14 +54,11 @@ impl RunContext {
     ///
     /// - If the operand is the frame pointer `Fp`, it returns the `fp` address itself.
     /// - If it's a memory location, it computes the address relative to `fp` and fetches the value.
-    pub fn value_from_mem_or_fp<F>(
+    pub fn value_from_mem_or_fp(
         &self,
         operand: &MemOrFp,
         memory: &MemoryManager,
-    ) -> Result<MemoryValue<F>, MemoryError<F>>
-    where
-        F: PrimeField64,
-    {
+    ) -> Result<MemoryValue, MemoryError> {
         match operand {
             MemOrFp::Fp => Ok(MemoryValue::Address(self.fp)),
             MemOrFp::MemoryAfterFp { shift } => {
@@ -84,14 +76,11 @@ impl RunContext {
     /// - a constant value,
     /// - a memory location relative to `fp`,
     /// - the `fp` register itself.
-    pub fn value_from_mem_or_fp_or_constant<F>(
+    pub fn value_from_mem_or_fp_or_constant(
         &self,
-        operand: &MemOrFpOrConstant<F>,
+        operand: &MemOrFpOrConstant,
         memory: &MemoryManager,
-    ) -> Result<MemoryValue<F>, VirtualMachineError<F>>
-    where
-        F: PrimeField64,
-    {
+    ) -> Result<MemoryValue, VirtualMachineError> {
         match operand {
             MemOrFpOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
             MemOrFpOrConstant::Fp => Ok(MemoryValue::Address(self.fp)),
@@ -107,12 +96,10 @@ impl RunContext {
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
-
-    type F = BabyBear;
+    use crate::constant::F;
 
     #[test]
     fn test_get_value_constant() {
@@ -183,7 +170,7 @@ mod tests {
         // We won't insert anything, so all memory is uninitialized.
 
         // Shift = 1 → fp + 1 points to offset 1 (which is uninitialized).
-        let operand: MemOrConstant<F> = MemOrConstant::MemoryAfterFp { shift: 1 };
+        let operand: MemOrConstant = MemOrConstant::MemoryAfterFp { shift: 1 };
 
         // Set up context.
         let ctx = RunContext::new(
@@ -223,7 +210,7 @@ mod tests {
     fn test_get_value_from_mem_or_fp_or_constant_is_fp() {
         let fp_addr = MemoryAddress::new(1, 10);
         let ctx = RunContext::new(MemoryAddress::new(0, 0), fp_addr);
-        let operand = MemOrFpOrConstant::<F>::Fp;
+        let operand = MemOrFpOrConstant::Fp;
         let memory = MemoryManager::default();
         let result = ctx
             .value_from_mem_or_fp_or_constant(&operand, &memory)
@@ -235,8 +222,8 @@ mod tests {
     fn test_get_value_from_mem_or_fp_or_constant_is_mem_success() {
         let mut memory = MemoryManager::default();
         let fp = memory.add();
-        let addr_to_read = fp.add_usize::<F>(7).unwrap();
-        let expected_val = MemoryValue::<F>::Address(MemoryAddress::new(5, 5));
+        let addr_to_read = fp.add_usize(7).unwrap();
+        let expected_val = MemoryValue::Address(MemoryAddress::new(5, 5));
         memory.memory.insert(addr_to_read, expected_val).unwrap();
 
         let ctx = RunContext::new(MemoryAddress::new(0, 0), fp);

@@ -1,7 +1,5 @@
 use std::mem::MaybeUninit;
 
-use p3_field::PrimeField64;
-
 use super::{address::MemoryAddress, cell::MemoryCell, val::MemoryValue};
 use crate::errors::memory::MemoryError;
 
@@ -18,13 +16,13 @@ impl Memory {
     /// once written, cannot be altered.
     ///
     /// # Type Parameters
-    /// * `V`: A generic type that can be converted into a `MemoryValue<F>`. This allows for flexible
+    /// * `V`: A generic type that can be converted into a `MemoryValue`. This allows for flexible
     ///   insertion of different kinds of values (e.g., raw field elements, addresses).
     /// * `F`: The `PrimeField64` type used for integer values in memory.
     ///
     /// # Arguments
     /// * `address`: The `MemoryAddress` where the value should be stored.
-    /// * `value`: The value to insert, which will be converted into a `MemoryValue<F>`.
+    /// * `value`: The value to insert, which will be converted into a `MemoryValue`.
     ///
     /// # Returns
     /// * `Ok(())` on successful insertion.
@@ -32,10 +30,9 @@ impl Memory {
     ///   - The `address.segment_index` points to a segment that has not been allocated.
     ///   - The cell at the `address` already contains a different value.
     ///   - The operation would cause the memory segment to exceed its maximum capacity.
-    pub fn insert<V, F>(&mut self, address: MemoryAddress, value: V) -> Result<(), MemoryError<F>>
+    pub fn insert<V>(&mut self, address: MemoryAddress, value: V) -> Result<(), MemoryError>
     where
-        F: PrimeField64,
-        MemoryValue<F>: From<V>,
+        MemoryValue: From<V>,
     {
         // Convert the input `value` into the canonical `MemoryValue` enum.
         let value = MemoryValue::from(value);
@@ -105,14 +102,11 @@ impl Memory {
     /// * `address`: The `MemoryAddress` specifying the location to read from.
     ///
     /// # Returns
-    /// An `Option<MemoryValue<F>>` containing the value if found. This will be:
-    /// - `Some(MemoryValue<F>)` if the address is valid and the cell is initialized.
+    /// An `Option<MemoryValue>` containing the value if found. This will be:
+    /// - `Some(MemoryValue)` if the address is valid and the cell is initialized.
     /// - `None` if the segment index is out of bounds, the offset is out of bounds
     ///   for the given segment, or the memory cell at the address is uninitialized (`NONE`).
-    pub(crate) fn get<F>(&self, address: MemoryAddress) -> Option<MemoryValue<F>>
-    where
-        F: PrimeField64,
-    {
+    pub(crate) fn get(&self, address: MemoryAddress) -> Option<MemoryValue> {
         let MemoryAddress {
             segment_index,
             offset,
@@ -133,16 +127,15 @@ impl Memory {
     ///
     /// # Arguments
     /// * `address`: The `MemoryAddress` specifying the location of the cell to retrieve.
-    pub(crate) fn get_as<F, V>(&self, address: MemoryAddress) -> Result<Option<V>, MemoryError<F>>
+    pub(crate) fn get_as<V>(&self, address: MemoryAddress) -> Result<Option<V>, MemoryError>
     where
-        F: PrimeField64,
-        V: TryFrom<MemoryValue<F>, Error = MemoryError<F>>,
+        V: TryFrom<MemoryValue, Error = MemoryError>,
     {
         // Attempt to retrieve the raw memory value at the given address.
         match self.get(address) {
             // If the address is valid and contains a value:
             Some(value) => {
-                // Attempt to convert the `MemoryValue<F>` into the desired type `V`.
+                // Attempt to convert the `MemoryValue` into the desired type `V`.
                 //
                 // If conversion fails, the error will be propagated.
                 let converted = V::try_from(value)?;
@@ -163,13 +156,10 @@ impl Memory {
     ///
     /// # Arguments
     /// * `start_address`: The `MemoryAddress` of the first element of the vector.
-    pub(crate) fn get_array<F, const DIM: usize>(
+    pub(crate) fn get_array<const DIM: usize>(
         &self,
         start_address: MemoryAddress,
-    ) -> Result<[MemoryValue<F>; DIM], MemoryError<F>>
-    where
-        F: PrimeField64,
-    {
+    ) -> Result<[MemoryValue; DIM], MemoryError> {
         // Initialize an array to store the result.
         let mut result = [MemoryValue::default(); DIM];
 
@@ -194,14 +184,13 @@ impl Memory {
     /// Retrieves and converts a fixed-size array of memory values starting from a given address.
     ///
     /// This method reads `DIM` consecutive memory cells starting from `start_address`,
-    /// attempts to convert each `MemoryValue<F>` into type `V`, and returns them as an array.
-    pub(crate) fn get_array_as<F, V, const DIM: usize>(
+    /// attempts to convert each `MemoryValue` into type `V`, and returns them as an array.
+    pub(crate) fn get_array_as<V, const DIM: usize>(
         &self,
         start_address: MemoryAddress,
-    ) -> Result<[V; DIM], MemoryError<F>>
+    ) -> Result<[V; DIM], MemoryError>
     where
-        F: PrimeField64,
-        V: TryFrom<MemoryValue<F>, Error = MemoryError<F>>,
+        V: TryFrom<MemoryValue, Error = MemoryError>,
     {
         // Initialize an array to store the result.
         let mut out: [MaybeUninit<V>; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
@@ -227,12 +216,10 @@ impl Memory {
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
-
-    type F = BabyBear;
+    use crate::constant::F;
 
     /// Helper function to create a Memory instance with a specified number of empty segments.
     fn create_memory_with_segments(num_segments: usize) -> Memory {
@@ -250,7 +237,7 @@ mod tests {
             segment_index: 0,
             offset: 0,
         };
-        let val = MemoryValue::<F>::Int(F::from_u64(100));
+        let val = MemoryValue::Int(F::from_u64(100));
 
         assert!(memory.insert(addr, val).is_ok());
         assert_eq!(memory.get(addr), Some(val));
@@ -263,7 +250,7 @@ mod tests {
             segment_index: 0,
             offset: 5,
         };
-        let val = MemoryValue::<F>::Int(F::from_u64(200));
+        let val = MemoryValue::Int(F::from_u64(200));
 
         assert!(memory.insert(addr, val).is_ok());
 
@@ -275,7 +262,7 @@ mod tests {
         // Verify the inserted value and a value in the gap.
         assert_eq!(memory.get(addr), Some(val));
         assert_eq!(
-            memory.get::<F>(MemoryAddress {
+            memory.get(MemoryAddress {
                 segment_index: 0,
                 offset: 3
             }),
@@ -290,7 +277,7 @@ mod tests {
             segment_index: 0,
             offset: 2,
         };
-        let val = MemoryValue::<F>::Int(F::from_u64(300));
+        let val = MemoryValue::Int(F::from_u64(300));
 
         // First insert should succeed.
         assert!(memory.insert(addr, val).is_ok());
@@ -307,7 +294,7 @@ mod tests {
             segment_index: 1,
             offset: 0,
         };
-        let val = MemoryValue::<F>::Int(F::from_u64(400));
+        let val = MemoryValue::Int(F::from_u64(400));
 
         let err = memory.insert(addr, val).unwrap_err();
         assert_eq!(err, MemoryError::UnallocatedSegment(Box::new((1, 0))));
@@ -320,8 +307,8 @@ mod tests {
             segment_index: 0,
             offset: 0,
         };
-        let val1 = MemoryValue::<F>::Int(F::from_u64(500));
-        let val2 = MemoryValue::<F>::Int(F::from_u64(600));
+        let val1 = MemoryValue::Int(F::from_u64(500));
+        let val2 = MemoryValue::Int(F::from_u64(600));
 
         // First write is OK.
         memory.insert(addr, val1).unwrap();
@@ -345,7 +332,7 @@ mod tests {
             segment_index: 1,
             offset: 10,
         };
-        let val = MemoryValue::<F>::Address(address_value);
+        let val = MemoryValue::Address(address_value);
 
         assert!(memory.insert(addr_to_insert_at, val).is_ok());
         assert_eq!(memory.get(addr_to_insert_at), Some(val));
@@ -358,7 +345,7 @@ mod tests {
             segment_index: 0,
             offset: 0,
         };
-        let val = MemoryValue::<F>::Int(F::from_u64(123));
+        let val = MemoryValue::Int(F::from_u64(123));
         memory.insert(addr, val).unwrap();
 
         assert_eq!(memory.get(addr), Some(val));
@@ -372,7 +359,7 @@ mod tests {
             offset: 0,
         }; // Segment 1 does not exist.
 
-        assert_eq!(memory.get::<F>(addr), None);
+        assert_eq!(memory.get(addr), None);
     }
 
     #[test]
@@ -383,7 +370,7 @@ mod tests {
             offset: 100,
         }; // Offset 100 is out of bounds.
 
-        assert_eq!(memory.get::<F>(addr), None);
+        assert_eq!(memory.get(addr), None);
     }
 
     #[test]
@@ -396,7 +383,7 @@ mod tests {
                     segment_index: 0,
                     offset: 5,
                 },
-                MemoryValue::<F>::Int(F::ONE),
+                MemoryValue::Int(F::ONE),
             )
             .unwrap();
 
@@ -404,7 +391,7 @@ mod tests {
             segment_index: 0,
             offset: 2,
         };
-        assert_eq!(memory.get::<F>(gap_addr), None);
+        assert_eq!(memory.get(gap_addr), None);
     }
 
     #[test]
@@ -427,12 +414,12 @@ mod tests {
         for (i, &val) in values_to_insert.iter().enumerate() {
             memory
                 // Calculate the address for the current item: `start_addr + i`.
-                .insert(start_addr.add_usize::<F>(i).unwrap(), val)
+                .insert(start_addr.add_usize(i).unwrap(), val)
                 .unwrap();
         }
 
         // Execute: Call `get_array` to retrieve the data.
-        let result: Result<[MemoryValue<F>; 3], _> = memory.get_array(start_addr);
+        let result: Result<[MemoryValue; 3], _> = memory.get_array(start_addr);
         // Verify: The retrieved array should be identical to the one we inserted.
         assert_eq!(result.unwrap(), values_to_insert);
     }
@@ -452,7 +439,7 @@ mod tests {
             .unwrap();
 
         // Execute: Attempt to read a 2-element array. This should fail on the second element.
-        let result: Result<[MemoryValue<F>; 2], _> = memory.get_array(start_addr);
+        let result: Result<[MemoryValue; 2], _> = memory.get_array(start_addr);
         // Verify: The operation should fail.
         assert!(result.is_err());
         // Verify: The error must be `UninitializedMemory` at the exact address of the missing element.

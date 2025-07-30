@@ -1,5 +1,3 @@
-use p3_field::PrimeField64;
-
 use super::{address::MemoryAddress, mem::Memory, val::MemoryValue};
 use crate::errors::memory::MemoryError;
 
@@ -60,19 +58,18 @@ impl MemoryManager {
     ///
     /// # Returns
     /// * `Ok(MemoryAddress)` — the address immediately following the last written value.
-    /// * `Err(MemoryError<F>)` — if writing fails due to:
+    /// * `Err(MemoryError)` — if writing fails due to:
     ///     - Memory cell already initialized with a different value.
     ///     - Overflow when computing addresses.
     ///     - Exceeding vector capacity.
-    pub fn load_data<F, V>(
+    pub fn load_data<V>(
         &mut self,
         ptr: MemoryAddress,
         data: &[V],
-    ) -> Result<MemoryAddress, MemoryError<F>>
+    ) -> Result<MemoryAddress, MemoryError>
     where
-        F: PrimeField64,
         V: Copy,
-        MemoryValue<F>: From<V>,
+        MemoryValue: From<V>,
     {
         // Iterate over the data values in reverse order, with indices.
         //
@@ -100,34 +97,25 @@ impl MemoryManager {
 
     /// Retrieves the value stored at a given memory address.
     #[must_use]
-    pub fn get<F>(&self, address: MemoryAddress) -> Option<MemoryValue<F>>
-    where
-        F: PrimeField64,
-    {
+    pub fn get(&self, address: MemoryAddress) -> Option<MemoryValue> {
         self.memory.get(address)
     }
 
     /// Retrieves an array of values stored from a given memory address.
-    pub fn get_array<F, const DIM: usize>(
+    pub fn get_array<const DIM: usize>(
         &self,
         start_address: MemoryAddress,
-    ) -> Result<[MemoryValue<F>; DIM], MemoryError<F>>
-    where
-        F: PrimeField64,
-    {
+    ) -> Result<[MemoryValue; DIM], MemoryError> {
         self.memory.get_array(start_address)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
-    use crate::{errors::math::MathError, memory::cell::MemoryCell};
-
-    type F = BabyBear;
+    use crate::{constant::F, errors::math::MathError, memory::cell::MemoryCell};
 
     #[test]
     fn test_add_segment_returns_correct_address() {

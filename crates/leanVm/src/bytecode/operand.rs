@@ -1,6 +1,8 @@
+use crate::constant::F;
+
 /// Represents a value that can either be a constant or a value from memory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MemOrConstant<F> {
+pub enum MemOrConstant {
     /// A constant value (a field element).
     Constant(F),
     /// A memory location specified by a positive offset from the frame pointer (`fp`).
@@ -14,7 +16,7 @@ pub enum MemOrConstant<F> {
 
 /// Represents a value that can be a memory location, the `fp` register itself, or a constant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MemOrFpOrConstant<F> {
+pub enum MemOrFpOrConstant {
     /// A memory location specified by a positive offset from `fp`. Represents `m[fp + shift]`.
     MemoryAfterFp {
         /// The offset from `fp` where the memory location is located.

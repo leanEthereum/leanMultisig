@@ -1,4 +1,6 @@
-use p3_field::PrimeField64;
+use p3_field::Field;
+
+use crate::constant::F;
 
 /// The basic arithmetic operations supported by the VM's `Computation` instruction.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -23,10 +25,8 @@ impl Operation {
     /// For example:
     /// - If `self` is `Add`, returns `a + b`.
     /// - If `self` is `Mul`, returns `a * b`.
-    pub fn compute<F>(&self, a: F, b: F) -> F
-    where
-        F: PrimeField64,
-    {
+    #[must_use]
+    pub fn compute(&self, a: F, b: F) -> F {
         match self {
             Self::Add => a + b,
             Self::Mul => a * b,
@@ -47,10 +47,8 @@ impl Operation {
     ///
     /// - `Some(a)` if the inverse exists.
     /// - `None` if the inverse does not exist (e.g., `b == 0` for `Mul`).
-    pub fn inverse_compute<F>(&self, a: F, b: F) -> Option<F>
-    where
-        F: PrimeField64,
-    {
+    #[must_use]
+    pub fn inverse_compute(&self, a: F, b: F) -> Option<F> {
         match self {
             Self::Add => Some(a - b),
             Self::Mul => (!b.is_zero()).then(|| a / b),
@@ -60,12 +58,9 @@ impl Operation {
 
 #[cfg(test)]
 mod tests {
-    use p3_baby_bear::BabyBear;
     use p3_field::PrimeCharacteristicRing;
 
     use super::*;
-
-    type F = BabyBear;
 
     #[test]
     fn test_compute_add() {
