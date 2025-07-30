@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
+use p3_field::{Field, PrimeField64};
 use p3_symmetric::Permutation;
 
 use crate::{
@@ -313,10 +313,12 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
 
     /// Executes the `Poseidon2_16` precompile instruction.
     ///
-    /// This function orchestrates a Poseidon2 permutation over 16 field elements,
-    /// as defined by the zkVM's ISA. It reads two 8-element input vectors and
-    /// writes two 8-element output vectors using pointers stored relative to the
-    /// frame pointer (`fp`).
+    /// Reads four pointers from memory starting at `fp + shift`, representing:
+    /// - two input vector addresses (`ptr_in_0`, `ptr_in_1`)
+    /// - two output vector addresses (`ptr_out_0`, `ptr_out_1`)
+    ///
+    /// Each input is an 8-element vector of `F`. The two inputs are concatenated,
+    /// permuted using Poseidon2, and written back to the output locations.
     ///
     /// The operation is: `Poseidon2(m_vec[ptr_0], m_vec[ptr_1]) -> (m_vec[ptr_2], m_vec[ptr_3])`
     fn execute_poseidon2_16(&mut self, shift: usize) -> Result<(), VirtualMachineError>
@@ -338,30 +340,30 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         // Read Input Vectors
         //
         // Read the 8-element vectors from the locations pointed to by `ptr_arg_0` and `ptr_arg_1`.
-        let arg0: [MemoryValue; DIMENSION] = self.memory_manager.get_array(ptr_arg_0)?;
-        let arg1: [MemoryValue; DIMENSION] = self.memory_manager.get_array(ptr_arg_1)?;
+        let arg0 = self
+            .memory_manager
+            .memory
+            .get_array_as::<F, DIMENSION>(ptr_arg_0)?;
+        let arg1 = self
+            .memory_manager
+            .memory
+            .get_array_as::<F, DIMENSION>(ptr_arg_1)?;
 
         // Perform Hashing
         //
         // Concatenate the two input vectors into a single 16-element array for the permutation.
-        let mut state = [MemoryValue::default(); DIMENSION * 2];
+        let mut state = [F::default(); DIMENSION * 2];
         state[..DIMENSION].copy_from_slice(&arg0);
         state[DIMENSION..].copy_from_slice(&arg1);
 
-        // Convert the state to an array of field
-        let mut state_f: [F; DIMENSION * 2] = [F::ZERO; DIMENSION * 2];
-        for i in 0..DIMENSION {
-            state_f[i] = state[i].try_into()?;
-        }
-
         // Apply the Poseidon2 permutation to the state.
-        self.poseidon2_16.permute_mut(&mut state_f);
+        self.poseidon2_16.permute_mut(&mut state);
 
         // Write Output Vectors
         //
         // Split the permuted state back into two 8-element output vectors.
-        let res0: [F; DIMENSION] = state_f[..DIMENSION].try_into().unwrap();
-        let res1: [F; DIMENSION] = state_f[DIMENSION..].try_into().unwrap();
+        let res0: [F; DIMENSION] = state[..DIMENSION].try_into().unwrap();
+        let res1: [F; DIMENSION] = state[DIMENSION..].try_into().unwrap();
 
         // Write the output vectors to the memory locations pointed to by `ptr_res_0` and `ptr_res_1`.
         self.memory_manager.load_data(ptr_res_0, &res0)?;
