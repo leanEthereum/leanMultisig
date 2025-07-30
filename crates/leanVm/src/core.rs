@@ -275,11 +275,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         let ptr_shift_0_addr = (self.run_context.fp + shift_0)?;
 
         // Read the pointer from memory. It must be a `MemoryAddress` type.
-        let ptr: MemoryAddress = self
-            .memory_manager
-            .get(ptr_shift_0_addr)
-            .ok_or(MemoryError::UninitializedMemory(ptr_shift_0_addr))?
-            .try_into()?;
+        let ptr: MemoryAddress = self.memory_manager.memory.get_as(ptr_shift_0_addr)?;
 
         // Calculate the final, second-level address: `ptr + shift_1`.
         let ptr_shift_1_addr = (ptr + shift_1)?;

@@ -125,26 +125,18 @@ impl Memory {
 
     /// Retrieves and converts the value stored at a given memory address into a desired type `V`.
     ///
+    /// Returns an error if the memory cell is uninitialized or if the conversion fails.
+    ///
     /// # Arguments
     /// * `address`: The `MemoryAddress` specifying the location of the cell to retrieve.
-    pub(crate) fn get_as<V>(&self, address: MemoryAddress) -> Result<Option<V>, MemoryError>
+    pub(crate) fn get_as<V>(&self, address: MemoryAddress) -> Result<V, MemoryError>
     where
         V: TryFrom<MemoryValue, Error = MemoryError>,
     {
-        // Attempt to retrieve the raw memory value at the given address.
-        match self.get(address) {
-            // If the address is valid and contains a value:
-            Some(value) => {
-                // Attempt to convert the `MemoryValue` into the desired type `V`.
-                //
-                // If conversion fails, the error will be propagated.
-                let converted = V::try_from(value)?;
-                // Return the successfully converted value wrapped in `Some`.
-                Ok(Some(converted))
-            }
-            // If the address is invalid or the cell is uninitialized, return `None`.
-            None => Ok(None),
-        }
+        // Retrieve the raw value and convert it to the desired type `V`.
+        self.get(address)
+            .ok_or(MemoryError::UninitializedMemory(address))
+            .and_then(V::try_from)
     }
 
     /// Retrieves a fixed-size array of field elements starting from a given address.
@@ -201,9 +193,7 @@ impl Memory {
             let addr = (start_address + i)?;
 
             // Attempt to retrieve the value from the memory and convert it into type `V`.
-            let v = self
-                .get_as(addr)?
-                .ok_or(MemoryError::UninitializedMemory(addr))?;
+            let v = self.get_as(addr)?;
 
             // SAFETY: The memory value has been successfully retrieved and converted.
             *o = MaybeUninit::new(v);
