@@ -146,7 +146,8 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     ///     to prepare for the next instruction.
     pub fn run_instruction(&mut self, instruction: &Instruction) -> Result<(), VirtualMachineError>
     where
-        PERM16: Permutation<[F; DIMENSION * 2]>,
+        PERM16: Permutation<[F; 2 * DIMENSION]>,
+        PERM24: Permutation<[F; 3 * DIMENSION]>,
     {
         // Dispatch to the appropriate execution logic based on the instruction type.
         match instruction {
@@ -310,8 +311,8 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     /// Executes the `Poseidon2_16` precompile instruction.
     ///
     /// Reads four pointers from memory starting at `fp + shift`, representing:
-    /// - two input vector addresses (`ptr_in_0`, `ptr_in_1`)
-    /// - two output vector addresses (`ptr_out_0`, `ptr_out_1`)
+    /// - two input vector addresses (`ptr_arg_0`, `ptr_arg_1`)
+    /// - two output vector addresses (`ptr_res_0`, `ptr_res_1`)
     ///
     /// Each input is an 8-element vector of `F`. The two inputs are concatenated,
     /// permuted using Poseidon2, and written back to the output locations.
@@ -328,10 +329,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         let ptrs: [MemoryAddress; 4] = self.memory_manager.memory.get_array_as(base_ptr_addr)?;
 
         // Convert the `MemoryValue` pointers to `MemoryAddress`.
-        let ptr_arg_0 = ptrs[0];
-        let ptr_arg_1 = ptrs[1];
-        let ptr_res_0 = ptrs[2];
-        let ptr_res_1 = ptrs[3];
+        let [ptr_arg_0, ptr_arg_1, ptr_res_0, ptr_res_1] = ptrs;
 
         // Read Input Vectors
         //
@@ -366,8 +364,65 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         Ok(())
     }
 
-    fn execute_poseidon2_24(&self, _shift: usize) -> Result<(), VirtualMachineError> {
-        // TODO: implement this instruction.
+    /// Executes the `Poseidon2_24` precompile instruction.
+    ///
+    /// Reads six pointers from memory starting at `fp + shift`, representing:
+    /// - three input vector addresses (`ptr_arg_0`, `ptr_arg_1`, `ptr_arg_2`)
+    /// - three output vector addresses (`ptr_res_0`, `ptr_res_1`, `ptr_res_2`)
+    ///
+    /// Each input is an 8-element vector of `F`. The three inputs are concatenated into
+    /// a single 24-element state, permuted using Poseidon2, and written back to the three
+    /// output locations as three 8-element vectors.
+    ///
+    /// The operation is:
+    /// `Poseidon2(m_vec[ptr_0], m_vec[ptr_1], m_vec[ptr_2]) -> (m_vec[ptr_3], m_vec[ptr_4], m_vec[ptr_5])`
+    fn execute_poseidon2_24(&mut self, shift: usize) -> Result<(), VirtualMachineError>
+    where
+        PERM24: Permutation<[F; 3 * DIMENSION]>,
+    {
+        // Load 6 pointers from memory at `fp + shift`.
+        let ptr_addr = (self.run_context.fp + shift)?;
+        let ptrs: [MemoryAddress; 6] = self.memory_manager.memory.get_array_as(ptr_addr)?;
+
+        // Destructure input and output vector pointers.
+        let [
+            ptr_arg_0,
+            ptr_arg_1,
+            ptr_arg_2,
+            ptr_res_0,
+            ptr_res_1,
+            ptr_res_2,
+        ] = ptrs;
+
+        // Load input vectors of length DIMENSION from memory.
+        let in0 = self
+            .memory_manager
+            .memory
+            .get_array_as::<F, DIMENSION>(ptr_arg_0)?;
+        let in1 = self
+            .memory_manager
+            .memory
+            .get_array_as::<F, DIMENSION>(ptr_arg_1)?;
+        let in2 = self
+            .memory_manager
+            .memory
+            .get_array_as::<F, DIMENSION>(ptr_arg_2)?;
+
+        // Concatenate the three inputs into a single 24-element state.
+        let mut state: [F; 3 * DIMENSION] = [in0, in1, in2].concat().try_into().unwrap();
+
+        // Apply the Poseidon permutation.
+        self.poseidon2_24.permute_mut(&mut state);
+
+        // Split and write the outputs to the designated memory locations.
+        let res0: [F; DIMENSION] = state[..DIMENSION].try_into().unwrap();
+        let res1: [F; DIMENSION] = state[DIMENSION..2 * DIMENSION].try_into().unwrap();
+        let res2: [F; DIMENSION] = state[2 * DIMENSION..].try_into().unwrap();
+
+        self.memory_manager.load_data(ptr_res_0, &res0)?;
+        self.memory_manager.load_data(ptr_res_1, &res1)?;
+        self.memory_manager.load_data(ptr_res_2, &res2)?;
+
         Ok(())
     }
 
