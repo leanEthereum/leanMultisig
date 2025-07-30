@@ -329,13 +329,13 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         //
         // The instruction specifies 4 consecutive pointers starting at `fp + shift`.
         let base_ptr_addr = (self.run_context.fp + shift)?;
-        let ptrs: [MemoryValue; 4] = self.memory_manager.get_array(base_ptr_addr)?;
+        let ptrs: [MemoryAddress; 4] = self.memory_manager.memory.get_array_as(base_ptr_addr)?;
 
         // Convert the `MemoryValue` pointers to `MemoryAddress`.
-        let ptr_arg_0: MemoryAddress = ptrs[0].try_into()?;
-        let ptr_arg_1: MemoryAddress = ptrs[1].try_into()?;
-        let ptr_res_0: MemoryAddress = ptrs[2].try_into()?;
-        let ptr_res_1: MemoryAddress = ptrs[3].try_into()?;
+        let ptr_arg_0 = ptrs[0];
+        let ptr_arg_1 = ptrs[1];
+        let ptr_res_0 = ptrs[2];
+        let ptr_res_1 = ptrs[3];
 
         // Read Input Vectors
         //
@@ -352,9 +352,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         // Perform Hashing
         //
         // Concatenate the two input vectors into a single 16-element array for the permutation.
-        let mut state = [F::default(); DIMENSION * 2];
-        state[..DIMENSION].copy_from_slice(&arg0);
-        state[DIMENSION..].copy_from_slice(&arg1);
+        let mut state = [arg0, arg1].concat().try_into().unwrap();
 
         // Apply the Poseidon2 permutation to the state.
         self.poseidon2_16.permute_mut(&mut state);
