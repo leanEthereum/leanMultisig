@@ -12,6 +12,7 @@ workspace = true
 p3-baby-bear.workspace = true
 p3-koala-bear.workspace = true
 p3-field.workspace = true
+p3-symmetric.workspace = true
 
 thiserror.workspace = true
 num-traits.workspace = true

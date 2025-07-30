@@ -1,4 +1,5 @@
 use p3_field::PrimeField64;
+use p3_symmetric::Permutation;
 
 use crate::{
     bytecode::{
@@ -11,13 +12,17 @@ use crate::{
     memory::{address::MemoryAddress, manager::MemoryManager, val::MemoryValue},
 };
 
+const DIMENSION: usize = 8;
+
 #[derive(Debug, Default)]
-pub struct VirtualMachine {
+pub struct VirtualMachine<PERM16, PERM24> {
     pub(crate) run_context: RunContext,
     pub memory_manager: MemoryManager,
+    pub poseidon2_16: PERM16,
+    pub poseidon2_24: PERM24,
 }
 
-impl VirtualMachine {
+impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     /// Advances the program counter (`pc`) to the next instruction.
     ///
     /// This function embodies the control flow logic of the zkVM. For most instructions,
@@ -146,6 +151,7 @@ impl VirtualMachine {
     ) -> Result<(), VirtualMachineError<F>>
     where
         F: PrimeField64,
+        PERM16: Permutation<[F; DIMENSION * 2]>,
     {
         // Dispatch to the appropriate execution logic based on the instruction type.
         match instruction {
@@ -316,11 +322,63 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn execute_poseidon2_16<F>(&self, _shift: usize) -> Result<(), VirtualMachineError<F>>
+    /// Executes the `Poseidon2_16` precompile instruction.
+    ///
+    /// This function orchestrates a Poseidon2 permutation over 16 field elements,
+    /// as defined by the zkVM's ISA. It reads two 8-element input vectors and
+    /// writes two 8-element output vectors using pointers stored relative to the
+    /// frame pointer (`fp`).
+    ///
+    /// The operation is: `Poseidon2(m_vec[ptr_0], m_vec[ptr_1]) -> (m_vec[ptr_2], m_vec[ptr_3])`
+    fn execute_poseidon2_16<F>(&mut self, shift: usize) -> Result<(), VirtualMachineError<F>>
     where
         F: PrimeField64,
+        PERM16: Permutation<[F; 2 * DIMENSION]>,
     {
-        // TODO: implement this instruction.
+        // Read Pointers from Memory
+        //
+        // The instruction specifies 4 consecutive pointers starting at `fp + shift`.
+        let base_ptr_addr = self.run_context.fp.add_usize(shift)?;
+        let ptrs: [MemoryValue<F>; 4] = self.memory_manager.get_array(base_ptr_addr)?;
+
+        // Convert the `MemoryValue` pointers to `MemoryAddress`.
+        let ptr_arg_0: MemoryAddress = ptrs[0].try_into()?;
+        let ptr_arg_1: MemoryAddress = ptrs[1].try_into()?;
+        let ptr_res_0: MemoryAddress = ptrs[2].try_into()?;
+        let ptr_res_1: MemoryAddress = ptrs[3].try_into()?;
+
+        // Read Input Vectors
+        //
+        // Read the 8-element vectors from the locations pointed to by `ptr_arg_0` and `ptr_arg_1`.
+        let arg0: [MemoryValue<F>; DIMENSION] = self.memory_manager.get_array(ptr_arg_0)?;
+        let arg1: [MemoryValue<F>; DIMENSION] = self.memory_manager.get_array(ptr_arg_1)?;
+
+        // Perform Hashing
+        //
+        // Concatenate the two input vectors into a single 16-element array for the permutation.
+        let mut state = [MemoryValue::default(); DIMENSION * 2];
+        state[..DIMENSION].copy_from_slice(&arg0);
+        state[DIMENSION..].copy_from_slice(&arg1);
+
+        // Convert the state to an array of field
+        let mut state_f: [F; DIMENSION * 2] = [F::ZERO; DIMENSION * 2];
+        for i in 0..DIMENSION {
+            state_f[i] = state[i].to_f()?;
+        }
+
+        // Apply the Poseidon2 permutation to the state.
+        self.poseidon2_16.permute_mut(&mut state_f);
+
+        // Write Output Vectors
+        //
+        // Split the permuted state back into two 8-element output vectors.
+        let res0: [F; DIMENSION] = state_f[..DIMENSION].try_into().unwrap();
+        let res1: [F; DIMENSION] = state_f[DIMENSION..].try_into().unwrap();
+
+        // Write the output vectors to the memory locations pointed to by `ptr_res_0` and `ptr_res_1`.
+        self.memory_manager.load_data(ptr_res_0, &res0)?;
+        self.memory_manager.load_data(ptr_res_1, &res1)?;
+
         Ok(())
     }
 

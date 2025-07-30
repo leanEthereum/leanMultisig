@@ -37,6 +37,7 @@ lean-snark = { path = "crates/leanSnark" }
 lean-vm = { path = "crates/leanVm" }
 
 p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
 p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
 p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
 

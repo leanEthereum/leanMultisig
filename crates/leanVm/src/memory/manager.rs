@@ -64,13 +64,15 @@ impl MemoryManager {
     ///     - Memory cell already initialized with a different value.
     ///     - Overflow when computing addresses.
     ///     - Exceeding vector capacity.
-    pub fn load_data<F>(
+    pub fn load_data<F, V>(
         &mut self,
         ptr: MemoryAddress,
-        data: &[MemoryValue<F>],
+        data: &[V],
     ) -> Result<MemoryAddress, MemoryError<F>>
     where
         F: PrimeField64,
+        V: Copy,
+        MemoryValue<F>: From<V>,
     {
         // Iterate over the data values in reverse order, with indices.
         //
