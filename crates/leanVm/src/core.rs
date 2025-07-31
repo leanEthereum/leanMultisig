@@ -1,8 +1,9 @@
-use p3_field::{BasedVectorSpace, Field, PrimeField64};
+use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, PrimeField64};
 use p3_symmetric::Permutation;
 
 use crate::{
     bytecode::{
+        hint::Hint,
         instruction::Instruction,
         operand::{MemOrConstant, MemOrFp, MemOrFpOrConstant},
         operation::Operation,
@@ -29,6 +30,88 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
             poseidon2_16,
             poseidon2_24,
         }
+    }
+
+    /// Executes a single hint emitted by the compiler during bytecode interpretation.
+    ///
+    /// Hints are runtime-only helper directives used for:
+    /// - Allocating memory dynamically (`RequestMemory`)
+    /// - Decomposing a field element into bits (`DecomposeBits`)
+    /// - (Eventually) printing debug information (`Print`)
+    ///
+    /// These are not part of the trace or AIR and are only used by the prover for state setup or inspection.
+    /// The verifier does not need to observe these effects.
+    fn execute_hint(&mut self, hint: &Hint) -> Result<(), VirtualMachineError> {
+        match hint {
+            Hint::RequestMemory {
+                offset,
+                size,
+                vectorized,
+            } => {
+                // Resolve the `size` operand to a concrete field element.
+                let size: F = self
+                    .run_context
+                    .value_from_mem_or_constant(size, &self.memory_manager)?
+                    .try_into()?;
+                // Convert the field element to a canonical `usize`.
+                let size = size.as_canonical_u64() as usize;
+
+                // Compute the address where the allocated pointer will be stored: `fp + offset`.
+                let addr = (self.run_context.fp + *offset)?;
+
+                if *vectorized {
+                    // Store the current vectorized allocation pointer (`ap_vectorized`) at `addr`.
+                    self.memory_manager
+                        .memory
+                        .insert(addr, F::from_usize(self.run_context.ap_vectorized))?;
+
+                    // Increase the vectorized allocation pointer by `size` (number of vectors).
+                    self.run_context.ap_vectorized += size;
+                } else {
+                    // Store the current scalar allocation pointer (`ap`) at `addr`.
+                    self.memory_manager
+                        .memory
+                        .insert(addr, F::from_usize(self.run_context.ap))?;
+
+                    // Increase the scalar allocation pointer by `size` (number of scalars).
+                    self.run_context.ap += size;
+                }
+            }
+            Hint::DecomposeBits {
+                res_offset,
+                to_decompose,
+            } => {
+                // Resolve the operand to be decomposed into a concrete field element.
+                let to_decompose: F = self
+                    .run_context
+                    .value_from_mem_or_constant(to_decompose, &self.memory_manager)?
+                    .try_into()?;
+
+                // Convert the field element to a native `u64` for bit-level manipulation.
+                let to_decompose = to_decompose.as_canonical_u64();
+
+                // For each bit position (up to the number of bits supported by the field):
+                for i in 0..F::bits() {
+                    // - Extract the i-th bit from the value using bit masking.
+                    let bit = if to_decompose & (1 << i) != 0 {
+                        F::ONE
+                    } else {
+                        F::ZERO
+                    };
+
+                    // - Compute the address at `fp + res_offset + i`.
+                    // - Write the extracted bit to that memory location.
+                    self.memory_manager
+                        .memory
+                        .insert(((self.run_context.fp + *res_offset)? + i)?, bit)?;
+                }
+            }
+            Hint::Print { .. } => {
+                // TODO: implement
+                // This is for debugging purposes only so this is not urgent for now.
+            }
+        }
+        Ok(())
     }
 
     /// Advances the program counter (`pc`) to the next instruction.

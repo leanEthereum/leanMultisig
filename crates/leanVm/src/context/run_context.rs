@@ -12,12 +12,49 @@ pub struct RunContext {
     ///
     /// The value of `fp` stays the same fopr all the instructions in the same invocation of a function.
     pub(crate) fp: MemoryAddress,
+
+    /// Runtime allocation pointer (scalar).
+    ///
+    /// This register is **not part of the verifier-visible state**, and is not encoded in the trace.
+    /// It is used internally by the prover to keep track of memory allocations for scalar data
+    /// during execution (e.g., frame-local temporary values).
+    ///
+    /// Memory is allocated from `ap` using hints inserted at compile time, usually before a function call.
+    /// Its value increases over time and does not decrease, following a stack-like discipline.
+    ///
+    /// While `ap` determines where memory is written at runtime, its usage is opaque to the verifier.
+    /// Instead, memory layout is statically determined and reflected through hint instructions that
+    /// record where allocations were made.
+    pub(crate) ap: usize,
+
+    /// Runtime allocation pointer (vectorized, chunked by `DIMENSION` field elements).
+    ///
+    /// Similar to [`ap`], but used for allocating vectors of field elements — typically inputs or outputs
+    /// of Poseidon2 and extension field operations.
+    ///
+    /// The prover uses `ap_vectorized` to ensure proper alignment and avoid memory collisions for
+    /// multi-element data structures. Each allocation consumes a full vector chunk, and the pointer
+    /// advances accordingly.
+    ///
+    /// Like `ap`, this value is **not exposed to the verifier**. Its sole role is to guide prover-side
+    /// allocation logic during execution.
+    pub(crate) ap_vectorized: usize,
 }
 
 impl RunContext {
     #[must_use]
-    pub const fn new(pc: MemoryAddress, fp: MemoryAddress) -> Self {
-        Self { pc, fp }
+    pub const fn new(
+        pc: MemoryAddress,
+        fp: MemoryAddress,
+        ap: usize,
+        ap_vectorized: usize,
+    ) -> Self {
+        Self {
+            pc,
+            fp,
+            ap,
+            ap_vectorized,
+        }
     }
 
     #[must_use]
@@ -113,6 +150,8 @@ mod tests {
                 segment_index: 1,
                 offset: 0,
             },
+            0,
+            0,
         );
 
         // A constant operand with field element 42.
@@ -150,6 +189,8 @@ mod tests {
                 offset: 0,
             }, // dummy pc
             fp,
+            0,
+            0,
         );
 
         // The operand asks to read memory at fp + 2.
@@ -179,6 +220,8 @@ mod tests {
                 offset: 0,
             }, // dummy pc
             fp,
+            0,
+            0,
         );
 
         // Calling value_from_mem_or_constant should return a VirtualMachineError::MemoryError::UninitializedMemory.
@@ -197,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_get_value_from_mem_or_fp_or_constant_is_constant() {
-        let ctx = RunContext::new(MemoryAddress::new(0, 0), MemoryAddress::new(1, 0));
+        let ctx = RunContext::new(MemoryAddress::new(0, 0), MemoryAddress::new(1, 0), 0, 0);
         let operand = MemOrFpOrConstant::Constant(F::from_u64(123));
         let memory = MemoryManager::default();
         let result = ctx
@@ -209,7 +252,7 @@ mod tests {
     #[test]
     fn test_get_value_from_mem_or_fp_or_constant_is_fp() {
         let fp_addr = MemoryAddress::new(1, 10);
-        let ctx = RunContext::new(MemoryAddress::new(0, 0), fp_addr);
+        let ctx = RunContext::new(MemoryAddress::new(0, 0), fp_addr, 0, 0);
         let operand = MemOrFpOrConstant::Fp;
         let memory = MemoryManager::default();
         let result = ctx
@@ -226,7 +269,7 @@ mod tests {
         let expected_val = MemoryValue::Address(MemoryAddress::new(5, 5));
         memory.memory.insert(addr_to_read, expected_val).unwrap();
 
-        let ctx = RunContext::new(MemoryAddress::new(0, 0), fp);
+        let ctx = RunContext::new(MemoryAddress::new(0, 0), fp, 0, 0);
         let operand = MemOrFpOrConstant::MemoryAfterFp { shift: 7 };
         let result = ctx
             .value_from_mem_or_fp_or_constant(&operand, &memory)
