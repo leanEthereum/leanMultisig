@@ -1,4 +1,10 @@
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
+
 use super::operand::MemOrConstant;
+use crate::{
+    constant::F, context::run_context::RunContext, errors::vm::VirtualMachineError,
+    memory::manager::MemoryManager,
+};
 
 /// Hints are special instructions for the prover to resolve non-determinism.
 ///
@@ -36,4 +42,90 @@ pub enum Hint {
         /// A list of memory locations or constants whose values should be printed.
         content: Vec<MemOrConstant>,
     },
+}
+
+impl Hint {
+    /// Executes a single hint emitted by the compiler during bytecode interpretation.
+    ///
+    /// Hints are runtime-only helper directives used for:
+    /// - Allocating memory dynamically (`RequestMemory`)
+    /// - Decomposing a field element into bits (`DecomposeBits`)
+    /// - (Eventually) printing debug information (`Print`)
+    ///
+    /// These are not part of the trace or AIR and are only used by the prover for state setup or inspection.
+    /// The verifier does not need to observe these effects.
+    fn execute(
+        &self,
+        memory_manager: &mut MemoryManager,
+        run_context: &mut RunContext,
+    ) -> Result<(), VirtualMachineError> {
+        match self {
+            Self::RequestMemory {
+                offset,
+                size,
+                vectorized,
+            } => {
+                // Resolve the `size` operand to a concrete field element.
+                let size: F = run_context
+                    .value_from_mem_or_constant(size, memory_manager)?
+                    .try_into()?;
+                // Convert the field element to a canonical `usize`.
+                let size = size.as_canonical_u64() as usize;
+
+                // Compute the address where the allocated pointer will be stored: `fp + offset`.
+                let addr = (run_context.fp + *offset)?;
+
+                if *vectorized {
+                    // Store the current vectorized allocation pointer (`ap_vectorized`) at `addr`.
+                    memory_manager
+                        .memory
+                        .insert(addr, F::from_usize(run_context.ap_vectorized))?;
+
+                    // Increase the vectorized allocation pointer by `size` (number of vectors).
+                    run_context.ap_vectorized += size;
+                } else {
+                    // Store the current scalar allocation pointer (`ap`) at `addr`.
+                    memory_manager
+                        .memory
+                        .insert(addr, F::from_usize(run_context.ap))?;
+
+                    // Increase the scalar allocation pointer by `size` (number of scalars).
+                    run_context.ap += size;
+                }
+            }
+            Self::DecomposeBits {
+                res_offset,
+                to_decompose,
+            } => {
+                // Resolve the operand to be decomposed into a concrete field element.
+                let to_decompose: F = run_context
+                    .value_from_mem_or_constant(to_decompose, memory_manager)?
+                    .try_into()?;
+
+                // Convert the field element to a native `u64` for bit-level manipulation.
+                let to_decompose = to_decompose.as_canonical_u64();
+
+                // For each bit position (up to the number of bits supported by the field):
+                for i in 0..F::bits() {
+                    // - Extract the i-th bit from the value using bit masking.
+                    let bit = if to_decompose & (1 << i) != 0 {
+                        F::ONE
+                    } else {
+                        F::ZERO
+                    };
+
+                    // - Compute the address at `fp + res_offset + i`.
+                    // - Write the extracted bit to that memory location.
+                    memory_manager
+                        .memory
+                        .insert(((run_context.fp + *res_offset)? + i)?, bit)?;
+                }
+            }
+            Self::Print { .. } => {
+                // TODO: implement
+                // This is for debugging purposes only so this is not urgent for now.
+            }
+        }
+        Ok(())
+    }
 }
