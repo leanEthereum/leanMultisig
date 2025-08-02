@@ -6,6 +6,7 @@ use crate::{
         instruction::Instruction,
         operand::{MemOrConstant, MemOrFp, MemOrFpOrConstant},
         operation::Operation,
+        program::Program,
     },
     constant::{DIMENSION, EF, F},
     context::run_context::RunContext,
@@ -19,6 +20,7 @@ pub struct VirtualMachine<PERM16, PERM24> {
     pub memory_manager: MemoryManager,
     pub poseidon2_16: PERM16,
     pub poseidon2_24: PERM24,
+    pub(crate) program: Program,
 }
 
 impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
@@ -26,6 +28,7 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
         Self {
             run_context: RunContext::default(),
             memory_manager: MemoryManager::default(),
+            program: Program::default(),
             poseidon2_16,
             poseidon2_24,
         }

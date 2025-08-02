@@ -7,9 +7,10 @@ pub mod hint;
 pub mod instruction;
 pub mod operand;
 pub mod operation;
+pub mod program;
 
 /// Represents the compiled bytecode of a program for the zkVM.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Bytecode {
     /// A vector of instructions that form the executable part of the program.
     ///
