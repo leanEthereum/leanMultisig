@@ -25,7 +25,7 @@ pub struct RunContext {
     /// While `ap` determines where memory is written at runtime, its usage is opaque to the verifier.
     /// Instead, memory layout is statically determined and reflected through hint instructions that
     /// record where allocations were made.
-    pub(crate) ap: usize,
+    pub(crate) ap: MemoryAddress,
 
     /// Runtime allocation pointer (vectorized, chunked by `DIMENSION` field elements).
     ///
@@ -38,7 +38,7 @@ pub struct RunContext {
     ///
     /// Like `ap`, this value is **not exposed to the verifier**. Its sole role is to guide prover-side
     /// allocation logic during execution.
-    pub(crate) ap_vectorized: usize,
+    pub(crate) ap_vectorized: MemoryAddress,
 }
 
 impl RunContext {
@@ -46,8 +46,8 @@ impl RunContext {
     pub const fn new(
         pc: MemoryAddress,
         fp: MemoryAddress,
-        ap: usize,
-        ap_vectorized: usize,
+        ap: MemoryAddress,
+        ap_vectorized: MemoryAddress,
     ) -> Self {
         Self {
             pc,
@@ -150,8 +150,8 @@ mod tests {
                 segment_index: 1,
                 offset: 0,
             },
-            0,
-            0,
+            MemoryAddress::default(),
+            MemoryAddress::default(),
         );
 
         // A constant operand with field element 42.
@@ -189,8 +189,8 @@ mod tests {
                 offset: 0,
             }, // dummy pc
             fp,
-            0,
-            0,
+            MemoryAddress::default(),
+            MemoryAddress::default(),
         );
 
         // The operand asks to read memory at fp + 2.
@@ -220,8 +220,8 @@ mod tests {
                 offset: 0,
             }, // dummy pc
             fp,
-            0,
-            0,
+            MemoryAddress::default(),
+            MemoryAddress::default(),
         );
 
         // Calling value_from_mem_or_constant should return a VirtualMachineError::MemoryError::UninitializedMemory.
@@ -240,7 +240,12 @@ mod tests {
 
     #[test]
     fn test_get_value_from_mem_or_fp_or_constant_is_constant() {
-        let ctx = RunContext::new(MemoryAddress::new(0, 0), MemoryAddress::new(1, 0), 0, 0);
+        let ctx = RunContext::new(
+            MemoryAddress::new(0, 0),
+            MemoryAddress::new(1, 0),
+            MemoryAddress::default(),
+            MemoryAddress::default(),
+        );
         let operand = MemOrFpOrConstant::Constant(F::from_u64(123));
         let memory = MemoryManager::default();
         let result = ctx
@@ -252,7 +257,12 @@ mod tests {
     #[test]
     fn test_get_value_from_mem_or_fp_or_constant_is_fp() {
         let fp_addr = MemoryAddress::new(1, 10);
-        let ctx = RunContext::new(MemoryAddress::new(0, 0), fp_addr, 0, 0);
+        let ctx = RunContext::new(
+            MemoryAddress::new(0, 0),
+            fp_addr,
+            MemoryAddress::default(),
+            MemoryAddress::default(),
+        );
         let operand = MemOrFpOrConstant::Fp;
         let memory = MemoryManager::default();
         let result = ctx
@@ -269,7 +279,12 @@ mod tests {
         let expected_val = MemoryValue::Address(MemoryAddress::new(5, 5));
         memory.memory.insert(addr_to_read, expected_val).unwrap();
 
-        let ctx = RunContext::new(MemoryAddress::new(0, 0), fp, 0, 0);
+        let ctx = RunContext::new(
+            MemoryAddress::new(0, 0),
+            fp,
+            MemoryAddress::default(),
+            MemoryAddress::default(),
+        );
         let operand = MemOrFpOrConstant::MemoryAfterFp { shift: 7 };
         let result = ctx
             .value_from_mem_or_fp_or_constant(&operand, &memory)

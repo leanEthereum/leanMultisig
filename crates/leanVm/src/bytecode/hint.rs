@@ -79,18 +79,16 @@ impl Hint {
                     // Store the current vectorized allocation pointer (`ap_vectorized`) at `addr`.
                     memory_manager
                         .memory
-                        .insert(addr, F::from_usize(run_context.ap_vectorized))?;
+                        .insert(addr, run_context.ap_vectorized)?;
 
                     // Increase the vectorized allocation pointer by `size` (number of vectors).
-                    run_context.ap_vectorized += size;
+                    run_context.ap_vectorized.offset += size;
                 } else {
                     // Store the current scalar allocation pointer (`ap`) at `addr`.
-                    memory_manager
-                        .memory
-                        .insert(addr, F::from_usize(run_context.ap))?;
+                    memory_manager.memory.insert(addr, run_context.ap)?;
 
                     // Increase the scalar allocation pointer by `size` (number of scalars).
-                    run_context.ap += size;
+                    run_context.ap.offset += size;
                 }
             }
             Self::DecomposeBits {

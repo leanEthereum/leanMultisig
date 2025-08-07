@@ -1,4 +1,4 @@
-use p3_field::{Field, PrimeField64};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
 use p3_symmetric::Permutation;
 
 use crate::{
@@ -7,10 +7,13 @@ use crate::{
         operand::MemOrFp,
         program::Program,
     },
-    constant::{DIMENSION, F},
+    constant::{
+        CODE_SEGMENT, DIMENSION, F, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
+        PUBLIC_INPUT_START, ZERO_VEC_PTR,
+    },
     context::run_context::RunContext,
     errors::{memory::MemoryError, vm::VirtualMachineError},
-    memory::manager::MemoryManager,
+    memory::{address::MemoryAddress, manager::MemoryManager},
 };
 
 #[derive(Debug)]
@@ -22,7 +25,11 @@ pub struct VirtualMachine<Perm16, Perm24> {
     pub(crate) program: Program,
 }
 
-impl<Perm16, Perm24> VirtualMachine<Perm16, Perm24> {
+impl<Perm16, Perm24> VirtualMachine<Perm16, Perm24>
+where
+    Perm16: Permutation<[F; 2 * DIMENSION]>,
+    Perm24: Permutation<[F; 3 * DIMENSION]>,
+{
     pub fn new(poseidon2_16: Perm16, poseidon2_24: Perm24) -> Self {
         Self {
             run_context: RunContext::default(),
@@ -31,6 +38,97 @@ impl<Perm16, Perm24> VirtualMachine<Perm16, Perm24> {
             poseidon2_16,
             poseidon2_24,
         }
+    }
+
+    /// Initializes the virtual machine with a given program.
+    ///
+    /// This function performs all the necessary setup before execution:
+    ///
+    /// - Allocates the required memory segments
+    /// - Loads public and private inputs into stack memory
+    /// - Fills in convention-based memory slots (e.g., zero vector, null hashes)
+    /// - Computes and aligns allocation pointers
+    /// - Sets up the initial execution context (program counter, frame pointer, etc.)
+    pub fn setup(
+        &mut self,
+        program: Program,
+        no_vec_runtime_memory: usize,
+    ) -> Result<(), VirtualMachineError> {
+        // Save the program internally.
+        self.program = program;
+
+        // Extract the public and private inputs from the program.
+        let public_input = &self.program.public_input;
+        let private_input = &self.program.private_input;
+
+        // Allocate required memory segments: PUBLIC, STACK, VEC, CODE.
+        // We ensure all necessary segments are present.
+        while self.memory_manager.num_segments() <= CODE_SEGMENT {
+            self.memory_manager.add();
+        }
+
+        // Convention-Based Memory Initialization
+
+        // Write [0; DIMENSION] to the vector memory at ZERO_VEC_PTR.
+        self.memory_manager
+            .load_data(ZERO_VEC_PTR, &[F::ZERO; DIMENSION])?;
+
+        // Write Poseidon2([0; 16]) to POSEIDON_16_NULL_HASH_PTR.
+        let hash16 = self.poseidon2_16.permute([F::ZERO; DIMENSION * 2]);
+        self.memory_manager
+            .load_data(POSEIDON_16_NULL_HASH_PTR, &hash16)?;
+
+        // Write the last 8 elements of Poseidon2([0; 24]) to POSEIDON_24_NULL_HASH_PTR.
+        let hash24 = self.poseidon2_24.permute([F::ZERO; DIMENSION * 3]);
+        self.memory_manager
+            .load_data(POSEIDON_24_NULL_HASH_PTR, &hash24[16..])?;
+
+        // Load Public Inputs
+
+        // Place public input values starting at PUBLIC_INPUT_START in the public data segment.
+        self.memory_manager
+            .load_data(PUBLIC_INPUT_START, public_input)?;
+
+        // Compute the initial `fp` (frame pointer) just after the public inputs.
+        let mut fp = (PUBLIC_INPUT_START + public_input.len())?;
+        // Align the `fp` offset to the next power of two.
+        fp.offset = fp.offset.next_power_of_two();
+
+        // Load Private Inputs
+
+        // Write private inputs starting at the aligned `fp`.
+        self.memory_manager.load_data(fp, private_input)?;
+
+        // Advance `fp` past the private inputs.
+        fp.offset += private_input.len();
+        // Ensure `fp` is aligned to `DIMENSION` for vector operations.
+        fp.offset = fp.offset.next_multiple_of(DIMENSION);
+
+        // Compute Allocation Pointers
+
+        // Compute the initial allocation pointer for stack memory.
+        let initial_ap = (fp + self.program.bytecode.starting_frame_memory)?;
+
+        // Compute the vectorized allocation pointer, skipping past the non-vector memory.
+        let mut initial_ap_vec = (initial_ap + no_vec_runtime_memory)?;
+        // Align the vector allocation to the next multiple of `DIMENSION`.
+        initial_ap_vec.offset = initial_ap_vec.offset.next_multiple_of(DIMENSION) / DIMENSION;
+
+        // Set Initial Registers
+
+        // Set the program counter to the start of the code segment.
+        self.run_context.pc = MemoryAddress::new(CODE_SEGMENT, 0);
+
+        // Set the frame pointer to the aligned `fp`.
+        self.run_context.fp = fp;
+
+        // Set the allocation pointer for non-vector memory.
+        self.run_context.ap = initial_ap;
+
+        // Set the allocation pointer for vector memory (in vector units, not field elements).
+        self.run_context.ap_vectorized = initial_ap_vec;
+
+        Ok(())
     }
 
     /// Advances the program counter (`pc`) to the next instruction.
@@ -147,11 +245,10 @@ impl<Perm16, Perm24> VirtualMachine<Perm16, Perm24> {
     /// 2.  **Register Update:** If the execution phase completes successfully, this function then
     ///     calls `update_registers` to advance the program counter (`pc`) and frame pointer (`fp`)
     ///     to prepare for the next instruction.
-    pub fn run_instruction(&mut self, instruction: &Instruction) -> Result<(), VirtualMachineError>
-    where
-        Perm16: Permutation<[F; 2 * DIMENSION]>,
-        Perm24: Permutation<[F; 3 * DIMENSION]>,
-    {
+    pub fn run_instruction(
+        &mut self,
+        instruction: &Instruction,
+    ) -> Result<(), VirtualMachineError> {
         // Execute the instruction.
         instruction.execute(
             &self.run_context,
