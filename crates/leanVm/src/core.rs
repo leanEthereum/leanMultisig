@@ -14,16 +14,16 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct VirtualMachine<PERM16, PERM24> {
+pub struct VirtualMachine<Perm16, Perm24> {
     pub(crate) run_context: RunContext,
     pub memory_manager: MemoryManager,
-    pub poseidon2_16: PERM16,
-    pub poseidon2_24: PERM24,
+    pub poseidon2_16: Perm16,
+    pub poseidon2_24: Perm24,
     pub(crate) program: Program,
 }
 
-impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
-    pub fn new(poseidon2_16: PERM16, poseidon2_24: PERM24) -> Self {
+impl<Perm16, Perm24> VirtualMachine<Perm16, Perm24> {
+    pub fn new(poseidon2_16: Perm16, poseidon2_24: Perm24) -> Self {
         Self {
             run_context: RunContext::default(),
             memory_manager: MemoryManager::default(),
@@ -149,8 +149,8 @@ impl<PERM16, PERM24> VirtualMachine<PERM16, PERM24> {
     ///     to prepare for the next instruction.
     pub fn run_instruction(&mut self, instruction: &Instruction) -> Result<(), VirtualMachineError>
     where
-        PERM16: Permutation<[F; 2 * DIMENSION]>,
-        PERM24: Permutation<[F; 3 * DIMENSION]>,
+        Perm16: Permutation<[F; 2 * DIMENSION]>,
+        Perm24: Permutation<[F; 3 * DIMENSION]>,
     {
         // Execute the instruction.
         instruction.execute(
