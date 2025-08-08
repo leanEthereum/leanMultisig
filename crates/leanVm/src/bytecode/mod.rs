@@ -26,7 +26,7 @@ pub struct Bytecode {
     pub hints: BTreeMap<usize, Vec<Hint>>,
 
     /// The memory offset from the frame pointer (fp) where the public input for the program begins.
-    pub public_input_start: usize,
+    pub starting_frame_memory: usize,
 
     /// The program counter (pc) value at which the program execution is considered complete.
     pub ending_pc: usize,
