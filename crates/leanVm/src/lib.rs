@@ -1,3 +1,4 @@
+pub mod air;
 pub mod bytecode;
 pub mod constant;
 pub mod context;
