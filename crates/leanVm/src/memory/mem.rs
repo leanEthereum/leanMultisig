@@ -3,7 +3,7 @@ use std::mem::MaybeUninit;
 use super::{address::MemoryAddress, cell::MemoryCell, val::MemoryValue};
 use crate::errors::memory::MemoryError;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Memory {
     pub(crate) data: Vec<Vec<MemoryCell>>,
 }

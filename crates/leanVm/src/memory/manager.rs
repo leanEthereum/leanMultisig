@@ -2,7 +2,7 @@ use super::{address::MemoryAddress, mem::Memory, val::MemoryValue};
 use crate::errors::memory::MemoryError;
 
 /// A high level manager for the memory.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MemoryManager {
     pub memory: Memory,
 }

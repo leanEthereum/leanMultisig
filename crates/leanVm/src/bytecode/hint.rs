@@ -54,7 +54,7 @@ impl Hint {
     ///
     /// These are not part of the trace or AIR and are only used by the prover for state setup or inspection.
     /// The verifier does not need to observe these effects.
-    fn execute(
+    pub fn execute(
         &self,
         memory_manager: &mut MemoryManager,
         run_context: &mut RunContext,
