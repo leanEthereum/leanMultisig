@@ -22,4 +22,6 @@ pub enum VirtualMachineError {
     },
     #[error("Too many unknown operands.")]
     TooManyUnknownOperands,
+    #[error("Program counter (pc) is out of bounds.")]
+    PCOutOfBounds,
 }

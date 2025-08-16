@@ -34,3 +34,6 @@ pub const POSEIDON_24_NULL_HASH_PTR: MemoryAddress = MemoryAddress::new(VEC_RUNT
 
 /// Start of the public input memory region within the PUBLIC_DATA_SEGMENT.
 pub const PUBLIC_INPUT_START: MemoryAddress = MemoryAddress::new(PUBLIC_DATA_SEGMENT, 0);
+
+/// The maximum size of the memory.
+pub const MAX_MEMORY_SIZE: usize = 1 << 23;

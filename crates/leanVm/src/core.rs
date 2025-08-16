@@ -5,11 +5,11 @@ use crate::{
     bytecode::{
         instruction::{Instruction, jump::JumpIfNotZeroInstruction},
         operand::MemOrFp,
-        program::Program,
+        program::{ExecutionPassResult, ExecutionResult, Program},
     },
     constant::{
-        CODE_SEGMENT, DIMENSION, F, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
-        PUBLIC_INPUT_START, ZERO_VEC_PTR,
+        CODE_SEGMENT, DIMENSION, F, MAX_MEMORY_SIZE, POSEIDON_16_NULL_HASH_PTR,
+        POSEIDON_24_NULL_HASH_PTR, PUBLIC_INPUT_START, ZERO_VEC_PTR,
     },
     context::run_context::RunContext,
     errors::{memory::MemoryError, vm::VirtualMachineError},
@@ -23,6 +23,15 @@ pub struct VirtualMachine<Perm16, Perm24> {
     pub poseidon2_16: Perm16,
     pub poseidon2_24: Perm24,
     pub(crate) program: Program,
+    // Fields for tracing execution and gathering statistics.
+    pub(crate) pcs: Vec<MemoryAddress>,
+    pub(crate) fps: Vec<MemoryAddress>,
+    pub(crate) cpu_cycles: u64,
+    pub(crate) poseidon16_calls: u64,
+    pub(crate) poseidon24_calls: u64,
+    pub(crate) ext_mul_calls: u64,
+    // A string buffer to hold output from the Print hint.
+    pub(crate) std_out: String,
 }
 
 impl<Perm16, Perm24> VirtualMachine<Perm16, Perm24>
@@ -37,6 +46,14 @@ where
             program: Program::default(),
             poseidon2_16,
             poseidon2_24,
+            // Initialize new fields for tracing and stats.
+            pcs: Vec::new(),
+            fps: Vec::new(),
+            cpu_cycles: 0,
+            poseidon16_calls: 0,
+            poseidon24_calls: 0,
+            ext_mul_calls: 0,
+            std_out: String::new(),
         }
     }
 
@@ -260,6 +277,145 @@ where
         // After the instruction's core logic has been successfully executed,
         // update the pc and fp registers to prepare for the next cycle.
         self.update_registers(instruction)
+    }
+
+    /// Resets the machine's state to prepare for a new execution run.
+    fn reset_state(&mut self) {
+        self.run_context = RunContext::default();
+        self.memory_manager = MemoryManager::default();
+        self.program = Program::default();
+        self.pcs.clear();
+        self.fps.clear();
+        self.cpu_cycles = 0;
+        self.poseidon16_calls = 0;
+        self.poseidon24_calls = 0;
+        self.ext_mul_calls = 0;
+        self.std_out.clear();
+    }
+
+    /// Updates execution statistics based on the instruction that was just executed.
+    const fn update_statistics(&mut self, instruction: &Instruction) {
+        match instruction {
+            Instruction::Poseidon2_16(_) => self.poseidon16_calls += 1,
+            Instruction::Poseidon2_24(_) => self.poseidon24_calls += 1,
+            Instruction::ExtensionMul(_) => self.ext_mul_calls += 1,
+            _ => (), // Other instructions do not have special counters.
+        }
+    }
+
+    /// Executes a program, returning the final machine state and execution trace.
+    ///
+    /// This function implements the two-pass execution strategy:
+    /// 1. A first pass ("dry run") is executed to determine the exact amount of non-vectorized
+    ///    runtime memory (`no_vec_runtime_memory`) required.
+    /// 2. A second, final pass is executed with the correctly sized memory allocations.
+    pub fn run(&mut self, program: &Program) -> Result<ExecutionResult, VirtualMachineError> {
+        // First pass: execute with an initial guess for non-vector memory to determine the actual required size.
+        let first_pass_result =
+            self.execute_program(program.clone(), MAX_MEMORY_SIZE / 2, false)?;
+        let no_vec_runtime_memory =
+            self.run_context.ap.offset - first_pass_result.initial_ap.offset;
+
+        // Second pass: execute with the exact memory size determined from the first run.
+        let final_result = self.execute_program(program.clone(), no_vec_runtime_memory, true)?;
+
+        Ok(final_result.result)
+    }
+
+    /// The core execution loop of the virtual machine.
+    fn execute_program(
+        &mut self,
+        program: Program,
+        no_vec_runtime_memory: usize,
+        final_execution: bool,
+    ) -> Result<ExecutionPassResult, VirtualMachineError> {
+        // Reset state for the current run.
+        self.reset_state();
+
+        // Setup the VM state: load program, inputs, and initialize memory/registers.
+        self.setup(program, no_vec_runtime_memory)?;
+
+        // Store initial allocation pointers to calculate memory usage later.
+        let initial_ap = self.run_context.ap;
+        let initial_ap_vec = self.run_context.ap_vectorized;
+
+        // Main execution loop: continues until the program counter (pc) reaches the designated end address.
+        while self.run_context.pc.offset != self.program.bytecode.ending_pc {
+            // Ensure the program counter is within the bounds of the loaded bytecode instructions.
+            if self.run_context.pc.offset >= self.program.bytecode.instructions.len() {
+                return Err(VirtualMachineError::PCOutOfBounds);
+            }
+
+            // Record current pc and fp for the execution trace.
+            self.pcs.push(self.run_context.pc);
+            self.fps.push(self.run_context.fp);
+
+            self.cpu_cycles += 1;
+
+            // Execute Hints: process non-deterministic hints associated with the current pc.
+            if let Some(hints) = self.program.bytecode.hints.get(&self.run_context.pc.offset) {
+                for hint in hints {
+                    hint.execute(&mut self.memory_manager, &mut self.run_context)?;
+                }
+            }
+
+            // Fetch and Execute Instruction.
+            let instruction =
+                self.program.bytecode.instructions[self.run_context.pc.offset].clone();
+            self.run_instruction(&instruction)?;
+
+            // Update statistics based on instruction type.
+            self.update_statistics(&instruction);
+        }
+
+        // Record the final state of pc and fp.
+        self.pcs.push(self.run_context.pc);
+        self.fps.push(self.run_context.fp);
+
+        if final_execution {
+            self.log_summary();
+        }
+
+        Ok(ExecutionPassResult {
+            result: ExecutionResult {
+                memory_manager: self.memory_manager.clone(),
+                pcs: self.pcs.clone(),
+                fps: self.fps.clone(),
+            },
+            initial_ap,
+            initial_ap_vec,
+        })
+    }
+
+    /// Logs a summary of the execution results to standard output.
+    ///
+    /// TODO: remove this in the future (helper for debugging).
+    fn log_summary(&self) {
+        if !self.std_out.is_empty() {
+            print!("{}", self.std_out);
+        }
+
+        println!(
+            "\nBytecode size: {}",
+            self.program.bytecode.instructions.len()
+        );
+        println!("Public input size: {}", self.program.public_input.len());
+        println!("Private input size: {}", self.program.private_input.len());
+        println!("Executed {} instructions", self.cpu_cycles);
+
+        let total_poseidon_calls = self.poseidon16_calls + self.poseidon24_calls;
+        if total_poseidon_calls > 0 {
+            println!(
+                "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
+                self.poseidon16_calls,
+                self.poseidon24_calls,
+                self.cpu_cycles / total_poseidon_calls
+            );
+        }
+
+        if self.ext_mul_calls > 0 {
+            println!("ExtensionMul calls: {}", self.ext_mul_calls,);
+        }
     }
 }
 
