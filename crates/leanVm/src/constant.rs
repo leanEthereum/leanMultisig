@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 
@@ -37,3 +39,10 @@ pub const PUBLIC_INPUT_START: MemoryAddress = MemoryAddress::new(PUBLIC_DATA_SEG
 
 /// The maximum size of the memory.
 pub const MAX_MEMORY_SIZE: usize = 1 << 23;
+
+// Dot product constants
+
+/// The total number of columns in the Dot Product AIR.
+pub(crate) const DOT_PRODUCT_AIR_COLUMNS: usize = 9;
+/// Defines column groups for processing.
+pub(crate) const DOT_PRODUCT_AIR_COLUMN_GROUPS: [Range<usize>; 5] = [0..1, 1..2, 2..5, 5..8, 8..9];
