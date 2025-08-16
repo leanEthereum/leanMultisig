@@ -1,7 +1,8 @@
 use computation::ComputationInstruction;
 use deref::DerefInstruction;
-use extension_mul::ExtensionMulInstruction;
+use dot_product::DotProductInstruction;
 use jump::JumpIfNotZeroInstruction;
+use multilinear_eval::MultilinearEvalInstruction;
 use p3_symmetric::Permutation;
 use poseidon16::Poseidon2_16Instruction;
 use poseidon24::Poseidon2_24Instruction;
@@ -15,15 +16,13 @@ use crate::{
 
 pub mod computation;
 pub mod deref;
-pub mod extension_mul;
+pub mod dot_product;
 pub mod jump;
+pub mod multilinear_eval;
 pub mod poseidon16;
 pub mod poseidon24;
 
 /// Defines the instruction set for this zkVM, specialized for the `AggregateMerge` logic.
-///
-/// The ISA is minimal and includes basic arithmetic, memory operations, control flow,
-/// and powerful precompiles for hashing and extension field arithmetic.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Instruction {
     /// Performs a basic arithmetic computation: `res = arg_a op arg_b`.
@@ -53,10 +52,12 @@ pub enum Instruction {
     ///
     /// It reads 6 pointers from memory, starting at `m[fp+shift]`.
     Poseidon2_24(Poseidon2_24Instruction),
-    /// **Precompile** for multiplication in the degree-8 extension field.
-    ///
-    /// This is important for speeding up recursive proof verification (`snark_verify`).
-    ExtensionMul(ExtensionMulInstruction),
+
+    /// Dot product of two vectors of extension field elements.
+    DotProduct(DotProductInstruction),
+
+    /// Evaluation of a multilinear polynomial over the extension field.
+    MultilinearEval(MultilinearEvalInstruction),
 }
 
 impl Instruction {
@@ -100,8 +101,10 @@ impl Instruction {
             Self::Poseidon2_24(instruction) => {
                 instruction.execute(run_context, memory_manager, perm24)
             }
-            // Handle the extension field multiplication precompile.
-            Self::ExtensionMul(instruction) => instruction.execute(run_context, memory_manager),
+            // Handle the dot product precompile.
+            Self::DotProduct(instruction) => instruction.execute(run_context, memory_manager),
+            // Handle the multilinear evaluation precompile.
+            Self::MultilinearEval(instruction) => instruction.execute(run_context, memory_manager),
         }
     }
 }

@@ -29,7 +29,6 @@ pub struct VirtualMachine<Perm16, Perm24> {
     pub(crate) cpu_cycles: u64,
     pub(crate) poseidon16_calls: u64,
     pub(crate) poseidon24_calls: u64,
-    pub(crate) ext_mul_calls: u64,
     // A string buffer to hold output from the Print hint.
     pub(crate) std_out: String,
 }
@@ -52,7 +51,6 @@ where
             cpu_cycles: 0,
             poseidon16_calls: 0,
             poseidon24_calls: 0,
-            ext_mul_calls: 0,
             std_out: String::new(),
         }
     }
@@ -289,7 +287,6 @@ where
         self.cpu_cycles = 0;
         self.poseidon16_calls = 0;
         self.poseidon24_calls = 0;
-        self.ext_mul_calls = 0;
         self.std_out.clear();
     }
 
@@ -298,7 +295,6 @@ where
         match instruction {
             Instruction::Poseidon2_16(_) => self.poseidon16_calls += 1,
             Instruction::Poseidon2_24(_) => self.poseidon24_calls += 1,
-            Instruction::ExtensionMul(_) => self.ext_mul_calls += 1,
             _ => (), // Other instructions do not have special counters.
         }
     }
@@ -411,10 +407,6 @@ where
                 self.poseidon24_calls,
                 self.cpu_cycles / total_poseidon_calls
             );
-        }
-
-        if self.ext_mul_calls > 0 {
-            println!("ExtensionMul calls: {}", self.ext_mul_calls,);
         }
     }
 }
