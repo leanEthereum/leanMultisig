@@ -16,6 +16,8 @@ p3-symmetric.workspace = true
 p3-air.workspace = true
 p3-matrix.workspace = true
 
+whir-p3.workspace = true
+
 thiserror.workspace = true
 num-traits.workspace = true
 

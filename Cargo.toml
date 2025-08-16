@@ -36,12 +36,14 @@ lean-isa = { path = "crates/leanIsa" }
 lean-snark = { path = "crates/leanSnark" }
 lean-vm = { path = "crates/leanVm" }
 
-p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
+p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
+p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
+p3-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
+p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
+
+whir-p3 = { git = "https://github.com/tcoratger/whir-p3.git", rev = "df2241d" }
 
 thiserror = "2.0"
 proptest = "1.7"
