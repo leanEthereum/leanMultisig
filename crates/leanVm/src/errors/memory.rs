@@ -52,4 +52,7 @@ pub enum MemoryError {
 
     #[error("Operation failed: {} * {}, can't multiply these two values", 0.0, 0.1)]
     InvalidMul(Box<(MemoryValue, MemoryValue)>),
+
+    #[error("Invalid extensionn field conversion.")]
+    InvalidExtensionFieldConversion,
 }

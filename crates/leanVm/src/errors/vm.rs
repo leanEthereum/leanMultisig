@@ -24,6 +24,4 @@ pub enum VirtualMachineError {
     TooManyUnknownOperands,
     #[error("Program counter (pc) is out of bounds.")]
     PCOutOfBounds,
-    #[error("Invalid extensionn field.")]
-    InvalidExtensionField,
 }

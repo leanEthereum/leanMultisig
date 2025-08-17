@@ -1,7 +1,12 @@
 use std::mem::MaybeUninit;
 
+use p3_field::BasedVectorSpace;
+
 use super::{address::MemoryAddress, cell::MemoryCell, val::MemoryValue};
-use crate::errors::memory::MemoryError;
+use crate::{
+    constant::{DIMENSION, EF, F},
+    errors::memory::MemoryError,
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct Memory {
@@ -201,6 +206,40 @@ impl Memory {
 
         // SAFETY: All elements have been initialized above in the loop
         Ok(unsafe { std::mem::transmute_copy::<_, [V; DIM]>(&out) })
+    }
+
+    /// Retrieves a slice of extension field elements starting from a given vectorized address.
+    ///
+    /// This function reads `len` consecutive vectors of size `DIMENSION` and converts each
+    /// into an extension field element.
+    pub(crate) fn get_vectorized_slice_extension(
+        &self,
+        start_address: MemoryAddress,
+        len: usize,
+    ) -> Result<Vec<EF>, MemoryError> {
+        (0..len)
+            .map(|i| {
+                // Calculate the address for the i-th vector.
+                let current_addr = (start_address + i).map_err(MemoryError::Math)?;
+
+                // Read the DIMENSION base field elements for the i-th vector.
+                let vector_coeffs = self.get_array_as::<F, DIMENSION>(current_addr)?;
+
+                // Convert the base field elements into an extension field element.
+                EF::from_basis_coefficients_slice(&vector_coeffs)
+                    .ok_or(MemoryError::InvalidExtensionFieldConversion)
+            })
+            .collect()
+    }
+
+    /// Retrieves a single extension field element from a vectorized address.
+    pub(crate) fn get_extension(&self, address: MemoryAddress) -> Result<EF, MemoryError> {
+        // Read the DIMENSION base field elements for the vector.
+        let vector_coeffs = self.get_array_as::<F, DIMENSION>(address)?;
+
+        // Convert the base field elements into an extension field element.
+        EF::from_basis_coefficients_slice(&vector_coeffs)
+            .ok_or(MemoryError::InvalidExtensionFieldConversion)
     }
 }
 
