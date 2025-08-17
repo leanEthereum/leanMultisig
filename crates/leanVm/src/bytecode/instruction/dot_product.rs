@@ -4,7 +4,7 @@ use crate::{
     bytecode::operand::{MemOrConstant, MemOrFp},
     constant::{DIMENSION, EF, F},
     context::run_context::RunContext,
-    errors::vm::VirtualMachineError,
+    errors::{memory::MemoryError, vm::VirtualMachineError},
     memory::{address::MemoryAddress, manager::MemoryManager},
 };
 
@@ -51,7 +51,7 @@ impl DotProductInstruction {
                 let addr = (ptr_arg_0 + i)?;
                 let vector_coeffs = memory_manager.memory.get_array_as::<F, DIMENSION>(addr)?;
                 EF::from_basis_coefficients_slice(&vector_coeffs)
-                    .ok_or(VirtualMachineError::InvalidExtensionField)
+                    .ok_or(MemoryError::InvalidExtensionFieldConversion)
             })
             .collect::<Result<_, _>>()?;
 
@@ -61,7 +61,7 @@ impl DotProductInstruction {
                 let addr = (ptr_arg_1 + i)?;
                 let vector_coeffs = memory_manager.memory.get_array_as::<F, DIMENSION>(addr)?;
                 EF::from_basis_coefficients_slice(&vector_coeffs)
-                    .ok_or(VirtualMachineError::InvalidExtensionField)
+                    .ok_or(MemoryError::InvalidExtensionFieldConversion)
             })
             .collect::<Result<_, _>>()?;
 

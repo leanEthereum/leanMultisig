@@ -5,8 +5,9 @@ use crate::{
     bytecode::operand::{MemOrConstant, MemOrFp},
     constant::{DIMENSION, EF, F},
     context::run_context::RunContext,
-    errors::vm::VirtualMachineError,
+    errors::{memory::MemoryError, vm::VirtualMachineError},
     memory::{address::MemoryAddress, manager::MemoryManager},
+    witness::multilinear_eval::WitnessMultilinearEval,
 };
 
 /// An instruction to evaluate a multilinear polynomial at a point in the extension field.
@@ -64,7 +65,7 @@ impl MultilinearEvalInstruction {
                 let addr = (ptr_point + i)?;
                 let vector_coeffs = memory_manager.memory.get_array_as::<F, DIMENSION>(addr)?;
                 EF::from_basis_coefficients_slice(&vector_coeffs)
-                    .ok_or(VirtualMachineError::InvalidExtensionField)
+                    .ok_or(MemoryError::InvalidExtensionFieldConversion)
             })
             .collect::<Result<_, _>>()?;
 
@@ -75,5 +76,47 @@ impl MultilinearEvalInstruction {
         memory_manager.load_data::<F>(ptr_res, eval.as_basis_coefficients_slice())?;
 
         Ok(())
+    }
+
+    /// Generates the witness for a `MultilinearEval` instruction execution.
+    ///
+    /// This function reads the necessary data from memory (operands and result)
+    /// to construct a `WitnessMultilinearEval` struct, which captures the complete
+    /// state of the operation at a specific cycle.
+    pub fn generate_witness(
+        &self,
+        cycle: usize,
+        run_context: &RunContext,
+        memory_manager: &MemoryManager,
+    ) -> Result<WitnessMultilinearEval, VirtualMachineError> {
+        // Resolve the memory addresses for the coefficients, point, and result.
+        let addr_coeffs = run_context
+            .value_from_mem_or_constant(&self.coeffs, memory_manager)?
+            .try_into()?;
+        let addr_point = run_context
+            .value_from_mem_or_constant(&self.point, memory_manager)?
+            .try_into()?;
+        let addr_res = run_context
+            .value_from_mem_or_fp(&self.res, memory_manager)?
+            .try_into()?;
+
+        // Read the evaluation point from memory using the helper function.
+        let point = memory_manager
+            .memory
+            .get_vectorized_slice_extension(addr_point, self.n_vars)?;
+
+        // Read the result of the evaluation from memory.
+        let res = memory_manager.memory.get_extension(addr_res)?;
+
+        // Construct and return the witness struct.
+        Ok(WitnessMultilinearEval {
+            cycle,
+            addr_coeffs,
+            addr_point,
+            addr_res,
+            n_vars: self.n_vars,
+            point,
+            res,
+        })
     }
 }
