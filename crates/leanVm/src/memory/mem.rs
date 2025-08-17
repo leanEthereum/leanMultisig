@@ -220,14 +220,13 @@ impl Memory {
         (0..len)
             .map(|i| {
                 // Calculate the address for the i-th vector.
-                let current_addr = (start_address + i).map_err(MemoryError::Math)?;
+                //
+                // Each vector has a fixed size of `DIMENSION` field elements.
+                // We advance by `i * DIMENSION` to get to the i-th vector.
+                let current_addr = (start_address + i * DIMENSION)?;
 
-                // Read the DIMENSION base field elements for the i-th vector.
-                let vector_coeffs = self.get_array_as::<F, DIMENSION>(current_addr)?;
-
-                // Convert the base field elements into an extension field element.
-                EF::from_basis_coefficients_slice(&vector_coeffs)
-                    .ok_or(MemoryError::InvalidExtensionFieldConversion)
+                // Read the extension field element for the i-th vector.
+                self.get_extension(current_addr)
             })
             .collect()
     }
@@ -479,5 +478,222 @@ mod tests {
                 offset: 1
             })
         );
+    }
+
+    #[test]
+    fn test_get_extension_successful() {
+        // Setup
+        //
+        // Create a memory instance with one segment.
+        let mut memory = create_memory_with_segments(1);
+        // Define the address where the vector will be stored.
+        let addr = MemoryAddress::new(0, 0);
+
+        // Data Preparation
+        //
+        // Create a simple, hardcoded array of 8 field elements.
+        let values: [F; DIMENSION] = [
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
+            F::from_u64(5),
+            F::from_u64(6),
+            F::from_u64(7),
+            F::from_u64(8),
+        ];
+        // Create the expected Extension Field element from these coefficients.
+        let expected_ef = EF::from_basis_coefficients_slice(&values).unwrap();
+
+        // Memory Population
+        //
+        // Insert each of the 8 field elements into consecutive memory cells.
+        for (i, &val) in values.iter().enumerate() {
+            memory.insert((addr + i).unwrap(), val).unwrap();
+        }
+
+        // Execution
+        //
+        // Call the function to read the extension field element from memory.
+        let result = memory.get_extension(addr);
+
+        // Verification
+        //
+        // Assert that the retrieved element matches the expected one.
+        assert_eq!(result.unwrap(), expected_ef);
+    }
+
+    #[test]
+    fn test_get_extension_fails_on_uninitialized() {
+        // Setup
+        //
+        // Create a memory instance with one segment (segment 0), which is currently empty.
+        let memory = create_memory_with_segments(1);
+        // Define a valid memory address within the allocated segment. No value has been written here yet.
+        let addr = MemoryAddress::new(0, 0);
+
+        // Execution
+        //
+        // Attempt to read an extension field element from the uninitialized memory address.
+        let result: Result<EF, _> = memory.get_extension(addr);
+
+        // Verification
+        //
+        // Assert that the operation failed and returned the specific `UninitializedMemory` error,
+        // confirming that the function correctly handles reads from empty memory cells.
+        assert!(matches!(result, Err(MemoryError::UninitializedMemory(_))));
+    }
+
+    #[test]
+    fn test_get_vectorized_slice_extension_successful() {
+        // Setup
+        //
+        // Create a memory instance with one segment.
+        let mut memory = create_memory_with_segments(1);
+        // Define the starting address for our slice of vectors.
+        let start_addr = MemoryAddress::new(0, 5);
+        // Define the number of vectors we want to read.
+        let len = 2;
+
+        // Data Preparation
+        //
+        // Create the first vector's data.
+        let vector1_coeffs: [F; DIMENSION] = [
+            F::from_u64(1),
+            F::from_u64(2),
+            F::from_u64(3),
+            F::from_u64(4),
+            F::from_u64(5),
+            F::from_u64(6),
+            F::from_u64(7),
+            F::from_u64(8),
+        ];
+        // Create the second vector's data.
+        let vector2_coeffs: [F; DIMENSION] = [
+            F::from_u64(10),
+            F::from_u64(20),
+            F::from_u64(30),
+            F::from_u64(40),
+            F::from_u64(50),
+            F::from_u64(60),
+            F::from_u64(70),
+            F::from_u64(80),
+        ];
+
+        // Convert the coefficient arrays into Extension Field elements for our expected result.
+        let expected_ef1 = EF::from_basis_coefficients_slice(&vector1_coeffs).unwrap();
+        let expected_ef2 = EF::from_basis_coefficients_slice(&vector2_coeffs).unwrap();
+        let expected_vec = vec![expected_ef1, expected_ef2];
+
+        // Memory Population
+        //
+        // Insert the first vector into memory at the starting address.
+        for (j, &val) in vector1_coeffs.iter().enumerate() {
+            memory.insert((start_addr + j).unwrap(), val).unwrap();
+        }
+        // Insert the second vector into memory immediately after the first one.
+        // The address is calculated by adding the dimension to the start address.
+        let second_vector_addr = (start_addr + DIMENSION).unwrap();
+        for (j, &val) in vector2_coeffs.iter().enumerate() {
+            memory
+                .insert((second_vector_addr + j).unwrap(), val)
+                .unwrap();
+        }
+
+        // Execution
+        //
+        // Call the function to read the slice of 2 vectors from memory.
+        let result = memory.get_vectorized_slice_extension(start_addr, len);
+
+        // Verification
+        //
+        // Assert that the retrieved slice matches the expected vector of extension field elements.
+        assert_eq!(result.unwrap(), expected_vec);
+    }
+
+    #[test]
+    fn test_get_vectorized_slice_extension_zero_len() {
+        // Setup
+        //
+        // Create a memory instance with one segment.
+        let memory = create_memory_with_segments(1);
+        // Define a starting address (its value doesn't matter for a zero-length read).
+        let start_addr = MemoryAddress::new(0, 0);
+
+        // Execution
+        //
+        // Call the function with a length of 0.
+        let result = memory.get_vectorized_slice_extension(start_addr, 0);
+
+        // Verification
+        //
+        // Assert that the result is an Ok containing an empty vector.
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_get_vectorized_slice_extension_fails_on_uninitialized() {
+        // Setup
+        //
+        // Create a memory instance with one segment.
+        let mut memory = create_memory_with_segments(1);
+        // Define the starting address for the slice.
+        let start_addr = MemoryAddress::new(0, 0);
+
+        // Memory Population
+        //
+        // Insert only the first vector's worth of data into memory.
+        for i in 0..DIMENSION {
+            memory
+                .insert((start_addr + i).unwrap(), F::from_usize(i))
+                .unwrap();
+        }
+
+        // Execution
+        //
+        // Attempt to read a slice of two vectors. The read should fail on the second vector.
+        let result: Result<Vec<EF>, _> = memory.get_vectorized_slice_extension(start_addr, 2);
+
+        // Verification
+        //
+        // Assert that the operation failed with an `UninitializedMemory` error.
+        assert!(matches!(result, Err(MemoryError::UninitializedMemory(_))));
+    }
+
+    #[test]
+    fn test_get_vectorized_slice_extension_fails_on_type_mismatch() {
+        // Setup
+        //
+        // Create a memory instance with one segment.
+        let mut memory = create_memory_with_segments(1);
+        // Define the starting address for the slice.
+        let start_addr = MemoryAddress::new(0, 0);
+
+        // Memory Population
+        //
+        // Insert a complete, valid first vector (all integers).
+        for i in 0..DIMENSION {
+            memory
+                .insert((start_addr + i).unwrap(), F::from_usize(i))
+                .unwrap();
+        }
+        // For the second vector, insert a `MemoryAddress` where an integer (`F`) is expected.
+        memory
+            .insert(
+                (start_addr + DIMENSION).unwrap(),
+                MemoryValue::Address(MemoryAddress::new(0, 99)),
+            )
+            .unwrap();
+
+        // Execution
+        //
+        // Attempt to read the slice of two vectors.
+        // This will fail when trying to convert the address to an integer.
+        let result: Result<Vec<EF>, _> = memory.get_vectorized_slice_extension(start_addr, 2);
+
+        // Verification
+        //
+        // Assert that the operation failed with an `ExpectedInteger` error.
+        assert!(matches!(result, Err(MemoryError::ExpectedInteger)));
     }
 }
