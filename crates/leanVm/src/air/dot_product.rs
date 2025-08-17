@@ -210,14 +210,19 @@ pub fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> (Vec<Vec<EF>>
 
         // The `index_a` and `index_b` columns are the memory addresses, incrementing from the start.
         index_a.extend(
-            (dot_product.addr_0..(dot_product.addr_0 + dot_product.len)).map(EF::from_usize),
+            (dot_product.addr_0.offset..(dot_product.addr_0.offset + dot_product.len))
+                .map(EF::from_usize),
         );
         index_b.extend(
-            (dot_product.addr_1..(dot_product.addr_1 + dot_product.len)).map(EF::from_usize),
+            (dot_product.addr_1.offset..(dot_product.addr_1.offset + dot_product.len))
+                .map(EF::from_usize),
         );
 
         // The `index_res` column holds the constant result address, repeated for every row.
-        index_res.extend(vec![EF::from_usize(dot_product.addr_res); dot_product.len]);
+        index_res.extend(vec![
+            EF::from_usize(dot_product.addr_res.offset);
+            dot_product.len
+        ]);
 
         // The `value_a` and `value_b` columns are direct copies of the input slices.
         value_a.extend_from_slice(&dot_product.slice_0);

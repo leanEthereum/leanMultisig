@@ -6,6 +6,7 @@ use crate::{
     context::run_context::RunContext,
     errors::vm::VirtualMachineError,
     memory::{address::MemoryAddress, manager::MemoryManager},
+    witness::dot_product::WitnessDotProduct,
 };
 
 /// An instruction to compute the dot product of two vectors of extension field elements.
@@ -62,5 +63,49 @@ impl DotProductInstruction {
         memory_manager.load_data::<F>(ptr_res, dot_product_res.as_basis_coefficients_slice())?;
 
         Ok(())
+    }
+
+    /// Generates the witness for the dot product instruction.
+    pub fn generate_witness(
+        &self,
+        cycle: usize,
+        run_context: &RunContext,
+        memory_manager: &MemoryManager,
+    ) -> Result<WitnessDotProduct, VirtualMachineError> {
+        // Resolve pointers for inputs and result.
+        let addr_0: MemoryAddress = run_context
+            .value_from_mem_or_constant(&self.arg0, memory_manager)?
+            .try_into()?;
+        let addr_1: MemoryAddress = run_context
+            .value_from_mem_or_constant(&self.arg1, memory_manager)?
+            .try_into()?;
+        let addr_res: MemoryAddress = run_context
+            .value_from_mem_or_fp(&self.res, memory_manager)?
+            .try_into()?;
+
+        // Read the first vector slice from memory.
+        let slice_0 = memory_manager
+            .memory
+            .get_vectorized_slice_extension(addr_0, self.size)?;
+
+        // Read the second vector slice from memory.
+        let slice_1 = memory_manager
+            .memory
+            .get_vectorized_slice_extension(addr_1, self.size)?;
+
+        // Read the result from memory.
+        let res = memory_manager.memory.get_extension(addr_res)?;
+
+        // Construct and return the witness.
+        Ok(WitnessDotProduct {
+            cycle,
+            addr_0,
+            addr_1,
+            addr_res,
+            len: self.size,
+            slice_0,
+            slice_1,
+            res,
+        })
     }
 }
