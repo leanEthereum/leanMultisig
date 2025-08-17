@@ -8,6 +8,8 @@ use crate::{
     errors::{memory::MemoryError, vm::VirtualMachineError},
     memory::{address::MemoryAddress, manager::MemoryManager},
     witness::multilinear_eval::WitnessMultilinearEval,
+    errors::vm::VirtualMachineError,
+    memory::{address::MemoryAddress, manager::MemoryManager},
 };
 
 /// An instruction to evaluate a multilinear polynomial at a point in the extension field.

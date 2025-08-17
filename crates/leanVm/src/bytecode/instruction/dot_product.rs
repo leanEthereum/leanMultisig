@@ -5,6 +5,7 @@ use crate::{
     constant::{DIMENSION, EF, F},
     context::run_context::RunContext,
     errors::{memory::MemoryError, vm::VirtualMachineError},
+    errors::vm::VirtualMachineError,
     memory::{address::MemoryAddress, manager::MemoryManager},
 };
 
