@@ -23,11 +23,11 @@ pub struct WitnessPoseidon24 {
     /// The CPU cycle at which this operation is initiated, if applicable.
     pub cycle: Option<usize>,
     /// The memory address (vectorized pointer, of size 2) of the first two 8-element input vectors.
-    pub addr_input_a: usize,
+    pub addr_input_a: MemoryAddress,
     /// The memory address (vectorized pointer, of size 1) of the third 8-element input vector.
-    pub addr_input_b: usize,
+    pub addr_input_b: MemoryAddress,
     /// The memory address (vectorized pointer, of size 1) where the relevant 8-element output vector is stored.
-    pub addr_output: usize,
+    pub addr_output: MemoryAddress,
     /// The full 24-element input state for the permutation.
     pub input: [F; 24],
     /// The last 8 elements of the 24-element output state from the permutation.

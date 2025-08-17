@@ -1,6 +1,8 @@
+use p3_field::BasedVectorSpace;
 use p3_symmetric::Permutation;
 
 use crate::{
+    bytecode::operand::{MemOrConstant, MemOrFp},
     constant::{DIMENSION, F},
     context::run_context::RunContext,
     errors::vm::VirtualMachineError,
@@ -11,21 +13,21 @@ use crate::{
 /// Poseidon2 permutation over 16 field elements (2 inputs, 2 outputs).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon2_16Instruction {
-    /// The starting offset `s` from `fp`. The instruction reads 4 pointers from `m[fp+s]` to `m[fp+s+3]`.
-    pub shift: usize,
+    /// A pointer to the first 8-element input vector.
+    pub arg_a: MemOrConstant,
+    /// A pointer to the second 8-element input vector.
+    pub arg_b: MemOrConstant,
+    /// A pointer to the location for the two 8-element output vectors.
+    pub res: MemOrFp,
 }
 
 impl Poseidon2_16Instruction {
     /// Executes the `Poseidon2_16` precompile instruction.
     ///
-    /// Reads four pointers from memory starting at `fp + shift`, representing:
-    /// - two input vector addresses (`ptr_arg_0`, `ptr_arg_1`)
-    /// - two output vector addresses (`ptr_res_0`, `ptr_res_1`)
-    ///
-    /// Each input is an 8-element vector of `F`. The two inputs are concatenated,
-    /// permuted using Poseidon2, and written back to the output locations.
-    ///
-    /// The operation is: `Poseidon2(m_vec[ptr_0], m_vec[ptr_1]) -> (m_vec[ptr_2], m_vec[ptr_3])`
+    /// This function resolves pointers from its operands to find the memory locations for
+    /// two 8-element input vectors and two 8-element output vectors. It reads the inputs,
+    /// concatenates them, applies the permutation, and writes the two resulting vectors
+    /// back to their designated output locations.
     pub fn execute<Perm>(
         &self,
         run_context: &RunContext,
@@ -35,42 +37,50 @@ impl Poseidon2_16Instruction {
     where
         Perm: Permutation<[F; 2 * DIMENSION]>,
     {
-        // Read Pointers from Memory
+        // Pointer Resolution
         //
-        // The instruction specifies 4 consecutive pointers starting at `fp + shift`.
-        let base_ptr_addr = (run_context.fp + self.shift)?;
-        let ptrs: [MemoryAddress; 4] = memory_manager.memory.get_array_as(base_ptr_addr)?;
+        // Resolve the pointer to the first input vector from the `arg_a` operand.
+        let ptr_arg_a: MemoryAddress = run_context
+            .value_from_mem_or_constant(&self.arg_a, memory_manager)?
+            .try_into()?;
+        // Resolve the pointer to the second input vector from the `arg_b` operand.
+        let ptr_arg_b: MemoryAddress = run_context
+            .value_from_mem_or_constant(&self.arg_b, memory_manager)?
+            .try_into()?;
+        // Resolve the pointer for the start of the output block from the `res` operand.
+        let ptr_res: MemoryAddress = run_context
+            .value_from_mem_or_fp(&self.res, memory_manager)?
+            .try_into()?;
+        // The second output vector will be stored immediately after the first one.
+        let ptr_res_b = (ptr_res + 1)?;
 
-        // Convert the `MemoryValue` pointers to `MemoryAddress`.
-        let [ptr_arg_0, ptr_arg_1, ptr_res_0, ptr_res_1] = ptrs;
-
-        // Read Input Vectors
+        // Data Reading
         //
-        // Read the 8-element vectors from the locations pointed to by `ptr_arg_0` and `ptr_arg_1`.
+        // Read the first 8-element input vector from memory.
         let arg0 = memory_manager
             .memory
-            .get_array_as::<F, DIMENSION>(ptr_arg_0)?;
+            .get_array_as::<F, DIMENSION>(ptr_arg_a)?;
+        // Read the second 8-element input vector from memory.
         let arg1 = memory_manager
             .memory
-            .get_array_as::<F, DIMENSION>(ptr_arg_1)?;
+            .get_array_as::<F, DIMENSION>(ptr_arg_b)?;
 
-        // Perform Hashing
+        // Hashing
         //
         // Concatenate the two input vectors into a single 16-element array for the permutation.
         let mut state = [arg0, arg1].concat().try_into().unwrap();
-
         // Apply the Poseidon2 permutation to the state.
         perm.permute_mut(&mut state);
 
-        // Write Output Vectors
+        // Data Writing
         //
         // Split the permuted state back into two 8-element output vectors.
         let res0: [F; DIMENSION] = state[..DIMENSION].try_into().unwrap();
         let res1: [F; DIMENSION] = state[DIMENSION..].try_into().unwrap();
-
-        // Write the output vectors to the memory locations pointed to by `ptr_res_0` and `ptr_res_1`.
-        memory_manager.load_data(ptr_res_0, &res0)?;
-        memory_manager.load_data(ptr_res_1, &res1)?;
+        // Write the first output vector to its memory location.
+        memory_manager.load_data(ptr_res, &res0)?;
+        // Write the second output vector to its memory location.
+        memory_manager.load_data(ptr_res_b, &res1)?;
 
         Ok(())
     }
@@ -82,36 +92,51 @@ impl Poseidon2_16Instruction {
         run_context: &RunContext,
         memory_manager: &MemoryManager,
     ) -> Result<WitnessPoseidon16, VirtualMachineError> {
-        // Read the four pointers (input_a, input_b, output_a, output_b) from memory.
-        let base_ptr_addr = (run_context.fp + self.shift)?;
-        let [addr_input_a, addr_input_b, addr_output_a, addr_output_b]: [MemoryAddress; 4] =
-            memory_manager.memory.get_array_as(base_ptr_addr)?;
+        // Pointer Resolution
+        //
+        // Resolve the pointer to the first input vector from the `arg_a` operand.
+        let addr_input_a: MemoryAddress = run_context
+            .value_from_mem_or_constant(&self.arg_a, memory_manager)?
+            .try_into()?;
+        // Resolve the pointer to the second input vector from the `arg_b` operand.
+        let addr_input_b: MemoryAddress = run_context
+            .value_from_mem_or_constant(&self.arg_b, memory_manager)?
+            .try_into()?;
+        // Resolve the pointer for the start of the output block from the `res` operand.
+        let addr_output: MemoryAddress = run_context
+            .value_from_mem_or_fp(&self.res, memory_manager)?
+            .try_into()?;
 
-        // Read the two 8-element input vectors from their respective addresses.
+        // Data Reading
+        //
+        // Read the first 8-element input vector from its respective address.
         let value_a = memory_manager
             .memory
             .get_array_as::<F, DIMENSION>(addr_input_a)?;
+        // Read the second 8-element input vector from its respective address.
         let value_b = memory_manager
             .memory
             .get_array_as::<F, DIMENSION>(addr_input_b)?;
-
-        // Read the two 8-element output vectors.
-        let output_a = memory_manager
+        // Read the full 16-element output from memory, starting at the output address.
+        let output = memory_manager
             .memory
-            .get_array_as::<F, DIMENSION>(addr_output_a)?;
-        let output_b = memory_manager
-            .memory
-            .get_array_as::<F, DIMENSION>(addr_output_b)?;
+            .get_vectorized_slice_extension(addr_output, 2)?;
+        let output_coeffs: Vec<F> = output
+            .iter()
+            .flat_map(BasedVectorSpace::as_basis_coefficients_slice)
+            .copied()
+            .collect();
 
+        // Witness Construction
+        //
         // Construct and return the witness struct.
         Ok(WitnessPoseidon16 {
             cycle: Some(cycle),
             addr_input_a,
             addr_input_b,
-            // The output address is the start of the first output vector.
-            addr_output: addr_output_a,
+            addr_output,
             input: [value_a, value_b].concat().try_into().unwrap(),
-            output: [output_a, output_b].concat().try_into().unwrap(),
+            output: output_coeffs.try_into().unwrap(),
         })
     }
 }
