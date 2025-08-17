@@ -1,3 +1,22 @@
+use lean_isa::precompiles::PRECOMPILES;
+
+/// The total number of columns that represent a single instruction in the bytecode ROM.
+pub(crate) const N_INSTRUCTION_COLUMNS: usize = 15;
+/// The number of columns in the execution trace that are directly committed by the prover.
+pub(crate) const N_COMMITTED_EXEC_COLUMNS: usize = 5;
+/// The number of "virtual" columns that hold memory values, derived via lookups.
+///
+/// virtual (lookup into memory, with logup*)
+pub(crate) const N_MEMORY_VALUE_COLUMNS: usize = 3;
+/// The total number of columns related to the execution state (committed + virtual).
+pub(crate) const N_EXEC_COLUMNS: usize = N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
+/// The number of instruction columns included in the AIR, excluding precompile-specific flags.
+pub(crate) const N_INSTRUCTION_COLUMNS_IN_AIR: usize = N_INSTRUCTION_COLUMNS - PRECOMPILES.len();
+/// The total width of the AIR table for the main CPU, combining instruction and execution columns.
+pub(crate) const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS_IN_AIR + N_EXEC_COLUMNS;
+/// The total number of columns in the combined trace (instruction + execution).
+pub(crate) const N_TOTAL_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS;
+
 // Bytecode columns (looked up from the program ROM)
 
 /// The immediate value or memory offset for the first operand, `a`.
@@ -32,11 +51,11 @@ pub(crate) const COL_INDEX_PC: usize = N_BYTECODE_COLUMNS + 3;
 /// The column for the Frame Pointer (fp) register in the execution trace.
 pub(crate) const COL_INDEX_FP: usize = N_BYTECODE_COLUMNS + 4;
 /// The column holding the memory address for operand `a` when `FLAG_A` is 0.
-pub(crate) const COL_INDEX_ADDR_A: usize = N_BYTECODE_COLUMNS + 5;
+pub(crate) const COL_INDEX_MEM_ADDRESS_A: usize = N_BYTECODE_COLUMNS + 5;
 /// The column holding the memory address for operand `b` when `FLAG_B` is 0.
-pub(crate) const COL_INDEX_ADDR_B: usize = N_BYTECODE_COLUMNS + 6;
+pub(crate) const COL_INDEX_MEM_ADDRESS_B: usize = N_BYTECODE_COLUMNS + 6;
 /// The column holding the memory address for operand `c` when `FLAG_C` is 0.
-pub(crate) const COL_INDEX_ADDR_C: usize = N_BYTECODE_COLUMNS + 7;
+pub(crate) const COL_INDEX_MEM_ADDRESS_C: usize = N_BYTECODE_COLUMNS + 7;
 /// The total count of columns in the execution trace that are directly committed by the prover.
 pub(crate) const N_REAL_EXEC_COLUMNS: usize = 5;
 
@@ -48,6 +67,3 @@ pub(crate) const COL_INDEX_MEM_VALUE_A: usize = N_BYTECODE_COLUMNS;
 pub(crate) const COL_INDEX_MEM_VALUE_B: usize = N_BYTECODE_COLUMNS + 1;
 /// The virtual column holding the value read from memory for operand `c`.
 pub(crate) const COL_INDEX_MEM_VALUE_C: usize = N_BYTECODE_COLUMNS + 2;
-
-/// The total number of columns in the AIR, including bytecode, real, and virtual columns.
-pub(crate) const N_EXEC_AIR_COLUMNS: usize = N_BYTECODE_COLUMNS + 3 + N_REAL_EXEC_COLUMNS;

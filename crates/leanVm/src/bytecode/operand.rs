@@ -10,7 +10,7 @@ pub enum MemOrConstant {
     /// Represents the scalar value at `m[fp + shift]`.
     MemoryAfterFp {
         /// The offset from `fp` where the memory location is located.
-        shift: usize,
+        offset: usize,
     },
 }
 
@@ -20,7 +20,7 @@ pub enum MemOrFpOrConstant {
     /// A memory location specified by a positive offset from `fp`. Represents `m[fp + shift]`.
     MemoryAfterFp {
         /// The offset from `fp` where the memory location is located.
-        shift: usize,
+        offset: usize,
     },
     /// The value of the frame pointer (`fp`) register itself.
     Fp,
@@ -34,7 +34,7 @@ pub enum MemOrFp {
     /// A memory location specified by a positive offset from `fp`. Represents `m[fp + shift]`.
     MemoryAfterFp {
         /// The offset from `fp` where the memory location is located.
-        shift: usize,
+        offset: usize,
     },
     /// The value of the frame pointer (`fp`) register itself.
     Fp,

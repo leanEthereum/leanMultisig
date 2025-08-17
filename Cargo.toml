@@ -42,6 +42,8 @@ p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4"
 p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
 p3-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
 p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
+p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
+p3-poseidon2-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
 
 whir-p3 = { git = "https://github.com/tcoratger/whir-p3.git", rev = "df2241d" }
 
@@ -49,3 +51,4 @@ thiserror = "2.0"
 proptest = "1.7"
 num-traits = "0.2"
 rand = "0.9"
+rayon = "1.11"

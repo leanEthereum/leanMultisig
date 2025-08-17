@@ -5,11 +5,11 @@ use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 
 use crate::air::constant::{
-    COL_INDEX_ADD, COL_INDEX_ADDR_A, COL_INDEX_ADDR_B, COL_INDEX_ADDR_C, COL_INDEX_AUX,
-    COL_INDEX_DEREF, COL_INDEX_FLAG_A, COL_INDEX_FLAG_B, COL_INDEX_FLAG_C, COL_INDEX_FP,
-    COL_INDEX_JUZ, COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C,
-    COL_INDEX_MUL, COL_INDEX_OPERAND_A, COL_INDEX_OPERAND_B, COL_INDEX_OPERAND_C, COL_INDEX_PC,
-    N_EXEC_AIR_COLUMNS,
+    COL_INDEX_ADD, COL_INDEX_AUX, COL_INDEX_DEREF, COL_INDEX_FLAG_A, COL_INDEX_FLAG_B,
+    COL_INDEX_FLAG_C, COL_INDEX_FP, COL_INDEX_JUZ, COL_INDEX_MEM_ADDRESS_A,
+    COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C, COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B,
+    COL_INDEX_MEM_VALUE_C, COL_INDEX_MUL, COL_INDEX_OPERAND_A, COL_INDEX_OPERAND_B,
+    COL_INDEX_OPERAND_C, COL_INDEX_PC, N_EXEC_AIR_COLUMNS,
 };
 
 /// Virtual Machine AIR
@@ -65,9 +65,9 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
             next[COL_INDEX_FP].clone().into(),
         );
         let (addr_a, addr_b, addr_c) = (
-            local[COL_INDEX_ADDR_A].clone().into(),
-            local[COL_INDEX_ADDR_B].clone().into(),
-            local[COL_INDEX_ADDR_C].clone().into(),
+            local[COL_INDEX_MEM_ADDRESS_A].clone().into(),
+            local[COL_INDEX_MEM_ADDRESS_B].clone().into(),
+            local[COL_INDEX_MEM_ADDRESS_C].clone().into(),
         );
         let (value_a, value_b, value_c) = (
             local[COL_INDEX_MEM_VALUE_A].clone().into(),

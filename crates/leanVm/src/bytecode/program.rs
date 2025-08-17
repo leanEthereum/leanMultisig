@@ -18,6 +18,8 @@ pub struct Program {
 /// Represents the results of a successful program execution.
 #[derive(Debug)]
 pub struct ExecutionResult {
+    /// The size of the public memory region.
+    pub public_memory_size: usize,
     /// The final state of the memory manager.
     pub memory_manager: MemoryManager,
     /// The execution trace of the program counter (pc) values.

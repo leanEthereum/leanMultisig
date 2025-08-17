@@ -78,8 +78,8 @@ impl RunContext {
     ) -> Result<MemoryValue, MemoryError> {
         match operand {
             MemOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
-            MemOrConstant::MemoryAfterFp { shift } => {
-                let addr = (self.fp + *shift)?;
+            MemOrConstant::MemoryAfterFp { offset } => {
+                let addr = (self.fp + *offset)?;
                 memory
                     .get(addr)
                     .ok_or(MemoryError::UninitializedMemory(addr))
@@ -98,8 +98,8 @@ impl RunContext {
     ) -> Result<MemoryValue, MemoryError> {
         match operand {
             MemOrFp::Fp => Ok(MemoryValue::Address(self.fp)),
-            MemOrFp::MemoryAfterFp { shift } => {
-                let addr = (self.fp + *shift)?;
+            MemOrFp::MemoryAfterFp { offset } => {
+                let addr = (self.fp + *offset)?;
                 memory
                     .get(addr)
                     .ok_or(MemoryError::UninitializedMemory(addr))
@@ -121,8 +121,8 @@ impl RunContext {
         match operand {
             MemOrFpOrConstant::Constant(val) => Ok(MemoryValue::Int(*val)),
             MemOrFpOrConstant::Fp => Ok(MemoryValue::Address(self.fp)),
-            MemOrFpOrConstant::MemoryAfterFp { shift } => {
-                let addr = (self.fp + *shift)?;
+            MemOrFpOrConstant::MemoryAfterFp { offset } => {
+                let addr = (self.fp + *offset)?;
                 memory
                     .get(addr)
                     .ok_or_else(|| MemoryError::UninitializedMemory(addr).into())
@@ -194,7 +194,7 @@ mod tests {
         );
 
         // The operand asks to read memory at fp + 2.
-        let operand = MemOrConstant::MemoryAfterFp { shift: 2 };
+        let operand = MemOrConstant::MemoryAfterFp { offset: 2 };
 
         // Call value_from_mem_or_constant, which should fetch the value we inserted.
         let result = ctx.value_from_mem_or_constant(&operand, &memory).unwrap();
@@ -211,7 +211,7 @@ mod tests {
         // We won't insert anything, so all memory is uninitialized.
 
         // Shift = 1 → fp + 1 points to offset 1 (which is uninitialized).
-        let operand: MemOrConstant = MemOrConstant::MemoryAfterFp { shift: 1 };
+        let operand: MemOrConstant = MemOrConstant::MemoryAfterFp { offset: 1 };
 
         // Set up context.
         let ctx = RunContext::new(
@@ -285,7 +285,7 @@ mod tests {
             MemoryAddress::default(),
             MemoryAddress::default(),
         );
-        let operand = MemOrFpOrConstant::MemoryAfterFp { shift: 7 };
+        let operand = MemOrFpOrConstant::MemoryAfterFp { offset: 7 };
         let result = ctx
             .value_from_mem_or_fp_or_constant(&operand, &memory)
             .unwrap();

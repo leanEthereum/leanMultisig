@@ -15,12 +15,17 @@ p3-field.workspace = true
 p3-symmetric.workspace = true
 p3-air.workspace = true
 p3-matrix.workspace = true
+p3-poseidon2.workspace = true
+p3-poseidon2-air.workspace = true
 
 whir-p3.workspace = true
 
 thiserror.workspace = true
 num-traits.workspace = true
+rayon.workspace = true
+rand.workspace = true
+
+lean-isa.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-rand.workspace = true

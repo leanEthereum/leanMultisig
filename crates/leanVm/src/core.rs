@@ -214,8 +214,8 @@ where
                 // The instruction specifies keeping the same `fp`.
                 MemOrFp::Fp => self.run_context.fp,
                 // The instruction specifies updating `fp` to a value from memory.
-                MemOrFp::MemoryAfterFp { shift } => {
-                    let addr = (*self.run_context.fp() + shift)?;
+                MemOrFp::MemoryAfterFp { offset } => {
+                    let addr = (*self.run_context.fp() + offset)?;
                     let value = self
                         .memory_manager
                         .get(addr)
@@ -374,6 +374,8 @@ where
 
         Ok(ExecutionPassResult {
             result: ExecutionResult {
+                // TODO: complete this field.
+                public_memory_size: 0,
                 memory_manager: self.memory_manager.clone(),
                 pcs: self.pcs.clone(),
                 fps: self.fps.clone(),
@@ -472,7 +474,7 @@ mod tests {
             operation: Operation::Add,
             arg_a: MemOrConstant::Constant(F::ONE),
             arg_b: MemOrFp::Fp,
-            res: MemOrConstant::MemoryAfterFp { shift: 0 },
+            res: MemOrConstant::MemoryAfterFp { offset: 0 },
         });
         // Execute: Update the PC based on this instruction.
         vm.update_pc(&instruction).unwrap();
@@ -489,7 +491,7 @@ mod tests {
         let mut vm = setup_vm(pc, fp, &[((fp + 1).unwrap(), MemoryValue::Int(F::ZERO))]);
         // Define a JNZ instruction where the condition points to the zero value.
         let instruction = Instruction::JumpIfNotZero(JumpIfNotZeroInstruction {
-            condition: MemOrConstant::MemoryAfterFp { shift: 1 },
+            condition: MemOrConstant::MemoryAfterFp { offset: 1 },
             dest: MemOrConstant::Constant(F::from_u64(99)), // This destination should be ignored.
             updated_fp: MemOrFp::Fp,
         });
@@ -519,8 +521,8 @@ mod tests {
         );
         // Define a JNZ instruction pointing to the condition and destination.
         let instruction = Instruction::JumpIfNotZero(JumpIfNotZeroInstruction {
-            condition: MemOrConstant::MemoryAfterFp { shift: 1 },
-            dest: MemOrConstant::MemoryAfterFp { shift: 2 },
+            condition: MemOrConstant::MemoryAfterFp { offset: 1 },
+            dest: MemOrConstant::MemoryAfterFp { offset: 2 },
             updated_fp: MemOrFp::Fp,
         });
         // Execute: Update the PC.
@@ -545,7 +547,7 @@ mod tests {
         );
         // Define a JNZ instruction where the condition points to the address.
         let instruction = Instruction::JumpIfNotZero(JumpIfNotZeroInstruction {
-            condition: MemOrConstant::MemoryAfterFp { shift: 1 },
+            condition: MemOrConstant::MemoryAfterFp { offset: 1 },
             dest: MemOrConstant::Constant(F::ONE),
             updated_fp: MemOrFp::Fp,
         });
@@ -590,7 +592,7 @@ mod tests {
         let instruction = Instruction::JumpIfNotZero(JumpIfNotZeroInstruction {
             condition: MemOrConstant::Constant(F::ONE),
             dest: MemOrConstant::Constant(F::ONE),
-            updated_fp: MemOrFp::MemoryAfterFp { shift: 3 },
+            updated_fp: MemOrFp::MemoryAfterFp { offset: 3 },
         });
         // Execute: Update the FP.
         vm.update_fp(&instruction).unwrap();
@@ -612,7 +614,7 @@ mod tests {
         let instruction = Instruction::JumpIfNotZero(JumpIfNotZeroInstruction {
             condition: MemOrConstant::Constant(F::ONE),
             dest: MemOrConstant::Constant(F::ONE),
-            updated_fp: MemOrFp::MemoryAfterFp { shift: 3 },
+            updated_fp: MemOrFp::MemoryAfterFp { offset: 3 },
         });
         // Execute: Attempt to update the FP.
         let result = vm.update_fp(&instruction);
