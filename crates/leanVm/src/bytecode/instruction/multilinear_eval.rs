@@ -3,9 +3,9 @@ use whir_p3::poly::{coeffs::CoefficientList, multilinear::MultilinearPoint};
 
 use crate::{
     bytecode::operand::{MemOrConstant, MemOrFp},
-    constant::{DIMENSION, EF, F},
+    constant::F,
     context::run_context::RunContext,
-    errors::{memory::MemoryError, vm::VirtualMachineError},
+    errors::vm::VirtualMachineError,
     memory::{address::MemoryAddress, manager::MemoryManager},
     witness::multilinear_eval::WitnessMultilinearEval,
 };
@@ -60,14 +60,9 @@ impl MultilinearEvalInstruction {
             .collect::<Result<_, _>>()?;
 
         // Read the evaluation point from memory.
-        let point: Vec<EF> = (0..self.n_vars)
-            .map(|i| {
-                let addr = (ptr_point + i)?;
-                let vector_coeffs = memory_manager.memory.get_array_as::<F, DIMENSION>(addr)?;
-                EF::from_basis_coefficients_slice(&vector_coeffs)
-                    .ok_or(MemoryError::InvalidExtensionFieldConversion)
-            })
-            .collect::<Result<_, _>>()?;
+        let point = memory_manager
+            .memory
+            .get_vectorized_slice_extension(ptr_point, self.n_vars)?;
 
         // Evaluate the multilinear polynomial.
         let eval = CoefficientList::new(slice_coeffs).evaluate(&MultilinearPoint(point));

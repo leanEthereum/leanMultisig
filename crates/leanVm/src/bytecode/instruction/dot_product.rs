@@ -2,9 +2,9 @@ use p3_field::{BasedVectorSpace, dot_product};
 
 use crate::{
     bytecode::operand::{MemOrConstant, MemOrFp},
-    constant::{DIMENSION, EF, F},
+    constant::{EF, F},
     context::run_context::RunContext,
-    errors::{memory::MemoryError, vm::VirtualMachineError},
+    errors::vm::VirtualMachineError,
     memory::{address::MemoryAddress, manager::MemoryManager},
 };
 
@@ -46,24 +46,14 @@ impl DotProductInstruction {
             .try_into()?;
 
         // Read the first vector slice from memory.
-        let slice_0: Vec<EF> = (0..self.size)
-            .map(|i| {
-                let addr = (ptr_arg_0 + i)?;
-                let vector_coeffs = memory_manager.memory.get_array_as::<F, DIMENSION>(addr)?;
-                EF::from_basis_coefficients_slice(&vector_coeffs)
-                    .ok_or(MemoryError::InvalidExtensionFieldConversion)
-            })
-            .collect::<Result<_, _>>()?;
+        let slice_0 = memory_manager
+            .memory
+            .get_vectorized_slice_extension(ptr_arg_0, self.size)?;
 
         // Read the second vector slice from memory.
-        let slice_1: Vec<EF> = (0..self.size)
-            .map(|i| {
-                let addr = (ptr_arg_1 + i)?;
-                let vector_coeffs = memory_manager.memory.get_array_as::<F, DIMENSION>(addr)?;
-                EF::from_basis_coefficients_slice(&vector_coeffs)
-                    .ok_or(MemoryError::InvalidExtensionFieldConversion)
-            })
-            .collect::<Result<_, _>>()?;
+        let slice_1 = memory_manager
+            .memory
+            .get_vectorized_slice_extension(ptr_arg_1, self.size)?;
 
         // Compute the dot product of the two slices by converting them into iterators.
         let dot_product_res = dot_product::<EF, _, _>(slice_0.into_iter(), slice_1.into_iter());
