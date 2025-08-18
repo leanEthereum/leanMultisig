@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt};
+use std::fmt;
 
 use p3_field::PrimeCharacteristicRing;
 
@@ -7,10 +7,7 @@ use crate::{
     intermediate_bytecode::HighLevelOperation,
 };
 
-#[derive(Debug, Clone)]
-pub struct Program {
-    pub functions: BTreeMap<String, Function>,
-}
+pub mod program;
 
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -522,20 +519,6 @@ impl fmt::Display for ConstExpression {
 impl fmt::Display for Line {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_string_with_indent(0))
-    }
-}
-
-impl fmt::Display for Program {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let program_str = self
-            .functions
-            .values()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        // Write the final, joined string to the formatter.
-        write!(f, "{program_str}")
     }
 }
 
