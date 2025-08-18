@@ -2,10 +2,12 @@ use std::collections::BTreeMap;
 
 use pest::iterators::Pair;
 
-use super::{ParseError, Rule, parse_parameter, parse_statement, parse_var_list};
+use super::{
+    ParseError, Rule, parse_parameter, parse_statement, parse_tuple_expression, parse_var_list,
+};
 use crate::{
     lang::{Function, Line, SimpleExpr},
-    parser::{PRECOMPILES, parse_tuple_expression},
+    parser::PRECOMPILES,
 };
 
 pub(crate) fn parse_function(

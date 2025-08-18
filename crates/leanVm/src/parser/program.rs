@@ -2,10 +2,8 @@ use std::collections::BTreeMap;
 
 use pest::Parser;
 
-use super::{
-    LangParser, ParseError, Rule, parse_constant_declaration, parse_function, remove_comments,
-};
-use crate::parser::Program;
+use super::{LangParser, ParseError, Rule, parse_function, remove_comments};
+use crate::parser::{Program, parse_constant_declaration};
 
 pub fn parse_program(input: &str) -> Result<Program, ParseError> {
     let input = remove_comments(input);
