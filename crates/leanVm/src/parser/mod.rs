@@ -21,6 +21,8 @@ pub mod function;
 pub(crate) use function::*;
 pub mod statement;
 pub(crate) use statement::*;
+pub mod condition;
+pub(crate) use condition::*;
 
 #[derive(Parser, Debug)]
 #[grammar = "grammar.pest"]
@@ -209,22 +211,6 @@ fn parse_tuple_expression(
     pair.into_inner()
         .map(|item| parse_expression(item, constants))
         .collect()
-}
-
-fn parse_condition(
-    pair: Pair<'_, Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Boolean, ParseError> {
-    let inner = pair.into_inner().next().unwrap();
-    let mut parts = inner.clone().into_inner();
-    let left = parse_expression(parts.next().unwrap(), constants)?;
-    let right = parse_expression(parts.next().unwrap(), constants)?;
-
-    match inner.as_rule() {
-        Rule::condition_eq => Ok(Boolean::Equal { left, right }),
-        Rule::condition_diff => Ok(Boolean::Different { left, right }),
-        _ => unreachable!(),
-    }
 }
 
 fn parse_assert_eq(
