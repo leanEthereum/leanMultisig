@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::Label;
+use crate::lang::Label;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstantValue {

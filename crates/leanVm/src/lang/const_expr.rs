@@ -3,10 +3,9 @@ use std::fmt;
 use p3_field::PrimeCharacteristicRing;
 
 use crate::{
-    Label,
     constant::F,
     intermediate_bytecode::HighLevelOperation,
-    lang::{constant_value::ConstantValue, expression::Expression, simple_expr::SimpleExpr},
+    lang::{Label, constant_value::ConstantValue, expression::Expression, simple_expr::SimpleExpr},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
