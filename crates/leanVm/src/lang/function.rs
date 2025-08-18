@@ -24,7 +24,7 @@ impl fmt::Display for Function {
             .iter()
             .map(|arg| match arg {
                 (name, true) => format!("const {name}"),
-                (name, false) => name.to_string(),
+                (name, false) => name.clone(),
             })
             .collect::<Vec<_>>()
             .join(", ");
