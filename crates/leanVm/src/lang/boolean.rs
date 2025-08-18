@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::lang::Expression;
+use crate::lang::expression::Expression;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Boolean {
