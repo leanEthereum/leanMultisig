@@ -7,6 +7,7 @@ pub mod hint;
 pub mod instruction;
 pub mod operand;
 pub mod operation;
+pub mod precompiles;
 pub mod program;
 
 /// Represents the compiled bytecode of a program for the zkVM.

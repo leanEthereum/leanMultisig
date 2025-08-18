@@ -1,4 +1,4 @@
-use lean_isa::precompiles::PRECOMPILES;
+use crate::bytecode::precompiles::PRECOMPILES;
 
 /// The total number of columns that represent a single instruction in the bytecode ROM.
 pub(crate) const N_INSTRUCTION_COLUMNS: usize = 15;
