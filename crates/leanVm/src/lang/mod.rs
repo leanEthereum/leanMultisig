@@ -7,25 +7,17 @@ use crate::{
     bytecode::precompiles::Precompile,
     constant::F,
     intermediate_bytecode::HighLevelOperation,
-    lang::{boolean::Boolean, simple_expr::SimpleExpr},
+    lang::{boolean::Boolean, constant_value::ConstantValue, simple_expr::SimpleExpr},
 };
 
 pub mod boolean;
+pub mod constant_value;
 pub mod function;
 pub mod program;
 pub mod simple_expr;
 
 pub type Var = String;
 pub type ConstMallocLabel = usize;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ConstantValue {
-    Scalar(usize),
-    PublicInputStart,
-    PointerToZeroVector, // In the memory of chunks of 8 field elements
-    FunctionSize { function_name: Label },
-    Label(Label),
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstExpression {
@@ -389,20 +381,6 @@ impl Line {
             Self::Panic => "panic".to_string(),
         };
         format!("{spaces}{line_str}")
-    }
-}
-
-impl fmt::Display for ConstantValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Scalar(scalar) => write!(f, "{scalar}"),
-            Self::PublicInputStart => write!(f, "@public_input_start"),
-            Self::PointerToZeroVector => write!(f, "@pointer_to_zero_vector"),
-            Self::FunctionSize { function_name } => {
-                write!(f, "@function_size_{function_name}")
-            }
-            Self::Label(label) => write!(f, "{label}"),
-        }
     }
 }
 
