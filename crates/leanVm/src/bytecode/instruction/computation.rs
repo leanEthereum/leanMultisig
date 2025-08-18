@@ -16,7 +16,7 @@ pub struct ComputationInstruction {
     /// The first operand of the computation.
     pub arg_a: MemOrConstant,
     /// The second operand of the computation.
-    pub arg_b: MemOrFp,
+    pub arg_c: MemOrFp,
     /// The memory location or constant that the result must be equal to.
     pub res: MemOrConstant,
 }
@@ -38,7 +38,7 @@ impl ComputationInstruction {
         memory_manager: &mut MemoryManager,
     ) -> Result<(), VirtualMachineError> {
         let val_a = run_context.value_from_mem_or_constant(&self.arg_a, memory_manager);
-        let val_b = run_context.value_from_mem_or_fp(&self.arg_b, memory_manager);
+        let val_b = run_context.value_from_mem_or_fp(&self.arg_c, memory_manager);
         let val_res = run_context.value_from_mem_or_constant(&self.res, memory_manager);
 
         match (val_a, val_b, val_res) {

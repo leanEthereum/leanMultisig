@@ -41,8 +41,17 @@ pub(crate) const COL_INDEX_DEREF: usize = 8;
 pub(crate) const COL_INDEX_JUZ: usize = 9;
 /// An auxiliary operand used for multi-purpose logic, like specifying the `res` type in DEREF.
 pub(crate) const COL_INDEX_AUX: usize = 10;
+/// The opcode flag that activates the Poseidon16 precompile's constraints.
+pub(crate) const COL_INDEX_POSEIDON_16: usize = 11;
+/// The opcode flag that activates the Poseidon24 precompile's constraints.
+pub(crate) const COL_INDEX_POSEIDON_24: usize = 12;
+/// The opcode flag that activates the DotProduct precompile's constraints.
+pub(crate) const COL_INDEX_DOT_PRODUCT: usize = 13;
+/// The opcode flag that activates the MultilinearEval precompile's constraints.
+pub(crate) const COL_INDEX_MULTILINEAR_EVAL: usize = 14;
+
 /// The total number of columns representing a single decoded instruction from the bytecode.
-pub(crate) const N_BYTECODE_COLUMNS: usize = 11;
+pub(crate) const N_BYTECODE_COLUMNS: usize = 15;
 
 // Execution trace columns (committed by the prover)
 

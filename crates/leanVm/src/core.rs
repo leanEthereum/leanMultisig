@@ -473,7 +473,7 @@ mod tests {
         let instruction = Instruction::Computation(ComputationInstruction {
             operation: Operation::Add,
             arg_a: MemOrConstant::Constant(F::ONE),
-            arg_b: MemOrFp::Fp,
+            arg_c: MemOrFp::Fp,
             res: MemOrConstant::MemoryAfterFp { offset: 0 },
         });
         // Execute: Update the PC based on this instruction.

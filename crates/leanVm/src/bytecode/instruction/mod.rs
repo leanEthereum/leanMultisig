@@ -8,12 +8,13 @@ use p3_symmetric::Permutation;
 use poseidon16::Poseidon2_16Instruction;
 use poseidon24::Poseidon2_24Instruction;
 
-use super::operand::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
+use super::operand::MemOrFpOrConstant;
 use crate::{
     air::constant::{
-        COL_INDEX_ADD, COL_INDEX_AUX, COL_INDEX_DEREF, COL_INDEX_FLAG_A, COL_INDEX_FLAG_B,
-        COL_INDEX_FLAG_C, COL_INDEX_JUZ, COL_INDEX_MUL, COL_INDEX_OPERAND_A, COL_INDEX_OPERAND_B,
-        COL_INDEX_OPERAND_C, N_INSTRUCTION_COLUMNS,
+        COL_INDEX_ADD, COL_INDEX_AUX, COL_INDEX_DEREF, COL_INDEX_DOT_PRODUCT, COL_INDEX_FLAG_A,
+        COL_INDEX_FLAG_B, COL_INDEX_FLAG_C, COL_INDEX_JUZ, COL_INDEX_MUL,
+        COL_INDEX_MULTILINEAR_EVAL, COL_INDEX_OPERAND_A, COL_INDEX_OPERAND_B, COL_INDEX_OPERAND_C,
+        COL_INDEX_POSEIDON_16, COL_INDEX_POSEIDON_24, N_INSTRUCTION_COLUMNS,
     },
     bytecode::operation::Operation,
     constant::{DIMENSION, F},
@@ -161,7 +162,7 @@ impl Instruction {
             Self::Computation(ComputationInstruction {
                 operation,
                 arg_a,
-                arg_b,
+                arg_c,
                 res,
             }) => {
                 // Set the appropriate opcode flag for ADD or MUL.
@@ -169,18 +170,10 @@ impl Instruction {
                     Operation::Add => repr[COL_INDEX_ADD] = F::ONE,
                     Operation::Mul => repr[COL_INDEX_MUL] = F::ONE,
                 }
-                // Convert operands to their field and flag representations.
-                let (op_a, flag_a) = op_to_field(arg_a);
-                let (op_b, flag_b) = op_to_field_fp(arg_b);
-                let (op_c, flag_c) = op_to_field(res);
-
-                // Populate the representation vector.
-                repr[COL_INDEX_OPERAND_A] = op_a;
-                repr[COL_INDEX_FLAG_A] = flag_a;
-                repr[COL_INDEX_OPERAND_B] = op_b;
-                repr[COL_INDEX_FLAG_B] = flag_b;
-                repr[COL_INDEX_OPERAND_C] = op_c;
-                repr[COL_INDEX_FLAG_C] = flag_c;
+                // Convert operands to their field and flag representations using the helper methods.
+                (repr[COL_INDEX_OPERAND_A], repr[COL_INDEX_FLAG_A]) = arg_a.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_B], repr[COL_INDEX_FLAG_B]) = res.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_C], repr[COL_INDEX_FLAG_C]) = arg_c.to_field_and_flag();
             }
             Self::Deref(DerefInstruction {
                 shift_0,
@@ -221,37 +214,58 @@ impl Instruction {
                 // Set the JUZ opcode flag.
                 repr[COL_INDEX_JUZ] = F::ONE;
                 // Convert operands to their field and flag representations.
-                let (op_a, flag_a) = op_to_field(condition);
-                let (op_b, flag_b) = op_to_field_fp(updated_fp);
-                let (op_c, flag_c) = op_to_field(dest);
-
-                // Populate the representation vector.
-                repr[COL_INDEX_OPERAND_A] = op_a;
-                repr[COL_INDEX_FLAG_A] = flag_a;
-                repr[COL_INDEX_OPERAND_B] = op_b;
-                repr[COL_INDEX_FLAG_B] = flag_b;
-                repr[COL_INDEX_OPERAND_C] = op_c;
-                repr[COL_INDEX_FLAG_C] = flag_c;
+                (repr[COL_INDEX_OPERAND_A], repr[COL_INDEX_FLAG_A]) = condition.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_B], repr[COL_INDEX_FLAG_B]) =
+                    updated_fp.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_C], repr[COL_INDEX_FLAG_C]) = dest.to_field_and_flag();
             }
-            // Precompiles do not set flags in the main instruction columns.
-            _ => {}
+            Self::Poseidon2_16(Poseidon2_16Instruction { arg_a, arg_b, res }) => {
+                // Set the Poseidon16 opcode flag.
+                repr[COL_INDEX_POSEIDON_16] = F::ONE;
+                // Convert operands to their field and flag representations.
+                (repr[COL_INDEX_OPERAND_A], repr[COL_INDEX_FLAG_A]) = arg_a.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_B], repr[COL_INDEX_FLAG_B]) = arg_b.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_C], repr[COL_INDEX_FLAG_C]) = res.to_field_and_flag();
+            }
+            Self::Poseidon2_24(Poseidon2_24Instruction { arg_a, arg_b, res }) => {
+                // Set the Poseidon24 opcode flag.
+                repr[COL_INDEX_POSEIDON_24] = F::ONE;
+                // Convert operands to their field and flag representations.
+                (repr[COL_INDEX_OPERAND_A], repr[COL_INDEX_FLAG_A]) = arg_a.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_B], repr[COL_INDEX_FLAG_B]) = arg_b.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_C], repr[COL_INDEX_FLAG_C]) = res.to_field_and_flag();
+            }
+            Self::DotProduct(DotProductInstruction {
+                arg0,
+                arg1,
+                res,
+                size,
+            }) => {
+                // Set the DotProduct opcode flag.
+                repr[COL_INDEX_DOT_PRODUCT] = F::ONE;
+                // Convert operands to their field and flag representations.
+                (repr[COL_INDEX_OPERAND_A], repr[COL_INDEX_FLAG_A]) = arg0.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_B], repr[COL_INDEX_FLAG_B]) = arg1.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_C], repr[COL_INDEX_FLAG_C]) = res.to_field_and_flag();
+                // Use the AUX column to store the size of the vectors.
+                repr[COL_INDEX_AUX] = F::from_usize(*size);
+            }
+            Self::MultilinearEval(MultilinearEvalInstruction {
+                coeffs,
+                point,
+                res,
+                n_vars,
+            }) => {
+                // Set the MultilinearEval opcode flag.
+                repr[COL_INDEX_MULTILINEAR_EVAL] = F::ONE;
+                // Convert operands to their field and flag representations.
+                (repr[COL_INDEX_OPERAND_A], repr[COL_INDEX_FLAG_A]) = coeffs.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_B], repr[COL_INDEX_FLAG_B]) = point.to_field_and_flag();
+                (repr[COL_INDEX_OPERAND_C], repr[COL_INDEX_FLAG_C]) = res.to_field_and_flag();
+                // Use the AUX column to store the number of variables.
+                repr[COL_INDEX_AUX] = F::from_usize(*n_vars);
+            }
         }
         repr
-    }
-}
-
-/// Helper to convert a `MemOrConstant` operand into its (value, flag) pair.
-fn op_to_field(op: &MemOrConstant) -> (F, F) {
-    match op {
-        MemOrConstant::Constant(c) => (*c, F::ONE),
-        MemOrConstant::MemoryAfterFp { offset } => (F::from_usize(*offset), F::ZERO),
-    }
-}
-
-/// Helper to convert a `MemOrFp` operand into its (value, flag) pair.
-fn op_to_field_fp(op: &MemOrFp) -> (F, F) {
-    match op {
-        MemOrFp::Fp => (F::ZERO, F::ONE), // Represents the `fp` register itself.
-        MemOrFp::MemoryAfterFp { offset } => (F::from_usize(*offset), F::ZERO),
     }
 }
