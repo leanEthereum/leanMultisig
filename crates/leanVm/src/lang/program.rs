@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt};
 
-use crate::lang::Function;
+use crate::lang::function::Function;
 
 #[derive(Debug, Clone)]
 pub struct Program {
