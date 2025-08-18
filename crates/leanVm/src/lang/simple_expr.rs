@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::lang::{ConstExpression, ConstMallocLabel, ConstantValue, Var};
+use crate::lang::{ConstMallocLabel, ConstantValue, Var, const_expr::ConstExpression};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SimpleExpr {

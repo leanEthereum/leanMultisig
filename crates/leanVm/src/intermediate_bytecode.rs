@@ -2,7 +2,9 @@ use std::{collections::BTreeMap, fmt};
 
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 
-use crate::{Label, bytecode::operation::Operation, constant::F, lang::ConstExpression};
+use crate::{
+    Label, bytecode::operation::Operation, constant::F, lang::const_expr::ConstExpression,
+};
 
 #[derive(Debug, Clone)]
 pub struct IntermediateBytecode {
