@@ -3,22 +3,20 @@ use std::fmt;
 use p3_field::PrimeCharacteristicRing;
 
 use crate::{
-    Label, bytecode::precompiles::Precompile, constant::F,
-    intermediate_bytecode::HighLevelOperation, lang::simple_expr::SimpleExpr,
+    Label,
+    bytecode::precompiles::Precompile,
+    constant::F,
+    intermediate_bytecode::HighLevelOperation,
+    lang::{boolean::Boolean, simple_expr::SimpleExpr},
 };
 
+pub mod boolean;
 pub mod function;
 pub mod program;
 pub mod simple_expr;
 
 pub type Var = String;
 pub type ConstMallocLabel = usize;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Boolean {
-    Equal { left: Expression, right: Expression },
-    Different { left: Expression, right: Expression },
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstantValue {
@@ -391,15 +389,6 @@ impl Line {
             Self::Panic => "panic".to_string(),
         };
         format!("{spaces}{line_str}")
-    }
-}
-
-impl fmt::Display for Boolean {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Equal { left, right } => write!(f, "{left} == {right}"),
-            Self::Different { left, right } => write!(f, "{left} != {right}"),
-        }
     }
 }
 
