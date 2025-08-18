@@ -15,7 +15,7 @@ impl MemoryManager {
     /// # Returns
     /// * `usize` — the number of segments allocated in `self.memory`.
     #[must_use]
-    pub fn num_segments(&self) -> usize {
+    pub const fn num_segments(&self) -> usize {
         self.memory.data.len()
     }
 
