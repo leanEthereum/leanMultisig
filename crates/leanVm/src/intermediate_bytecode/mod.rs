@@ -8,34 +8,13 @@ use crate::{
     lang::{Label, const_expr::ConstExpression},
 };
 
+pub mod intermediate_value;
+pub use intermediate_value::*;
+
 #[derive(Debug, Clone)]
 pub struct IntermediateBytecode {
     pub bytecode: BTreeMap<Label, Vec<IntermediateInstruction>>,
     pub memory_size_per_function: BTreeMap<String, usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum IntermediateValue {
-    Constant(ConstExpression),
-    Fp,
-    MemoryAfterFp { offset: ConstExpression }, // m[fp + offset]
-}
-
-impl From<ConstExpression> for IntermediateValue {
-    fn from(value: ConstExpression) -> Self {
-        Self::Constant(value)
-    }
-}
-impl TryFrom<HighLevelOperation> for Operation {
-    type Error = String;
-
-    fn try_from(value: HighLevelOperation) -> Result<Self, Self::Error> {
-        match value {
-            HighLevelOperation::Add => Ok(Self::Add),
-            HighLevelOperation::Mul => Ok(Self::Mul),
-            _ => Err(format!("Cannot convert {value:?} to +/x")),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -43,18 +22,6 @@ pub enum IntermediaryMemOrFpOrConstant {
     MemoryAfterFp { offset: ConstExpression }, // m[fp + offset]
     Fp,
     Constant(ConstExpression),
-}
-
-impl IntermediateValue {
-    #[must_use]
-    pub const fn label(label: Label) -> Self {
-        Self::Constant(ConstExpression::label(label))
-    }
-
-    #[must_use]
-    pub const fn is_constant(&self) -> bool {
-        matches!(self, Self::Constant(_))
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -189,16 +156,6 @@ impl IntermediateInstruction {
             arg_a: left,
             arg_c: IntermediateValue::Constant(ConstExpression::zero()),
             res: right,
-        }
-    }
-}
-
-impl fmt::Display for IntermediateValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Constant(value) => write!(f, "{value}"),
-            Self::Fp => write!(f, "fp"),
-            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
         }
     }
 }

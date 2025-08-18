@@ -2,7 +2,7 @@ use std::fmt;
 
 use p3_field::Field;
 
-use crate::constant::F;
+use crate::{constant::F, intermediate_bytecode::HighLevelOperation};
 
 /// The basic arithmetic operations supported by the VM's `Computation` instruction.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -54,6 +54,18 @@ impl Operation {
         match self {
             Self::Add => Some(a - b),
             Self::Mul => (!b.is_zero()).then(|| a / b),
+        }
+    }
+}
+
+impl TryFrom<HighLevelOperation> for Operation {
+    type Error = String;
+
+    fn try_from(value: HighLevelOperation) -> Result<Self, Self::Error> {
+        match value {
+            HighLevelOperation::Add => Ok(Self::Add),
+            HighLevelOperation::Mul => Ok(Self::Mul),
+            _ => Err(format!("Cannot convert {value:?} to +/x")),
         }
     }
 }
