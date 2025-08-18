@@ -4,7 +4,9 @@ use p3_field::PrimeCharacteristicRing;
 
 use crate::{
     Label,
-    lang::{ConstantValue, F, HighLevelOperation, SimpleExpr, expression::Expression},
+    constant::F,
+    intermediate_bytecode::HighLevelOperation,
+    lang::{constant_value::ConstantValue, expression::Expression, simple_expr::SimpleExpr},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -1,6 +1,10 @@
 use std::fmt;
 
-use crate::lang::{F, HighLevelOperation, SimpleExpr, Var};
+use crate::{
+    constant::F,
+    intermediate_bytecode::HighLevelOperation,
+    lang::{Var, simple_expr::SimpleExpr},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {

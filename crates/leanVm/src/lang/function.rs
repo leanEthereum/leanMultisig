@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::lang::{Line, Var};
+use crate::lang::{Var, line::Line};
 
 #[derive(Debug, Clone)]
 pub struct Function {
