@@ -7,6 +7,7 @@ pub mod errors;
 pub mod intermediate_bytecode;
 pub mod lang;
 pub mod memory;
+pub mod parser;
 pub mod poseidon2;
 pub mod trace;
 pub mod witness;
