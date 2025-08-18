@@ -1,3 +1,5 @@
+use std::fmt;
+
 use p3_field::Field;
 
 use crate::constant::F;
@@ -52,6 +54,15 @@ impl Operation {
         match self {
             Self::Add => Some(a - b),
             Self::Mul => (!b.is_zero()).then(|| a / b),
+        }
+    }
+}
+
+impl fmt::Display for Operation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Add => write!(f, "+"),
+            Self::Mul => write!(f, "x"),
         }
     }
 }
