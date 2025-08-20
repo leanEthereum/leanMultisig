@@ -1,6 +1,6 @@
 use std::fmt;
 
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{PrimeCharacteristicRing, PrimeField};
 
 use crate::{
     constant::F,
@@ -63,6 +63,14 @@ impl ConstExpression {
             ConstantValue::Scalar(scalar) => Some(F::from_usize(*scalar)),
             _ => None,
         })
+    }
+
+    #[must_use]
+    pub fn try_naive_simplification(&self) -> Self {
+        self.naive_eval().map_or_else(
+            || self.clone(),
+            |value| Self::scalar(value.as_canonical_biguint().try_into().unwrap()),
+        )
     }
 }
 
