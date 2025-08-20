@@ -5,7 +5,13 @@ rust-version = "1.87"
 license = "MIT OR Apache-2.0"
 
 [workspace]
-members = ["crates/leanIsa", "crates/leanSnark", "crates/leanVm"]
+members = [
+    "crates/leanIsa",
+    "crates/leanLookup",
+    "crates/leanSnark",
+    "crates/leanVm",
+    "crates/leanLookup",
+]
 resolver = "3"
 
 [workspace.lints]
@@ -35,6 +41,7 @@ cast_sign_loss = "allow"
 lean-isa = { path = "crates/leanIsa" }
 lean-snark = { path = "crates/leanSnark" }
 lean-vm = { path = "crates/leanVm" }
+lean-lookup = { path = "crates/leanLookup" }
 
 p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
 p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "5ebf8e4" }
