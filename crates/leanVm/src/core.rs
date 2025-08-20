@@ -29,6 +29,8 @@ pub struct VirtualMachine<Perm16, Perm24> {
     pub(crate) cpu_cycles: u64,
     pub(crate) poseidon16_calls: u64,
     pub(crate) poseidon24_calls: u64,
+    pub(crate) dot_product_calls: u64,
+    pub(crate) multilinear_eval_calls: u64,
     // A string buffer to hold output from the Print hint.
     pub(crate) std_out: String,
 }
@@ -51,6 +53,8 @@ where
             cpu_cycles: 0,
             poseidon16_calls: 0,
             poseidon24_calls: 0,
+            dot_product_calls: 0,
+            multilinear_eval_calls: 0,
             std_out: String::new(),
         }
     }
@@ -287,6 +291,8 @@ where
         self.cpu_cycles = 0;
         self.poseidon16_calls = 0;
         self.poseidon24_calls = 0;
+        self.dot_product_calls = 0;
+        self.multilinear_eval_calls = 0;
         self.std_out.clear();
     }
 
@@ -295,6 +301,8 @@ where
         match instruction {
             Instruction::Poseidon2_16(_) => self.poseidon16_calls += 1,
             Instruction::Poseidon2_24(_) => self.poseidon24_calls += 1,
+            Instruction::DotProduct(_) => self.dot_product_calls += 1,
+            Instruction::MultilinearEval(_) => self.multilinear_eval_calls += 1,
             _ => (), // Other instructions do not have special counters.
         }
     }
