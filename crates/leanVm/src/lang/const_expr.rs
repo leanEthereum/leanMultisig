@@ -75,13 +75,15 @@ impl ConstExpression {
         )
     }
 
-    #[must_use] pub fn eval_const_expression(&self, compiler: &Compiler) -> F {
-        self.eval_with(&|cst| Some(F::from_usize(cst.eval_constant_value(compiler))))
+    #[must_use]
+    pub fn eval(&self, compiler: &Compiler) -> F {
+        self.eval_with(&|cst| Some(F::from_usize(cst.eval(compiler))))
             .unwrap()
     }
 
-    #[must_use] pub fn eval_const_expression_usize(&self, compiler: &Compiler) -> usize {
-        self.eval_const_expression(compiler)
+    #[must_use]
+    pub fn eval_usize(&self, compiler: &Compiler) -> usize {
+        self.eval(compiler)
             .as_canonical_biguint()
             .try_into()
             .unwrap()

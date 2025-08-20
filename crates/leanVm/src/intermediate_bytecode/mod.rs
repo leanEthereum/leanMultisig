@@ -74,7 +74,7 @@ impl IntermediateBytecode {
             }
             if let IntermediateValue::MemoryAfterFp { offset } = value {
                 return Some(MemOrConstant::MemoryAfterFp {
-                    offset: offset.eval_const_expression_usize(&compiler),
+                    offset: offset.eval_usize(&compiler),
                 });
             }
             None
@@ -82,7 +82,7 @@ impl IntermediateBytecode {
 
         let try_as_mem_or_fp = |value: &IntermediateValue| match value {
             IntermediateValue::MemoryAfterFp { offset } => Some(MemOrFp::MemoryAfterFp {
-                offset: offset.eval_const_expression_usize(&compiler),
+                offset: offset.eval_usize(&compiler),
             }),
             IntermediateValue::Fp => Some(MemOrFp::Fp),
             IntermediateValue::Constant(_) => None,
@@ -145,17 +145,17 @@ impl IntermediateBytecode {
                         res,
                     } => {
                         low_level_bytecode.push(Instruction::Deref(DerefInstruction {
-                            shift_0: shift_0.eval_const_expression_usize(&compiler),
-                            shift_1: shift_1.eval_const_expression_usize(&compiler),
+                            shift_0: shift_0.eval_usize(&compiler),
+                            shift_1: shift_1.eval_usize(&compiler),
                             res: match res {
                                 IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset } => {
                                     MemOrFpOrConstant::MemoryAfterFp {
-                                        offset: offset.eval_const_expression_usize(&compiler),
+                                        offset: offset.eval_usize(&compiler),
                                     }
                                 }
                                 IntermediaryMemOrFpOrConstant::Fp => MemOrFpOrConstant::Fp,
                                 IntermediaryMemOrFpOrConstant::Constant(c) => {
-                                    MemOrFpOrConstant::Constant(c.eval_const_expression(&compiler))
+                                    MemOrFpOrConstant::Constant(c.eval(&compiler))
                                 }
                             },
                         }));
@@ -213,7 +213,7 @@ impl IntermediateBytecode {
                             arg0: arg0.try_into_mem_or_constant(&compiler).unwrap(),
                             arg1: arg1.try_into_mem_or_constant(&compiler).unwrap(),
                             res: res.try_into_mem_or_fp(&compiler).unwrap(),
-                            size: size.eval_const_expression_usize(&compiler),
+                            size: size.eval_usize(&compiler),
                         }));
                     }
                     IntermediateInstruction::MultilinearEval {
@@ -227,7 +227,7 @@ impl IntermediateBytecode {
                                 coeffs: coeffs.try_into_mem_or_constant(&compiler).unwrap(),
                                 point: point.try_into_mem_or_constant(&compiler).unwrap(),
                                 res: res.try_into_mem_or_fp(&compiler).unwrap(),
-                                n_vars: n_vars.eval_const_expression_usize(&compiler),
+                                n_vars: n_vars.eval_usize(&compiler),
                             },
                         ));
                     }
@@ -255,7 +255,7 @@ impl IntermediateBytecode {
                     } => {
                         let size = try_as_mem_or_constant(&size).unwrap();
                         let hint = Hint::RequestMemory {
-                            offset: offset.eval_const_expression_usize(&compiler),
+                            offset: offset.eval_usize(&compiler),
                             vectorized,
                             size,
                         };

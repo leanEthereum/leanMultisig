@@ -16,7 +16,8 @@ pub enum ConstantValue {
 }
 
 impl ConstantValue {
-    #[must_use] pub fn eval_constant_value(&self, compiler: &Compiler) -> usize {
+    #[must_use]
+    pub fn eval(&self, compiler: &Compiler) -> usize {
         match self {
             Self::Scalar(scalar) => *scalar,
             Self::PublicInputStart => PUBLIC_INPUT_START.offset,
