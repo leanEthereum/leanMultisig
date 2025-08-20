@@ -42,6 +42,13 @@ pub enum Hint {
         /// A list of memory locations or constants whose values should be printed.
         content: Vec<MemOrConstant>,
     },
+    /// A hint for the prover to compute the modular inverse of a field element.
+    Inverse {
+        /// The value to be inverted.
+        arg: MemOrConstant,
+        /// The offset from `fp` where the result (`arg^-1`) will be stored. If `arg` is zero, zero is stored.
+        res_offset: usize,
+    },
 }
 
 impl Hint {
@@ -118,6 +125,21 @@ impl Hint {
                         .memory
                         .insert(((run_context.fp + *res_offset)? + i)?, bit)?;
                 }
+            }
+            Self::Inverse { arg, res_offset } => {
+                // Resolve the `arg` operand to a concrete field element.
+                let value: F = run_context
+                    .value_from_mem_or_constant(arg, memory_manager)?
+                    .try_into()?;
+
+                // Compute the modular inverse. If the value is zero, the result is zero.
+                let result = value.try_inverse().unwrap_or(F::ZERO);
+
+                // Compute the destination address: `fp + res_offset`.
+                let res_addr = (run_context.fp + *res_offset)?;
+
+                // Write the result to the destination address in memory.
+                memory_manager.memory.insert(res_addr, result)?;
             }
             Self::Print { .. } => {
                 // TODO: implement

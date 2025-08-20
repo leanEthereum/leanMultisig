@@ -3,6 +3,7 @@ use std::fmt;
 use p3_field::{PrimeCharacteristicRing, PrimeField};
 
 use crate::{
+    compiler::Compiler,
     constant::F,
     intermediate_bytecode::HighLevelOperation,
     lang::{Label, constant_value::ConstantValue, expression::Expression, simple_expr::SimpleExpr},
@@ -43,6 +44,7 @@ impl ConstExpression {
     pub const fn function_size(function_name: Label) -> Self {
         Self::Value(ConstantValue::FunctionSize { function_name })
     }
+
     pub fn eval_with<EvalFn>(&self, func: &EvalFn) -> Option<F>
     where
         EvalFn: Fn(&ConstantValue) -> Option<F>,
@@ -71,6 +73,18 @@ impl ConstExpression {
             || self.clone(),
             |value| Self::scalar(value.as_canonical_biguint().try_into().unwrap()),
         )
+    }
+
+    #[must_use] pub fn eval_const_expression(&self, compiler: &Compiler) -> F {
+        self.eval_with(&|cst| Some(F::from_usize(cst.eval_constant_value(compiler))))
+            .unwrap()
+    }
+
+    #[must_use] pub fn eval_const_expression_usize(&self, compiler: &Compiler) -> usize {
+        self.eval_const_expression(compiler)
+            .as_canonical_biguint()
+            .try_into()
+            .unwrap()
     }
 }
 

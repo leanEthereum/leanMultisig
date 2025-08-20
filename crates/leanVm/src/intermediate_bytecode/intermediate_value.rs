@@ -1,6 +1,11 @@
 use std::fmt;
 
-use crate::lang::{ConstExpression, Label};
+use crate::{
+    bytecode::operand::{MemOrConstant, MemOrFp},
+    compiler::Compiler,
+    constant::F,
+    lang::{ConstExpression, Label},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IntermediateValue {
@@ -18,6 +23,37 @@ impl IntermediateValue {
     #[must_use]
     pub const fn is_constant(&self) -> bool {
         matches!(self, Self::Constant(_))
+    }
+
+    pub fn try_into_mem_or_fp(&self, compiler: &Compiler) -> Result<MemOrFp, String> {
+        match self {
+            Self::MemoryAfterFp { offset } => Ok(MemOrFp::MemoryAfterFp {
+                offset: offset.eval_const_expression_usize(compiler),
+            }),
+            Self::Fp => Ok(MemOrFp::Fp),
+            Self::Constant(_) => Err(format!("Cannot convert {self:?} to MemOrFp")),
+        }
+    }
+
+    pub fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {
+        if let Some(cst) = self.try_as_constant(compiler) {
+            return Ok(MemOrConstant::Constant(cst));
+        }
+        if let Self::MemoryAfterFp { offset } = self {
+            return Ok(MemOrConstant::MemoryAfterFp {
+                offset: offset.eval_const_expression_usize(compiler),
+            });
+        }
+        Err(format!("Cannot convert {self:?} to MemOrConstant"))
+    }
+
+    #[must_use]
+    pub fn try_as_constant(&self, compiler: &Compiler) -> Option<F> {
+        if let Self::Constant(c) = self {
+            Some(c.eval_const_expression(compiler))
+        } else {
+            None
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 pub mod air;
 pub mod bytecode;
+pub mod compiler;
 pub mod constant;
 pub mod context;
 pub mod core;

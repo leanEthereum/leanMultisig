@@ -31,6 +31,16 @@ impl MemOrConstant {
             Self::MemoryAfterFp { offset } => (F::from_usize(*offset), F::ZERO),
         }
     }
+
+    /// Returns a constant operand with value `0`.
+    #[must_use] pub const fn zero() -> Self {
+        Self::Constant(F::ZERO)
+    }
+
+    /// Returns a constant operand with value `1`.
+    #[must_use] pub const fn one() -> Self {
+        Self::Constant(F::ONE)
+    }
 }
 
 /// Represents a value that can be a memory location, the `fp` register itself, or a constant.

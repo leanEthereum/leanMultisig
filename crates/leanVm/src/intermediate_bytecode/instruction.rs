@@ -116,7 +116,7 @@ impl IntermediateInstruction {
         }
     }
 
-    pub fn is_hint(&self) -> bool {
+    #[must_use] pub const fn is_hint(&self) -> bool {
         match self {
             Self::RequestMemory { .. }
             | Self::Print { .. }
