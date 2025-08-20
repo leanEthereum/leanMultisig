@@ -35,7 +35,8 @@ impl SimpleExpr {
         matches!(self, Self::Constant(_))
     }
 
-    #[must_use] pub fn simplify_if_const(&self) -> Self {
+    #[must_use]
+    pub fn simplify_if_const(&self) -> Self {
         if let Self::Constant(constant) = self {
             return constant.try_naive_simplification().into();
         }
