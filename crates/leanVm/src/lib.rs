@@ -10,4 +10,5 @@ pub mod memory;
 pub mod parser;
 pub mod poseidon2;
 pub mod trace;
+pub mod utils;
 pub mod witness;
