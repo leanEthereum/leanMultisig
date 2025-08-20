@@ -115,6 +115,24 @@ impl IntermediateInstruction {
             res: right,
         }
     }
+
+    pub fn is_hint(&self) -> bool {
+        match self {
+            Self::RequestMemory { .. }
+            | Self::Print { .. }
+            | Self::DecomposeBits { .. }
+            | Self::Inverse { .. } => true,
+            Self::Computation { .. }
+            | Self::Panic
+            | Self::Deref { .. }
+            | Self::JumpIfNotZero { .. }
+            | Self::Jump { .. }
+            | Self::Poseidon2_16 { .. }
+            | Self::Poseidon2_24 { .. }
+            | Self::DotProduct { .. }
+            | Self::MultilinearEval { .. } => false,
+        }
+    }
 }
 
 impl fmt::Display for IntermediateInstruction {
