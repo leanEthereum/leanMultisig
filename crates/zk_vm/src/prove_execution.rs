@@ -13,10 +13,7 @@ use utils::{
     fold_multilinear_in_large_field, pack_extension, padd_with_zero_to_next_power_of_two,
     to_big_endian_bits,
 };
-use vm::{
-    Bytecode, DIMENSION, EF, F, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
-    execute_bytecode,
-};
+use vm::{Bytecode, DIMENSION, EF, F, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR};
 use whir_p3::{
     dft::EvalsDft,
     poly::{
@@ -59,7 +56,7 @@ pub fn prove_execution(
         public_memory_size,
         memory,
     } = info_span!("Witness generation").in_scope(|| {
-        let execution_result = execute_bytecode(bytecode, public_input, private_input);
+        let execution_result = bytecode.execute(public_input, private_input);
         get_execution_trace(bytecode, &execution_result)
     });
 

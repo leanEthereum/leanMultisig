@@ -1,7 +1,6 @@
 use std::ops::Range;
 
-use compiler::{PRECOMPILES, compile_program};
-use vm::execute_bytecode;
+use compiler::PRECOMPILES;
 
 mod air;
 mod common;
@@ -69,11 +68,6 @@ fn exec_column_groups() -> Vec<Range<usize>> {
         ],
     ]
     .concat()
-}
-
-pub fn compile_and_run(program: &str, public_input: &[vm::F], private_input: &[vm::F]) {
-    let bytecode = compile_program(program);
-    let _ = execute_bytecode(&bytecode, public_input, private_input);
 }
 
 pub trait InAirColumnIndex {
