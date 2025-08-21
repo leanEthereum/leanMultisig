@@ -5,7 +5,7 @@ use std::{
 
 use p3_field::PrimeCharacteristicRing;
 
-use crate::F;
+use crate::{F, Memory, RunnerError};
 
 /// Represents a value that can either be a constant or a value from memory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -50,6 +50,27 @@ impl MemOrConstant {
     }
 }
 
+impl MemOrConstant {
+    pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
+        match self {
+            Self::Constant(c) => Ok(*c),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+        }
+    }
+
+    #[must_use]
+    pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+        self.read_value(memory, fp).is_err()
+    }
+
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+        match self {
+            Self::Constant(_) => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+        }
+    }
+}
+
 impl Display for MemOrConstant {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -71,6 +92,28 @@ pub enum MemOrFpOrConstant {
     Fp,
     /// A constant value (a field element).
     Constant(F),
+}
+
+impl MemOrFpOrConstant {
+    pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
+        match self {
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Fp => Ok(F::from_usize(fp)),
+            Self::Constant(c) => Ok(*c),
+        }
+    }
+
+    #[must_use]
+    pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+        self.read_value(memory, fp).is_err()
+    }
+
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+        match self {
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Fp | Self::Constant(_) => Err(RunnerError::NotAPointer),
+        }
+    }
 }
 
 impl Display for MemOrFpOrConstant {
@@ -108,6 +151,27 @@ impl MemOrFp {
             Self::Fp => (F::ZERO, F::ONE),
             // If it's a memory location, the flag is 0 and the value is the offset.
             Self::MemoryAfterFp { offset } => (F::from_usize(*offset), F::ZERO),
+        }
+    }
+}
+
+impl MemOrFp {
+    pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
+        match self {
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Fp => Ok(F::from_usize(fp)),
+        }
+    }
+
+    #[must_use]
+    pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+        self.read_value(memory, fp).is_err()
+    }
+
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+        match self {
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Fp => Err(RunnerError::NotAPointer),
         }
     }
 }

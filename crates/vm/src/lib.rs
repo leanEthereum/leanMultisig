@@ -2,8 +2,12 @@ use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 
 mod bytecode;
+mod error;
+mod memory;
 mod runner;
 pub use bytecode::*;
+pub use error::*;
+pub use memory::*;
 pub use runner::*;
 
 pub const DIMENSION: usize = 8;
