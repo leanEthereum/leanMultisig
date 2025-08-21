@@ -203,7 +203,7 @@ impl ToString for IntermediateValue {
             Self::Constant(value) => value.to_string(),
             Self::Fp => "fp".to_string(),
             Self::MemoryAfterFp { offset } => {
-                format!("m[fp + {}]", offset.to_string())
+                format!("m[fp + {offset}]")
             }
         }
     }
@@ -212,7 +212,7 @@ impl ToString for IntermediateValue {
 impl ToString for IntermediaryMemOrFpOrConstant {
     fn to_string(&self) -> String {
         match self {
-            Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset.to_string()),
+            Self::MemoryAfterFp { offset } => format!("m[fp + {offset}]"),
             Self::Fp => "fp".to_string(),
             Self::Constant(c) => c.to_string(),
         }
@@ -229,8 +229,8 @@ impl ToString for IntermediateInstruction {
             } => format!(
                 "{} = m[m[fp + {}] + {}]",
                 res.to_string(),
-                shift_0.to_string(),
-                shift_1.to_string()
+                shift_0,
+                shift_1
             ),
             Self::DotProduct {
                 arg0,
@@ -242,7 +242,7 @@ impl ToString for IntermediateInstruction {
                 arg0.to_string(),
                 arg1.to_string(),
                 res.to_string(),
-                size.to_string()
+                size
             ),
             Self::MultilinearEval {
                 coeffs,
@@ -254,7 +254,7 @@ impl ToString for IntermediateInstruction {
                 coeffs.to_string(),
                 point.to_string(),
                 res.to_string(),
-                n_vars.to_string()
+                n_vars
             ),
             Self::DecomposeBits {
                 res_offset,
@@ -330,7 +330,7 @@ impl ToString for IntermediateInstruction {
                 vectorized,
             } => format!(
                 "m[fp + {}] = {}({})",
-                offset.to_string(),
+                offset,
                 if *vectorized { "malloc_vec" } else { "malloc" },
                 size.to_string(),
             ),

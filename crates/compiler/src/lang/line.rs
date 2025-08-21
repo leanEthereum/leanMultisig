@@ -66,23 +66,20 @@ impl Line {
     pub(crate) fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
         let line_str = match self {
-            Line::Assignment { var, value } => {
-                format!("{} = {}", var.to_string(), value.to_string())
+            Self::Assignment { var, value } => {
+                format!("{var} = {value}")
             }
-            Line::ArrayAssign {
+            Self::ArrayAssign {
                 array,
                 index,
                 value,
             } => {
                 format!(
-                    "{}[{}] = {}",
-                    array.to_string(),
-                    index.to_string(),
-                    value.to_string()
+                    "{array}[{index}] = {value}"
                 )
             }
-            Line::Assert(condition) => format!("assert {}", condition.to_string()),
-            Line::IfCondition {
+            Self::Assert(condition) => format!("assert {condition}"),
+            Self::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
@@ -101,23 +98,15 @@ impl Line {
 
                 if else_branch.is_empty() {
                     format!(
-                        "if {} {{\n{}\n{}}}",
-                        condition.to_string(),
-                        then_str,
-                        spaces
+                        "if {condition} {{\n{then_str}\n{spaces}}}"
                     )
                 } else {
                     format!(
-                        "if {} {{\n{}\n{}}} else {{\n{}\n{}}}",
-                        condition.to_string(),
-                        then_str,
-                        spaces,
-                        else_str,
-                        spaces
+                        "if {condition} {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}"
                     )
                 }
             }
-            Line::ForLoop {
+            Self::ForLoop {
                 iterator,
                 start,
                 end,
@@ -132,16 +121,16 @@ impl Line {
                     .join("\n");
                 format!(
                     "for {} in {}{}..{} {}{{\n{}\n{}}}",
-                    iterator.to_string(),
-                    start.to_string(),
+                    iterator,
+                    start,
                     if *rev { "rev " } else { "" },
-                    end.to_string(),
+                    end,
                     if *unroll { "unroll " } else { "" },
                     body_str,
                     spaces
                 )
             }
-            Line::FunctionCall {
+            Self::FunctionCall {
                 function_name,
                 args,
                 return_data,
@@ -158,20 +147,20 @@ impl Line {
                     .join(", ");
 
                 if return_data.is_empty() {
-                    format!("{}({})", function_name, args_str)
+                    format!("{function_name}({args_str})")
                 } else {
-                    format!("{} = {}({})", return_data_str, function_name, args_str)
+                    format!("{return_data_str} = {function_name}({args_str})")
                 }
             }
-            Line::FunctionRet { return_data } => {
+            Self::FunctionRet { return_data } => {
                 let return_data_str = return_data
                     .iter()
                     .map(|arg| arg.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("return {}", return_data_str)
+                format!("return {return_data_str}")
             }
-            Line::Precompile {
+            Self::Precompile {
                 precompile,
                 args,
                 res: return_data,
@@ -183,14 +172,14 @@ impl Line {
                         .map(|var| var.to_string())
                         .collect::<Vec<_>>()
                         .join(", "),
-                    precompile.name.to_string(),
+                    precompile.name,
                     args.iter()
                         .map(|arg| arg.to_string())
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
             }
-            Line::Print {
+            Self::Print {
                 line_info: _,
                 content,
             } => {
@@ -199,34 +188,30 @@ impl Line {
                     .map(|c| c.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("print({})", content_str)
+                format!("print({content_str})")
             }
-            Line::MAlloc {
+            Self::MAlloc {
                 var,
                 size,
                 vectorized,
             } => {
                 if *vectorized {
                     format!(
-                        "{} = malloc_vectorized({})",
-                        var.to_string(),
-                        size.to_string()
+                        "{var} = malloc_vectorized({size})"
                     )
                 } else {
-                    format!("{} = malloc({})", var.to_string(), size.to_string())
+                    format!("{var} = malloc({size})")
                 }
             }
-            Line::DecomposeBits { var, to_decompose } => {
+            Self::DecomposeBits { var, to_decompose } => {
                 format!(
-                    "{} = decompose_bits({})",
-                    var.to_string(),
-                    to_decompose.to_string()
+                    "{var} = decompose_bits({to_decompose})"
                 )
             }
-            Line::Break => "break".to_string(),
-            Line::Panic => "panic".to_string(),
+            Self::Break => "break".to_string(),
+            Self::Panic => "panic".to_string(),
         };
-        format!("{}{}", spaces, line_str)
+        format!("{spaces}{line_str}")
     }
 }
 

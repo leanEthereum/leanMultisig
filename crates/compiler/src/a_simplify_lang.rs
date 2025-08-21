@@ -1133,8 +1133,7 @@ fn handle_const_arguments_helper(
                         if *is_constant {
                             let const_eval = arg_expr.naive_eval().unwrap_or_else(|| {
                                 panic!(
-                                    "Failed to evaluate constant argument: {}",
-                                    arg_expr.to_string()
+                                    "Failed to evaluate constant argument: {arg_expr}"
                                 )
                             });
                             const_evals.push((arg_var.clone(), const_eval));
@@ -1333,9 +1332,7 @@ impl ToString for VarOrConstMallocAccess {
                 offset,
             } => {
                 format!(
-                    "ConstMallocAccess({}, {})",
-                    malloc_label,
-                    offset.to_string()
+                    "ConstMallocAccess({malloc_label}, {offset})"
                 )
             }
         }
@@ -1355,9 +1352,9 @@ impl SimpleLine {
                 format!(
                     "{} = {} {} {}",
                     var.to_string(),
-                    arg0.to_string(),
-                    operation.to_string(),
-                    arg1.to_string()
+                    arg0,
+                    operation,
+                    arg1
                 )
             }
             Self::DecomposeBits {
@@ -1365,14 +1362,11 @@ impl SimpleLine {
                 to_decompose,
                 label: _,
             } => {
-                format!("{} = decompose_bits({})", result, to_decompose.to_string())
+                format!("{result} = decompose_bits({to_decompose})")
             }
             Self::RawAccess { res, index, shift } => {
                 format!(
-                    "{} = memory[{} + {}]",
-                    res.to_string(),
-                    index,
-                    shift.to_string()
+                    "{res} = memory[{index} + {shift}]"
                 )
             }
             Self::IfNotZero {
@@ -1394,19 +1388,11 @@ impl SimpleLine {
 
                 if else_branch.is_empty() {
                     format!(
-                        "if {} != 0 {{\n{}\n{}}}",
-                        condition.to_string(),
-                        then_str,
-                        spaces
+                        "if {condition} != 0 {{\n{then_str}\n{spaces}}}"
                     )
                 } else {
                     format!(
-                        "if {} != 0 {{\n{}\n{}}} else {{\n{}\n{}}}",
-                        condition.to_string(),
-                        then_str,
-                        spaces,
-                        else_str,
-                        spaces
+                        "if {condition} != 0 {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}"
                     )
                 }
             }
@@ -1476,14 +1462,14 @@ impl SimpleLine {
                 } else {
                     "malloc"
                 };
-                format!("{} = {}({})", var, alloc_type, size.to_string())
+                format!("{var} = {alloc_type}({size})")
             }
             Self::ConstMalloc {
                 var,
                 size,
                 label: _,
             } => {
-                format!("{} = malloc({})", var, size.to_string())
+                format!("{var} = malloc({size})")
             }
             Self::Panic => "panic".to_string(),
         };

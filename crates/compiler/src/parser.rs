@@ -638,7 +638,7 @@ fn my_function1(a, const b, c) -> 2 {
     ";
 
         let parsed = parse_program(program).unwrap();
-        println!("{}", parsed.to_string());
+        println!("{parsed}");
     }
 
     #[test]
@@ -651,7 +651,7 @@ fn test_func(const a, b, const c) -> 1 {
     ";
 
         let parsed = parse_program(program).unwrap();
-        println!("{}", parsed.to_string());
+        println!("{parsed}");
     }
 
     #[test]
@@ -667,6 +667,6 @@ fn test_exp() -> 1 {
     ";
 
         let parsed = parse_program(program).unwrap();
-        println!("{}", parsed.to_string());
+        println!("{parsed}");
     }
 }
