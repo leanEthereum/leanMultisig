@@ -98,7 +98,7 @@ impl WotsPublicKey {
     #[must_use]
     #[allow(clippy::assertions_on_constants)]
     pub fn hash(&self, poseidon24: &Poseidon24) -> Digest {
-        assert!(N_CHAINS % 2 == 0, "TODO");
+        assert!(N_CHAINS.is_multiple_of(2), "TODO");
         let mut digest = Default::default();
         for (a, b) in self.0.chunks(2).map(|chunk| (chunk[0], chunk[1])) {
             digest = poseidon24.permute([a, b, digest].concat().try_into().unwrap())[16..24]
@@ -166,7 +166,7 @@ impl XmssSecretKey {
         let mut merkle_proof = Vec::new();
         let mut current_index = index;
         for level in 0..XMSS_MERKLE_HEIGHT {
-            let is_left = current_index % 2 == 0;
+            let is_left = current_index.is_multiple_of(2);
             let neighbour_index = if is_left {
                 current_index + 1
             } else {
