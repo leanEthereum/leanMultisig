@@ -1,0 +1,21 @@
+[package]
+name = "lookup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+utils.workspace = true
+p3-field.workspace = true
+p3-koala-bear.workspace = true
+rand.workspace = true
+rayon.workspace = true
+sumcheck.workspace = true
+whir-p3.workspace = true
+p3-challenger.workspace = true
+tracing.workspace = true
+p3-util.workspace = true
