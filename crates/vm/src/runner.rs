@@ -180,7 +180,7 @@ impl Memory {
     }
 
     pub fn set_vectorized_slice(&mut self, index: usize, value: &[F]) -> Result<(), RunnerError> {
-        assert!(value.len() % DIMENSION == 0);
+        assert!(value.len().is_multiple_of(DIMENSION));
         for (i, v) in value.iter().enumerate() {
             let idx = DIMENSION * index + i;
             self.set(idx, *v)?;
