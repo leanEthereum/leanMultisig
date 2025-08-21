@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Precompile {
     pub name: PrecompileName,
@@ -13,15 +15,22 @@ pub enum PrecompileName {
     MultilinearEval,
 }
 
-impl ToString for PrecompileName {
-    fn to_string(&self) -> String {
+impl PrecompileName {
+    /// Returns the string representation of the precompile name.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Poseidon16 => "poseidon16",
             Self::Poseidon24 => "poseidon24",
             Self::DotProduct => "dot_product",
             Self::MultilinearEval => "multilinear_eval",
         }
-        .to_string()
+    }
+}
+
+impl fmt::Display for PrecompileName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

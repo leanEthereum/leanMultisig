@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use vm::{Label, Operation};
@@ -69,6 +69,18 @@ impl HighLevelOperation {
             Self::Sub => a - b,
             Self::Div => a / b,
             Self::Exp => a.exp_u64(b.as_canonical_u64()),
+        }
+    }
+}
+
+impl fmt::Display for HighLevelOperation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Add => write!(f, "+"),
+            Self::Mul => write!(f, "*"),
+            Self::Sub => write!(f, "-"),
+            Self::Div => write!(f, "/"),
+            Self::Exp => write!(f, "**"),
         }
     }
 }
@@ -331,18 +343,6 @@ impl ToString for IntermediateInstruction {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-        }
-    }
-}
-
-impl ToString for HighLevelOperation {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Add => "+".to_string(),
-            Self::Mul => "*".to_string(),
-            Self::Sub => "-".to_string(),
-            Self::Div => "/".to_string(),
-            Self::Exp => "**".to_string(),
         }
     }
 }
