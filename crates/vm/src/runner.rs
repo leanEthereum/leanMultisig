@@ -1,4 +1,4 @@
-use p3_field::{BasedVectorSpace, Field, PrimeCharacteristicRing, dot_product};
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, dot_product};
 use p3_symmetric::Permutation;
 use utils::{ToUsize, build_poseidon16, build_poseidon24, pretty_integer};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
@@ -6,7 +6,7 @@ use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use crate::{
     DIMENSION, EF, F, MAX_MEMORY_SIZE, Memory, POSEIDON_16_NULL_HASH_PTR,
     POSEIDON_24_NULL_HASH_PTR, PUBLIC_INPUT_START, RunnerError, ZERO_VEC_PTR,
-    bytecode::{Bytecode, Hint, Instruction},
+    bytecode::{Bytecode, Instruction},
 };
 
 #[must_use]
@@ -123,77 +123,17 @@ fn execute_bytecode_helper(
         cpu_cycles += 1;
 
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
-            match hint {
-                Hint::RequestMemory {
-                    offset,
-                    size,
-                    vectorized,
-                } => {
-                    let size = size.read_value(&memory, fp)?.to_usize();
-
-                    if *vectorized {
-                        // find the next multiple of 8
-                        memory.set(fp + *offset, F::from_usize(ap_vec))?;
-                        ap_vec += size;
-                    } else {
-                        memory.set(fp + *offset, F::from_usize(ap))?;
-                        ap += size;
-                    }
-                    // does not increase PC
-                }
-                Hint::DecomposeBits {
-                    res_offset,
-                    to_decompose,
-                } => {
-                    let to_decompose_value = to_decompose.read_value(&memory, fp)?.to_usize();
-                    for i in 0..F::bits() {
-                        let bit = if to_decompose_value & (1 << i) != 0 {
-                            F::ONE
-                        } else {
-                            F::ZERO
-                        };
-                        memory.set(fp + *res_offset + i, bit)?;
-                    }
-                }
-                Hint::Inverse { arg, res_offset } => {
-                    let value = arg.read_value(&memory, fp)?;
-                    let result = value.try_inverse().unwrap_or(F::ZERO);
-                    memory.set(fp + *res_offset, result)?;
-                }
-                Hint::Print { line_info, content } => {
-                    let values = content
-                        .iter()
-                        .map(|value| Ok(value.read_value(&memory, fp)?.to_string()))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    // Logs for performance analysis:
-                    if values[0] == "123456789" {
-                        if values.len() == 1 {
-                            *std_out += "[CHECKPOINT]\n";
-                        } else {
-                            assert_eq!(values.len(), 2);
-                            let new_no_vec_memory = ap - checkpoint_ap;
-                            let new_vec_memory = (ap_vec - checkpoint_ap_vec) * DIMENSION;
-                            *std_out += &format!(
-                                "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {} ({:.1}% vec)\n",
-                                values[1],
-                                pretty_integer(cpu_cycles - last_checkpoint_cpu_cycles),
-                                pretty_integer(new_no_vec_memory + new_vec_memory),
-                                new_vec_memory as f64 / (new_no_vec_memory + new_vec_memory) as f64
-                                    * 100.0
-                            );
-                        }
-
-                        last_checkpoint_cpu_cycles = cpu_cycles;
-                        checkpoint_ap = ap;
-                        checkpoint_ap_vec = ap_vec;
-                        continue;
-                    }
-
-                    let line_info = line_info.replace(';', "");
-                    *std_out += &format!("\"{}\" -> {}\n", line_info, values.join(", "));
-                    // does not increase PC
-                }
-            }
+            hint.execute(
+                &mut memory,
+                fp,
+                &mut ap,
+                &mut ap_vec,
+                std_out,
+                cpu_cycles,
+                &mut last_checkpoint_cpu_cycles,
+                &mut checkpoint_ap,
+                &mut checkpoint_ap_vec,
+            )?;
         }
 
         let instruction = &bytecode.instructions[pc];
