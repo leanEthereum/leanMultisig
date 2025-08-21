@@ -306,7 +306,7 @@ impl IntermediateValue {
                 offset: eval_const_expression_usize(offset, compiler),
             }),
             Self::Fp => Ok(MemOrFp::Fp),
-            _ => Err(format!("Cannot convert {self:?} to MemOrFp")),
+            Self::Constant(_) => Err(format!("Cannot convert {self:?} to MemOrFp")),
         }
     }
 

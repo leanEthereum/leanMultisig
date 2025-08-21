@@ -1,6 +1,7 @@
 use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, dot_product};
 use p3_symmetric::Permutation;
 use rayon::prelude::*;
+use thiserror::Error;
 use utils::{ToUsize, build_poseidon16, build_poseidon24, pretty_integer};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
@@ -12,31 +13,22 @@ use crate::{
 
 const MAX_MEMORY_SIZE: usize = 1 << 23;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum RunnerError {
+    #[error("Out of memory")]
     OutOfMemory,
+    #[error("Memory already set")]
     MemoryAlreadySet,
+    #[error("Not a pointer")]
     NotAPointer,
+    #[error("Division by zero")]
     DivByZero,
+    #[error("Computation invalid: {0} != {1}")]
     NotEqual(F, F),
+    #[error("Undefined memory access")]
     UndefinedMemory,
+    #[error("Program counter out of bounds")]
     PCOutOfBounds,
-}
-
-impl ToString for RunnerError {
-    fn to_string(&self) -> String {
-        match self {
-            Self::OutOfMemory => "Out of memory".to_string(),
-            Self::MemoryAlreadySet => "Memory already set".to_string(),
-            Self::NotAPointer => "Not a pointer".to_string(),
-            Self::DivByZero => "Division by zero".to_string(),
-            Self::NotEqual(expected, actual) => {
-                format!("Computation Invalid: {expected} != {actual}")
-            }
-            Self::UndefinedMemory => "Undefined memory access".to_string(),
-            Self::PCOutOfBounds => "Program counter out of bounds".to_string(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -209,7 +201,7 @@ pub fn execute_bytecode(
             if !std_out.is_empty() {
                 print!("{std_out}");
             }
-            panic!("Error during bytecode execution: {}", err.to_string());
+            panic!("Error during bytecode execution: {err}");
         }
     };
     execute_bytecode_helper(

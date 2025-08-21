@@ -28,14 +28,7 @@ pub struct WotsSignature(pub [Digest; N_CHAINS]);
 
 impl WotsSecretKey {
     pub fn random<R: Rng>(rng: &mut R, poseidon16: &Poseidon16) -> Self {
-        let mut pre_images = [Default::default(); N_CHAINS];
-        for i in 0..N_CHAINS {
-            let mut pre_image = [F::default(); 8];
-            for j in 0..8 {
-                pre_image[j] = rng.random();
-            }
-            pre_images[i] = pre_image;
-        }
+        let pre_images = std::array::from_fn(|_| std::array::from_fn(|_| rng.random()));
         Self::new(pre_images, poseidon16)
     }
 
@@ -239,11 +232,7 @@ fn iterate_hash(a: &Digest, n: usize, poseidon16: &Poseidon16) -> Digest {
 }
 
 pub fn random_message<R: Rng>(rng: &mut R) -> Message {
-    let mut message = [0u8; N_CHAINS];
-    for i in 0..N_CHAINS {
-        message[i] = rng.random_range(0..CHAIN_LENGTH) as u8;
-    }
-    message
+    std::array::from_fn(|_| rng.random_range(0..CHAIN_LENGTH as u8))
 }
 
 #[cfg(test)]

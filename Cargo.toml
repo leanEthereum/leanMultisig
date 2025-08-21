@@ -33,6 +33,7 @@ rustdoc.all = "warn"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
 doc_markdown = "allow"
 cast_possible_truncation = "allow"
 cast_precision_loss = "allow"
@@ -45,11 +46,9 @@ suboptimal_flops = "allow"
 cast_sign_loss = "allow"
 redundant_pub_crate = "allow"
 too_many_lines = "allow"
-to_string_trait_impl = "allow"
 transmute_ptr_to_ptr = "allow"
 missing_transmute_annotations = "allow"
 type_complexity = "allow"
-needless_range_loop = "allow"
 too_many_arguments = "allow"
 result_large_err = "allow"
 format_push_string = "allow"

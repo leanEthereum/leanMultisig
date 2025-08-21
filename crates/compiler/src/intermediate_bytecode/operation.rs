@@ -14,7 +14,7 @@ pub enum HighLevelOperation {
 
 impl HighLevelOperation {
     #[must_use]
-    pub fn eval(&self, a: F, b: F) -> F {
+    pub fn eval(self, a: F, b: F) -> F {
         match self {
             Self::Add => a + b,
             Self::Mul => a * b,

@@ -293,7 +293,7 @@ fn compile_lines(
                 let then_instructions = compile_lines(
                     then_branch,
                     compiler,
-                    Some(end_label.to_string()),
+                    Some(end_label.clone()),
                     &mut then_declared_vars,
                 )?;
                 let then_stack = compiler.stack_size;
@@ -303,7 +303,7 @@ fn compile_lines(
                 let else_instructions = compile_lines(
                     else_branch,
                     compiler,
-                    Some(end_label.to_string()),
+                    Some(end_label.clone()),
                     &mut else_declared_vars,
                 )?;
                 let else_stack = compiler.stack_size;
@@ -397,7 +397,7 @@ fn compile_lines(
                 args,
                 res,
             } => {
-                compile_poseidon(&mut instructions, args, res, compiler, declared_vars, true)?;
+                compile_poseidon(&mut instructions, args, res, compiler, declared_vars, true);
             }
 
             SimpleLine::Precompile {
@@ -409,7 +409,7 @@ fn compile_lines(
                 args,
                 res,
             } => {
-                compile_poseidon(&mut instructions, args, res, compiler, declared_vars, false)?;
+                compile_poseidon(&mut instructions, args, res, compiler, declared_vars, false);
             }
             SimpleLine::Precompile {
                 precompile:
@@ -616,7 +616,7 @@ fn compile_poseidon(
     compiler: &Compiler,
     declared_vars: &mut BTreeSet<Var>,
     over_16: bool, // otherwise over_24
-) -> Result<(), String> {
+) {
     assert_eq!(args.len(), 2);
     assert_eq!(res.len(), 1);
     let res_var = &res[0];
@@ -647,8 +647,6 @@ fn compile_poseidon(
             res: low_level_res,
         });
     }
-
-    Ok(())
 }
 
 fn compile_function_ret(

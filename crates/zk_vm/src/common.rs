@@ -189,6 +189,7 @@ pub fn intitial_and_final_pc_conditions(
     (initial_pc_statement, final_pc_statement)
 }
 
+#[allow(clippy::struct_field_names)]
 pub struct PrecompileFootprint {
     pub grand_product_challenge_global: EF,
     pub grand_product_challenge_p16: [EF; 5],
