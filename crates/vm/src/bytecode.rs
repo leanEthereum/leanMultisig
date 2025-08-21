@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    fmt::{Display, Formatter},
+};
 
 use p3_field::PrimeCharacteristicRing;
 
@@ -148,49 +152,50 @@ impl MemOrConstant {
     }
 }
 
-impl ToString for Bytecode {
-    fn to_string(&self) -> String {
-        let mut res = String::new();
+impl Display for Bytecode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (pc, instruction) in self.instructions.iter().enumerate() {
-            for hint in self.hints.get(&pc).unwrap_or(&Vec::new()) {
-                res.push_str(&format!("hint: {}\n", hint.to_string()));
+            if let Some(hints) = self.hints.get(&pc) {
+                for hint in hints {
+                    writeln!(f, "hint: {hint}")?;
+                }
             }
-            res.push_str(&format!("{:>4}: {}\n", pc, instruction.to_string()));
+            writeln!(f, "{pc:>4}: {instruction}")?;
         }
-        res
+        Ok(())
     }
 }
 
-impl ToString for MemOrConstant {
-    fn to_string(&self) -> String {
+impl Display for MemOrConstant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Constant(c) => format!("{c}"),
-            Self::MemoryAfterFp { offset } => format!("m[fp + {offset}]"),
+            Self::Constant(c) => write!(f, "{c}"),
+            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
         }
     }
 }
 
-impl ToString for MemOrFp {
-    fn to_string(&self) -> String {
+impl Display for MemOrFp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MemoryAfterFp { offset } => format!("m[fp + {offset}]"),
-            Self::Fp => "fp".to_string(),
+            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
+            Self::Fp => f.write_str("fp"),
         }
     }
 }
 
-impl ToString for MemOrFpOrConstant {
-    fn to_string(&self) -> String {
+impl Display for MemOrFpOrConstant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MemoryAfterFp { offset } => format!("m[fp + {offset}]"),
-            Self::Fp => "fp".to_string(),
-            Self::Constant(c) => format!("{c}"),
+            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
+            Self::Fp => f.write_str("fp"),
+            Self::Constant(c) => write!(f, "{c}"),
         }
     }
 }
 
-impl ToString for Instruction {
-    fn to_string(&self) -> String {
+impl Display for Instruction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Computation {
                 operation,
@@ -198,20 +203,14 @@ impl ToString for Instruction {
                 arg_c,
                 res,
             } => {
-                format!(
-                    "{} = {} {} {}",
-                    res.to_string(),
-                    arg_a.to_string(),
-                    operation,
-                    arg_c.to_string()
-                )
+                write!(f, "{res} = {arg_a} {operation} {arg_c}")
             }
             Self::Deref {
                 shift_0,
                 shift_1,
                 res,
             } => {
-                format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1)
+                write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]")
             }
             Self::DotProductExtensionExtension {
                 arg0,
@@ -219,13 +218,7 @@ impl ToString for Instruction {
                 res,
                 size,
             } => {
-                format!(
-                    "dot_product({}, {}, {}, {})",
-                    arg0.to_string(),
-                    arg1.to_string(),
-                    res.to_string(),
-                    size
-                )
+                write!(f, "dot_product({arg0}, {arg1}, {res}, {size})")
             }
             Self::MultilinearEval {
                 coeffs,
@@ -233,84 +226,60 @@ impl ToString for Instruction {
                 res,
                 n_vars,
             } => {
-                format!(
-                    "multilinear_eval({}, {}, {}, {})",
-                    coeffs.to_string(),
-                    point.to_string(),
-                    res.to_string(),
-                    n_vars
-                )
+                write!(f, "multilinear_eval({coeffs}, {point}, {res}, {n_vars})")
             }
             Self::JumpIfNotZero {
                 condition,
                 dest,
                 updated_fp,
             } => {
-                format!(
-                    "if {} != 0 jump to {} with next(fp) = {}",
-                    condition.to_string(),
-                    dest.to_string(),
-                    updated_fp.to_string()
+                write!(
+                    f,
+                    "if {condition} != 0 jump to {dest} with next(fp) = {updated_fp}"
                 )
             }
             Self::Poseidon2_16 { arg_a, arg_b, res } => {
-                format!(
-                    "{} = poseidon2_16({}, {})",
-                    res.to_string(),
-                    arg_a.to_string(),
-                    arg_b.to_string(),
-                )
+                write!(f, "{res} = poseidon2_16({arg_a}, {arg_b})")
             }
             Self::Poseidon2_24 { arg_a, arg_b, res } => {
-                format!(
-                    "{} = poseidon2_24({}, {})",
-                    res.to_string(),
-                    arg_a.to_string(),
-                    arg_b.to_string(),
-                )
+                write!(f, "{res} = poseidon2_24({arg_a}, {arg_b})")
             }
         }
     }
 }
 
-impl ToString for Hint {
-    fn to_string(&self) -> String {
+impl Display for Hint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::RequestMemory {
                 offset,
                 size,
                 vectorized,
             } => {
-                format!(
-                    "m[fp + {}] = {}({})",
-                    offset,
-                    if *vectorized { "malloc_vec" } else { "malloc" },
-                    size.to_string()
+                write!(
+                    f,
+                    "m[fp + {offset}] = {}({size})",
+                    if *vectorized { "malloc_vec" } else { "malloc" }
                 )
             }
             Self::DecomposeBits {
                 res_offset,
                 to_decompose,
             } => {
-                format!(
-                    "m[fp + {}] = decompose_bits({})",
-                    res_offset,
-                    to_decompose.to_string()
-                )
+                write!(f, "m[fp + {res_offset}] = decompose_bits({to_decompose})")
             }
             Self::Print { line_info, content } => {
-                format!(
-                    "print({}) for \"{}\"",
-                    content
-                        .iter()
-                        .map(std::string::ToString::to_string)
-                        .collect::<Vec<String>>()
-                        .join(", "),
-                    line_info,
-                )
+                write!(f, "print(")?;
+                for (i, c) in content.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{c}")?;
+                }
+                write!(f, ") for \"{line_info}\"")
             }
             Self::Inverse { arg, res_offset } => {
-                format!("m[fp + {}] = inverse({})", res_offset, arg.to_string())
+                write!(f, "m[fp + {res_offset}] = inverse({arg})")
             }
         }
     }

@@ -70,9 +70,9 @@ pub fn prove_many_air_3<
         n_tables,
         witnesses_1.len() + witnesses_2.len() + witnesses_3.len()
     );
-    for i in 0..tables_1.len() {
+    for witness in witnesses_1.iter().take(tables_1.len()) {
         assert!(
-            univariate_skips < witnesses_1[i].log_n_rows(),
+            univariate_skips < witness.log_n_rows(),
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
     }
@@ -471,7 +471,7 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
     );
 
     let mut evaluations_remaining_to_prove = vec![];
-    for i in 0..n_groups {
+    for (i, inner_eval) in all_inner_evals.iter().enumerate().take(n_groups) {
         let group = &witness.column_groups[i];
         let point = MultilinearPoint(
             [
@@ -480,7 +480,7 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
             ]
             .concat(),
         );
-        let value = all_inner_evals[i][1];
+        let value = inner_eval[1];
         evaluations_remaining_to_prove.push(Evaluation { point, value });
     }
     evaluations_remaining_to_prove

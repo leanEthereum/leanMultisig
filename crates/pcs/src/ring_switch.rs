@@ -222,8 +222,8 @@ impl<F: Field, const D: usize> TensorAlgebra<F, D> {
         let p1_split = p1.as_basis_coefficients_slice();
         let mut data = [[F::ZERO; D]; D];
         for i in 0..D {
-            for j in 0..D {
-                data[i][j] = p0_split[i] * p1_split[j];
+            for (j, &p1) in p1_split.iter().enumerate().take(D) {
+                data[i][j] = p0_split[i] * p1;
             }
         }
         Self(data)
@@ -231,20 +231,20 @@ impl<F: Field, const D: usize> TensorAlgebra<F, D> {
 
     fn rows<EF: ExtensionField<F>>(&self) -> [EF; D] {
         let mut result = [EF::ZERO; D];
-        for i in 0..D {
-            result[i] = EF::from_basis_coefficients_slice(&self.0[i]).unwrap();
+        for (i, r) in result.iter_mut().enumerate().take(D) {
+            *r = EF::from_basis_coefficients_slice(&self.0[i]).unwrap();
         }
         result
     }
 
     fn columns<EF: ExtensionField<F>>(&self) -> [EF; D] {
         let mut result = [EF::ZERO; D];
-        for j in 0..D {
+        for (j, res) in result.iter_mut().enumerate().take(D) {
             let mut col = [F::ZERO; D];
-            for i in 0..D {
-                col[i] = self.0[i][j];
+            for (i, c) in col.iter_mut().enumerate().take(D) {
+                *c = self.0[i][j];
             }
-            result[j] = EF::from_basis_coefficients_slice(&col).unwrap();
+            *res = EF::from_basis_coefficients_slice(&col).unwrap();
         }
         result
     }
@@ -259,8 +259,8 @@ impl<F: Field, const D: usize> TensorAlgebra<F, D> {
 
     fn from_columns<EF: ExtensionField<F>>(columns: &[EF; D]) -> Self {
         let mut data = [[F::ZERO; D]; D];
-        for j in 0..D {
-            let col = columns[j].as_basis_coefficients_slice();
+        for (j, column) in columns.iter().enumerate().take(D) {
+            let col = column.as_basis_coefficients_slice();
             for i in 0..D {
                 data[i][j] = col[i];
             }
@@ -309,9 +309,9 @@ impl<F: Field, const D: usize> Add for TensorAlgebra<F, D> {
 
     fn add(self, other: Self) -> Self::Output {
         let mut result = [[F::ZERO; D]; D];
-        for i in 0..D {
-            for j in 0..D {
-                result[i][j] = self.0[i][j] + other.0[i][j];
+        for (i, res) in result.iter_mut().enumerate().take(D) {
+            for (j, r) in res.iter_mut().enumerate().take(D) {
+                *r = self.0[i][j] + other.0[i][j];
             }
         }
         Self(result)

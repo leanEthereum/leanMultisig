@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{self, Display, Formatter},
+};
 
 use utils::ToUsize;
 
@@ -62,7 +65,7 @@ impl TryInto<VarOrConstMallocAccess> for SimpleExpr {
                 malloc_label,
                 offset,
             }),
-            _ => Err(()),
+            Self::Constant(_) => Err(()),
         }
     }
 }
@@ -1242,6 +1245,11 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
             }
             Line::FunctionCall {
                 args, return_data, ..
+            }
+            | Line::Precompile {
+                precompile: _,
+                args,
+                res: return_data,
             } => {
                 for arg in args {
                     replace_vars_by_const_in_expr(arg, map);
@@ -1285,18 +1293,6 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(ret, map);
                 }
             }
-            Line::Precompile {
-                precompile: _,
-                args,
-                res: return_data,
-            } => {
-                for arg in args {
-                    replace_vars_by_const_in_expr(arg, map);
-                }
-                for r in return_data {
-                    assert!(!map.contains_key(r), "Return variable {r} is a constant");
-                }
-            }
             Line::Print { content, .. } => {
                 for var in content {
                     replace_vars_by_const_in_expr(var, map);
@@ -1315,21 +1311,21 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
     }
 }
 
-impl ToString for SimpleLine {
-    fn to_string(&self) -> String {
-        self.to_string_with_indent(0)
+impl Display for SimpleLine {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.to_string_with_indent(0))
     }
 }
 
-impl ToString for VarOrConstMallocAccess {
-    fn to_string(&self) -> String {
+impl Display for VarOrConstMallocAccess {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Var(var) => var.to_string(),
+            Self::Var(var) => f.write_str(var),
             Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => {
-                format!("ConstMallocAccess({malloc_label}, {offset})")
+                write!(f, "ConstMallocAccess({malloc_label}, {offset})")
             }
         }
     }
@@ -1345,7 +1341,7 @@ impl SimpleLine {
                 arg0,
                 arg1,
             } => {
-                format!("{} = {} {} {}", var.to_string(), arg0, operation, arg1)
+                format!("{var} = {arg0} {operation} {arg1}")
             }
             Self::DecomposeBits {
                 var: result,
@@ -1463,8 +1459,8 @@ impl SimpleLine {
     }
 }
 
-impl ToString for SimpleFunction {
-    fn to_string(&self) -> String {
+impl Display for SimpleFunction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let args_str = self
             .arguments
             .iter()
@@ -1472,36 +1468,37 @@ impl ToString for SimpleFunction {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let instructions_str = self
-            .instructions
-            .iter()
-            .map(|line| line.to_string_with_indent(1))
-            .collect::<Vec<_>>()
-            .join("\n");
-
         if self.instructions.is_empty() {
-            format!(
+            write!(
+                f,
                 "fn {}({}) -> {} {{}}",
                 self.name, args_str, self.n_returned_vars
             )
         } else {
-            format!(
-                "fn {}({}) -> {} {{\n{}\n}}",
-                self.name, args_str, self.n_returned_vars, instructions_str
-            )
+            writeln!(
+                f,
+                "fn {}({}) -> {} {{",
+                self.name, args_str, self.n_returned_vars
+            )?;
+            for (i, line) in self.instructions.iter().enumerate() {
+                if i > 0 {
+                    writeln!(f)?;
+                }
+                write!(f, "{}", line.to_string_with_indent(1))?;
+            }
+            write!(f, "\n}}")
         }
     }
 }
 
-impl ToString for SimpleProgram {
-    fn to_string(&self) -> String {
-        let mut result = String::new();
+impl Display for SimpleProgram {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (i, function) in self.functions.values().enumerate() {
             if i > 0 {
-                result.push('\n');
+                writeln!(f)?;
             }
-            result.push_str(&function.to_string());
+            write!(f, "{function}")?;
         }
-        result
+        Ok(())
     }
 }

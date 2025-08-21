@@ -133,12 +133,12 @@ impl Line {
             } => {
                 let args_str = args
                     .iter()
-                    .map(|arg| arg.to_string())
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
                 let return_data_str = return_data
                     .iter()
-                    .map(|var| var.to_string())
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
 
@@ -151,7 +151,7 @@ impl Line {
             Self::FunctionRet { return_data } => {
                 let return_data_str = return_data
                     .iter()
-                    .map(|arg| arg.to_string())
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("return {return_data_str}")
@@ -165,12 +165,12 @@ impl Line {
                     "{} = {}({})",
                     return_data
                         .iter()
-                        .map(|var| var.to_string())
+                        .map(ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(", "),
                     precompile.name,
                     args.iter()
-                        .map(|arg| arg.to_string())
+                        .map(ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
@@ -181,7 +181,7 @@ impl Line {
             } => {
                 let content_str = content
                     .iter()
-                    .map(|c| c.to_string())
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("print({content_str})")
