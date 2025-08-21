@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use vm::{Label, Operation};
@@ -69,6 +69,18 @@ impl HighLevelOperation {
             Self::Sub => a - b,
             Self::Div => a / b,
             Self::Exp => a.exp_u64(b.as_canonical_u64()),
+        }
+    }
+}
+
+impl fmt::Display for HighLevelOperation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Add => write!(f, "+"),
+            Self::Mul => write!(f, "*"),
+            Self::Sub => write!(f, "-"),
+            Self::Div => write!(f, "/"),
+            Self::Exp => write!(f, "**"),
         }
     }
 }
@@ -191,7 +203,7 @@ impl ToString for IntermediateValue {
             Self::Constant(value) => value.to_string(),
             Self::Fp => "fp".to_string(),
             Self::MemoryAfterFp { offset } => {
-                format!("m[fp + {}]", offset.to_string())
+                format!("m[fp + {offset}]")
             }
         }
     }
@@ -200,7 +212,7 @@ impl ToString for IntermediateValue {
 impl ToString for IntermediaryMemOrFpOrConstant {
     fn to_string(&self) -> String {
         match self {
-            Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset.to_string()),
+            Self::MemoryAfterFp { offset } => format!("m[fp + {offset}]"),
             Self::Fp => "fp".to_string(),
             Self::Constant(c) => c.to_string(),
         }
@@ -214,12 +226,7 @@ impl ToString for IntermediateInstruction {
                 shift_0,
                 shift_1,
                 res,
-            } => format!(
-                "{} = m[m[fp + {}] + {}]",
-                res.to_string(),
-                shift_0.to_string(),
-                shift_1.to_string()
-            ),
+            } => format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1),
             Self::DotProduct {
                 arg0,
                 arg1,
@@ -230,7 +237,7 @@ impl ToString for IntermediateInstruction {
                 arg0.to_string(),
                 arg1.to_string(),
                 res.to_string(),
-                size.to_string()
+                size
             ),
             Self::MultilinearEval {
                 coeffs,
@@ -242,7 +249,7 @@ impl ToString for IntermediateInstruction {
                 coeffs.to_string(),
                 point.to_string(),
                 res.to_string(),
-                n_vars.to_string()
+                n_vars
             ),
             Self::DecomposeBits {
                 res_offset,
@@ -318,7 +325,7 @@ impl ToString for IntermediateInstruction {
                 vectorized,
             } => format!(
                 "m[fp + {}] = {}({})",
-                offset.to_string(),
+                offset,
                 if *vectorized { "malloc_vec" } else { "malloc" },
                 size.to_string(),
             ),
@@ -331,18 +338,6 @@ impl ToString for IntermediateInstruction {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-        }
-    }
-}
-
-impl ToString for HighLevelOperation {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Add => "+".to_string(),
-            Self::Mul => "*".to_string(),
-            Self::Sub => "-".to_string(),
-            Self::Div => "/".to_string(),
-            Self::Exp => "**".to_string(),
         }
     }
 }

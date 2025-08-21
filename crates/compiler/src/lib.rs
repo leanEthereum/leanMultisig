@@ -1,4 +1,4 @@
-use vm::{Bytecode, F, PUBLIC_INPUT_START, ZERO_VEC_PTR, execute_bytecode};
+use vm::{Bytecode, F, Label, PUBLIC_INPUT_START, ZERO_VEC_PTR, execute_bytecode};
 
 use crate::{
     a_simplify_lang::simplify_program, b_compile_intermediate::compile_to_intermediate_bytecode,
@@ -12,7 +12,15 @@ mod intermediate_bytecode;
 mod lang;
 mod parser;
 mod precompiles;
+use std::collections::BTreeMap;
+
 pub use precompiles::PRECOMPILES;
+
+#[derive(Debug)]
+pub struct Compiler {
+    pub memory_size_per_function: BTreeMap<String, usize>,
+    pub label_to_pc: BTreeMap<Label, usize>,
+}
 
 #[must_use]
 pub fn compile_program(program: &str) -> Bytecode {
