@@ -23,7 +23,7 @@ pub struct RingSwitching<F, EF, InnerPcs, const EXTENSION_DEGREE: usize> {
 impl<F, EF, InnerPcs, const EXTENSION_DEGREE: usize>
     RingSwitching<F, EF, InnerPcs, EXTENSION_DEGREE>
 {
-    pub fn new(inner_pcs: InnerPcs) -> Self {
+    pub const fn new(inner_pcs: InnerPcs) -> Self {
         Self {
             inner_pcs,
             f: PhantomData,
@@ -60,7 +60,7 @@ impl<
         witness: Self::Witness,
         polynomial: &[F],
     ) {
-        let _span = info_span!("RingSwitching::open").entered();
+        let span = info_span!("RingSwitching::open").entered();
         assert_eq!(statements.len(), 1);
         let eval = &statements[0];
         assert_eq!(<EF as BasedVectorSpace<F>>::DIMENSION, EXTENSION_DEGREE);
@@ -70,7 +70,7 @@ impl<
         let point = &eval.point;
         let packed_point = &point[..point.len() - kappa];
         let eval_eq_packed_point =
-            info_span!("eval_eq of packed_point").in_scope(|| eval_eq(&packed_point));
+            info_span!("eval_eq of packed_point").in_scope(|| eval_eq(packed_point));
 
         let s_hat =
             eval_mixed_tensor::<F, EF, EXTENSION_DEGREE>(transmuted_pol, &eval_eq_packed_point);
@@ -114,11 +114,11 @@ impl<
         );
 
         let packed_eval = Evaluation {
-            point: r_p.clone(),
+            point: r_p,
             value: packed_value,
         };
         let inner_statements = vec![packed_eval];
-        _span.exit();
+        span.exit();
         self.inner_pcs.open(
             dft,
             prover_state,
@@ -211,11 +211,7 @@ fn get_s_prime<F: Field, EF: ExtensionField<F>, const EXTENSION_DEGREE: usize>(
             + e.scale_columns(EF::ONE - r).scale_rows(EF::ONE - r_prime);
     }
 
-    sc_value
-        / dot_product(
-            e.rows::<EF>().into_iter(),
-            lagranged_r_pp.into_iter().cloned(),
-        )
+    sc_value / dot_product(e.rows::<EF>().into_iter(), lagranged_r_pp.iter().copied())
 }
 
 struct TensorAlgebra<F, const D: usize>([[F; D]; D]);
@@ -272,7 +268,7 @@ impl<F: Field, const D: usize> TensorAlgebra<F, D> {
         Self(data)
     }
 
-    fn one() -> Self {
+    const fn one() -> Self {
         let mut res = [[F::ZERO; D]; D];
         res[0][0] = F::ONE;
         Self(res)
@@ -371,6 +367,7 @@ mod tests {
     const DIMENSION: usize = 8;
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, DIMENSION>;
+    type InnerPcs = WhirConfigBuilder<EF, EF, MyMerkleHash, MyMerkleCompress, 8>;
 
     #[test]
     fn test_ring_switching() {
@@ -405,8 +402,6 @@ mod tests {
             1 << (num_variables + inner_pcs.starting_log_inv_rate
                 - inner_pcs.folding_factor.at_round(0)),
         );
-
-        type InnerPcs = WhirConfigBuilder<EF, EF, MyMerkleHash, MyMerkleCompress, 8>;
 
         let statement = vec![Evaluation {
             point: point.clone(),

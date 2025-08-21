@@ -1,8 +1,7 @@
 use std::borrow::Borrow;
 
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::PrimeCharacteristicRing;
-use p3_field::extension::BinomialExtensionField;
+use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
 use p3_koala_bear::KoalaBear;
 use p3_matrix::Matrix;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -107,9 +106,13 @@ fn generate_structured_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMN
     }
     let mut witness_cols = vec![vec![F::ZERO]; N_COLUMNS - N_PREPROCESSED_COLUMNS];
     for i in 1..n_rows {
-        for j in 0..N_COLUMNS - N_PREPROCESSED_COLUMNS {
-            let witness_cols_j_i_min_1 = witness_cols[j][i - 1];
-            witness_cols[j].push(
+        for (j, witness_col) in witness_cols
+            .iter_mut()
+            .enumerate()
+            .take(N_COLUMNS - N_PREPROCESSED_COLUMNS)
+        {
+            let witness_cols_j_i_min_1 = witness_col[i - 1];
+            witness_col.push(
                 witness_cols_j_i_min_1
                     + F::from_usize(j + N_PREPROCESSED_COLUMNS)
                     + (0..N_PREPROCESSED_COLUMNS)
@@ -133,8 +136,12 @@ fn generate_unstructured_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLU
     }
     let mut witness_cols = vec![vec![]; N_COLUMNS - N_PREPROCESSED_COLUMNS];
     for i in 0..n_rows {
-        for j in 0..N_COLUMNS - N_PREPROCESSED_COLUMNS {
-            witness_cols[j].push(
+        for (j, witness_col) in witness_cols
+            .iter_mut()
+            .enumerate()
+            .take(N_COLUMNS - N_PREPROCESSED_COLUMNS)
+        {
+            witness_col.push(
                 F::from_usize(j + N_PREPROCESSED_COLUMNS)
                     + (0..N_PREPROCESSED_COLUMNS)
                         .map(|k| trace[k][i])
@@ -227,6 +234,7 @@ fn test_unstructured_air() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn test_many_unstructured_air() {
     const N_COLUMNS_A: usize = 10;
     const N_PREPROCESSED_COLUMNS_A: usize = 3;
@@ -347,6 +355,7 @@ fn test_many_unstructured_air() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn test_many_structured_air() {
     const N_COLUMNS_A: usize = 10;
     const N_PREPROCESSED_COLUMNS_A: usize = 3;

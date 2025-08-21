@@ -19,8 +19,12 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     pub fn new(air: A) -> Self {
         let symbolic_constraints = get_symbolic_constraints(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
-        let constraint_degree =
-            Iterator::max(symbolic_constraints.iter().map(|c| c.degree_multiple())).unwrap();
+        let constraint_degree = Iterator::max(
+            symbolic_constraints
+                .iter()
+                .map(p3_uni_stark::SymbolicExpression::degree_multiple),
+        )
+        .unwrap();
         assert_eq!(constraint_degree, air.degree());
         Self {
             air,
@@ -42,17 +46,17 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         EF: ExtensionField<IF>,
     {
         if witness.n_columns() != self.n_columns() {
-            return Err(format!("Invalid number of columns",));
+            return Err("Invalid number of columns".to_string());
         }
         let handle_errors = |row: usize, constraint_checker: &mut ConstraintChecker<'_, IF, EF>| {
-            if constraint_checker.errors.len() > 0 {
+            if !constraint_checker.errors.is_empty() {
                 return Err(format!(
                     "Trace is not valid at row {}: contraints not respected: {}",
                     row,
                     constraint_checker
                         .errors
                         .iter()
-                        .map(|e| e.to_string())
+                        .map(std::string::ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));

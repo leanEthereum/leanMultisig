@@ -1,8 +1,7 @@
 use std::marker::PhantomData;
 
 use compiler::compile_program;
-use p3_field::BasedVectorSpace;
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use pcs::WhirBatchPcs;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
@@ -22,8 +21,7 @@ use whir_p3::{
     },
 };
 
-use crate::prove_execution::prove_execution;
-use crate::verify_execution::verify_execution;
+use crate::{prove_execution::prove_execution, verify_execution::verify_execution};
 
 #[test]
 pub fn test_whir_verif() {
@@ -39,9 +37,9 @@ pub fn run_whir_verif() {
     const F_BITS = 31; // koala-bear = 31 bits
 
     const N_VARS = 25;
-    const LOG_INV_RATE = 2; 
+    const LOG_INV_RATE = 2;
     const N_ROUNDS = 3;
-    
+
     const PADDING_FOR_INITIAL_MERKLE_LEAVES = 7;
 
     const FOLDING_FACTOR_0 = 7;
@@ -84,15 +82,15 @@ pub fn run_whir_verif() {
         claimed_sum_side = mul_extension_ret(combination_randomness_gen_0, pcs_eval);
         claimed_sum_0 = add_extension_ret(ood_eval_0, claimed_sum_side);
         domain_size_0 = N_VARS + LOG_INV_RATE;
-        fs_state_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
+        fs_state_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 =
             whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0);
 
         domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
-        fs_state_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
+        fs_state_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 =
             whir_round(fs_state_5, root_1, FOLDING_FACTOR_1, 2**FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1, GRINDING_BITS_1);
 
         domain_size_2 = domain_size_1 - RS_REDUCTION_FACTOR_1;
-        fs_state_7, folding_randomness_3, ood_point_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
+        fs_state_7, folding_randomness_3, ood_point_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 =
             whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2, GRINDING_BITS_2);
 
         domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
@@ -101,7 +99,7 @@ pub fn run_whir_verif() {
         fs_state_10, final_circle_values, final_folds =
             sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4, GRINDING_BITS_3);
 
-        
+
         for i in 0..NUM_QUERIES_3 {
             powers_of_2_rev = powers_of_two_rev_base(final_circle_values[i], FINAL_VARS);
             poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, 2**FINAL_VARS);
@@ -280,7 +278,7 @@ pub fn run_whir_verif() {
         answers = malloc(num_queries); // a vector of vectorized pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
         fs_states_b = malloc(num_queries + 1);
         fs_states_b[0] = fs_state_9;
-        
+
         // the number of chunk of 8 field elements per merkle leaf opened
         if is_first_round == 1 {
             n_chuncks_per_answer = two_pow_folding_factor / 8; // "/ 8" because initial merkle leaves are in the basefield
@@ -289,7 +287,7 @@ pub fn run_whir_verif() {
         }
 
         for i in 0..num_queries {
-            new_fs_state, answer = fs_hint(fs_states_b[i], n_chuncks_per_answer); 
+            new_fs_state, answer = fs_hint(fs_states_b[i], n_chuncks_per_answer);
             fs_states_b[i + 1] = new_fs_state;
             answers[i] = answer;
         }
@@ -363,8 +361,8 @@ pub fn run_whir_verif() {
         fs_state_7, folding_randomness, new_claimed_sum_a = sumcheck(fs_state, folding_factor, claimed_sum);
 
         fs_state_8, root, ood_point, ood_eval = parse_commitment(fs_state_7);
-   
-        fs_state_11, circle_values, folds = 
+
+        fs_state_11, circle_values, folds =
             sample_stir_indexes_and_fold(fs_state_8, num_queries, is_first_round, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits);
 
         fs_state_12, combination_randomness_gen = fs_sample_ef(fs_state_11);
@@ -511,7 +509,7 @@ pub fn run_whir_verif() {
 
         b_ptr = b * 8;
         res_ptr = res * 8;
-           
+
         prods = malloc(n * 8);
         for i in 0..n unroll {
             for j in 0..8 unroll {
@@ -549,7 +547,7 @@ pub fn run_whir_verif() {
             mul_extension(point, inner_res + i, res + two_pow_n_minus_1 + i);
             sub_extension(inner_res + i, res + two_pow_n_minus_1 + i, res + i);
         }
-        
+
         return res;
     }
 
@@ -574,7 +572,7 @@ pub fn run_whir_verif() {
             res[two_pow_n_minus_1 + i] = inner_res[i] * point[0];
             res[i] = inner_res[i] - res[two_pow_n_minus_1 + i];
         }
-        
+
         return res;
     }
 
@@ -644,7 +642,7 @@ pub fn run_whir_verif() {
         fs_state_3, ood_eval = fs_receive(fs_state_2, 1); // vectorized pointer of len 1
         return fs_state_3, root, ood_point, ood_eval;
     }
-    
+
     // FIAT SHAMIR layout:
     // 0 -> transcript (vectorized pointer)
     // 1 -> vectorized pointer to first half of sponge state
@@ -672,7 +670,7 @@ pub fn run_whir_verif() {
 
         transcript_ptr = fs_state[0] * 8;
         l_ptr = fs_state[1] * 8;
-        
+
         new_l = malloc_vec(1);
         new_l_ptr = new_l * 8;
         new_l_ptr[0] = transcript_ptr[0];
@@ -770,7 +768,7 @@ pub fn run_whir_verif() {
         new_fs_state[1] = fs_state[1];
         new_fs_state[2] = fs_state[2];
         new_fs_state[3] = fs_state[3];
-        return new_fs_state, res; 
+        return new_fs_state, res;
     }
 
     fn fs_receive(fs_state, n) -> 2 {
@@ -824,7 +822,7 @@ pub fn run_whir_verif() {
     //     ap = a * 8;
     //     bp = b * 8;
     //     cp = c * 8;
-       
+
     //     cp[0] = (ap[0] * bp[0]) + W * ((ap[1] * bp[7]) + (ap[2] * bp[6]) + (ap[3] * bp[5]) + (ap[4] * bp[4]) + (ap[5] * bp[3]) + (ap[6] * bp[2]) + (ap[7] * bp[1]));
     //     cp[1] = (ap[1] * bp[0]) + (ap[0] * bp[1]) + W * ((ap[2] * bp[7]) + (ap[3] * bp[6]) + (ap[4] * bp[5]) + (ap[5] * bp[4]) + (ap[6] * bp[3]) + (ap[7] * bp[2]));
     //     cp[2] = (ap[2] * bp[0]) + (ap[1] * bp[1]) + (ap[0] * bp[2]) + W * ((ap[3] * bp[7]) + (ap[4] * bp[6]) + (ap[5] * bp[5]) + (ap[6] * bp[4]) + (ap[7] * bp[3]));
@@ -874,7 +872,7 @@ pub fn run_whir_verif() {
         }
         return;
     }
-    
+
     fn assert_eq_extension(a, b)  {
         null_ptr = pointer_to_zero_vector; // TODO avoid having to store this in a variable
         add_extension(a, null_ptr, b);
@@ -998,8 +996,7 @@ pub fn run_whir_verif() {
     assert_eq!(proof_data_padding % 8, 0);
     proof_data_padding /= 8;
     println!(
-        "1st merkle leaf padding: {} (vectorized)",
-        proof_data_padding
+        "1st merkle leaf padding: {proof_data_padding} (vectorized)"
     ); // to align the first merkle leaves (in base field)
     public_input.extend(F::zero_vec(proof_data_padding * 8));
 

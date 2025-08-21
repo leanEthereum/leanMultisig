@@ -2,7 +2,10 @@ use p3_field::{Field, PrimeCharacteristicRing};
 use p3_symmetric::Permutation;
 use rayon::prelude::*;
 use utils::{ToUsize, build_poseidon16, build_poseidon24};
-use vm::*;
+use vm::{
+    Bytecode, EF, ExecutionResult, F, Instruction, POSEIDON_16_NULL_HASH_PTR,
+    POSEIDON_24_NULL_HASH_PTR,
+};
 
 use crate::{
     COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C,
@@ -10,7 +13,7 @@ use crate::{
     N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS, instruction_encoder::field_representation,
 };
 
-pub(crate) struct WitnessDotProduct {
+pub struct WitnessDotProduct {
     pub cycle: usize,
     pub addr_0: usize,   // vectorized pointer
     pub addr_1: usize,   // vectorized pointer
@@ -21,7 +24,7 @@ pub(crate) struct WitnessDotProduct {
     pub res: EF,
 }
 
-pub(crate) struct WitnessMultilinearEval {
+pub struct WitnessMultilinearEval {
     pub cycle: usize,
     pub addr_coeffs: usize, // vectorized pointer, of size 8.2^size
     pub addr_point: usize,  // vectorized pointer, of size `size`
@@ -31,7 +34,7 @@ pub(crate) struct WitnessMultilinearEval {
     pub res: EF,
 }
 
-pub(crate) struct WitnessPoseidon16 {
+pub struct WitnessPoseidon16 {
     pub cycle: Option<usize>,
     pub addr_input_a: usize, // vectorized pointer (of size 1)
     pub addr_input_b: usize, // vectorized pointer (of size 1)
@@ -40,7 +43,7 @@ pub(crate) struct WitnessPoseidon16 {
     pub output: [F; 16],
 }
 
-pub(crate) struct WitnessPoseidon24 {
+pub struct WitnessPoseidon24 {
     pub cycle: Option<usize>,
     pub addr_input_a: usize, // vectorized pointer (of size 2)
     pub addr_input_b: usize, // vectorized pointer (of size 1)
@@ -49,7 +52,7 @@ pub(crate) struct WitnessPoseidon24 {
     pub output: [F; 8], // last 8 elements of the output
 }
 
-pub(crate) struct ExecutionTrace {
+pub struct ExecutionTrace {
     pub full_trace: Vec<Vec<F>>,
     pub n_poseidons_16: usize,
     pub n_poseidons_24: usize,
@@ -61,7 +64,7 @@ pub(crate) struct ExecutionTrace {
     pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
-pub(crate) fn get_execution_trace(
+pub fn get_execution_trace(
     bytecode: &Bytecode,
     execution_result: &ExecutionResult,
 ) -> ExecutionTrace {
@@ -84,7 +87,7 @@ pub(crate) fn get_execution_trace(
         .enumerate()
     {
         let instruction = &bytecode.instructions[pc];
-        let field_repr = field_representation(&instruction);
+        let field_repr = field_representation(instruction);
 
         // println!(
         //     "Cycle {}: PC = {}, FP = {}, Instruction = {}",
@@ -95,17 +98,22 @@ pub(crate) fn get_execution_trace(
             trace[j][cycle] = *field;
         }
 
-        let mut addr_a = F::ZERO;
-        if field_repr[3].is_zero() {
+        let addr_a = if field_repr[3].is_zero() {
             // flag_a == 0
-            addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
-        }
+            // fp + operand_a
+            F::from_usize(fp) + field_repr[0]
+        } else {
+            F::ZERO
+        };
+
         let value_a = memory.0[addr_a.to_usize()].unwrap();
-        let mut addr_b = F::ZERO;
-        if field_repr[4].is_zero() {
+        let addr_b = if field_repr[4].is_zero() {
             // flag_b == 0
-            addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
-        }
+            // fp + operand_b
+            F::from_usize(fp) + field_repr[1]
+        } else {
+            F::ZERO
+        };
         let value_b = memory.0[addr_b.to_usize()].unwrap();
 
         let mut addr_c = F::ZERO;
@@ -130,9 +138,9 @@ pub(crate) fn get_execution_trace(
 
         match instruction {
             Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
-                let addr_input_a = arg_a.read_value(&memory, fp).unwrap().to_usize();
-                let addr_input_b = arg_b.read_value(&memory, fp).unwrap().to_usize();
-                let addr_output = res.read_value(&memory, fp).unwrap().to_usize();
+                let addr_input_a = arg_a.read_value(memory, fp).unwrap().to_usize();
+                let addr_input_b = arg_b.read_value(memory, fp).unwrap().to_usize();
+                let addr_output = res.read_value(memory, fp).unwrap().to_usize();
                 let value_a = memory.get_vector(addr_input_a).unwrap();
                 let value_b = memory.get_vector(addr_input_b).unwrap();
                 let output = memory.get_vectorized_slice(addr_output, 2).unwrap();
@@ -146,9 +154,9 @@ pub(crate) fn get_execution_trace(
                 });
             }
             Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
-                let addr_input_a = arg_a.read_value(&memory, fp).unwrap().to_usize();
-                let addr_input_b = arg_b.read_value(&memory, fp).unwrap().to_usize();
-                let addr_output = res.read_value(&memory, fp).unwrap().to_usize();
+                let addr_input_a = arg_a.read_value(memory, fp).unwrap().to_usize();
+                let addr_input_b = arg_b.read_value(memory, fp).unwrap().to_usize();
+                let addr_output = res.read_value(memory, fp).unwrap().to_usize();
                 let value_a = memory.get_vectorized_slice(addr_input_a, 2).unwrap();
                 let value_b = memory.get_vector(addr_input_b).unwrap().to_vec();
                 let output = memory.get_vector(addr_output).unwrap();
@@ -167,9 +175,9 @@ pub(crate) fn get_execution_trace(
                 res,
                 size,
             } => {
-                let addr_0 = arg0.read_value(&memory, fp).unwrap().to_usize();
-                let addr_1 = arg1.read_value(&memory, fp).unwrap().to_usize();
-                let addr_res = res.read_value(&memory, fp).unwrap().to_usize();
+                let addr_0 = arg0.read_value(memory, fp).unwrap().to_usize();
+                let addr_1 = arg1.read_value(memory, fp).unwrap().to_usize();
+                let addr_res = res.read_value(memory, fp).unwrap().to_usize();
                 let slice_0 = memory
                     .get_vectorized_slice_extension(addr_0, *size)
                     .unwrap();
@@ -194,9 +202,9 @@ pub(crate) fn get_execution_trace(
                 res,
                 n_vars,
             } => {
-                let addr_coeffs = coeffs.read_value(&memory, fp).unwrap().to_usize();
-                let addr_point = point.read_value(&memory, fp).unwrap().to_usize();
-                let addr_res = res.read_value(&memory, fp).unwrap().to_usize();
+                let addr_coeffs = coeffs.read_value(memory, fp).unwrap().to_usize();
+                let addr_point = point.read_value(memory, fp).unwrap().to_usize();
+                let addr_res = res.read_value(memory, fp).unwrap().to_usize();
                 let point = memory
                     .get_vectorized_slice_extension(addr_point, *n_vars)
                     .unwrap();

@@ -1,25 +1,26 @@
+use std::ops::Range;
+
 use p3_field::{ExtensionField, cyclic_subgroup_known_order, dot_product};
 use p3_util::log2_ceil_usize;
-use std::ops::Range;
 use sumcheck::SumcheckComputation;
 use tracing::instrument;
-use utils::univariate_selectors;
-use utils::{Evaluation, from_end};
-use utils::{FSVerifier, PF};
-use whir_p3::fiat_shamir::FSChallenger;
-use whir_p3::poly::evals::eval_eq;
+use utils::{Evaluation, FSVerifier, PF, from_end, univariate_selectors};
 use whir_p3::{
-    fiat_shamir::errors::ProofError,
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    fiat_shamir::{FSChallenger, errors::ProofError},
+    poly::{
+        evals::{EvaluationsList, eval_eq},
+        multilinear::MultilinearPoint,
+    },
 };
 
-use crate::MyAir;
-use crate::utils::{matrix_down_lde, matrix_up_lde};
-
 use super::table::AirTable;
+use crate::{
+    MyAir,
+    utils::{matrix_down_lde, matrix_up_lde},
+};
 
 #[instrument(name = "air table: verify many", skip_all)]
-pub fn verify_many_air_2<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<EF>>(
+pub fn verify_many_air_2<EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<EF>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     tables_1: &[&AirTable<EF, A1>],
     tables_2: &[&AirTable<EF, A2>],
@@ -40,7 +41,6 @@ pub fn verify_many_air_2<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAi
 
 #[instrument(name = "air table: verify many", skip_all)]
 pub fn verify_many_air_3<
-    'a,
     EF: ExtensionField<PF<EF>>,
     A1: MyAir<EF>,
     A2: MyAir<EF>,
@@ -66,7 +66,7 @@ pub fn verify_many_air_3<
         sumcheck::verify_with_univariate_skip_in_parallel::<EF>(
             verifier_state,
             univariate_skips,
-            &log_lengths,
+            log_lengths,
             &tables_1
                 .iter()
                 .map(|t| t.air.degree() + 1)
@@ -155,7 +155,7 @@ pub fn verify_many_air_3<
             global_zerocheck_challenges[1..log_lengths[i] + 1 - univariate_skips].to_vec(),
         )
         .eq_poly_outside(&MultilinearPoint(
-            outer_sumcheck_point[1..log_lengths[i] - univariate_skips + 1].to_vec(),
+            outer_sumcheck_point[1..=(log_lengths[i] - univariate_skips)].to_vec(),
         )) * global_constraint_evals[i]
             != outer_sumcheck_values[i]
         {
@@ -199,7 +199,7 @@ pub fn verify_many_air_3<
                 &column_groups[i],
                 &Evaluation {
                     point: MultilinearPoint(
-                        outer_sumcheck_point[1..log_lengths[i] - univariate_skips + 1].to_vec(),
+                        outer_sumcheck_point[1..=(log_lengths[i] - univariate_skips)].to_vec(),
                     ),
                     value: outer_sumcheck_values[i],
                 },
@@ -212,11 +212,11 @@ pub fn verify_many_air_3<
         verify_many_unstructured_columns(
             verifier_state,
             univariate_skips,
-            all_inner_sums,
-            &column_groups,
+            &all_inner_sums,
+            column_groups,
             &outer_sumcheck_point,
             &outer_selector_evals,
-            &log_lengths,
+            log_lengths,
         )
     }
 }
@@ -247,7 +247,7 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
 fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
-    all_inner_sums: Vec<Vec<EF>>,
+    all_inner_sums: &[Vec<EF>],
     column_groups: &[Vec<Range<usize>>],
     outer_sumcheck_point: &MultilinearPoint<EF>,
     outer_selector_evals: &[EF],
@@ -256,7 +256,7 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     let max_columns_per_group = Iterator::max(
         column_groups
             .iter()
-            .map(|g| Iterator::max(g.iter().map(|r| r.len())).unwrap()),
+            .map(|g| Iterator::max(g.iter().map(std::iter::ExactSizeIterator::len)).unwrap()),
     )
     .unwrap();
     let log_max_columns_per_group = log2_ceil_usize(max_columns_per_group);
@@ -273,7 +273,7 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
                 outer_selector_evals.iter().copied(),
             ) != dot_product::<EF, _, _>(
                 all_inner_sums[i][group.clone()].iter().copied(),
-                eval_eq(&from_end(
+                eval_eq(from_end(
                     &columns_batching_scalars,
                     log2_ceil_usize(group.len()),
                 ))[..group.len()]
@@ -299,7 +299,7 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
                 [
                     from_end(&columns_batching_scalars, log2_ceil_usize(group.len())).to_vec(),
                     epsilons.0.clone(),
-                    outer_sumcheck_point[1..log_lengths[i] - univariate_skips + 1].to_vec(),
+                    outer_sumcheck_point[1..=(log_lengths[i] - univariate_skips)].to_vec(),
                 ]
                 .concat(),
             );
@@ -314,6 +314,7 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     Ok(all_evaluations_remaining_to_verify)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_columns: usize,
@@ -324,7 +325,8 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     outer_selector_evals: &[EF],
     log_n_rows: usize,
 ) -> Result<Vec<Evaluation<EF>>, ProofError> {
-    let max_columns_per_group = Iterator::max(column_groups.iter().map(|g| g.len())).unwrap();
+    let max_columns_per_group =
+        Iterator::max(column_groups.iter().map(std::iter::ExactSizeIterator::len)).unwrap();
     let log_max_columns_per_group = log2_ceil_usize(max_columns_per_group);
     let columns_batching_scalars = verifier_state.sample_vec(log_max_columns_per_group);
 
@@ -346,7 +348,7 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
             outer_selector_evals.iter().copied(),
         ) != dot_product::<EF, _, _>(
             witness_up.iter().copied(),
-            eval_eq(&from_end(
+            eval_eq(from_end(
                 &columns_batching_scalars,
                 log2_ceil_usize(group.len()),
             ))[..group.len()]
@@ -354,7 +356,7 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
                 .copied(),
         ) + dot_product::<EF, _, _>(
             witness_down.iter().copied(),
-            eval_eq(&from_end(
+            eval_eq(from_end(
                 &columns_batching_scalars,
                 log2_ceil_usize(group.len()),
             ))[..group.len()]

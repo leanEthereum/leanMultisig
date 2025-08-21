@@ -1,4 +1,4 @@
-pub fn pretty_integer(i: usize) -> String {
+#[must_use] pub fn pretty_integer(i: usize) -> String {
     // ex: 123456789 -> "123,456,789"
     let s = i.to_string();
     let chars: Vec<char> = s.chars().collect();

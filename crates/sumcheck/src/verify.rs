@@ -100,8 +100,8 @@ where
 
     verify_core_in_parallel(
         verifier_state,
-        max_degree_per_vars,
-        sumation_sets,
+        &max_degree_per_vars,
+        &sumation_sets,
         share_initial_challenges,
     )
 }
@@ -116,8 +116,8 @@ where
 {
     let (sum, challenge_point, challenge_value) = verify_core_in_parallel(
         verifier_state,
-        vec![max_degree_per_vars],
-        vec![sumation_sets],
+        &[max_degree_per_vars],
+        &[sumation_sets],
         true,
     )?;
     Ok((
@@ -131,8 +131,8 @@ where
 
 fn verify_core_in_parallel<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    max_degree_per_vars: Vec<Vec<usize>>,
-    sumation_sets: Vec<Vec<Vec<EF>>>,
+    max_degree_per_vars: &[Vec<usize>],
+    sumation_sets: &[Vec<Vec<EF>>],
     share_initial_challenges: bool, // otherwise, share the final challenges
 ) -> Result<(Vec<EF>, MultilinearPoint<EF>, Vec<EF>), ProofError>
 where
@@ -150,7 +150,7 @@ where
 
     let n_vars = max_degree_per_vars
         .iter()
-        .map(|v| v.len())
+        .map(std::vec::Vec::len)
         .collect::<Vec<_>>();
     let max_n_vars = Iterator::max(n_vars.iter().copied()).unwrap();
 

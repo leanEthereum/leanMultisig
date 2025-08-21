@@ -74,7 +74,7 @@ pub fn pack_extension<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking
 }
 
 pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {
-    vec.into_iter()
+    vec.iter()
         .flat_map(|x| {
             let packed_coeffs = x.as_basis_coefficients_slice();
             (0..packing_width::<EF>())
@@ -84,32 +84,32 @@ pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Ve
         .collect()
 }
 
-pub const fn packing_log_width<EF: Field>() -> usize {
+#[must_use] pub const fn packing_log_width<EF: Field>() -> usize {
     packing_width::<EF>().ilog2() as usize
 }
 
-pub const fn packing_width<EF: Field>() -> usize {
+#[must_use] pub const fn packing_width<EF: Field>() -> usize {
     PFPacking::<EF>::WIDTH
 }
 
-pub fn build_challenger() -> MyChallenger {
+#[must_use] pub fn build_challenger() -> MyChallenger {
     MyChallenger::new(build_poseidon16())
 }
 
-pub fn build_merkle_hash() -> MyMerkleHash {
+#[must_use] pub fn build_merkle_hash() -> MyMerkleHash {
     MyMerkleHash::new(build_poseidon24())
 }
 
-pub fn build_merkle_compress() -> MyMerkleCompress {
+#[must_use] pub fn build_merkle_compress() -> MyMerkleCompress {
     MyMerkleCompress::new(build_poseidon16())
 }
 
-pub fn build_prover_state<EF: ExtensionField<KoalaBear>>()
+#[must_use] pub fn build_prover_state<EF: ExtensionField<KoalaBear>>()
 -> ProverState<KoalaBear, EF, MyChallenger> {
     ProverState::new(build_challenger())
 }
 
-pub fn build_verifier_state<EF: ExtensionField<KoalaBear>>(
+#[must_use] pub fn build_verifier_state<EF: ExtensionField<KoalaBear>>(
     prover_state: &ProverState<KoalaBear, EF, MyChallenger>,
 ) -> VerifierState<KoalaBear, EF, MyChallenger> {
     VerifierState::new(prover_state.proof_data().to_vec(), build_challenger())

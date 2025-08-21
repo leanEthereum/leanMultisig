@@ -1,42 +1,46 @@
-use crate::common::*;
-use crate::dot_product_air::DOT_PRODUCT_AIR_COLUMN_GROUPS;
-use crate::dot_product_air::DotProductAir;
-use crate::dot_product_air::build_dot_product_columns;
-use crate::execution_trace::ExecutionTrace;
-use crate::execution_trace::get_execution_trace;
-use crate::poseidon_tables::build_poseidon_columns;
-use crate::poseidon_tables::*;
-use crate::{air::VMAir, *};
-use ::air::prove_many_air_2;
-use ::air::{table::AirTable, witness::AirWitness};
-use lookup::prove_gkr_product;
-use lookup::{compute_pushforward, prove_logup_star};
+use ::air::{prove_many_air_2, table::AirTable, witness::AirWitness};
+use lookup::{compute_pushforward, prove_gkr_product, prove_logup_star};
 use p3_air::BaseAir;
-use p3_field::BasedVectorSpace;
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use pcs::num_packed_vars_for_pols;
-use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements};
+use pcs::{BatchPCS, num_packed_vars_for_pols, packed_pcs_commit, packed_pcs_global_statements};
 use rayon::prelude::*;
 use sumcheck::MleGroupRef;
 use tracing::info_span;
-use utils::ToUsize;
-use utils::assert_eq_many;
-use utils::dot_product_with_base;
-use utils::field_slice_as_base;
-use utils::fold_multilinear_in_large_field;
-use utils::pack_extension;
-use utils::to_big_endian_bits;
 use utils::{
-    Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
-    padd_with_zero_to_next_power_of_two,
+    Evaluation, PF, ToUsize, assert_eq_many, build_poseidon_16_air, build_poseidon_24_air,
+    build_prover_state, dot_product_with_base, field_slice_as_base,
+    fold_multilinear_in_large_field, pack_extension, padd_with_zero_to_next_power_of_two,
+    to_big_endian_bits,
 };
-use vm::Bytecode;
-use vm::*;
-use whir_p3::dft::EvalsDft;
-use whir_p3::poly::evals::{eval_eq, fold_multilinear};
-use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
-use whir_p3::utils::compute_eval_eq;
+use vm::{
+    Bytecode, DIMENSION, EF, F, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
+    execute_bytecode,
+};
+use whir_p3::{
+    dft::EvalsDft,
+    poly::{
+        evals::{EvaluationsList, eval_eq, fold_multilinear},
+        multilinear::MultilinearPoint,
+    },
+    utils::compute_eval_eq,
+};
+
+use crate::{
+    COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_C, COL_INDEX_MEM_VALUE_A,
+    COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC, N_INSTRUCTION_COLUMNS,
+    N_INSTRUCTION_COLUMNS_IN_AIR, N_TOTAL_COLUMNS, UNIVARIATE_SKIPS,
+    air::VMAir,
+    common::{
+        DotProductFootprint, PrecompileFootprint, fold_bytecode, intitial_and_final_pc_conditions,
+        poseidon_16_column_groups, poseidon_24_column_groups, poseidon_lookup_index_statements,
+        poseidon_lookup_value,
+    },
+    dot_product_air::{DOT_PRODUCT_AIR_COLUMN_GROUPS, DotProductAir, build_dot_product_columns},
+    exec_column_groups,
+    execution_trace::{ExecutionTrace, get_execution_trace},
+    poseidon_tables::{all_poseidon_16_indexes, all_poseidon_24_indexes, build_poseidon_columns},
+};
 
 pub fn prove_execution(
     bytecode: &Bytecode,
@@ -55,8 +59,8 @@ pub fn prove_execution(
         public_memory_size,
         memory,
     } = info_span!("Witness generation").in_scope(|| {
-        let execution_result = execute_bytecode(&bytecode, &public_input, private_input);
-        get_execution_trace(&bytecode, &execution_result)
+        let execution_result = execute_bytecode(bytecode, public_input, private_input);
+        get_execution_trace(bytecode, &execution_result)
     });
 
     let public_memory = &memory[..public_memory_size];
@@ -77,8 +81,7 @@ pub fn prove_execution(
     exec_columns.extend(
         full_trace[N_INSTRUCTION_COLUMNS..]
             .iter()
-            .map(Vec::as_slice)
-            .collect::<Vec<_>>(),
+            .map(Vec::as_slice),
     );
     let exec_witness = AirWitness::<PF<EF>>::new(&exec_columns, &exec_column_groups());
     let exec_table = AirTable::<EF, _>::new(VMAir);
@@ -440,7 +443,7 @@ pub fn prove_execution(
         point: MultilinearPoint(
             [
                 p16_mixing_scalars_grand_product.0.clone(),
-                grand_product_p16_statement.point.0.clone(),
+                grand_product_p16_statement.point.0,
             ]
             .concat(),
         ),
@@ -471,7 +474,7 @@ pub fn prove_execution(
         point: MultilinearPoint(
             [
                 p24_mixing_scalars_grand_product.0.clone(),
-                grand_product_p24_statement.point.0.clone(),
+                grand_product_p24_statement.point.0,
             ]
             .concat(),
         ),
@@ -493,11 +496,11 @@ pub fn prove_execution(
         MleGroupRef::Extension(
             dot_product_columns[..5]
                 .iter()
-                .map(|c| c.as_slice())
+                .map(std::vec::Vec::as_slice)
                 .collect::<Vec<_>>(),
         ), // TODO packing
         &DotProductFootprint {
-            grand_product_challenge_global: grand_product_challenge_global,
+            grand_product_challenge_global,
             grand_product_challenge_dot_product: grand_product_challenge_dot_product
                 .clone()
                 .try_into()
@@ -530,7 +533,7 @@ pub fn prove_execution(
                 grand_product_dot_product_table_indexes_mixing_challenges
                     .0
                     .clone(),
-                grand_product_dot_product_sumcheck_point.0.clone(),
+                grand_product_dot_product_sumcheck_point.0,
             ]
             .concat(),
         ),
@@ -548,10 +551,13 @@ pub fn prove_execution(
             1, // TODO univariate skip?
             MleGroupRef::Base(
                 // TODO not all columns re required
-                full_trace.iter().map(|c| c.as_slice()).collect::<Vec<_>>(),
+                full_trace
+                    .iter()
+                    .map(std::vec::Vec::as_slice)
+                    .collect::<Vec<_>>(),
             ), // TODO packing
             &PrecompileFootprint {
-                grand_product_challenge_global: grand_product_challenge_global,
+                grand_product_challenge_global,
                 grand_product_challenge_p16: grand_product_challenge_p16.try_into().unwrap(),
                 grand_product_challenge_p24: grand_product_challenge_p24.try_into().unwrap(),
                 grand_product_challenge_dot_product: grand_product_challenge_dot_product
@@ -726,7 +732,7 @@ pub fn prove_execution(
             (poseidons_24.par_iter().map(|p| (&p.input[0..8]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
             (poseidons_24.par_iter().map(|p| (&p.input[8..16]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
             (poseidons_24.par_iter().map(|p| (&p.input[16..24]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
-            (poseidons_24.par_iter().map(|p| (&p.output).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| p.output.evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
         ];
         for (chunk_idx, (values, step)) in chunks.into_iter().enumerate() {
             let offset = chunk_idx * max_n_poseidons;
@@ -801,10 +807,10 @@ pub fn prove_execution(
         )
         .evaluate(&bytecode_compression_challenges),
     };
-    let bytecode_lookup_point_2 = grand_product_exec_sumcheck_point.clone();
+    let bytecode_lookup_point_2 = grand_product_exec_sumcheck_point;
     let bytecode_lookup_claim_2 = Evaluation {
         point: bytecode_lookup_point_2.clone(),
-        value: padd_with_zero_to_next_power_of_two(&grand_product_exec_evals_on_each_column)
+        value: padd_with_zero_to_next_power_of_two(grand_product_exec_evals_on_each_column)
             .evaluate(&bytecode_compression_challenges),
     };
     let alpha_bytecode_lookup = prover_state.sample();
@@ -889,7 +895,7 @@ pub fn prove_execution(
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
             poseidon_logup_star_statements.on_table.point.0.clone(),
-            memory_folding_challenges.0.clone(),
+            memory_folding_challenges.0,
         ]
         .concat(),
     );
@@ -1036,7 +1042,7 @@ pub fn prove_execution(
     // Second Opening
     let global_statements_extension = packed_pcs_global_statements(
         &packed_pcs_witness_extension.tree,
-        &vec![
+        &[
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,

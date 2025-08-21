@@ -22,7 +22,7 @@ impl<'a, F> Deref for AirWitness<'a, F> {
 
 impl<'a, F> AirWitness<'a, F> {
     pub fn new(cols: &'a [impl Borrow<[F]>], column_groups: &[Range<usize>]) -> Self {
-        let cols = cols.iter().map(|col| col.borrow()).collect::<Vec<_>>();
+        let cols = cols.iter().map(std::borrow::Borrow::borrow).collect::<Vec<_>>();
         assert!(
             cols.iter()
                 .all(|col| col.len() == (1 << log2_strict_usize(cols[0].len()))),
@@ -37,23 +37,23 @@ impl<'a, F> AirWitness<'a, F> {
         }
     }
 
-    pub fn n_columns(&self) -> usize {
+    #[must_use] pub const fn n_columns(&self) -> usize {
         self.cols.len()
     }
 
-    pub fn n_rows(&self) -> usize {
+    #[must_use] pub fn n_rows(&self) -> usize {
         self.cols[0].len()
     }
 
-    pub fn log_n_rows(&self) -> usize {
+    #[must_use] pub fn log_n_rows(&self) -> usize {
         log2_strict_usize(self.n_rows())
     }
 
-    pub fn max_columns_per_group(&self) -> usize {
-        self.column_groups.iter().map(|g| g.len()).max().unwrap()
+    #[must_use] pub fn max_columns_per_group(&self) -> usize {
+        self.column_groups.iter().map(std::iter::ExactSizeIterator::len).max().unwrap()
     }
 
-    pub fn log_max_columns_per_group(&self) -> usize {
+    #[must_use] pub fn log_max_columns_per_group(&self) -> usize {
         log2_ceil_usize(self.max_columns_per_group())
     }
 }

@@ -27,6 +27,7 @@ pub fn num_packed_vars_for_pols<F: Field>(polynomials: &[&[F]]) -> usize {
     TreeOfVariables::compute_optimal(vars_per_polynomial).total_vars()
 }
 
+#[must_use]
 pub fn num_packed_vars_for_vars(vars_per_polynomial: &[usize]) -> usize {
     TreeOfVariables::compute_optimal(vars_per_polynomial.to_vec()).total_vars()
 }
@@ -57,11 +58,12 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     }
 }
 
+#[must_use]
 pub fn packed_pcs_global_statements<EF: Field>(
     tree: &TreeOfVariables,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
 ) -> Vec<Evaluation<EF>> {
-    check_tree(&tree, statements_per_polynomial).expect("Invalid tree structure for multi-open");
+    check_tree(tree, statements_per_polynomial);
 
     tree.root
         .global_statement(&tree.vars_per_polynomial, statements_per_polynomial, &[])
@@ -89,7 +91,7 @@ pub fn packed_pcs_parse_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, 
 fn check_tree<EF: Field>(
     tree: &TreeOfVariables,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
-) -> Result<(), ProofError> {
+) {
     assert_eq!(
         statements_per_polynomial.len(),
         tree.vars_per_polynomial.len()
@@ -102,7 +104,6 @@ fn check_tree<EF: Field>(
             assert_eq!(eval.point.len(), vars);
         }
     }
-    Ok(())
 }
 
 impl TreeOfVariablesInner {
@@ -113,11 +114,11 @@ impl TreeOfVariablesInner {
         vars_per_polynomial: &[usize],
     ) {
         match self {
-            TreeOfVariablesInner::Polynomial(i) => {
+            Self::Polynomial(i) => {
                 let len = polynomials[*i].len();
                 buff[..len].copy_from_slice(polynomials[*i]);
             }
-            TreeOfVariablesInner::Composed { left, right } => {
+            Self::Composed { left, right } => {
                 let (left_buff, right_buff) = buff.split_at_mut(buff.len() / 2);
                 let left_buff = &mut left_buff[..1 << left.total_vars(vars_per_polynomial)];
                 let right_buff = &mut right_buff[..1 << right.total_vars(vars_per_polynomial)];
@@ -136,7 +137,7 @@ impl TreeOfVariablesInner {
         selectors: &[EF],
     ) -> Vec<Evaluation<EF>> {
         match self {
-            TreeOfVariablesInner::Polynomial(i) => {
+            Self::Polynomial(i) => {
                 let mut res = Vec::new();
                 for eval in &statements_per_polynomial[*i] {
                     res.push(Evaluation {
@@ -148,7 +149,7 @@ impl TreeOfVariablesInner {
                 }
                 res
             }
-            TreeOfVariablesInner::Composed { left, right } => {
+            Self::Composed { left, right } => {
                 let left_vars = left.total_vars(vars_per_polynomial);
                 let right_vars = right.total_vars(vars_per_polynomial);
 
@@ -232,7 +233,10 @@ mod tests {
         let mut prover_state = build_prover_state();
         let dft = EvalsDft::<F>::default();
 
-        let polynomials_refs = polynomials.iter().map(|p| p.as_slice()).collect::<Vec<_>>();
+        let polynomials_refs = polynomials
+            .iter()
+            .map(std::vec::Vec::as_slice)
+            .collect::<Vec<_>>();
         let witness = packed_pcs_commit(&pcs, &polynomials_refs, &dft, &mut prover_state);
 
         let packed_statements =

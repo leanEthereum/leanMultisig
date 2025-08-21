@@ -16,10 +16,10 @@ pub enum PrecompileName {
 impl ToString for PrecompileName {
     fn to_string(&self) -> String {
         match self {
-            PrecompileName::Poseidon16 => "poseidon16",
-            PrecompileName::Poseidon24 => "poseidon24",
-            PrecompileName::DotProduct => "dot_product",
-            PrecompileName::MultilinearEval => "multilinear_eval",
+            Self::Poseidon16 => "poseidon16",
+            Self::Poseidon24 => "poseidon24",
+            Self::DotProduct => "dot_product",
+            Self::MultilinearEval => "multilinear_eval",
         }
         .to_string()
     }

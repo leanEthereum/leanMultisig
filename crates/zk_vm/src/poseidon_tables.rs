@@ -6,7 +6,7 @@ use vm::F;
 
 use crate::execution_trace::{WitnessPoseidon16, WitnessPoseidon24};
 
-pub(crate) fn build_poseidon_columns(
+pub fn build_poseidon_columns(
     poseidons_16: &[WitnessPoseidon16],
     poseidons_24: &[WitnessPoseidon24],
 ) -> (Vec<Vec<F>>, Vec<Vec<F>>) {
@@ -21,7 +21,7 @@ pub(crate) fn build_poseidon_columns(
     (cols_16, cols_24)
 }
 
-pub(crate) fn all_poseidon_16_indexes(poseidons_16: &[WitnessPoseidon16]) -> Vec<F> {
+pub fn all_poseidon_16_indexes(poseidons_16: &[WitnessPoseidon16]) -> Vec<F> {
     padd_with_zero_to_next_power_of_two(
         &[
             poseidons_16
@@ -41,7 +41,7 @@ pub(crate) fn all_poseidon_16_indexes(poseidons_16: &[WitnessPoseidon16]) -> Vec
     )
 }
 
-pub(crate) fn all_poseidon_24_indexes(poseidons_24: &[WitnessPoseidon24]) -> Vec<F> {
+pub fn all_poseidon_24_indexes(poseidons_24: &[WitnessPoseidon24]) -> Vec<F> {
     padd_with_zero_to_next_power_of_two(
         &[
             padd_with_zero_to_next_power_of_two(

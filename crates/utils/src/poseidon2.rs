@@ -43,7 +43,7 @@ pub type Poseidon24Air = Poseidon2Air<
     PARTIAL_ROUNDS_24,
 >;
 
-pub fn build_poseidon16() -> Poseidon16 {
+#[must_use] pub fn build_poseidon16() -> Poseidon16 {
     let round_constants = build_poseidon16_constants();
     let external_constants = ExternalLayerConstants::new(
         round_constants.beginning_full_round_constants.to_vec(),
@@ -55,7 +55,7 @@ pub fn build_poseidon16() -> Poseidon16 {
     )
 }
 
-pub fn build_poseidon24() -> Poseidon24 {
+#[must_use] pub fn build_poseidon24() -> Poseidon24 {
     let round_constants = build_poseidon24_constants();
     let external_constants = ExternalLayerConstants::new(
         round_constants.beginning_full_round_constants.to_vec(),
@@ -67,11 +67,11 @@ pub fn build_poseidon24() -> Poseidon24 {
     )
 }
 
-pub fn build_poseidon_16_air() -> Poseidon16Air {
+#[must_use] pub fn build_poseidon_16_air() -> Poseidon16Air {
     Poseidon16Air::new(build_poseidon16_constants())
 }
 
-pub fn build_poseidon_24_air() -> Poseidon24Air {
+#[must_use] pub fn build_poseidon_24_air() -> Poseidon24Air {
     Poseidon24Air::new(build_poseidon24_constants())
 }
 
@@ -89,7 +89,7 @@ fn build_poseidon24_constants()
     )
 }
 
-pub fn generate_trace_poseidon_16(inputs: Vec<[KoalaBear; 16]>) -> RowMajorMatrix<KoalaBear> {
+#[must_use] pub fn generate_trace_poseidon_16(inputs: Vec<[KoalaBear; 16]>) -> RowMajorMatrix<KoalaBear> {
     generate_trace_rows::<
         KoalaBear,
         MyLinearLayers,
@@ -101,7 +101,7 @@ pub fn generate_trace_poseidon_16(inputs: Vec<[KoalaBear; 16]>) -> RowMajorMatri
     >(inputs, &build_poseidon16_constants(), 0)
 }
 
-pub fn generate_trace_poseidon_24(inputs: Vec<[KoalaBear; 24]>) -> RowMajorMatrix<KoalaBear> {
+#[must_use] pub fn generate_trace_poseidon_24(inputs: Vec<[KoalaBear; 24]>) -> RowMajorMatrix<KoalaBear> {
     generate_trace_rows::<
         KoalaBear,
         MyLinearLayers,

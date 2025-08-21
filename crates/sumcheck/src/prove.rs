@@ -1,18 +1,14 @@
-use p3_field::ExtensionField;
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use rayon::prelude::*;
-use utils::pack_extension;
-use utils::packing_log_width;
-use utils::unpack_extension;
-use utils::{FSProver, PF, univariate_selectors};
-use whir_p3::fiat_shamir::FSChallenger;
-use whir_p3::poly::dense::WhirDensePolynomial;
-use whir_p3::poly::evals::eval_eq;
-use whir_p3::poly::multilinear::MultilinearPoint;
+use utils::{
+    FSProver, PF, pack_extension, packing_log_width, univariate_selectors, unpack_extension,
+};
+use whir_p3::{
+    fiat_shamir::FSChallenger,
+    poly::{dense::WhirDensePolynomial, evals::eval_eq, multilinear::MultilinearPoint},
+};
 
-use crate::MleGroup;
-use crate::SumcheckComputation;
-use crate::{Mle, MySumcheckComputation};
+use crate::{Mle, MleGroup, MySumcheckComputation, SumcheckComputation};
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove<'a, EF, SC>(
@@ -33,8 +29,8 @@ where
     let (challenges, mut final_folds, mut sum) = prove_in_parallel_1(
         vec![skips],
         vec![multilinears],
-        vec![computation],
-        vec![batching_scalars],
+        &[computation],
+        &[batching_scalars],
         vec![eq_factor],
         vec![is_zerofier],
         prover_state,
@@ -46,12 +42,12 @@ where
     (challenges, final_folds.pop().unwrap(), sum.pop().unwrap())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn prove_in_parallel_1<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
     skips: Vec<usize>, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<M>,
-    computations: Vec<&SC>,
-    batching_scalars: Vec<&[EF]>,
+    computations: &[&SC],
+    batching_scalars: &[&[EF]],
     eq_factors: Vec<Option<(Vec<EF>, Option<Mle<EF>>)>>, // (a, b, c ...), eq_poly(b, c, ...)
     is_zerofier: Vec<bool>,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -67,8 +63,8 @@ where
         skips,
         multilinears,
         computations,
-        vec![],
-        vec![],
+        &[],
+        &[],
         batching_scalars,
         eq_factors,
         is_zerofier,
@@ -83,10 +79,10 @@ where
 pub fn prove_in_parallel_3<'a, EF, SC1, SC2, SC3, M: Into<MleGroup<'a, EF>>>(
     mut skips: Vec<usize>, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<M>,
-    computations_1: Vec<&SC1>,
-    computations_2: Vec<&SC2>,
-    computations_3: Vec<&SC3>,
-    batching_scalars: Vec<&[EF]>,
+    computations_1: &[&SC1],
+    computations_2: &[&SC2],
+    computations_3: &[&SC3],
+    batching_scalars: &[&[EF]],
     mut eq_factors: Vec<Option<(Vec<EF>, Option<Mle<EF>>)>>, // (a, b, c ...), eq_poly(b, c, ...)
     mut is_zerofier: Vec<bool>,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -153,14 +149,12 @@ where
         };
         // If Packing is enabled, and there are too little variables, we unpack everything:
         for &i in &concerned_sumchecks {
-            if multilinears[i].by_ref().is_packed() {
-                if n_vars[i] <= 1 + packing_log_width::<EF>() {
-                    // unpack
-                    multilinears[i] = multilinears[i].by_ref().unpack().into();
-                    if let Some((_, eq_mle)) = &mut eq_factors[i] {
-                        *eq_mle =
-                            Mle::Extension(unpack_extension(eq_mle.as_extension_packed().unwrap()));
-                    }
+            if multilinears[i].by_ref().is_packed() && n_vars[i] <= 1 + packing_log_width::<EF>() {
+                // unpack
+                multilinears[i] = multilinears[i].by_ref().unpack().into();
+                if let Some((_, eq_mle)) = &mut eq_factors[i] {
+                    *eq_mle =
+                        Mle::Extension(unpack_extension(eq_mle.as_extension_packed().unwrap()));
                 }
             }
         }
@@ -172,7 +166,7 @@ where
                     skips[i],
                     &multilinears[i],
                     computations_1[i],
-                    &eq_factors[i],
+                    eq_factors[i].as_ref(),
                     batching_scalars[i],
                     is_zerofier[i],
                     prover_state,
@@ -184,7 +178,7 @@ where
                     skips[i],
                     &multilinears[i],
                     computations_2[i - computations_1.len()],
-                    &eq_factors[i],
+                    eq_factors[i].as_ref(),
                     batching_scalars[i],
                     is_zerofier[i],
                     prover_state,
@@ -196,7 +190,7 @@ where
                     skips[i],
                     &multilinears[i],
                     computations_3[i - computations_1.len() - computations_2.len()],
-                    &eq_factors[i],
+                    eq_factors[i].as_ref(),
                     batching_scalars[i],
                     is_zerofier[i],
                     prover_state,
@@ -231,7 +225,7 @@ where
                 .by_ref()
                 .as_extension()
                 .unwrap()
-                .into_iter()
+                .iter()
                 .map(|m| {
                     assert_eq!(m.len(), 1);
                     m[0]
@@ -244,11 +238,11 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn compute_and_send_polynomial<'a, EF, SC>(
+fn compute_and_send_polynomial<EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
-    multilinears: &MleGroup<'a, EF>,
+    multilinears: &MleGroup<'_, EF>,
     computation: &SC,
-    eq_factor: &Option<(Vec<EF>, Mle<EF>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    eq_factor: Option<&(Vec<EF>, Mle<EF>)>, // (a, b, c ...), eq_poly(b, c, ...)
     batching_scalars: &[EF],
     is_zerofier: bool,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -336,9 +330,9 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn on_challenge_received<'a, EF>(
+fn on_challenge_received<EF>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
-    multilinears: &mut MleGroup<'a, EF>,
+    multilinears: &mut MleGroup<'_, EF>,
     n_vars: &mut usize,
     eq_factor: &mut Option<(Vec<EF>, Mle<EF>)>, // (a, b, c ...), eq_poly(b, c, ...)
     sum: &mut EF,
@@ -373,5 +367,5 @@ fn on_challenge_received<'a, EF>(
     *multilinears = multilinears
         .by_ref()
         .fold_in_large_field(&folding_scalars)
-        .into()
+        .into();
 }

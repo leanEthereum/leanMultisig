@@ -1,28 +1,38 @@
-use crate::common::*;
-use crate::dot_product_air::DOT_PRODUCT_AIR_COLUMN_GROUPS;
-use crate::dot_product_air::DotProductAir;
-use ::air::table::AirTable;
-use ::air::verify_many_air_2;
-use lookup::verify_gkr_product;
-use lookup::verify_logup_star;
+use ::air::{table::AirTable, verify_many_air_2};
+use lookup::{verify_gkr_product, verify_logup_star};
 use p3_air::BaseAir;
-use p3_field::BasedVectorSpace;
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use pcs::num_packed_vars_for_vars;
-use pcs::packed_pcs_global_statements;
-use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
+use pcs::{
+    BatchPCS, NumVariables as _, num_packed_vars_for_vars, packed_pcs_global_statements,
+    packed_pcs_parse_commitment,
+};
 use sumcheck::SumcheckComputation;
-use utils::dot_product_with_base;
-use utils::to_big_endian_bits;
-use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
-use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
-use vm::*;
-use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
-use whir_p3::poly::evals::EvaluationsList;
-use whir_p3::poly::multilinear::MultilinearPoint;
+use utils::{
+    Evaluation, PF, ToUsize, build_challenger, build_poseidon_16_air, build_poseidon_24_air,
+    dot_product_with_base, padd_with_zero_to_next_power_of_two, to_big_endian_bits,
+};
+use vm::{
+    Bytecode, DIMENSION, EF, F, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
+    build_public_memory,
+};
+use whir_p3::{
+    fiat_shamir::{errors::ProofError, verifier::VerifierState},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+};
 
-use crate::{air::VMAir, *};
+use crate::{
+    COL_INDEX_FP, COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C,
+    N_INSTRUCTION_COLUMNS, N_INSTRUCTION_COLUMNS_IN_AIR, N_TOTAL_COLUMNS, UNIVARIATE_SKIPS,
+    air::VMAir,
+    common::{
+        DotProductFootprint, PrecompileFootprint, fold_bytecode, intitial_and_final_pc_conditions,
+        poseidon_16_column_groups, poseidon_24_column_groups, poseidon_lookup_index_statements,
+        poseidon_lookup_value,
+    },
+    dot_product_air::{DOT_PRODUCT_AIR_COLUMN_GROUPS, DotProductAir},
+    exec_column_groups,
+};
 
 pub fn verify_execution(
     bytecode: &Bytecode,
@@ -30,6 +40,15 @@ pub fn verify_execution(
     proof_data: Vec<PF<EF>>,
     pcs: &impl BatchPCS<PF<EF>, EF, EF>,
 ) -> Result<(), ProofError> {
+    struct RowMultilinearEval {
+        addr_coeffs: F,
+        addr_point: F,
+        addr_res: F,
+        n_vars: F,
+        point: Vec<EF>,
+        res: EF,
+    }
+
     let mut verifier_state = VerifierState::new(proof_data, build_challenger());
 
     let exec_table = AirTable::<EF, _>::new(VMAir);
@@ -51,7 +70,7 @@ pub fn verify_execution(
     ] = verifier_state
         .next_base_scalars_const::<8>()?
         .into_iter()
-        .map(|x| x.to_usize())
+        .map(utils::ToUsize::to_usize)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
@@ -89,15 +108,6 @@ pub fn verify_execution(
     let vars_p24_table = log_n_p24 + log2_ceil_usize(p24_air.width() - 24 * 2);
 
     let vars_private_memory = vec![log_public_memory; n_private_memory_chunks];
-
-    struct RowMultilinearEval {
-        addr_coeffs: F,
-        addr_point: F,
-        addr_res: F,
-        n_vars: F,
-        point: Vec<EF>,
-        res: EF,
-    }
 
     let mut vm_multilinear_evals = Vec::new();
     for _ in 0..n_vm_multilinear_evals {
@@ -298,7 +308,7 @@ pub fn verify_execution(
         point: MultilinearPoint(
             [
                 p16_mixing_scalars_grand_product.0.clone(),
-                grand_product_p16_statement.point.0.clone(),
+                grand_product_p16_statement.point.0,
             ]
             .concat(),
         ),
@@ -330,7 +340,7 @@ pub fn verify_execution(
         point: MultilinearPoint(
             [
                 p24_mixing_scalars_grand_product.0.clone(),
-                grand_product_p24_statement.point.0.clone(),
+                grand_product_p24_statement.point.0,
             ]
             .concat(),
         ),
@@ -358,7 +368,7 @@ pub fn verify_execution(
             .eq_poly_outside(&grand_product_dot_product_statement.point)
             * {
                 DotProductFootprint {
-                    grand_product_challenge_global: grand_product_challenge_global,
+                    grand_product_challenge_global,
                     grand_product_challenge_dot_product: grand_product_challenge_dot_product
                         .clone()
                         .try_into()
@@ -386,7 +396,7 @@ pub fn verify_execution(
                 grand_product_dot_product_table_indexes_mixing_challenges
                     .0
                     .clone(),
-                grand_product_dot_product_sumcheck_claim.point.0.clone(),
+                grand_product_dot_product_sumcheck_claim.point.0,
             ]
             .concat(),
         ),
@@ -417,7 +427,7 @@ pub fn verify_execution(
             .eq_poly_outside(&grand_product_exec_statement.point)
             * {
                 PrecompileFootprint {
-                    grand_product_challenge_global: grand_product_challenge_global,
+                    grand_product_challenge_global,
                     grand_product_challenge_p16: grand_product_challenge_p16.try_into().unwrap(),
                     grand_product_challenge_p24: grand_product_challenge_p24.try_into().unwrap(),
                     grand_product_challenge_dot_product: grand_product_challenge_dot_product
@@ -504,7 +514,7 @@ pub fn verify_execution(
     }
     let bytecode_lookup_point_1 = exec_evals_to_verify[0].point.clone();
     let bytecode_lookup_claim_1 = Evaluation {
-        point: bytecode_lookup_point_1.clone(),
+        point: bytecode_lookup_point_1,
         value: padd_with_zero_to_next_power_of_two(
             &[
                 (0..N_INSTRUCTION_COLUMNS_IN_AIR)
@@ -518,8 +528,8 @@ pub fn verify_execution(
     };
 
     let bytecode_lookup_claim_2 = Evaluation {
-        point: grand_product_exec_sumcheck_claim.point.clone(),
-        value: padd_with_zero_to_next_power_of_two(&grand_product_exec_evals_on_each_column)
+        point: grand_product_exec_sumcheck_claim.point,
+        value: padd_with_zero_to_next_power_of_two(grand_product_exec_evals_on_each_column)
             .evaluate(&bytecode_compression_challenges),
     };
     let alpha_bytecode_lookup = verifier_state.sample();
@@ -563,8 +573,8 @@ pub fn verify_execution(
     let poseidon_lookup_value = poseidon_lookup_value(
         n_poseidons_16,
         n_poseidons_24,
-        &p16_evals_to_verify,
-        &p24_evals_to_verify,
+        p16_evals_to_verify,
+        p24_evals_to_verify,
         &poseidon_lookup_batching_chalenges,
     );
     let poseidon_lookup_challenge = Evaluation {
@@ -598,7 +608,7 @@ pub fn verify_execution(
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
             poseidon_logup_star_statements.on_table.point.0.clone(),
-            memory_folding_challenges.0.clone(),
+            memory_folding_challenges.0,
         ]
         .concat(),
     );
@@ -647,14 +657,17 @@ pub fn verify_execution(
     let mut chunk_evals_dot_product_lookup =
         vec![public_memory.evaluate(&dot_product_lookup_chunk_point)];
 
-    for i in 0..n_private_memory_chunks {
+    for private_memory_statement in private_memory_statements
+        .iter_mut()
+        .take(n_private_memory_chunks)
+    {
         let chunk_eval_exec_lookup = verifier_state.next_extension_scalar()?;
         let chunk_eval_poseidon_lookup = verifier_state.next_extension_scalar()?;
         let chunk_eval_dot_product_lookup = verifier_state.next_extension_scalar()?;
         chunk_evals_exec_lookup.push(chunk_eval_exec_lookup);
         chunk_evals_poseidon_lookup.push(chunk_eval_poseidon_lookup);
         chunk_evals_dot_product_lookup.push(chunk_eval_dot_product_lookup);
-        private_memory_statements[i].extend(vec![
+        private_memory_statement.extend(vec![
             Evaluation {
                 point: exec_lookup_chunk_point.clone(),
                 value: chunk_eval_exec_lookup,
@@ -783,7 +796,7 @@ pub fn verify_execution(
 
     let global_statements_extension = packed_pcs_global_statements(
         &parsed_commitment_extension.tree,
-        &vec![
+        &[
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,

@@ -6,23 +6,23 @@ use rayon::prelude::*;
 use crate::PF;
 
 pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
-    let new_len = slice.len() * std::mem::size_of::<Before>() / std::mem::size_of::<After>();
+    let new_len = std::mem::size_of_val(slice) / std::mem::size_of::<After>();
     assert_eq!(
-        slice.len() * std::mem::size_of::<Before>(),
+        std::mem::size_of_val(slice),
         new_len * std::mem::size_of::<After>()
     );
     assert_eq!(slice.as_ptr() as usize % std::mem::align_of::<After>(), 0);
-    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const After, new_len) }
+    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast::<After>(), new_len) }
 }
 
-pub fn shift_range(range: Range<usize>, shift: usize) -> Range<usize> {
+#[must_use] pub const fn shift_range(range: Range<usize>, shift: usize) -> Range<usize> {
     Range {
         start: range.start + shift,
         end: range.end + shift,
     }
 }
 
-pub fn diff_to_next_power_of_two(n: usize) -> usize {
+#[must_use] pub const fn diff_to_next_power_of_two(n: usize) -> usize {
     n.next_power_of_two() - n
 }
 
@@ -62,7 +62,7 @@ pub fn remove_end<A>(slice: &[A], n: usize) -> &[A] {
 }
 
 pub fn field_slice_as_base<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Option<Vec<F>> {
-    slice.par_iter().map(|x| x.as_base()).collect()
+    slice.par_iter().map(p3_field::ExtensionField::as_base).collect()
 }
 
 pub fn dot_product_with_base<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> EF {
@@ -72,7 +72,7 @@ pub fn dot_product_with_base<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> EF {
         .sum::<EF>()
 }
 
-pub fn to_big_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
+#[must_use] pub fn to_big_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
     (0..bit_count)
         .rev()
         .map(|i| (value >> i) & 1 == 1)

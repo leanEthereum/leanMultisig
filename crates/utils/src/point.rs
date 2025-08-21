@@ -8,9 +8,9 @@ pub struct Evaluation<F> {
     pub value: F,
 }
 
-impl<F> Into<(MultilinearPoint<F>, F)> for Evaluation<F> {
-    fn into(self) -> (MultilinearPoint<F>, F) {
-        (self.point, self.value)
+impl<F> From<Evaluation<F>> for (MultilinearPoint<F>, F) {
+    fn from(val: Evaluation<F>) -> Self {
+        (val.point, val.value)
     }
 }
 

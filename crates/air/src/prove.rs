@@ -76,21 +76,21 @@ pub fn prove_many_air_3<
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
     }
-    for i in 0..tables_2.len() {
+    for witness in witnesses_2.iter().take(tables_2.len()) {
         assert!(
-            univariate_skips < witnesses_2[i].log_n_rows(),
+            univariate_skips < witness.log_n_rows(),
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
     }
-    for i in 0..tables_3.len() {
+    for witness in witnesses_3.iter().take(tables_3.len()) {
         assert!(
-            univariate_skips < witnesses_3[i].log_n_rows(),
+            univariate_skips < witness.log_n_rows(),
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
     }
-    let structured_air = if tables_1.len() > 0 {
+    let structured_air = if !tables_1.is_empty() {
         tables_1[0].air.structured()
-    } else if tables_2.len() > 0 {
+    } else if !tables_2.is_empty() {
         tables_2[0].air.structured()
     } else {
         tables_3[0].air.structured()
@@ -113,15 +113,15 @@ pub fn prove_many_air_3<
 
     let log_lengths_1 = witnesses_1
         .iter()
-        .map(|w| w.log_n_rows())
+        .map(super::witness::AirWitness::log_n_rows)
         .collect::<Vec<_>>();
     let log_lengths_2 = witnesses_2
         .iter()
-        .map(|w| w.log_n_rows())
+        .map(super::witness::AirWitness::log_n_rows)
         .collect::<Vec<_>>();
     let log_lengths_3 = witnesses_3
         .iter()
-        .map(|w| w.log_n_rows())
+        .map(super::witness::AirWitness::log_n_rows)
         .collect::<Vec<_>>();
 
     let max_n_constraints = Iterator::max(
@@ -186,10 +186,10 @@ pub fn prove_many_air_3<
         sumcheck::prove_in_parallel_3::<EF, _, _, _, _>(
             vec![univariate_skips; n_tables],
             columns_for_zero_check_packed,
-            tables_1.iter().map(|t| &t.air).collect::<Vec<_>>(),
-            tables_2.iter().map(|t| &t.air).collect::<Vec<_>>(),
-            tables_3.iter().map(|t| &t.air).collect::<Vec<_>>(),
-            vec![&constraints_batching_scalars; n_tables],
+            &tables_1.iter().map(|t| &t.air).collect::<Vec<_>>(),
+            &tables_2.iter().map(|t| &t.air).collect::<Vec<_>>(),
+            &tables_3.iter().map(|t| &t.air).collect::<Vec<_>>(),
+            &vec![constraints_batching_scalars.as_slice(); n_tables],
             all_zerocheck_challenges,
             vec![true; n_tables],
             prover_state,
@@ -237,11 +237,11 @@ pub fn prove_many_air_3<
 
 impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     #[instrument(name = "air: prove base", skip_all)]
-    pub fn prove_base<'a>(
+    pub fn prove_base(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
-        witness: AirWitness<'a, PF<EF>>,
+        witness: AirWitness<'_, PF<EF>>,
     ) -> Vec<Evaluation<EF>> {
         let mut res = prove_many_air_3::<EF, A, A, A>(
             prover_state,
@@ -258,11 +258,11 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     }
 
     #[instrument(name = "air: prove base", skip_all)]
-    pub fn prove_extension<'a>(
+    pub fn prove_extension(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
-        witness: AirWitness<'a, EF>,
+        witness: AirWitness<'_, EF>,
     ) -> Vec<Evaluation<EF>> {
         let mut res = prove_many_air_3::<EF, A, A, A>(
             prover_state,
@@ -290,8 +290,8 @@ fn eval_unstructured_column_groups<EF: ExtensionField<PF<EF>> + ExtensionField<I
     for group in &witnesses.column_groups {
         let batched_column = multilinears_linear_combination(
             &witnesses.cols[group.clone()],
-            &eval_eq(&from_end(
-                &columns_batching_scalars,
+            &eval_eq(from_end(
+                columns_batching_scalars,
                 log2_ceil_usize(group.len()),
             ))[..group.len()],
         );
@@ -300,7 +300,7 @@ fn eval_unstructured_column_groups<EF: ExtensionField<PF<EF>> + ExtensionField<I
         let sub_evals = fold_multilinear(
             &batched_column,
             &MultilinearPoint(
-                outer_sumcheck_challenge[1..witnesses.log_n_rows() - univariate_skips + 1].to_vec(),
+                outer_sumcheck_challenge[1..=(witnesses.log_n_rows() - univariate_skips)].to_vec(),
             ),
         );
 
@@ -323,8 +323,12 @@ fn open_unstructured_columns<'a, EF: ExtensionField<PF<EF>>>(
         witnesses_1
             .iter()
             .chain(witnesses_2)
-            .map(|w| w.max_columns_per_group())
-            .chain(witnesses_3.iter().map(|w| w.max_columns_per_group())),
+            .map(super::witness::AirWitness::max_columns_per_group)
+            .chain(
+                witnesses_3
+                    .iter()
+                    .map(super::witness::AirWitness::max_columns_per_group),
+            ),
     )
     .unwrap();
     let columns_batching_scalars = prover_state.sample_vec(log2_ceil_usize(max_columns_per_group));
@@ -374,7 +378,7 @@ fn open_unstructured_columns<'a, EF: ExtensionField<PF<EF>>>(
                     [
                         from_end(&columns_batching_scalars, log2_ceil_usize(group.len())).to_vec(),
                         epsilons.0.clone(),
-                        outer_sumcheck_challenge[1..log_n_rows - univariate_skips + 1].to_vec(),
+                        outer_sumcheck_challenge[1..=(log_n_rows - univariate_skips)].to_vec(),
                     ]
                     .concat(),
                 ),
@@ -387,10 +391,10 @@ fn open_unstructured_columns<'a, EF: ExtensionField<PF<EF>>>(
 }
 
 #[instrument(skip_all)]
-fn open_structured_columns<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: Field>(
+fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
-    witness: &AirWitness<'a, IF>,
+    witness: &AirWitness<'_, IF>,
     outer_sumcheck_challenge: &[EF],
 ) -> Vec<Evaluation<EF>> {
     let columns_batching_scalars = prover_state.sample_vec(witness.log_max_columns_per_group());
@@ -403,7 +407,7 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, 
     for group in &witness.column_groups {
         let batched_column = multilinears_linear_combination(
             &witness.cols[group.clone()],
-            &eval_eq(&from_end(
+            &eval_eq(from_end(
                 &columns_batching_scalars,
                 log2_ceil_usize(group.len()),
             ))[..group.len()],
@@ -419,7 +423,7 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, 
         let sub_evals = fold_multilinear(
             &batched_column_mixed,
             &MultilinearPoint(
-                outer_sumcheck_challenge[1..witness.log_n_rows() - univariate_skips + 1].to_vec(),
+                outer_sumcheck_challenge[1..=(witness.log_n_rows() - univariate_skips)].to_vec(),
             ),
         );
 
@@ -434,7 +438,7 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, 
     {
         let point = [
             epsilons.clone(),
-            outer_sumcheck_challenge[1..witness.log_n_rows() - univariate_skips + 1].to_vec(),
+            outer_sumcheck_challenge[1..=(witness.log_n_rows() - univariate_skips)].to_vec(),
         ]
         .concat();
         let mles_for_inner_sumcheck = vec![
@@ -456,8 +460,8 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, 
     let (inner_challenges, all_inner_evals, _) = sumcheck::prove_in_parallel_1::<EF, _, _>(
         vec![1; n_groups],
         all_inner_mles,
-        vec![&ProductComputation; n_groups],
-        vec![&[]; n_groups],
+        &vec![&ProductComputation; n_groups],
+        &vec![[].as_slice(); n_groups],
         vec![None; n_groups],
         vec![false; n_groups],
         prover_state,

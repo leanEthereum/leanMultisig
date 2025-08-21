@@ -2,7 +2,7 @@ use p3_field::Field;
 use rayon::prelude::*;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
-pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
+pub fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
         Matrix UP:
 
@@ -29,7 +29,7 @@ pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
             * (F::ONE - point[point.len() - 1] * F::TWO)
 }
 
-pub(crate) fn matrix_down_lde<F: Field>(point: &[F]) -> F {
+pub fn matrix_down_lde<F: Field>(point: &[F]) -> F {
     /*
         Matrix DOWN:
 
@@ -130,7 +130,7 @@ fn next_mle<F: Field>(point: &[F]) -> F {
         .sum()
 }
 
-pub(crate) fn columns_up_and_down<F: Field>(columns: &[&[F]]) -> Vec<Vec<F>> {
+pub fn columns_up_and_down<F: Field>(columns: &[&[F]]) -> Vec<Vec<F>> {
     columns
         .par_iter()
         .map(|c| column_up(c))
@@ -138,13 +138,13 @@ pub(crate) fn columns_up_and_down<F: Field>(columns: &[&[F]]) -> Vec<Vec<F>> {
         .collect()
 }
 
-pub(crate) fn column_up<F: Field>(column: &[F]) -> Vec<F> {
+pub fn column_up<F: Field>(column: &[F]) -> Vec<F> {
     let mut up = column.to_vec();
     up[column.len() - 1] = up[column.len() - 2];
     up
 }
 
-pub(crate) fn column_down<F: Field>(column: &[F]) -> Vec<F> {
+pub fn column_down<F: Field>(column: &[F]) -> Vec<F> {
     let mut down = column[1..].to_vec();
     down.push(*down.last().unwrap());
     down
