@@ -1,4 +1,4 @@
-use vm::{Bytecode, F, Label, PUBLIC_INPUT_START, ZERO_VEC_PTR, execute_bytecode};
+use vm::{Bytecode, F, Label, PUBLIC_INPUT_START, ZERO_VEC_PTR};
 
 use crate::{
     a_simplify_lang::simplify_program, b_compile_intermediate::compile_to_intermediate_bytecode,
@@ -37,5 +37,5 @@ pub fn compile_program(program: &str) -> Bytecode {
 
 pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
     let bytecode = compile_program(program);
-    let _ = execute_bytecode(&bytecode, public_input, private_input);
+    let _ = bytecode.execute(public_input, private_input);
 }
