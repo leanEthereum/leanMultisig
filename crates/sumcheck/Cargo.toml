@@ -1,0 +1,24 @@
+[package]
+name = "sumcheck"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+utils.workspace = true
+rayon.workspace = true
+
+p3-field.workspace = true
+p3-air.workspace = true
+p3-matrix.workspace = true
+p3-util.workspace = true
+
+whir-p3.workspace = true
+
+[dev-dependencies]
+p3-koala-bear.workspace = true
+rand.workspace = true

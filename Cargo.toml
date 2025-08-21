@@ -12,6 +12,8 @@ members = [
     "crates/leanVm",
     "crates/leanLookup",
     "crates/utils",
+    "crates/air",
+    "crates/sumcheck",
 ]
 resolver = "3"
 
@@ -44,6 +46,8 @@ lean-snark = { path = "crates/leanSnark" }
 lean-vm = { path = "crates/leanVm" }
 lean-lookup = { path = "crates/leanLookup" }
 utils = { path = "crates/utils" }
+air = { path = "crates/air" }
+sumcheck = { path = "crates/sumcheck" }
 
 rand = "0.9.2"
 sha3 = "0.10.8"
