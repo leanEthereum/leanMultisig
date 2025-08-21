@@ -4,7 +4,11 @@ use rayon::prelude::*;
 use utils::{ToUsize, build_poseidon16, build_poseidon24, pretty_integer};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
-use crate::{bytecode::*, *};
+use crate::{
+    DIMENSION, EF, F, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR, PUBLIC_INPUT_START,
+    ZERO_VEC_PTR,
+    bytecode::{Bytecode, Hint, Instruction, MemOrConstant, MemOrFp, MemOrFpOrConstant},
+};
 
 const MAX_MEMORY_SIZE: usize = 1 << 23;
 
@@ -22,15 +26,15 @@ pub enum RunnerError {
 impl ToString for RunnerError {
     fn to_string(&self) -> String {
         match self {
-            RunnerError::OutOfMemory => "Out of memory".to_string(),
-            RunnerError::MemoryAlreadySet => "Memory already set".to_string(),
-            RunnerError::NotAPointer => "Not a pointer".to_string(),
-            RunnerError::DivByZero => "Division by zero".to_string(),
-            RunnerError::NotEqual(expected, actual) => {
-                format!("Computation Invalid: {} != {}", expected, actual)
+            Self::OutOfMemory => "Out of memory".to_string(),
+            Self::MemoryAlreadySet => "Memory already set".to_string(),
+            Self::NotAPointer => "Not a pointer".to_string(),
+            Self::DivByZero => "Division by zero".to_string(),
+            Self::NotEqual(expected, actual) => {
+                format!("Computation Invalid: {expected} != {actual}")
             }
-            RunnerError::UndefinedMemory => "Undefined memory access".to_string(),
-            RunnerError::PCOutOfBounds => "Program counter out of bounds".to_string(),
+            Self::UndefinedMemory => "Undefined memory access".to_string(),
+            Self::PCOutOfBounds => "Program counter out of bounds".to_string(),
         }
     }
 }
@@ -41,19 +45,20 @@ pub struct Memory(pub Vec<Option<F>>);
 impl MemOrConstant {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrConstant::Constant(c) => Ok(*c),
-            MemOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Constant(c) => Ok(*c),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
         }
     }
 
+    #[must_use]
     pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
-            MemOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Constant(_) => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
         }
     }
 }
@@ -61,19 +66,20 @@ impl MemOrConstant {
 impl MemOrFp {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrFp::MemoryAfterFp { offset } => memory.get(fp + *offset),
-            MemOrFp::Fp => Ok(F::from_usize(fp)),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Fp => Ok(F::from_usize(fp)),
         }
     }
 
+    #[must_use]
     pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrFp::MemoryAfterFp { offset } => Ok(fp + *offset),
-            MemOrFp::Fp => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Fp => Err(RunnerError::NotAPointer),
         }
     }
 }
@@ -81,21 +87,21 @@ impl MemOrFp {
 impl MemOrFpOrConstant {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrFpOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
-            MemOrFpOrConstant::Fp => Ok(F::from_usize(fp)),
-            MemOrFpOrConstant::Constant(c) => Ok(*c),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Fp => Ok(F::from_usize(fp)),
+            Self::Constant(c) => Ok(*c),
         }
     }
 
+    #[must_use]
     pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrFpOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
-            MemOrFpOrConstant::Fp => Err(RunnerError::NotAPointer),
-            MemOrFpOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Fp | Self::Constant(_) => Err(RunnerError::NotAPointer),
         }
     }
 }
@@ -174,7 +180,7 @@ impl Memory {
     }
 
     pub fn set_vectorized_slice(&mut self, index: usize, value: &[F]) -> Result<(), RunnerError> {
-        assert!(value.len() % DIMENSION == 0);
+        assert!(value.len().is_multiple_of(DIMENSION));
         for (i, v) in value.iter().enumerate() {
             let idx = DIMENSION * index + i;
             self.set(idx, *v)?;
@@ -183,6 +189,7 @@ impl Memory {
     }
 }
 
+#[must_use]
 pub fn execute_bytecode(
     bytecode: &Bytecode,
     public_input: &[F],
@@ -200,7 +207,7 @@ pub fn execute_bytecode(
         Ok(first_exec) => first_exec,
         Err(err) => {
             if !std_out.is_empty() {
-                print!("{}", std_out);
+                print!("{std_out}");
             }
             panic!("Error during bytecode execution: {}", err.to_string());
         }
@@ -225,13 +232,14 @@ pub struct ExecutionResult {
     pub fps: Vec<usize>,
 }
 
+#[must_use]
 pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     // padded to a power of two
     let public_memory_len = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
     let mut public_memory = F::zero_vec(public_memory_len);
     public_memory[PUBLIC_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
-    for i in ZERO_VEC_PTR * 8..(ZERO_VEC_PTR + 2) * 8 {
-        public_memory[i] = F::ZERO; // zero vector
+    for pm in public_memory.iter_mut().take((ZERO_VEC_PTR + 2) * 8) {
+        *pm = F::ZERO; // zero vector
     }
     public_memory[POSEIDON_16_NULL_HASH_PTR * 8..(POSEIDON_16_NULL_HASH_PTR + 2) * 8]
         .copy_from_slice(&build_poseidon16().permute([F::ZERO; 16]));
@@ -340,7 +348,7 @@ fn execute_bytecode_helper(
                     // Logs for performance analysis:
                     if values[0] == "123456789" {
                         if values.len() == 1 {
-                            *std_out += &format!("[CHECKPOINT]\n");
+                            *std_out += "[CHECKPOINT]\n";
                         } else {
                             assert_eq!(values.len(), 2);
                             let new_no_vec_memory = ap - checkpoint_ap;
@@ -361,7 +369,7 @@ fn execute_bytecode_helper(
                         continue;
                     }
 
-                    let line_info = line_info.replace(";", "");
+                    let line_info = line_info.replace(';', "");
                     *std_out += &format!("\"{}\" -> {}\n", line_info, values.join(", "));
                     // does not increase PC
                 }
@@ -434,11 +442,11 @@ fn execute_bytecode_helper(
             } => {
                 let condition_value = condition.read_value(&memory, fp)?;
                 assert!([F::ZERO, F::ONE].contains(&condition_value),);
-                if condition_value != F::ZERO {
+                if condition_value == F::ZERO {
+                    pc += 1;
+                } else {
                     pc = dest.read_value(&memory, fp)?.to_usize();
                     fp = updated_fp.read_value(&memory, fp)?.to_usize();
-                } else {
-                    pc += 1;
                 }
             }
             Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
@@ -550,7 +558,7 @@ fn execute_bytecode_helper(
 
     if final_execution {
         if !std_out.is_empty() {
-            print!("{}", std_out);
+            print!("{std_out}");
         }
         let runtime_memory_size = memory.0.len() - (PUBLIC_INPUT_START + public_input.len());
         println!(

@@ -52,6 +52,7 @@ const COL_INDEX_MEM_ADDRESS_A: usize = 20;
 const COL_INDEX_MEM_ADDRESS_B: usize = 21;
 const COL_INDEX_MEM_ADDRESS_C: usize = 22;
 
+#[allow(clippy::range_plus_one)]
 fn exec_column_groups() -> Vec<Range<usize>> {
     [
         (0..N_INSTRUCTION_COLUMNS_IN_AIR)
@@ -72,7 +73,7 @@ fn exec_column_groups() -> Vec<Range<usize>> {
 
 pub fn compile_and_run(program: &str, public_input: &[vm::F], private_input: &[vm::F]) {
     let bytecode = compile_program(program);
-    execute_bytecode(&bytecode, &public_input, private_input);
+    let _ = execute_bytecode(&bytecode, public_input, private_input);
 }
 
 pub trait InAirColumnIndex {

@@ -9,7 +9,7 @@ use utils::{
     EFPacking, Evaluation, PF, Poseidon16Air, Poseidon24Air, from_end,
     padd_with_zero_to_next_power_of_two, remove_end,
 };
-use vm::*;
+use vm::{Bytecode, EF};
 use whir_p3::{
     fiat_shamir::errors::ProofError,
     poly::{
@@ -18,9 +18,14 @@ use whir_p3::{
     },
 };
 
-use crate::{instruction_encoder::field_representation, *};
+use crate::{
+    COL_INDEX_AUX, COL_INDEX_DOT_PRODUCT, COL_INDEX_FLAG_A, COL_INDEX_FLAG_B, COL_INDEX_FLAG_C,
+    COL_INDEX_FP, COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C,
+    COL_INDEX_MULTILINEAR_EVAL, COL_INDEX_OPERAND_A, COL_INDEX_OPERAND_B, COL_INDEX_POSEIDON_16,
+    COL_INDEX_POSEIDON_24, instruction_encoder::field_representation,
+};
 
-pub(crate) fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<Range<usize>> {
+pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<Range<usize>> {
     vec![
         0..8,
         8..16,
@@ -30,7 +35,7 @@ pub(crate) fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<
     ]
 }
 
-pub(crate) fn poseidon_24_column_groups(poseidon_24_air: &Poseidon24Air) -> Vec<Range<usize>> {
+pub fn poseidon_24_column_groups(poseidon_24_air: &Poseidon24Air) -> Vec<Range<usize>> {
     vec![
         0..8,
         8..16,
@@ -41,7 +46,7 @@ pub(crate) fn poseidon_24_column_groups(poseidon_24_air: &Poseidon24Air) -> Vec<
     ]
 }
 
-pub(crate) fn poseidon_lookup_value<EF: Field>(
+pub fn poseidon_lookup_value<EF: Field>(
     n_poseidons_16: usize,
     n_poseidons_24: usize,
     poseidon16_evals: &[Evaluation<EF>],
@@ -75,10 +80,10 @@ pub(crate) fn poseidon_lookup_value<EF: Field>(
         poseidon24_evals[2].value * s24,
         poseidon24_evals[5].value * s24,
     ]
-    .evaluate(&poseidon_lookup_batching_chalenges)
+    .evaluate(poseidon_lookup_batching_chalenges)
 }
 
-pub(crate) fn poseidon_lookup_index_statements(
+pub fn poseidon_lookup_index_statements(
     poseidon_index_evals: &[EF],
     n_poseidons_16: usize,
     n_poseidons_24: usize,
@@ -158,10 +163,7 @@ pub(crate) fn poseidon_lookup_index_statements(
     Ok((p16_indexes_statements, p24_indexes_statements))
 }
 
-pub(crate) fn fold_bytecode(
-    bytecode: &Bytecode,
-    folding_challenges: &MultilinearPoint<EF>,
-) -> Vec<EF> {
+pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
     let encoded_bytecode = padd_with_zero_to_next_power_of_two(
         &bytecode
             .instructions
@@ -169,10 +171,10 @@ pub(crate) fn fold_bytecode(
             .flat_map(|i| padd_with_zero_to_next_power_of_two(&field_representation(i)))
             .collect::<Vec<_>>(),
     );
-    fold_multilinear(&encoded_bytecode, &folding_challenges)
+    fold_multilinear(&encoded_bytecode, folding_challenges)
 }
 
-pub(crate) fn intitial_and_final_pc_conditions(
+pub fn intitial_and_final_pc_conditions(
     bytecode: &Bytecode,
     log_n_cycles: usize,
 ) -> (Evaluation<EF>, Evaluation<EF>) {
@@ -187,7 +189,7 @@ pub(crate) fn intitial_and_final_pc_conditions(
     (initial_pc_statement, final_pc_statement)
 }
 
-pub(crate) struct PrecompileFootprint {
+pub struct PrecompileFootprint {
     pub grand_product_challenge_global: EF,
     pub grand_product_challenge_p16: [EF; 5],
     pub grand_product_challenge_p24: [EF; 5],
@@ -252,7 +254,7 @@ impl SumcheckComputationPacked<EF> for PrecompileFootprint {
     }
 }
 
-pub(crate) struct DotProductFootprint {
+pub struct DotProductFootprint {
     pub grand_product_challenge_global: EF,
     pub grand_product_challenge_dot_product: [EF; 6],
 }

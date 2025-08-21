@@ -39,6 +39,7 @@ impl WotsSecretKey {
         Self::new(pre_images, poseidon16)
     }
 
+    #[must_use]
     pub fn new(pre_images: [Digest; N_CHAINS], poseidon16: &Poseidon16) -> Self {
         let mut public_key = [Default::default(); N_CHAINS];
         for i in 0..N_CHAINS {
@@ -50,10 +51,12 @@ impl WotsSecretKey {
         }
     }
 
-    pub fn public_key(&self) -> &WotsPublicKey {
+    #[must_use]
+    pub const fn public_key(&self) -> &WotsPublicKey {
         &self.public_key
     }
 
+    #[must_use]
     pub fn sign(&self, message: &Message, poseidon16: &Poseidon16) -> WotsSignature {
         let mut signature = [Default::default(); N_CHAINS];
         for i in 0..N_CHAINS {
@@ -68,10 +71,11 @@ impl WotsSecretKey {
 }
 
 impl WotsSignature {
+    #[must_use]
     pub fn recover_public_key(
         &self,
         message: &Message,
-        signature: &WotsSignature,
+        signature: &Self,
         poseidon16: &Poseidon16,
     ) -> WotsPublicKey {
         let mut public_key = [Default::default(); N_CHAINS];
@@ -91,8 +95,10 @@ impl WotsSignature {
 }
 
 impl WotsPublicKey {
+    #[must_use]
+    #[allow(clippy::assertions_on_constants)]
     pub fn hash(&self, poseidon24: &Poseidon24) -> Digest {
-        assert!(N_CHAINS % 2 == 0, "TODO");
+        assert!(N_CHAINS.is_multiple_of(2), "TODO");
         let mut digest = Default::default();
         for (a, b) in self.0.chunks(2).map(|chunk| (chunk[0], chunk[1])) {
             digest = poseidon24.permute([a, b, digest].concat().try_into().unwrap())[16..24]
@@ -121,6 +127,7 @@ pub struct XmssPublicKey {
 }
 
 impl XmssSecretKey {
+    #[allow(clippy::tuple_array_conversions)]
     pub fn random<R: Rng>(rng: &mut R, poseidon16: &Poseidon16, poseidon24: &Poseidon24) -> Self {
         let mut wots_secret_keys = Vec::new();
         for _ in 0..1 << XMSS_MERKLE_HEIGHT {
@@ -149,6 +156,7 @@ impl XmssSecretKey {
         }
     }
 
+    #[must_use]
     pub fn sign(&self, message: &Message, index: usize, poseidon16: &Poseidon16) -> XmssSignature {
         assert!(
             index < (1 << XMSS_MERKLE_HEIGHT),
@@ -158,7 +166,7 @@ impl XmssSecretKey {
         let mut merkle_proof = Vec::new();
         let mut current_index = index;
         for level in 0..XMSS_MERKLE_HEIGHT {
-            let is_left = current_index % 2 == 0;
+            let is_left = current_index.is_multiple_of(2);
             let neighbour_index = if is_left {
                 current_index + 1
             } else {
@@ -174,6 +182,7 @@ impl XmssSecretKey {
         }
     }
 
+    #[must_use]
     pub fn public_key(&self) -> XmssPublicKey {
         XmssPublicKey {
             root: self.merkle_tree.last().unwrap()[0],
@@ -182,6 +191,7 @@ impl XmssSecretKey {
 }
 
 impl XmssPublicKey {
+    #[must_use]
     pub fn verify(
         &self,
         message: &Message,

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
-use vm::*;
+use vm::{Label, Operation};
 
 use crate::{F, lang::ConstExpression};
 
@@ -20,7 +20,7 @@ pub(crate) enum IntermediateValue {
 
 impl From<ConstExpression> for IntermediateValue {
     fn from(value: ConstExpression) -> Self {
-        IntermediateValue::Constant(value)
+        Self::Constant(value)
     }
 }
 impl TryFrom<HighLevelOperation> for Operation {
@@ -28,9 +28,9 @@ impl TryFrom<HighLevelOperation> for Operation {
 
     fn try_from(value: HighLevelOperation) -> Result<Self, Self::Error> {
         match value {
-            HighLevelOperation::Add => Ok(Operation::Add),
-            HighLevelOperation::Mul => Ok(Operation::Mul),
-            _ => Err(format!("Cannot convert {:?} to +/x", value)),
+            HighLevelOperation::Add => Ok(Self::Add),
+            HighLevelOperation::Mul => Ok(Self::Mul),
+            _ => Err(format!("Cannot convert {value:?} to +/x")),
         }
     }
 }
@@ -43,12 +43,12 @@ pub(crate) enum IntermediaryMemOrFpOrConstant {
 }
 
 impl IntermediateValue {
-    pub(crate) fn label(label: Label) -> Self {
+    pub(crate) const fn label(label: Label) -> Self {
         Self::Constant(ConstExpression::label(label))
     }
 
-    pub(crate) fn is_constant(&self) -> bool {
-        matches!(self, IntermediateValue::Constant(_))
+    pub(crate) const fn is_constant(&self) -> bool {
+        matches!(self, Self::Constant(_))
     }
 }
 
@@ -64,11 +64,11 @@ pub enum HighLevelOperation {
 impl HighLevelOperation {
     pub fn eval(&self, a: F, b: F) -> F {
         match self {
-            HighLevelOperation::Add => a + b,
-            HighLevelOperation::Mul => a * b,
-            HighLevelOperation::Sub => a - b,
-            HighLevelOperation::Div => a / b,
-            HighLevelOperation::Exp => a.exp_u64(b.as_canonical_u64()),
+            Self::Add => a + b,
+            Self::Mul => a * b,
+            Self::Sub => a - b,
+            Self::Div => a / b,
+            Self::Exp => a.exp_u64(b.as_canonical_u64()),
         }
     }
 }
@@ -175,7 +175,7 @@ impl IntermediateInstruction {
         }
     }
 
-    pub(crate) fn equality(left: IntermediateValue, right: IntermediateValue) -> Self {
+    pub(crate) const fn equality(left: IntermediateValue, right: IntermediateValue) -> Self {
         Self::Computation {
             operation: Operation::Add,
             arg_a: left,
@@ -188,9 +188,9 @@ impl IntermediateInstruction {
 impl ToString for IntermediateValue {
     fn to_string(&self) -> String {
         match self {
-            IntermediateValue::Constant(value) => value.to_string(),
-            IntermediateValue::Fp => "fp".to_string(),
-            IntermediateValue::MemoryAfterFp { offset } => {
+            Self::Constant(value) => value.to_string(),
+            Self::Fp => "fp".to_string(),
+            Self::MemoryAfterFp { offset } => {
                 format!("m[fp + {}]", offset.to_string())
             }
         }
@@ -202,7 +202,7 @@ impl ToString for IntermediaryMemOrFpOrConstant {
         match self {
             Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset.to_string()),
             Self::Fp => "fp".to_string(),
-            Self::Constant(c) => format!("{}", c.to_string()),
+            Self::Constant(c) => c.to_string(),
         }
     }
 }
@@ -269,13 +269,10 @@ impl ToString for IntermediateInstruction {
                 )
             }
             Self::Panic => "panic".to_string(),
-            Self::Jump { dest, updated_fp } => {
-                if let Some(fp) = updated_fp {
-                    format!("jump {} with fp = {}", dest.to_string(), fp.to_string())
-                } else {
-                    format!("jump {}", dest.to_string())
-                }
-            }
+            Self::Jump { dest, updated_fp } => updated_fp.as_ref().map_or_else(
+                || format!("jump {}", dest.to_string()),
+                |fp| format!("jump {} with fp = {}", dest.to_string(), fp.to_string()),
+            ),
             Self::JumpIfNotZero {
                 condition,
                 dest,
@@ -330,7 +327,7 @@ impl ToString for IntermediateInstruction {
                 line_info,
                 content
                     .iter()
-                    .map(|c| c.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -341,11 +338,11 @@ impl ToString for IntermediateInstruction {
 impl ToString for HighLevelOperation {
     fn to_string(&self) -> String {
         match self {
-            HighLevelOperation::Add => "+".to_string(),
-            HighLevelOperation::Mul => "*".to_string(),
-            HighLevelOperation::Sub => "-".to_string(),
-            HighLevelOperation::Div => "/".to_string(),
-            HighLevelOperation::Exp => "**".to_string(),
+            Self::Add => "+".to_string(),
+            Self::Mul => "*".to_string(),
+            Self::Sub => "-".to_string(),
+            Self::Div => "/".to_string(),
+            Self::Exp => "**".to_string(),
         }
     }
 }
@@ -354,14 +351,14 @@ impl ToString for IntermediateBytecode {
     fn to_string(&self) -> String {
         let mut res = String::new();
         for (label, instructions) in &self.bytecode {
-            res.push_str(&format!("\n{}:\n", label));
+            res.push_str(&format!("\n{label}:\n"));
             for instruction in instructions {
                 res.push_str(&format!("  {}\n", instruction.to_string()));
             }
         }
         res.push_str("\nMemory size per function:\n");
         for (function_name, size) in &self.memory_size_per_function {
-            res.push_str(&format!("{}: {}\n", function_name, size));
+            res.push_str(&format!("{function_name}: {size}\n"));
         }
         res
     }

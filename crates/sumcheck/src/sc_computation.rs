@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
 use p3_air::Air;
-use p3_field::{ExtensionField, Field};
+use p3_field::ExtensionField;
 use p3_matrix::dense::RowMajorMatrixView;
 use utils::{
     ConstraintFolder, ConstraintFolderPackedBase, ConstraintFolderPackedExtension, EFPacking, PF,
@@ -62,7 +62,7 @@ where
     fn degree(&self) -> usize;
 }
 
-impl<EF: Field, A> SumcheckComputationPacked<EF> for A
+impl<EF, A> SumcheckComputationPacked<EF> for A
 where
     EF: ExtensionField<PF<EF>>,
     A: for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
@@ -76,7 +76,7 @@ where
         }
         let mut folder = ConstraintFolderPackedBase {
             main: RowMajorMatrixView::new(point, A::width(self)),
-            alpha_powers: alpha_powers,
+            alpha_powers,
             accumulator: Default::default(),
             constraint_index: 0,
         };
@@ -93,7 +93,7 @@ where
         }
         let mut folder = ConstraintFolderPackedExtension {
             main: RowMajorMatrixView::new(point, A::width(self)),
-            alpha_powers: alpha_powers,
+            alpha_powers,
             accumulator: Default::default(),
             constraint_index: 0,
         };

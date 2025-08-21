@@ -26,7 +26,7 @@ pub(crate) struct SimpleFunction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum VarOrConstMallocAccess {
+pub enum VarOrConstMallocAccess {
     Var(Var),
     ConstMallocAccess {
         malloc_label: ConstMallocLabel,
@@ -37,11 +37,11 @@ pub(crate) enum VarOrConstMallocAccess {
 impl From<VarOrConstMallocAccess> for SimpleExpr {
     fn from(var_or_const: VarOrConstMallocAccess) -> Self {
         match var_or_const {
-            VarOrConstMallocAccess::Var(var) => SimpleExpr::Var(var),
+            VarOrConstMallocAccess::Var(var) => Self::Var(var),
             VarOrConstMallocAccess::ConstMallocAccess {
                 malloc_label,
                 offset,
-            } => SimpleExpr::ConstMallocAccess {
+            } => Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             },
@@ -54,8 +54,8 @@ impl TryInto<VarOrConstMallocAccess> for SimpleExpr {
 
     fn try_into(self) -> Result<VarOrConstMallocAccess, Self::Error> {
         match self {
-            SimpleExpr::Var(var) => Ok(VarOrConstMallocAccess::Var(var)),
-            SimpleExpr::ConstMallocAccess {
+            Self::Var(var) => Ok(VarOrConstMallocAccess::Var(var)),
+            Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => Ok(VarOrConstMallocAccess::ConstMallocAccess {
@@ -74,7 +74,7 @@ impl From<Var> for VarOrConstMallocAccess {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum SimpleLine {
+pub enum SimpleLine {
     Assignment {
         var: VarOrConstMallocAccess,
         operation: HighLevelOperation,
@@ -128,7 +128,7 @@ pub(crate) enum SimpleLine {
     },
 }
 
-pub(crate) fn simplify_program(mut program: Program) -> SimpleProgram {
+pub fn simplify_program(mut program: Program) -> SimpleProgram {
     handle_const_arguments(&mut program);
     let mut new_functions = BTreeMap::new();
     let mut counters = Counters::default();
@@ -293,9 +293,9 @@ fn simplify_lines(
                         unreachable!("Weird: {:?}, {:?}", left, right)
                     };
                     res.push(SimpleLine::Assignment {
-                        var: var,
+                        var,
                         operation: HighLevelOperation::Add,
-                        arg0: other.into(),
+                        arg0: other,
                         arg1: SimpleExpr::zero(),
                     });
                 }
@@ -383,7 +383,7 @@ fn simplify_lines(
                 unroll,
             } => {
                 if *unroll {
-                    let (internal_variables, _) = find_variable_usage(&body);
+                    let (internal_variables, _) = find_variable_usage(body);
                     let mut unrolled_lines = Vec::new();
                     let start_evaluated = start.naive_eval().unwrap().to_usize();
                     let end_evaluated = end.naive_eval().unwrap().to_usize();
@@ -413,8 +413,10 @@ fn simplify_lines(
                     unimplemented!("Reverse for non-unrolled loops are not implemented yet");
                 }
 
-                let mut loop_const_malloc = ConstMalloc::default();
-                loop_const_malloc.counter = const_malloc.counter;
+                let mut loop_const_malloc = ConstMalloc {
+                    counter: const_malloc.counter,
+                    ..Default::default()
+                };
                 let valid_aux_vars_in_array_manager_before = array_manager.valid.clone();
                 array_manager.valid.clear();
                 let simplified_body = simplify_lines(
@@ -432,7 +434,7 @@ fn simplify_lines(
                 counters.loops += 1;
 
                 // Find variables used inside loop but defined outside
-                let (_, mut external_vars) = find_variable_usage(&body);
+                let (_, mut external_vars) = find_variable_usage(body);
 
                 // Include variables in start/end
                 for expr in [start, end] {
@@ -586,7 +588,7 @@ fn simplify_lines(
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
                 let simplified_to_decompose = simplify_expr(
-                    &to_decompose,
+                    to_decompose,
                     &mut res,
                     counters,
                     array_manager,
@@ -618,7 +620,7 @@ fn simplify_expr(
     const_malloc: &ConstMalloc,
 ) -> SimpleExpr {
     match expr {
-        Expression::Value(value) => return value.simplify_if_const(),
+        Expression::Value(value) => value.simplify_if_const(),
         Expression::ArrayAccess { array, index } => {
             if let Some(label) = const_malloc.map.get(array) {
                 if let Ok(mut offset) = ConstExpression::try_from(*index.clone()) {
@@ -633,7 +635,7 @@ fn simplify_expr(
             let aux_arr = array_manager.get_aux_var(array, index); // auxiliary var to store m[array + index]
 
             if !array_manager.valid.insert(aux_arr.clone()) {
-                return SimpleExpr::Var(aux_arr.clone());
+                return SimpleExpr::Var(aux_arr);
             }
 
             handle_array_assignment(
@@ -645,7 +647,7 @@ fn simplify_expr(
                 array_manager,
                 const_malloc,
             );
-            return SimpleExpr::Var(aux_arr);
+            SimpleExpr::Var(aux_arr)
         }
         Expression::Binary {
             left,
@@ -673,13 +675,13 @@ fn simplify_expr(
                 arg0: left_var,
                 arg1: right_var,
             });
-            return SimpleExpr::Var(aux_var);
+            SimpleExpr::Var(aux_var)
         }
     }
 }
 
 /// Returns (internal_vars, external_vars)
-pub(crate) fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
+pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
     let mut internal_vars = BTreeSet::new();
     let mut external_vars = BTreeSet::new();
 
@@ -761,7 +763,7 @@ pub(crate) fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Va
                 }
             }
             Line::DecomposeBits { var, to_decompose } => {
-                on_new_expr(&to_decompose, &internal_vars, &mut external_vars);
+                on_new_expr(to_decompose, &internal_vars, &mut external_vars);
                 internal_vars.insert(var.clone());
             }
             Line::ForLoop {
@@ -844,7 +846,7 @@ fn handle_array_assignment(
                 let arg1 = simplify_expr(&right, res, counters, array_manager, const_malloc);
                 res.push(SimpleLine::Assignment {
                     var: VarOrConstMallocAccess::ConstMallocAccess {
-                        malloc_label: label.clone(),
+                        malloc_label: *label,
                         offset,
                     },
                     operation,
@@ -857,7 +859,7 @@ fn handle_array_assignment(
     }
 
     let value_simplified = match access_type {
-        ArrayAccessType::VarIsAssigned(var) => SimpleExpr::Var(var.clone()),
+        ArrayAccessType::VarIsAssigned(var) => SimpleExpr::Var(var),
         ArrayAccessType::ArrayIsAssigned(expr) => {
             simplify_expr(&expr, res, counters, array_manager, const_malloc)
         }
@@ -865,25 +867,24 @@ fn handle_array_assignment(
 
     // TODO opti: in some case we could use ConstMallocAccess
 
-    let (index_var, shift) = match simplified_index {
-        SimpleExpr::Constant(c) => (array, c),
-        _ => {
-            // Create pointer variable: ptr = array + index
-            let ptr_var = format!("@aux_var_{}", counters.aux_vars);
-            counters.aux_vars += 1;
-            res.push(SimpleLine::Assignment {
-                var: ptr_var.clone().into(),
-                operation: HighLevelOperation::Add,
-                arg0: array.clone().into(),
-                arg1: simplified_index.into(),
-            });
-            (ptr_var, ConstExpression::zero())
-        }
+    let (index_var, shift) = if let SimpleExpr::Constant(c) = simplified_index {
+        (array, c)
+    } else {
+        // Create pointer variable: ptr = array + index
+        let ptr_var = format!("@aux_var_{}", counters.aux_vars);
+        counters.aux_vars += 1;
+        res.push(SimpleLine::Assignment {
+            var: ptr_var.clone().into(),
+            operation: HighLevelOperation::Add,
+            arg0: array.into(),
+            arg1: simplified_index,
+        });
+        (ptr_var, ConstExpression::zero())
     };
 
     res.push(SimpleLine::RawAccess {
-        res: value_simplified.into(),
-        index: index_var.into(),
+        res: value_simplified,
+        index: index_var,
         shift,
     });
 }
@@ -897,7 +898,7 @@ fn create_recursive_function(
     external_vars: &[Var],
 ) -> SimpleFunction {
     // Add iterator increment
-    let next_iter = format!("@incremented_{}", iterator);
+    let next_iter = format!("@incremented_{iterator}");
     body.push(SimpleLine::Assignment {
         var: next_iter.clone().into(),
         operation: HighLevelOperation::Add,
@@ -918,7 +919,7 @@ fn create_recursive_function(
         return_data: vec![],
     });
 
-    let diff_var = format!("@diff_{}", iterator);
+    let diff_var = format!("@diff_{iterator}");
 
     let instructions = vec![
         SimpleLine::Assignment {
@@ -956,7 +957,7 @@ fn replace_vars_for_unroll_in_expr(
                 if var == iterator {
                     *value_expr = SimpleExpr::Constant(ConstExpression::from(iterator_value));
                 } else if internal_vars.contains(var) {
-                    *var = format!("@unrolled_{}_{}", iterator_value, var).into();
+                    *var = format!("@unrolled_{iterator_value}_{var}");
                 }
             }
             SimpleExpr::Constant(_) | SimpleExpr::ConstMallocAccess { .. } => {}
@@ -964,7 +965,7 @@ fn replace_vars_for_unroll_in_expr(
         Expression::ArrayAccess { array, index } => {
             assert!(array != iterator, "Weird");
             if internal_vars.contains(array) {
-                *array = format!("@unrolled_{}_{}", iterator_value, array).into();
+                *array = format!("@unrolled_{iterator_value}_{array}");
             }
             replace_vars_for_unroll_in_expr(index, iterator, iterator_value, internal_vars);
         }
@@ -985,7 +986,7 @@ fn replace_vars_for_unroll(
         match line {
             Line::Assignment { var, value } => {
                 assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{}_{}", iterator_value, var).into();
+                *var = format!("@unrolled_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(value, iterator, iterator_value, internal_vars);
             }
             Line::ArrayAssign {
@@ -996,7 +997,7 @@ fn replace_vars_for_unroll(
             } => {
                 assert!(array != iterator, "Weird");
                 if internal_vars.contains(array) {
-                    *array = format!("@unrolled_{}_{}", iterator_value, array).into();
+                    *array = format!("@unrolled_{iterator_value}_{array}");
                 }
                 replace_vars_for_unroll_in_expr(index, iterator, iterator_value, internal_vars);
                 replace_vars_for_unroll_in_expr(value, iterator, iterator_value, internal_vars);
@@ -1024,7 +1025,7 @@ fn replace_vars_for_unroll(
                 unroll: _,
             } => {
                 assert!(other_iterator != iterator);
-                *other_iterator = format!("@unrolled_{}_{}", iterator_value, other_iterator).into();
+                *other_iterator = format!("@unrolled_{iterator_value}_{other_iterator}");
                 replace_vars_for_unroll_in_expr(start, iterator, iterator_value, internal_vars);
                 replace_vars_for_unroll_in_expr(end, iterator, iterator_value, internal_vars);
                 replace_vars_for_unroll(body, iterator, iterator_value, internal_vars);
@@ -1039,7 +1040,7 @@ fn replace_vars_for_unroll(
                     replace_vars_for_unroll_in_expr(arg, iterator, iterator_value, internal_vars);
                 }
                 for ret in return_data {
-                    *ret = format!("@unrolled_{}_{}", iterator_value, ret).into();
+                    *ret = format!("@unrolled_{iterator_value}_{ret}");
                 }
             }
             Line::FunctionRet { return_data } => {
@@ -1056,14 +1057,13 @@ fn replace_vars_for_unroll(
                     replace_vars_for_unroll_in_expr(arg, iterator, iterator_value, internal_vars);
                 }
                 for ret in res {
-                    *ret = format!("@unrolled_{}_{}", iterator_value, ret).into();
+                    *ret = format!("@unrolled_{iterator_value}_{ret}");
                 }
             }
-            Line::Break => {}
-            Line::Panic => {}
+            Line::Break | Line::Panic => {}
             Line::Print { line_info, content } => {
                 // Print statements are not unrolled, so we don't need to change them
-                *line_info += &format!(" (unrolled {})", iterator_value);
+                *line_info += &format!(" (unrolled {iterator_value})");
                 for var in content {
                     replace_vars_for_unroll_in_expr(var, iterator, iterator_value, internal_vars);
                 }
@@ -1074,13 +1074,13 @@ fn replace_vars_for_unroll(
                 vectorized: _,
             } => {
                 assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{}_{}", iterator_value, var).into();
+                *var = format!("@unrolled_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(size, iterator, iterator_value, internal_vars);
                 // vectorized is not changed
             }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{}_{}", iterator_value, var).into();
+                *var = format!("@unrolled_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(
                     to_decompose,
                     iterator,
@@ -1144,12 +1144,12 @@ fn handle_const_arguments_helper(
                         "{function_name}_{}",
                         const_evals
                             .iter()
-                            .map(|(arg_var, const_eval)| { format!("{}={}", arg_var, const_eval) })
+                            .map(|(arg_var, const_eval)| { format!("{arg_var}={const_eval}") })
                             .collect::<Vec<_>>()
                             .join("_")
                     );
 
-                    *function_name = const_funct_name.clone(); // change the name of the function called
+                    function_name.clone_from(&const_funct_name); // change the name of the function called
                     // ... and remove constant arguments
                     *args = args
                         .iter()
@@ -1217,7 +1217,7 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
             SimpleExpr::Constant(_) => {}
         },
         Expression::ArrayAccess { array, index } => {
-            assert!(!map.contains_key(array), "Array {} is a constant", array);
+            assert!(!map.contains_key(array), "Array {array} is a constant");
             replace_vars_by_const_in_expr(index, map);
         }
         Expression::Binary { left, right, .. } => {
@@ -1231,7 +1231,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
     for line in lines {
         match line {
             Line::Assignment { var, value } => {
-                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(value, map);
             }
             Line::ArrayAssign {
@@ -1239,7 +1239,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 index,
                 value,
             } => {
-                assert!(!map.contains_key(array), "Array {} is a constant", array);
+                assert!(!map.contains_key(array), "Array {array} is a constant");
                 replace_vars_by_const_in_expr(index, map);
                 replace_vars_by_const_in_expr(value, map);
             }
@@ -1252,8 +1252,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 for ret in return_data {
                     assert!(
                         !map.contains_key(ret),
-                        "Return variable {} is a constant",
-                        ret
+                        "Return variable {ret} is a constant"
                     );
                 }
             }
@@ -1298,7 +1297,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(arg, map);
                 }
                 for r in return_data {
-                    assert!(!map.contains_key(r), "Return variable {} is a constant", r);
+                    assert!(!map.contains_key(r), "Return variable {r} is a constant");
                 }
             }
             Line::Print { content, .. } => {
@@ -1307,11 +1306,11 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 }
             }
             Line::DecomposeBits { var, to_decompose } => {
-                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(to_decompose, map);
             }
             Line::MAlloc { var, size, .. } => {
-                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(size, map);
             }
             Line::Panic | Line::Break => {}
@@ -1328,8 +1327,8 @@ impl ToString for SimpleLine {
 impl ToString for VarOrConstMallocAccess {
     fn to_string(&self) -> String {
         match self {
-            VarOrConstMallocAccess::Var(var) => var.to_string(),
-            VarOrConstMallocAccess::ConstMallocAccess {
+            Self::Var(var) => var.to_string(),
+            Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => {
@@ -1347,7 +1346,7 @@ impl SimpleLine {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
         let line_str = match self {
-            SimpleLine::Assignment {
+            Self::Assignment {
                 var,
                 operation,
                 arg0,
@@ -1361,26 +1360,22 @@ impl SimpleLine {
                     arg1.to_string()
                 )
             }
-            SimpleLine::DecomposeBits {
+            Self::DecomposeBits {
                 var: result,
                 to_decompose,
                 label: _,
             } => {
-                format!(
-                    "{} = decompose_bits({})",
-                    result.to_string(),
-                    to_decompose.to_string()
-                )
+                format!("{} = decompose_bits({})", result, to_decompose.to_string())
             }
-            SimpleLine::RawAccess { res, index, shift } => {
+            Self::RawAccess { res, index, shift } => {
                 format!(
                     "{} = memory[{} + {}]",
                     res.to_string(),
-                    index.to_string(),
+                    index,
                     shift.to_string()
                 )
             }
-            SimpleLine::IfNotZero {
+            Self::IfNotZero {
                 condition,
                 then_branch,
                 else_branch,
@@ -1415,37 +1410,37 @@ impl SimpleLine {
                     )
                 }
             }
-            SimpleLine::FunctionCall {
+            Self::FunctionCall {
                 function_name,
                 args,
                 return_data,
             } => {
                 let args_str = args
                     .iter()
-                    .map(|arg| arg.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
                 let return_data_str = return_data
                     .iter()
-                    .map(|var| var.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
 
                 if return_data.is_empty() {
-                    format!("{}({})", function_name, args_str)
+                    format!("{function_name}({args_str})")
                 } else {
-                    format!("{} = {}({})", return_data_str, function_name, args_str)
+                    format!("{return_data_str} = {function_name}({args_str})")
                 }
             }
-            SimpleLine::FunctionRet { return_data } => {
+            Self::FunctionRet { return_data } => {
                 let return_data_str = return_data
                     .iter()
-                    .map(|arg| arg.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("return {}", return_data_str)
+                format!("return {return_data_str}")
             }
-            SimpleLine::Precompile {
+            Self::Precompile {
                 precompile,
                 args,
                 res: return_data,
@@ -1455,23 +1450,23 @@ impl SimpleLine {
                     return_data.join(", "),
                     &precompile.name.to_string(),
                     args.iter()
-                        .map(|arg| arg.to_string())
+                        .map(std::string::ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
             }
-            SimpleLine::Print {
+            Self::Print {
                 line_info: _,
                 content,
             } => {
                 let content_str = content
                     .iter()
-                    .map(|c| c.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("print({})", content_str)
+                format!("print({content_str})")
             }
-            SimpleLine::HintMAlloc {
+            Self::HintMAlloc {
                 var,
                 size,
                 vectorized,
@@ -1481,18 +1476,18 @@ impl SimpleLine {
                 } else {
                     "malloc"
                 };
-                format!("{} = {}({})", var.to_string(), alloc_type, size.to_string())
+                format!("{} = {}({})", var, alloc_type, size.to_string())
             }
-            SimpleLine::ConstMalloc {
+            Self::ConstMalloc {
                 var,
                 size,
                 label: _,
             } => {
-                format!("{} = malloc({})", var.to_string(), size.to_string())
+                format!("{} = malloc({})", var, size.to_string())
             }
-            SimpleLine::Panic => "panic".to_string(),
+            Self::Panic => "panic".to_string(),
         };
-        format!("{}{}", spaces, line_str)
+        format!("{spaces}{line_str}")
     }
 }
 
@@ -1501,7 +1496,7 @@ impl ToString for SimpleFunction {
         let args_str = self
             .arguments
             .iter()
-            .map(|arg| arg.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<_>>()
             .join(", ");
 

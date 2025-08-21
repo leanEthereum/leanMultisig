@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use p3_field::PrimeCharacteristicRing;
 use utils::ToUsize;
-use vm::*;
+use vm::Label;
 
 use crate::{F, intermediate_bytecode::HighLevelOperation, precompiles::Precompile};
 
@@ -51,7 +51,7 @@ impl SimpleExpr {
         Self::Constant(ConstantValue::Scalar(scalar).into())
     }
 
-    pub(crate) fn is_constant(&self) -> bool {
+    pub(crate) const fn is_constant(&self) -> bool {
         matches!(self, Self::Constant(_))
     }
 
@@ -84,9 +84,8 @@ impl From<Var> for SimpleExpr {
 impl SimpleExpr {
     pub(crate) fn as_constant(&self) -> Option<ConstExpression> {
         match self {
-            Self::Var(_) => None,
+            Self::Var(_) | Self::ConstMallocAccess { .. } => None,
             Self::Constant(constant) => Some(constant.clone()),
-            Self::ConstMallocAccess { .. } => None,
         }
     }
 }
@@ -118,7 +117,7 @@ pub(crate) enum ConstExpression {
 
 impl From<usize> for ConstExpression {
     fn from(value: usize) -> Self {
-        ConstExpression::Value(ConstantValue::Scalar(value))
+        Self::Value(ConstantValue::Scalar(value))
     }
 }
 
@@ -128,16 +127,15 @@ impl TryFrom<Expression> for ConstExpression {
     fn try_from(value: Expression) -> Result<Self, Self::Error> {
         match value {
             Expression::Value(SimpleExpr::Constant(const_expr)) => Ok(const_expr),
-            Expression::Value(_) => Err(()),
-            Expression::ArrayAccess { .. } => Err(()),
+            Expression::Value(_) | Expression::ArrayAccess { .. } => Err(()),
             Expression::Binary {
                 left,
                 operation,
                 right,
             } => {
-                let left_expr = ConstExpression::try_from(*left)?;
-                let right_expr = ConstExpression::try_from(*right)?;
-                Ok(ConstExpression::Binary {
+                let left_expr = Self::try_from(*left)?;
+                let right_expr = Self::try_from(*right)?;
+                Ok(Self::Binary {
                     left: Box::new(left_expr),
                     operation,
                     right: Box::new(right_expr),
@@ -148,23 +146,23 @@ impl TryFrom<Expression> for ConstExpression {
 }
 
 impl ConstExpression {
-    pub(crate) fn zero() -> Self {
+    pub(crate) const fn zero() -> Self {
         Self::scalar(0)
     }
 
-    pub(crate) fn one() -> Self {
+    pub(crate) const fn one() -> Self {
         Self::scalar(1)
     }
 
-    pub(crate) fn label(label: Label) -> Self {
+    pub(crate) const fn label(label: Label) -> Self {
         Self::Value(ConstantValue::Label(label))
     }
 
-    pub(crate) fn scalar(scalar: usize) -> Self {
+    pub(crate) const fn scalar(scalar: usize) -> Self {
         Self::Value(ConstantValue::Scalar(scalar))
     }
 
-    pub(crate) fn function_size(function_name: Label) -> Self {
+    pub(crate) const fn function_size(function_name: Label) -> Self {
         Self::Value(ConstantValue::FunctionSize { function_name })
     }
 
@@ -190,11 +188,8 @@ impl ConstExpression {
     }
 
     pub(crate) fn try_naive_simplification(&self) -> Self {
-        if let Some(value) = self.naive_eval() {
-            Self::scalar(value.to_usize())
-        } else {
-            self.clone()
-        }
+        self.naive_eval()
+            .map_or_else(|| self.clone(), |value| Self::scalar(value.to_usize()))
     }
 }
 
@@ -248,11 +243,11 @@ impl Expression {
         ArrayFn: Fn(&Var, F) -> Option<F>,
     {
         match self {
-            Expression::Value(value) => value_fn(value),
-            Expression::ArrayAccess { array, index } => {
+            Self::Value(value) => value_fn(value),
+            Self::ArrayAccess { array, index } => {
                 array_fn(array, index.eval_with(value_fn, array_fn)?)
             }
-            Expression::Binary {
+            Self::Binary {
                 left,
                 operation,
                 right,
@@ -324,11 +319,11 @@ pub(crate) enum Line {
 impl ToString for Expression {
     fn to_string(&self) -> String {
         match self {
-            Expression::Value(val) => val.to_string(),
-            Expression::ArrayAccess { array, index } => {
+            Self::Value(val) => val.to_string(),
+            Self::ArrayAccess { array, index } => {
                 format!("{}[{}]", array, index.to_string())
             }
-            Expression::Binary {
+            Self::Binary {
                 left,
                 operation,
                 right,
@@ -348,23 +343,18 @@ impl Line {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
         let line_str = match self {
-            Line::Assignment { var, value } => {
-                format!("{} = {}", var.to_string(), value.to_string())
+            Self::Assignment { var, value } => {
+                format!("{} = {}", var, value.to_string())
             }
-            Line::ArrayAssign {
+            Self::ArrayAssign {
                 array,
                 index,
                 value,
             } => {
-                format!(
-                    "{}[{}] = {}",
-                    array.to_string(),
-                    index.to_string(),
-                    value.to_string()
-                )
+                format!("{}[{}] = {}", array, index.to_string(), value.to_string())
             }
-            Line::Assert(condition) => format!("assert {}", condition.to_string()),
-            Line::IfCondition {
+            Self::Assert(condition) => format!("assert {}", condition.to_string()),
+            Self::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
@@ -399,7 +389,7 @@ impl Line {
                     )
                 }
             }
-            Line::ForLoop {
+            Self::ForLoop {
                 iterator,
                 start,
                 end,
@@ -414,7 +404,7 @@ impl Line {
                     .join("\n");
                 format!(
                     "for {} in {}{}..{} {}{{\n{}\n{}}}",
-                    iterator.to_string(),
+                    iterator,
                     start.to_string(),
                     if *rev { "rev " } else { "" },
                     end.to_string(),
@@ -423,37 +413,37 @@ impl Line {
                     spaces
                 )
             }
-            Line::FunctionCall {
+            Self::FunctionCall {
                 function_name,
                 args,
                 return_data,
             } => {
                 let args_str = args
                     .iter()
-                    .map(|arg| arg.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
                 let return_data_str = return_data
                     .iter()
-                    .map(|var| var.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
 
                 if return_data.is_empty() {
-                    format!("{}({})", function_name, args_str)
+                    format!("{function_name}({args_str})")
                 } else {
-                    format!("{} = {}({})", return_data_str, function_name, args_str)
+                    format!("{return_data_str} = {function_name}({args_str})")
                 }
             }
-            Line::FunctionRet { return_data } => {
+            Self::FunctionRet { return_data } => {
                 let return_data_str = return_data
                     .iter()
-                    .map(|arg| arg.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("return {}", return_data_str)
+                format!("return {return_data_str}")
             }
-            Line::Precompile {
+            Self::Precompile {
                 precompile,
                 args,
                 res: return_data,
@@ -462,63 +452,55 @@ impl Line {
                     "{} = {}({})",
                     return_data
                         .iter()
-                        .map(|var| var.to_string())
+                        .map(std::string::ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(", "),
                     precompile.name.to_string(),
                     args.iter()
-                        .map(|arg| arg.to_string())
+                        .map(std::string::ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
             }
-            Line::Print {
+            Self::Print {
                 line_info: _,
                 content,
             } => {
                 let content_str = content
                     .iter()
-                    .map(|c| c.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("print({})", content_str)
+                format!("print({content_str})")
             }
-            Line::MAlloc {
+            Self::MAlloc {
                 var,
                 size,
                 vectorized,
             } => {
                 if *vectorized {
-                    format!(
-                        "{} = malloc_vectorized({})",
-                        var.to_string(),
-                        size.to_string()
-                    )
+                    format!("{} = malloc_vectorized({})", var, size.to_string())
                 } else {
-                    format!("{} = malloc({})", var.to_string(), size.to_string())
+                    format!("{} = malloc({})", var, size.to_string())
                 }
             }
-            Line::DecomposeBits { var, to_decompose } => {
-                format!(
-                    "{} = decompose_bits({})",
-                    var.to_string(),
-                    to_decompose.to_string()
-                )
+            Self::DecomposeBits { var, to_decompose } => {
+                format!("{} = decompose_bits({})", var, to_decompose.to_string())
             }
-            Line::Break => "break".to_string(),
-            Line::Panic => "panic".to_string(),
+            Self::Break => "break".to_string(),
+            Self::Panic => "panic".to_string(),
         };
-        format!("{}{}", spaces, line_str)
+        format!("{spaces}{line_str}")
     }
 }
 
 impl ToString for Boolean {
     fn to_string(&self) -> String {
         match self {
-            Boolean::Equal { left, right } => {
+            Self::Equal { left, right } => {
                 format!("{} == {}", left.to_string(), right.to_string())
             }
-            Boolean::Different { left, right } => {
+            Self::Different { left, right } => {
                 format!("{} != {}", left.to_string(), right.to_string())
             }
         }
@@ -528,13 +510,13 @@ impl ToString for Boolean {
 impl ToString for ConstantValue {
     fn to_string(&self) -> String {
         match self {
-            ConstantValue::Scalar(scalar) => scalar.to_string(),
-            ConstantValue::PublicInputStart => "@public_input_start".to_string(),
-            ConstantValue::PointerToZeroVector => "@pointer_to_zero_vector".to_string(),
-            ConstantValue::FunctionSize { function_name } => {
-                format!("@function_size_{}", function_name)
+            Self::Scalar(scalar) => scalar.to_string(),
+            Self::PublicInputStart => "@public_input_start".to_string(),
+            Self::PointerToZeroVector => "@pointer_to_zero_vector".to_string(),
+            Self::FunctionSize { function_name } => {
+                format!("@function_size_{function_name}")
             }
-            ConstantValue::Label(label) => label.to_string(),
+            Self::Label(label) => label.to_string(),
         }
     }
 }
@@ -542,9 +524,9 @@ impl ToString for ConstantValue {
 impl ToString for SimpleExpr {
     fn to_string(&self) -> String {
         match self {
-            SimpleExpr::Var(var) => var.to_string(),
-            SimpleExpr::Constant(constant) => constant.to_string(),
-            SimpleExpr::ConstMallocAccess {
+            Self::Var(var) => var.to_string(),
+            Self::Constant(constant) => constant.to_string(),
+            Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => {
@@ -557,8 +539,8 @@ impl ToString for SimpleExpr {
 impl ToString for ConstExpression {
     fn to_string(&self) -> String {
         match self {
-            ConstExpression::Value(value) => value.to_string(),
-            ConstExpression::Binary {
+            Self::Value(value) => value.to_string(),
+            Self::Binary {
                 left,
                 operation,
                 right,
@@ -599,7 +581,7 @@ impl ToString for Function {
             .arguments
             .iter()
             .map(|arg| match arg {
-                (name, true) => format!("const {}", name),
+                (name, true) => format!("const {name}"),
                 (name, false) => name.to_string(),
             })
             .collect::<Vec<_>>()

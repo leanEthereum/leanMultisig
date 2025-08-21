@@ -6,11 +6,17 @@ use pest_derive::Parser;
 use utils::ToUsize;
 use vm::F;
 
-use crate::{intermediate_bytecode::*, lang::*, precompiles::PRECOMPILES};
+use crate::{
+    intermediate_bytecode::HighLevelOperation,
+    lang::{
+        Boolean, ConstExpression, ConstantValue, Expression, Function, Line, Program, SimpleExpr,
+    },
+    precompiles::PRECOMPILES,
+};
 
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
-pub(crate) struct LangParser;
+pub struct LangParser;
 
 #[derive(Debug)]
 pub(crate) enum ParseError {
@@ -20,15 +26,15 @@ pub(crate) enum ParseError {
 
 impl From<pest::error::Error<Rule>> for ParseError {
     fn from(error: pest::error::Error<Rule>) -> Self {
-        ParseError::PestError(error)
+        Self::PestError(error)
     }
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::PestError(e) => write!(f, "Parse error: {}", e),
-            ParseError::SemanticError(e) => write!(f, "Semantic error: {}", e),
+            Self::PestError(e) => write!(f, "Parse error: {e}"),
+            Self::SemanticError(e) => write!(f, "Semantic error: {e}"),
         }
     }
 }
@@ -92,7 +98,7 @@ fn parse_constant_declaration(
             },
             &|_, _| None,
         )
-        .unwrap_or_else(|| panic!("Failed to evaluate constant: {}", name))
+        .unwrap_or_else(|| panic!("Failed to evaluate constant: {name}"))
         .to_usize();
     Ok((name, value))
 }
@@ -146,7 +152,7 @@ fn parse_parameter(pair: Pair<'_, Rule>) -> Result<(String, bool), ParseError> {
     let mut inner = pair.into_inner();
     let first = inner.next().unwrap();
 
-    if let Rule::const_keyword = first.as_rule() {
+    if first.as_rule() == Rule::const_keyword {
         // If the first token is "const", the next one should be the identifier
         let identifier = inner.next().ok_or_else(|| {
             ParseError::SemanticError("Expected identifier after 'const'".to_string())
@@ -170,7 +176,7 @@ fn parse_statement(
         Rule::if_statement => parse_if_statement(inner, constants, trash_var_count),
         Rule::for_statement => parse_for_statement(inner, constants, trash_var_count),
         Rule::return_statement => parse_return_statement(inner, constants),
-        Rule::function_call => parse_function_call(inner, constants, trash_var_count),
+        Rule::function_call => parse_function_call(&inner, constants, trash_var_count),
         Rule::assert_eq_statement => parse_assert_eq(inner, constants),
         Rule::assert_not_eq_statement => parse_assert_not_eq(inner, constants),
         Rule::break_statement => Ok(Line::Break),
@@ -329,7 +335,7 @@ fn parse_binary_expr(
     let mut inner = pair.into_inner();
     let mut expr = parse_expression(inner.next().unwrap(), constants)?;
 
-    while let Some(right) = inner.next() {
+    for right in inner {
         let right_expr = parse_expression(right, constants)?;
         expr = Expression::Binary {
             left: Box::new(expr),
@@ -366,7 +372,7 @@ fn parse_tuple_expression(
 }
 
 fn parse_function_call(
-    pair: Pair<'_, Rule>,
+    pair: &Pair<'_, Rule>,
     constants: &BTreeMap<String, usize>,
     trash_var_count: &mut usize,
 ) -> Result<Line, ParseError> {
@@ -402,7 +408,7 @@ fn parse_function_call(
     for var in &mut return_data {
         if var == "_" {
             *trash_var_count += 1;
-            *var = format!("@trash_{}", trash_var_count);
+            *var = format!("@trash_{trash_var_count}");
         }
     }
 
@@ -525,7 +531,7 @@ fn parse_var_or_constant(
 
     match pair.as_rule() {
         Rule::var_or_constant => {
-            return parse_var_or_constant(pair.into_inner().next().unwrap(), constants);
+            parse_var_or_constant(pair.into_inner().next().unwrap(), constants)
         }
         Rule::identifier | Rule::constant_value => match text {
             "public_input_start" => Ok(SimpleExpr::Constant(ConstExpression::Value(
@@ -569,7 +575,7 @@ mod tests {
 
     #[test]
     fn test_parser() {
-        let program = r#"
+        let program = r"
 
 // This is a comment
 
@@ -629,7 +635,7 @@ fn my_function1(a, const b, c) -> 2 {
         return e, d;
     }
 }
-    "#;
+    ";
 
         let parsed = parse_program(program).unwrap();
         println!("{}", parsed.to_string());
@@ -637,12 +643,12 @@ fn my_function1(a, const b, c) -> 2 {
 
     #[test]
     fn test_const_parameters() {
-        let program = r#"
+        let program = r"
 fn test_func(const a, b, const c) -> 1 {
     d = a + b + c;
     return d;
 }
-    "#;
+    ";
 
         let parsed = parse_program(program).unwrap();
         println!("{}", parsed.to_string());
@@ -650,7 +656,7 @@ fn test_func(const a, b, const c) -> 1 {
 
     #[test]
     fn test_exponent_operation() {
-        let program = r#"
+        let program = r"
 fn test_exp() -> 1 {
     a = 2 ** 3;
     b = x ** y ** z;  // Should parse as x ** (y ** z)
@@ -658,7 +664,7 @@ fn test_exp() -> 1 {
     d = a ** 2 * b;   // Should parse as (a ** 2) * b
     return a;
 }
-    "#;
+    ";
 
         let parsed = parse_program(program).unwrap();
         println!("{}", parsed.to_string());

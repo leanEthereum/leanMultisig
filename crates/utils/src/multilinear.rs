@@ -1,7 +1,6 @@
 use std::borrow::Borrow;
 
-use p3_field::{BasedVectorSpace, PackedValue};
-use p3_field::{ExtensionField, Field, dot_product};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PackedValue, dot_product};
 use rayon::prelude::*;
 use tracing::instrument;
 use whir_p3::poly::evals::EvaluationsList;
@@ -19,7 +18,7 @@ pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>, D>(
     let dim = <EF as BasedVectorSpace<F>>::DIMENSION;
 
     let m_transmuted: &[F] =
-        unsafe { std::slice::from_raw_parts(std::mem::transmute(m.as_ptr()), m.len() * dim) };
+        unsafe { std::slice::from_raw_parts(m.as_ptr().cast::<F>(), m.len() * dim) };
     let res_transmuted = {
         let new_size = m.len() * dim / scalars.len();
 

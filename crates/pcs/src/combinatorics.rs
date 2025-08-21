@@ -1,5 +1,4 @@
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::{cmp::Reverse, collections::BinaryHeap};
 
 #[derive(Debug, Clone)]
 pub struct TreeOfVariables {
@@ -43,8 +42,8 @@ impl TreeOfVariables {
 impl TreeOfVariablesInner {
     pub fn total_vars(&self, vars_per_polynomial: &[usize]) -> usize {
         match self {
-            TreeOfVariablesInner::Polynomial(i) => vars_per_polynomial[*i],
-            TreeOfVariablesInner::Composed { left, right } => {
+            Self::Polynomial(i) => vars_per_polynomial[*i],
+            Self::Composed { left, right } => {
                 1 + left
                     .total_vars(vars_per_polynomial)
                     .max(right.total_vars(vars_per_polynomial))
@@ -61,8 +60,8 @@ impl TreeOfVariables {
         let root = Self::compute_greedy(&vars_per_polynomial);
 
         Self {
-            root,
             vars_per_polynomial,
+            root,
         }
     }
 
@@ -107,7 +106,7 @@ mod tests {
     #[test]
     fn test_tree_of_variables() {
         let vars_per_polynomial = vec![2];
-        let tree = TreeOfVariables::compute_optimal(vars_per_polynomial.clone());
+        let tree = TreeOfVariables::compute_optimal(vars_per_polynomial);
         dbg!(&tree, tree.total_vars());
     }
 }

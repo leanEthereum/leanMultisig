@@ -7,7 +7,7 @@ with custom GKR
 
 */
 
-use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
+use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64};
 use rayon::prelude::*;
 use sumcheck::{MleGroupRef, ProductComputation};
 use tracing::instrument;
@@ -30,7 +30,7 @@ A': [a0*a4, a1*a5, a2*a6, a3*a7]
 */
 
 #[instrument(skip_all)]
-pub fn prove_gkr_product<EF: Field>(
+pub fn prove_gkr_product<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     final_layer: Vec<EFPacking<EF>>,
 ) -> (EF, Evaluation<EF>)
@@ -58,7 +58,7 @@ where
     assert_eq!(layers_not_packed[n - last_packed - 2].len(), 2);
     let product = layers_not_packed[n - last_packed - 2]
         .iter()
-        .cloned()
+        .copied()
         .product::<EF>();
     prover_state.add_extension_scalars(&layers_not_packed[n - last_packed - 2]);
 
@@ -79,7 +79,7 @@ where
 }
 
 #[instrument(skip_all)]
-fn prove_gkr_product_step<EF: Field>(
+fn prove_gkr_product_step<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: &[EF],
     claim: &Evaluation<EF>,
@@ -97,7 +97,7 @@ where
 }
 
 #[instrument(skip_all)]
-fn prove_gkr_product_step_packed<EF: Field>(
+fn prove_gkr_product_step_packed<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer_packed: &[EFPacking<EF>],
     claim: &Evaluation<EF>,
@@ -118,7 +118,7 @@ where
 }
 
 #[instrument(skip_all)]
-fn prove_gkr_product_step_core<EF: Field>(
+fn prove_gkr_product_step_core<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: MleGroupRef<'_, EF>,
     claim: &Evaluation<EF>,
@@ -143,7 +143,7 @@ where
 
     let mixing_challenge = prover_state.sample();
 
-    let mut next_point = sc_point.clone();
+    let mut next_point = sc_point;
     next_point.0.insert(0, mixing_challenge);
     let next_claim =
         inner_evals[0] * (EF::ONE - mixing_challenge) + inner_evals[1] * mixing_challenge;
@@ -151,7 +151,7 @@ where
     (next_point, next_claim).into()
 }
 
-pub fn verify_gkr_product<EF: Field>(
+pub fn verify_gkr_product<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
@@ -176,7 +176,7 @@ where
     Ok((product, claim))
 }
 
-fn verify_gkr_product_step<EF: Field>(
+fn verify_gkr_product_step<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     current_layer_log_len: usize,
     claim: &Evaluation<EF>,
@@ -201,7 +201,7 @@ where
 
     let mixing_challenge = verifier_state.sample();
 
-    let mut next_point = postponed.point.clone();
+    let mut next_point = postponed.point;
     next_point.0.insert(0, mixing_challenge);
 
     let next_claim = eval_left * (EF::ONE - mixing_challenge) + eval_right * mixing_challenge;

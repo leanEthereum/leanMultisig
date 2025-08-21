@@ -1,13 +1,8 @@
-use p3_koala_bear::GenericPoseidon2LinearLayersKoalaBear;
-use p3_koala_bear::KoalaBear;
-use p3_koala_bear::Poseidon2KoalaBear;
+use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, Poseidon2KoalaBear};
 use p3_matrix::dense::RowMajorMatrix;
 use p3_poseidon2::ExternalLayerConstants;
-use p3_poseidon2_air::Poseidon2Air;
-use p3_poseidon2_air::RoundConstants;
-use p3_poseidon2_air::generate_trace_rows;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows};
+use rand::{SeedableRng, rngs::StdRng};
 
 pub type Poseidon16 = Poseidon2KoalaBear<16>;
 pub type Poseidon24 = Poseidon2KoalaBear<24>;
@@ -43,6 +38,7 @@ pub type Poseidon24Air = Poseidon2Air<
     PARTIAL_ROUNDS_24,
 >;
 
+#[must_use]
 pub fn build_poseidon16() -> Poseidon16 {
     let round_constants = build_poseidon16_constants();
     let external_constants = ExternalLayerConstants::new(
@@ -55,6 +51,7 @@ pub fn build_poseidon16() -> Poseidon16 {
     )
 }
 
+#[must_use]
 pub fn build_poseidon24() -> Poseidon24 {
     let round_constants = build_poseidon24_constants();
     let external_constants = ExternalLayerConstants::new(
@@ -67,10 +64,12 @@ pub fn build_poseidon24() -> Poseidon24 {
     )
 }
 
+#[must_use]
 pub fn build_poseidon_16_air() -> Poseidon16Air {
     Poseidon16Air::new(build_poseidon16_constants())
 }
 
+#[must_use]
 pub fn build_poseidon_24_air() -> Poseidon24Air {
     Poseidon24Air::new(build_poseidon24_constants())
 }
@@ -89,6 +88,7 @@ fn build_poseidon24_constants()
     )
 }
 
+#[must_use]
 pub fn generate_trace_poseidon_16(inputs: Vec<[KoalaBear; 16]>) -> RowMajorMatrix<KoalaBear> {
     generate_trace_rows::<
         KoalaBear,
@@ -101,6 +101,7 @@ pub fn generate_trace_poseidon_16(inputs: Vec<[KoalaBear; 16]>) -> RowMajorMatri
     >(inputs, &build_poseidon16_constants(), 0)
 }
 
+#[must_use]
 pub fn generate_trace_poseidon_24(inputs: Vec<[KoalaBear; 24]>) -> RowMajorMatrix<KoalaBear> {
     generate_trace_rows::<
         KoalaBear,

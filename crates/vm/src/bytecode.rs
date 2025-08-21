@@ -1,6 +1,8 @@
-use crate::F;
-use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
+
+use p3_field::PrimeCharacteristicRing;
+
+use crate::F;
 
 pub type Label = String;
 
@@ -81,17 +83,19 @@ pub enum Instruction {
 }
 
 impl Operation {
+    #[must_use]
     pub fn compute(&self, a: F, b: F) -> F {
         match self {
-            Operation::Add => a + b,
-            Operation::Mul => a * b,
+            Self::Add => a + b,
+            Self::Mul => a * b,
         }
     }
 
+    #[must_use]
     pub fn inverse_compute(&self, a: F, b: F) -> Option<F> {
         match self {
-            Operation::Add => Some(a - b),
-            Operation::Mul => {
+            Self::Add => Some(a - b),
+            Self::Mul => {
                 if b == F::ZERO {
                     None
                 } else {
@@ -124,35 +128,35 @@ pub enum Hint {
 }
 
 impl MemOrConstant {
-    pub fn zero() -> Self {
-        MemOrConstant::Constant(F::ZERO)
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self::Constant(F::ZERO)
     }
 
-    pub fn one() -> Self {
-        MemOrConstant::Constant(F::ONE)
+    #[must_use]
+    pub const fn one() -> Self {
+        Self::Constant(F::ONE)
     }
 }
 
 impl ToString for Bytecode {
     fn to_string(&self) -> String {
-        let mut pc = 0;
         let mut res = String::new();
-        for instruction in &self.instructions {
+        for (pc, instruction) in self.instructions.iter().enumerate() {
             for hint in self.hints.get(&pc).unwrap_or(&Vec::new()) {
                 res.push_str(&format!("hint: {}\n", hint.to_string()));
             }
             res.push_str(&format!("{:>4}: {}\n", pc, instruction.to_string()));
-            pc += 1;
         }
-        return res;
+        res
     }
 }
 
 impl ToString for MemOrConstant {
     fn to_string(&self) -> String {
         match self {
-            Self::Constant(c) => format!("{}", c),
-            Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset),
+            Self::Constant(c) => format!("{c}"),
+            Self::MemoryAfterFp { offset } => format!("m[fp + {offset}]"),
         }
     }
 }
@@ -160,7 +164,7 @@ impl ToString for MemOrConstant {
 impl ToString for MemOrFp {
     fn to_string(&self) -> String {
         match self {
-            Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset),
+            Self::MemoryAfterFp { offset } => format!("m[fp + {offset}]"),
             Self::Fp => "fp".to_string(),
         }
     }
@@ -169,9 +173,9 @@ impl ToString for MemOrFp {
 impl ToString for MemOrFpOrConstant {
     fn to_string(&self) -> String {
         match self {
-            Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset),
+            Self::MemoryAfterFp { offset } => format!("m[fp + {offset}]"),
             Self::Fp => "fp".to_string(),
-            Self::Constant(c) => format!("{}", c),
+            Self::Constant(c) => format!("{c}"),
         }
     }
 }
@@ -299,7 +303,7 @@ impl ToString for Hint {
                     "print({}) for \"{}\"",
                     content
                         .iter()
-                        .map(|v| v.to_string())
+                        .map(std::string::ToString::to_string)
                         .collect::<Vec<String>>()
                         .join(", "),
                     line_info,

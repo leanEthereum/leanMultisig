@@ -1,9 +1,13 @@
 use p3_field::PrimeCharacteristicRing;
-use vm::*;
+use vm::{F, Instruction, MemOrConstant, MemOrFp, MemOrFpOrConstant, Operation};
 
-use crate::*;
+use crate::{
+    COL_INDEX_AUX, COL_INDEX_FLAG_A, COL_INDEX_FLAG_B, COL_INDEX_FLAG_C,
+    COL_INDEX_MULTILINEAR_EVAL, COL_INDEX_OPERAND_A, COL_INDEX_OPERAND_B, COL_INDEX_OPERAND_C,
+    N_INSTRUCTION_COLUMNS,
+};
 
-pub(crate) fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
+pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
     let mut fields = [F::ZERO; N_INSTRUCTION_COLUMNS];
     match instr {
         Instruction::Computation {

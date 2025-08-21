@@ -23,7 +23,7 @@ pub enum MleGroup<'a, EF: ExtensionField<PF<EF>>> {
     Ref(MleGroupRef<'a, EF>),
 }
 
-impl<'a, EF: ExtensionField<PF<EF>>> From<MleGroupOwned<EF>> for MleGroup<'a, EF> {
+impl<EF: ExtensionField<PF<EF>>> From<MleGroupOwned<EF>> for MleGroup<'_, EF> {
     fn from(owned: MleGroupOwned<EF>) -> Self {
         MleGroup::Owned(owned)
     }
@@ -52,6 +52,7 @@ pub enum MleGroupRef<'a, EF: ExtensionField<PF<EF>>> {
 }
 
 impl<'a, EF: ExtensionField<PF<EF>>> MleGroup<'a, EF> {
+    #[must_use]
     pub fn by_ref(&'a self) -> MleGroupRef<'a, EF> {
         match self {
             Self::Owned(owned) => owned.by_ref(),
@@ -59,6 +60,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroup<'a, EF> {
         }
     }
 
+    #[must_use]
     pub fn n_vars(&self) -> usize {
         match self {
             Self::Owned(owned) => owned.n_vars(),
@@ -66,7 +68,8 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroup<'a, EF> {
         }
     }
 
-    pub fn n_columns(&self) -> usize {
+    #[must_use]
+    pub const fn n_columns(&self) -> usize {
         match self {
             Self::Owned(owned) => owned.n_columns(),
             Self::Ref(r) => r.n_columns(),
@@ -75,21 +78,25 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroup<'a, EF> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> MleGroupOwned<EF> {
-    pub fn by_ref<'a>(&'a self) -> MleGroupRef<'a, EF> {
+    #[must_use]
+    pub fn by_ref(&self) -> MleGroupRef<'_, EF> {
         match self {
-            Self::Base(base) => MleGroupRef::Base(base.iter().map(|v| v.as_slice()).collect()),
+            Self::Base(base) => {
+                MleGroupRef::Base(base.iter().map(std::vec::Vec::as_slice).collect())
+            }
             Self::Extension(ext) => {
-                MleGroupRef::Extension(ext.iter().map(|v| v.as_slice()).collect())
+                MleGroupRef::Extension(ext.iter().map(std::vec::Vec::as_slice).collect())
             }
             Self::BasePacked(packed_base) => {
-                MleGroupRef::BasePacked(packed_base.iter().map(|v| v.as_slice()).collect())
+                MleGroupRef::BasePacked(packed_base.iter().map(std::vec::Vec::as_slice).collect())
             }
-            Self::ExtensionPacked(ext_packed) => {
-                MleGroupRef::ExtensionPacked(ext_packed.iter().map(|v| v.as_slice()).collect())
-            }
+            Self::ExtensionPacked(ext_packed) => MleGroupRef::ExtensionPacked(
+                ext_packed.iter().map(std::vec::Vec::as_slice).collect(),
+            ),
         }
     }
 
+    #[must_use]
     pub fn n_vars(&self) -> usize {
         match self {
             Self::Base(v) => log2_strict_usize(v[0].len()),
@@ -99,7 +106,8 @@ impl<EF: ExtensionField<PF<EF>>> MleGroupOwned<EF> {
         }
     }
 
-    pub fn n_columns(&self) -> usize {
+    #[must_use]
+    pub const fn n_columns(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
             Self::Extension(v) => v.len(),
@@ -110,7 +118,8 @@ impl<EF: ExtensionField<PF<EF>>> MleGroupOwned<EF> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
-    pub fn packed_len(&self) -> usize {
+    #[must_use]
+    pub const fn packed_len(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
             Self::Extension(v) => v.len(),
@@ -119,7 +128,8 @@ impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
         }
     }
 
-    pub fn unpacked_len(&self) -> usize {
+    #[must_use]
+    pub const fn unpacked_len(&self) -> usize {
         let mut res = self.packed_len();
         if self.is_packed() {
             res *= packing_width::<EF>();
@@ -127,6 +137,7 @@ impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
         res
     }
 
+    #[must_use]
     pub fn n_vars(&self) -> usize {
         log2_strict_usize(self.unpacked_len())
     }
@@ -140,35 +151,40 @@ impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
         }
     }
 
-    pub fn is_packed(&self) -> bool {
+    #[must_use]
+    pub const fn is_packed(&self) -> bool {
         match self {
             Self::Base(_) | Self::Extension(_) => false,
             Self::PackedBase(_) | Self::ExtensionPacked(_) => true,
         }
     }
 
-    pub fn as_base(&self) -> Option<&Vec<PF<EF>>> {
+    #[must_use]
+    pub const fn as_base(&self) -> Option<&Vec<PF<EF>>> {
         match self {
             Self::Base(b) => Some(b),
             _ => None,
         }
     }
 
-    pub fn as_extension(&self) -> Option<&Vec<EF>> {
+    #[must_use]
+    pub const fn as_extension(&self) -> Option<&Vec<EF>> {
         match self {
             Self::Extension(e) => Some(e),
             _ => None,
         }
     }
 
-    pub fn as_packed_base(&self) -> Option<&Vec<PFPacking<EF>>> {
+    #[must_use]
+    pub const fn as_packed_base(&self) -> Option<&Vec<PFPacking<EF>>> {
         match self {
             Self::PackedBase(pb) => Some(pb),
             _ => None,
         }
     }
 
-    pub fn as_extension_packed(&self) -> Option<&Vec<EFPacking<EF>>> {
+    #[must_use]
+    pub const fn as_extension_packed(&self) -> Option<&Vec<EFPacking<EF>>> {
         match self {
             Self::ExtensionPacked(ep) => Some(ep),
             _ => None,
@@ -177,7 +193,8 @@ impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
 }
 
 impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
-    pub fn group_size(&self) -> usize {
+    #[must_use]
+    pub const fn group_size(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
             Self::Extension(v) => v.len(),
@@ -186,6 +203,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
+    #[must_use]
     pub fn n_vars(&self) -> usize {
         match self {
             Self::Base(v) => log2_strict_usize(v[0].len()),
@@ -195,42 +213,48 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
-    pub fn is_packed(&self) -> bool {
+    #[must_use]
+    pub const fn is_packed(&self) -> bool {
         match self {
             Self::BasePacked(_) | Self::ExtensionPacked(_) => true,
             Self::Base(_) | Self::Extension(_) => false,
         }
     }
 
-    pub fn as_base(&self) -> Option<&Vec<&'a [PF<EF>]>> {
+    #[must_use]
+    pub const fn as_base(&self) -> Option<&Vec<&'a [PF<EF>]>> {
         match self {
             Self::Base(b) => Some(b),
             _ => None,
         }
     }
 
-    pub fn as_extension(&self) -> Option<&Vec<&'a [EF]>> {
+    #[must_use]
+    pub const fn as_extension(&self) -> Option<&Vec<&'a [EF]>> {
         match self {
             Self::Extension(e) => Some(e),
             _ => None,
         }
     }
 
-    pub fn as_packed_base(&self) -> Option<&Vec<&'a [PFPacking<EF>]>> {
+    #[must_use]
+    pub const fn as_packed_base(&self) -> Option<&Vec<&'a [PFPacking<EF>]>> {
         match self {
             Self::BasePacked(pb) => Some(pb),
             _ => None,
         }
     }
 
-    pub fn as_extension_packed(&self) -> Option<&Vec<&'a [EFPacking<EF>]>> {
+    #[must_use]
+    pub const fn as_extension_packed(&self) -> Option<&Vec<&'a [EFPacking<EF>]>> {
         match self {
             Self::ExtensionPacked(ep) => Some(ep),
             _ => None,
         }
     }
 
-    pub fn n_columns(&self) -> usize {
+    #[must_use]
+    pub const fn n_columns(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
             Self::Extension(v) => v.len(),
@@ -239,6 +263,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
+    #[must_use]
     pub fn pack(&self) -> MleGroup<'a, EF> {
         match self {
             Self::Base(base) => MleGroupRef::BasePacked(
@@ -257,6 +282,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
     }
 
     // Clone everything in the group, should not be used when n_vars is large
+    #[must_use]
     pub fn unpack(&self) -> MleGroupOwned<EF> {
         match self {
             Self::Base(pols) => MleGroupOwned::Base(pols.iter().map(|v| v.to_vec()).collect()),
@@ -302,6 +328,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn sumcheck_compute<SC>(
         &self,
         zs: &[usize],
@@ -354,7 +381,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
                         }
 
                         unsafe {
-                            let sum_ptr = all_sums.as_ptr() as *mut EFPacking<EF>;
+                            let sum_ptr = all_sums.as_ptr().cast_mut();
                             *sum_ptr.add(z_index * packed_fold_size + i) = res;
                         }
                     }
@@ -409,7 +436,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
                         }
 
                         unsafe {
-                            let sum_ptr = all_sums.as_ptr() as *mut EFPacking<EF>;
+                            let sum_ptr = all_sums.as_ptr().cast_mut();
                             *sum_ptr.add(z_index * packed_fold_size + i) = res;
                         }
                     }
@@ -462,6 +489,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn sumcheck_compute_not_packed<
     EF: ExtensionField<PF<EF>> + ExtensionField<IF>,
     IF: ExtensionField<PF<EF>>,
@@ -502,7 +530,7 @@ where
                 })
                 .collect::<Vec<_>>();
             unsafe {
-                let sum_ptr = all_sums.as_ptr() as *mut EF;
+                let sum_ptr = all_sums.as_ptr().cast_mut();
                 let mut res = computation.eval(&point, batching_scalars);
                 if let Some(eq_mle_eval) = eq_mle_eval {
                     res *= eq_mle_eval;

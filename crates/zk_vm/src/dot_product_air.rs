@@ -22,9 +22,9 @@ use crate::execution_trace::WitnessDotProduct;
 */
 
 const DOT_PRODUCT_AIR_COLUMNS: usize = 9;
-pub(crate) const DOT_PRODUCT_AIR_COLUMN_GROUPS: [Range<usize>; 5] = [0..1, 1..2, 2..5, 5..8, 8..9];
+pub const DOT_PRODUCT_AIR_COLUMN_GROUPS: [Range<usize>; 5] = [0..1, 1..2, 2..5, 5..8, 8..9];
 
-pub(crate) struct DotProductAir;
+pub struct DotProductAir;
 
 impl<F> BaseAir<F> for DotProductAir {
     fn width(&self) -> usize {
@@ -60,7 +60,7 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             res_up,
             computation_up,
         ] = up
-            .into_iter()
+            .iter()
             .map(|v| v.clone().into())
             .collect::<Vec<AB::Expr>>()
             .try_into()
@@ -76,7 +76,7 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             _res_down,
             computation_down,
         ] = down
-            .into_iter()
+            .iter()
             .map(|v| v.clone().into())
             .collect::<Vec<AB::Expr>>()
             .try_into()
@@ -91,22 +91,16 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             flag_down.clone() * product_up.clone()
                 + not_flag_down.clone() * (product_up + computation_down),
         );
-        builder.assert_zero(
-            not_flag_down.clone() * (len_up.clone() - (len_down.clone() + AB::Expr::ONE)),
-        );
-        builder.assert_zero(flag_down.clone() * (len_up.clone() - AB::Expr::ONE));
-        builder.assert_zero(
-            not_flag_down.clone() * (index_a_up.clone() - (index_a_down.clone() - AB::Expr::ONE)),
-        );
-        builder.assert_zero(
-            not_flag_down.clone() * (index_b_up.clone() - (index_b_down.clone() - AB::Expr::ONE)),
-        );
+        builder.assert_zero(not_flag_down.clone() * (len_up.clone() - (len_down + AB::Expr::ONE)));
+        builder.assert_zero(flag_down * (len_up - AB::Expr::ONE));
+        builder.assert_zero(not_flag_down.clone() * (index_a_up - (index_a_down - AB::Expr::ONE)));
+        builder.assert_zero(not_flag_down * (index_b_up - (index_b_down - AB::Expr::ONE)));
 
-        builder.assert_zero(flag_up.clone() * (computation_up - res_up));
+        builder.assert_zero(flag_up * (computation_up - res_up));
     }
 }
 
-pub(crate) fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> (Vec<Vec<EF>>, usize) {
+pub fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> (Vec<Vec<EF>>, usize) {
     let (
         mut flag,
         mut len,

@@ -2,12 +2,21 @@ use std::collections::BTreeMap;
 
 use p3_field::PrimeCharacteristicRing;
 use utils::ToUsize;
-use vm::*;
+use vm::{
+    Bytecode, Hint, Instruction, Label, MemOrConstant, MemOrFp, MemOrFpOrConstant, Operation,
+};
 
-use crate::{F, PUBLIC_INPUT_START, ZERO_VEC_PTR, intermediate_bytecode::*, lang::*};
+use crate::{
+    F, PUBLIC_INPUT_START, ZERO_VEC_PTR,
+    intermediate_bytecode::{
+        IntermediaryMemOrFpOrConstant, IntermediateBytecode, IntermediateInstruction,
+        IntermediateValue,
+    },
+    lang::{ConstExpression, ConstantValue},
+};
 
 impl IntermediateInstruction {
-    fn is_hint(&self) -> bool {
+    const fn is_hint(&self) -> bool {
         match self {
             Self::RequestMemory { .. }
             | Self::Print { .. }
@@ -62,7 +71,7 @@ pub(crate) fn compile_to_low_level_bytecode(
         pc += instructions.iter().filter(|i| !i.is_hint()).count();
     }
 
-    let ending_pc = label_to_pc.get("@end_program").cloned().unwrap();
+    let ending_pc = label_to_pc.get("@end_program").copied().unwrap();
 
     let mut low_level_bytecode = Vec::new();
     let mut hints = BTreeMap::new();
@@ -81,7 +90,7 @@ pub(crate) fn compile_to_low_level_bytecode(
                 offset: eval_const_expression_usize(offset, &compiler),
             });
         }
-        return None;
+        None
     };
 
     let try_as_mem_or_fp = |value: &IntermediateValue| match value {
@@ -89,7 +98,7 @@ pub(crate) fn compile_to_low_level_bytecode(
             offset: eval_const_expression_usize(offset, &compiler),
         }),
         IntermediateValue::Fp => Some(MemOrFp::Fp),
-        _ => None,
+        IntermediateValue::Constant(_) => None,
     };
 
     for (pc_start, chunk) in code_chunks {
@@ -102,8 +111,6 @@ pub(crate) fn compile_to_low_level_bytecode(
                     mut arg_c,
                     res,
                 } => {
-                    let operation: Operation = operation.try_into().unwrap();
-
                     if let Some(arg_a_cst) = try_as_constant(&arg_a, &compiler) {
                         if let Some(arg_b_cst) = try_as_constant(&arg_c, &compiler) {
                             // res = constant +/x constant
@@ -169,9 +176,8 @@ pub(crate) fn compile_to_low_level_bytecode(
                     dest,
                     updated_fp,
                 } => {
-                    let updated_fp = updated_fp
-                        .map(|fp| try_as_mem_or_fp(&fp).unwrap())
-                        .unwrap_or(MemOrFp::Fp);
+                    let updated_fp =
+                        updated_fp.map_or(MemOrFp::Fp, |fp| try_as_mem_or_fp(&fp).unwrap());
                     low_level_bytecode.push(Instruction::JumpIfNotZero {
                         condition: try_as_mem_or_constant(&condition).unwrap(),
                         dest: try_as_mem_or_constant(&dest).unwrap(),
@@ -183,8 +189,7 @@ pub(crate) fn compile_to_low_level_bytecode(
                         condition: MemOrConstant::one(),
                         dest: try_as_mem_or_constant(&dest).unwrap(),
                         updated_fp: updated_fp
-                            .map(|fp| try_as_mem_or_fp(&fp).unwrap())
-                            .unwrap_or(MemOrFp::Fp),
+                            .map_or(MemOrFp::Fp, |fp| try_as_mem_or_fp(&fp).unwrap()),
                     });
                 }
                 IntermediateInstruction::Poseidon2_16 { arg_a, arg_b, res } => {
@@ -275,12 +280,12 @@ pub(crate) fn compile_to_low_level_bytecode(
         }
     }
 
-    return Ok(Bytecode {
+    Ok(Bytecode {
         instructions: low_level_bytecode,
         hints,
         starting_frame_memory,
         ending_pc,
-    });
+    })
 }
 
 fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
@@ -291,11 +296,8 @@ fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
         ConstantValue::FunctionSize { function_name } => *compiler
             .memory_size_per_function
             .get(function_name)
-            .expect(&format!(
-                "Function {} not found in memory size map",
-                function_name
-            )),
-        ConstantValue::Label(label) => compiler.label_to_pc.get(label).cloned().unwrap(),
+            .unwrap_or_else(|| panic!("Function {function_name} not found in memory size map")),
+        ConstantValue::Label(label) => compiler.label_to_pc.get(label).copied().unwrap(),
     }
 }
 
@@ -321,21 +323,21 @@ impl IntermediateValue {
     fn try_into_mem_or_fp(&self, compiler: &Compiler) -> Result<MemOrFp, String> {
         match self {
             Self::MemoryAfterFp { offset } => Ok(MemOrFp::MemoryAfterFp {
-                offset: eval_const_expression_usize(&offset, compiler),
+                offset: eval_const_expression_usize(offset, compiler),
             }),
             Self::Fp => Ok(MemOrFp::Fp),
-            _ => Err(format!("Cannot convert {:?} to MemOrFp", self)),
+            _ => Err(format!("Cannot convert {self:?} to MemOrFp")),
         }
     }
     fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {
         if let Some(cst) = try_as_constant(self, compiler) {
             return Ok(MemOrConstant::Constant(cst));
         }
-        if let IntermediateValue::MemoryAfterFp { offset } = self {
+        if let Self::MemoryAfterFp { offset } = self {
             return Ok(MemOrConstant::MemoryAfterFp {
                 offset: eval_const_expression_usize(offset, compiler),
             });
         }
-        Err(format!("Cannot convert {:?} to MemOrConstant", self))
+        Err(format!("Cannot convert {self:?} to MemOrConstant"))
     }
 }
