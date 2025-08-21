@@ -293,7 +293,7 @@ fn compile_lines(
                 let then_instructions = compile_lines(
                     then_branch,
                     compiler,
-                    Some(end_label.to_string()),
+                    Some(end_label.clone()),
                     &mut then_declared_vars,
                 )?;
                 let then_stack = compiler.stack_size;
@@ -303,7 +303,7 @@ fn compile_lines(
                 let else_instructions = compile_lines(
                     else_branch,
                     compiler,
-                    Some(end_label.to_string()),
+                    Some(end_label.clone()),
                     &mut else_declared_vars,
                 )?;
                 let else_stack = compiler.stack_size;
