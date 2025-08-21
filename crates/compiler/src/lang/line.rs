@@ -74,9 +74,7 @@ impl Line {
                 index,
                 value,
             } => {
-                format!(
-                    "{array}[{index}] = {value}"
-                )
+                format!("{array}[{index}] = {value}")
             }
             Self::Assert(condition) => format!("assert {condition}"),
             Self::IfCondition {
@@ -97,9 +95,7 @@ impl Line {
                     .join("\n");
 
                 if else_branch.is_empty() {
-                    format!(
-                        "if {condition} {{\n{then_str}\n{spaces}}}"
-                    )
+                    format!("if {condition} {{\n{then_str}\n{spaces}}}")
                 } else {
                     format!(
                         "if {condition} {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}"
@@ -196,17 +192,13 @@ impl Line {
                 vectorized,
             } => {
                 if *vectorized {
-                    format!(
-                        "{var} = malloc_vectorized({size})"
-                    )
+                    format!("{var} = malloc_vectorized({size})")
                 } else {
                     format!("{var} = malloc({size})")
                 }
             }
             Self::DecomposeBits { var, to_decompose } => {
-                format!(
-                    "{var} = decompose_bits({to_decompose})"
-                )
+                format!("{var} = decompose_bits({to_decompose})")
             }
             Self::Break => "break".to_string(),
             Self::Panic => "panic".to_string(),

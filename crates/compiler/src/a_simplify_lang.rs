@@ -1132,9 +1132,7 @@ fn handle_const_arguments_helper(
                     for (arg_expr, (arg_var, is_constant)) in args.iter().zip(&func.arguments) {
                         if *is_constant {
                             let const_eval = arg_expr.naive_eval().unwrap_or_else(|| {
-                                panic!(
-                                    "Failed to evaluate constant argument: {arg_expr}"
-                                )
+                                panic!("Failed to evaluate constant argument: {arg_expr}")
                             });
                             const_evals.push((arg_var.clone(), const_eval));
                         }
@@ -1331,9 +1329,7 @@ impl ToString for VarOrConstMallocAccess {
                 malloc_label,
                 offset,
             } => {
-                format!(
-                    "ConstMallocAccess({malloc_label}, {offset})"
-                )
+                format!("ConstMallocAccess({malloc_label}, {offset})")
             }
         }
     }
@@ -1349,13 +1345,7 @@ impl SimpleLine {
                 arg0,
                 arg1,
             } => {
-                format!(
-                    "{} = {} {} {}",
-                    var.to_string(),
-                    arg0,
-                    operation,
-                    arg1
-                )
+                format!("{} = {} {} {}", var.to_string(), arg0, operation, arg1)
             }
             Self::DecomposeBits {
                 var: result,
@@ -1365,9 +1355,7 @@ impl SimpleLine {
                 format!("{result} = decompose_bits({to_decompose})")
             }
             Self::RawAccess { res, index, shift } => {
-                format!(
-                    "{res} = memory[{index} + {shift}]"
-                )
+                format!("{res} = memory[{index} + {shift}]")
             }
             Self::IfNotZero {
                 condition,
@@ -1387,9 +1375,7 @@ impl SimpleLine {
                     .join("\n");
 
                 if else_branch.is_empty() {
-                    format!(
-                        "if {condition} != 0 {{\n{then_str}\n{spaces}}}"
-                    )
+                    format!("if {condition} != 0 {{\n{then_str}\n{spaces}}}")
                 } else {
                     format!(
                         "if {condition} != 0 {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}"

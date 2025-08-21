@@ -226,12 +226,7 @@ impl ToString for IntermediateInstruction {
                 shift_0,
                 shift_1,
                 res,
-            } => format!(
-                "{} = m[m[fp + {}] + {}]",
-                res.to_string(),
-                shift_0,
-                shift_1
-            ),
+            } => format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1),
             Self::DotProduct {
                 arg0,
                 arg1,
