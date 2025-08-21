@@ -155,10 +155,7 @@ impl Instruction {
                 state[DIMENSION..].copy_from_slice(&b);
                 p16.permute_mut(&mut state);
 
-                let out0: [F; DIMENSION] = state[..DIMENSION].try_into().unwrap();
-                let out1: [F; DIMENSION] = state[DIMENSION..].try_into().unwrap();
-                memory.set_vector(r_ptr, out0)?;
-                memory.set_vector(r_ptr + 1, out1)?;
+                memory.set_vectorized_slice(r_ptr, &state)?;
                 *pc += 1;
             }
 
@@ -179,8 +176,7 @@ impl Instruction {
                 state[2 * DIMENSION..].copy_from_slice(&b);
                 p24.permute_mut(&mut state);
 
-                let out: [F; DIMENSION] = state[2 * DIMENSION..].try_into().unwrap();
-                memory.set_vector(r_ptr, out)?;
+                memory.set_vectorized_slice(r_ptr, &state[2 * DIMENSION..])?;
                 *pc += 1;
             }
 
@@ -196,17 +192,8 @@ impl Instruction {
                 let p1 = arg1.read_value(memory, *fp)?.to_usize();
                 let pr = res.read_value(memory, *fp)?.to_usize();
 
-                // leverage Memory helper if you have it; otherwise map manually
-                let s0 = (0..*size)
-                    .map(|i| {
-                        Ok(EF::from_basis_coefficients_slice(&memory.get_vector(p0 + i)?).unwrap())
-                    })
-                    .collect::<Result<Vec<_>, RunnerError>>()?;
-                let s1 = (0..*size)
-                    .map(|i| {
-                        Ok(EF::from_basis_coefficients_slice(&memory.get_vector(p1 + i)?).unwrap())
-                    })
-                    .collect::<Result<Vec<_>, RunnerError>>()?;
+                let s0 = memory.get_vectorized_slice_extension::<EF>(p0, *size)?;
+                let s1 = memory.get_vectorized_slice_extension::<EF>(p1, *size)?;
 
                 let dp: [F; DIMENSION] = dot_product::<EF, _, _>(s0.into_iter(), s1.into_iter())
                     .as_basis_coefficients_slice()
@@ -230,18 +217,8 @@ impl Instruction {
 
                 let start = pcf << *n_vars;
                 let len = 1usize << *n_vars;
-                let coeffs = (0..len)
-                    .map(|i| memory.get(start + i))
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                let point = (0..*n_vars)
-                    .map(|i| {
-                        Ok(
-                            EF::from_basis_coefficients_slice(&memory.get_vector(ppt + i)?)
-                                .unwrap(),
-                        )
-                    })
-                    .collect::<Result<Vec<_>, RunnerError>>()?;
+                let coeffs = memory.slice(start, len)?;
+                let point = memory.get_vectorized_slice_extension::<EF>(ppt, *n_vars)?;
 
                 let eval = coeffs.evaluate(&MultilinearPoint(point));
                 let out: [F; DIMENSION] = eval.as_basis_coefficients_slice().try_into().unwrap();
