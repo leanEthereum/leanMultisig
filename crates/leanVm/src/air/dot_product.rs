@@ -35,6 +35,14 @@ impl<F> BaseAir<F> for DotProductAir {
     fn width(&self) -> usize {
         DOT_PRODUCT_AIR_COLUMNS
     }
+
+    fn structured(&self) -> bool {
+        true
+    }
+
+    fn degree(&self) -> usize {
+        3
+    }
 }
 
 impl<AB: AirBuilder> Air<AB> for DotProductAir {

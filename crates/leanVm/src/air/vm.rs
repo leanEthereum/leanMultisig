@@ -21,6 +21,13 @@ impl<F> BaseAir<F> for VMAir {
     fn width(&self) -> usize {
         N_EXEC_AIR_COLUMNS
     }
+
+    fn structured(&self) -> bool {
+        true
+    }
+    fn degree(&self) -> usize {
+        5
+    }
 }
 
 impl<AB: AirBuilder> Air<AB> for VMAir {

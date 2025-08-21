@@ -1,5 +1,5 @@
 use p3_field::BasedVectorSpace;
-use whir_p3::poly::{coeffs::CoefficientList, multilinear::MultilinearPoint};
+use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 use crate::{
     bytecode::operand::{MemOrConstant, MemOrFp},
@@ -65,7 +65,7 @@ impl MultilinearEvalInstruction {
             .get_vectorized_slice_extension(ptr_point, self.n_vars)?;
 
         // Evaluate the multilinear polynomial.
-        let eval = CoefficientList::new(slice_coeffs).evaluate(&MultilinearPoint(point));
+        let eval = slice_coeffs.evaluate(&MultilinearPoint(point));
 
         // Write the resulting vector back to memory.
         memory_manager.load_data::<F>(ptr_res, eval.as_basis_coefficients_slice())?;
