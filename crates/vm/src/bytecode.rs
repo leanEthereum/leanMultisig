@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use p3_field::PrimeCharacteristicRing;
 
@@ -36,6 +36,15 @@ pub enum MemOrFp {
 pub enum Operation {
     Add,
     Mul,
+}
+
+impl fmt::Display for Operation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Add => write!(f, "+"),
+            Self::Mul => write!(f, "x"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -180,15 +189,6 @@ impl ToString for MemOrFpOrConstant {
     }
 }
 
-impl ToString for Operation {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Add => "+".to_string(),
-            Self::Mul => "x".to_string(),
-        }
-    }
-}
-
 impl ToString for Instruction {
     fn to_string(&self) -> String {
         match self {
@@ -202,7 +202,7 @@ impl ToString for Instruction {
                     "{} = {} {} {}",
                     res.to_string(),
                     arg_a.to_string(),
-                    operation.to_string(),
+                    operation,
                     arg_c.to_string()
                 )
             }

@@ -15,26 +15,6 @@ use crate::{
     lang::{ConstExpression, ConstantValue},
 };
 
-impl IntermediateInstruction {
-    const fn is_hint(&self) -> bool {
-        match self {
-            Self::RequestMemory { .. }
-            | Self::Print { .. }
-            | Self::DecomposeBits { .. }
-            | Self::Inverse { .. } => true,
-            Self::Computation { .. }
-            | Self::Panic
-            | Self::Deref { .. }
-            | Self::JumpIfNotZero { .. }
-            | Self::Jump { .. }
-            | Self::Poseidon2_16 { .. }
-            | Self::Poseidon2_24 { .. }
-            | Self::DotProduct { .. }
-            | Self::MultilinearEval { .. } => false,
-        }
-    }
-}
-
 struct Compiler {
     memory_size_per_function: BTreeMap<String, usize>,
     label_to_pc: BTreeMap<Label, usize>,
@@ -329,6 +309,7 @@ impl IntermediateValue {
             _ => Err(format!("Cannot convert {self:?} to MemOrFp")),
         }
     }
+
     fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {
         if let Some(cst) = try_as_constant(self, compiler) {
             return Ok(MemOrConstant::Constant(cst));
