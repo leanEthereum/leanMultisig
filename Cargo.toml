@@ -18,6 +18,7 @@ members = [
     "crates/lookup",
     "crates/xmss",
     "crates/vm",
+    "crates/compiler",
 ]
 resolver = "3"
 
@@ -56,6 +57,7 @@ pcs = { path = "crates/pcs" }
 lookup = { path = "crates/lookup" }
 xmss = { path = "crates/xmss" }
 vm = { path = "crates/vm" }
+compiler = { path = "crates/compiler" }
 
 rand = "0.9.2"
 sha3 = "0.10.8"

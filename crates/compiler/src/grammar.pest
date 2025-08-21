@@ -1,0 +1,79 @@
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+
+// Program structure
+program = { SOI ~ constant_declaration* ~ function+ ~ EOI }
+
+// Constants
+constant_declaration = { "const" ~ identifier ~ "=" ~ expression ~ ";" }
+
+// Functions
+function = { "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ return_count? ~ "{" ~ statement* ~ "}" }
+parameter_list = { parameter ~ ("," ~ parameter)* }
+parameter = { (const_keyword)? ~ identifier }
+const_keyword = { "const" }
+return_count = { "->" ~ number }
+
+// Statements
+statement = {
+    single_assignment |
+    array_assign |
+    if_statement |
+    for_statement |
+    return_statement |
+    break_statement |
+    continue_statement |
+    function_call |
+    assert_eq_statement |
+    assert_not_eq_statement
+}
+
+return_statement = { "return" ~ (tuple_expression)? ~ ";" }
+
+break_statement = { "break" ~ ";" }
+continue_statement = { "continue" ~ ";" }
+
+single_assignment = { identifier ~ "=" ~ expression ~ ";" }
+
+array_assign = { identifier ~ "[" ~ expression ~ "]" ~ "=" ~ expression ~ ";" }
+
+if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_clause? }
+
+condition = {condition_eq | condition_diff}
+condition_eq = { expression ~ "==" ~ expression }
+condition_diff = { expression ~ "!=" ~ expression }
+
+else_clause = { "else" ~ "{" ~ statement* ~ "}" }
+
+for_statement = { "for" ~ identifier ~ "in" ~ rev_clause? ~ expression ~ ".." ~ expression ~ unroll_clause? ~ "{" ~ statement* ~ "}" }
+rev_clause = { "rev" }
+unroll_clause = { "unroll" }
+
+function_call = { function_res? ~ identifier ~ "(" ~ tuple_expression? ~ ")" ~ ";" }
+function_res = { var_list ~ "=" }
+var_list = { identifier ~ ("," ~ identifier)* }
+
+assert_eq_statement = { "assert" ~ expression ~ "==" ~ expression ~ ";" }
+assert_not_eq_statement = { "assert" ~ expression ~ "!=" ~ expression ~ ";" }
+
+// Expressions
+tuple_expression = { expression ~ ("," ~ expression)* }
+expression = { add_expr }
+add_expr = { sub_expr ~ ("+" ~ sub_expr)* }
+sub_expr = { mul_expr ~ ("-" ~ mul_expr)* }
+mul_expr = { div_expr ~ ("*" ~ div_expr)* }
+div_expr = { exp_expr ~ ("/" ~ exp_expr)* }
+exp_expr = { primary ~ ("**" ~ primary)* }
+primary = { 
+    "(" ~ expression ~ ")" | 
+    array_access_expr |
+    var_or_constant
+}
+array_access_expr = { identifier ~ "[" ~ expression ~ "]" }
+
+// Basic elements
+var_or_constant = { constant_value | identifier }
+constant_value = { number | "public_input_start" }
+
+// Lexical elements
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+number = @{ ASCII_DIGIT+ }
