@@ -17,6 +17,7 @@ members = [
     "crates/pcs",
     "crates/lookup",
     "crates/xmss",
+    "crates/vm",
 ]
 resolver = "3"
 
@@ -54,6 +55,7 @@ sumcheck = { path = "crates/sumcheck" }
 pcs = { path = "crates/pcs" }
 lookup = { path = "crates/lookup" }
 xmss = { path = "crates/xmss" }
+vm = { path = "crates/vm" }
 
 rand = "0.9.2"
 sha3 = "0.10.8"
