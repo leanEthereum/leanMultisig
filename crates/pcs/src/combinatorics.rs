@@ -1,5 +1,4 @@
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::{cmp::Reverse, collections::BinaryHeap};
 
 #[derive(Debug, Clone)]
 pub struct TreeOfVariables {

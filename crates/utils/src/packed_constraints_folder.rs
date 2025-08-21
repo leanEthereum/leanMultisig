@@ -1,9 +1,8 @@
-use crate::EFPacking;
-use crate::PF;
-use crate::PFPacking;
 use p3_air::AirBuilder;
 use p3_field::ExtensionField;
 use p3_matrix::dense::RowMajorMatrixView;
+
+use crate::{EFPacking, PF, PFPacking};
 
 #[derive(Debug)]
 pub struct ConstraintFolderPackedBase<'a, EF: ExtensionField<PF<EF>>> {

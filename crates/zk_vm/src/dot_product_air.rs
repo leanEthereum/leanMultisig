@@ -91,16 +91,10 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             flag_down.clone() * product_up.clone()
                 + not_flag_down.clone() * (product_up + computation_down),
         );
-        builder.assert_zero(
-            not_flag_down.clone() * (len_up.clone() - (len_down + AB::Expr::ONE)),
-        );
+        builder.assert_zero(not_flag_down.clone() * (len_up.clone() - (len_down + AB::Expr::ONE)));
         builder.assert_zero(flag_down * (len_up - AB::Expr::ONE));
-        builder.assert_zero(
-            not_flag_down.clone() * (index_a_up - (index_a_down - AB::Expr::ONE)),
-        );
-        builder.assert_zero(
-            not_flag_down * (index_b_up - (index_b_down - AB::Expr::ONE)),
-        );
+        builder.assert_zero(not_flag_down.clone() * (index_a_up - (index_a_down - AB::Expr::ONE)));
+        builder.assert_zero(not_flag_down * (index_b_up - (index_b_down - AB::Expr::ONE)));
 
         builder.assert_zero(flag_up * (computation_up - res_up));
     }

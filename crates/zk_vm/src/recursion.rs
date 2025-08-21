@@ -995,9 +995,7 @@ pub fn run_whir_verif() {
             % (1 << first_folding_factor));
     assert_eq!(proof_data_padding % 8, 0);
     proof_data_padding /= 8;
-    println!(
-        "1st merkle leaf padding: {proof_data_padding} (vectorized)"
-    ); // to align the first merkle leaves (in base field)
+    println!("1st merkle leaf padding: {proof_data_padding} (vectorized)"); // to align the first merkle leaves (in base field)
     public_input.extend(F::zero_vec(proof_data_padding * 8));
 
     public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());

@@ -1,24 +1,19 @@
 use p3_challenger::DuplexChallenger;
-use p3_field::BasedVectorSpace;
-use p3_field::ExtensionField;
-use p3_field::PackedFieldExtension;
-use p3_field::PackedValue;
-use p3_field::PrimeField64;
-use p3_field::{Field, PrimeCharacteristicRing};
+use p3_field::{
+    BasedVectorSpace, ExtensionField, Field, PackedFieldExtension, PackedValue,
+    PrimeCharacteristicRing, PrimeField64,
+};
 use p3_koala_bear::KoalaBear;
-use p3_symmetric::CryptographicHasher;
-use p3_symmetric::PaddingFreeSponge;
-use p3_symmetric::PseudoCompressionFunction;
-use p3_symmetric::TruncatedPermutation;
-
+use p3_symmetric::{
+    CryptographicHasher, PaddingFreeSponge, PseudoCompressionFunction, TruncatedPermutation,
+};
 use rayon::prelude::*;
-use whir_p3::fiat_shamir::{prover::ProverState, verifier::VerifierState};
-use whir_p3::whir::config::WhirConfigBuilder;
+use whir_p3::{
+    fiat_shamir::{prover::ProverState, verifier::VerifierState},
+    whir::config::WhirConfigBuilder,
+};
 
-use crate::Poseidon16;
-use crate::Poseidon24;
-use crate::build_poseidon16;
-use crate::build_poseidon24;
+use crate::{Poseidon16, Poseidon24, build_poseidon16, build_poseidon24};
 
 pub type PF<F> = <F as PrimeCharacteristicRing>::PrimeSubfield;
 pub type PFPacking<F> = <PF<F> as Field>::Packing;
@@ -84,32 +79,39 @@ pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Ve
         .collect()
 }
 
-#[must_use] pub const fn packing_log_width<EF: Field>() -> usize {
+#[must_use]
+pub const fn packing_log_width<EF: Field>() -> usize {
     packing_width::<EF>().ilog2() as usize
 }
 
-#[must_use] pub const fn packing_width<EF: Field>() -> usize {
+#[must_use]
+pub const fn packing_width<EF: Field>() -> usize {
     PFPacking::<EF>::WIDTH
 }
 
-#[must_use] pub fn build_challenger() -> MyChallenger {
+#[must_use]
+pub fn build_challenger() -> MyChallenger {
     MyChallenger::new(build_poseidon16())
 }
 
-#[must_use] pub fn build_merkle_hash() -> MyMerkleHash {
+#[must_use]
+pub fn build_merkle_hash() -> MyMerkleHash {
     MyMerkleHash::new(build_poseidon24())
 }
 
-#[must_use] pub fn build_merkle_compress() -> MyMerkleCompress {
+#[must_use]
+pub fn build_merkle_compress() -> MyMerkleCompress {
     MyMerkleCompress::new(build_poseidon16())
 }
 
-#[must_use] pub fn build_prover_state<EF: ExtensionField<KoalaBear>>()
+#[must_use]
+pub fn build_prover_state<EF: ExtensionField<KoalaBear>>()
 -> ProverState<KoalaBear, EF, MyChallenger> {
     ProverState::new(build_challenger())
 }
 
-#[must_use] pub fn build_verifier_state<EF: ExtensionField<KoalaBear>>(
+#[must_use]
+pub fn build_verifier_state<EF: ExtensionField<KoalaBear>>(
     prover_state: &ProverState<KoalaBear, EF, MyChallenger>,
 ) -> VerifierState<KoalaBear, EF, MyChallenger> {
     VerifierState::new(prover_state.proof_data().to_vec(), build_challenger())
