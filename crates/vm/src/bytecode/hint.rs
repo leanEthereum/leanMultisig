@@ -107,7 +107,7 @@ impl Hint {
                 let values = content
                     .iter()
                     .map(|m| Ok(m.read_value(memory, fp)?.to_string()))
-                    .collect::<Result<Vec<_>, RunnerError>>()?;
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 // Logs for performance analysis:
                 if values.first().is_some_and(|s| s == "123456789") {

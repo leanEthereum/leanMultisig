@@ -49,7 +49,7 @@ impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<
 
     #[inline]
     fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {
-        let x: IF = x.into();
+        let x = x.into();
         if !x.is_zero() {
             self.errors.push(self.constraint_index);
         }

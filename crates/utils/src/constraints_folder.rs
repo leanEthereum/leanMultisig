@@ -49,7 +49,7 @@ where
 
     #[inline]
     fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {
-        let x: NF = x.into();
+        let x = x.into();
         let alpha_power = self.alpha_powers[self.constraint_index];
         self.accumulator += alpha_power * x;
         self.constraint_index += 1;

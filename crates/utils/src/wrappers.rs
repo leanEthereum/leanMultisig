@@ -65,7 +65,7 @@ pub fn pack_extension<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking
     slice
         .par_chunks_exact(packing_width::<EF>())
         .map(EFPacking::<EF>::from_ext_slice)
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {

@@ -54,8 +54,7 @@ impl TreeOfVariablesInner {
 
 impl TreeOfVariables {
     pub fn compute_optimal(vars_per_polynomial: Vec<usize>) -> Self {
-        let n = vars_per_polynomial.len();
-        assert!(n > 0);
+        assert!(!vars_per_polynomial.is_empty());
 
         let root = Self::compute_greedy(&vars_per_polynomial);
 
