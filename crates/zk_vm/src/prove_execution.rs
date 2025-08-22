@@ -35,7 +35,7 @@ use crate::{
     },
     dot_product_air::{DOT_PRODUCT_AIR_COLUMN_GROUPS, DotProductAir, build_dot_product_columns},
     exec_column_groups,
-    execution_trace::{ExecutionTrace, get_execution_trace},
+    execution_trace::ExecutionTrace,
     poseidon_tables::{all_poseidon_16_indexes, all_poseidon_24_indexes, build_poseidon_columns},
 };
 
@@ -57,7 +57,7 @@ pub fn prove_execution(
         memory,
     } = info_span!("Witness generation").in_scope(|| {
         let execution_result = bytecode.execute(public_input, private_input);
-        get_execution_trace(bytecode, &execution_result)
+        ExecutionTrace::new(bytecode, &execution_result)
     });
 
     let public_memory = &memory[..public_memory_size];

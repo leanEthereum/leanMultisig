@@ -10,6 +10,7 @@ mod instruction_encoder;
 mod poseidon_tables;
 pub mod prove_execution;
 pub mod verify_execution;
+pub mod witness;
 
 #[cfg(test)]
 pub mod recursion;

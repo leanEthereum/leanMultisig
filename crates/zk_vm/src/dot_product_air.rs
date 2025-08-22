@@ -5,7 +5,7 @@ use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 use vm::EF;
 
-use crate::execution_trace::WitnessDotProduct;
+use crate::witness::dot_product::WitnessDotProduct;
 
 /*
 | StartFlag | Len | IndexA | IndexB | IndexRes | ValueA | ValueB | Res           | Computation                   |
