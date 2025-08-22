@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use p3_field::PrimeCharacteristicRing;
 use pest::{Parser, iterators::Pair};
 use pest_derive::Parser;
+use thiserror::Error;
 use utils::ToUsize;
 use vm::F;
 
@@ -18,28 +19,14 @@ use crate::{
 #[grammar = "grammar.pest"]
 pub struct LangParser;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub(crate) enum ParseError {
-    PestError(pest::error::Error<Rule>),
+    #[error(transparent)]
+    PestError(#[from] pest::error::Error<Rule>),
+
+    #[error("Semantic error: {0}")]
     SemanticError(String),
 }
-
-impl From<pest::error::Error<Rule>> for ParseError {
-    fn from(error: pest::error::Error<Rule>) -> Self {
-        Self::PestError(error)
-    }
-}
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PestError(e) => write!(f, "Parse error: {e}"),
-            Self::SemanticError(e) => write!(f, "Semantic error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 pub(crate) fn parse_program(input: &str) -> Result<Program, ParseError> {
     let input = remove_comments(input);

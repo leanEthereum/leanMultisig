@@ -46,7 +46,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintFolderPackedBase<'
     #[inline]
     fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {
         let alpha_power = self.alpha_powers[self.constraint_index];
-        let x: PFPacking<EF> = x.into();
+        let x = x.into();
         self.accumulator += Into::<EFPacking<EF>>::into(alpha_power) * x;
         self.constraint_index += 1;
     }
@@ -102,7 +102,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintFolderPackedExtens
     #[inline]
     fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {
         let alpha_power = self.alpha_powers[self.constraint_index];
-        let x: EFPacking<EF> = x.into();
+        let x = x.into();
         self.accumulator += x * alpha_power;
         self.constraint_index += 1;
     }

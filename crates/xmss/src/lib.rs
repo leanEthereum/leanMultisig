@@ -34,13 +34,12 @@ impl WotsSecretKey {
 
     #[must_use]
     pub fn new(pre_images: [Digest; N_CHAINS], poseidon16: &Poseidon16) -> Self {
-        let mut public_key = [Default::default(); N_CHAINS];
-        for i in 0..N_CHAINS {
-            public_key[i] = iterate_hash(&pre_images[i], CHAIN_LENGTH, poseidon16);
-        }
+        let public_key = WotsPublicKey(std::array::from_fn(|i| {
+            iterate_hash(&pre_images[i], CHAIN_LENGTH, poseidon16)
+        }));
         Self {
             pre_images,
-            public_key: WotsPublicKey(public_key),
+            public_key,
         }
     }
 

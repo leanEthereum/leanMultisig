@@ -31,6 +31,7 @@ p3-poseidon2-air.workspace = true
 lookup.workspace = true
 sumcheck.workspace = true
 vm.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 hashsig.workspace = true
