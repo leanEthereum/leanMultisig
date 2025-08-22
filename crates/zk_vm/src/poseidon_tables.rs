@@ -4,7 +4,7 @@ use utils::{
 };
 use vm::F;
 
-use crate::execution_trace::{WitnessPoseidon16, WitnessPoseidon24};
+use crate::witness::poseidon::{WitnessPoseidon16, WitnessPoseidon24};
 
 pub fn build_poseidon_columns(
     poseidons_16: &[WitnessPoseidon16],
