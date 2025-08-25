@@ -1,7 +1,6 @@
 use p3_challenger::DuplexChallenger;
 use p3_field::{
-    BasedVectorSpace, ExtensionField, Field, PackedFieldExtension, PackedValue,
-    PrimeCharacteristicRing, PrimeField64,
+    ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing, PrimeField64,
 };
 use p3_koala_bear::KoalaBear;
 use p3_symmetric::{
@@ -69,14 +68,7 @@ pub fn pack_extension<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking
 }
 
 pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {
-    vec.iter()
-        .flat_map(|x| {
-            let packed_coeffs = x.as_basis_coefficients_slice();
-            (0..packing_width::<EF>())
-                .map(|i| EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]))
-                .collect::<Vec<_>>()
-        })
-        .collect()
+    EFPacking::<EF>::to_ext_iter(vec.iter().copied()).collect()
 }
 
 #[must_use]
