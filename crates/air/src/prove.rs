@@ -16,8 +16,7 @@ use whir_p3::{
 use super::table::AirTable;
 use crate::{
     MyAir,
-    uni_skip_utils::{matrix_down_folded, matrix_up_folded},
-    utils::{column_down, column_up, columns_up_and_down},
+    utils::{column_down, column_up, columns_up_and_down, matrix_down_folded, matrix_up_folded},
     witness::AirWitness,
 };
 
