@@ -10,7 +10,7 @@ use p3_util::{log2_ceil_usize, log2_strict_usize};
 #[derive(Debug)]
 pub struct AirWitness<'a, F> {
     pub cols: Vec<&'a [F]>,
-    pub column_groups: Vec<Range<usize>>,
+    pub column_groups: &'a [Range<usize>],
 }
 
 impl<'a, F> Deref for AirWitness<'a, F> {
@@ -21,11 +21,8 @@ impl<'a, F> Deref for AirWitness<'a, F> {
 }
 
 impl<'a, F> AirWitness<'a, F> {
-    pub fn new(cols: &'a [impl Borrow<[F]>], column_groups: &[Range<usize>]) -> Self {
-        let cols = cols
-            .iter()
-            .map(std::borrow::Borrow::borrow)
-            .collect::<Vec<_>>();
+    pub fn new(cols: &'a [impl Borrow<[F]>], column_groups: &'a [Range<usize>]) -> Self {
+        let cols = cols.iter().map(Borrow::borrow).collect::<Vec<_>>();
         assert!(
             cols.iter()
                 .all(|col| col.len() == (1 << log2_strict_usize(cols[0].len()))),
@@ -36,7 +33,7 @@ impl<'a, F> AirWitness<'a, F> {
         assert!(column_groups.iter().all(|r| r.start < r.end));
         Self {
             cols,
-            column_groups: column_groups.to_vec(),
+            column_groups,
         }
     }
 

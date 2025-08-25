@@ -286,7 +286,7 @@ fn eval_unstructured_column_groups<EF: ExtensionField<PF<EF>> + ExtensionField<I
     columns_batching_scalars: &[EF],
 ) -> Vec<Vec<EF>> {
     let mut all_sub_evals = vec![];
-    for group in &witnesses.column_groups {
+    for group in witnesses.column_groups {
         let batched_column = multilinears_linear_combination(
             &witnesses.cols[group.clone()],
             &eval_eq(from_end(
@@ -403,7 +403,7 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
     let mut all_inner_sums = vec![];
     let mut all_batched_columns = vec![];
     let mut all_batched_columns_mixed = vec![];
-    for group in &witness.column_groups {
+    for group in witness.column_groups {
         let batched_column = multilinears_linear_combination(
             &witness.cols[group.clone()],
             &eval_eq(from_end(
