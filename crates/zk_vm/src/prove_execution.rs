@@ -80,7 +80,8 @@ pub fn prove_execution(
             .iter()
             .map(Vec::as_slice),
     );
-    let exec_witness = AirWitness::<PF<EF>>::new(&exec_columns, &exec_column_groups());
+    let exec_column_groups = exec_column_groups();
+    let exec_witness = AirWitness::new(&exec_columns, &exec_column_groups);
     let exec_table = AirTable::<EF, _>::new(VMAir);
 
     #[cfg(test)]
@@ -96,8 +97,10 @@ pub fn prove_execution(
     let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
 
     let (p16_columns, p24_columns) = build_poseidon_columns(&poseidons_16, &poseidons_24);
-    let p16_witness = AirWitness::new(&p16_columns, &poseidon_16_column_groups(&p16_air));
-    let p24_witness = AirWitness::new(&p24_columns, &poseidon_24_column_groups(&p24_air));
+    let p16_column_groups = poseidon_16_column_groups(&p16_air);
+    let p24_column_groups = poseidon_24_column_groups(&p24_air);
+    let p16_witness = AirWitness::new(&p16_columns, &p16_column_groups);
+    let p24_witness = AirWitness::new(&p24_columns, &p24_column_groups);
 
     let (dot_product_columns, dot_product_padding_len) = build_dot_product_columns(&dot_products);
     let dot_product_witness = AirWitness::new(&dot_product_columns, &DOT_PRODUCT_AIR_COLUMN_GROUPS);
