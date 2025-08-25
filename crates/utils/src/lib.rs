@@ -18,9 +18,6 @@ pub use packed_constraints_folder::*;
 mod wrappers;
 pub use wrappers::*;
 
-mod display;
-pub use display::*;
-
 mod point;
 pub use point::*;
 
