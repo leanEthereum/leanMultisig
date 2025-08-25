@@ -25,24 +25,20 @@ use crate::{
     COL_INDEX_POSEIDON_24, instruction_encoder::field_representation,
 };
 
-pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<Range<usize>> {
-    vec![
-        0..8,
-        8..16,
-        16..poseidon_16_air.width() - 16,
-        poseidon_16_air.width() - 16..poseidon_16_air.width() - 8,
-        poseidon_16_air.width() - 8..poseidon_16_air.width(),
-    ]
+pub fn poseidon_16_column_groups(air: &Poseidon16Air) -> Vec<Range<usize>> {
+    let w = air.width();
+    vec![0..8, 8..16, 16..w - 16, w - 16..w - 8, w - 8..w]
 }
 
-pub fn poseidon_24_column_groups(poseidon_24_air: &Poseidon24Air) -> Vec<Range<usize>> {
+pub fn poseidon_24_column_groups(air: &Poseidon24Air) -> Vec<Range<usize>> {
+    let w = air.width();
     vec![
         0..8,
         8..16,
         16..24,
-        24..poseidon_24_air.width() - 24,
-        poseidon_24_air.width() - 24..poseidon_24_air.width() - 8, // TODO should we commit to this part ? Probably not, but careful here, we will not check evaluations for this part
-        poseidon_24_air.width() - 8..poseidon_24_air.width(),
+        24..w - 24,
+        w - 24..w - 8, // TODO should we commit to this part ? Probably not, but careful here, we will not check evaluations for this part
+        w - 8..w,
     ]
 }
 
