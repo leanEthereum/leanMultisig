@@ -1,10 +1,7 @@
 use p3_field::Field;
 use rayon::prelude::*;
 use tracing::instrument;
-use whir_p3::poly::{
-    evals::{eval_eq, scale_poly},
-    multilinear::MultilinearPoint,
-};
+use whir_p3::poly::{evals::eval_eq, multilinear::MultilinearPoint};
 
 /// Evaluates the LDE of the "UP" matrix polynomial.
 ///
@@ -258,24 +255,65 @@ pub fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> Vec<F> {
     folded
 }
 
+/// Computes the folded evaluation vector for the "DOWN" matrix polynomial.
+///
+/// This function pre-computes the evaluations of the `matrix_down_lde` polynomial for a
+/// fixed set of `outer_challenges` over the entire boolean hypercube of the remaining variables.
+///
+/// ### Behavior
+/// The function constructs the evaluation vector by building the underlying polynomial term by term.
+/// It iterates through each possible bit position `k`, calculates a corresponding scalar coefficient,
+/// and combines it with the evaluations of an equality polynomial over the other variables.
+///
+/// ### Arguments
+/// * `outer_challenges`: An `n`-element slice representing the point at which the first
+///     `n` variables of the LDE have been fixed.
+///
+/// ### Returns
+/// A `Vec<F>` of size `2^n` containing the evaluations, which represents one column of the
+/// "DOWN" matrix evaluated at the challenge point.
 #[instrument(name = "matrix_down_folded", skip_all)]
 pub fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> Vec<F> {
+    // Get the number of variables, `n`.
     let n = outer_challenges.len();
-    let mut folded = vec![F::ZERO; 1 << n];
+    // Calculate the size of the evaluation domain (2^n).
+    let size = 1 << n;
+    // Initialize the result vector with zeros.
+    let mut folded = vec![F::ZERO; size];
+
+    // Precompute products of suffixes of the challenges for efficient lookups.
+    // `suffix_prods[i]` will store the product of challenges from index `i` to the end.
+    // e.g., for challenges [c0, c1, c2], suffix_prods = [c0*c1*c2, c1*c2, c2, 1]
+    let mut suffix_prods = vec![F::ONE; n + 1];
+    for i in (0..n).rev() {
+        suffix_prods[i] = suffix_prods[i + 1] * outer_challenges[i];
+    }
+
+    // This loop constructs the final folded polynomial term by term, iterating through
+    // each possible carry position `k` (from right to left).
     for k in 0..n {
-        let outer_challenges_prod = (F::ONE - outer_challenges[n - k - 1])
-            * outer_challenges[n - k..].iter().copied().product::<F>();
-        let mut eq_mle = eval_eq(&outer_challenges[0..n - k - 1]);
-        eq_mle = scale_poly(&eq_mle, outer_challenges_prod);
-        for (mut i, v) in eq_mle.iter_mut().enumerate() {
-            i <<= k + 1;
-            i += 1 << k;
-            folded[i] += *v;
+        // Calculate the scalar coefficient for this term of the polynomial sum,
+        // using the precomputed suffix product for efficiency.
+        let scalar = (F::ONE - outer_challenges[n - k - 1]) * suffix_prods[n - k];
+
+        // Get the evaluations of the equality polynomial for the high-order bits.
+        let eq_mle = eval_eq(&outer_challenges[0..n - k - 1]);
+
+        // This loop adds the scaled evaluations into the final `folded` vector.
+        for (i, &v) in eq_mle.iter().enumerate() {
+            // This bit-shifting logic calculates the correct target index in the `folded` vector,
+            // which corresponds to constructing the polynomial via tensor products.
+            let final_idx = (i << (k + 1)) + (1 << k);
+            // The value from the equality polynomial is scaled and added to the target position.
+            folded[final_idx] += v * scalar;
         }
     }
-    // bottom left corner:
-    folded[(1 << n) - 1] += outer_challenges.iter().copied().product::<F>();
 
+    // Add the correction for the bottom-right corner of the matrix, using the
+    // precomputed total product of all challenges.
+    folded[size - 1] += suffix_prods[0];
+
+    // Return the completed evaluation vector.
     folded
 }
 
