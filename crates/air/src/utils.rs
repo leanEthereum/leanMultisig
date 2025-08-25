@@ -1,5 +1,4 @@
 use p3_field::Field;
-use rayon::prelude::*;
 use tracing::instrument;
 use whir_p3::poly::{evals::eval_eq, multilinear::MultilinearPoint};
 
@@ -153,25 +152,6 @@ fn next_mle<F: Field>(point: &[F]) -> F {
         })
         // Sum over all carry positions: any valid "k" gives contribution 1.
         .sum()
-}
-
-/// Generates "up" and "down" shifted columns for a set of AIR columns.
-///
-/// This is a utility function that applies `column_up` and `column_down` in parallel
-/// to a slice of columns, as required by the zerocheck protocol.
-///
-/// ### Arguments
-/// * `columns`: A slice of column slices (`&[&[F]]`).
-///
-/// ### Returns
-/// A `Vec` containing the results in the order `[up(c1), up(c2), ..., down(c1), down(c2), ...]`.
-pub fn columns_up_and_down<F: Field>(columns: &[&[F]]) -> Vec<Vec<F>> {
-    // Process "up" columns in parallel using Rayon.
-    let up_cols = columns.par_iter().map(|c| column_up(c));
-    // Process "down" columns in parallel.
-    let down_cols = columns.par_iter().map(|c| column_down(c));
-    // Chain the two parallel iterators and collect the results into a single vector.
-    up_cols.chain(down_cols).collect()
 }
 
 /// Creates the "up" version of a column (`c_up`).
@@ -563,44 +543,6 @@ mod tests {
         //
         let expected_len2 = vec![F::from_u32(8), F::from_u32(8)];
         assert_eq!(column_down(&col_len2), expected_len2);
-    }
-
-    #[test]
-    fn test_columns_up_and_down() {
-        // Create two sample columns to process.
-        let col1 = vec![F::from_u32(1), F::from_u32(2), F::from_u32(3)];
-        let col2 = vec![F::from_u32(4), F::from_u32(5), F::from_u32(6)];
-        // The function takes a slice of column slices as input.
-        let columns = vec![col1.as_slice(), col2.as_slice()];
-
-        // The function first applies `column_up` to all input columns,
-        // then applies `column_down` to all input columns, and finally
-        // collects the results in that order.
-        //
-        // Input Columns:
-        //
-        // col1 | col2
-        // -----|-----
-        //   1  |  4
-        //   2  |  5
-        //   3  |  6
-        //
-        // Expected Output Structure:
-        //
-        // [ up(col1), up(col2), down(col1), down(col2) ]
-        //
-        // up(col1) = [1, 2, 2]
-        // up(col2) = [4, 5, 5]
-        // down(col1) = [2, 3, 3]
-        // down(col2) = [5, 6, 6]
-        let expected = vec![
-            vec![F::from_u32(1), F::from_u32(2), F::from_u32(2)], // up(col1)
-            vec![F::from_u32(4), F::from_u32(5), F::from_u32(5)], // up(col2)
-            vec![F::from_u32(2), F::from_u32(3), F::from_u32(3)], // down(col1)
-            vec![F::from_u32(5), F::from_u32(6), F::from_u32(6)], // down(col2)
-        ];
-        // Assert that the function correctly processes and collects all results.
-        assert_eq!(columns_up_and_down(&columns), expected);
     }
 
     #[test]

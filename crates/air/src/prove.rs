@@ -16,7 +16,7 @@ use whir_p3::{
 use super::table::AirTable;
 use crate::{
     MyAir,
-    utils::{column_down, column_up, columns_up_and_down, matrix_down_folded, matrix_up_folded},
+    utils::{column_down, column_up, matrix_down_folded, matrix_up_folded},
     witness::AirWitness,
 };
 
@@ -154,7 +154,7 @@ pub fn prove_many_air_3<
         .chain(witnesses_2)
         .map(|w| {
             if structured_air {
-                MleGroupOwned::Base(columns_up_and_down(w)).into()
+                MleGroupOwned::Base(w.shifted_columns()).into()
             } else {
                 MleGroupRef::Base(w.cols.clone()).into()
             }
@@ -162,7 +162,7 @@ pub fn prove_many_air_3<
         .collect::<Vec<MleGroup<'_, EF>>>();
     columns_for_zero_check.extend(witnesses_3.iter().map(|w| {
         if structured_air {
-            MleGroupOwned::Extension(columns_up_and_down(w)).into()
+            MleGroupOwned::Extension(w.shifted_columns()).into()
         } else {
             MleGroupRef::Extension(w.cols.clone()).into()
         }
