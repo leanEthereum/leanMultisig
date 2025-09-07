@@ -10,7 +10,6 @@ members = [
     "crates/leanLookup",
     "crates/leanSnark",
     "crates/leanVm",
-    "crates/leanLookup",
     "crates/utils",
     "crates/air",
     "crates/sumcheck",
