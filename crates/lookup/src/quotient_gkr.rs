@@ -509,7 +509,7 @@ mod tests {
 
         let time = Instant::now();
         let claim = Evaluation { point, value: eval };
-        prove_gkr_quotient_step_packed(&mut prover_state, &pack_extension(&big), &claim);
+        let _ = prove_gkr_quotient_step_packed(&mut prover_state, &pack_extension(&big), &claim);
         dbg!(time.elapsed());
 
         let mut verifier_state = build_verifier_state(&prover_state);
@@ -530,7 +530,8 @@ mod tests {
 
         let mut prover_state = build_prover_state();
 
-        prove_gkr_quotient(&mut prover_state, pack_extension(&layer));
+        // Ignore the returned values from prove_gkr_quotient, as they are not needed here.
+        let _ = prove_gkr_quotient(&mut prover_state, pack_extension(&layer));
 
         let mut verifier_state = build_verifier_state(&prover_state);
 

@@ -324,7 +324,7 @@ mod tests {
     #[should_panic]
     fn matrix_up_lde_panics_on_odd_len() {
         // 3 variables is invalid (must be even)
-        matrix_up_lde::<F>(&[F::ZERO, F::ONE, F::ONE]);
+        let _ = matrix_up_lde::<F>(&[F::ZERO, F::ONE, F::ONE]);
     }
 
     #[test]
@@ -375,7 +375,7 @@ mod tests {
     #[should_panic]
     fn test_matrix_up_lde_panics_on_odd_len() {
         // The function expects an even-length slice (2*n variables),
-        matrix_up_lde::<F>(&[F::ZERO, F::ONE, F::ONE]);
+        let _ = matrix_up_lde::<F>(&[F::ZERO, F::ONE, F::ONE]);
     }
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
     #[should_panic]
     fn test_matrix_down_lde_panics_on_odd_len() {
         // The function expects an even-length slice (2*n variables).
-        matrix_down_lde::<F>(&[F::ZERO, F::ONE, F::ONE]);
+        let _ = matrix_down_lde::<F>(&[F::ZERO, F::ONE, F::ONE]);
     }
 
     #[test]
