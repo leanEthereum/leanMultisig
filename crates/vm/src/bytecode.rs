@@ -224,10 +224,7 @@ impl Display for Instruction {
                 res,
                 n_vars,
             } => {
-                write!(
-                    f,
-                    "multilinear_eval({coeffs}, {point}, {res}, {n_vars})"
-                )
+                write!(f, "multilinear_eval({coeffs}, {point}, {res}, {n_vars})")
             }
             Self::Jump {
                 condition,

@@ -213,11 +213,7 @@ fn get_s_prime<F: Field, EF: ExtensionField<F>, const EXTENSION_DEGREE: usize>(
             + e.scale_columns(EF::ONE - r).scale_rows(EF::ONE - r_prime);
     }
 
-    sc_value
-        / dot_product(
-            e.rows::<EF>().into_iter(),
-            lagranged_r_pp.iter().copied(),
-        )
+    sc_value / dot_product(e.rows::<EF>().into_iter(), lagranged_r_pp.iter().copied())
 }
 
 struct TensorAlgebra<F, const D: usize>([[F; D]; D]);

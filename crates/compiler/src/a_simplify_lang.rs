@@ -1193,9 +1193,7 @@ fn replace_vars_for_unroll_in_expr(
             if let SimpleExpr::Var(array_var) = array {
                 assert!(array_var != iterator, "Weird");
                 if internal_vars.contains(array_var) {
-                    *array_var = format!(
-                        "@unrolled_{unroll_index}_{iterator_value}_{array_var}"
-                    );
+                    *array_var = format!("@unrolled_{unroll_index}_{iterator_value}_{array_var}");
                 }
             }
 
@@ -1273,9 +1271,8 @@ fn replace_vars_for_unroll(
                 if let SimpleExpr::Var(array_var) = array {
                     assert!(array_var != iterator, "Weird");
                     if internal_vars.contains(array_var) {
-                        *array_var = format!(
-                            "@unrolled_{unroll_index}_{iterator_value}_{array_var}"
-                        );
+                        *array_var =
+                            format!("@unrolled_{unroll_index}_{iterator_value}_{array_var}");
                     }
                 }
                 replace_vars_for_unroll_in_expr(
@@ -1352,9 +1349,8 @@ fn replace_vars_for_unroll(
                 unroll: _,
             } => {
                 assert!(other_iterator != iterator);
-                *other_iterator = format!(
-                    "@unrolled_{unroll_index}_{iterator_value}_{other_iterator}"
-                );
+                *other_iterator =
+                    format!("@unrolled_{unroll_index}_{iterator_value}_{other_iterator}");
                 replace_vars_for_unroll_in_expr(
                     start,
                     iterator,
@@ -1643,9 +1639,7 @@ fn handle_const_arguments_helper(
                     for (arg_expr, (arg_var, is_constant)) in args.iter().zip(&func.arguments) {
                         if *is_constant {
                             let const_eval = arg_expr.naive_eval().unwrap_or_else(|| {
-                                panic!(
-                                    "Failed to evaluate constant argument: {arg_expr}"
-                                )
+                                panic!("Failed to evaluate constant argument: {arg_expr}")
                             });
                             const_evals.push((arg_var.clone(), const_eval));
                         }

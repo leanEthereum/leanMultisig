@@ -240,10 +240,7 @@ impl Display for IntermediateInstruction {
                 point,
                 res,
                 n_vars,
-            } => write!(
-                f,
-                "multilinear_eval({coeffs}, {point}, {res}, {n_vars})"
-            ),
+            } => write!(f, "multilinear_eval({coeffs}, {point}, {res}, {n_vars})"),
             Self::DecomposeBits {
                 res_offset,
                 to_decompose,
@@ -282,10 +279,7 @@ impl Display for IntermediateInstruction {
                 updated_fp,
             } => {
                 if let Some(fp) = updated_fp {
-                    write!(
-                        f,
-                        "jump_if_not_zero {condition} to {dest} with fp = {fp}"
-                    )
+                    write!(f, "jump_if_not_zero {condition} to {dest} with fp = {fp}")
                 } else {
                     write!(f, "jump_if_not_zero {condition} to {dest}")
                 }

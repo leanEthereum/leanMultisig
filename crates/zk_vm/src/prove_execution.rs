@@ -1253,9 +1253,11 @@ pub fn prove_execution(
     // Second Opening
     let global_statements_extension = packed_pcs_global_statements(
         &packed_pcs_witness_extension.tree,
-        &[base_memory_logup_star_statements.on_pushforward,
+        &[
+            base_memory_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
-            bytecode_logup_star_statements.on_pushforward],
+            bytecode_logup_star_statements.on_pushforward,
+        ],
     );
 
     pcs.batch_open(
