@@ -25,6 +25,8 @@
 - the 2 executions of the program, before generating the validity proof, can be merged, using some kind of placeholders
 - both WHIR verif + XMSS aggregation programs have 40% of unused memory!! -> TODO improve the compiler to reduce memory fragmentation
 - Many times, we evaluate different multilinear polynomials (diferent columns of the same table etc) at a common point. OPTI = compute the eq(.) once, and then dot_product with everything
+- To commit to multiple AIR table using 1 single pcs, the most general form our "packed pcs" api should accept is:
+ a list of n (n not a power of 2) columns, each ending with m repeated values (in this manner we can reduce proof size when they are a lot of columns (poseidons ...))
 
 ## Not Perf
 

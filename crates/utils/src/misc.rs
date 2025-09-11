@@ -82,6 +82,13 @@ pub fn to_big_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
         .collect()
 }
 
+pub fn to_big_endian_in_field<F: Field>(value: usize, bit_count: usize) -> Vec<F> {
+    (0..bit_count)
+        .rev()
+        .map(|i| F::from_bool((value >> i) & 1 == 1))
+        .collect()
+}
+
 pub fn to_little_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
     let mut res = to_big_endian_bits(value, bit_count);
     res.reverse();
