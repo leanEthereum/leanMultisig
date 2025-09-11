@@ -28,7 +28,7 @@ pub struct LogupStarStatements<EF> {
 }
 
 #[instrument(skip_all)]
-pub fn prove_logup_star<IF: Field, EF: ExtensionField<IF>>(
+pub fn prove_logup_star<IF, EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     table: &[IF],
     indexes: &[PF<EF>],
@@ -37,7 +37,8 @@ pub fn prove_logup_star<IF: Field, EF: ExtensionField<IF>>(
     pushforward: &[EF], // already commited
 ) -> LogupStarStatements<EF>
 where
-    EF: ExtensionField<PF<EF>>,
+    IF: Field,
+    EF: ExtensionField<PF<EF>> + ExtensionField<IF>,
     PF<EF>: PrimeField64,
 {
     let table_length = table.len();
@@ -50,8 +51,8 @@ where
         .in_scope(|| {
             (
                 pack_extension(&table_embedded),
-                pack_extension(&poly_eq_point),
-                pack_extension(&pushforward),
+                pack_extension(poly_eq_point),
+                pack_extension(pushforward),
             )
         });
 
@@ -83,7 +84,7 @@ where
     prover_state.add_extension_scalar(pushforwardt_eval);
     // delayed opening
     let mut on_pushforward = vec![Evaluation {
-        point: sc_point.clone(),
+        point: sc_point,
         value: pushforwardt_eval,
     }];
 
@@ -151,7 +152,7 @@ where
     }
 }
 
-pub fn verify_logup_star<EF: Field>(
+pub fn verify_logup_star<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     log_table_len: usize,
     log_indexes_len: usize,
@@ -316,10 +317,7 @@ mod tests {
         let time = std::time::Instant::now();
         let poly_eq_point = info_span!("eval_eq").in_scope(|| eval_eq(&point.0));
         let pushforward = compute_pushforward(&indexes, table_length, &poly_eq_point);
-        let claim = Evaluation {
-            point: point.clone(),
-            value: eval,
-        };
+        let claim = Evaluation { point, value: eval };
 
         prove_logup_star(
             &mut prover_state,

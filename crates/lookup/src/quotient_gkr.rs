@@ -50,7 +50,7 @@ with: U0 = AB(0 0 --- )
 */
 
 #[instrument(skip_all)]
-pub fn prove_gkr_quotient<EF: Field>(
+pub fn prove_gkr_quotient<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     final_layer: Vec<EFPacking<EF>>,
 ) -> (Evaluation<EF>, EF, EF)
@@ -97,7 +97,7 @@ where
     (claim, up_layer_eval_left, up_layer_eval_right)
 }
 
-fn prove_gkr_quotient_step<EF: Field>(
+fn prove_gkr_quotient_step<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: &[EF],
     claim: &Evaluation<EF>,
@@ -194,7 +194,7 @@ where
     let mixing_challenge_a = prover_state.sample();
     let mixing_challenge_b = prover_state.sample();
 
-    let mut next_point = sc_point.clone();
+    let mut next_point = sc_point;
     next_point.0.insert(0, mixing_challenge_a);
     next_point.0[1] = mixing_challenge_b;
 
@@ -215,7 +215,7 @@ where
     )
 }
 
-fn prove_gkr_quotient_step_packed<EF: Field>(
+fn prove_gkr_quotient_step_packed<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer_packed: &Vec<EFPacking<EF>>,
     claim: &Evaluation<EF>,
@@ -345,7 +345,7 @@ where
     )
 }
 
-pub fn verify_gkr_quotient<EF: Field>(
+pub fn verify_gkr_quotient<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
@@ -370,7 +370,7 @@ where
     Ok((quotient, claim))
 }
 
-fn verify_gkr_quotient_step<EF: Field>(
+fn verify_gkr_quotient_step<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     current_layer_log_len: usize,
     claim: &Evaluation<EF>,
@@ -402,7 +402,7 @@ where
     let mixing_challenge_a = verifier_state.sample();
     let mixing_challenge_b = verifier_state.sample();
 
-    let mut next_point = postponed.point.clone();
+    let mut next_point = postponed.point;
     next_point.0.insert(0, mixing_challenge_a);
     next_point.0[1] = mixing_challenge_b;
 
@@ -410,7 +410,7 @@ where
         [q0, q1, q2, q3].into_iter(),
         eval_eq(&[mixing_challenge_a, mixing_challenge_b])
             .iter()
-            .cloned(),
+            .copied(),
     );
 
     Ok((next_point, next_claim).into())

@@ -216,7 +216,7 @@ pub fn evaluate_as_larger_multilinear_pol<F: Field, EF: ExtensionField<F>>(
         .take(point.len() - pol_n_vars)
         .map(|x| EF::ONE - *x)
         .product::<EF>()
-        * pol.evaluate(&MultilinearPoint(from_end(&point, pol_n_vars).to_vec()))
+        * pol.evaluate(&MultilinearPoint(from_end(point, pol_n_vars).to_vec()))
 }
 
 pub fn evaluate_as_smaller_multilinear_pol<F: Field, EF: ExtensionField<F>>(

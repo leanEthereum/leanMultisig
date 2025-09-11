@@ -232,14 +232,14 @@ fn test_mini_program_3() {
     }
    "#;
     let mut public_input: [F; 16] = (0..16)
-        .map(|i| F::new(i))
+        .map(F::new)
         .collect::<Vec<F>>()
         .try_into()
         .unwrap();
     compile_and_run(program, &public_input, &[], false);
 
     get_poseidon16().permute_mut(&mut public_input);
-    let _ = dbg!(public_input);
+    let _ = public_input;
 }
 
 #[test]
@@ -259,14 +259,14 @@ fn test_mini_program_4() {
     }
    "#;
     let mut public_input: [F; 24] = (0..24)
-        .map(|i| F::new(i))
+        .map(F::new)
         .collect::<Vec<F>>()
         .try_into()
         .unwrap();
     compile_and_run(program, &public_input, &[], false);
 
     get_poseidon24().permute_mut(&mut public_input);
-    dbg!(&public_input[16..]);
+    &public_input[16..];
 }
 
 #[test]

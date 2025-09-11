@@ -74,7 +74,7 @@ pub fn pack_extension<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking
 }
 
 pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {
-    vec.into_iter()
+    vec.iter()
         .flat_map(|x| {
             let packed_coeffs = x.as_basis_coefficients_slice();
             (0..packing_width::<EF>())

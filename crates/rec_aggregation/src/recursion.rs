@@ -56,7 +56,7 @@ pub fn test_whir_recursion() {
     // TODO remove overriding this
     {
         recursion_config.committment_ood_samples = 1;
-        for round in recursion_config.round_parameters.iter_mut() {
+        for round in &mut recursion_config.round_parameters {
             round.ood_samples = 1;
         }
     }
@@ -70,11 +70,11 @@ pub fn test_whir_recursion() {
         );
         program_str = program_str
             .replace(
-                &format!("NUM_QUERIES_{}_PLACEHOLDER", i),
+                &format!("NUM_QUERIES_{i}_PLACEHOLDER"),
                 &round.num_queries.to_string(),
             )
             .replace(
-                &format!("GRINDING_BITS_{}_PLACEHOLDER", i),
+                &format!("GRINDING_BITS_{i}_PLACEHOLDER"),
                 &round.pow_bits.to_string(),
             );
     }
@@ -94,7 +94,7 @@ pub fn test_whir_recursion() {
     assert_eq!(recursion_config.n_rounds(), 3); // this is hardcoded in the program above
     for round in 0..=recursion_config.n_rounds() {
         program_str = program_str.replace(
-            &format!("FOLDING_FACTOR_{}_PLACEHOLDER", round),
+            &format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
             &recursion_config_builder
                 .folding_factor
                 .at_round(round)

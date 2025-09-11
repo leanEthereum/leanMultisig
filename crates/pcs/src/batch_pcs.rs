@@ -54,10 +54,9 @@ pub struct WhirBatchPcs<FA, FB, EF, H, C, const DIGEST_ELEMS: usize>(
 impl<F, EF, H, C, const DIGEST_ELEMS: usize> BatchPCS<F, EF, EF>
     for WhirBatchPcs<F, EF, EF, H, C, DIGEST_ELEMS>
 where
-    F: TwoAdicField,
     PF<EF>: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField + ExtensionField<PF<EF>>,
-    F: ExtensionField<PF<EF>>,
+    F: TwoAdicField + ExtensionField<PF<EF>>,
     H: CryptographicHasher<PF<EF>, [PF<EF>; DIGEST_ELEMS]>
         + CryptographicHasher<PFPacking<EF>, [PFPacking<EF>; DIGEST_ELEMS]>
         + Sync,

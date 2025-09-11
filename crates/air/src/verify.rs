@@ -19,7 +19,6 @@ use crate::{NormalAir, PackedAir};
 use super::table::AirTable;
 
 pub fn verify_many_air_2<
-    'a,
     EF: ExtensionField<PF<EF>>,
     A1: NormalAir<EF>,
     AP1: PackedAir<EF>,
@@ -45,7 +44,6 @@ pub fn verify_many_air_2<
 }
 
 pub fn verify_many_air_3<
-    'a,
     EF: ExtensionField<PF<EF>>,
     A1: NormalAir<EF>,
     AP1: PackedAir<EF>,
@@ -74,7 +72,7 @@ pub fn verify_many_air_3<
         sumcheck::verify_with_univariate_skip_in_parallel::<EF>(
             verifier_state,
             univariate_skips,
-            &log_lengths,
+            log_lengths,
             &tables_1
                 .iter()
                 .map(|t| <A1 as BaseAir<PF<EF>>>::degree(&t.air) + 1)
@@ -234,10 +232,10 @@ pub fn verify_many_air_3<
             verifier_state,
             univariate_skips,
             all_inner_sums,
-            &column_groups,
+            column_groups,
             &outer_sumcheck_point,
             &outer_selector_evals,
-            &log_lengths,
+            log_lengths,
         )
     }
 }
@@ -293,7 +291,7 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
                 outer_selector_evals.iter().copied(),
             ) != dot_product::<EF, _, _>(
                 all_inner_sums[i][group.clone()].iter().copied(),
-                eval_eq(&from_end(
+                eval_eq(from_end(
                     &columns_batching_scalars,
                     log2_ceil_usize(group.len()),
                 ))[..group.len()]
@@ -388,7 +386,7 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     }
 
     let matrix_lde_point = [
-        epsilons.0.clone(),
+        epsilons.0,
         outer_sumcheck_challenge.point.to_vec(),
         inner_sumcheck_stement.point.0.clone(),
     ]

@@ -26,7 +26,7 @@ impl Compiler {
             VarOrConstMallocAccess::Var(var) => (*self
                 .var_positions
                 .get(var)
-                .unwrap_or_else(|| panic!("Variable {} not in scope", var)))
+                .unwrap_or_else(|| panic!("Variable {var} not in scope")))
             .into(),
             VarOrConstMallocAccess::ConstMallocAccess {
                 malloc_label,
@@ -36,7 +36,7 @@ impl Compiler {
                     self.const_mallocs
                         .get(malloc_label)
                         .copied()
-                        .unwrap_or_else(|| panic!("Const malloc {} not in scope", malloc_label))
+                        .unwrap_or_else(|| panic!("Const malloc {malloc_label} not in scope"))
                         .into(),
                 ),
                 operation: HighLevelOperation::Add,
@@ -49,16 +49,16 @@ impl Compiler {
 impl SimpleExpr {
     fn into_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediaryMemOrFpOrConstant {
         match self {
-            SimpleExpr::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+            Self::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                 offset: compiler.get_offset(&var.clone().into()),
             },
-            SimpleExpr::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
-            SimpleExpr::ConstMallocAccess {
+            Self::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
+            Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                 offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
-                    malloc_label: malloc_label.clone(),
+                    malloc_label: *malloc_label,
                     offset: offset.clone(),
                 }),
             },
@@ -83,7 +83,7 @@ impl IntermediateValue {
                             .const_mallocs
                             .get(malloc_label)
                             .copied()
-                            .unwrap_or_else(|| panic!("Const malloc {} not in scope", malloc_label))
+                            .unwrap_or_else(|| panic!("Const malloc {malloc_label} not in scope"))
                             .into(),
                     ),
                     operation: HighLevelOperation::Add,
@@ -186,18 +186,18 @@ fn compile_lines(
 
             SimpleLine::Match { value, arms } => {
                 let match_index = compiler.match_blocks.len();
-                let end_label = format!("@match_end_{}", match_index);
+                let end_label = format!("@match_end_{match_index}");
 
                 let value_simplified = IntermediateValue::from_simple_expr(value, compiler);
 
                 let mut compiled_arms = vec![];
                 let original_stack_size = compiler.stack_size;
                 let mut new_stack_size = original_stack_size;
-                for (i, arm) in arms.into_iter().enumerate() {
+                for (i, arm) in arms.iter().enumerate() {
                     let mut arm_declared_vars = declared_vars.clone();
                     compiler.stack_size = original_stack_size;
                     let arm_instructions = compile_lines(
-                        &arm,
+                        arm,
                         compiler,
                         Some(end_label.clone()),
                         &mut arm_declared_vars,
@@ -222,7 +222,7 @@ fn compile_lines(
                 compiler.stack_size += 1;
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Mul,
-                    arg_a: value_simplified.clone(),
+                    arg_a: value_simplified,
                     arg_c: ConstExpression::Value(ConstantValue::MatchBlockSize { match_index })
                         .into(),
                     res: value_scaled_offset.clone(),
@@ -234,7 +234,7 @@ fn compile_lines(
                 compiler.stack_size += 1;
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Add,
-                    arg_a: value_scaled_offset.clone(),
+                    arg_a: value_scaled_offset,
                     arg_c: ConstExpression::Value(ConstantValue::MatchFirstBlockStart {
                         match_index,
                     })
@@ -264,9 +264,9 @@ fn compile_lines(
                 compiler.if_counter += 1;
 
                 let (if_label, else_label, end_label) = (
-                    format!("@if_{}", if_id),
-                    format!("@else_{}", if_id),
-                    format!("@if_else_end_{}", if_id),
+                    format!("@if_{if_id}"),
+                    format!("@else_{if_id}"),
+                    format!("@if_else_end_{if_id}"),
                 );
 
                 // c: condition
@@ -314,7 +314,7 @@ fn compile_lines(
                     arg_a: IntermediateValue::MemoryAfterFp {
                         offset: one_minus_product_offset.into(),
                     },
-                    arg_c: condition_simplified.clone(),
+                    arg_c: condition_simplified,
                     res: ConstExpression::zero().into(),
                 });
 
@@ -334,7 +334,7 @@ fn compile_lines(
 
                 let mut then_declared_vars = declared_vars.clone();
                 let then_instructions = compile_lines(
-                    &then_branch,
+                    then_branch,
                     compiler,
                     Some(end_label.to_string()),
                     &mut then_declared_vars,
@@ -344,7 +344,7 @@ fn compile_lines(
                 compiler.stack_size = original_stack;
                 let mut else_declared_vars = declared_vars.clone();
                 let else_instructions = compile_lines(
-                    &else_branch,
+                    else_branch,
                     compiler,
                     Some(end_label.to_string()),
                     &mut else_declared_vars,
@@ -390,7 +390,7 @@ fn compile_lines(
             } => {
                 let call_id = compiler.call_counter;
                 compiler.call_counter += 1;
-                let return_label = format!("@return_from_call_{}", call_id);
+                let return_label = format!("@return_from_call_{call_id}");
 
                 let new_fp_pos = compiler.stack_size;
                 compiler.stack_size += 1;
@@ -592,9 +592,7 @@ fn handle_const_malloc(
             offset: compiler.get_offset(&var.clone().into()),
         },
     });
-    compiler
-        .const_mallocs
-        .insert(label.clone(), compiler.stack_size);
+    compiler.const_mallocs.insert(*label, compiler.stack_size);
     compiler.stack_size += size;
 }
 
@@ -614,7 +612,7 @@ fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(
     for voc in vocs {
         if let SimpleExpr::Var(v) = voc.borrow() {
             if !declared.contains(v) {
-                return Err(format!("Variable {} not declared", v));
+                return Err(format!("Variable {v} not declared"));
             }
         }
     }
@@ -658,7 +656,7 @@ fn setup_function_call(
     }
 
     instructions.push(IntermediateInstruction::Jump {
-        dest: IntermediateValue::label(format!("@function_{}", func_name)),
+        dest: IntermediateValue::label(format!("@function_{func_name}")),
         updated_fp: Some(IntermediateValue::MemoryAfterFp {
             offset: new_fp_pos.into(),
         }),
@@ -670,7 +668,7 @@ fn setup_function_call(
 fn compile_poseidon(
     instructions: &mut Vec<IntermediateInstruction>,
     args: &[SimpleExpr],
-    compiler: &mut Compiler,
+    compiler: &Compiler,
     over_16: bool, // otherwise over_24
 ) -> Result<(), String> {
     assert_eq!(args.len(), 3);

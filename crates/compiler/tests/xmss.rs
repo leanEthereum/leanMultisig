@@ -70,7 +70,7 @@ fn test_verify_merkle_path() {
 
     let mut private_input = vec![];
 
-    let mut to_hash = leaf.clone();
+    let mut to_hash = leaf;
     let poseidon16 = get_poseidon16();
     for i in 0..height {
         let neighbour: [F; 8] = rng.random();
@@ -87,7 +87,7 @@ fn test_verify_merkle_path() {
     }
 
     let merkle_root = to_hash;
-    dbg!(&merkle_root[0]);
+    &merkle_root[0];
 
     let mut public_input = leaf.to_vec();
     public_input.extend(merkle_root);
@@ -106,7 +106,7 @@ fn test_verify_merkle_path() {
 
     compile_and_run(program, &public_input, &private_input, false);
 
-    dbg!(&merkle_root);
+    &merkle_root;
 }
 
 #[test]
