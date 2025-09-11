@@ -41,7 +41,7 @@ pub(crate) fn pretty_stack_trace(
                 while call_stack.len() > pos + 1 {
                     call_stack.pop();
                     let indent = "│ ".repeat(call_stack.len());
-                    result.push_str(&format!("{}└─ [return]\n", indent));
+                    result.push_str(&format!("{indent}└─ [return]\n"));
                 }
                 skipped_lines = 0;
             } else {
@@ -79,8 +79,7 @@ pub(crate) fn pretty_stack_trace(
             if skipped_lines > 0 {
                 let indent = "│ ".repeat(call_stack.len());
                 result.push_str(&format!(
-                    "{}├─ ... ({} lines skipped) ...\n",
-                    indent, skipped_lines
+                    "{indent}├─ ... ({skipped_lines} lines skipped) ...\n"
                 ));
                 skipped_lines = 0;
             }
@@ -92,11 +91,11 @@ pub(crate) fn pretty_stack_trace(
                 result.push_str(&format!(
                     "{}├─ {} {}\n",
                     indent,
-                    format!("line {}:", line_num).red(),
+                    format!("line {line_num}:").red(),
                     code_line
                 ));
             } else {
-                result.push_str(&format!("{}├─ line {}: {}\n", indent, line_num, code_line));
+                result.push_str(&format!("{indent}├─ line {line_num}: {code_line}\n"));
             }
         } else {
             skipped_lines += 1;
@@ -106,7 +105,7 @@ pub(crate) fn pretty_stack_trace(
     }
 
     // Add summary
-    result.push_str("\n");
+    result.push('\n');
     result.push_str("──────────────────────────────────────────────────────────────────────────\n");
 
     if !call_stack.is_empty() {

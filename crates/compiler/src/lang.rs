@@ -52,7 +52,7 @@ impl SimpleExpr {
         Self::Constant(ConstantValue::Scalar(scalar).into())
     }
 
-    pub fn is_constant(&self) -> bool {
+    pub const fn is_constant(&self) -> bool {
         matches!(self, Self::Constant(_))
     }
 
@@ -122,7 +122,7 @@ pub enum ConstExpression {
 
 impl From<usize> for ConstExpression {
     fn from(value: usize) -> Self {
-        ConstExpression::Value(ConstantValue::Scalar(value))
+        Self::Value(ConstantValue::Scalar(value))
     }
 }
 
@@ -139,9 +139,9 @@ impl TryFrom<Expression> for ConstExpression {
                 operation,
                 right,
             } => {
-                let left_expr = ConstExpression::try_from(*left)?;
-                let right_expr = ConstExpression::try_from(*right)?;
-                Ok(ConstExpression::Binary {
+                let left_expr = Self::try_from(*left)?;
+                let right_expr = Self::try_from(*right)?;
+                Ok(Self::Binary {
                     left: Box::new(left_expr),
                     operation,
                     right: Box::new(right_expr),
@@ -152,23 +152,23 @@ impl TryFrom<Expression> for ConstExpression {
 }
 
 impl ConstExpression {
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self::scalar(0)
     }
 
-    pub fn one() -> Self {
+    pub const fn one() -> Self {
         Self::scalar(1)
     }
 
-    pub fn label(label: Label) -> Self {
+    pub const fn label(label: Label) -> Self {
         Self::Value(ConstantValue::Label(label))
     }
 
-    pub fn scalar(scalar: usize) -> Self {
+    pub const fn scalar(scalar: usize) -> Self {
         Self::Value(ConstantValue::Scalar(scalar))
     }
 
-    pub fn function_size(function_name: Label) -> Self {
+    pub const fn function_size(function_name: Label) -> Self {
         Self::Value(ConstantValue::FunctionSize { function_name })
     }
     pub fn eval_with<EvalFn>(&self, func: &EvalFn) -> Option<F>
@@ -247,11 +247,11 @@ impl Expression {
         ArrayFn: Fn(&SimpleExpr, F) -> Option<F>,
     {
         match self {
-            Expression::Value(value) => value_fn(value),
-            Expression::ArrayAccess { array, index } => {
+            Self::Value(value) => value_fn(value),
+            Self::ArrayAccess { array, index } => {
                 array_fn(array, index.eval_with(value_fn, array_fn)?)
             }
-            Expression::Binary {
+            Self::Binary {
                 left,
                 operation,
                 right,
@@ -332,16 +332,16 @@ pub enum Line {
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expression::Value(val) => write!(f, "{}", val),
-            Expression::ArrayAccess { array, index } => {
-                write!(f, "{}[{}]", array, index)
+            Self::Value(val) => write!(f, "{val}"),
+            Self::ArrayAccess { array, index } => {
+                write!(f, "{array}[{index}]")
             }
-            Expression::Binary {
+            Self::Binary {
                 left,
                 operation,
                 right,
             } => {
-                write!(f, "({} {} {})", left, operation, right)
+                write!(f, "({left} {operation} {right})")
             }
         }
     }
@@ -351,11 +351,11 @@ impl Line {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
         let line_str = match self {
-            Line::LocationReport { .. } => {
+            Self::LocationReport { .. } => {
                 // print nothing
                 Default::default()
             }
-            Line::Match { value, arms } => {
+            Self::Match { value, arms } => {
                 let arms_str = arms
                     .iter()
                     .map(|(const_expr, body)| {
@@ -364,24 +364,24 @@ impl Line {
                             .map(|line| line.to_string_with_indent(indent + 1))
                             .collect::<Vec<_>>()
                             .join("\n");
-                        format!("{} => {{\n{}\n{}}}", const_expr, body_str, spaces)
+                        format!("{const_expr} => {{\n{body_str}\n{spaces}}}")
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                format!("match {} {{\n{}\n{}}}", value, arms_str, spaces)
+                format!("match {value} {{\n{arms_str}\n{spaces}}}")
             }
-            Line::Assignment { var, value } => {
-                format!("{} = {}", var, value)
+            Self::Assignment { var, value } => {
+                format!("{var} = {value}")
             }
-            Line::ArrayAssign {
+            Self::ArrayAssign {
                 array,
                 index,
                 value,
             } => {
-                format!("{}[{}] = {}", array, index, value)
+                format!("{array}[{index}] = {value}")
             }
-            Line::Assert(condition) => format!("assert {}", condition),
-            Line::IfCondition {
+            Self::Assert(condition) => format!("assert {condition}"),
+            Self::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
@@ -399,18 +399,17 @@ impl Line {
                     .join("\n");
 
                 if else_branch.is_empty() {
-                    format!("if {} {{\n{}\n{}}}", condition, then_str, spaces)
+                    format!("if {condition} {{\n{then_str}\n{spaces}}}")
                 } else {
                     format!(
-                        "if {} {{\n{}\n{}}} else {{\n{}\n{}}}",
-                        condition, then_str, spaces, else_str, spaces
+                        "if {condition} {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}"
                     )
                 }
             }
-            Line::CounterHint { var } => {
-                format!("{} = counter_hint({})", var, var)
+            Self::CounterHint { var } => {
+                format!("{var} = counter_hint({var})")
             }
-            Line::ForLoop {
+            Self::ForLoop {
                 iterator,
                 start,
                 end,
@@ -434,69 +433,69 @@ impl Line {
                     spaces
                 )
             }
-            Line::FunctionCall {
+            Self::FunctionCall {
                 function_name,
                 args,
                 return_data,
             } => {
                 let args_str = args
                     .iter()
-                    .map(|arg| format!("{}", arg))
+                    .map(|arg| format!("{arg}"))
                     .collect::<Vec<_>>()
                     .join(", ");
                 let return_data_str = return_data
                     .iter()
-                    .map(|var| format!("{}", var))
+                    .map(|var| var.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
 
                 if return_data.is_empty() {
-                    format!("{}({})", function_name, args_str)
+                    format!("{function_name}({args_str})")
                 } else {
-                    format!("{} = {}({})", return_data_str, function_name, args_str)
+                    format!("{return_data_str} = {function_name}({args_str})")
                 }
             }
-            Line::FunctionRet { return_data } => {
+            Self::FunctionRet { return_data } => {
                 let return_data_str = return_data
                     .iter()
-                    .map(|arg| format!("{}", arg))
+                    .map(|arg| format!("{arg}"))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("return {}", return_data_str)
+                format!("return {return_data_str}")
             }
-            Line::Precompile { precompile, args } => {
+            Self::Precompile { precompile, args } => {
                 format!(
                     "{}({})",
                     precompile.name,
                     args.iter()
-                        .map(|arg| format!("{}", arg))
+                        .map(|arg| format!("{arg}"))
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
             }
-            Line::Print {
+            Self::Print {
                 line_info: _,
                 content,
             } => {
                 let content_str = content
                     .iter()
-                    .map(|c| format!("{}", c))
+                    .map(|c| format!("{c}"))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("print({})", content_str)
+                format!("print({content_str})")
             }
-            Line::MAlloc {
+            Self::MAlloc {
                 var,
                 size,
                 vectorized,
             } => {
                 if *vectorized {
-                    format!("{} = malloc_vectorized({})", var, size)
+                    format!("{var} = malloc_vectorized({size})")
                 } else {
-                    format!("{} = malloc({})", var, size)
+                    format!("{var} = malloc({size})")
                 }
             }
-            Line::DecomposeBits { var, to_decompose } => {
+            Self::DecomposeBits { var, to_decompose } => {
                 format!(
                     "{} = decompose_bits({})",
                     var,
@@ -507,21 +506,21 @@ impl Line {
                         .join(", ")
                 )
             }
-            Line::Break => "break".to_string(),
-            Line::Panic => "panic".to_string(),
+            Self::Break => "break".to_string(),
+            Self::Panic => "panic".to_string(),
         };
-        format!("{}{}", spaces, line_str)
+        format!("{spaces}{line_str}")
     }
 }
 
 impl Display for Boolean {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Boolean::Equal { left, right } => {
-                write!(f, "{} == {}", left, right)
+            Self::Equal { left, right } => {
+                write!(f, "{left} == {right}")
             }
-            Boolean::Different { left, right } => {
-                write!(f, "{} != {}", left, right)
+            Self::Different { left, right } => {
+                write!(f, "{left} != {right}")
             }
         }
     }
@@ -530,19 +529,19 @@ impl Display for Boolean {
 impl Display for ConstantValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConstantValue::Scalar(scalar) => write!(f, "{}", scalar),
-            ConstantValue::PublicInputStart => write!(f, "@public_input_start"),
-            ConstantValue::PointerToZeroVector => write!(f, "@pointer_to_zero_vector"),
-            ConstantValue::PointerToOneVector => write!(f, "@pointer_to_one_vector"),
-            ConstantValue::FunctionSize { function_name } => {
-                write!(f, "@function_size_{}", function_name)
+            Self::Scalar(scalar) => write!(f, "{scalar}"),
+            Self::PublicInputStart => write!(f, "@public_input_start"),
+            Self::PointerToZeroVector => write!(f, "@pointer_to_zero_vector"),
+            Self::PointerToOneVector => write!(f, "@pointer_to_one_vector"),
+            Self::FunctionSize { function_name } => {
+                write!(f, "@function_size_{function_name}")
             }
-            ConstantValue::Label(label) => write!(f, "{}", label),
-            ConstantValue::MatchFirstBlockStart { match_index } => {
-                write!(f, "@match_first_block_start_{}", match_index)
+            Self::Label(label) => write!(f, "{label}"),
+            Self::MatchFirstBlockStart { match_index } => {
+                write!(f, "@match_first_block_start_{match_index}")
             }
-            ConstantValue::MatchBlockSize { match_index } => {
-                write!(f, "@match_block_size_{}", match_index)
+            Self::MatchBlockSize { match_index } => {
+                write!(f, "@match_block_size_{match_index}")
             }
         }
     }
@@ -551,13 +550,13 @@ impl Display for ConstantValue {
 impl Display for SimpleExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SimpleExpr::Var(var) => write!(f, "{}", var),
-            SimpleExpr::Constant(constant) => write!(f, "{}", constant),
-            SimpleExpr::ConstMallocAccess {
+            Self::Var(var) => write!(f, "{var}"),
+            Self::Constant(constant) => write!(f, "{constant}"),
+            Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => {
-                write!(f, "malloc_access({}, {})", malloc_label, offset)
+                write!(f, "malloc_access({malloc_label}, {offset})")
             }
         }
     }
@@ -566,13 +565,13 @@ impl Display for SimpleExpr {
 impl Display for ConstExpression {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConstExpression::Value(value) => write!(f, "{}", value),
-            ConstExpression::Binary {
+            Self::Value(value) => write!(f, "{value}"),
+            Self::Binary {
                 left,
                 operation,
                 right,
             } => {
-                write!(f, "({} {} {})", left, operation, right)
+                write!(f, "({left} {operation} {right})")
             }
         }
     }
@@ -591,7 +590,7 @@ impl Display for Program {
             if !first {
                 writeln!(f)?;
             }
-            write!(f, "{}", function)?;
+            write!(f, "{function}")?;
             first = false;
         }
         Ok(())
@@ -604,7 +603,7 @@ impl Display for Function {
             .arguments
             .iter()
             .map(|arg| match arg {
-                (name, true) => format!("const {}", name),
+                (name, true) => format!("const {name}"),
                 (name, false) => name.to_string(),
             })
             .collect::<Vec<_>>()

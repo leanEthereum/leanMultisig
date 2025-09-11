@@ -62,7 +62,7 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             res_up,
             computation_up,
         ] = up
-            .into_iter()
+            .iter()
             .map(|v| v.clone().into())
             .collect::<Vec<AB::Expr>>()
             .try_into()
@@ -78,7 +78,7 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             _res_down,
             computation_down,
         ] = down
-            .into_iter()
+            .iter()
             .map(|v| v.clone().into())
             .collect::<Vec<AB::Expr>>()
             .try_into()
@@ -93,20 +93,16 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             start_flag_down.clone() * product_up.clone()
                 + not_flag_down.clone() * (product_up + computation_down),
         );
+        builder.assert_zero(not_flag_down.clone() * (len_up.clone() - (len_down + AB::Expr::ONE)));
+        builder.assert_zero(start_flag_down * (len_up - AB::Expr::ONE));
         builder.assert_zero(
-            not_flag_down.clone() * (len_up.clone() - (len_down.clone() + AB::Expr::ONE)),
-        );
-        builder.assert_zero(start_flag_down.clone() * (len_up.clone() - AB::Expr::ONE));
-        builder.assert_zero(
-            not_flag_down.clone()
-                * (index_a_up.clone() - (index_a_down.clone() - AB::Expr::from_usize(DIMENSION))),
+            not_flag_down.clone() * (index_a_up - (index_a_down - AB::Expr::from_usize(DIMENSION))),
         );
         builder.assert_zero(
-            not_flag_down.clone()
-                * (index_b_up.clone() - (index_b_down.clone() - AB::Expr::from_usize(DIMENSION))),
+            not_flag_down * (index_b_up - (index_b_down - AB::Expr::from_usize(DIMENSION))),
         );
 
-        builder.assert_zero(start_flag_up.clone() * (computation_up - res_up));
+        builder.assert_zero(start_flag_up * (computation_up - res_up));
     }
 }
 

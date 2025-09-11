@@ -20,8 +20,8 @@ const STACK_TRACE_INSTRUCTIONS: usize = 5000;
 impl MemOrConstant {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrConstant::Constant(c) => Ok(*c),
-            MemOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Constant(c) => Ok(*c),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
         }
     }
 
@@ -29,10 +29,10 @@ impl MemOrConstant {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
-            MemOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Constant(_) => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
         }
     }
 }
@@ -40,8 +40,8 @@ impl MemOrConstant {
 impl MemOrFp {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrFp::MemoryAfterFp { offset } => memory.get(fp + *offset),
-            MemOrFp::Fp => Ok(F::from_usize(fp)),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Fp => Ok(F::from_usize(fp)),
         }
     }
 
@@ -49,10 +49,10 @@ impl MemOrFp {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrFp::MemoryAfterFp { offset } => Ok(fp + *offset),
-            MemOrFp::Fp => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Fp => Err(RunnerError::NotAPointer),
         }
     }
 }
@@ -60,9 +60,9 @@ impl MemOrFp {
 impl MemOrFpOrConstant {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrFpOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
-            MemOrFpOrConstant::Fp => Ok(F::from_usize(fp)),
-            MemOrFpOrConstant::Constant(c) => Ok(*c),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Fp => Ok(F::from_usize(fp)),
+            Self::Constant(c) => Ok(*c),
         }
     }
 
@@ -70,11 +70,11 @@ impl MemOrFpOrConstant {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrFpOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
-            MemOrFpOrConstant::Fp => Err(RunnerError::NotAPointer),
-            MemOrFpOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Fp => Err(RunnerError::NotAPointer),
+            Self::Constant(_) => Err(RunnerError::NotAPointer),
         }
     }
 }
@@ -113,15 +113,15 @@ pub fn execute_bytecode(
                 &lines_history[lines_history.len().saturating_sub(STACK_TRACE_INSTRUCTIONS)..];
             println!(
                 "\n{}",
-                pretty_stack_trace(source_code, &latest_instructions, function_locations)
+                pretty_stack_trace(source_code, latest_instructions, function_locations)
             );
             if !std_out.is_empty() {
                 println!("╔══════════════════════════════════════════════════════════════╗");
                 println!("║                         STD-OUT                              ║");
                 println!("╚══════════════════════════════════════════════════════════════╝\n");
-                print!("{}", std_out);
+                print!("{std_out}");
             }
-            panic!("Error during bytecode execution: {}", err.to_string());
+            panic!("Error during bytecode execution: {err}");
         }
     };
     instruction_history = ExecutionHistory::default();
@@ -297,7 +297,7 @@ fn execute_bytecode_helper(
                     // Logs for performance analysis:
                     if values[0] == "123456789" {
                         if values.len() == 1 {
-                            *std_out += &format!("[CHECKPOINT]\n");
+                            *std_out += "[CHECKPOINT]\n";
                         } else {
                             assert_eq!(values.len(), 2);
                             let new_no_vec_memory = ap - checkpoint_ap;
@@ -318,7 +318,7 @@ fn execute_bytecode_helper(
                         continue;
                     }
 
-                    let line_info = line_info.replace(";", "");
+                    let line_info = line_info.replace(';', "");
                     *std_out += &format!("\"{}\" -> {}\n", line_info, values.join(", "));
                     // does not increase PC
                 }
@@ -403,11 +403,11 @@ fn execute_bytecode_helper(
             } => {
                 let condition_value = condition.read_value(&memory, fp)?;
                 assert!([F::ZERO, F::ONE].contains(&condition_value),);
-                if condition_value != F::ZERO {
+                if condition_value == F::ZERO {
+                    pc += 1;
+                } else {
                     pc = dest.read_value(&memory, fp)?.to_usize();
                     fp = updated_fp.read_value(&memory, fp)?.to_usize();
-                } else {
-                    pc += 1;
                 }
 
                 jump_counts += 1;
@@ -512,14 +512,14 @@ fn execute_bytecode_helper(
 
     if final_execution {
         if profiler {
-            let report = profiling_report(&instruction_history, function_locations);
-            println!("\n{}", report);
+            let report = profiling_report(instruction_history, function_locations);
+            println!("\n{report}");
         }
         if !std_out.is_empty() {
             println!("╔═════════════════════════════════════════════════════════════════════════╗");
             println!("║                                STD-OUT                                  ║");
             println!("╚═════════════════════════════════════════════════════════════════════════╝");
-            print!("\n{}", std_out);
+            print!("\n{std_out}");
             println!(
                 "──────────────────────────────────────────────────────────────────────────\n"
             );
@@ -590,8 +590,8 @@ fn execute_bytecode_helper(
                 add_counts,
                 mul_counts
             );
-            println!("DEREF: {}", deref_counts);
-            println!("JUMP: {}", jump_counts);
+            println!("DEREF: {deref_counts}");
+            println!("JUMP: {jump_counts}");
         }
 
         println!("──────────────────────────────────────────────────────────────────────────\n");

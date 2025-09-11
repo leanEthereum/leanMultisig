@@ -24,7 +24,7 @@ pub struct RingSwitching<F, EF, InnerPcs, const EXTENSION_DEGREE: usize> {
 impl<F, EF, InnerPcs, const EXTENSION_DEGREE: usize>
     RingSwitching<F, EF, InnerPcs, EXTENSION_DEGREE>
 {
-    pub fn new(inner_pcs: InnerPcs) -> Self {
+    pub const fn new(inner_pcs: InnerPcs) -> Self {
         Self {
             inner_pcs,
             f: PhantomData,
@@ -71,7 +71,7 @@ impl<
         let point = &eval.point;
         let packed_point = &point[..point.len() - kappa];
         let eval_eq_packed_point =
-            info_span!("eval_eq of packed_point").in_scope(|| eval_eq(&packed_point));
+            info_span!("eval_eq of packed_point").in_scope(|| eval_eq(packed_point));
 
         let s_hat =
             eval_mixed_tensor::<F, EF, EXTENSION_DEGREE>(transmuted_pol, &eval_eq_packed_point);
@@ -116,7 +116,7 @@ impl<
         );
 
         let packed_eval = Evaluation {
-            point: r_p.clone(),
+            point: r_p,
             value: packed_value,
         };
         let inner_statements = vec![packed_eval];
@@ -213,11 +213,7 @@ fn get_s_prime<F: Field, EF: ExtensionField<F>, const EXTENSION_DEGREE: usize>(
             + e.scale_columns(EF::ONE - r).scale_rows(EF::ONE - r_prime);
     }
 
-    sc_value
-        / dot_product(
-            e.rows::<EF>().into_iter(),
-            lagranged_r_pp.into_iter().cloned(),
-        )
+    sc_value / dot_product(e.rows::<EF>().into_iter(), lagranged_r_pp.iter().copied())
 }
 
 struct TensorAlgebra<F, const D: usize>([[F; D]; D]);
@@ -274,7 +270,7 @@ impl<F: Field, const D: usize> TensorAlgebra<F, D> {
         Self(data)
     }
 
-    fn one() -> Self {
+    const fn one() -> Self {
         let mut res = [[F::ZERO; D]; D];
         res[0][0] = F::ONE;
         Self(res)

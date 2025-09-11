@@ -5,7 +5,7 @@ use utils::ToUsize;
 use vm::*;
 
 impl IntermediateInstruction {
-    fn is_hint(&self) -> bool {
+    const fn is_hint(&self) -> bool {
         match self {
             Self::RequestMemory { .. }
             | Self::Print { .. }
@@ -64,14 +64,14 @@ pub fn compile_to_low_level_bytecode(
         pc += count_real_instructions(instructions);
     }
 
-    let ending_pc = label_to_pc.get("@end_program").cloned().unwrap();
+    let ending_pc = label_to_pc.get("@end_program").copied().unwrap();
 
     let mut match_block_sizes = Vec::new();
     let mut match_first_block_starts = Vec::new();
     for match_statement in intermediate_bytecode.match_blocks {
         let max_block_size = match_statement
             .iter()
-            .map(|block| count_real_instructions(&block))
+            .map(|block| count_real_instructions(block))
             .max()
             .unwrap();
         match_first_block_starts.push(pc);
@@ -108,12 +108,12 @@ pub fn compile_to_low_level_bytecode(
         );
     }
 
-    return Ok(Bytecode {
+    Ok(Bytecode {
         instructions: low_level_bytecode,
         hints,
         starting_frame_memory,
         ending_pc,
-    });
+    })
 }
 
 fn compile_block(
@@ -124,20 +124,20 @@ fn compile_block(
     hints: &mut BTreeMap<usize, Vec<Hint>>,
 ) {
     let try_as_mem_or_constant = |value: &IntermediateValue| {
-        if let Some(cst) = try_as_constant(value, &compiler) {
+        if let Some(cst) = try_as_constant(value, compiler) {
             return Some(MemOrConstant::Constant(cst));
         }
         if let IntermediateValue::MemoryAfterFp { offset } = value {
             return Some(MemOrConstant::MemoryAfterFp {
-                offset: eval_const_expression_usize(offset, &compiler),
+                offset: eval_const_expression_usize(offset, compiler),
             });
         }
-        return None;
+        None
     };
 
     let try_as_mem_or_fp = |value: &IntermediateValue| match value {
         IntermediateValue::MemoryAfterFp { offset } => Some(MemOrFp::MemoryAfterFp {
-            offset: eval_const_expression_usize(offset, &compiler),
+            offset: eval_const_expression_usize(offset, compiler),
         }),
         IntermediateValue::Fp => Some(MemOrFp::Fp),
         _ => None,
@@ -154,13 +154,13 @@ fn compile_block(
             } => {
                 let operation: Operation = operation.try_into().unwrap();
 
-                if let Some(arg_a_cst) = try_as_constant(&arg_a, &compiler) {
-                    if let Some(arg_b_cst) = try_as_constant(&arg_c, &compiler) {
+                if let Some(arg_a_cst) = try_as_constant(&arg_a, compiler) {
+                    if let Some(arg_b_cst) = try_as_constant(&arg_c, compiler) {
                         // res = constant +/x constant
 
                         let op_res = operation.compute(arg_a_cst, arg_b_cst);
 
-                        let res: MemOrFp = res.try_into_mem_or_fp(&compiler).unwrap();
+                        let res: MemOrFp = res.try_into_mem_or_fp(compiler).unwrap();
 
                         low_level_bytecode.push(Instruction::Computation {
                             operation: Operation::Add,
@@ -199,17 +199,17 @@ fn compile_block(
                 res,
             } => {
                 low_level_bytecode.push(Instruction::Deref {
-                    shift_0: eval_const_expression(&shift_0, &compiler).to_usize(),
-                    shift_1: eval_const_expression(&shift_1, &compiler).to_usize(),
+                    shift_0: eval_const_expression(&shift_0, compiler).to_usize(),
+                    shift_1: eval_const_expression(&shift_1, compiler).to_usize(),
                     res: match res {
                         IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset } => {
                             MemOrFpOrConstant::MemoryAfterFp {
-                                offset: eval_const_expression_usize(&offset, &compiler),
+                                offset: eval_const_expression_usize(&offset, compiler),
                             }
                         }
                         IntermediaryMemOrFpOrConstant::Fp => MemOrFpOrConstant::Fp,
                         IntermediaryMemOrFpOrConstant::Constant(c) => {
-                            MemOrFpOrConstant::Constant(eval_const_expression(&c, &compiler))
+                            MemOrFpOrConstant::Constant(eval_const_expression(&c, compiler))
                         }
                     },
                 });
@@ -258,10 +258,10 @@ fn compile_block(
                 size,
             } => {
                 low_level_bytecode.push(Instruction::DotProductExtensionExtension {
-                    arg0: arg0.try_into_mem_or_constant(&compiler).unwrap(),
-                    arg1: arg1.try_into_mem_or_constant(&compiler).unwrap(),
-                    res: res.try_into_mem_or_fp(&compiler).unwrap(),
-                    size: eval_const_expression_usize(&size, &compiler),
+                    arg0: arg0.try_into_mem_or_constant(compiler).unwrap(),
+                    arg1: arg1.try_into_mem_or_constant(compiler).unwrap(),
+                    res: res.try_into_mem_or_fp(compiler).unwrap(),
+                    size: eval_const_expression_usize(&size, compiler),
                 });
             }
             IntermediateInstruction::MultilinearEval {
@@ -271,10 +271,10 @@ fn compile_block(
                 n_vars,
             } => {
                 low_level_bytecode.push(Instruction::MultilinearEval {
-                    coeffs: coeffs.try_into_mem_or_constant(&compiler).unwrap(),
-                    point: point.try_into_mem_or_constant(&compiler).unwrap(),
-                    res: res.try_into_mem_or_fp(&compiler).unwrap(),
-                    n_vars: eval_const_expression_usize(&n_vars, &compiler),
+                    coeffs: coeffs.try_into_mem_or_constant(compiler).unwrap(),
+                    point: point.try_into_mem_or_constant(compiler).unwrap(),
+                    res: res.try_into_mem_or_fp(compiler).unwrap(),
+                    n_vars: eval_const_expression_usize(&n_vars, compiler),
                 });
             }
             IntermediateInstruction::DecomposeBits {
@@ -288,18 +288,18 @@ fn compile_block(
                         .map(|expr| try_as_mem_or_constant(expr).unwrap())
                         .collect(),
                 };
-                hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::CounterHint { res_offset } => {
                 let hint = Hint::CounterHint { res_offset };
-                hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::Inverse { arg, res_offset } => {
                 let hint = Hint::Inverse {
                     arg: try_as_mem_or_constant(&arg).unwrap(),
                     res_offset,
                 };
-                hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::RequestMemory {
                 offset,
@@ -308,11 +308,11 @@ fn compile_block(
             } => {
                 let size = try_as_mem_or_constant(&size).unwrap();
                 let hint = Hint::RequestMemory {
-                    offset: eval_const_expression_usize(&offset, &compiler),
+                    offset: eval_const_expression_usize(&offset, compiler),
                     vectorized,
                     size,
                 };
-                hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::Print { line_info, content } => {
                 let hint = Hint::Print {
@@ -322,11 +322,11 @@ fn compile_block(
                         .map(|c| try_as_mem_or_constant(&c).unwrap())
                         .collect(),
                 };
-                hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::LocationReport { location } => {
                 let hint = Hint::LocationReport { location };
-                hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                hints.entry(pc).or_default().push(hint);
             }
         }
 
@@ -349,11 +349,8 @@ fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
         ConstantValue::FunctionSize { function_name } => *compiler
             .memory_size_per_function
             .get(function_name)
-            .expect(&format!(
-                "Function {} not found in memory size map",
-                function_name
-            )),
-        ConstantValue::Label(label) => compiler.label_to_pc.get(label).cloned().unwrap(),
+            .unwrap_or_else(|| panic!("Function {function_name} not found in memory size map")),
+        ConstantValue::Label(label) => compiler.label_to_pc.get(label).copied().unwrap(),
         ConstantValue::MatchBlockSize { match_index } => compiler.match_block_sizes[*match_index],
         ConstantValue::MatchFirstBlockStart { match_index } => {
             compiler.match_first_block_starts[*match_index]
@@ -383,21 +380,21 @@ impl IntermediateValue {
     fn try_into_mem_or_fp(&self, compiler: &Compiler) -> Result<MemOrFp, String> {
         match self {
             Self::MemoryAfterFp { offset } => Ok(MemOrFp::MemoryAfterFp {
-                offset: eval_const_expression_usize(&offset, compiler),
+                offset: eval_const_expression_usize(offset, compiler),
             }),
             Self::Fp => Ok(MemOrFp::Fp),
-            _ => Err(format!("Cannot convert {:?} to MemOrFp", self)),
+            _ => Err(format!("Cannot convert {self:?} to MemOrFp")),
         }
     }
     fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {
         if let Some(cst) = try_as_constant(self, compiler) {
             return Ok(MemOrConstant::Constant(cst));
         }
-        if let IntermediateValue::MemoryAfterFp { offset } = self {
+        if let Self::MemoryAfterFp { offset } = self {
             return Ok(MemOrConstant::MemoryAfterFp {
                 offset: eval_const_expression_usize(offset, compiler),
             });
         }
-        Err(format!("Cannot convert {:?} to MemOrConstant", self))
+        Err(format!("Cannot convert {self:?} to MemOrConstant"))
     }
 }

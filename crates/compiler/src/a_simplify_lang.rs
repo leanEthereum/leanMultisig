@@ -39,11 +39,11 @@ pub enum VarOrConstMallocAccess {
 impl From<VarOrConstMallocAccess> for SimpleExpr {
     fn from(var_or_const: VarOrConstMallocAccess) -> Self {
         match var_or_const {
-            VarOrConstMallocAccess::Var(var) => SimpleExpr::Var(var),
+            VarOrConstMallocAccess::Var(var) => Self::Var(var),
             VarOrConstMallocAccess::ConstMallocAccess {
                 malloc_label,
                 offset,
-            } => SimpleExpr::ConstMallocAccess {
+            } => Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             },
@@ -56,8 +56,8 @@ impl TryInto<VarOrConstMallocAccess> for SimpleExpr {
 
     fn try_into(self) -> Result<VarOrConstMallocAccess, Self::Error> {
         match self {
-            SimpleExpr::Var(var) => Ok(VarOrConstMallocAccess::Var(var)),
-            SimpleExpr::ConstMallocAccess {
+            Self::Var(var) => Ok(VarOrConstMallocAccess::Var(var)),
+            Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => Ok(VarOrConstMallocAccess::ConstMallocAccess {
@@ -330,9 +330,9 @@ fn simplify_lines(
                         unreachable!("Weird: {:?}, {:?}", left, right)
                     };
                     res.push(SimpleLine::Assignment {
-                        var: var,
+                        var,
                         operation: HighLevelOperation::Add,
-                        arg0: other.into(),
+                        arg0: other,
                         arg1: SimpleExpr::zero(),
                     });
                 }
@@ -420,7 +420,7 @@ fn simplify_lines(
                 unroll,
             } => {
                 if *unroll {
-                    let (internal_variables, _) = find_variable_usage(&body);
+                    let (internal_variables, _) = find_variable_usage(body);
                     let mut unrolled_lines = Vec::new();
                     let start_evaluated = start.naive_eval().unwrap().to_usize();
                     let end_evaluated = end.naive_eval().unwrap().to_usize();
@@ -477,7 +477,7 @@ fn simplify_lines(
                 counters.loops += 1;
 
                 // Find variables used inside loop but defined outside
-                let (_, mut external_vars) = find_variable_usage(&body);
+                let (_, mut external_vars) = find_variable_usage(body);
 
                 // Include variables in start/end
                 for expr in [start, end] {
@@ -665,7 +665,7 @@ fn simplify_expr(
     const_malloc: &ConstMalloc,
 ) -> SimpleExpr {
     match expr {
-        Expression::Value(value) => return value.simplify_if_const(),
+        Expression::Value(value) => value.simplify_if_const(),
         Expression::ArrayAccess { array, index } => {
             if let SimpleExpr::Var(array_var) = array {
                 if let Some(label) = const_malloc.map.get(array_var) {
@@ -682,7 +682,7 @@ fn simplify_expr(
             let aux_arr = array_manager.get_aux_var(array, index); // auxiliary var to store m[array + index]
 
             if !array_manager.valid.insert(aux_arr.clone()) {
-                return SimpleExpr::Var(aux_arr.clone());
+                return SimpleExpr::Var(aux_arr);
             }
 
             handle_array_assignment(
@@ -694,7 +694,7 @@ fn simplify_expr(
                 array_manager,
                 const_malloc,
             );
-            return SimpleExpr::Var(aux_arr);
+            SimpleExpr::Var(aux_arr)
         }
         Expression::Binary {
             left,
@@ -722,7 +722,7 @@ fn simplify_expr(
                 arg0: left_var,
                 arg1: right_var,
             });
-            return SimpleExpr::Var(aux_var);
+            SimpleExpr::Var(aux_var)
         }
     }
 }
@@ -819,7 +819,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
             }
             Line::DecomposeBits { var, to_decompose } => {
                 for expr in to_decompose {
-                    on_new_expr(&expr, &internal_vars, &mut external_vars);
+                    on_new_expr(expr, &internal_vars, &mut external_vars);
                 }
                 internal_vars.insert(var.clone());
             }
@@ -866,7 +866,7 @@ fn inline_simple_expr(
         if let Some(replacement) = args.get(var) {
             *simple_expr = replacement.clone();
         } else {
-            *var = format!("@inlined_var_{}_{}", inlining_count, var);
+            *var = format!("@inlined_var_{inlining_count}_{var}");
         }
     }
 }
@@ -902,10 +902,9 @@ pub fn inline_lines(
     let inline_internal_var = |var: &mut Var| {
         assert!(
             !args.contains_key(var),
-            "Variable {} is both an argument and assigned in the inlined function",
-            var
+            "Variable {var} is both an argument and assigned in the inlined function"
         );
-        *var = format!("@inlined_var_{}_{}", inlining_count, var);
+        *var = format!("@inlined_var_{inlining_count}_{var}");
     };
 
     let mut lines_to_replace = vec![];
@@ -914,7 +913,7 @@ pub fn inline_lines(
             Line::Match { value, arms } => {
                 inline_expr(value, args, inlining_count);
                 for (_, statements) in arms {
-                    inline_lines(statements, args, &res, inlining_count);
+                    inline_lines(statements, args, res, inlining_count);
                 }
             }
             Line::Assignment { var, value } => {
@@ -928,8 +927,8 @@ pub fn inline_lines(
             } => {
                 inline_condition(condition);
 
-                inline_lines(then_branch, args, &res, inlining_count);
-                inline_lines(else_branch, args, &res, inlining_count);
+                inline_lines(then_branch, args, res, inlining_count);
+                inline_lines(else_branch, args, res, inlining_count);
             }
             Line::FunctionCall {
                 args: func_args,
@@ -1071,7 +1070,7 @@ fn handle_array_assignment(
                     let arg1 = simplify_expr(&right, res, counters, array_manager, const_malloc);
                     res.push(SimpleLine::Assignment {
                         var: VarOrConstMallocAccess::ConstMallocAccess {
-                            malloc_label: label.clone(),
+                            malloc_label: *label,
                             offset,
                         },
                         operation,
@@ -1085,7 +1084,7 @@ fn handle_array_assignment(
     }
 
     let value_simplified = match access_type {
-        ArrayAccessType::VarIsAssigned(var) => SimpleExpr::Var(var.clone()),
+        ArrayAccessType::VarIsAssigned(var) => SimpleExpr::Var(var),
         ArrayAccessType::ArrayIsAssigned(expr) => {
             simplify_expr(&expr, res, counters, array_manager, const_malloc)
         }
@@ -1102,8 +1101,8 @@ fn handle_array_assignment(
             res.push(SimpleLine::Assignment {
                 var: ptr_var.clone().into(),
                 operation: HighLevelOperation::Add,
-                arg0: array.clone().into(),
-                arg1: simplified_index.into(),
+                arg0: array,
+                arg1: simplified_index,
             });
             (SimpleExpr::Var(ptr_var), ConstExpression::zero())
         }
@@ -1125,7 +1124,7 @@ fn create_recursive_function(
     external_vars: &[Var],
 ) -> SimpleFunction {
     // Add iterator increment
-    let next_iter = format!("@incremented_{}", iterator);
+    let next_iter = format!("@incremented_{iterator}");
     body.push(SimpleLine::Assignment {
         var: next_iter.clone().into(),
         operation: HighLevelOperation::Add,
@@ -1146,7 +1145,7 @@ fn create_recursive_function(
         return_data: vec![],
     });
 
-    let diff_var = format!("@diff_{}", iterator);
+    let diff_var = format!("@diff_{iterator}");
 
     let instructions = vec![
         SimpleLine::Assignment {
@@ -1185,7 +1184,7 @@ fn replace_vars_for_unroll_in_expr(
                 if var == iterator {
                     *value_expr = SimpleExpr::Constant(ConstExpression::from(iterator_value));
                 } else if internal_vars.contains(var) {
-                    *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
+                    *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 }
             }
             SimpleExpr::Constant(_) | SimpleExpr::ConstMallocAccess { .. } => {}
@@ -1194,11 +1193,7 @@ fn replace_vars_for_unroll_in_expr(
             if let SimpleExpr::Var(array_var) = array {
                 assert!(array_var != iterator, "Weird");
                 if internal_vars.contains(array_var) {
-                    *array_var = format!(
-                        "@unrolled_{}_{}_{}",
-                        unroll_index, iterator_value, array_var
-                    )
-                    .into();
+                    *array_var = format!("@unrolled_{unroll_index}_{iterator_value}_{array_var}");
                 }
             }
 
@@ -1258,7 +1253,7 @@ fn replace_vars_for_unroll(
             }
             Line::Assignment { var, value } => {
                 assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
+                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(
                     value,
                     iterator,
@@ -1276,11 +1271,8 @@ fn replace_vars_for_unroll(
                 if let SimpleExpr::Var(array_var) = array {
                     assert!(array_var != iterator, "Weird");
                     if internal_vars.contains(array_var) {
-                        *array_var = format!(
-                            "@unrolled_{}_{}_{}",
-                            unroll_index, iterator_value, array_var
-                        )
-                        .into();
+                        *array_var =
+                            format!("@unrolled_{unroll_index}_{iterator_value}_{array_var}");
                     }
                 }
                 replace_vars_for_unroll_in_expr(
@@ -1357,11 +1349,8 @@ fn replace_vars_for_unroll(
                 unroll: _,
             } => {
                 assert!(other_iterator != iterator);
-                *other_iterator = format!(
-                    "@unrolled_{}_{}_{}",
-                    unroll_index, iterator_value, other_iterator
-                )
-                .into();
+                *other_iterator =
+                    format!("@unrolled_{unroll_index}_{iterator_value}_{other_iterator}");
                 replace_vars_for_unroll_in_expr(
                     start,
                     iterator,
@@ -1400,7 +1389,7 @@ fn replace_vars_for_unroll(
                     );
                 }
                 for ret in return_data {
-                    *ret = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, ret).into();
+                    *ret = format!("@unrolled_{unroll_index}_{iterator_value}_{ret}");
                 }
             }
             Line::FunctionRet { return_data } => {
@@ -1430,7 +1419,7 @@ fn replace_vars_for_unroll(
             }
             Line::Print { line_info, content } => {
                 // Print statements are not unrolled, so we don't need to change them
-                *line_info += &format!(" (unrolled {} {})", unroll_index, iterator_value);
+                *line_info += &format!(" (unrolled {unroll_index} {iterator_value})");
                 for var in content {
                     replace_vars_for_unroll_in_expr(
                         var,
@@ -1447,7 +1436,7 @@ fn replace_vars_for_unroll(
                 vectorized: _,
             } => {
                 assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
+                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(
                     size,
                     iterator,
@@ -1459,7 +1448,7 @@ fn replace_vars_for_unroll(
             }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
+                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 for expr in to_decompose {
                     replace_vars_for_unroll_in_expr(
                         expr,
@@ -1471,7 +1460,7 @@ fn replace_vars_for_unroll(
                 }
             }
             Line::CounterHint { var } => {
-                *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
+                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
             }
             Line::Break | Line::Panic | Line::LocationReport { .. } => {}
         }
@@ -1558,7 +1547,7 @@ fn handle_inlined_functions_helper(
                     inline_lines(
                         &mut func_body,
                         &inlined_args,
-                        &return_data,
+                        return_data,
                         total_inlined_counter.next(),
                     );
                     inlined_lines.extend(func_body);
@@ -1650,10 +1639,7 @@ fn handle_const_arguments_helper(
                     for (arg_expr, (arg_var, is_constant)) in args.iter().zip(&func.arguments) {
                         if *is_constant {
                             let const_eval = arg_expr.naive_eval().unwrap_or_else(|| {
-                                panic!(
-                                    "Failed to evaluate constant argument: {}",
-                                    arg_expr.to_string()
-                                )
+                                panic!("Failed to evaluate constant argument: {arg_expr}")
                             });
                             const_evals.push((arg_var.clone(), const_eval));
                         }
@@ -1662,7 +1648,7 @@ fn handle_const_arguments_helper(
                         "{function_name}_{}",
                         const_evals
                             .iter()
-                            .map(|(arg_var, const_eval)| { format!("{}={}", arg_var, const_eval) })
+                            .map(|(arg_var, const_eval)| { format!("{arg_var}={const_eval}") })
                             .collect::<Vec<_>>()
                             .join("_")
                     );
@@ -1739,8 +1725,7 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
             if let SimpleExpr::Var(array_var) = array {
                 assert!(
                     !map.contains_key(array_var),
-                    "Array {} is a constant",
-                    array_var
+                    "Array {array_var} is a constant"
                 );
             }
             replace_vars_by_const_in_expr(index, map);
@@ -1800,7 +1785,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 }
             }
             Line::Assignment { var, value } => {
-                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(value, map);
             }
             Line::ArrayAssign {
@@ -1811,8 +1796,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 if let SimpleExpr::Var(array_var) = array {
                     assert!(
                         !map.contains_key(array_var),
-                        "Array {} is a constant",
-                        array_var
+                        "Array {array_var} is a constant"
                     );
                 }
                 replace_vars_by_const_in_expr(index, map);
@@ -1827,8 +1811,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 for ret in return_data {
                     assert!(
                         !map.contains_key(ret),
-                        "Return variable {} is a constant",
-                        ret
+                        "Return variable {ret} is a constant"
                     );
                 }
             }
@@ -1878,16 +1861,16 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 }
             }
             Line::DecomposeBits { var, to_decompose } => {
-                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
                 for expr in to_decompose {
                     replace_vars_by_const_in_expr(expr, map);
                 }
             }
             Line::CounterHint { var } => {
-                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
             }
             Line::MAlloc { var, size, .. } => {
-                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(size, map);
             }
             Line::Panic | Line::Break | Line::LocationReport { .. } => {}
@@ -1903,12 +1886,12 @@ impl Display for SimpleLine {
 impl Display for VarOrConstMallocAccess {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            VarOrConstMallocAccess::Var(var) => write!(f, "{}", var),
-            VarOrConstMallocAccess::ConstMallocAccess {
+            Self::Var(var) => write!(f, "{var}"),
+            Self::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => {
-                write!(f, "ConstMallocAccess({}, {})", malloc_label, offset)
+                write!(f, "ConstMallocAccess({malloc_label}, {offset})")
             }
         }
     }
@@ -1918,7 +1901,7 @@ impl SimpleLine {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
         let line_str = match self {
-            SimpleLine::Match { value, arms } => {
+            Self::Match { value, arms } => {
                 let arms_str = arms
                     .iter()
                     .enumerate()
@@ -1935,17 +1918,17 @@ impl SimpleLine {
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                format!("match {} {{\n{}\n{}}}", value, arms_str, spaces)
+                format!("match {value} {{\n{arms_str}\n{spaces}}}")
             }
-            SimpleLine::Assignment {
+            Self::Assignment {
                 var,
                 operation,
                 arg0,
                 arg1,
             } => {
-                format!("{} = {} {} {}", var, arg0, operation, arg1)
+                format!("{var} = {arg0} {operation} {arg1}")
             }
-            SimpleLine::DecomposeBits {
+            Self::DecomposeBits {
                 var: result,
                 to_decompose,
                 label: _,
@@ -1955,18 +1938,18 @@ impl SimpleLine {
                     result,
                     to_decompose
                         .iter()
-                        .map(|expr| format!("{}", expr))
+                        .map(|expr| format!("{expr}"))
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
             }
-            SimpleLine::CounterHint { var: result } => {
-                format!("{} = counter_hint()", result)
+            Self::CounterHint { var: result } => {
+                format!("{result} = counter_hint()")
             }
-            SimpleLine::RawAccess { res, index, shift } => {
-                format!("memory[{} + {}] = {}", index, shift, res)
+            Self::RawAccess { res, index, shift } => {
+                format!("memory[{index} + {shift}] = {res}")
             }
-            SimpleLine::IfNotZero {
+            Self::IfNotZero {
                 condition,
                 then_branch,
                 else_branch,
@@ -1984,66 +1967,65 @@ impl SimpleLine {
                     .join("\n");
 
                 if else_branch.is_empty() {
-                    format!("if {} != 0 {{\n{}\n{}}}", condition, then_str, spaces)
+                    format!("if {condition} != 0 {{\n{then_str}\n{spaces}}}")
                 } else {
                     format!(
-                        "if {} != 0 {{\n{}\n{}}} else {{\n{}\n{}}}",
-                        condition, then_str, spaces, else_str, spaces
+                        "if {condition} != 0 {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}"
                     )
                 }
             }
-            SimpleLine::FunctionCall {
+            Self::FunctionCall {
                 function_name,
                 args,
                 return_data,
             } => {
                 let args_str = args
                     .iter()
-                    .map(|arg| format!("{}", arg))
+                    .map(|arg| format!("{arg}"))
                     .collect::<Vec<_>>()
                     .join(", ");
                 let return_data_str = return_data
                     .iter()
-                    .map(|var| format!("{}", var))
+                    .map(|var| var.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
 
                 if return_data.is_empty() {
-                    format!("{}({})", function_name, args_str)
+                    format!("{function_name}({args_str})")
                 } else {
-                    format!("{} = {}({})", return_data_str, function_name, args_str)
+                    format!("{return_data_str} = {function_name}({args_str})")
                 }
             }
-            SimpleLine::FunctionRet { return_data } => {
+            Self::FunctionRet { return_data } => {
                 let return_data_str = return_data
                     .iter()
-                    .map(|arg| format!("{}", arg))
+                    .map(|arg| format!("{arg}"))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("return {}", return_data_str)
+                format!("return {return_data_str}")
             }
-            SimpleLine::Precompile { precompile, args } => {
+            Self::Precompile { precompile, args } => {
                 format!(
                     "{}({})",
                     &precompile.name,
                     args.iter()
-                        .map(|arg| format!("{}", arg))
+                        .map(|arg| format!("{arg}"))
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
             }
-            SimpleLine::Print {
+            Self::Print {
                 line_info: _,
                 content,
             } => {
                 let content_str = content
                     .iter()
-                    .map(|c| format!("{}", c))
+                    .map(|c| format!("{c}"))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("print({})", content_str)
+                format!("print({content_str})")
             }
-            SimpleLine::HintMAlloc {
+            Self::HintMAlloc {
                 var,
                 size,
                 vectorized,
@@ -2053,19 +2035,19 @@ impl SimpleLine {
                 } else {
                     "malloc"
                 };
-                format!("{} = {}({})", var, alloc_type, size)
+                format!("{var} = {alloc_type}({size})")
             }
-            SimpleLine::ConstMalloc {
+            Self::ConstMalloc {
                 var,
                 size,
                 label: _,
             } => {
-                format!("{} = malloc({})", var, size)
+                format!("{var} = malloc({size})")
             }
-            SimpleLine::Panic => "panic".to_string(),
-            SimpleLine::LocationReport { .. } => Default::default(),
+            Self::Panic => "panic".to_string(),
+            Self::LocationReport { .. } => Default::default(),
         };
-        format!("{}{}", spaces, line_str)
+        format!("{spaces}{line_str}")
     }
 }
 
@@ -2074,7 +2056,7 @@ impl Display for SimpleFunction {
         let args_str = self
             .arguments
             .iter()
-            .map(|arg| format!("{}", arg))
+            .map(|arg| arg.to_string())
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -2108,7 +2090,7 @@ impl Display for SimpleProgram {
             if !first {
                 writeln!(f)?;
             }
-            write!(f, "{}", function)?;
+            write!(f, "{function}")?;
             first = false;
         }
         Ok(())

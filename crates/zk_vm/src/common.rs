@@ -74,7 +74,7 @@ pub fn poseidon_lookup_value<EF: Field>(
         poseidon24_evals[2].value * s24,
         poseidon24_evals[5].value * s24,
     ]
-    .evaluate(&poseidon_lookup_batching_chalenges)
+    .evaluate(poseidon_lookup_batching_chalenges)
 }
 
 pub fn poseidon_lookup_index_statements(
@@ -165,7 +165,7 @@ pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<
             .flat_map(|i| padd_with_zero_to_next_power_of_two(&field_representation(i)))
             .collect::<Vec<_>>(),
     );
-    fold_multilinear(&encoded_bytecode, &folding_challenges)
+    fold_multilinear(&encoded_bytecode, folding_challenges)
 }
 
 pub fn intitial_and_final_pc_conditions(

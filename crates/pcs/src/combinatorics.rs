@@ -47,8 +47,8 @@ impl TreeOfVariables {
 impl TreeOfVariablesInner {
     pub fn total_vars(&self, vars_per_polynomial: &[usize]) -> usize {
         match self {
-            TreeOfVariablesInner::Polynomial(i) => vars_per_polynomial[*i],
-            TreeOfVariablesInner::Composed { left, right } => {
+            Self::Polynomial(i) => vars_per_polynomial[*i],
+            Self::Composed { left, right } => {
                 1 + left
                     .total_vars(vars_per_polynomial)
                     .max(right.total_vars(vars_per_polynomial))
@@ -58,16 +58,16 @@ impl TreeOfVariablesInner {
 
     fn density(&self, vars_per_polynomial: &[usize]) -> f64 {
         match self {
-            TreeOfVariablesInner::Polynomial(_) => 1.,
-            TreeOfVariablesInner::Composed { left, right } => {
+            Self::Polynomial(_) => 1.,
+            Self::Composed { left, right } => {
                 let density_left = left.density(vars_per_polynomial);
                 let density_right = right.density(vars_per_polynomial);
                 let total_vars = self.total_vars(vars_per_polynomial) as f64;
                 let left_vars = left.total_vars(vars_per_polynomial) as f64;
                 let right_vars = right.total_vars(vars_per_polynomial) as f64;
-                let left_weight = 2f64.powf(left_vars - total_vars);
-                let right_weight = 2f64.powf(right_vars - total_vars);
-                left_weight * density_left + right_weight * density_right
+                let left_weight = (left_vars - total_vars).exp2();
+                let right_weight = (right_vars - total_vars).exp2();
+                left_weight.mul_add(density_left, right_weight * density_right)
             }
         }
     }
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn test_tree_of_variables() {
         let vars_per_polynomial = vec![2];
-        let tree = TreeOfVariables::compute_optimal(vars_per_polynomial.clone());
-        dbg!(&tree, tree.total_vars());
+        let tree = TreeOfVariables::compute_optimal(vars_per_polynomial);
+        tree.total_vars();
     }
 }

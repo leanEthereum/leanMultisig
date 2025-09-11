@@ -54,7 +54,7 @@ fn test_zk_vm() {
     .to_string();
 
     let public_input = (0..(1 << 13) - PUBLIC_INPUT_START)
-        .map(|i| F::from_usize(i))
+        .map(F::from_usize)
         .collect::<Vec<_>>();
 
     let private_input = (0..1 << 13)

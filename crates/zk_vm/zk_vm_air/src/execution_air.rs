@@ -97,29 +97,21 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
 
         let nu_a =
             flag_a.clone() * operand_a.clone() + value_a.clone() * (AB::Expr::ONE - flag_a.clone());
-        let nu_b =
-            flag_b.clone() * operand_b.clone() + value_b.clone() * (AB::Expr::ONE - flag_b.clone());
+        let nu_b = flag_b.clone() * operand_b.clone() + value_b * (AB::Expr::ONE - flag_b.clone());
         let nu_c = flag_c.clone() * fp.clone() + value_c.clone() * (AB::Expr::ONE - flag_c.clone());
 
+        builder.assert_zero((AB::Expr::ONE - flag_a) * (addr_a - (fp.clone() + operand_a)));
+        builder.assert_zero((AB::Expr::ONE - flag_b) * (addr_b - (fp.clone() + operand_b)));
         builder.assert_zero(
-            (AB::Expr::ONE - flag_a.clone()) * (addr_a.clone() - (fp.clone() + operand_a.clone())),
-        );
-        builder.assert_zero(
-            (AB::Expr::ONE - flag_b.clone()) * (addr_b.clone() - (fp.clone() + operand_b.clone())),
-        );
-        builder.assert_zero(
-            (AB::Expr::ONE - flag_c.clone()) * (addr_c.clone() - (fp.clone() + operand_c.clone())),
+            (AB::Expr::ONE - flag_c) * (addr_c.clone() - (fp.clone() + operand_c.clone())),
         );
 
-        builder.assert_zero(add.clone() * (nu_b.clone() - (nu_a.clone() + nu_c.clone())));
-        builder.assert_zero(mul.clone() * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
+        builder.assert_zero(add * (nu_b.clone() - (nu_a.clone() + nu_c.clone())));
+        builder.assert_zero(mul * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
 
-        builder
-            .assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
+        builder.assert_zero(deref.clone() * (addr_c - (value_a + operand_c)));
         builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
-        builder.assert_zero(
-            deref.clone() * (AB::Expr::ONE - aux.clone()) * (value_c.clone() - fp.clone()),
-        );
+        builder.assert_zero(deref * (AB::Expr::ONE - aux) * (value_c - fp.clone()));
 
         builder.assert_zero(
             (AB::Expr::ONE - jump.clone()) * (next_pc.clone() - (pc.clone() + AB::Expr::ONE)),
@@ -127,15 +119,11 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
         builder.assert_zero((AB::Expr::ONE - jump.clone()) * (next_fp.clone() - fp.clone()));
 
         builder.assert_zero(jump.clone() * nu_a.clone() * (AB::Expr::ONE - nu_a.clone()));
-        builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
-        builder.assert_zero(jump.clone() * nu_a.clone() * (next_fp.clone() - nu_c.clone()));
+        builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b));
+        builder.assert_zero(jump.clone() * nu_a.clone() * (next_fp.clone() - nu_c));
         builder.assert_zero(
-            jump.clone()
-                * (AB::Expr::ONE - nu_a.clone())
-                * (next_pc.clone() - (pc.clone() + AB::Expr::ONE)),
+            jump.clone() * (AB::Expr::ONE - nu_a.clone()) * (next_pc - (pc + AB::Expr::ONE)),
         );
-        builder.assert_zero(
-            jump.clone() * (AB::Expr::ONE - nu_a.clone()) * (next_fp.clone() - fp.clone()),
-        );
+        builder.assert_zero(jump * (AB::Expr::ONE - nu_a) * (next_fp - fp));
     }
 }

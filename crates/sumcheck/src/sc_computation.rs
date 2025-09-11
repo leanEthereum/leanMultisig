@@ -62,7 +62,7 @@ where
         }
         let mut folder = ConstraintFolderPackedBase {
             main: RowMajorMatrixView::new(point, A::width(self)),
-            alpha_powers: alpha_powers,
+            alpha_powers,
             accumulator: Default::default(),
             constraint_index: 0,
         };
@@ -79,7 +79,7 @@ where
         }
         let mut folder = ConstraintFolderPackedExtension {
             main: RowMajorMatrixView::new(point, A::width(self)),
-            alpha_powers: alpha_powers,
+            alpha_powers,
             accumulator: Default::default(),
             constraint_index: 0,
         };

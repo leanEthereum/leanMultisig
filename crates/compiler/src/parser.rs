@@ -22,15 +22,15 @@ pub enum ParseError {
 
 impl From<pest::error::Error<Rule>> for ParseError {
     fn from(error: pest::error::Error<Rule>) -> Self {
-        ParseError::PestError(error)
+        Self::PestError(error)
     }
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::PestError(e) => write!(f, "Parse error: {}", e),
-            ParseError::SemanticError(e) => write!(f, "Semantic error: {}", e),
+            Self::PestError(e) => write!(f, "Parse error: {e}"),
+            Self::SemanticError(e) => write!(f, "Semantic error: {e}"),
         }
     }
 }
@@ -98,7 +98,7 @@ fn parse_constant_declaration(
             },
             &|_, _| None,
         )
-        .unwrap_or_else(|| panic!("Failed to evaluate constant: {}", name))
+        .unwrap_or_else(|| panic!("Failed to evaluate constant: {name}"))
         .to_usize();
     Ok((name, value))
 }
@@ -160,7 +160,7 @@ fn parse_parameter(pair: Pair<'_, Rule>) -> Result<(String, bool), ParseError> {
     let mut inner = pair.into_inner();
     let first = inner.next().unwrap();
 
-    if let Rule::const_keyword = first.as_rule() {
+    if first.as_rule() == Rule::const_keyword {
         // If the first token is "const", the next one should be the identifier
         let identifier = inner.next().ok_or_else(|| {
             ParseError::SemanticError("Expected identifier after 'const'".to_string())
@@ -251,8 +251,7 @@ fn parse_const_expr(
                     Ok(value)
                 } else {
                     Err(ParseError::SemanticError(format!(
-                        "Invalid constant expression in match pattern: {}",
-                        text
+                        "Invalid constant expression in match pattern: {text}"
                     )))
                 }
             }
@@ -424,7 +423,7 @@ fn parse_binary_expr(
     let mut inner = pair.into_inner();
     let mut expr = parse_expression(inner.next().unwrap(), constants)?;
 
-    while let Some(right) = inner.next() {
+    for right in inner {
         let right_expr = parse_expression(right, constants)?;
         expr = Expression::Binary {
             left: Box::new(expr),
@@ -497,7 +496,7 @@ fn parse_function_call(
     for var in &mut return_data {
         if var == "_" {
             *trash_var_count += 1;
-            *var = format!("@trash_{}", trash_var_count);
+            *var = format!("@trash_{trash_var_count}");
         }
     }
 
@@ -536,7 +535,7 @@ fn parse_function_call(
         }
         "decompose_bits" => {
             assert!(
-                args.len() >= 1 && return_data.len() == 1,
+                !args.is_empty() && return_data.len() == 1,
                 "Invalid decompose_bits call"
             );
             Ok(Line::DecomposeBits {
@@ -625,7 +624,7 @@ fn parse_var_or_constant(
 
     match pair.as_rule() {
         Rule::var_or_constant => {
-            return parse_var_or_constant(pair.into_inner().next().unwrap(), constants);
+            parse_var_or_constant(pair.into_inner().next().unwrap(), constants)
         }
         Rule::identifier | Rule::constant_value => match text {
             "public_input_start" => Ok(SimpleExpr::Constant(ConstExpression::Value(

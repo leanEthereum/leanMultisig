@@ -63,7 +63,7 @@ pub fn packed_pcs_global_statements<EF: Field>(
     tree: &TreeOfVariables,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
 ) -> Vec<Evaluation<EF>> {
-    check_tree(&tree, statements_per_polynomial).expect("Invalid tree structure for multi-open");
+    check_tree(tree, statements_per_polynomial).expect("Invalid tree structure for multi-open");
 
     tree.root
         .global_statement(&tree.vars_per_polynomial, statements_per_polynomial, &[])
@@ -115,11 +115,11 @@ impl TreeOfVariablesInner {
         vars_per_polynomial: &[usize],
     ) {
         match self {
-            TreeOfVariablesInner::Polynomial(i) => {
+            Self::Polynomial(i) => {
                 let len = polynomials[*i].len();
                 buff[..len].copy_from_slice(polynomials[*i]);
             }
-            TreeOfVariablesInner::Composed { left, right } => {
+            Self::Composed { left, right } => {
                 let (left_buff, right_buff) = buff.split_at_mut(buff.len() / 2);
                 let left_buff = &mut left_buff[..1 << left.total_vars(vars_per_polynomial)];
                 let right_buff = &mut right_buff[..1 << right.total_vars(vars_per_polynomial)];
@@ -138,7 +138,7 @@ impl TreeOfVariablesInner {
         selectors: &[EF],
     ) -> Vec<Evaluation<EF>> {
         match self {
-            TreeOfVariablesInner::Polynomial(i) => {
+            Self::Polynomial(i) => {
                 let mut res = Vec::new();
                 for eval in &statements_per_polynomial[*i] {
                     res.push(Evaluation {
@@ -150,7 +150,7 @@ impl TreeOfVariablesInner {
                 }
                 res
             }
-            TreeOfVariablesInner::Composed { left, right } => {
+            Self::Composed { left, right } => {
                 let left_vars = left.total_vars(vars_per_polynomial);
                 let right_vars = right.total_vars(vars_per_polynomial);
 
