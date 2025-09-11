@@ -86,15 +86,15 @@ pub enum Instruction {
 impl Operation {
     pub fn compute(&self, a: F, b: F) -> F {
         match self {
-            Operation::Add => a + b,
-            Operation::Mul => a * b,
+            Self::Add => a + b,
+            Self::Mul => a * b,
         }
     }
 
     pub fn inverse_compute(&self, a: F, b: F) -> Option<F> {
         match self {
-            Operation::Add => Some(a - b),
-            Operation::Mul => {
+            Self::Add => Some(a - b),
+            Self::Mul => {
                 if b == F::ZERO {
                     None
                 } else {
@@ -133,12 +133,12 @@ pub enum Hint {
 }
 
 impl MemOrConstant {
-    pub fn zero() -> Self {
-        MemOrConstant::Constant(F::ZERO)
+    pub const fn zero() -> Self {
+        Self::Constant(F::ZERO)
     }
 
-    pub fn one() -> Self {
-        MemOrConstant::Constant(F::ONE)
+    pub const fn one() -> Self {
+        Self::Constant(F::ONE)
     }
 }
 impl Display for Bytecode {
@@ -146,9 +146,9 @@ impl Display for Bytecode {
         let mut pc = 0;
         for instruction in &self.instructions {
             for hint in self.hints.get(&pc).unwrap_or(&Vec::new()) {
-                writeln!(f, "hint: {}", hint)?;
+                writeln!(f, "hint: {hint}")?;
             }
-            writeln!(f, "{:>4}: {}", pc, instruction)?;
+            writeln!(f, "{pc:>4}: {instruction}")?;
             pc += 1;
         }
         Ok(())
@@ -158,8 +158,8 @@ impl Display for Bytecode {
 impl Display for MemOrConstant {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Constant(c) => write!(f, "{}", c),
-            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {}]", offset),
+            Self::Constant(c) => write!(f, "{c}"),
+            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
         }
     }
 }
@@ -167,7 +167,7 @@ impl Display for MemOrConstant {
 impl Display for MemOrFp {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {}]", offset),
+            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
             Self::Fp => write!(f, "fp"),
         }
     }
@@ -176,9 +176,9 @@ impl Display for MemOrFp {
 impl Display for MemOrFpOrConstant {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {}]", offset),
+            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
             Self::Fp => write!(f, "fp"),
-            Self::Constant(c) => write!(f, "{}", c),
+            Self::Constant(c) => write!(f, "{c}"),
         }
     }
 }
@@ -201,14 +201,14 @@ impl Display for Instruction {
                 arg_c,
                 res,
             } => {
-                write!(f, "{} = {} {} {}", res, arg_a, operation, arg_c)
+                write!(f, "{res} = {arg_a} {operation} {arg_c}")
             }
             Self::Deref {
                 shift_0,
                 shift_1,
                 res,
             } => {
-                write!(f, "{} = m[m[fp + {}] + {}]", res, shift_0, shift_1)
+                write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]")
             }
             Self::DotProductExtensionExtension {
                 arg0,
@@ -216,7 +216,7 @@ impl Display for Instruction {
                 res,
                 size,
             } => {
-                write!(f, "dot_product({}, {}, {}, {})", arg0, arg1, res, size)
+                write!(f, "dot_product({arg0}, {arg1}, {res}, {size})")
             }
             Self::MultilinearEval {
                 coeffs,
@@ -224,11 +224,7 @@ impl Display for Instruction {
                 res,
                 n_vars,
             } => {
-                write!(
-                    f,
-                    "multilinear_eval({}, {}, {}, {})",
-                    coeffs, point, res, n_vars
-                )
+                write!(f, "multilinear_eval({coeffs}, {point}, {res}, {n_vars})")
             }
             Self::Jump {
                 condition,
@@ -237,15 +233,14 @@ impl Display for Instruction {
             } => {
                 write!(
                     f,
-                    "if {} != 0 jump to {} with next(fp) = {}",
-                    condition, dest, updated_fp
+                    "if {condition} != 0 jump to {dest} with next(fp) = {updated_fp}"
                 )
             }
             Self::Poseidon2_16 { arg_a, arg_b, res } => {
-                write!(f, "{} = poseidon2_16({}, {})", res, arg_a, arg_b)
+                write!(f, "{res} = poseidon2_16({arg_a}, {arg_b})")
             }
             Self::Poseidon2_24 { arg_a, arg_b, res } => {
-                write!(f, "{} = poseidon2_24({}, {})", res, arg_a, arg_b)
+                write!(f, "{res} = poseidon2_24({arg_a}, {arg_b})")
             }
         }
     }
@@ -271,17 +266,17 @@ impl Display for Hint {
                 res_offset,
                 to_decompose,
             } => {
-                write!(f, "m[fp + {}] = decompose_bits(", res_offset)?;
+                write!(f, "m[fp + {res_offset}] = decompose_bits(")?;
                 for (i, v) in to_decompose.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", v)?;
+                    write!(f, "{v}")?;
                 }
                 write!(f, ")")
             }
             Self::CounterHint { res_offset } => {
-                write!(f, "m[fp + {}] = counter_hint()", res_offset)
+                write!(f, "m[fp + {res_offset}] = counter_hint()")
             }
             Self::Print { line_info, content } => {
                 write!(f, "print(")?;
@@ -289,12 +284,12 @@ impl Display for Hint {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", v)?;
+                    write!(f, "{v}")?;
                 }
-                write!(f, ") for \"{}\"", line_info)
+                write!(f, ") for \"{line_info}\"")
             }
             Self::Inverse { arg, res_offset } => {
-                write!(f, "m[fp + {}] = inverse({})", res_offset, arg)
+                write!(f, "m[fp + {res_offset}] = inverse({arg})")
             }
             Self::LocationReport { .. } => Ok(()),
         }

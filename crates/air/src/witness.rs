@@ -37,7 +37,7 @@ impl<'a, F> AirWitness<'a, F> {
         }
     }
 
-    pub fn n_columns(&self) -> usize {
+    pub const fn n_columns(&self) -> usize {
         self.cols.len()
     }
 

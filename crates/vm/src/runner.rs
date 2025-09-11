@@ -1,7 +1,5 @@
-use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
-use rayon::prelude::*;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 use utils::get_poseidon16;
@@ -17,48 +15,13 @@ use crate::*;
 use p3_field::Field;
 use p3_symmetric::Permutation;
 
-const MAX_MEMORY_SIZE: usize = 1 << 24;
 const STACK_TRACE_INSTRUCTIONS: usize = 5000;
-
-#[derive(Debug, Clone)]
-pub enum RunnerError {
-    OutOfMemory,
-    MemoryAlreadySet,
-    NotAPointer,
-    DivByZero,
-    NotEqual(F, F),
-    UndefinedMemory,
-    PCOutOfBounds,
-    MultilinearEvalPointNotPadded,
-}
-
-impl ToString for RunnerError {
-    fn to_string(&self) -> String {
-        match self {
-            RunnerError::OutOfMemory => "Out of memory".to_string(),
-            RunnerError::MemoryAlreadySet => "Memory already set".to_string(),
-            RunnerError::NotAPointer => "Not a pointer".to_string(),
-            RunnerError::DivByZero => "Division by zero".to_string(),
-            RunnerError::NotEqual(expected, actual) => {
-                format!("Computation Invalid: {} != {}", expected, actual)
-            }
-            RunnerError::UndefinedMemory => "Undefined memory access".to_string(),
-            RunnerError::PCOutOfBounds => "Program counter out of bounds".to_string(),
-            RunnerError::MultilinearEvalPointNotPadded => {
-                "Point for multilinear eval not padded with zeros".to_string()
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Memory(pub Vec<Option<F>>);
 
 impl MemOrConstant {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrConstant::Constant(c) => Ok(*c),
-            MemOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Constant(c) => Ok(*c),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
         }
     }
 
@@ -66,10 +29,10 @@ impl MemOrConstant {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
-            MemOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Constant(_) => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
         }
     }
 }
@@ -77,8 +40,8 @@ impl MemOrConstant {
 impl MemOrFp {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrFp::MemoryAfterFp { offset } => memory.get(fp + *offset),
-            MemOrFp::Fp => Ok(F::from_usize(fp)),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Fp => Ok(F::from_usize(fp)),
         }
     }
 
@@ -86,10 +49,10 @@ impl MemOrFp {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrFp::MemoryAfterFp { offset } => Ok(fp + *offset),
-            MemOrFp::Fp => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Fp => Err(RunnerError::NotAPointer),
         }
     }
 }
@@ -97,9 +60,9 @@ impl MemOrFp {
 impl MemOrFpOrConstant {
     pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrFpOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
-            MemOrFpOrConstant::Fp => Ok(F::from_usize(fp)),
-            MemOrFpOrConstant::Constant(c) => Ok(*c),
+            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
+            Self::Fp => Ok(F::from_usize(fp)),
+            Self::Constant(c) => Ok(*c),
         }
     }
 
@@ -107,106 +70,12 @@ impl MemOrFpOrConstant {
         self.read_value(memory, fp).is_err()
     }
 
-    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrFpOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
-            MemOrFpOrConstant::Fp => Err(RunnerError::NotAPointer),
-            MemOrFpOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
+            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::Fp => Err(RunnerError::NotAPointer),
+            Self::Constant(_) => Err(RunnerError::NotAPointer),
         }
-    }
-}
-
-impl Memory {
-    pub fn new(public_memory: Vec<F>) -> Self {
-        Self(public_memory.into_par_iter().map(Some).collect::<Vec<_>>())
-    }
-    pub fn get(&self, index: usize) -> Result<F, RunnerError> {
-        self.0
-            .get(index)
-            .and_then(|opt| *opt)
-            .ok_or(RunnerError::UndefinedMemory)
-    }
-
-    pub fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
-        if index >= self.0.len() {
-            if index >= MAX_MEMORY_SIZE {
-                return Err(RunnerError::OutOfMemory);
-            }
-            self.0.resize(index + 1, None);
-        }
-        if let Some(existing) = &mut self.0[index] {
-            if *existing != value {
-                return Err(RunnerError::MemoryAlreadySet);
-            }
-        } else {
-            self.0[index] = Some(value);
-        }
-        Ok(())
-    }
-
-    pub fn get_vector(&self, index: usize) -> Result<[F; VECTOR_LEN], RunnerError> {
-        Ok(self.get_vectorized_slice(index, 1)?.try_into().unwrap())
-    }
-
-    pub fn get_ef_element(&self, index: usize) -> Result<EF, RunnerError> {
-        // index: non vectorized pointer
-        let mut coeffs = [F::ZERO; DIMENSION];
-        for i in 0..DIMENSION {
-            coeffs[i] = self.get(index + i)?;
-        }
-        Ok(EF::from_basis_coefficients_slice(&coeffs).unwrap())
-    }
-
-    pub fn get_vectorized_slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        let mut vector = Vec::with_capacity(len * VECTOR_LEN);
-        for i in 0..len * VECTOR_LEN {
-            vector.push(self.get(index * VECTOR_LEN + i)?);
-        }
-        Ok(vector)
-    }
-
-    pub fn get_continuous_slice_of_ef_elements(
-        &self,
-        index: usize, // normal pointer
-        len: usize,
-    ) -> Result<Vec<EF>, RunnerError> {
-        let mut vector = Vec::with_capacity(len);
-        for i in 0..len {
-            vector.push(self.get_ef_element(index + i * DIMENSION)?);
-        }
-        Ok(vector)
-    }
-
-    pub fn slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        let mut vector = Vec::with_capacity(len);
-        for i in 0..len {
-            vector.push(self.get(index + i)?);
-        }
-        Ok(vector)
-    }
-
-    pub fn set_ef_element(&mut self, index: usize, value: EF) -> Result<(), RunnerError> {
-        for (i, v) in value.as_basis_coefficients_slice().iter().enumerate() {
-            self.set(index + i, *v)?;
-        }
-        Ok(())
-    }
-
-    pub fn set_vector(&mut self, index: usize, value: [F; VECTOR_LEN]) -> Result<(), RunnerError> {
-        for (i, v) in value.iter().enumerate() {
-            let idx = VECTOR_LEN * index + i;
-            self.set(idx, *v)?;
-        }
-        Ok(())
-    }
-
-    pub fn set_vectorized_slice(&mut self, index: usize, value: &[F]) -> Result<(), RunnerError> {
-        assert!(value.len() % VECTOR_LEN == 0);
-        for (i, v) in value.iter().enumerate() {
-            let idx = VECTOR_LEN * index + i;
-            self.set(idx, *v)?;
-        }
-        Ok(())
     }
 }
 
@@ -244,15 +113,15 @@ pub fn execute_bytecode(
                 &lines_history[lines_history.len().saturating_sub(STACK_TRACE_INSTRUCTIONS)..];
             println!(
                 "\n{}",
-                pretty_stack_trace(source_code, &latest_instructions, function_locations)
+                pretty_stack_trace(source_code, latest_instructions, function_locations)
             );
             if !std_out.is_empty() {
                 println!("╔══════════════════════════════════════════════════════════════╗");
                 println!("║                         STD-OUT                              ║");
                 println!("╚══════════════════════════════════════════════════════════════╝\n");
-                print!("{}", std_out);
+                print!("{std_out}");
             }
-            panic!("Error during bytecode execution: {}", err.to_string());
+            panic!("Error during bytecode execution: {err}");
         }
     };
     instruction_history = ExecutionHistory::default();
@@ -428,7 +297,7 @@ fn execute_bytecode_helper(
                     // Logs for performance analysis:
                     if values[0] == "123456789" {
                         if values.len() == 1 {
-                            *std_out += &format!("[CHECKPOINT]\n");
+                            *std_out += "[CHECKPOINT]\n";
                         } else {
                             assert_eq!(values.len(), 2);
                             let new_no_vec_memory = ap - checkpoint_ap;
@@ -449,7 +318,7 @@ fn execute_bytecode_helper(
                         continue;
                     }
 
-                    let line_info = line_info.replace(";", "");
+                    let line_info = line_info.replace(';', "");
                     *std_out += &format!("\"{}\" -> {}\n", line_info, values.join(", "));
                     // does not increase PC
                 }
@@ -534,11 +403,11 @@ fn execute_bytecode_helper(
             } => {
                 let condition_value = condition.read_value(&memory, fp)?;
                 assert!([F::ZERO, F::ONE].contains(&condition_value),);
-                if condition_value != F::ZERO {
+                if condition_value == F::ZERO {
+                    pc += 1;
+                } else {
                     pc = dest.read_value(&memory, fp)?.to_usize();
                     fp = updated_fp.read_value(&memory, fp)?.to_usize();
-                } else {
-                    pc += 1;
                 }
 
                 jump_counts += 1;
@@ -643,14 +512,14 @@ fn execute_bytecode_helper(
 
     if final_execution {
         if profiler {
-            let report = profiling_report(&instruction_history, function_locations);
-            println!("\n{}", report);
+            let report = profiling_report(instruction_history, function_locations);
+            println!("\n{report}");
         }
         if !std_out.is_empty() {
             println!("╔═════════════════════════════════════════════════════════════════════════╗");
             println!("║                                STD-OUT                                  ║");
             println!("╚═════════════════════════════════════════════════════════════════════════╝");
-            print!("\n{}", std_out);
+            print!("\n{std_out}");
             println!(
                 "──────────────────────────────────────────────────────────────────────────\n"
             );
@@ -721,8 +590,8 @@ fn execute_bytecode_helper(
                 add_counts,
                 mul_counts
             );
-            println!("DEREF: {}", deref_counts);
-            println!("JUMP: {}", jump_counts);
+            println!("DEREF: {deref_counts}");
+            println!("JUMP: {jump_counts}");
         }
 
         println!("──────────────────────────────────────────────────────────────────────────\n");

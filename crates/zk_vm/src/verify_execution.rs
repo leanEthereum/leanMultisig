@@ -301,7 +301,7 @@ pub fn verify_execution(
         point: MultilinearPoint(
             [
                 p16_mixing_scalars_grand_product.0.clone(),
-                grand_product_p16_statement.point.0.clone(),
+                grand_product_p16_statement.point.0,
             ]
             .concat(),
         ),
@@ -333,7 +333,7 @@ pub fn verify_execution(
         point: MultilinearPoint(
             [
                 p24_mixing_scalars_grand_product.0.clone(),
-                grand_product_p24_statement.point.0.clone(),
+                grand_product_p24_statement.point.0,
             ]
             .concat(),
         ),
@@ -361,7 +361,7 @@ pub fn verify_execution(
             .eq_poly_outside(&grand_product_dot_product_statement.point)
             * {
                 DotProductFootprint {
-                    grand_product_challenge_global: grand_product_challenge_global,
+                    grand_product_challenge_global,
                     grand_product_challenge_dot_product: grand_product_challenge_dot_product
                         .clone()
                         .try_into()
@@ -389,7 +389,7 @@ pub fn verify_execution(
                 grand_product_dot_product_table_indexes_mixing_challenges
                     .0
                     .clone(),
-                grand_product_dot_product_sumcheck_claim.point.0.clone(),
+                grand_product_dot_product_sumcheck_claim.point.0,
             ]
             .concat(),
         ),
@@ -420,7 +420,7 @@ pub fn verify_execution(
             .eq_poly_outside(&grand_product_exec_statement.point)
             * {
                 PrecompileFootprint {
-                    grand_product_challenge_global: grand_product_challenge_global,
+                    grand_product_challenge_global,
                     grand_product_challenge_p16: grand_product_challenge_p16.try_into().unwrap(),
                     grand_product_challenge_p24: grand_product_challenge_p24.try_into().unwrap(),
                     grand_product_challenge_dot_product: grand_product_challenge_dot_product
@@ -487,7 +487,7 @@ pub fn verify_execution(
     }
     let bytecode_lookup_point_1 = exec_evals_to_verify[0].point.clone();
     let bytecode_lookup_claim_1 = Evaluation {
-        point: bytecode_lookup_point_1.clone(),
+        point: bytecode_lookup_point_1,
         value: padd_with_zero_to_next_power_of_two(
             &[
                 (0..N_INSTRUCTION_COLUMNS_IN_AIR)
@@ -502,7 +502,7 @@ pub fn verify_execution(
 
     let bytecode_lookup_claim_2 = Evaluation {
         point: grand_product_exec_sumcheck_claim.point.clone(),
-        value: padd_with_zero_to_next_power_of_two(&grand_product_exec_evals_on_each_column)
+        value: padd_with_zero_to_next_power_of_two(grand_product_exec_evals_on_each_column)
             .evaluate(&bytecode_compression_challenges),
     };
     let alpha_bytecode_lookup = verifier_state.sample();
@@ -529,7 +529,7 @@ pub fn verify_execution(
         point: MultilinearPoint(
             [
                 grand_product_mem_values_mixing_challenges.0.clone(),
-                grand_product_exec_sumcheck_claim.point.0.clone(),
+                grand_product_exec_sumcheck_claim.point.0,
             ]
             .concat(),
         ),
@@ -660,7 +660,7 @@ pub fn verify_execution(
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
             poseidon_logup_star_statements.on_table.point.0.clone(),
-            memory_folding_challenges.0.clone(),
+            memory_folding_challenges.0,
         ]
         .concat(),
     );
@@ -835,7 +835,7 @@ pub fn verify_execution(
                 vec![
                     exec_evals_to_verify[COL_INDEX_MEM_ADDRESS_C.index_in_air()].clone(),
                     Evaluation {
-                        point: mem_lookup_eval_indexes_partial_point.clone(),
+                        point: mem_lookup_eval_indexes_partial_point,
                         value: mem_lookup_eval_indexes_c,
                     },
                 ], // exec memory address C
@@ -865,7 +865,7 @@ pub fn verify_execution(
 
     let global_statements_extension = packed_pcs_global_statements(
         &parsed_commitment_extension.tree,
-        &vec![
+        &[
             base_memory_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,

@@ -43,7 +43,7 @@ impl WotsSecretKey {
         }
     }
 
-    pub fn public_key(&self) -> &WotsPublicKey {
+    pub const fn public_key(&self) -> &WotsPublicKey {
         &self.public_key
     }
 
@@ -64,7 +64,7 @@ impl WotsSignature {
     pub fn recover_public_key(
         &self,
         message_hash: &Digest,
-        signature: &WotsSignature,
+        signature: &Self,
     ) -> Option<WotsPublicKey> {
         let encoding = wots_encode(message_hash, &signature.randomness)?;
         let mut public_key = [Default::default(); V];
@@ -118,8 +118,7 @@ pub fn wots_encode(message: &Digest, randomness: &Digest) -> Option<[u8; V]> {
     let compressed = poseidon16_compress(message, randomness);
     let encoding = compressed
         .iter()
-        .map(|kb| to_little_endian_bits(kb.to_usize(), 24))
-        .flatten()
+        .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
         .collect::<Vec<_>>()
         .chunks_exact(log2_strict_usize(W))
         .take(V)
@@ -131,11 +130,7 @@ pub fn wots_encode(message: &Digest, randomness: &Digest) -> Option<[u8; V]> {
             num
         })
         .collect::<Vec<_>>();
-    if is_valid_encoding(&encoding) {
-        Some(encoding.try_into().unwrap())
-    } else {
-        None
-    }
+    is_valid_encoding(&encoding).then(|| encoding.try_into().unwrap())
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {

@@ -17,10 +17,10 @@ pub enum PrecompileName {
 impl Display for PrecompileName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            PrecompileName::Poseidon16 => write!(f, "poseidon16"),
-            PrecompileName::Poseidon24 => write!(f, "poseidon24"),
-            PrecompileName::DotProduct => write!(f, "dot_product"),
-            PrecompileName::MultilinearEval => write!(f, "multilinear_eval"),
+            Self::Poseidon16 => write!(f, "poseidon16"),
+            Self::Poseidon24 => write!(f, "poseidon24"),
+            Self::DotProduct => write!(f, "dot_product"),
+            Self::MultilinearEval => write!(f, "multilinear_eval"),
         }
     }
 }

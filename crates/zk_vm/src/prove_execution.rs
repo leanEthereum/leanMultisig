@@ -54,14 +54,14 @@ pub fn prove_execution(
         memory,
     } = info_span!("Witness generation").in_scope(|| {
         let execution_result = execute_bytecode(
-            &bytecode,
-            &public_input,
+            bytecode,
+            public_input,
             private_input,
             source_code,
             function_locations,
             vm_profiler,
         );
-        get_execution_trace(&bytecode, &execution_result)
+        get_execution_trace(bytecode, &execution_result)
     });
 
     let public_memory = &memory[..public_memory_size];
@@ -455,7 +455,7 @@ pub fn prove_execution(
         point: MultilinearPoint(
             [
                 p16_mixing_scalars_grand_product.0.clone(),
-                grand_product_p16_statement.point.0.clone(),
+                grand_product_p16_statement.point.0,
             ]
             .concat(),
         ),
@@ -486,7 +486,7 @@ pub fn prove_execution(
         point: MultilinearPoint(
             [
                 p24_mixing_scalars_grand_product.0.clone(),
-                grand_product_p24_statement.point.0.clone(),
+                grand_product_p24_statement.point.0,
             ]
             .concat(),
         ),
@@ -500,7 +500,7 @@ pub fn prove_execution(
     };
 
     let dot_product_footprint_computation = DotProductFootprint {
-        grand_product_challenge_global: grand_product_challenge_global,
+        grand_product_challenge_global,
         grand_product_challenge_dot_product: grand_product_challenge_dot_product
             .clone()
             .try_into()
@@ -548,7 +548,7 @@ pub fn prove_execution(
                 grand_product_dot_product_table_indexes_mixing_challenges
                     .0
                     .clone(),
-                grand_product_dot_product_sumcheck_point.0.clone(),
+                grand_product_dot_product_sumcheck_point.0,
             ]
             .concat(),
         ),
@@ -562,7 +562,7 @@ pub fn prove_execution(
     };
 
     let precompile_foot_print_computation = PrecompileFootprint {
-        grand_product_challenge_global: grand_product_challenge_global,
+        grand_product_challenge_global,
         grand_product_challenge_p16: grand_product_challenge_p16.try_into().unwrap(),
         grand_product_challenge_p24: grand_product_challenge_p24.try_into().unwrap(),
         grand_product_challenge_dot_product: grand_product_challenge_dot_product
@@ -715,7 +715,7 @@ pub fn prove_execution(
             (poseidons_24.par_iter().map(|p| (&p.input[0..8]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
             (poseidons_24.par_iter().map(|p| (&p.input[8..16]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
             (poseidons_24.par_iter().map(|p| (&p.input[16..24]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
-            (poseidons_24.par_iter().map(|p| (&p.output).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| p.output.evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
         ];
         for (chunk_idx, (values, step)) in chunks.into_iter().enumerate() {
             let offset = chunk_idx * max_n_poseidons;
@@ -792,7 +792,7 @@ pub fn prove_execution(
     let bytecode_lookup_point_2 = grand_product_exec_sumcheck_point.clone();
     let bytecode_lookup_claim_2 = Evaluation {
         point: bytecode_lookup_point_2.clone(),
-        value: padd_with_zero_to_next_power_of_two(&grand_product_exec_evals_on_each_column)
+        value: padd_with_zero_to_next_power_of_two(grand_product_exec_evals_on_each_column)
             .evaluate(&bytecode_compression_challenges),
     };
     let alpha_bytecode_lookup = prover_state.sample();
@@ -883,7 +883,7 @@ pub fn prove_execution(
         point: MultilinearPoint(
             [
                 grand_product_mem_values_mixing_challenges.0.clone(),
-                grand_product_exec_sumcheck_point.0.clone(),
+                grand_product_exec_sumcheck_point.0,
             ]
             .concat(),
         ),
@@ -1039,7 +1039,7 @@ pub fn prove_execution(
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
             poseidon_logup_star_statements.on_table.point.0.clone(),
-            memory_folding_challenges.0.clone(),
+            memory_folding_challenges.0,
         ]
         .concat(),
     );
@@ -1222,7 +1222,7 @@ pub fn prove_execution(
                 vec![
                     exec_evals_to_prove[COL_INDEX_MEM_ADDRESS_C.index_in_air()].clone(),
                     Evaluation {
-                        point: mem_lookup_eval_indexes_partial_point.clone(),
+                        point: mem_lookup_eval_indexes_partial_point,
                         value: mem_lookup_eval_indexes_c,
                     },
                 ], // exec memory address C
@@ -1253,7 +1253,7 @@ pub fn prove_execution(
     // Second Opening
     let global_statements_extension = packed_pcs_global_statements(
         &packed_pcs_witness_extension.tree,
-        &vec![
+        &[
             base_memory_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,

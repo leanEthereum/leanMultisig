@@ -95,9 +95,9 @@ pub fn prove_many_air_3<
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
     }
-    let structured_air = if tables_1.len() > 0 {
+    let structured_air = if !tables_1.is_empty() {
         <A1 as BaseAir<PF<EF>>>::structured(&tables_1[0].air)
-    } else if tables_2.len() > 0 {
+    } else if !tables_2.is_empty() {
         <A2 as BaseAir<PF<EF>>>::structured(&tables_2[0].air)
     } else {
         <A3 as BaseAir<PF<EF>>>::structured(&tables_3[0].air)
@@ -299,8 +299,8 @@ fn eval_unstructured_column_groups<EF: ExtensionField<PF<EF>> + ExtensionField<I
     for group in &witnesses.column_groups {
         let batched_column = multilinears_linear_combination(
             &witnesses.cols[group.clone()],
-            &eval_eq(&from_end(
-                &columns_batching_scalars,
+            &eval_eq(from_end(
+                columns_batching_scalars,
                 log2_ceil_usize(group.len()),
             ))[..group.len()],
         );
@@ -434,7 +434,7 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, 
     let epsilons = prover_state.sample_vec(univariate_skips);
 
     let point = [
-        epsilons.clone(),
+        epsilons,
         outer_sumcheck_challenge[1..witness.log_n_rows() - univariate_skips + 1].to_vec(),
     ]
     .concat();

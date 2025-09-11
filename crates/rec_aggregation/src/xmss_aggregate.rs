@@ -294,7 +294,7 @@ fn test_xmss_aggregate() {
             n_public_keys / INV_BITFIELD_DENSITY,
             LOG_LIFETIME
         );
-        println!("Proving time: {:?}", proving_time);
+        println!("Proving time: {proving_time:?}");
     } else {
         compile_and_run(&program_str, &public_input, &private_input, false);
     }

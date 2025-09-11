@@ -47,10 +47,10 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
         EF: ExtensionField<IF>,
     {
         if witness.n_columns() != self.n_columns() {
-            return Err(format!("Invalid number of columns",));
+            return Err("Invalid number of columns".to_string());
         }
         let handle_errors = |row: usize, constraint_checker: &mut ConstraintChecker<'_, IF, EF>| {
-            if constraint_checker.errors.len() > 0 {
+            if !constraint_checker.errors.is_empty() {
                 return Err(format!(
                     "Trace is not valid at row {}: contraints not respected: {}",
                     row,

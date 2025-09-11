@@ -90,7 +90,7 @@ pub fn get_execution_trace(
         .enumerate()
     {
         let instruction = &bytecode.instructions[pc];
-        let field_repr = field_representation(&instruction);
+        let field_repr = field_representation(instruction);
 
         // println!(
         //     "Cycle {}: PC = {}, FP = {}, Instruction = {}",
@@ -136,9 +136,9 @@ pub fn get_execution_trace(
 
         match instruction {
             Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
-                let addr_input_a = arg_a.read_value(&memory, fp).unwrap().to_usize();
-                let addr_input_b = arg_b.read_value(&memory, fp).unwrap().to_usize();
-                let addr_output = res.read_value(&memory, fp).unwrap().to_usize();
+                let addr_input_a = arg_a.read_value(memory, fp).unwrap().to_usize();
+                let addr_input_b = arg_b.read_value(memory, fp).unwrap().to_usize();
+                let addr_output = res.read_value(memory, fp).unwrap().to_usize();
                 let value_a = memory.get_vector(addr_input_a).unwrap();
                 let value_b = memory.get_vector(addr_input_b).unwrap();
                 let output = memory.get_vectorized_slice(addr_output, 2).unwrap();
@@ -152,9 +152,9 @@ pub fn get_execution_trace(
                 });
             }
             Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
-                let addr_input_a = arg_a.read_value(&memory, fp).unwrap().to_usize();
-                let addr_input_b = arg_b.read_value(&memory, fp).unwrap().to_usize();
-                let addr_output = res.read_value(&memory, fp).unwrap().to_usize();
+                let addr_input_a = arg_a.read_value(memory, fp).unwrap().to_usize();
+                let addr_input_b = arg_b.read_value(memory, fp).unwrap().to_usize();
+                let addr_output = res.read_value(memory, fp).unwrap().to_usize();
                 let value_a = memory.get_vectorized_slice(addr_input_a, 2).unwrap();
                 let value_b = memory.get_vector(addr_input_b).unwrap().to_vec();
                 let output = memory.get_vector(addr_output).unwrap();
@@ -173,9 +173,9 @@ pub fn get_execution_trace(
                 res,
                 size,
             } => {
-                let addr_0 = arg0.read_value(&memory, fp).unwrap().to_usize();
-                let addr_1 = arg1.read_value(&memory, fp).unwrap().to_usize();
-                let addr_res = res.read_value(&memory, fp).unwrap().to_usize();
+                let addr_0 = arg0.read_value(memory, fp).unwrap().to_usize();
+                let addr_1 = arg1.read_value(memory, fp).unwrap().to_usize();
+                let addr_res = res.read_value(memory, fp).unwrap().to_usize();
                 let slice_0 = memory
                     .get_continuous_slice_of_ef_elements(addr_0, *size)
                     .unwrap();
@@ -200,9 +200,9 @@ pub fn get_execution_trace(
                 res,
                 n_vars,
             } => {
-                let addr_coeffs = coeffs.read_value(&memory, fp).unwrap().to_usize();
-                let addr_point = point.read_value(&memory, fp).unwrap().to_usize();
-                let addr_res = res.read_value(&memory, fp).unwrap().to_usize();
+                let addr_coeffs = coeffs.read_value(memory, fp).unwrap().to_usize();
+                let addr_point = point.read_value(memory, fp).unwrap().to_usize();
+                let addr_res = res.read_value(memory, fp).unwrap().to_usize();
                 let point = (0..*n_vars)
                     .map(|i| memory.get_ef_element(addr_point + i * DIMENSION))
                     .collect::<Result<Vec<EF>, _>>()

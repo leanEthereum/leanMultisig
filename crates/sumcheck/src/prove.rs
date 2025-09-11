@@ -168,14 +168,12 @@ where
         };
         // If Packing is enabled, and there are too little variables, we unpack everything:
         for &i in &concerned_sumchecks {
-            if multilinears[i].by_ref().is_packed() {
-                if n_vars[i] <= 1 + packing_log_width::<EF>() {
-                    // unpack
-                    multilinears[i] = multilinears[i].by_ref().unpack().into();
-                    if let Some((_, eq_mle)) = &mut eq_factors[i] {
-                        *eq_mle =
-                            Mle::Extension(unpack_extension(eq_mle.as_extension_packed().unwrap()));
-                    }
+            if multilinears[i].by_ref().is_packed() && n_vars[i] <= 1 + packing_log_width::<EF>() {
+                // unpack
+                multilinears[i] = multilinears[i].by_ref().unpack().into();
+                if let Some((_, eq_mle)) = &mut eq_factors[i] {
+                    *eq_mle =
+                        Mle::Extension(unpack_extension(eq_mle.as_extension_packed().unwrap()));
                 }
             }
         }
@@ -249,7 +247,7 @@ where
                 .by_ref()
                 .as_extension()
                 .unwrap()
-                .into_iter()
+                .iter()
                 .map(|m| {
                     assert_eq!(m.len(), 1);
                     m[0]

@@ -70,7 +70,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroup<'a, EF> {
         }
     }
 
-    pub fn n_columns(&self) -> usize {
+    pub const fn n_columns(&self) -> usize {
         match self {
             Self::Owned(owned) => owned.n_columns(),
             Self::Ref(r) => r.n_columns(),
@@ -103,7 +103,7 @@ impl<EF: ExtensionField<PF<EF>>> MleGroupOwned<EF> {
         }
     }
 
-    pub fn n_columns(&self) -> usize {
+    pub const fn n_columns(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
             Self::Extension(v) => v.len(),
@@ -114,7 +114,7 @@ impl<EF: ExtensionField<PF<EF>>> MleGroupOwned<EF> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
-    pub fn packed_len(&self) -> usize {
+    pub const fn packed_len(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
             Self::Extension(v) => v.len(),
@@ -123,7 +123,7 @@ impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
         }
     }
 
-    pub fn unpacked_len(&self) -> usize {
+    pub const fn unpacked_len(&self) -> usize {
         let mut res = self.packed_len();
         if self.is_packed() {
             res *= packing_width::<EF>();
@@ -144,35 +144,35 @@ impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
         }
     }
 
-    pub fn is_packed(&self) -> bool {
+    pub const fn is_packed(&self) -> bool {
         match self {
             Self::Base(_) | Self::Extension(_) => false,
             Self::PackedBase(_) | Self::ExtensionPacked(_) => true,
         }
     }
 
-    pub fn as_base(&self) -> Option<&Vec<PF<EF>>> {
+    pub const fn as_base(&self) -> Option<&Vec<PF<EF>>> {
         match self {
             Self::Base(b) => Some(b),
             _ => None,
         }
     }
 
-    pub fn as_extension(&self) -> Option<&Vec<EF>> {
+    pub const fn as_extension(&self) -> Option<&Vec<EF>> {
         match self {
             Self::Extension(e) => Some(e),
             _ => None,
         }
     }
 
-    pub fn as_packed_base(&self) -> Option<&Vec<PFPacking<EF>>> {
+    pub const fn as_packed_base(&self) -> Option<&Vec<PFPacking<EF>>> {
         match self {
             Self::PackedBase(pb) => Some(pb),
             _ => None,
         }
     }
 
-    pub fn as_extension_packed(&self) -> Option<&Vec<EFPacking<EF>>> {
+    pub const fn as_extension_packed(&self) -> Option<&Vec<EFPacking<EF>>> {
         match self {
             Self::ExtensionPacked(ep) => Some(ep),
             _ => None,
@@ -181,7 +181,7 @@ impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
 }
 
 impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
-    pub fn group_size(&self) -> usize {
+    pub const fn group_size(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
             Self::Extension(v) => v.len(),
@@ -199,42 +199,42 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
-    pub fn is_packed(&self) -> bool {
+    pub const fn is_packed(&self) -> bool {
         match self {
             Self::BasePacked(_) | Self::ExtensionPacked(_) => true,
             Self::Base(_) | Self::Extension(_) => false,
         }
     }
 
-    pub fn as_base(&self) -> Option<&Vec<&'a [PF<EF>]>> {
+    pub const fn as_base(&self) -> Option<&Vec<&'a [PF<EF>]>> {
         match self {
             Self::Base(b) => Some(b),
             _ => None,
         }
     }
 
-    pub fn as_extension(&self) -> Option<&Vec<&'a [EF]>> {
+    pub const fn as_extension(&self) -> Option<&Vec<&'a [EF]>> {
         match self {
             Self::Extension(e) => Some(e),
             _ => None,
         }
     }
 
-    pub fn as_packed_base(&self) -> Option<&Vec<&'a [PFPacking<EF>]>> {
+    pub const fn as_packed_base(&self) -> Option<&Vec<&'a [PFPacking<EF>]>> {
         match self {
             Self::BasePacked(pb) => Some(pb),
             _ => None,
         }
     }
 
-    pub fn as_extension_packed(&self) -> Option<&Vec<&'a [EFPacking<EF>]>> {
+    pub const fn as_extension_packed(&self) -> Option<&Vec<&'a [EFPacking<EF>]>> {
         match self {
             Self::ExtensionPacked(ep) => Some(ep),
             _ => None,
         }
     }
 
-    pub fn n_columns(&self) -> usize {
+    pub const fn n_columns(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
             Self::Extension(v) => v.len(),

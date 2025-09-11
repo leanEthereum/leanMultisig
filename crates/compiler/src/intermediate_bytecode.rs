@@ -25,7 +25,7 @@ pub enum IntermediateValue {
 
 impl From<ConstExpression> for IntermediateValue {
     fn from(value: ConstExpression) -> Self {
-        IntermediateValue::Constant(value)
+        Self::Constant(value)
     }
 }
 impl TryFrom<HighLevelOperation> for Operation {
@@ -33,9 +33,9 @@ impl TryFrom<HighLevelOperation> for Operation {
 
     fn try_from(value: HighLevelOperation) -> Result<Self, Self::Error> {
         match value {
-            HighLevelOperation::Add => Ok(Operation::Add),
-            HighLevelOperation::Mul => Ok(Operation::Mul),
-            _ => Err(format!("Cannot convert {:?} to +/x", value)),
+            HighLevelOperation::Add => Ok(Self::Add),
+            HighLevelOperation::Mul => Ok(Self::Mul),
+            _ => Err(format!("Cannot convert {value:?} to +/x")),
         }
     }
 }
@@ -48,12 +48,12 @@ pub enum IntermediaryMemOrFpOrConstant {
 }
 
 impl IntermediateValue {
-    pub fn label(label: Label) -> Self {
+    pub const fn label(label: Label) -> Self {
         Self::Constant(ConstExpression::label(label))
     }
 
-    pub fn is_constant(&self) -> bool {
-        matches!(self, IntermediateValue::Constant(_))
+    pub const fn is_constant(&self) -> bool {
+        matches!(self, Self::Constant(_))
     }
 }
 
@@ -70,12 +70,12 @@ pub enum HighLevelOperation {
 impl HighLevelOperation {
     pub fn eval(&self, a: F, b: F) -> F {
         match self {
-            HighLevelOperation::Add => a + b,
-            HighLevelOperation::Mul => a * b,
-            HighLevelOperation::Sub => a - b,
-            HighLevelOperation::Div => a / b,
-            HighLevelOperation::Exp => a.exp_u64(b.as_canonical_u64()),
-            HighLevelOperation::Mod => F::from_usize(a.to_usize() % b.to_usize()),
+            Self::Add => a + b,
+            Self::Mul => a * b,
+            Self::Sub => a - b,
+            Self::Div => a / b,
+            Self::Exp => a.exp_u64(b.as_canonical_u64()),
+            Self::Mod => F::from_usize(a.to_usize() % b.to_usize()),
         }
     }
 }
@@ -189,7 +189,7 @@ impl IntermediateInstruction {
         }
     }
 
-    pub fn equality(left: IntermediateValue, right: IntermediateValue) -> Self {
+    pub const fn equality(left: IntermediateValue, right: IntermediateValue) -> Self {
         Self::Computation {
             operation: Operation::Add,
             arg_a: left,
@@ -202,10 +202,10 @@ impl IntermediateInstruction {
 impl Display for IntermediateValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            IntermediateValue::Constant(value) => write!(f, "{}", value),
-            IntermediateValue::Fp => write!(f, "fp"),
-            IntermediateValue::MemoryAfterFp { offset } => {
-                write!(f, "m[fp + {}]", offset)
+            Self::Constant(value) => write!(f, "{value}"),
+            Self::Fp => write!(f, "fp"),
+            Self::MemoryAfterFp { offset } => {
+                write!(f, "m[fp + {offset}]")
             }
         }
     }
@@ -214,9 +214,9 @@ impl Display for IntermediateValue {
 impl Display for IntermediaryMemOrFpOrConstant {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {}]", offset),
+            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
             Self::Fp => write!(f, "fp"),
-            Self::Constant(c) => write!(f, "{}", c),
+            Self::Constant(c) => write!(f, "{c}"),
         }
     }
 }
@@ -228,38 +228,34 @@ impl Display for IntermediateInstruction {
                 shift_0,
                 shift_1,
                 res,
-            } => write!(f, "{} = m[m[fp + {}] + {}]", res, shift_0, shift_1),
+            } => write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]"),
             Self::DotProduct {
                 arg0,
                 arg1,
                 res,
                 size,
-            } => write!(f, "dot_product({}, {}, {}, {})", arg0, arg1, res, size),
+            } => write!(f, "dot_product({arg0}, {arg1}, {res}, {size})"),
             Self::MultilinearEval {
                 coeffs,
                 point,
                 res,
                 n_vars,
-            } => write!(
-                f,
-                "multilinear_eval({}, {}, {}, {})",
-                coeffs, point, res, n_vars
-            ),
+            } => write!(f, "multilinear_eval({coeffs}, {point}, {res}, {n_vars})"),
             Self::DecomposeBits {
                 res_offset,
                 to_decompose,
             } => {
-                write!(f, "m[fp + {}..] = decompose_bits(", res_offset)?;
+                write!(f, "m[fp + {res_offset}..] = decompose_bits(")?;
                 for (i, expr) in to_decompose.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", expr)?;
+                    write!(f, "{expr}")?;
                 }
                 write!(f, ")")
             }
             Self::CounterHint { res_offset } => {
-                write!(f, "m[fp + {}] = counter_hint()", res_offset)
+                write!(f, "m[fp + {res_offset}] = counter_hint()")
             }
             Self::Computation {
                 operation,
@@ -267,14 +263,14 @@ impl Display for IntermediateInstruction {
                 arg_c,
                 res,
             } => {
-                write!(f, "{} = {} {} {}", res, arg_a, operation, arg_c)
+                write!(f, "{res} = {arg_a} {operation} {arg_c}")
             }
             Self::Panic => write!(f, "panic"),
             Self::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {
-                    write!(f, "jump {} with fp = {}", dest, fp)
+                    write!(f, "jump {dest} with fp = {fp}")
                 } else {
-                    write!(f, "jump {}", dest)
+                    write!(f, "jump {dest}")
                 }
             }
             Self::JumpIfNotZero {
@@ -283,23 +279,19 @@ impl Display for IntermediateInstruction {
                 updated_fp,
             } => {
                 if let Some(fp) = updated_fp {
-                    write!(
-                        f,
-                        "jump_if_not_zero {} to {} with fp = {}",
-                        condition, dest, fp
-                    )
+                    write!(f, "jump_if_not_zero {condition} to {dest} with fp = {fp}")
                 } else {
-                    write!(f, "jump_if_not_zero {} to {}", condition, dest)
+                    write!(f, "jump_if_not_zero {condition} to {dest}")
                 }
             }
             Self::Poseidon2_16 { arg_a, arg_b, res } => {
-                write!(f, "{} = poseidon2_16({}, {})", res, arg_a, arg_b)
+                write!(f, "{res} = poseidon2_16({arg_a}, {arg_b})")
             }
             Self::Poseidon2_24 { arg_a, arg_b, res } => {
-                write!(f, "{} = poseidon2_24({}, {})", res, arg_a, arg_b)
+                write!(f, "{res} = poseidon2_24({arg_a}, {arg_b})")
             }
             Self::Inverse { arg, res_offset } => {
-                write!(f, "m[fp + {}] = inverse({})", res_offset, arg)
+                write!(f, "m[fp + {res_offset}] = inverse({arg})")
             }
             Self::RequestMemory {
                 offset,
@@ -313,12 +305,12 @@ impl Display for IntermediateInstruction {
                 size
             ),
             Self::Print { line_info, content } => {
-                write!(f, "print {}: ", line_info)?;
+                write!(f, "print {line_info}: ")?;
                 for (i, c) in content.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", c)?;
+                    write!(f, "{c}")?;
                 }
                 Ok(())
             }
@@ -330,12 +322,12 @@ impl Display for IntermediateInstruction {
 impl Display for HighLevelOperation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            HighLevelOperation::Add => write!(f, "+"),
-            HighLevelOperation::Mul => write!(f, "*"),
-            HighLevelOperation::Sub => write!(f, "-"),
-            HighLevelOperation::Div => write!(f, "/"),
-            HighLevelOperation::Exp => write!(f, "**"),
-            HighLevelOperation::Mod => write!(f, "%"),
+            Self::Add => write!(f, "+"),
+            Self::Mul => write!(f, "*"),
+            Self::Sub => write!(f, "-"),
+            Self::Div => write!(f, "/"),
+            Self::Exp => write!(f, "**"),
+            Self::Mod => write!(f, "%"),
         }
     }
 }
@@ -343,23 +335,23 @@ impl Display for HighLevelOperation {
 impl Display for IntermediateBytecode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for (label, instructions) in &self.bytecode {
-            writeln!(f, "\n{}:", label)?;
+            writeln!(f, "\n{label}:")?;
             for instruction in instructions {
-                writeln!(f, "  {}", instruction)?;
+                writeln!(f, "  {instruction}")?;
             }
         }
         for (i, match_blocks) in self.match_blocks.iter().enumerate() {
-            writeln!(f, "\nMatch {}:", i)?;
+            writeln!(f, "\nMatch {i}:")?;
             for (j, case) in match_blocks.iter().enumerate() {
-                writeln!(f, "  Case {}:", j)?;
+                writeln!(f, "  Case {j}:")?;
                 for instruction in case {
-                    writeln!(f, "    {}", instruction)?;
+                    writeln!(f, "    {instruction}")?;
                 }
             }
         }
         writeln!(f, "\nMemory size per function:")?;
         for (function_name, size) in &self.memory_size_per_function {
-            writeln!(f, "{}: {}", function_name, size)?;
+            writeln!(f, "{function_name}: {size}")?;
         }
         Ok(())
     }
