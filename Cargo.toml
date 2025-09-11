@@ -121,6 +121,7 @@ zk_vm_trace = { path = "crates/zk_vm/zk_vm_trace" }
 zk_vm_air = { path = "crates/zk_vm/zk_vm_air" }
 
 # External
+thiserror = "2.0"
 rand = "0.9.2"
 sha3 = "0.10.8"
 rayon = "1.5.1"
