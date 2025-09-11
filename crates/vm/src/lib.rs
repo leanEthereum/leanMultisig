@@ -1,10 +1,14 @@
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 
 mod bytecode;
+mod error;
+mod memory;
 mod profiler;
 mod runner;
 mod stack_trace;
 pub use bytecode::*;
+pub use error::*;
+pub use memory::*;
 pub use runner::*;
 
 pub type LocationInSourceCode = usize;
