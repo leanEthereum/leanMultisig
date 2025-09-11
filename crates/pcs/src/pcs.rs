@@ -25,7 +25,7 @@ pub trait NumVariables {
 
 pub trait PCS<F: Field, EF: ExtensionField<F>> {
     type ParsedCommitment: NumVariables;
-    type Witness;
+    type Witness: Sync + Send;
     fn commit(
         &self,
         dft: &EvalsDft<PF<EF>>,

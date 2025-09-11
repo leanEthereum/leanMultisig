@@ -4,7 +4,10 @@ use p3_field::{ExtensionField, Field};
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use rayon::prelude::*;
 use tracing::instrument;
-use utils::{Evaluation, FSProver, FSVerifier, PF, to_big_endian_in_field};
+use utils::{
+    Evaluation, FSProver, FSVerifier, PF, multilinear_eval_constants_at_right,
+    to_big_endian_in_field,
+};
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::{
     dft::EvalsDft,
@@ -15,16 +18,17 @@ use whir_p3::{
 use crate::PCS;
 
 #[derive(Debug, Clone)]
-struct CommittedChunk {
+struct CommittedChunk<EF: Field> {
     original_poly_index: usize,
     vars: usize,
-    index_in_original: usize, // 0 if first (biggest) chunk, 1 if second, etc.
+    offset_in_original: usize,
+    bits_offset_in_original: Vec<EF>,
     offset_in_packed: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
 pub struct MultiCommitmentWitness<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> {
-    chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk>>, // real polynomial index -> list of virtual polynomial indexes (chunks) in which it was split
+    chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>>, // real polynomial index -> list of virtual polynomial indexes (chunks) in which it was split
     default_values: BTreeMap<usize, F>, // real polynomial index -> default value
     pub inner_witness: Pcs::Witness,
     pub packed_polynomial: Vec<F>,
@@ -64,13 +68,13 @@ impl<'a, F: Field> CommittedPol<'a, F> {
     }
 }
 
-fn split_in_chunks<F: Field>(
+fn split_in_chunks<F: Field, EF: ExtensionField<F>>(
     poly_index: usize,
     poly: &CommittedPol<'_, F>,
     log_smallest_decomposition_chunk: usize,
-) -> Vec<CommittedChunk> {
+) -> Vec<CommittedChunk<EF>> {
     let mut remaining = poly.relevant_length;
-    let mut index_in_original = 0;
+    let mut offset_in_original = 0;
     let mut res = Vec::new();
     loop {
         let chunk_size =
@@ -82,10 +86,14 @@ fn split_in_chunks<F: Field>(
         res.push(CommittedChunk {
             original_poly_index: poly_index,
             vars: chunk_size,
-            index_in_original,
+            offset_in_original,
+            bits_offset_in_original: to_big_endian_in_field(
+                offset_in_original >> chunk_size,
+                poly.vars - chunk_size,
+            ),
             offset_in_packed: None,
         });
-        index_in_original += 1;
+        offset_in_original += 1 << chunk_size;
         if remaining <= 1 << chunk_size {
             return res;
         }
@@ -110,7 +118,7 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     all_chunks.sort_by_key(|c| Reverse(c.vars));
 
     let mut offset_in_packed = 0;
-    let mut chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk>> = BTreeMap::new();
+    let mut chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>> = BTreeMap::new();
     for chunk in &mut all_chunks {
         chunk.offset_in_packed = Some(offset_in_packed);
         offset_in_packed += 1 << chunk.vars;
@@ -130,15 +138,15 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
         let start = chunk.offset_in_packed.unwrap();
         let end = start + (1 << chunk.vars);
         let original_poly = &polynomials[chunk.original_poly_index].polynomial;
-        // original_start = (1 << (chunk.vars + 1)) + (1 << (chunk.vars + 2)) + ... (1 << (chunk.vars + index_in_original - 1))
-        let original_start = (1 << (chunk.vars + 1)) * ((1 << chunk.index_in_original) - 1);
-        let original_end = original_start + (1 << chunk.vars);
         unsafe {
             let slice = std::slice::from_raw_parts_mut(
                 (packed_polynomial.as_ptr() as *mut F).add(start),
                 end - start,
             );
-            slice.copy_from_slice(&original_poly[original_start..original_end]);
+            slice.copy_from_slice(
+                &original_poly
+                    [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.vars)],
+            );
         }
     });
 
@@ -216,24 +224,23 @@ pub fn packed_pcs_global_statements<
                 // sanity check
                 {
                     let mut retrieved_eval = EF::ZERO;
+                    let mut chunk_offset_sums = 0;
+                    assert_eq!(statement.point.len(), chunks[0].vars + 1);
                     for (i, chunk) in chunks.iter().enumerate() {
                         let missing_vars = statement.point.0.len() - chunk.vars;
                         retrieved_eval +=
                             packed_statements[packed_statements.len() - chunks.len() + i].value
-                                * statement.point.0[..missing_vars - 1]
-                                    .iter()
-                                    .cloned()
-                                    .product::<EF>()
-                                * (EF::ONE - statement.point[missing_vars - 1]);
+                                * MultilinearPoint(statement.point.0[..missing_vars].to_vec())
+                                    .eq_poly_outside(&MultilinearPoint(
+                                        chunk.bits_offset_in_original.clone(),
+                                    ));
+                        chunk_offset_sums += 1 << chunk.vars;
                     }
-                    if chunks[chunks.len() - 1].vars != chunks[chunks.len() - 2].vars {
-                        retrieved_eval += EF::from(witness.default_values[&poly_index])
-                            * statement.point.0[..chunks.len() - 1]
-                                .iter()
-                                .cloned()
-                                .product::<EF>()
-                            * (EF::ONE - statement.point[chunks.len() - 1]);
-                    }
+                    retrieved_eval +=
+                        multilinear_eval_constants_at_right(chunk_offset_sums, &statement.point)
+                            * witness.default_values[&poly_index];
+
+                    assert_eq!(retrieved_eval, statement.value);
                 }
             }
         }
@@ -261,8 +268,8 @@ pub fn packed_pcs_parse_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, 
 mod tests {
     use std::marker::PhantomData;
 
-    use p3_field::PrimeCharacteristicRing;
-    use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use utils::{
         build_merkle_compress, build_merkle_hash, build_prover_state, build_verifier_state,
@@ -275,7 +282,7 @@ mod tests {
     use super::*;
 
     type F = KoalaBear;
-    type EF = QuinticExtensionFieldKB;
+    type EF = BinomialExtensionField<KoalaBear, 4>;
 
     #[test]
     fn test_packed_pcs() {
@@ -287,7 +294,7 @@ mod tests {
             pow_bits: 13,
             max_num_variables_to_send_coeffs: 6,
             rs_domain_initial_reduction_factor: 1,
-            security_level: 100,
+            security_level: 75,
             starting_log_inv_rate: 1,
             base_field: PhantomData::<F>,
             extension_field: PhantomData::<EF>,
@@ -295,14 +302,17 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
         let log_smallest_decomposition_chunk = 3;
-        let pol_lengths_and_default_value = [
-            (16_usize, F::from_usize(8)),
+        let pol_lengths_and_default_value: [(usize, F); _] = [
+            (16, F::from_usize(8)),
             (854, F::from_usize(0)),
             (854, F::from_usize(1)),
+            (16, F::from_usize(0)),
             (17, F::from_usize(0)),
             (95, F::from_usize(3)),
             (256, F::from_usize(8)),
+            (1088, F::from_usize(9)),
             (512, F::from_usize(0)),
+            (754, F::from_usize(4)),
             (1023, F::from_usize(7)),
             (2025, F::from_usize(11)),
         ];

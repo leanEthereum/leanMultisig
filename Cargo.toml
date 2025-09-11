@@ -12,7 +12,6 @@ members = ["crates/*", "crates/zk_vm/zk_vm_trace", "crates/zk_vm/zk_vm_air"]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
-rust.unused_must_use = "deny"
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rust.dead_code = "allow"
 rustdoc.all = "warn"
