@@ -20,7 +20,7 @@ use crate::PCS;
 #[derive(Debug, Clone)]
 struct CommittedChunk<EF: Field> {
     original_poly_index: usize,
-    vars: usize,
+    n_vars: usize,
     offset_in_original: usize,
     bits_offset_in_original: Vec<EF>,
     offset_in_packed: Option<usize>,
@@ -35,20 +35,43 @@ pub struct MultiCommitmentWitness<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, E
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CommittedPol<'a, F: Field> {
-    pub polynomial: &'a [F],
-    pub vars: usize,            // polynomial.len() == 1 << vars
+pub struct CommittedPolInfo<F: Field> {
+    pub n_vars: usize,          // polynomial.len() == 1 << n_vars
     pub relevant_length: usize, // polynomial[relevant_length..] = [default_value, ..., default_value]
     pub default_value: F,
+}
+
+#[derive(Debug, Clone, Copy, derive_more::Deref)]
+pub struct CommittedPol<'a, F: Field> {
+    pub polynomial: &'a [F],
+    #[deref]
+    pub info: CommittedPolInfo<F>,
+}
+
+impl<F: Field> CommittedPolInfo<F> {
+    pub fn dense(n_vars: usize) -> Self {
+        Self {
+            n_vars,
+            relevant_length: 1 << n_vars,
+            default_value: F::ZERO,
+        }
+    }
+
+    pub fn sparse(n_vars: usize, relevant_length: usize, default_value: F) -> Self {
+        assert!(relevant_length <= 1 << n_vars);
+        Self {
+            n_vars,
+            relevant_length,
+            default_value,
+        }
+    }
 }
 
 impl<'a, F: Field> CommittedPol<'a, F> {
     pub fn dense(polynomial: &'a [F]) -> Self {
         Self {
             polynomial,
-            vars: log2_strict_usize(polynomial.len()),
-            relevant_length: polynomial.len(),
-            default_value: F::ZERO,
+            info: CommittedPolInfo::dense(log2_strict_usize(polynomial.len())),
         }
     }
 
@@ -61,16 +84,18 @@ impl<'a, F: Field> CommittedPol<'a, F> {
         );
         Self {
             polynomial,
-            vars: log2_strict_usize(polynomial.len()),
-            relevant_length,
-            default_value,
+            info: CommittedPolInfo::sparse(
+                log2_strict_usize(polynomial.len()),
+                relevant_length,
+                default_value,
+            ),
         }
     }
 }
 
 fn split_in_chunks<F: Field, EF: ExtensionField<F>>(
     poly_index: usize,
-    poly: &CommittedPol<'_, F>,
+    poly: &CommittedPolInfo<F>,
     log_smallest_decomposition_chunk: usize,
 ) -> Vec<CommittedChunk<EF>> {
     let mut remaining = poly.relevant_length;
@@ -85,11 +110,11 @@ fn split_in_chunks<F: Field, EF: ExtensionField<F>>(
             };
         res.push(CommittedChunk {
             original_poly_index: poly_index,
-            vars: chunk_size,
+            n_vars: chunk_size,
             offset_in_original,
             bits_offset_in_original: to_big_endian_in_field(
                 offset_in_original >> chunk_size,
-                poly.vars - chunk_size,
+                poly.n_vars - chunk_size,
             ),
             offset_in_packed: None,
         });
@@ -115,13 +140,13 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
         all_chunks.extend(split_in_chunks(i, poly, log_smallest_decomposition_chunk));
         default_values.insert(i, poly.default_value);
     }
-    all_chunks.sort_by_key(|c| Reverse(c.vars));
+    all_chunks.sort_by_key(|c| Reverse(c.n_vars));
 
     let mut offset_in_packed = 0;
     let mut chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>> = BTreeMap::new();
     for chunk in &mut all_chunks {
         chunk.offset_in_packed = Some(offset_in_packed);
-        offset_in_packed += 1 << chunk.vars;
+        offset_in_packed += 1 << chunk.n_vars;
         chunks_decomposition
             .entry(chunk.original_poly_index)
             .or_default()
@@ -130,13 +155,13 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
 
     let total_size = all_chunks
         .iter()
-        .map(|c| 1 << c.vars)
+        .map(|c| 1 << c.n_vars)
         .sum::<usize>()
         .next_power_of_two();
     let packed_polynomial = F::zero_vec(total_size);
     all_chunks.par_iter().for_each(|chunk| {
         let start = chunk.offset_in_packed.unwrap();
-        let end = start + (1 << chunk.vars);
+        let end = start + (1 << chunk.n_vars);
         let original_poly = &polynomials[chunk.original_poly_index].polynomial;
         unsafe {
             let slice = std::slice::from_raw_parts_mut(
@@ -145,7 +170,7 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
             );
             slice.copy_from_slice(
                 &original_poly
-                    [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.vars)],
+                    [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)],
             );
         }
     });
@@ -159,7 +184,7 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     }
 }
 
-pub fn packed_pcs_global_statements<
+pub fn packed_pcs_global_statements_for_prover<
     F: Field,
     EF: ExtensionField<F> + ExtensionField<PF<EF>>,
     Pcs: PCS<F, EF>,
@@ -181,13 +206,13 @@ pub fn packed_pcs_global_statements<
         assert!(!chunks.is_empty());
         for statement in statements {
             if chunks.len() == 1 {
-                assert_eq!(chunks[0].vars, statement.point.0.len());
-                assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].vars) == 0);
+                assert_eq!(chunks[0].n_vars, statement.point.0.len());
+                assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
                 let packed_point = MultilinearPoint(
                     [
                         to_big_endian_in_field(
-                            chunks[0].offset_in_packed.unwrap() >> chunks[0].vars,
-                            packed_vars - chunks[0].vars,
+                            chunks[0].offset_in_packed.unwrap() >> chunks[0].n_vars,
+                            packed_vars - chunks[0].n_vars,
                         ),
                         statement.point.0.clone(),
                     ]
@@ -198,18 +223,18 @@ pub fn packed_pcs_global_statements<
                     value: statement.value,
                 });
             } else {
-                assert_eq!(statement.point.0.len(), chunks[0].vars + 1);
+                assert_eq!(statement.point.0.len(), chunks[0].n_vars + 1);
                 for chunk in chunks {
-                    let missing_vars = statement.point.0.len() - chunk.vars;
+                    let missing_vars = statement.point.0.len() - chunk.n_vars;
                     let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
                     let sub_value = (&witness.packed_polynomial[chunk.offset_in_packed.unwrap()
-                        ..chunk.offset_in_packed.unwrap() + (1 << chunk.vars)])
+                        ..chunk.offset_in_packed.unwrap() + (1 << chunk.n_vars)])
                         .evaluate(&sub_point);
                     let packed_point = MultilinearPoint(
                         [
                             to_big_endian_in_field(
-                                chunk.offset_in_packed.unwrap() >> chunk.vars,
-                                packed_vars - chunk.vars,
+                                chunk.offset_in_packed.unwrap() >> chunk.n_vars,
+                                packed_vars - chunk.n_vars,
                             ),
                             sub_point.0.clone(),
                         ]
@@ -225,16 +250,16 @@ pub fn packed_pcs_global_statements<
                 {
                     let mut retrieved_eval = EF::ZERO;
                     let mut chunk_offset_sums = 0;
-                    assert_eq!(statement.point.len(), chunks[0].vars + 1);
+                    assert_eq!(statement.point.len(), chunks[0].n_vars + 1);
                     for (i, chunk) in chunks.iter().enumerate() {
-                        let missing_vars = statement.point.0.len() - chunk.vars;
+                        let missing_vars = statement.point.0.len() - chunk.n_vars;
                         retrieved_eval +=
                             packed_statements[packed_statements.len() - chunks.len() + i].value
                                 * MultilinearPoint(statement.point.0[..missing_vars].to_vec())
                                     .eq_poly_outside(&MultilinearPoint(
                                         chunk.bits_offset_in_original.clone(),
                                     ));
-                        chunk_offset_sums += 1 << chunk.vars;
+                        chunk_offset_sums += 1 << chunk.n_vars;
                     }
                     retrieved_eval +=
                         multilinear_eval_constants_at_right(chunk_offset_sums, &statement.point)
@@ -251,19 +276,129 @@ pub fn packed_pcs_global_statements<
 #[derive(Debug)]
 pub struct ParsedMultiCommitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> {
     pub inner_parsed_commitment: Pcs::ParsedCommitment,
+    chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>>, // real polynomial index -> list of virtual polynomial indexes (chunks) in which it was split
+    default_values: BTreeMap<usize, F>, // real polynomial index -> default value
+    packed_n_vars: usize,
 }
 
 pub fn packed_pcs_parse_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    vars_per_polynomial: Vec<usize>,
+    commited_dims: Vec<CommittedPolInfo<F>>,
+    log_smallest_decomposition_chunk: usize,
 ) -> Result<ParsedMultiCommitment<F, EF, Pcs>, ProofError> {
-    todo!()
-    // let inner_parsed_commitment = pcs.parse_commitment(verifier_state, tree.total_vars())?;
-    // Ok(ParsedMultiCommitment {
-    //     inner_parsed_commitment,
-    // })
+    let mut all_chunks = Vec::new();
+    let mut default_values = BTreeMap::new();
+    for (i, poly) in commited_dims.iter().enumerate() {
+        all_chunks.extend(split_in_chunks(i, poly, log_smallest_decomposition_chunk));
+        default_values.insert(i, poly.default_value);
+    }
+    all_chunks.sort_by_key(|c| Reverse(c.n_vars));
+
+    let mut offset_in_packed = 0;
+    let mut chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>> = BTreeMap::new();
+    for chunk in &mut all_chunks {
+        chunk.offset_in_packed = Some(offset_in_packed);
+        offset_in_packed += 1 << chunk.n_vars;
+        chunks_decomposition
+            .entry(chunk.original_poly_index)
+            .or_default()
+            .push(chunk.clone());
+    }
+
+    let packed_n_vars = log2_ceil_usize(all_chunks.iter().map(|c| 1 << c.n_vars).sum::<usize>());
+    let inner_parsed_commitment = pcs.parse_commitment(verifier_state, packed_n_vars)?;
+
+    Ok(ParsedMultiCommitment {
+        inner_parsed_commitment,
+        chunks_decomposition,
+        default_values,
+        packed_n_vars,
+    })
 }
+
+pub fn packed_pcs_global_statements_for_verifier<
+    F: Field,
+    EF: ExtensionField<F> + ExtensionField<PF<EF>>,
+    Pcs: PCS<F, EF>,
+>(
+    parsed_commitment: &ParsedMultiCommitment<F, EF, Pcs>,
+    statements_per_polynomial: &[Vec<Evaluation<EF>>],
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+) -> Result<Vec<Evaluation<EF>>, ProofError> {
+    let packed_vars = parsed_commitment.packed_n_vars;
+    let mut packed_statements = Vec::new();
+    for (poly_index, statements) in statements_per_polynomial.iter().enumerate() {
+        let chunks = &parsed_commitment.chunks_decomposition[&poly_index];
+        assert!(!chunks.is_empty());
+        for statement in statements {
+            if chunks.len() == 1 {
+                assert_eq!(chunks[0].n_vars, statement.point.0.len());
+                assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
+                let packed_point = MultilinearPoint(
+                    [
+                        to_big_endian_in_field(
+                            chunks[0].offset_in_packed.unwrap() >> chunks[0].n_vars,
+                            packed_vars - chunks[0].n_vars,
+                        ),
+                        statement.point.0.clone(),
+                    ]
+                    .concat(),
+                );
+                packed_statements.push(Evaluation {
+                    point: packed_point,
+                    value: statement.value,
+                });
+            } else {
+                assert_eq!(statement.point.0.len(), chunks[0].n_vars + 1);
+                for chunk in chunks {
+                    let missing_vars = statement.point.0.len() - chunk.n_vars;
+                    let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
+                    let sub_value = verifier_state.next_extension_scalar()?;
+                    let packed_point = MultilinearPoint(
+                        [
+                            to_big_endian_in_field(
+                                chunk.offset_in_packed.unwrap() >> chunk.n_vars,
+                                packed_vars - chunk.n_vars,
+                            ),
+                            sub_point.0.clone(),
+                        ]
+                        .concat(),
+                    );
+                    packed_statements.push(Evaluation {
+                        point: packed_point,
+                        value: sub_value,
+                    });
+                }
+                // sanity check
+                {
+                    let mut retrieved_eval = EF::ZERO;
+                    let mut chunk_offset_sums = 0;
+                    assert_eq!(statement.point.len(), chunks[0].n_vars + 1);
+                    for (i, chunk) in chunks.iter().enumerate() {
+                        let missing_vars = statement.point.0.len() - chunk.n_vars;
+                        retrieved_eval +=
+                            packed_statements[packed_statements.len() - chunks.len() + i].value
+                                * MultilinearPoint(statement.point.0[..missing_vars].to_vec())
+                                    .eq_poly_outside(&MultilinearPoint(
+                                        chunk.bits_offset_in_original.clone(),
+                                    ));
+                        chunk_offset_sums += 1 << chunk.n_vars;
+                    }
+                    retrieved_eval +=
+                        multilinear_eval_constants_at_right(chunk_offset_sums, &statement.point)
+                            * parsed_commitment.default_values[&poly_index];
+
+                    if retrieved_eval != statement.value {
+                        return Err(ProofError::InvalidProof);
+                    }
+                }
+            }
+        }
+    }
+    Ok(packed_statements)
+}
+
 #[cfg(test)]
 mod tests {
     use std::marker::PhantomData;
@@ -351,8 +486,11 @@ mod tests {
             log_smallest_decomposition_chunk,
         );
 
-        let packed_statements =
-            packed_pcs_global_statements(&witness, &statements_per_polynomial, &mut prover_state);
+        let packed_statements = packed_pcs_global_statements_for_prover(
+            &witness,
+            &statements_per_polynomial,
+            &mut prover_state,
+        );
         pcs.open(
             &dft,
             &mut prover_state,
@@ -363,16 +501,25 @@ mod tests {
 
         let mut verifier_state = build_verifier_state(&prover_state);
 
-        // let parsed_commitment =
-        //     packed_pcs_parse_commitment(&pcs, &mut verifier_state, vars_per_polynomial.to_vec())
-        //         .unwrap();
-        // let packed_statements =
-        //     packed_pcs_global_statements(&parsed_commitment.tree, &statements_per_polynomial);
-        // pcs.verify(
-        //     &mut verifier_state,
-        //     &parsed_commitment.inner_parsed_commitment,
-        //     &packed_statements,
-        // )
-        // .unwrap();
+        let parsed_commitment = packed_pcs_parse_commitment(
+            &pcs,
+            &mut verifier_state,
+            polynomials_ref.iter().map(|p| p.info).collect(),
+            log_smallest_decomposition_chunk,
+        )
+        .unwrap();
+        let packed_statements =
+            packed_pcs_global_statements_for_verifier(
+                &parsed_commitment,
+                &statements_per_polynomial,
+                &mut verifier_state,
+            )
+            .unwrap();
+        pcs.verify(
+            &mut verifier_state,
+            &parsed_commitment.inner_parsed_commitment,
+            &packed_statements,
+        )
+        .unwrap();
     }
 }
