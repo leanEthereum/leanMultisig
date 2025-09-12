@@ -9,8 +9,8 @@ use p3_field::BasedVectorSpace;
 use p3_field::ExtensionField;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use pcs::num_packed_vars_for_pols;
-use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements};
+use pcs::{BatchPCS, packed_pcs_commit};
+use pcs::{ColDims, num_packed_vars_for_dims};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use sumcheck::MleGroupRef;
@@ -20,7 +20,6 @@ use utils::assert_eq_many;
 use utils::dot_product_with_base;
 use utils::field_slice_as_base;
 use utils::pack_extension;
-use utils::to_big_endian_bits;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
     padd_with_zero_to_next_power_of_two,
@@ -142,12 +141,6 @@ pub fn prove_execution(
         }
     }
 
-    assert!(private_memory.len() % public_memory.len() == 0);
-    let n_private_memory_chunks = private_memory.len() / public_memory.len();
-    let private_memory_commited_chunks = (0..n_private_memory_chunks)
-        .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
-        .collect::<Vec<_>>();
-
     let log_n_rows_dot_product_table = log2_strict_usize(dot_product_columns[0].len());
 
     let mut prover_state = build_prover_state::<EF>();
@@ -178,7 +171,7 @@ pub fn prove_execution(
         prover_state.add_extension_scalar(vm_multilinear_eval.res);
     }
 
-    let mut private_memory_statements = vec![vec![]; n_private_memory_chunks];
+    let mut private_memory_statements = vec![];
     for multilinear_eval in &vm_multilinear_evals {
         let addr_point = multilinear_eval.addr_point;
         let addr_coeffs = multilinear_eval.addr_coeffs;
@@ -199,22 +192,16 @@ pub fn prove_execution(
                     .enumerate()
                     .map(|(a, v)| (ef_addr + a, *v))
             {
-                let memory_chunk_index =
-                    f_address >> (log_memory - log2_ceil_usize(n_private_memory_chunks + 1));
-                let addr_bits = &to_big_endian_bits(
-                    f_address,
-                    log_memory - log2_ceil_usize(n_private_memory_chunks + 1),
-                );
-                let memory_sparse_point = addr_bits
-                    .iter()
-                    .map(|&x| EF::from_bool(x))
-                    .collect::<Vec<_>>();
-                let statement = Evaluation {
-                    point: MultilinearPoint(memory_sparse_point),
-                    value: EF::from(f_value), // TODO avoid embedding
-                };
-                if memory_chunk_index != 0 {
-                    private_memory_statements[memory_chunk_index - 1].push(statement);
+                assert!(public_memory_size.is_power_of_two());
+                if f_address > public_memory_size {
+                    let statement = Evaluation {
+                        point: MultilinearPoint(to_big_endian_in_field(
+                            f_address - public_memory_size,
+                            log2_ceil_usize(private_memory.len()),
+                        )),
+                        value: EF::from(f_value), // TODO avoid embedding
+                    };
+                    private_memory_statements.push(statement);
                 }
             }
         }
@@ -227,23 +214,16 @@ pub fn prove_execution(
             if n_vars >= log_public_memory {
                 todo!("vm multilinear eval accross multiple memory chunks")
             }
-            let memory_chunk_index =
-                addr_coeffs >> (log_memory - n_vars - log2_ceil_usize(n_private_memory_chunks + 1));
-            let addr_bits = &to_big_endian_bits(
-                addr_coeffs,
-                log_memory - n_vars - log2_ceil_usize(n_private_memory_chunks + 1),
-            );
-            let mut memory_sparse_point = addr_bits
-                .iter()
-                .map(|&x| EF::from_bool(x))
-                .collect::<Vec<_>>();
-            memory_sparse_point.extend(multilinear_eval.point.clone());
-            let statement = Evaluation {
-                point: MultilinearPoint(memory_sparse_point),
-                value: multilinear_eval.res,
-            };
-            if memory_chunk_index != 0 {
-                private_memory_statements[memory_chunk_index - 1].push(statement);
+            if addr_coeffs > public_memory_size >> n_vars {
+                let addr_bits = to_big_endian_in_field(
+                    addr_coeffs - (public_memory_size >> n_vars),
+                    log_memory - n_vars,
+                );
+                let statement = Evaluation {
+                    point: MultilinearPoint([addr_bits, multilinear_eval.point.clone()].concat()),
+                    value: multilinear_eval.res,
+                };
+                private_memory_statements.push(statement);
             }
         }
     }
@@ -251,10 +231,40 @@ pub fn prove_execution(
     let p16_indexes = all_poseidon_16_indexes(&poseidons_16);
     let p24_indexes = all_poseidon_24_indexes(&poseidons_24);
 
+    let base_dims = [
+        vec![
+            ColDims::dense(log_n_cycles),
+            ColDims::dense(log_n_cycles),
+            ColDims::dense(log_n_cycles),
+            ColDims::dense(log_n_cycles),
+            ColDims::dense(log_n_cycles),
+            ColDims::dense(log2_strict_usize(n_poseidons_16) + 2), // poseidon16 indexes
+            ColDims::dense(log2_strict_usize(n_poseidons_24) + 2), // poseidon24 indexes
+            ColDims::dense(
+                log2_strict_usize(n_poseidons_16) + log2_ceil_usize(p16_air.width() - 16 * 2),
+            ), // rest of poseidon16 table
+            ColDims::dense(
+                log2_strict_usize(n_poseidons_24) + log2_ceil_usize(p24_air.width() - 24 * 2),
+            ), // rest of poseidon24 table
+            ColDims::dense(log2_ceil_usize(dot_products.len())),   // dot product flags
+            ColDims::dense(log2_ceil_usize(dot_products.len())),   // dot product lengths
+            ColDims::dense(log2_ceil_usize(dot_products.len()) + 2), // dot product indexes
+            ColDims::sparse(
+                log2_ceil_usize(private_memory.len()),
+                private_memory.len(),
+                F::ZERO,
+            ), // private memory
+        ],
+        vec![ColDims::dense(log2_ceil_usize(dot_products.len())); DIMENSION], // dot product: computation
+    ]
+    .concat();
+
+    let padded_private_memory = padd_with_zero_to_next_power_of_two(private_memory);
+
     // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
         pcs.pcs_a(),
-        &[
+        [
             vec![
                 full_trace[COL_INDEX_PC].as_slice(),
                 full_trace[COL_INDEX_FP].as_slice(),
@@ -268,16 +278,18 @@ pub fn prove_execution(
                 dot_product_flags.as_slice(),
                 dot_product_lengths.as_slice(),
                 dot_product_indexes.as_slice(),
+                padded_private_memory.as_slice(),
             ],
             dot_product_computations_base
                 .iter()
                 .map(Vec::as_slice)
                 .collect(),
-            private_memory_commited_chunks.clone(),
         ]
         .concat(),
+        &base_dims,
         &dft,
         &mut prover_state,
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
     // Grand Product for consistency with precompiles
@@ -992,19 +1004,28 @@ pub fn prove_execution(
     );
 
     // 2nd Commitment
-    let commited_extension = [
+    let commited_extension = vec![
         base_memory_pushforward.as_slice(),
         poseidon_pushforward.as_slice(),
         bytecode_pushforward.as_slice(),
     ];
+
+    let extension_dims = vec![
+        ColDims::dense(log2_strict_usize(base_memory_pushforward.len())),
+        ColDims::dense(log2_strict_usize(poseidon_pushforward.len())),
+        ColDims::dense(log2_strict_usize(bytecode_pushforward.len())),
+    ];
+
     let packed_pcs_witness_extension = packed_pcs_commit(
         &pcs.pcs_b(
             log2_strict_usize(packed_pcs_witness_base.packed_polynomial.len()),
-            num_packed_vars_for_pols(&commited_extension),
+            num_packed_vars_for_dims(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
         ),
-        &commited_extension,
+        commited_extension,
+        &extension_dims,
         &dft,
         &mut prover_state,
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
     let base_memory_logup_star_statements = prove_logup_star(

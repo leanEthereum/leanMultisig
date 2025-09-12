@@ -230,17 +230,11 @@ pub fn get_execution_trace(
         }
     }
 
-    let mut memory = memory
+    let memory = memory
         .0
         .par_iter()
         .map(|&v| v.unwrap_or(F::ZERO))
         .collect::<Vec<F>>();
-    memory.resize(
-        memory
-            .len()
-            .next_multiple_of(execution_result.public_memory_size),
-        F::ZERO,
-    );
 
     let n_poseidons_16 = poseidons_16.len();
     let n_poseidons_24 = poseidons_24.len();

@@ -121,6 +121,14 @@ fn compute_chunks<F: Field, EF: ExtensionField<F>>(
     (chunks_decomposition, packed_n_vars)
 }
 
+pub fn num_packed_vars_for_dims<F: Field, EF: ExtensionField<F>>(
+    dims: &[ColDims<F>],
+    log_smallest_decomposition_chunk: usize,
+) -> usize {
+    let (_, packed_n_vars) = compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
+    packed_n_vars
+}
+
 #[instrument(skip_all)]
 pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
@@ -308,11 +316,10 @@ pub fn packed_pcs_global_statements_for_prover<
 pub fn packed_pcs_parse_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    commited_dims: &[ColDims<F>],
+    dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
 ) -> Result<Pcs::ParsedCommitment, ProofError> {
-    let (_, packed_n_vars) =
-        compute_chunks::<F, EF>(&commited_dims, log_smallest_decomposition_chunk);
+    let (_, packed_n_vars) = compute_chunks::<F, EF>(&dims, log_smallest_decomposition_chunk);
     pcs.parse_commitment(verifier_state, packed_n_vars)
 }
 

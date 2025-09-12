@@ -8,8 +8,6 @@ use p3_air::BaseAir;
 use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use pcs::num_packed_vars_for_vars;
-use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
 use sumcheck::SumcheckComputation;
 use utils::dot_product_with_base;
