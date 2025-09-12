@@ -290,19 +290,32 @@ pub fn packed_pcs_global_statements_for_prover<
                 });
             } else {
                 // skip the first one, we will deduce it (if it's not public)
-                for chunk in &chunks[1..] {
-                    // TODO parrallelize this loop ?
-                    let missing_vars = statement.point.0.len() - chunk.n_vars;
-                    let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
-                    let sub_value = (&pol
-                        [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)])
-                        .evaluate_sparse(&sub_point);
-                    sub_packed_statements.push(Evaluation {
-                        point: chunk.global_point_for_statement(&sub_point, packed_vars),
-                        value: sub_value,
+
+                // TODO do we really need to parallelize this?
+                chunks[1..]
+                    .par_iter()
+                    .map(|chunk| {
+                        let missing_vars = statement.point.0.len() - chunk.n_vars;
+                        let sub_point =
+                            MultilinearPoint(statement.point.0[missing_vars..].to_vec());
+                        let sub_value = (&pol[chunk.offset_in_original
+                            ..chunk.offset_in_original + (1 << chunk.n_vars)])
+                            .evaluate_sparse(&sub_point);
+                        (
+                            Evaluation {
+                                point: chunk.global_point_for_statement(&sub_point, packed_vars),
+                                value: sub_value,
+                            },
+                            sub_value,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .for_each(|(eval, sub_value)| {
+                        sub_packed_statements.push(eval);
+                        evals_to_send.push(sub_value);
                     });
-                    evals_to_send.push(sub_value);
-                }
+
                 // deduce the first sub_value, if it's not public
                 if dim.log_public.is_none() {
                     let retrieved_eval = compute_multilinear_value_from_chunks(
