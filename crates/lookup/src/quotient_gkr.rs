@@ -9,7 +9,7 @@ with custom GKR
 
 use p3_field::PackedFieldExtension;
 use p3_field::PrimeCharacteristicRing;
-use p3_field::{ExtensionField, Field, PrimeField64, dot_product};
+use p3_field::{ExtensionField, PrimeField64, dot_product};
 use rayon::prelude::*;
 use sumcheck::Mle;
 use sumcheck::MleGroupRef;

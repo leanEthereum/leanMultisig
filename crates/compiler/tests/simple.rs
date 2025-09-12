@@ -258,7 +258,7 @@ fn test_mini_program_4() {
     compile_and_run(program, &public_input, &[], false);
 
     get_poseidon24().permute_mut(&mut public_input);
-    &public_input[16..];
+    dbg!(&public_input[16..]);
 }
 
 #[test]
