@@ -159,9 +159,10 @@ pub fn prove_poseidon2(
     ];
     let log_smallest_decomposition_chunk = 0; // UNUSED because verything is power of 2
 
+    let commited_data = [commited_trace_polynomial_16.as_slice(), commited_trace_polynomial_24.as_slice()];
     let commitment_witness = packed_pcs_commit(
         &pcs,
-        vec![&commited_trace_polynomial_16, &commited_trace_polynomial_24],
+        &commited_data,
         &dims,
         &dft,
         &mut prover_state,
@@ -174,7 +175,7 @@ pub fn prove_poseidon2(
         table_24.prove_base(&mut prover_state, univariate_skips, witness_24);
 
     let global_statements_to_prove = packed_pcs_global_statements_for_prover(
-        &commitment_witness,
+        &commited_data,
         &dims,
         log_smallest_decomposition_chunk,
         &[
@@ -229,6 +230,7 @@ pub fn prove_poseidon2(
             evaluations_remaining_to_verify_24,
         ],
         &mut verifier_state,
+        &Default::default()
     )
     .unwrap();
     pcs.verify(

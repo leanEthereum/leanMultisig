@@ -87,7 +87,7 @@ fn test_verify_merkle_path() {
     }
 
     let merkle_root = to_hash;
-    &merkle_root[0];
+    dbg!(&merkle_root[0]);
 
     let mut public_input = leaf.to_vec();
     public_input.extend(merkle_root);
@@ -106,7 +106,7 @@ fn test_verify_merkle_path() {
 
     compile_and_run(program, &public_input, &private_input, false);
 
-    &merkle_root;
+    dbg!(&merkle_root);
 }
 
 #[test]

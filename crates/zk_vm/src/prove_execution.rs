@@ -9,7 +9,7 @@ use p3_field::BasedVectorSpace;
 use p3_field::ExtensionField;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use pcs::{BatchPCS, packed_pcs_commit};
+use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements_for_prover};
 use pcs::{ColDims, num_packed_vars_for_dims};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
@@ -171,7 +171,7 @@ pub fn prove_execution(
         prover_state.add_extension_scalar(vm_multilinear_eval.res);
     }
 
-    let mut private_memory_statements = vec![];
+    let mut memory_statements = vec![];
     for multilinear_eval in &vm_multilinear_evals {
         let addr_point = multilinear_eval.addr_point;
         let addr_coeffs = multilinear_eval.addr_coeffs;
@@ -193,16 +193,11 @@ pub fn prove_execution(
                     .map(|(a, v)| (ef_addr + a, *v))
             {
                 assert!(public_memory_size.is_power_of_two());
-                if f_address > public_memory_size {
-                    let statement = Evaluation {
-                        point: MultilinearPoint(to_big_endian_in_field(
-                            f_address - public_memory_size,
-                            log2_ceil_usize(private_memory.len()),
-                        )),
-                        value: EF::from(f_value), // TODO avoid embedding
-                    };
-                    private_memory_statements.push(statement);
-                }
+                let statement = Evaluation {
+                    point: MultilinearPoint(to_big_endian_in_field(f_address, log_memory)),
+                    value: EF::from(f_value), // TODO avoid embedding
+                };
+                memory_statements.push(statement);
             }
         }
 
@@ -211,28 +206,28 @@ pub fn prove_execution(
             assert!(n_vars <= log_memory);
             assert!(addr_coeffs < 1 << (log_memory - n_vars));
 
-            if n_vars >= log_public_memory {
-                todo!("vm multilinear eval accross multiple memory chunks")
-            }
-            if addr_coeffs > public_memory_size >> n_vars {
-                let addr_bits = to_big_endian_in_field(
-                    addr_coeffs - (public_memory_size >> n_vars),
-                    log_memory - n_vars,
-                );
-                let statement = Evaluation {
-                    point: MultilinearPoint([addr_bits, multilinear_eval.point.clone()].concat()),
-                    value: multilinear_eval.res,
-                };
-                private_memory_statements.push(statement);
-            }
+            let addr_bits = to_big_endian_in_field(addr_coeffs, log_memory - n_vars);
+            let statement = Evaluation {
+                point: MultilinearPoint([addr_bits, multilinear_eval.point.clone()].concat()),
+                value: multilinear_eval.res,
+            };
+            memory_statements.push(statement);
         }
     }
+
+    let padded_memory = padd_with_zero_to_next_power_of_two(&memory); // TODO avoid this padding
 
     let p16_indexes = all_poseidon_16_indexes(&poseidons_16);
     let p24_indexes = all_poseidon_24_indexes(&poseidons_24);
 
     let base_dims = [
         vec![
+            ColDims::sparse(
+                log2_ceil_usize(padded_memory.len()),
+                Some(log_public_memory),
+                private_memory.len(),
+                F::ZERO,
+            ), //  memory
             ColDims::dense(log_n_cycles),
             ColDims::dense(log_n_cycles),
             ColDims::dense(log_n_cycles),
@@ -249,43 +244,38 @@ pub fn prove_execution(
             ColDims::dense(log2_ceil_usize(dot_products.len())),   // dot product flags
             ColDims::dense(log2_ceil_usize(dot_products.len())),   // dot product lengths
             ColDims::dense(log2_ceil_usize(dot_products.len()) + 2), // dot product indexes
-            ColDims::sparse(
-                log2_ceil_usize(private_memory.len()),
-                private_memory.len(),
-                F::ZERO,
-            ), // private memory
         ],
         vec![ColDims::dense(log2_ceil_usize(dot_products.len())); DIMENSION], // dot product: computation
     ]
     .concat();
 
-    let padded_private_memory = padd_with_zero_to_next_power_of_two(private_memory);
+    let base_pols = [
+        vec![
+            padded_memory.as_slice(),
+            full_trace[COL_INDEX_PC].as_slice(),
+            full_trace[COL_INDEX_FP].as_slice(),
+            full_trace[COL_INDEX_MEM_ADDRESS_A].as_slice(),
+            full_trace[COL_INDEX_MEM_ADDRESS_B].as_slice(),
+            full_trace[COL_INDEX_MEM_ADDRESS_C].as_slice(),
+            p16_indexes.as_slice(),
+            p24_indexes.as_slice(),
+            p16_commited.as_slice(),
+            p24_commited.as_slice(),
+            dot_product_flags.as_slice(),
+            dot_product_lengths.as_slice(),
+            dot_product_indexes.as_slice(),
+        ],
+        dot_product_computations_base
+            .iter()
+            .map(Vec::as_slice)
+            .collect(),
+    ]
+    .concat();
 
     // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
         pcs.pcs_a(),
-        [
-            vec![
-                full_trace[COL_INDEX_PC].as_slice(),
-                full_trace[COL_INDEX_FP].as_slice(),
-                full_trace[COL_INDEX_MEM_ADDRESS_A].as_slice(),
-                full_trace[COL_INDEX_MEM_ADDRESS_B].as_slice(),
-                full_trace[COL_INDEX_MEM_ADDRESS_C].as_slice(),
-                p16_indexes.as_slice(),
-                p24_indexes.as_slice(),
-                p16_commited.as_slice(),
-                p24_commited.as_slice(),
-                dot_product_flags.as_slice(),
-                dot_product_lengths.as_slice(),
-                dot_product_indexes.as_slice(),
-                padded_private_memory.as_slice(),
-            ],
-            dot_product_computations_base
-                .iter()
-                .map(Vec::as_slice)
-                .collect(),
-        ]
-        .concat(),
+        &base_pols,
         &base_dims,
         &dft,
         &mut prover_state,
@@ -635,8 +625,6 @@ pub fn prove_execution(
         })
         .try_into()
         .unwrap();
-
-    let padded_memory = padd_with_zero_to_next_power_of_two(&memory); // TODO avoid this padding
 
     let max_n_poseidons = poseidons_16.len().max(poseidons_24.len());
     let min_n_poseidons = poseidons_16.len().min(poseidons_24.len());
@@ -1004,7 +992,7 @@ pub fn prove_execution(
     );
 
     // 2nd Commitment
-    let commited_extension = vec![
+    let extension_pols = vec![
         base_memory_pushforward.as_slice(),
         poseidon_pushforward.as_slice(),
         bytecode_pushforward.as_slice(),
@@ -1019,9 +1007,9 @@ pub fn prove_execution(
     let packed_pcs_witness_extension = packed_pcs_commit(
         &pcs.pcs_b(
             log2_strict_usize(packed_pcs_witness_base.packed_polynomial.len()),
-            num_packed_vars_for_dims(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
+            num_packed_vars_for_dims::<EF, EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
         ),
-        commited_extension,
+        &extension_pols,
         &extension_dims,
         &dft,
         &mut prover_state,
@@ -1065,30 +1053,11 @@ pub fn prove_execution(
         .concat(),
     );
 
-    // open memory
-    let exec_lookup_chunk_point = MultilinearPoint(
-        base_memory_logup_star_statements.on_table.point[log_memory - log_public_memory..].to_vec(),
-    );
-    let poseidon_lookup_chunk_point =
-        MultilinearPoint(poseidon_lookup_memory_point[log_memory - log_public_memory..].to_vec());
-
-    for (i, private_memory_chunk) in private_memory_commited_chunks.iter().enumerate() {
-        let chunk_eval_exec_lookup = private_memory_chunk.evaluate(&exec_lookup_chunk_point);
-        let chunk_eval_poseidon_lookup =
-            private_memory_chunk.evaluate(&poseidon_lookup_chunk_point);
-        prover_state.add_extension_scalar(chunk_eval_exec_lookup);
-        prover_state.add_extension_scalar(chunk_eval_poseidon_lookup);
-        private_memory_statements[i].extend(vec![
-            Evaluation {
-                point: exec_lookup_chunk_point.clone(),
-                value: chunk_eval_exec_lookup,
-            },
-            Evaluation {
-                point: poseidon_lookup_chunk_point.clone(),
-                value: chunk_eval_poseidon_lookup,
-            },
-        ]);
-    }
+    memory_statements.push(base_memory_logup_star_statements.on_table.clone());
+    memory_statements.push(Evaluation {
+        point: poseidon_lookup_memory_point.clone(),
+        value: poseidon_logup_star_statements.on_table.value,
+    });
 
     // index opening for poseidon lookup
     let poseidon_index_evals = fold_multilinear(
@@ -1212,10 +1181,13 @@ pub fn prove_execution(
     };
 
     // First Opening
-    let global_statements_base = packed_pcs_global_statements(
-        &packed_pcs_witness_base.tree,
+    let global_statements_base = packed_pcs_global_statements_for_prover(
+        &base_pols,
+        &base_dims,
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &[
             vec![
+                memory_statements,
                 vec![
                     exec_evals_to_prove[COL_INDEX_PC.index_in_air()].clone(),
                     bytecode_logup_star_statements.on_indexes.clone(),
@@ -1266,19 +1238,22 @@ pub fn prove_execution(
                 ], // dot product: indexes
             ],
             dot_product_computation_column_statements,
-            private_memory_statements,
         ]
         .concat(),
+        &mut prover_state,
     );
 
     // Second Opening
-    let global_statements_extension = packed_pcs_global_statements(
-        &packed_pcs_witness_extension.tree,
+    let global_statements_extension = packed_pcs_global_statements_for_prover(
+        &extension_pols,
+        &extension_dims,
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &[
             base_memory_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,
         ],
+        &mut prover_state,
     );
 
     pcs.batch_open(

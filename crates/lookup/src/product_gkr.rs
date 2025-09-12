@@ -8,7 +8,7 @@ with custom GKR
 */
 
 use p3_field::PrimeCharacteristicRing;
-use p3_field::{ExtensionField, Field, PrimeField64};
+use p3_field::{ExtensionField, PrimeField64};
 use rayon::prelude::*;
 use sumcheck::MleGroupRef;
 use sumcheck::ProductComputation;
@@ -248,7 +248,7 @@ mod tests {
         let time = Instant::now();
         let claim = Evaluation { point, value: eval };
         prove_gkr_product_step_packed(&mut prover_state, &pack_extension(&big), &claim);
-        time.elapsed();
+        dbg!(time.elapsed());
 
         let mut verifier_state = build_verifier_state(&prover_state);
 
