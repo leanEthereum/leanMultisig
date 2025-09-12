@@ -187,11 +187,25 @@ pub fn packed_pcs_global_statements_for_prover<
     let (chunks_decomposition, _) = compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
 
     let packed_vars = log2_strict_usize(witness.packed_polynomial.len());
-    let mut packed_statements = Vec::new();
-    for (poly_index, statements) in statements_per_polynomial.iter().enumerate() {
-        let chunks = &chunks_decomposition[&poly_index];
-        assert!(!chunks.is_empty());
-        for statement in statements {
+
+    let statements_flattened = statements_per_polynomial
+        .iter()
+        .enumerate()
+        .map(|(poly_index, poly_statements)| {
+            poly_statements
+                .iter()
+                .map(move |statement| (poly_index, statement))
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+
+    let sub_packed_statements_and_evals_to_send = statements_flattened
+        .par_iter()
+        .map(|(poly_index, statement)| {
+            let chunks = &chunks_decomposition[&poly_index];
+            assert!(!chunks.is_empty());
+            let mut sub_packed_statements = Vec::new();
+            let mut evals_to_send = Vec::new();
             if chunks.len() == 1 {
                 assert_eq!(chunks[0].n_vars, statement.point.0.len());
                 assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
@@ -205,7 +219,7 @@ pub fn packed_pcs_global_statements_for_prover<
                     ]
                     .concat(),
                 );
-                packed_statements.push(Evaluation {
+                sub_packed_statements.push(Evaluation {
                     point: packed_point,
                     value: statement.value,
                 });
@@ -227,35 +241,21 @@ pub fn packed_pcs_global_statements_for_prover<
                         ]
                         .concat(),
                     );
-                    packed_statements.push(Evaluation {
+                    sub_packed_statements.push(Evaluation {
                         point: packed_point,
                         value: sub_value,
                     });
-                    prover_state.add_extension_scalar(sub_value);
-                }
-                // sanity check
-                {
-                    let mut retrieved_eval = EF::ZERO;
-                    let mut chunk_offset_sums = 0;
-                    assert_eq!(statement.point.len(), chunks[0].n_vars + 1);
-                    for (i, chunk) in chunks.iter().enumerate() {
-                        let missing_vars = statement.point.0.len() - chunk.n_vars;
-                        retrieved_eval +=
-                            packed_statements[packed_statements.len() - chunks.len() + i].value
-                                * MultilinearPoint(statement.point.0[..missing_vars].to_vec())
-                                    .eq_poly_outside(&MultilinearPoint(
-                                        chunk.bits_offset_in_original(),
-                                    ));
-                        chunk_offset_sums += 1 << chunk.n_vars;
-                    }
-                    retrieved_eval +=
-                        multilinear_eval_constants_at_right(chunk_offset_sums, &statement.point)
-                            * dims[poly_index].default_value;
-
-                    assert_eq!(retrieved_eval, statement.value);
+                    evals_to_send.push(sub_value);
                 }
             }
-        }
+            (sub_packed_statements, evals_to_send)
+        })
+        .collect::<Vec<_>>();
+
+    let mut packed_statements = Vec::new();
+    for (sub_packed_statements, evals_to_send) in sub_packed_statements_and_evals_to_send {
+        packed_statements.extend(sub_packed_statements);
+        prover_state.add_extension_scalars(&evals_to_send);
     }
     packed_statements
 }
@@ -307,10 +307,10 @@ pub fn packed_pcs_global_statements_for_verifier<
                 });
             } else {
                 assert_eq!(statement.point.0.len(), chunks[0].n_vars + 1);
-                for chunk in chunks {
+                let sub_values = verifier_state.next_extension_scalars_vec(chunks.len())?; // TODO we could skip the last one, and deduce its value
+                for (chunk, sub_value) in chunks.iter().zip(sub_values) {
                     let missing_vars = statement.point.0.len() - chunk.n_vars;
                     let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
-                    let sub_value = verifier_state.next_extension_scalar()?;
                     let packed_point = MultilinearPoint(
                         [
                             to_big_endian_in_field(
@@ -326,7 +326,7 @@ pub fn packed_pcs_global_statements_for_verifier<
                         value: sub_value,
                     });
                 }
-                // sanity check
+                // consistency check
                 {
                     let mut retrieved_eval = EF::ZERO;
                     let mut chunk_offset_sums = 0;
