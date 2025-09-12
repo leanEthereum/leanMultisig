@@ -240,6 +240,7 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     }
 }
 
+#[instrument(skip_all)]
 pub fn packed_pcs_global_statements_for_prover<
     F: Field,
     EF: ExtensionField<F> + ExtensionField<PF<EF>>,
@@ -253,7 +254,6 @@ pub fn packed_pcs_global_statements_for_prover<
     // TODO:
     // 2) cache the "eq" poly, and then use dot product
     // 4) current packing is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
-    // 5) opti in case of sparse point (containing boolean values) in statements
 
     let (chunks_decomposition, packed_vars) =
         compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
@@ -291,11 +291,12 @@ pub fn packed_pcs_global_statements_for_prover<
             } else {
                 // skip the first one, we will deduce it (if it's not public)
                 for chunk in &chunks[1..] {
+                    // TODO parrallelize this loop ?
                     let missing_vars = statement.point.0.len() - chunk.n_vars;
                     let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
                     let sub_value = (&pol
                         [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)])
-                        .evaluate(&sub_point);
+                        .evaluate_sparse(&sub_point);
                     sub_packed_statements.push(Evaluation {
                         point: chunk.global_point_for_statement(&sub_point, packed_vars),
                         value: sub_value,
