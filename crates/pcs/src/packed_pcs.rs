@@ -18,37 +18,37 @@ use whir_p3::{
 use crate::PCS;
 
 #[derive(Debug, Clone)]
-struct CommittedChunk<EF: Field> {
+struct CommittedChunk {
     original_poly_index: usize,
+    original_n_vars: usize,
     n_vars: usize,
     offset_in_original: usize,
-    bits_offset_in_original: Vec<EF>,
     offset_in_packed: Option<usize>,
+}
+
+impl CommittedChunk {
+    fn bits_offset_in_original<EF: Field>(&self) -> Vec<EF> {
+        to_big_endian_in_field(
+            self.offset_in_original >> self.n_vars,
+            self.original_n_vars - self.n_vars,
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct MultiCommitmentWitness<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> {
-    chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>>, // real polynomial index -> list of virtual polynomial indexes (chunks) in which it was split
-    default_values: BTreeMap<usize, F>, // real polynomial index -> default value
     pub inner_witness: Pcs::Witness,
     pub packed_polynomial: Vec<F>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CommittedPolInfo<F: Field> {
-    pub n_vars: usize,          // polynomial.len() == 1 << n_vars
-    pub relevant_length: usize, // polynomial[relevant_length..] = [default_value, ..., default_value]
+pub struct ColDims<F: Field> {
+    pub n_vars: usize,          // column.len() == 1 << n_vars
+    pub relevant_length: usize, // column[relevant_length..] = [default_value, ..., default_value]
     pub default_value: F,
 }
 
-#[derive(Debug, Clone, Copy, derive_more::Deref)]
-pub struct CommittedPol<'a, F: Field> {
-    pub polynomial: &'a [F],
-    #[deref]
-    pub info: CommittedPolInfo<F>,
-}
-
-impl<F: Field> CommittedPolInfo<F> {
+impl<F: Field> ColDims<F> {
     pub fn dense(n_vars: usize) -> Self {
         Self {
             n_vars,
@@ -67,38 +67,12 @@ impl<F: Field> CommittedPolInfo<F> {
     }
 }
 
-impl<'a, F: Field> CommittedPol<'a, F> {
-    pub fn dense(polynomial: &'a [F]) -> Self {
-        Self {
-            polynomial,
-            info: CommittedPolInfo::dense(log2_strict_usize(polynomial.len())),
-        }
-    }
-
-    pub fn sparse(polynomial: &'a [F], relevant_length: usize, default_value: F) -> Self {
-        assert!(relevant_length <= polynomial.len());
-        debug_assert!(
-            polynomial[relevant_length..]
-                .par_iter()
-                .all(|c| c == &default_value)
-        );
-        Self {
-            polynomial,
-            info: CommittedPolInfo::sparse(
-                log2_strict_usize(polynomial.len()),
-                relevant_length,
-                default_value,
-            ),
-        }
-    }
-}
-
-fn split_in_chunks<F: Field, EF: ExtensionField<F>>(
+fn split_in_chunks<F: Field>(
     poly_index: usize,
-    poly: &CommittedPolInfo<F>,
+    dims: &ColDims<F>,
     log_smallest_decomposition_chunk: usize,
-) -> Vec<CommittedChunk<EF>> {
-    let mut remaining = poly.relevant_length;
+) -> Vec<CommittedChunk> {
+    let mut remaining = dims.relevant_length;
     let mut offset_in_original = 0;
     let mut res = Vec::new();
     loop {
@@ -110,12 +84,9 @@ fn split_in_chunks<F: Field, EF: ExtensionField<F>>(
             };
         res.push(CommittedChunk {
             original_poly_index: poly_index,
+            original_n_vars: dims.n_vars,
             n_vars: chunk_size,
             offset_in_original,
-            bits_offset_in_original: to_big_endian_in_field(
-                offset_in_original >> chunk_size,
-                poly.n_vars - chunk_size,
-            ),
             offset_in_packed: None,
         });
         offset_in_original += 1 << chunk_size;
@@ -126,24 +97,18 @@ fn split_in_chunks<F: Field, EF: ExtensionField<F>>(
     }
 }
 
-#[instrument(skip_all)]
-pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
-    pcs: &Pcs,
-    polynomials: &[CommittedPol<'_, F>],
-    dft: &EvalsDft<PF<EF>>,
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+fn compute_chunks<F: Field, EF: ExtensionField<F>>(
+    dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
-) -> MultiCommitmentWitness<F, EF, Pcs> {
+) -> (BTreeMap<usize, Vec<CommittedChunk>>, usize) {
     let mut all_chunks = Vec::new();
-    let mut default_values = BTreeMap::new();
-    for (i, poly) in polynomials.iter().enumerate() {
-        all_chunks.extend(split_in_chunks(i, poly, log_smallest_decomposition_chunk));
-        default_values.insert(i, poly.default_value);
+    for (i, dim) in dims.iter().enumerate() {
+        all_chunks.extend(split_in_chunks(i, dim, log_smallest_decomposition_chunk));
     }
     all_chunks.sort_by_key(|c| Reverse(c.n_vars));
 
     let mut offset_in_packed = 0;
-    let mut chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>> = BTreeMap::new();
+    let mut chunks_decomposition: BTreeMap<_, Vec<_>> = BTreeMap::new();
     for chunk in &mut all_chunks {
         chunk.offset_in_packed = Some(offset_in_packed);
         offset_in_packed += 1 << chunk.n_vars;
@@ -152,33 +117,50 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
             .or_default()
             .push(chunk.clone());
     }
+    let packed_n_vars = log2_ceil_usize(all_chunks.iter().map(|c| 1 << c.n_vars).sum::<usize>());
+    (chunks_decomposition, packed_n_vars)
+}
 
-    let total_size = all_chunks
-        .iter()
-        .map(|c| 1 << c.n_vars)
-        .sum::<usize>()
-        .next_power_of_two();
-    let packed_polynomial = F::zero_vec(total_size);
-    all_chunks.par_iter().for_each(|chunk| {
-        let start = chunk.offset_in_packed.unwrap();
-        let end = start + (1 << chunk.n_vars);
-        let original_poly = &polynomials[chunk.original_poly_index].polynomial;
-        unsafe {
-            let slice = std::slice::from_raw_parts_mut(
-                (packed_polynomial.as_ptr() as *mut F).add(start),
-                end - start,
-            );
-            slice.copy_from_slice(
-                &original_poly
-                    [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)],
-            );
-        }
-    });
+#[instrument(skip_all)]
+pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
+    pcs: &Pcs,
+    polynomials: Vec<&[F]>,
+    dims: &[ColDims<F>],
+    dft: &EvalsDft<PF<EF>>,
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    log_smallest_decomposition_chunk: usize,
+) -> MultiCommitmentWitness<F, EF, Pcs> {
+    assert_eq!(polynomials.len(), dims.len());
+    for (poly, dim) in polynomials.iter().zip(dims.iter()) {
+        assert_eq!(poly.len(), 1 << dim.n_vars);
+    }
+    let (chunks_decomposition, packed_n_vars) =
+        compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
+
+    let packed_polynomial = F::zero_vec(1 << packed_n_vars);
+    chunks_decomposition
+        .values()
+        .flatten()
+        .collect::<Vec<_>>()
+        .par_iter()
+        .for_each(|chunk| {
+            let start = chunk.offset_in_packed.unwrap();
+            let end = start + (1 << chunk.n_vars);
+            let original_poly = &polynomials[chunk.original_poly_index];
+            unsafe {
+                let slice = std::slice::from_raw_parts_mut(
+                    (packed_polynomial.as_ptr() as *mut F).add(start),
+                    end - start,
+                );
+                slice.copy_from_slice(
+                    &original_poly
+                        [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)],
+                );
+            }
+        });
 
     let inner_witness = pcs.commit(dft, prover_state, &packed_polynomial);
     MultiCommitmentWitness {
-        chunks_decomposition,
-        default_values,
         inner_witness,
         packed_polynomial,
     }
@@ -190,6 +172,8 @@ pub fn packed_pcs_global_statements_for_prover<
     Pcs: PCS<F, EF>,
 >(
     witness: &MultiCommitmentWitness<F, EF, Pcs>,
+    dims: &[ColDims<F>],
+    log_smallest_decomposition_chunk: usize,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
 ) -> Vec<Evaluation<EF>> {
@@ -198,11 +182,14 @@ pub fn packed_pcs_global_statements_for_prover<
     // 2) cache the "eq" poly, and then use dot product
     // 3) for each statement we can avoid one of the sub-computation (so we should avoid the big one)
     // 4) current packing is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
+    // 5) opti in case of sparse point (containing boolean values) in statements
+
+    let (chunks_decomposition, _) = compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
 
     let packed_vars = log2_strict_usize(witness.packed_polynomial.len());
     let mut packed_statements = Vec::new();
     for (poly_index, statements) in statements_per_polynomial.iter().enumerate() {
-        let chunks = &witness.chunks_decomposition[&poly_index];
+        let chunks = &chunks_decomposition[&poly_index];
         assert!(!chunks.is_empty());
         for statement in statements {
             if chunks.len() == 1 {
@@ -257,13 +244,13 @@ pub fn packed_pcs_global_statements_for_prover<
                             packed_statements[packed_statements.len() - chunks.len() + i].value
                                 * MultilinearPoint(statement.point.0[..missing_vars].to_vec())
                                     .eq_poly_outside(&MultilinearPoint(
-                                        chunk.bits_offset_in_original.clone(),
+                                        chunk.bits_offset_in_original(),
                                     ));
                         chunk_offset_sums += 1 << chunk.n_vars;
                     }
                     retrieved_eval +=
                         multilinear_eval_constants_at_right(chunk_offset_sums, &statement.point)
-                            * witness.default_values[&poly_index];
+                            * dims[poly_index].default_value;
 
                     assert_eq!(retrieved_eval, statement.value);
                 }
@@ -273,63 +260,32 @@ pub fn packed_pcs_global_statements_for_prover<
     packed_statements
 }
 
-#[derive(Debug)]
-pub struct ParsedMultiCommitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> {
-    pub inner_parsed_commitment: Pcs::ParsedCommitment,
-    chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>>, // real polynomial index -> list of virtual polynomial indexes (chunks) in which it was split
-    default_values: BTreeMap<usize, F>, // real polynomial index -> default value
-    packed_n_vars: usize,
-}
-
 pub fn packed_pcs_parse_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    commited_dims: Vec<CommittedPolInfo<F>>,
+    commited_dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
-) -> Result<ParsedMultiCommitment<F, EF, Pcs>, ProofError> {
-    let mut all_chunks = Vec::new();
-    let mut default_values = BTreeMap::new();
-    for (i, poly) in commited_dims.iter().enumerate() {
-        all_chunks.extend(split_in_chunks(i, poly, log_smallest_decomposition_chunk));
-        default_values.insert(i, poly.default_value);
-    }
-    all_chunks.sort_by_key(|c| Reverse(c.n_vars));
-
-    let mut offset_in_packed = 0;
-    let mut chunks_decomposition: BTreeMap<usize, Vec<CommittedChunk<EF>>> = BTreeMap::new();
-    for chunk in &mut all_chunks {
-        chunk.offset_in_packed = Some(offset_in_packed);
-        offset_in_packed += 1 << chunk.n_vars;
-        chunks_decomposition
-            .entry(chunk.original_poly_index)
-            .or_default()
-            .push(chunk.clone());
-    }
-
-    let packed_n_vars = log2_ceil_usize(all_chunks.iter().map(|c| 1 << c.n_vars).sum::<usize>());
-    let inner_parsed_commitment = pcs.parse_commitment(verifier_state, packed_n_vars)?;
-
-    Ok(ParsedMultiCommitment {
-        inner_parsed_commitment,
-        chunks_decomposition,
-        default_values,
-        packed_n_vars,
-    })
+) -> Result<Pcs::ParsedCommitment, ProofError> {
+    let (_, packed_n_vars) =
+        compute_chunks::<F, EF>(&commited_dims, log_smallest_decomposition_chunk);
+    pcs.parse_commitment(verifier_state, packed_n_vars)
 }
 
 pub fn packed_pcs_global_statements_for_verifier<
     F: Field,
     EF: ExtensionField<F> + ExtensionField<PF<EF>>,
-    Pcs: PCS<F, EF>,
 >(
-    parsed_commitment: &ParsedMultiCommitment<F, EF, Pcs>,
+    dims: &[ColDims<F>],
+    log_smallest_decomposition_chunk: usize,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
 ) -> Result<Vec<Evaluation<EF>>, ProofError> {
-    let packed_vars = parsed_commitment.packed_n_vars;
+    assert_eq!(dims.len(), statements_per_polynomial.len());
+    let (chunks_decomposition, packed_n_vars) =
+        compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
     let mut packed_statements = Vec::new();
     for (poly_index, statements) in statements_per_polynomial.iter().enumerate() {
-        let chunks = &parsed_commitment.chunks_decomposition[&poly_index];
+        let chunks = &chunks_decomposition[&poly_index];
         assert!(!chunks.is_empty());
         for statement in statements {
             if chunks.len() == 1 {
@@ -339,7 +295,7 @@ pub fn packed_pcs_global_statements_for_verifier<
                     [
                         to_big_endian_in_field(
                             chunks[0].offset_in_packed.unwrap() >> chunks[0].n_vars,
-                            packed_vars - chunks[0].n_vars,
+                            packed_n_vars - chunks[0].n_vars,
                         ),
                         statement.point.0.clone(),
                     ]
@@ -359,7 +315,7 @@ pub fn packed_pcs_global_statements_for_verifier<
                         [
                             to_big_endian_in_field(
                                 chunk.offset_in_packed.unwrap() >> chunk.n_vars,
-                                packed_vars - chunk.n_vars,
+                                packed_n_vars - chunk.n_vars,
                             ),
                             sub_point.0.clone(),
                         ]
@@ -381,13 +337,13 @@ pub fn packed_pcs_global_statements_for_verifier<
                             packed_statements[packed_statements.len() - chunks.len() + i].value
                                 * MultilinearPoint(statement.point.0[..missing_vars].to_vec())
                                     .eq_poly_outside(&MultilinearPoint(
-                                        chunk.bits_offset_in_original.clone(),
+                                        chunk.bits_offset_in_original(),
                                     ));
                         chunk_offset_sums += 1 << chunk.n_vars;
                     }
                     retrieved_eval +=
                         multilinear_eval_constants_at_right(chunk_offset_sums, &statement.point)
-                            * parsed_commitment.default_values[&poly_index];
+                            * dims[poly_index].default_value;
 
                     if retrieved_eval != statement.value {
                         return Err(ProofError::InvalidProof);
@@ -452,6 +408,7 @@ mod tests {
             (2025, F::from_usize(11)),
         ];
         let mut polynomials = Vec::new();
+        let mut dims = Vec::new();
         let mut statements_per_polynomial = Vec::new();
         for &(pol_length, default_value) in &pol_lengths_and_default_value {
             let mut poly = (0..pol_length).map(|_| rng.random()).collect::<Vec<F>>();
@@ -466,13 +423,12 @@ mod tests {
                 statements.push(Evaluation { point, value });
             }
             polynomials.push(poly);
+            dims.push(ColDims {
+                n_vars,
+                relevant_length: pol_length,
+                default_value,
+            });
             statements_per_polynomial.push(statements);
-        }
-
-        let mut polynomials_ref = Vec::new();
-        for (i, poly) in polynomials.iter().enumerate() {
-            let (pol_length, default_value) = pol_lengths_and_default_value[i];
-            polynomials_ref.push(CommittedPol::sparse(poly, pol_length, default_value));
         }
 
         let mut prover_state = build_prover_state();
@@ -480,7 +436,8 @@ mod tests {
 
         let witness = packed_pcs_commit(
             &pcs,
-            &polynomials_ref,
+            polynomials.iter().map(|p| p.as_slice()).collect(),
+            &dims,
             &dft,
             &mut prover_state,
             log_smallest_decomposition_chunk,
@@ -488,6 +445,8 @@ mod tests {
 
         let packed_statements = packed_pcs_global_statements_for_prover(
             &witness,
+            &dims,
+            log_smallest_decomposition_chunk,
             &statements_per_polynomial,
             &mut prover_state,
         );
@@ -504,22 +463,18 @@ mod tests {
         let parsed_commitment = packed_pcs_parse_commitment(
             &pcs,
             &mut verifier_state,
-            polynomials_ref.iter().map(|p| p.info).collect(),
+            &dims,
             log_smallest_decomposition_chunk,
         )
         .unwrap();
-        let packed_statements =
-            packed_pcs_global_statements_for_verifier(
-                &parsed_commitment,
-                &statements_per_polynomial,
-                &mut verifier_state,
-            )
-            .unwrap();
-        pcs.verify(
+        let packed_statements = packed_pcs_global_statements_for_verifier(
+            &dims,
+            log_smallest_decomposition_chunk,
+            &statements_per_polynomial,
             &mut verifier_state,
-            &parsed_commitment.inner_parsed_commitment,
-            &packed_statements,
         )
         .unwrap();
+        pcs.verify(&mut verifier_state, &parsed_commitment, &packed_statements)
+            .unwrap();
     }
 }
