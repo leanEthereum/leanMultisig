@@ -220,6 +220,7 @@ pub fn prove_execution(
     let p16_indexes = all_poseidon_16_indexes(&poseidons_16);
     let p24_indexes = all_poseidon_24_indexes(&poseidons_24);
 
+    let dot_product_table_log_n_rows = log2_strict_usize(dot_product_columns[0].len());
     let base_dims = [
         vec![
             ColDims::sparse(
@@ -233,19 +234,19 @@ pub fn prove_execution(
             ColDims::dense(log_n_cycles),
             ColDims::dense(log_n_cycles),
             ColDims::dense(log_n_cycles),
-            ColDims::dense(log2_strict_usize(n_poseidons_16) + 2), // poseidon16 indexes
-            ColDims::dense(log2_strict_usize(n_poseidons_24) + 2), // poseidon24 indexes
+            ColDims::dense(log2_ceil_usize(n_poseidons_16) + 2), // poseidon16 indexes
+            ColDims::dense(log2_ceil_usize(n_poseidons_24) + 2), // poseidon24 indexes
             ColDims::dense(
-                log2_strict_usize(n_poseidons_16) + log2_ceil_usize(p16_air.width() - 16 * 2),
+                log2_ceil_usize(n_poseidons_16) + log2_ceil_usize(p16_air.width() - 16 * 2),
             ), // rest of poseidon16 table
             ColDims::dense(
-                log2_strict_usize(n_poseidons_24) + log2_ceil_usize(p24_air.width() - 24 * 2),
+                log2_ceil_usize(n_poseidons_24) + log2_ceil_usize(p24_air.width() - 24 * 2),
             ), // rest of poseidon24 table
-            ColDims::dense(log2_ceil_usize(dot_products.len())),   // dot product flags
-            ColDims::dense(log2_ceil_usize(dot_products.len())),   // dot product lengths
-            ColDims::dense(log2_ceil_usize(dot_products.len()) + 2), // dot product indexes
+            ColDims::dense(dot_product_table_log_n_rows),        // dot product flags
+            ColDims::dense(dot_product_table_log_n_rows),        // dot product lengths
+            ColDims::dense(dot_product_table_log_n_rows + 2),    // dot product indexes
         ],
-        vec![ColDims::dense(log2_ceil_usize(dot_products.len())); DIMENSION], // dot product: computation
+        vec![ColDims::dense(dot_product_table_log_n_rows); DIMENSION], // dot product: computation
     ]
     .concat();
 

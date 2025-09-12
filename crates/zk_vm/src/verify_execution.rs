@@ -72,9 +72,7 @@ pub fn verify_execution(
 
     let public_memory = build_public_memory(public_input);
     let public_memory_len = public_memory.len();
-    if private_memory_len % public_memory_len != 0 {
-        return Err(ProofError::InvalidProof);
-    }
+ 
     let log_public_memory = log2_strict_usize(public_memory_len);
     let log_memory = log2_ceil_usize(public_memory_len + private_memory_len);
     let log_n_p16 = log2_ceil_usize(n_poseidons_16);

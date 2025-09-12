@@ -1,7 +1,7 @@
 use std::{cmp::Reverse, collections::BTreeMap};
 
 use p3_field::{ExtensionField, Field};
-use p3_util::log2_ceil_usize;
+use p3_util::{log2_ceil_usize, log2_strict_usize};
 use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
@@ -178,8 +178,15 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     log_smallest_decomposition_chunk: usize,
 ) -> MultiCommitmentWitness<F, EF, Pcs> {
     assert_eq!(polynomials.len(), dims.len());
-    for (poly, dim) in polynomials.iter().zip(dims.iter()) {
-        assert_eq!(poly.len(), 1 << dim.n_vars);
+    for (i, (poly, dim)) in polynomials.iter().zip(dims.iter()).enumerate() {
+        assert_eq!(
+            poly.len(),
+            1 << dim.n_vars,
+            "poly {} has {} vars, but dim should be {}",
+            i,
+            log2_strict_usize(poly.len()),
+            dim.n_vars
+        );
     }
     let (chunks_decomposition, packed_n_vars) =
         compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
