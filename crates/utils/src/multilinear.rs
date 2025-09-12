@@ -169,8 +169,20 @@ pub fn batch_fold_multilinear_in_small_field_packed<EF: ExtensionField<PF<EF>>>(
 
 pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) -> F {
     let n_vars = point.len();
+
     // multilinear polynomial = [0 0 --- 0][1 1 --- 1] (`limit` times 0, then `2^n_vars - limit` times 1) evaluated at `point`
-    assert!(limit <= (1 << n_vars));
+
+    assert!(
+        limit <= (1 << n_vars),
+        "limit {} is too large for n_vars {}",
+        limit,
+        n_vars
+    );
+
+    if limit == 1 << n_vars {
+        return F::ZERO;
+    }
+
     if point.len() == 0 {
         assert!(limit <= 1);
         if limit == 1 { F::ZERO } else { F::ONE }

@@ -79,7 +79,6 @@ fn split_in_chunks<F: Field>(
     dims: &ColDims<F>,
     log_smallest_decomposition_chunk: usize,
 ) -> Vec<Chunk> {
-    let mut remaining = dims.n_committed;
     let mut offset_in_original = 0;
     let mut res = Vec::new();
     if let Some(log_public) = dims.log_public {
@@ -93,8 +92,9 @@ fn split_in_chunks<F: Field>(
             offset_in_packed: None,
         });
         offset_in_original += 1 << log_public;
-        remaining -= 1 << log_public;
     }
+    let mut remaining = dims.n_committed;
+
     loop {
         let mut chunk_size =
             if remaining.next_power_of_two() - remaining <= 1 << log_smallest_decomposition_chunk {
@@ -103,7 +103,7 @@ fn split_in_chunks<F: Field>(
                 remaining.ilog2() as usize
             };
         if let Some(log_public) = dims.log_public {
-            chunk_size = chunk_size.min(1 << log_public);
+            chunk_size = chunk_size.min(log_public);
         }
 
         res.push(Chunk {
