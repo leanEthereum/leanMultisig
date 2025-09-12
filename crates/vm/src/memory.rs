@@ -11,10 +11,14 @@ pub(crate) const MAX_MEMORY_SIZE: usize = 1 << 24;
 pub struct Memory(pub Vec<Option<F>>);
 
 impl Memory {
+    /// Creates a new memory instance, initializing it with public data.
     pub fn new(public_memory: Vec<F>) -> Self {
-        Self(public_memory.into_par_iter().map(Some).collect::<Vec<_>>())
+        Self(public_memory.into_par_iter().map(Some).collect())
     }
 
+    /// Reads a single value from a memory address.
+    ///
+    /// Returns an error if the address is uninitialized.
     pub fn get(&self, index: usize) -> Result<F, RunnerError> {
         self.0
             .get(index)
@@ -54,11 +58,9 @@ impl Memory {
     }
 
     pub fn get_vectorized_slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        let mut vector = Vec::with_capacity(len * VECTOR_LEN);
-        for i in 0..len * VECTOR_LEN {
-            vector.push(self.get(index * VECTOR_LEN + i)?);
-        }
-        Ok(vector)
+        let start = index * VECTOR_LEN;
+        let total_len = len * VECTOR_LEN;
+        (0..total_len).map(|i| self.get(start + i)).collect()
     }
 
     pub fn get_continuous_slice_of_ef_elements(
@@ -66,19 +68,13 @@ impl Memory {
         index: usize, // normal pointer
         len: usize,
     ) -> Result<Vec<EF>, RunnerError> {
-        let mut vector = Vec::with_capacity(len);
-        for i in 0..len {
-            vector.push(self.get_ef_element(index + i * DIMENSION)?);
-        }
-        Ok(vector)
+        (0..len)
+            .map(|i| self.get_ef_element(index + i * DIMENSION))
+            .collect()
     }
 
     pub fn slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        let mut vector = Vec::with_capacity(len);
-        for i in 0..len {
-            vector.push(self.get(index + i)?);
-        }
-        Ok(vector)
+        (0..len).map(|i| self.get(index + i)).collect()
     }
 
     pub fn set_ef_element(&mut self, index: usize, value: EF) -> Result<(), RunnerError> {
@@ -97,11 +93,11 @@ impl Memory {
     }
 
     pub fn set_vectorized_slice(&mut self, index: usize, value: &[F]) -> Result<(), RunnerError> {
-        assert!(value.len() % VECTOR_LEN == 0);
-        for (i, v) in value.iter().enumerate() {
-            let idx = VECTOR_LEN * index + i;
-            self.set(idx, *v)?;
-        }
-        Ok(())
+        assert!(value.len().is_multiple_of(VECTOR_LEN));
+        let start = index * VECTOR_LEN;
+        value
+            .iter()
+            .enumerate()
+            .try_for_each(|(i, &v)| self.set(start + i, v))
     }
 }

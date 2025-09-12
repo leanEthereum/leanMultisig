@@ -143,13 +143,11 @@ impl MemOrConstant {
 }
 impl Display for Bytecode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut pc = 0;
-        for instruction in &self.instructions {
+        for (pc, instruction) in self.instructions.iter().enumerate() {
             for hint in self.hints.get(&pc).unwrap_or(&Vec::new()) {
                 writeln!(f, "hint: {hint}")?;
             }
             writeln!(f, "{pc:>4}: {instruction}")?;
-            pc += 1;
         }
         Ok(())
     }
