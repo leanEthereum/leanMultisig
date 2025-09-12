@@ -36,6 +36,25 @@ impl Chunk {
     }
 }
 
+impl Chunk {
+    fn global_point_for_statement<F: Field>(
+        &self,
+        point: &[F],
+        packed_n_vars: usize,
+    ) -> MultilinearPoint<F> {
+        MultilinearPoint(
+            [
+                to_big_endian_in_field(
+                    self.offset_in_packed.unwrap() >> self.n_vars,
+                    packed_n_vars - self.n_vars,
+                ),
+                point.to_vec(),
+            ]
+            .concat(),
+        )
+    }
+}
+
 /*
 General layout: [public data][committed data][repeated value] (the thing has length 2^n_vars, public data is a power of two)
 */
@@ -265,18 +284,8 @@ pub fn packed_pcs_global_statements_for_prover<
                 assert_eq!(chunks[0].n_vars, statement.point.0.len());
                 assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
 
-                let packed_point = MultilinearPoint(
-                    [
-                        to_big_endian_in_field(
-                            chunks[0].offset_in_packed.unwrap() >> chunks[0].n_vars,
-                            packed_vars - chunks[0].n_vars,
-                        ),
-                        statement.point.0.clone(),
-                    ]
-                    .concat(),
-                );
                 sub_packed_statements.push(Evaluation {
-                    point: packed_point,
+                    point: chunks[0].global_point_for_statement(&statement.point, packed_vars),
                     value: statement.value,
                 });
             } else {
@@ -287,39 +296,21 @@ pub fn packed_pcs_global_statements_for_prover<
                     let sub_value = (&pol
                         [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)])
                         .evaluate(&sub_point);
-                    let packed_point = MultilinearPoint(
-                        [
-                            to_big_endian_in_field(
-                                chunk.offset_in_packed.unwrap() >> chunk.n_vars,
-                                packed_vars - chunk.n_vars,
-                            ),
-                            sub_point.0.clone(),
-                        ]
-                        .concat(),
-                    );
                     sub_packed_statements.push(Evaluation {
-                        point: packed_point,
+                        point: chunk.global_point_for_statement(&sub_point, packed_vars),
                         value: sub_value,
                     });
                     evals_to_send.push(sub_value);
                 }
                 // deduce the first sub_value, if it's not public
                 if dim.log_public.is_none() {
-                    let mut retrieved_eval = EF::ZERO;
-                    let mut chunk_offset_sums = 1 << chunks[0].n_vars;
-                    assert_eq!(statement.point.len(), chunks[0].n_vars + 1);
-                    for (chunk, &sub_value) in chunks[1..].iter().zip(&evals_to_send) {
-                        let missing_vars = statement.point.0.len() - chunk.n_vars;
-                        retrieved_eval += sub_value
-                            * MultilinearPoint(statement.point.0[..missing_vars].to_vec())
-                                .eq_poly_outside(&MultilinearPoint(
-                                    chunk.bits_offset_in_original(),
-                                ));
-                        chunk_offset_sums += 1 << chunk.n_vars;
-                    }
-                    retrieved_eval +=
-                        multilinear_eval_constants_at_right(chunk_offset_sums, &statement.point)
-                            * dim.default_value;
+                    let retrieved_eval = compute_multilinear_value_from_chunks(
+                        &chunks[1..],
+                        &evals_to_send,
+                        &statement.point,
+                        1 << chunks[0].n_vars,
+                        dim.default_value,
+                    );
 
                     let initial_missing_vars = statement.point.0.len() - chunks[0].n_vars;
                     let initial_sub_value = (statement.value - retrieved_eval)
@@ -330,16 +321,8 @@ pub fn packed_pcs_global_statements_for_prover<
                     let initial_sub_point =
                         MultilinearPoint(statement.point.0[initial_missing_vars..].to_vec());
 
-                    let initial_packed_point = MultilinearPoint(
-                        [
-                            to_big_endian_in_field(
-                                chunks[0].offset_in_packed.unwrap() >> chunks[0].n_vars,
-                                packed_vars - chunks[0].n_vars,
-                            ),
-                            initial_sub_point.0.clone(),
-                        ]
-                        .concat(),
-                    );
+                    let initial_packed_point =
+                        chunks[0].global_point_for_statement(&initial_sub_point, packed_vars);
                     sub_packed_statements.insert(
                         0,
                         Evaluation {
@@ -396,18 +379,8 @@ pub fn packed_pcs_global_statements_for_verifier<
                 assert!(!chunks[0].public_data, "TODO");
                 assert_eq!(chunks[0].n_vars, statement.point.0.len());
                 assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
-                let packed_point = MultilinearPoint(
-                    [
-                        to_big_endian_in_field(
-                            chunks[0].offset_in_packed.unwrap() >> chunks[0].n_vars,
-                            packed_n_vars - chunks[0].n_vars,
-                        ),
-                        statement.point.0.clone(),
-                    ]
-                    .concat(),
-                );
                 packed_statements.push(Evaluation {
-                    point: packed_point,
+                    point: chunks[0].global_point_for_statement(&statement.point, packed_n_vars),
                     value: statement.value,
                 });
             } else {
@@ -428,46 +401,49 @@ pub fn packed_pcs_global_statements_for_verifier<
                     }
                     let missing_vars = statement.point.0.len() - chunk.n_vars;
                     let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
-                    let packed_point = MultilinearPoint(
-                        [
-                            to_big_endian_in_field(
-                                chunk.offset_in_packed.unwrap() >> chunk.n_vars,
-                                packed_n_vars - chunk.n_vars,
-                            ),
-                            sub_point.0.clone(),
-                        ]
-                        .concat(),
-                    );
                     packed_statements.push(Evaluation {
-                        point: packed_point,
+                        point: chunk.global_point_for_statement(&sub_point, packed_n_vars),
                         value: sub_value,
                     });
                 }
                 // consistency check
+                if statement.value
+                    != compute_multilinear_value_from_chunks(
+                        chunks,
+                        &sub_values,
+                        &statement.point,
+                        0,
+                        dim.default_value,
+                    )
                 {
-                    let mut retrieved_eval = EF::ZERO;
-                    let mut chunk_offset_sums = 0;
-                    for (i, chunk) in chunks.iter().enumerate() {
-                        let missing_vars = statement.point.0.len() - chunk.n_vars;
-                        retrieved_eval += sub_values[i]
-                            * MultilinearPoint(statement.point.0[..missing_vars].to_vec())
-                                .eq_poly_outside(&MultilinearPoint(
-                                    chunk.bits_offset_in_original(),
-                                ));
-                        chunk_offset_sums += 1 << chunk.n_vars;
-                    }
-                    retrieved_eval +=
-                        multilinear_eval_constants_at_right(chunk_offset_sums, &statement.point)
-                            * dims[poly_index].default_value;
-
-                    if retrieved_eval != statement.value {
-                        return Err(ProofError::InvalidProof);
-                    }
+                    return Err(ProofError::InvalidProof);
                 }
             }
         }
     }
     Ok(packed_statements)
+}
+
+fn compute_multilinear_value_from_chunks<F: Field, EF: ExtensionField<F>>(
+    chunks: &[Chunk],
+    evals_per_chunk: &[EF],
+    point: &[EF],
+    size_of_first_chunk_mising: usize,
+    default_value: F,
+) -> EF {
+    assert_eq!(chunks.len(), evals_per_chunk.len());
+    let mut eval = EF::ZERO;
+
+    let mut chunk_offset_sums = size_of_first_chunk_mising;
+    for (chunk, &sub_value) in chunks.iter().zip(evals_per_chunk) {
+        let missing_vars = point.len() - chunk.n_vars;
+        eval += sub_value
+            * MultilinearPoint(point[..missing_vars].to_vec())
+                .eq_poly_outside(&MultilinearPoint(chunk.bits_offset_in_original()));
+        chunk_offset_sums += 1 << chunk.n_vars;
+    }
+    eval += multilinear_eval_constants_at_right(chunk_offset_sums, point) * default_value;
+    eval
 }
 
 #[cfg(test)]
