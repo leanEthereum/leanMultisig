@@ -19,10 +19,10 @@ pub struct XmssPublicKey<const LOG_LIFETIME: usize>(pub Digest);
 
 impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
     pub fn random(rng: &mut impl Rng) -> Self {
-        let mut wots_secret_keys = Vec::new();
-        for _ in 0..1 << LOG_LIFETIME {
-            wots_secret_keys.push(WotsSecretKey::random(rng));
-        }
+        let wots_secret_keys: Vec<_> = (0..1 << LOG_LIFETIME)
+            .map(|_| WotsSecretKey::random(rng))
+            .collect();
+
         let leaves = wots_secret_keys
             .iter()
             .map(|w| w.public_key().hash())
@@ -48,19 +48,16 @@ impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
             "Index out of bounds for XMSS signature"
         );
         let wots_signature = self.wots_secret_keys[index].sign(message_hash, rng);
-        let mut merkle_proof = Vec::new();
-        let mut current_index = index;
-        for level in 0..LOG_LIFETIME {
-            let is_left = current_index % 2 == 0;
-            let neighbour_index = if is_left {
-                current_index + 1
-            } else {
-                current_index - 1
-            };
-            let neighbour = self.merkle_tree[level][neighbour_index];
-            merkle_proof.push((is_left, neighbour));
-            current_index /= 2;
-        }
+        let merkle_proof = (0..LOG_LIFETIME)
+            .scan(index, |current_idx, level| {
+                let is_left = *current_idx % 2 == 0;
+                let neighbour_index = *current_idx ^ 1;
+                let neighbour = self.merkle_tree[level][neighbour_index];
+                // Move up to the next level.
+                *current_idx /= 2;
+                Some((is_left, neighbour))
+            })
+            .collect();
         XmssSignature {
             wots_signature,
             merkle_proof,

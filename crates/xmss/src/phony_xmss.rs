@@ -24,7 +24,7 @@ impl<const LOG_LIFETIME: usize> PhonyXmssSecretKey<LOG_LIFETIME> {
         let mut hash = wots_secret_key.public_key().hash();
         for i in 0..LOG_LIFETIME {
             let phony_neighbour: Digest = rng.random();
-            let is_left = (signature_index >> i) % 2 == 0;
+            let is_left = (signature_index >> i).is_multiple_of(2);
             if is_left {
                 hash = poseidon16_compress(&hash, &phony_neighbour);
             } else {
@@ -49,7 +49,7 @@ impl<const LOG_LIFETIME: usize> PhonyXmssSecretKey<LOG_LIFETIME> {
                 .iter()
                 .enumerate()
                 .map(|(i, h)| {
-                    let is_left = (self.signature_index >> i) % 2 == 0;
+                    let is_left = (self.signature_index >> i).is_multiple_of(2);
                     (is_left, *h)
                 })
                 .collect(),
