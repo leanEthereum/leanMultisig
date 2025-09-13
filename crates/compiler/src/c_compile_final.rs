@@ -152,8 +152,6 @@ fn compile_block(
                 mut arg_c,
                 res,
             } => {
-                let operation: Operation = operation.try_into().unwrap();
-
                 if let Some(arg_a_cst) = try_as_constant(&arg_a, compiler) {
                     if let Some(arg_b_cst) = try_as_constant(&arg_c, compiler) {
                         // res = constant +/x constant

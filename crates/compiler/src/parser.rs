@@ -16,13 +16,13 @@ pub struct LangParser;
 
 #[derive(Debug)]
 pub enum ParseError {
-    PestError(pest::error::Error<Rule>),
+    PestError(Box<pest::error::Error<Rule>>),
     SemanticError(String),
 }
 
 impl From<pest::error::Error<Rule>> for ParseError {
     fn from(error: pest::error::Error<Rule>) -> Self {
-        Self::PestError(error)
+        Self::PestError(Box::new(error))
     }
 }
 

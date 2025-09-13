@@ -263,18 +263,11 @@ fn execute_bytecode_helper(
                     res_offset,
                     to_decompose,
                 } => {
-                    let values_to_decompose = to_decompose
-                        .iter()
-                        .map(|v| Ok(v.read_value(&memory, fp)?.to_usize()))
-                        .collect::<Result<Vec<_>, _>>()?;
                     let mut memory_index = fp + *res_offset;
-                    for &value in &values_to_decompose {
+                    for value_source in to_decompose {
+                        let value = value_source.read_value(&memory, fp)?.to_usize();
                         for i in 0..F::bits() {
-                            let bit = if value & (1 << i) != 0 {
-                                F::ONE
-                            } else {
-                                F::ZERO
-                            };
+                            let bit = F::from_bool(value & (1 << i) != 0);
                             memory.set(memory_index, bit)?;
                             memory_index += 1;
                         }
@@ -491,12 +484,9 @@ fn execute_bytecode_helper(
                 let ptr_coeffs = coeffs.read_value(&memory, fp)?.to_usize();
                 let ptr_point = point.read_value(&memory, fp)?.to_usize();
                 let ptr_res = res.read_value(&memory, fp)?.to_usize();
-                let slice_coeffs = (ptr_coeffs << *n_vars..(1 + ptr_coeffs) << *n_vars)
-                    .map(|i| memory.get(i))
-                    .collect::<Result<Vec<F>, _>>()?;
-                let point = (0..*n_vars)
-                    .map(|i| memory.get_ef_element(ptr_point + i * DIMENSION))
-                    .collect::<Result<Vec<EF>, _>>()?;
+                let n_coeffs = 1 << *n_vars;
+                let slice_coeffs = memory.slice(ptr_coeffs << *n_vars, n_coeffs)?;
+                let point = memory.get_continuous_slice_of_ef_elements(ptr_point, *n_vars)?;
 
                 let eval = slice_coeffs.evaluate(&MultilinearPoint(point));
                 memory.set_ef_element(ptr_res, eval)?;

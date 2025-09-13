@@ -222,52 +222,32 @@ impl<F: Field, const D: usize> TensorAlgebra<F, D> {
     fn phi_0_times_phi_1<EF: ExtensionField<F>>(p0: &EF, p1: &EF) -> Self {
         let p0_split = p0.as_basis_coefficients_slice();
         let p1_split = p1.as_basis_coefficients_slice();
-        let mut data = [[F::ZERO; D]; D];
-        for i in 0..D {
-            for j in 0..D {
-                data[i][j] = p0_split[i] * p1_split[j];
-            }
-        }
-        Self(data)
+        Self(std::array::from_fn(|i| {
+            std::array::from_fn(|j| p0_split[i] * p1_split[j])
+        }))
     }
 
     fn rows<EF: ExtensionField<F>>(&self) -> [EF; D] {
-        let mut result = [EF::ZERO; D];
-        for i in 0..D {
-            result[i] = EF::from_basis_coefficients_slice(&self.0[i]).unwrap();
-        }
-        result
+        std::array::from_fn(|i| EF::from_basis_coefficients_slice(&self.0[i]).unwrap())
     }
 
     fn columns<EF: ExtensionField<F>>(&self) -> [EF; D] {
-        let mut result = [EF::ZERO; D];
-        for j in 0..D {
-            let mut col = [F::ZERO; D];
-            for i in 0..D {
-                col[i] = self.0[i][j];
-            }
-            result[j] = EF::from_basis_coefficients_slice(&col).unwrap();
-        }
-        result
+        std::array::from_fn(|j| {
+            let col: [F; D] = std::array::from_fn(|i| self.0[i][j]);
+            EF::from_basis_coefficients_slice(&col).unwrap()
+        })
     }
 
     fn from_rows<EF: ExtensionField<F>>(rows: &[EF; D]) -> Self {
-        let mut data = [[F::ZERO; D]; D];
-        for i in 0..D {
-            data[i] = rows[i].as_basis_coefficients_slice().try_into().unwrap();
-        }
-        Self(data)
+        Self(std::array::from_fn(|i| {
+            rows[i].as_basis_coefficients_slice().try_into().unwrap()
+        }))
     }
 
     fn from_columns<EF: ExtensionField<F>>(columns: &[EF; D]) -> Self {
-        let mut data = [[F::ZERO; D]; D];
-        for j in 0..D {
-            let col = columns[j].as_basis_coefficients_slice();
-            for i in 0..D {
-                data[i][j] = col[i];
-            }
-        }
-        Self(data)
+        Self(std::array::from_fn(|i| {
+            std::array::from_fn(|j| columns[j].as_basis_coefficients_slice()[i])
+        }))
     }
 
     const fn one() -> Self {
@@ -298,11 +278,7 @@ impl<F: Field, const D: usize> Sum for TensorAlgebra<F, D> {
     where
         I: Iterator<Item = Self>,
     {
-        let mut result = Self([[F::ZERO; D]; D]);
-        for item in iter {
-            result = result + item;
-        }
-        result
+        iter.fold(Self([[F::ZERO; D]; D]), |a, b| a + b)
     }
 }
 
@@ -310,13 +286,9 @@ impl<F: Field, const D: usize> Add for TensorAlgebra<F, D> {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
-        let mut result = [[F::ZERO; D]; D];
-        for i in 0..D {
-            for j in 0..D {
-                result[i][j] = self.0[i][j] + other.0[i][j];
-            }
-        }
-        Self(result)
+        Self(std::array::from_fn(|i| {
+            std::array::from_fn(|j| self.0[i][j] + other.0[i][j])
+        }))
     }
 }
 
@@ -341,13 +313,13 @@ pub fn piecewise_dot_product_at_field_level<F: Field, EF: ExtensionField<F>, con
 ) -> Vec<EF> {
     poly.par_iter()
         .map(|e| {
-            <EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(e)
+            e.as_basis_coefficients_slice()
                 .iter()
                 .zip(scalars)
                 .map(|(&a, &b)| b * a)
                 .sum::<EF>()
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 #[cfg(test)]

@@ -137,8 +137,8 @@ fn count_remaining_lines_in_function(
 ) -> usize {
     let mut count = 0;
 
-    for i in (current_idx + 1)..instructions.len() {
-        let line_num = instructions[i];
+    for &instruction in instructions.iter().skip(current_idx + 1) {
+        let line_num = instruction;
         let func_line = find_function_for_line(line_num, function_locations).0;
 
         if func_line != current_function_line {

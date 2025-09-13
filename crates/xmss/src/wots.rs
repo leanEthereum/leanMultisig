@@ -1,5 +1,5 @@
 use p3_util::log2_strict_usize;
-use rand::Rng;
+use rand::{Rng, RngCore};
 use utils::{ToUsize, to_little_endian_bits};
 
 use crate::*;
@@ -20,26 +20,16 @@ pub struct WotsSignature {
 }
 
 impl WotsSecretKey {
-    pub fn random(rng: &mut impl Rng) -> Self {
-        let mut pre_images = [Default::default(); V];
-        for i in 0..V {
-            let mut pre_image = Digest::default();
-            for j in 0..8 {
-                pre_image[j] = rng.random();
-            }
-            pre_images[i] = pre_image;
-        }
-        Self::new(pre_images)
+    pub fn random(rng: &mut impl RngCore) -> Self {
+        Self::new(rng.random())
     }
 
     pub fn new(pre_images: [Digest; V]) -> Self {
-        let mut public_key = [Default::default(); V];
-        for i in 0..V {
-            public_key[i] = iterate_hash(&pre_images[i], W - 1, i % 2 == 1);
-        }
         Self {
             pre_images,
-            public_key: WotsPublicKey(public_key),
+            public_key: WotsPublicKey(std::array::from_fn(|i| {
+                iterate_hash(&pre_images[i], W - 1, i % 2 == 1)
+            })),
         }
     }
 
@@ -49,12 +39,10 @@ impl WotsSecretKey {
 
     pub fn sign(&self, message_hash: &Digest, rng: &mut impl Rng) -> WotsSignature {
         let (randomness, encoding) = find_randomness_for_wots_encoding(message_hash, rng);
-        let mut chain_tips = [Default::default(); V];
-        for i in 0..V {
-            chain_tips[i] = iterate_hash(&self.pre_images[i], encoding[i] as usize, i % 2 == 1);
-        }
         WotsSignature {
-            chain_tips,
+            chain_tips: std::array::from_fn(|i| {
+                iterate_hash(&self.pre_images[i], encoding[i] as usize, i % 2 == 1)
+            }),
             randomness,
         }
     }
@@ -67,39 +55,35 @@ impl WotsSignature {
         signature: &Self,
     ) -> Option<WotsPublicKey> {
         let encoding = wots_encode(message_hash, &signature.randomness)?;
-        let mut public_key = [Default::default(); V];
-        for i in 0..V {
-            public_key[i] = iterate_hash(
-                &signature.chain_tips[i],
+        Some(WotsPublicKey(std::array::from_fn(|i| {
+            iterate_hash(
+                &self.chain_tips[i],
                 W - 1 - encoding[i] as usize,
                 i % 2 == 1,
-            );
-        }
-        Some(WotsPublicKey(public_key))
+            )
+        })))
     }
 }
 
 impl WotsPublicKey {
     pub fn hash(&self) -> Digest {
-        assert!(V % 2 == 0);
-        let mut digest = Default::default();
-        for (a, b) in self.0.chunks(2).map(|chunk| (chunk[0], chunk[1])) {
-            digest = poseidon24_compress(&a, &b, &digest);
-        }
-        digest
+        assert!(V.is_multiple_of(2), "V must be even for hashing pairs.");
+        self.0
+            .chunks_exact(2)
+            .fold(Digest::default(), |digest, chunk| {
+                poseidon24_compress(&chunk[0], &chunk[1], &digest)
+            })
     }
 }
 
 fn iterate_hash(a: &Digest, n: usize, keep_left: bool) -> Digest {
-    let mut res = *a;
-    for _ in 0..n {
-        res = if keep_left {
-            poseidon16_compress(&res, &Default::default())
+    (0..n).fold(*a, |acc, _| {
+        if keep_left {
+            poseidon16_compress(&acc, &Default::default())
         } else {
-            poseidon16_compress_right(&Default::default(), &res)
-        };
-    }
-    res
+            poseidon16_compress_right(&Default::default(), &acc)
+        }
+    })
 }
 
 pub fn find_randomness_for_wots_encoding(
@@ -116,20 +100,19 @@ pub fn find_randomness_for_wots_encoding(
 
 pub fn wots_encode(message: &Digest, randomness: &Digest) -> Option<[u8; V]> {
     let compressed = poseidon16_compress(message, randomness);
-    let encoding = compressed
+    let encoding: Vec<_> = compressed
         .iter()
         .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
         .collect::<Vec<_>>()
         .chunks_exact(log2_strict_usize(W))
         .take(V)
         .map(|chunk| {
-            let mut num = 0;
-            for (index, bit) in chunk.iter().enumerate() {
-                num += (*bit as u8) << index;
-            }
-            num
+            chunk
+                .iter()
+                .enumerate()
+                .fold(0u8, |acc, (i, &bit)| acc | (u8::from(bit) << i))
         })
-        .collect::<Vec<_>>();
+        .collect();
     is_valid_encoding(&encoding).then(|| encoding.try_into().unwrap())
 }
 
