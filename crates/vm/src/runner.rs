@@ -1,3 +1,4 @@
+use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
 use std::collections::BTreeMap;
@@ -489,7 +490,9 @@ fn execute_bytecode_helper(
                 let point = memory.get_continuous_slice_of_ef_elements(ptr_point, *n_vars)?;
 
                 let eval = slice_coeffs.evaluate(&MultilinearPoint(point));
-                memory.set_ef_element(ptr_res, eval)?;
+                let mut res_vec = eval.as_basis_coefficients_slice().to_vec();
+                res_vec.resize(VECTOR_LEN, F::ZERO);
+                memory.set_vector(ptr_res, res_vec.try_into().unwrap())?;
 
                 pc += 1;
             }

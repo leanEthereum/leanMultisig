@@ -46,7 +46,11 @@ impl fmt::Display for Poseidon2Benchmark {
                 / self.prover_time.as_secs_f64())
             .round() as usize
         )?;
-        writeln!(f, "Proof size: {:.1} KiB (not optimized)", self.proof_size / 1024.0)?;
+        writeln!(
+            f,
+            "Proof size: {:.1} KiB (not optimized)",
+            self.proof_size / 1024.0
+        )?;
         writeln!(f, "Verification: {} ms", self.verifier_time.as_millis())
     }
 }
@@ -159,15 +163,12 @@ pub fn prove_poseidon2(
     ];
     let log_smallest_decomposition_chunk = 0; // UNUSED because verything is power of 2
 
-    let commited_data = [commited_trace_polynomial_16.as_slice(), commited_trace_polynomial_24.as_slice()];
-    let commitment_witness = packed_pcs_commit(
-        &pcs,
-        &commited_data,
-        &dims,
-        &dft,
-        &mut prover_state,
-        0,
-    );
+    let commited_data = [
+        commited_trace_polynomial_16.as_slice(),
+        commited_trace_polynomial_24.as_slice(),
+    ];
+    let commitment_witness =
+        packed_pcs_commit(&pcs, &commited_data, &dims, &dft, &mut prover_state, 0);
 
     let evaluations_remaining_to_prove_16 =
         table_16.prove_base(&mut prover_state, univariate_skips, witness_16);
@@ -230,7 +231,7 @@ pub fn prove_poseidon2(
             evaluations_remaining_to_verify_24,
         ],
         &mut verifier_state,
-        &Default::default()
+        &Default::default(),
     )
     .unwrap();
     pcs.verify(

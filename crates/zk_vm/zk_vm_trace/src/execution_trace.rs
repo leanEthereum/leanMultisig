@@ -4,8 +4,8 @@ use crate::{
     COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC,
     N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS,
 };
-use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
+use p3_field::{BasedVectorSpace, Field};
 use p3_symmetric::Permutation;
 use rayon::prelude::*;
 use utils::{ToUsize, get_poseidon16, get_poseidon24};
@@ -207,7 +207,8 @@ pub fn get_execution_trace(
                     .map(|i| memory.get_ef_element(addr_point + i * DIMENSION))
                     .collect::<Result<Vec<EF>, _>>()
                     .unwrap();
-                let res = memory.get_ef_element(addr_res).unwrap();
+                let res = memory.get_vector(addr_res).unwrap();
+                assert!(res[DIMENSION..].iter().all(|&x| x.is_zero()));
                 vm_multilinear_evals.push(WitnessMultilinearEval {
                     cycle,
                     addr_coeffs,
@@ -215,7 +216,7 @@ pub fn get_execution_trace(
                     addr_res,
                     n_vars: *n_vars,
                     point,
-                    res,
+                    res: EF::from_basis_coefficients_slice(&res[..DIMENSION]).unwrap(),
                 });
             }
             _ => {}

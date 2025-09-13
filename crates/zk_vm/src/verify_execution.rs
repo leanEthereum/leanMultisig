@@ -72,7 +72,7 @@ pub fn verify_execution(
 
     let public_memory = build_public_memory(public_input);
     let public_memory_len = public_memory.len();
- 
+
     let log_public_memory = log2_strict_usize(public_memory_len);
     let log_memory = log2_ceil_usize(public_memory_len + private_memory_len);
     let log_n_p16 = log2_ceil_usize(n_poseidons_16);
@@ -118,12 +118,13 @@ pub fn verify_execution(
 
         // TODO only 1 statement for the evaluation point (instead of `n_vars` ones)
         // TODO we can group together most of the equality constraints (by chuncks alligned on powers of 2)
+
+        // point lookup into memory
         for (ef_addr, ef_value) in row_multilinear_eval
             .point
             .iter()
             .enumerate()
             .map(|(i, p)| (addr_point + i * DIMENSION, *p))
-            .chain(std::iter::once((addr_res, row_multilinear_eval.res)))
         {
             for (f_address, f_value) in
                 <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(&ef_value)
@@ -137,6 +138,27 @@ pub fn verify_execution(
                 });
             }
         }
+
+        // result lookup into memory
+        let random_challenge = verifier_state.sample_vec(LOG_VECTOR_LEN);
+        let res_random_value = {
+            let mut res_mle = row_multilinear_eval
+                .res
+                .as_basis_coefficients_slice()
+                .to_vec();
+            res_mle.resize(VECTOR_LEN, F::ZERO);
+            res_mle.evaluate(&MultilinearPoint(random_challenge.clone()))
+        };
+        memory_statements.push(Evaluation {
+            point: MultilinearPoint(
+                [
+                    to_big_endian_in_field(addr_res, log_memory - LOG_VECTOR_LEN),
+                    random_challenge.clone(),
+                ]
+                .concat(),
+            ),
+            value: res_random_value,
+        });
 
         {
             if n_vars > log_memory {

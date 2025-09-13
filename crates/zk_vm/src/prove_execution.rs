@@ -67,6 +67,7 @@ pub fn prove_execution(
     let private_memory = &memory[public_memory_size..];
     let log_memory = log2_ceil_usize(memory.len());
     let log_public_memory = log2_strict_usize(public_memory.len());
+    let padded_memory = padd_with_zero_to_next_power_of_two(&memory); // TODO avoid this padding
 
     let n_cycles = full_trace[0].len();
     let log_n_cycles = log2_strict_usize(n_cycles);
@@ -179,12 +180,13 @@ pub fn prove_execution(
 
         // TODO only 1 statement for the evaluation point (instead of `n_vars` ones)
         // TODO we can group together most of the equality constraints (by chuncks alligned on powers of 2)
+
+        // point lookup into memory
         for (ef_addr, ef_value) in multilinear_eval
             .point
             .iter()
             .enumerate()
             .map(|(i, p)| (addr_point + i * DIMENSION, *p))
-            .chain(std::iter::once((addr_res, multilinear_eval.res)))
         {
             for (f_address, f_value) in
                 <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(&ef_value)
@@ -201,6 +203,24 @@ pub fn prove_execution(
             }
         }
 
+        // result lookup into memory
+        let random_challenge = prover_state.sample_vec(LOG_VECTOR_LEN);
+        let res_random_value = {
+            let mut res_mle = multilinear_eval.res.as_basis_coefficients_slice().to_vec();
+            res_mle.resize(VECTOR_LEN, F::ZERO);
+            res_mle.evaluate(&MultilinearPoint(random_challenge.clone()))
+        };
+        memory_statements.push(Evaluation {
+            point: MultilinearPoint(
+                [
+                    to_big_endian_in_field(addr_res, log_memory - LOG_VECTOR_LEN),
+                    random_challenge.clone(),
+                ]
+                .concat(),
+            ),
+            value: res_random_value,
+        });
+
         {
             let n_vars = multilinear_eval.n_vars;
             assert!(n_vars <= log_memory);
@@ -214,9 +234,6 @@ pub fn prove_execution(
             memory_statements.push(statement);
         }
     }
-
-    let padded_memory = padd_with_zero_to_next_power_of_two(&memory); // TODO avoid this padding
-
     let p16_indexes = all_poseidon_16_indexes(&poseidons_16);
     let p24_indexes = all_poseidon_24_indexes(&poseidons_24);
 

@@ -72,6 +72,7 @@ fn test_zk_vm() {
         &private_input,
         &batch_pcs,
         false,
-    ).0;
+    )
+    .0;
     verify_execution(&bytecode, &public_input, proof_data, &batch_pcs).unwrap();
 }
