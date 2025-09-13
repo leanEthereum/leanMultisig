@@ -240,17 +240,16 @@ pub fn prove_execution(
     let dot_product_table_log_n_rows = log2_strict_usize(dot_product_columns[0].len());
     let base_dims = [
         vec![
-            ColDims::sparse(
-                log2_ceil_usize(padded_memory.len()),
+            ColDims::sparse_with_public_data(
                 Some(log_public_memory),
                 private_memory.len(),
                 F::ZERO,
             ), //  memory
-            ColDims::dense(log_n_cycles),
-            ColDims::dense(log_n_cycles),
-            ColDims::dense(log_n_cycles),
-            ColDims::dense(log_n_cycles),
-            ColDims::dense(log_n_cycles),
+            ColDims::sparse(n_cycles, F::from_usize(bytecode.ending_pc)), // pc
+            ColDims::sparse(n_cycles, F::ZERO),                                         // fp
+            ColDims::sparse(n_cycles, F::ZERO),                                         // mem_addr_a
+            ColDims::sparse(n_cycles, F::ZERO),                                         // mem_addr_b
+            ColDims::sparse(n_cycles, F::ZERO),                                         // mem_addr_c
             ColDims::dense(log2_ceil_usize(n_poseidons_16) + 2), // poseidon16 indexes
             ColDims::dense(log2_ceil_usize(n_poseidons_24) + 2), // poseidon24 indexes
             ColDims::dense(

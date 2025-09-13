@@ -76,14 +76,17 @@ impl<F: Field> ColDims<F> {
         }
     }
 
-    pub fn sparse(
-        n_vars: usize,
+    pub fn sparse(n_committed: usize, default_value: F) -> Self {
+        Self::sparse_with_public_data(None, n_committed, default_value)
+    }
+
+    pub fn sparse_with_public_data(
         log_public: Option<usize>,
         n_committed: usize,
         default_value: F,
     ) -> Self {
         let n_public = log_public.map_or(0, |l| 1 << l);
-        assert!(n_public + n_committed <= 1 << n_vars);
+        let n_vars = log2_ceil_usize(n_public + n_committed);
         Self {
             n_vars,
             log_public,

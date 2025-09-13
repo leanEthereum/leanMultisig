@@ -183,17 +183,12 @@ pub fn verify_execution(
 
     let base_dims = [
         vec![
-            ColDims::sparse(
-                log_memory,
-                Some(log_public_memory),
-                private_memory_len,
-                F::ZERO,
-            ), //  memory
-            ColDims::dense(log_n_cycles), // pc
-            ColDims::dense(log_n_cycles), // fp
-            ColDims::dense(log_n_cycles), // index A
-            ColDims::dense(log_n_cycles), // index B
-            ColDims::dense(log_n_cycles), // index C
+            ColDims::sparse_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
+            ColDims::sparse(n_cycles, F::from_usize(bytecode.ending_pc)), // pc
+            ColDims::sparse(n_cycles, F::ZERO),                           // fp
+            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_a
+            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_b
+            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_c
             ColDims::dense(vars_p16_indexes),
             ColDims::dense(vars_p24_indexes),
             ColDims::dense(vars_p16_table),
