@@ -1,6 +1,7 @@
 use p3_air::BaseAir;
 use p3_field::{ExtensionField, Field, PrimeCharacteristicRing};
 use p3_util::log2_ceil_usize;
+use pcs::ColDims;
 use rayon::prelude::*;
 use std::ops::Range;
 use sumcheck::{SumcheckComputation, SumcheckComputationPacked};
@@ -18,6 +19,53 @@ use whir_p3::{
 
 use crate::*;
 use vm::*;
+
+pub fn get_base_dims(
+    n_cycles: usize,
+    log_public_memory: usize,
+    private_memory_len: usize,
+    bytecode_ending_pc: usize,
+    n_poseidons_16: usize,
+    n_poseidons_24: usize,
+    p16_air_width: usize,
+    p24_air_width: usize,
+    table_dot_products_log_n_rows: usize,
+) -> Vec<ColDims<F>> {
+    let (default_p16_row, default_p24_row) = build_poseidon_columns(
+        &[WitnessPoseidon16::poseidon_of_zero()],
+        &[WitnessPoseidon24::poseidon_of_zero()],
+    );
+
+    [
+        vec![
+            ColDims::sparse_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
+            ColDims::sparse(n_cycles, F::from_usize(bytecode_ending_pc)), // pc
+            ColDims::sparse(n_cycles, F::ZERO),                           // fp
+            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_a
+            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_b
+            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_c
+            ColDims::sparse(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index a
+            ColDims::sparse(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index b
+            ColDims::sparse(n_poseidons_16, F::from_usize(POSEIDON_16_NULL_HASH_PTR)), // poseidon16 index res
+            ColDims::sparse(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index a
+            ColDims::sparse(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index b
+            ColDims::sparse(n_poseidons_24, F::from_usize(POSEIDON_24_NULL_HASH_PTR)), // poseidon24 index res
+        ],
+        (0..p16_air_width - 16 * 2)
+            .map(|i| ColDims::sparse(n_poseidons_16, default_p16_row[16 + i][0]))
+            .collect::<Vec<_>>(), // rest of poseidon16 table
+        (0..p24_air_width - 24 * 2)
+            .map(|i| ColDims::sparse(n_poseidons_24, default_p24_row[24 + i][0]))
+            .collect::<Vec<_>>(), // rest of poseidon24 table
+        vec![
+            ColDims::dense(table_dot_products_log_n_rows), // dot product: (start) flag
+            ColDims::dense(table_dot_products_log_n_rows), // dot product: length
+            ColDims::dense(table_dot_products_log_n_rows + 2), // dot product: indexes
+        ],
+        vec![ColDims::dense(table_dot_products_log_n_rows); DIMENSION], // dot product: computation
+    ]
+    .concat()
+}
 
 pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air<F>) -> Vec<Range<usize>> {
     [

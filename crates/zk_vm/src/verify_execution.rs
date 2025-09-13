@@ -175,35 +175,17 @@ pub fn verify_execution(
         }
     }
 
-    let base_dims = [
-        vec![
-            ColDims::sparse_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
-            ColDims::sparse(n_cycles, F::from_usize(bytecode.ending_pc)), // pc
-            ColDims::sparse(n_cycles, F::ZERO),                           // fp
-            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_a
-            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_b
-            ColDims::sparse(n_cycles, F::ZERO),                           // mem_addr_c
-            ColDims::dense(log2_ceil_usize(n_poseidons_16)),              // poseidon16 index a
-            ColDims::dense(log2_ceil_usize(n_poseidons_16)),              // poseidon16 index b
-            ColDims::dense(log2_ceil_usize(n_poseidons_16)),              // poseidon16 index res
-            ColDims::dense(log2_ceil_usize(n_poseidons_24)),              // poseidon24 index a
-            ColDims::dense(log2_ceil_usize(n_poseidons_24)),              // poseidon24 index b
-            ColDims::dense(log2_ceil_usize(n_poseidons_24)),              // poseidon24 index res
-        ],
-        (0..p16_air.width() - 16 * 2)
-            .map(|_| ColDims::dense(log2_ceil_usize(n_poseidons_16)))
-            .collect::<Vec<_>>(), // rest of poseidon16 table
-        (0..p24_air.width() - 24 * 2)
-            .map(|_| ColDims::dense(log2_ceil_usize(n_poseidons_24)))
-            .collect::<Vec<_>>(), // rest of poseidon24 table
-        vec![
-            ColDims::dense(table_dot_products_log_n_rows), // dot product: (start) flag
-            ColDims::dense(table_dot_products_log_n_rows), // dot product: length
-            ColDims::dense(table_dot_products_log_n_rows + 2), // dot product: indexes
-        ],
-        vec![ColDims::dense(table_dot_products_log_n_rows); DIMENSION], // dot product: computation
-    ]
-    .concat();
+    let base_dims = get_base_dims(
+        n_cycles,
+        log_public_memory,
+        private_memory_len,
+        bytecode.ending_pc,
+        n_poseidons_16,
+        n_poseidons_24,
+        p16_air.width(),
+        p24_air.width(),
+        table_dot_products_log_n_rows,
+    );
 
     let parsed_commitment_base = packed_pcs_parse_commitment(
         pcs.pcs_a(),

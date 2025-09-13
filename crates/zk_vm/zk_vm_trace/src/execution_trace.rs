@@ -45,6 +45,19 @@ pub struct WitnessPoseidon16 {
     pub output: [F; 16],
 }
 
+impl WitnessPoseidon16 {
+    pub fn poseidon_of_zero() -> Self {
+        Self {
+            cycle: None,
+            addr_input_a: ZERO_VEC_PTR,
+            addr_input_b: ZERO_VEC_PTR,
+            addr_output: POSEIDON_16_NULL_HASH_PTR,
+            input: [F::ZERO; 16],
+            output: get_poseidon16().permute([F::ZERO; 16]),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct WitnessPoseidon24 {
     pub cycle: Option<usize>,
@@ -53,6 +66,21 @@ pub struct WitnessPoseidon24 {
     pub addr_output: usize,  // vectorized pointer (of size 1)
     pub input: [F; 24],
     pub output: [F; 8], // last 8 elements of the output
+}
+
+impl WitnessPoseidon24 {
+    pub fn poseidon_of_zero() -> Self {
+        Self {
+            cycle: None,
+            addr_input_a: ZERO_VEC_PTR,
+            addr_input_b: ZERO_VEC_PTR,
+            addr_output: POSEIDON_24_NULL_HASH_PTR,
+            input: [F::ZERO; 24],
+            output: get_poseidon24().permute([F::ZERO; 24])[16..24]
+                .try_into()
+                .unwrap(),
+        }
+    }
 }
 
 #[derive(Debug)]
