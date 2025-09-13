@@ -1,6 +1,7 @@
 use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
+use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 use utils::get_poseidon16;
@@ -496,7 +497,16 @@ fn execute_bytecode_helper(
                 let ptr_res = res.read_value(&memory, fp)?.to_usize();
                 let n_coeffs = 1 << *n_vars;
                 let slice_coeffs = memory.slice(ptr_coeffs << *n_vars, n_coeffs)?;
-                let point = memory.get_continuous_slice_of_ef_elements(ptr_point, *n_vars)?;
+
+                let log_point_size = log2_ceil_usize(*n_vars * DIMENSION);
+                let point_slice = memory.slice(ptr_point << log_point_size, *n_vars * DIMENSION)?;
+                for i in *n_vars * DIMENSION..(*n_vars * DIMENSION).next_power_of_two() {
+                    memory.set((ptr_point << log_point_size) + i, F::ZERO)?; // padding
+                }
+                let point = point_slice[..*n_vars * DIMENSION]
+                    .chunks_exact(DIMENSION)
+                    .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
+                    .collect::<Vec<_>>();
 
                 let eval = slice_coeffs.evaluate(&MultilinearPoint(point));
                 let mut res_vec = eval.as_basis_coefficients_slice().to_vec();

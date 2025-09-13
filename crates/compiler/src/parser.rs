@@ -445,10 +445,23 @@ fn parse_primary(
         Rule::expression => parse_expression(inner, constants),
         Rule::var_or_constant => Ok(Expression::Value(parse_var_or_constant(inner, constants)?)),
         Rule::array_access_expr => parse_array_access(inner, constants),
+        Rule::log2_ceil_expr => parse_log2_ceil(inner, constants),
         _ => Err(ParseError::SemanticError(
             "Invalid primary expression".to_string(),
         )),
     }
+}
+
+// Add this new function to handle log2_ceil parsing
+fn parse_log2_ceil(
+    pair: Pair<'_, Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Expression, ParseError> {
+    let mut inner = pair.into_inner();
+    let expr = parse_expression(inner.next().unwrap(), constants)?;
+    Ok(Expression::Log2Ceil {
+        value: Box::new(expr),
+    })
 }
 
 fn parse_tuple_expression(
@@ -515,7 +528,6 @@ fn parse_function_call(
             })
         }
         "malloc_vec" => {
-            assert!(args.len() == 1, "Invalid malloc_vec call");
             let vectorized_len = if args.len() == 1 {
                 Expression::scalar(LOG_VECTOR_LEN)
             } else {

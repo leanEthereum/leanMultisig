@@ -7,6 +7,7 @@ use crate::{
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{BasedVectorSpace, Field};
 use p3_symmetric::Permutation;
+use p3_util::log2_ceil_usize;
 use rayon::prelude::*;
 use utils::{ToUsize, get_poseidon16, get_poseidon24};
 use vm::*;
@@ -203,10 +204,24 @@ pub fn get_execution_trace(
                 let addr_coeffs = coeffs.read_value(memory, fp).unwrap().to_usize();
                 let addr_point = point.read_value(memory, fp).unwrap().to_usize();
                 let addr_res = res.read_value(memory, fp).unwrap().to_usize();
-                let point = (0..*n_vars)
-                    .map(|i| memory.get_ef_element(addr_point + i * DIMENSION))
-                    .collect::<Result<Vec<EF>, _>>()
+
+                let log_point_size = log2_ceil_usize(*n_vars * DIMENSION);
+                let point_slice = memory
+                    .slice(addr_point << log_point_size, *n_vars * DIMENSION)
                     .unwrap();
+                for i in *n_vars * DIMENSION..(*n_vars * DIMENSION).next_power_of_two() {
+                    assert!(
+                        memory
+                            .get((addr_point << log_point_size) + i)
+                            .unwrap()
+                            .is_zero()
+                    ); // padding
+                }
+                let point = point_slice[..*n_vars * DIMENSION]
+                    .chunks_exact(DIMENSION)
+                    .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
+                    .collect::<Vec<_>>();
+
                 let res = memory.get_vector(addr_res).unwrap();
                 assert!(res[DIMENSION..].iter().all(|&x| x.is_zero()));
                 vm_multilinear_evals.push(WitnessMultilinearEval {

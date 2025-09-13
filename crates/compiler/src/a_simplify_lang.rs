@@ -284,6 +284,7 @@ fn simplify_lines(
                         arg1: right,
                     });
                 }
+                Expression::Log2Ceil { .. } => unreachable!(),
             },
             Line::ArrayAssign {
                 array,
@@ -590,12 +591,17 @@ fn simplify_lines(
                 var,
                 size,
                 vectorized,
-                vectorized_len
+                vectorized_len,
             } => {
                 let simplified_size =
                     simplify_expr(size, &mut res, counters, array_manager, const_malloc);
-                let simplified_vectorized_len =
-                    simplify_expr(vectorized_len, &mut res, counters, array_manager, const_malloc);
+                let simplified_vectorized_len = simplify_expr(
+                    vectorized_len,
+                    &mut res,
+                    counters,
+                    array_manager,
+                    const_malloc,
+                );
                 if simplified_size.is_constant()
                     && !*vectorized
                     && const_malloc.forbidden_vars.contains(var)
@@ -728,6 +734,14 @@ fn simplify_expr(
                 arg1: right_var,
             });
             SimpleExpr::Var(aux_var)
+        }
+        Expression::Log2Ceil { value } => {
+            let const_value = simplify_expr(value, lines, counters, array_manager, const_malloc)
+                .as_constant()
+                .unwrap();
+            SimpleExpr::Constant(ConstExpression::Log2Ceil {
+                value: Box::new(const_value),
+            })
         }
     }
 }
@@ -889,6 +903,9 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
             inline_expr(left, args, inlining_count);
             inline_expr(right, args, inlining_count);
         }
+        Expression::Log2Ceil { value } => {
+            inline_expr(value, args, inlining_count);
+        }
     }
 }
 
@@ -1040,6 +1057,9 @@ fn vars_in_expression(expr: &Expression) -> BTreeSet<Var> {
         Expression::Binary { left, right, .. } => {
             vars.extend(vars_in_expression(left));
             vars.extend(vars_in_expression(right));
+        }
+        Expression::Log2Ceil { value } => {
+            vars.extend(vars_in_expression(value));
         }
     }
     vars
@@ -1220,6 +1240,15 @@ fn replace_vars_for_unroll_in_expr(
             );
             replace_vars_for_unroll_in_expr(
                 right,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
+            );
+        }
+        Expression::Log2Ceil { value } => {
+            replace_vars_for_unroll_in_expr(
+                value,
                 iterator,
                 unroll_index,
                 iterator_value,
@@ -1439,7 +1468,7 @@ fn replace_vars_for_unroll(
                 var,
                 size,
                 vectorized: _,
-                vectorized_len
+                vectorized_len,
             } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
@@ -1745,6 +1774,9 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
         Expression::Binary { left, right, .. } => {
             replace_vars_by_const_in_expr(left, map);
             replace_vars_by_const_in_expr(right, map);
+        }
+        Expression::Log2Ceil { value } => {
+            replace_vars_by_const_in_expr(value, map);
         }
     }
 }

@@ -116,28 +116,30 @@ pub fn verify_execution(
         let addr_res = row_multilinear_eval.addr_res.to_usize();
         let n_vars = row_multilinear_eval.n_vars.to_usize();
 
-        // TODO only 1 statement for the evaluation point (instead of `n_vars` ones)
-        // TODO we can group together most of the equality constraints (by chuncks alligned on powers of 2)
-
         // point lookup into memory
-        for (ef_addr, ef_value) in row_multilinear_eval
-            .point
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (addr_point + i * DIMENSION, *p))
-        {
-            for (f_address, f_value) in
-                <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(&ef_value)
-                    .iter()
-                    .enumerate()
-                    .map(|(a, v)| (ef_addr + a, *v))
-            {
-                memory_statements.push(Evaluation {
-                    point: MultilinearPoint(to_big_endian_in_field(f_address, log_memory)),
-                    value: EF::from(f_value), // TODO avoid embedding
-                });
-            }
-        }
+        let log_point_len = log2_ceil_usize(row_multilinear_eval.point.len() * DIMENSION);
+        let point_random_challenge = verifier_state.sample_vec(log_point_len);
+        let point_random_value = {
+            let mut point_mle = row_multilinear_eval
+                .point
+                .iter()
+                .flat_map(|v| {
+                    <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(v).to_vec()
+                })
+                .collect::<Vec<_>>();
+            point_mle.resize(point_mle.len().next_power_of_two(), F::ZERO);
+            point_mle.evaluate(&MultilinearPoint(point_random_challenge.clone()))
+        };
+        memory_statements.push(Evaluation {
+            point: MultilinearPoint(
+                [
+                    to_big_endian_in_field(addr_point, log_memory - log_point_len),
+                    point_random_challenge.clone(),
+                ]
+                .concat(),
+            ),
+            value: point_random_value,
+        });
 
         // result lookup into memory
         let random_challenge = verifier_state.sample_vec(LOG_VECTOR_LEN);

@@ -178,43 +178,43 @@ pub fn prove_execution(
         let addr_coeffs = multilinear_eval.addr_coeffs;
         let addr_res = multilinear_eval.addr_res;
 
-        // TODO only 1 statement for the evaluation point (instead of `n_vars` ones)
-        // TODO we can group together most of the equality constraints (by chuncks alligned on powers of 2)
-
         // point lookup into memory
-        for (ef_addr, ef_value) in multilinear_eval
-            .point
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (addr_point + i * DIMENSION, *p))
-        {
-            for (f_address, f_value) in
-                <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(&ef_value)
-                    .iter()
-                    .enumerate()
-                    .map(|(a, v)| (ef_addr + a, *v))
-            {
-                assert!(public_memory_size.is_power_of_two());
-                let statement = Evaluation {
-                    point: MultilinearPoint(to_big_endian_in_field(f_address, log_memory)),
-                    value: EF::from(f_value), // TODO avoid embedding
-                };
-                memory_statements.push(statement);
-            }
-        }
+        let log_point_len = log2_ceil_usize(multilinear_eval.point.len() * DIMENSION);
+        let point_random_challenge = prover_state.sample_vec(log_point_len);
+        let point_random_value = {
+            let mut point_mle = multilinear_eval
+                .point
+                .iter()
+                .flat_map(|v| {
+                    <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(v).to_vec()
+                })
+                .collect::<Vec<_>>();
+            point_mle.resize(point_mle.len().next_power_of_two(), F::ZERO);
+            point_mle.evaluate(&MultilinearPoint(point_random_challenge.clone()))
+        };
+        memory_statements.push(Evaluation {
+            point: MultilinearPoint(
+                [
+                    to_big_endian_in_field(addr_point, log_memory - log_point_len),
+                    point_random_challenge.clone(),
+                ]
+                .concat(),
+            ),
+            value: point_random_value,
+        });
 
         // result lookup into memory
-        let random_challenge = prover_state.sample_vec(LOG_VECTOR_LEN);
+        let res_random_challenge = prover_state.sample_vec(LOG_VECTOR_LEN);
         let res_random_value = {
             let mut res_mle = multilinear_eval.res.as_basis_coefficients_slice().to_vec();
             res_mle.resize(VECTOR_LEN, F::ZERO);
-            res_mle.evaluate(&MultilinearPoint(random_challenge.clone()))
+            res_mle.evaluate(&MultilinearPoint(res_random_challenge.clone()))
         };
         memory_statements.push(Evaluation {
             point: MultilinearPoint(
                 [
                     to_big_endian_in_field(addr_res, log_memory - LOG_VECTOR_LEN),
-                    random_challenge.clone(),
+                    res_random_challenge.clone(),
                 ]
                 .concat(),
             ),
