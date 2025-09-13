@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
     Evaluation, FSProver, FSVerifier, PF, from_end, multilinear_eval_constants_at_right,
-    to_big_endian_in_field,
+    to_big_endian_bits, to_big_endian_in_field,
 };
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::{
@@ -270,8 +270,8 @@ pub fn packed_pcs_global_statements_for_prover<
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
 ) -> Vec<Evaluation<EF>> {
     // TODO:
-    // 2) cache the "eq" poly, and then use dot product
-    // 4) current packing is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
+    // - cache the "eq" poly, and then use dot product
+    // - current packing is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
 
     let (chunks_decomposition, packed_vars) =
         compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
@@ -307,38 +307,72 @@ pub fn packed_pcs_global_statements_for_prover<
                     value: statement.value,
                 });
             } else {
-                // skip the first one, we will deduce it (if it's not public)
+                let initial_booleans = statement
+                    .point
+                    .iter()
+                    .take_while(|&&x| x == EF::ZERO || x == EF::ONE)
+                    .map(|&x| x == EF::ONE)
+                    .collect::<Vec<_>>();
+                let mut all_chunk_evals = Vec::new();
 
+                // skip the first one, we will deduce it (if it's not public)
                 // TODO do we really need to parallelize this?
                 chunks[1..]
                     .par_iter()
                     .map(|chunk| {
                         let missing_vars = statement.point.0.len() - chunk.n_vars;
+
+                        let offset_in_original_booleans = to_big_endian_bits(
+                            chunk.offset_in_original >> chunk.n_vars,
+                            missing_vars,
+                        );
+
+                        if !initial_booleans.is_empty()
+                            && initial_booleans.len() < offset_in_original_booleans.len()
+                            && &initial_booleans
+                                == &offset_in_original_booleans[..initial_booleans.len()]
+                        {
+                            tracing::warn!("TODO: sparse statement accroos mutiple chunks");
+                        }
+
+                        if initial_booleans.len() >= offset_in_original_booleans.len() {
+                            if &initial_booleans[..missing_vars] != &offset_in_original_booleans {
+                                // this chunk is not concerned by this sparse evaluation
+                                return (None, EF::ZERO);
+                            } else {
+                                // the evaluation only depends on this chunk, no need to recompute and  = statement.value
+                                return (None, statement.value);
+                            }
+                        }
+
                         let sub_point =
                             MultilinearPoint(statement.point.0[missing_vars..].to_vec());
                         let sub_value = (&pol[chunk.offset_in_original
                             ..chunk.offset_in_original + (1 << chunk.n_vars)])
-                            .evaluate_sparse(&sub_point);
+                            .evaluate(&sub_point);
                         (
-                            Evaluation {
+                            Some(Evaluation {
                                 point: chunk.global_point_for_statement(&sub_point, packed_vars),
                                 value: sub_value,
-                            },
+                            }),
                             sub_value,
                         )
                     })
                     .collect::<Vec<_>>()
                     .into_iter()
-                    .for_each(|(eval, sub_value)| {
-                        sub_packed_statements.push(eval);
-                        evals_to_send.push(sub_value);
+                    .for_each(|(statement, sub_value)| {
+                        if let Some(statement) = statement {
+                            evals_to_send.push(statement.value);
+                            sub_packed_statements.push(statement);
+                        }
+                        all_chunk_evals.push(sub_value);
                     });
 
                 // deduce the first sub_value, if it's not public
                 if dim.log_public.is_none() {
                     let retrieved_eval = compute_multilinear_value_from_chunks(
                         &chunks[1..],
-                        &evals_to_send,
+                        &all_chunk_evals,
                         &statement.point,
                         1 << chunks[0].n_vars,
                         dim.default_value,
@@ -416,27 +450,44 @@ pub fn packed_pcs_global_statements_for_verifier<
                     value: statement.value,
                 });
             } else {
+                let initial_booleans = statement
+                    .point
+                    .iter()
+                    .take_while(|&&x| x == EF::ZERO || x == EF::ONE)
+                    .map(|&x| x == EF::ONE)
+                    .collect::<Vec<_>>();
                 let mut sub_values = vec![];
-                let n_received_values = if has_public_data {
+                if has_public_data {
                     sub_values.push(public_data[&poly_index].evaluate(&MultilinearPoint(
                         from_end(&statement.point, chunks[0].n_vars).to_vec(),
                     )));
-                    chunks.len() - 1
-                } else {
-                    chunks.len()
-                };
-                sub_values.extend(verifier_state.next_extension_scalars_vec(n_received_values)?); // TODO we could send less data (1 EF less)
-
-                for (chunk, &sub_value) in chunks.iter().zip(&sub_values) {
+                }
+                for chunk in chunks {
                     if chunk.public_data {
                         continue;
                     }
                     let missing_vars = statement.point.0.len() - chunk.n_vars;
-                    let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
-                    packed_statements.push(Evaluation {
-                        point: chunk.global_point_for_statement(&sub_point, packed_n_vars),
-                        value: sub_value,
-                    });
+                    let offset_in_original_booleans =
+                        to_big_endian_bits(chunk.offset_in_original >> chunk.n_vars, missing_vars);
+
+                    if initial_booleans.len() >= offset_in_original_booleans.len() {
+                        if &initial_booleans[..missing_vars] != &offset_in_original_booleans {
+                            // this chunk is not concerned by this sparse evaluation
+                            sub_values.push(EF::ZERO);
+                        } else {
+                            // the evaluation only depends on this chunk, no need to recompute and  = statement.value
+                            sub_values.push(statement.value);
+                        }
+                    } else {
+                        let sub_value = verifier_state.next_extension_scalar()?;
+                        sub_values.push(sub_value);
+                        let sub_point =
+                            MultilinearPoint(statement.point.0[missing_vars..].to_vec());
+                        packed_statements.push(Evaluation {
+                            point: chunk.global_point_for_statement(&sub_point, packed_n_vars),
+                            value: sub_value,
+                        });
+                    }
                 }
                 // consistency check
                 if statement.value
