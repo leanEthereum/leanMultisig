@@ -127,6 +127,7 @@ pub enum SimpleLine {
         var: Var,
         size: SimpleExpr,
         vectorized: bool,
+        vectorized_len: SimpleExpr,
     },
     ConstMalloc {
         // always not vectorized
@@ -589,9 +590,12 @@ fn simplify_lines(
                 var,
                 size,
                 vectorized,
+                vectorized_len
             } => {
                 let simplified_size =
                     simplify_expr(size, &mut res, counters, array_manager, const_malloc);
+                let simplified_vectorized_len =
+                    simplify_expr(vectorized_len, &mut res, counters, array_manager, const_malloc);
                 if simplified_size.is_constant()
                     && !*vectorized
                     && const_malloc.forbidden_vars.contains(var)
@@ -619,6 +623,7 @@ fn simplify_lines(
                             var: var.clone(),
                             size: simplified_size,
                             vectorized: *vectorized,
+                            vectorized_len: simplified_vectorized_len,
                         });
                     }
                 }
@@ -1434,6 +1439,7 @@ fn replace_vars_for_unroll(
                 var,
                 size,
                 vectorized: _,
+                vectorized_len
             } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
@@ -1444,7 +1450,13 @@ fn replace_vars_for_unroll(
                     iterator_value,
                     internal_vars,
                 );
-                // vectorized is not changed
+                replace_vars_for_unroll_in_expr(
+                    vectorized_len,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
             }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
@@ -2029,13 +2041,13 @@ impl SimpleLine {
                 var,
                 size,
                 vectorized,
+                vectorized_len,
             } => {
-                let alloc_type = if *vectorized {
-                    "malloc_vectorized"
+                if *vectorized {
+                    format!("{var} = malloc_vec({size}, {vectorized_len})")
                 } else {
-                    "malloc"
-                };
-                format!("{var} = {alloc_type}({size})")
+                    format!("{var} = malloc({size})")
+                }
             }
             Self::ConstMalloc {
                 var,

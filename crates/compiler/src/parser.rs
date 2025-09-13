@@ -8,6 +8,7 @@ use pest_derive::Parser;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 use vm::F;
+use vm::LOG_VECTOR_LEN;
 use vm::LocationInSourceCode;
 
 #[derive(Parser)]
@@ -510,17 +511,22 @@ fn parse_function_call(
                 var: return_data[0].clone(),
                 size: args[0].clone(),
                 vectorized: false,
+                vectorized_len: Expression::zero(),
             })
         }
         "malloc_vec" => {
-            assert!(
-                args.len() == 1 && return_data.len() == 1,
-                "Invalid malloc_vec call"
-            );
+            assert!(args.len() == 1, "Invalid malloc_vec call");
+            let vectorized_len = if args.len() == 1 {
+                Expression::scalar(LOG_VECTOR_LEN)
+            } else {
+                assert_eq!(args.len(), 2, "Invalid malloc_vec call");
+                args[1].clone()
+            };
             Ok(Line::MAlloc {
                 var: return_data[0].clone(),
                 size: args[0].clone(),
                 vectorized: true,
+                vectorized_len,
             })
         }
         "print" => {

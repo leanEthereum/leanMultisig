@@ -351,6 +351,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
 
     folds = malloc(num_queries * DIM);
     if merkle_leaves_in_basefield == 1 {
+        folding_randomness_alligned = malloc_vec(1, DIM * FOLDING_FACTOR_0);
         for i in 0..num_queries {
             res = malloc_vec(1);
             multilinear_eval((answers[i] * 8) / 2**FOLDING_FACTOR_0, folding_randomness, res, FOLDING_FACTOR_0); // TODO batching: use a single call to multilinear eval

@@ -247,13 +247,22 @@ fn execute_bytecode_helper(
                     offset,
                     size,
                     vectorized,
+                    vectorized_len,
                 } => {
                     let size = size.read_value(&memory, fp)?.to_usize();
 
                     if *vectorized {
-                        // find the next multiple of VECTOR_LEN
-                        memory.set(fp + *offset, F::from_usize(ap_vec))?;
-                        ap_vec += size;
+                        assert!(*vectorized_len >= LOG_VECTOR_LEN, "TODO");
+
+                        // padding:
+                        while !(ap_vec * VECTOR_LEN).is_multiple_of(1 << *vectorized_len) {
+                            ap_vec += 1;
+                        }
+                        memory.set(
+                            fp + *offset,
+                            F::from_usize(ap_vec >> (*vectorized_len - LOG_VECTOR_LEN)),
+                        )?;
+                        ap_vec += size << (*vectorized_len - LOG_VECTOR_LEN);
                     } else {
                         memory.set(fp + *offset, F::from_usize(ap))?;
                         ap += size;

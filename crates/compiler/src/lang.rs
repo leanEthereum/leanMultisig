@@ -261,6 +261,14 @@ impl Expression {
             )),
         }
     }
+
+    pub fn scalar(scalar: usize) -> Self {
+        SimpleExpr::scalar(scalar).into()
+    }
+
+    pub fn zero() -> Self {
+        Self::scalar(0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -316,6 +324,7 @@ pub enum Line {
         var: Var,
         size: Expression,
         vectorized: bool,
+        vectorized_len: Expression
     },
     DecomposeBits {
         var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
@@ -488,9 +497,10 @@ impl Line {
                 var,
                 size,
                 vectorized,
+                vectorized_len,
             } => {
                 if *vectorized {
-                    format!("{var} = malloc_vectorized({size})")
+                    format!("{var} = malloc_vec({size}, {vectorized_len})")
                 } else {
                     format!("{var} = malloc({size})")
                 }

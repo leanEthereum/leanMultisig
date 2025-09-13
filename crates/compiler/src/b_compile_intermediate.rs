@@ -504,12 +504,14 @@ fn compile_lines(
                 var,
                 size,
                 vectorized,
+                vectorized_len
             } => {
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::RequestMemory {
                     offset: compiler.get_offset(&var.clone().into()),
                     size: IntermediateValue::from_simple_expr(size, compiler),
                     vectorized: *vectorized,
+                    vectorized_len: IntermediateValue::from_simple_expr(vectorized_len, compiler)
                 });
             }
             SimpleLine::ConstMalloc { var, size, label } => {
@@ -631,6 +633,7 @@ fn setup_function_call(
             offset: new_fp_pos.into(),
             size: ConstExpression::function_size(func_name.to_string()).into(),
             vectorized: false,
+            vectorized_len: IntermediateValue::Constant(ConstExpression::zero())
         },
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
