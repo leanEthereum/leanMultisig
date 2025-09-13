@@ -210,6 +210,24 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     let (chunks_decomposition, packed_n_vars) =
         compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
 
+    {
+        // logging
+        let total_commited_data: usize = dims.iter().map(|d| d.n_committed).sum();
+        let packed_commited_data: usize = chunks_decomposition
+            .values()
+            .flatten()
+            .filter(|c| !c.public_data)
+            .map(|c| 1 << c.n_vars)
+            .sum();
+        tracing::info!(
+            "Total committed data (full granularity): {} = 2^{:.3} | packed to 2^{:.3} -> 2^{}",
+            total_commited_data,
+            (total_commited_data as f64).log2(),
+            (packed_commited_data as f64).log2(),
+            packed_n_vars
+        );
+    }
+
     let packed_polynomial = F::zero_vec(1 << packed_n_vars); // TODO avoid this huge cloning of all witness data
     chunks_decomposition
         .values()

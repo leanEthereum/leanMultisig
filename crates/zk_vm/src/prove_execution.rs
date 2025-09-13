@@ -40,7 +40,7 @@ pub fn prove_execution(
     private_input: &[F],
     pcs: &impl BatchPCS<PF<EF>, EF, EF>,
     vm_profiler: bool,
-) -> Vec<PF<EF>> {
+) -> (Vec<PF<EF>>, usize) {
     let ExecutionTrace {
         full_trace,
         n_poseidons_16,
@@ -1268,5 +1268,8 @@ pub fn prove_execution(
         &packed_pcs_witness_extension.packed_polynomial,
     );
 
-    prover_state.proof_data().to_vec()
+    (
+        prover_state.proof_data().to_vec(),
+        prover_state.proof_size(),
+    )
 }

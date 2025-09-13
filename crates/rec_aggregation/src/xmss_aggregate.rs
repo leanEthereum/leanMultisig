@@ -1,6 +1,7 @@
 use std::{env, time::Instant};
 
 use compiler::*;
+use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
@@ -278,7 +279,7 @@ fn test_xmss_aggregate() {
         let (bytecode, function_locations) = compile_program(&program_str);
         let batch_pcs = build_batch_pcs();
         let time = Instant::now();
-        let proof_data = prove_execution(
+        let (proof_data, proof_size) = prove_execution(
             &bytecode,
             &program_str,
             &function_locations,
@@ -294,7 +295,11 @@ fn test_xmss_aggregate() {
             n_public_keys / INV_BITFIELD_DENSITY,
             LOG_LIFETIME
         );
-        println!("Proving time: {proving_time:?}");
+        println!(
+            "proving time: {:?}, proof size: {} KiB (not optimized)",
+            proving_time,
+            proof_size * F::bits() / (8 * 1024)
+        );
     } else {
         compile_and_run(&program_str, &public_input, &private_input, false);
     }
