@@ -20,24 +20,31 @@ use crate::*;
 use vm::*;
 
 pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air<F>) -> Vec<Range<usize>> {
-    vec![
-        0..8,
-        8..16,
-        16..poseidon_16_air.width() - 16,
-        poseidon_16_air.width() - 16..poseidon_16_air.width() - 8,
-        poseidon_16_air.width() - 8..poseidon_16_air.width(),
+    [
+        vec![0..8, 8..16],
+        (16..poseidon_16_air.width() - 16)
+            .map(|i| i..i + 1)
+            .collect(),
+        vec![
+            poseidon_16_air.width() - 16..poseidon_16_air.width() - 8,
+            poseidon_16_air.width() - 8..poseidon_16_air.width(),
+        ],
     ]
+    .concat()
 }
 
 pub fn poseidon_24_column_groups(poseidon_24_air: &Poseidon24Air<F>) -> Vec<Range<usize>> {
-    vec![
-        0..8,
-        8..16,
-        16..24,
-        24..poseidon_24_air.width() - 24,
-        poseidon_24_air.width() - 24..poseidon_24_air.width() - 8, // TODO should we commit to this part ? Probably not, but careful here, we will not check evaluations for this part
-        poseidon_24_air.width() - 8..poseidon_24_air.width(),
+    [
+        vec![0..8, 8..16, 16..24],
+        (24..poseidon_24_air.width() - 24)
+            .map(|i| i..i + 1)
+            .collect(),
+        vec![
+            poseidon_24_air.width() - 24..poseidon_24_air.width() - 8, // TODO should we commit to this part ? Probably not, but careful here, we will not check evaluations for this part
+            poseidon_24_air.width() - 8..poseidon_24_air.width(),
+        ],
     ]
+    .concat()
 }
 
 pub fn poseidon_lookup_value<EF: Field>(
@@ -67,22 +74,28 @@ pub fn poseidon_lookup_value<EF: Field>(
     [
         poseidon16_evals[0].value * s16,
         poseidon16_evals[1].value * s16,
-        poseidon16_evals[3].value * s16,
-        poseidon16_evals[4].value * s16,
+        poseidon16_evals[poseidon16_evals.len() - 2].value * s16,
+        poseidon16_evals[poseidon16_evals.len() - 1].value * s16,
         poseidon24_evals[0].value * s24,
         poseidon24_evals[1].value * s24,
         poseidon24_evals[2].value * s24,
-        poseidon24_evals[5].value * s24,
+        poseidon24_evals[poseidon24_evals.len() - 1].value * s24,
     ]
     .evaluate(poseidon_lookup_batching_chalenges)
 }
 
-pub fn poseidon_lookup_index_statements(
+pub fn add_poseidon_lookup_index_statements(
     poseidon_index_evals: &[EF],
     n_poseidons_16: usize,
     n_poseidons_24: usize,
     poseidon_logup_star_statements_indexes_point: &MultilinearPoint<EF>,
-) -> Result<(Vec<Evaluation<EF>>, Vec<Evaluation<EF>>), ProofError> {
+    p16_indexes_a_statements: &mut Vec<Evaluation<EF>>,
+    p16_indexes_b_statements: &mut Vec<Evaluation<EF>>,
+    p16_indexes_res_statements: &mut Vec<Evaluation<EF>>,
+    p24_indexes_a_statements: &mut Vec<Evaluation<EF>>,
+    p24_indexes_b_statements: &mut Vec<Evaluation<EF>>,
+    p24_indexes_res_statements: &mut Vec<Evaluation<EF>>,
+) -> Result<(), ProofError> {
     let log_n_p16 = log2_ceil_usize(n_poseidons_16);
     let log_n_p24 = log2_ceil_usize(n_poseidons_24);
     let correcting_factor = from_end(
@@ -97,56 +110,42 @@ pub fn poseidon_lookup_index_statements(
     } else {
         (correcting_factor, EF::ONE)
     };
-    let mut idx_point_right_p16 = poseidon_logup_star_statements_indexes_point[3..].to_vec();
-    let mut idx_point_right_p24 = remove_end(
-        &poseidon_logup_star_statements_indexes_point[3..],
-        log_n_p16.abs_diff(log_n_p24),
-    )
-    .to_vec();
+    let mut idx_point_right_p16 =
+        MultilinearPoint(poseidon_logup_star_statements_indexes_point[3..].to_vec());
+    let mut idx_point_right_p24 = MultilinearPoint(
+        remove_end(
+            &poseidon_logup_star_statements_indexes_point[3..],
+            log_n_p16.abs_diff(log_n_p24),
+        )
+        .to_vec(),
+    );
     if n_poseidons_16 < n_poseidons_24 {
         std::mem::swap(&mut idx_point_right_p16, &mut idx_point_right_p24);
     }
-    let p16_indexes_statements = vec![
-        Evaluation {
-            point: MultilinearPoint(
-                [vec![EF::ZERO, EF::ZERO], idx_point_right_p16.clone()].concat(),
-            ),
-            value: poseidon_index_evals[0] / correcting_factor_p16,
-        },
-        Evaluation {
-            point: MultilinearPoint(
-                [vec![EF::ZERO, EF::ONE], idx_point_right_p16.clone()].concat(),
-            ),
-            value: poseidon_index_evals[1] / correcting_factor_p16,
-        },
-        Evaluation {
-            point: MultilinearPoint(
-                [vec![EF::ONE, EF::ZERO], idx_point_right_p16.clone()].concat(),
-            ),
-            value: poseidon_index_evals[2] / correcting_factor_p16,
-        },
-    ];
-
-    let p24_indexes_statements = vec![
-        Evaluation {
-            point: MultilinearPoint(
-                [vec![EF::ZERO, EF::ZERO], idx_point_right_p24.clone()].concat(),
-            ),
-            value: poseidon_index_evals[4] / correcting_factor_p24,
-        },
-        Evaluation {
-            point: MultilinearPoint(
-                [vec![EF::ZERO, EF::ONE], idx_point_right_p24.clone()].concat(),
-            ),
-            value: poseidon_index_evals[6] / correcting_factor_p24,
-        },
-        Evaluation {
-            point: MultilinearPoint(
-                [vec![EF::ONE, EF::ZERO], idx_point_right_p24.clone()].concat(),
-            ),
-            value: poseidon_index_evals[7] / correcting_factor_p24,
-        },
-    ];
+    p16_indexes_a_statements.push(Evaluation {
+        point: idx_point_right_p16.clone(),
+        value: poseidon_index_evals[0] / correcting_factor_p16,
+    });
+    p16_indexes_b_statements.push(Evaluation {
+        point: idx_point_right_p16.clone(),
+        value: poseidon_index_evals[1] / correcting_factor_p16,
+    });
+    p16_indexes_res_statements.push(Evaluation {
+        point: idx_point_right_p16.clone(),
+        value: poseidon_index_evals[2] / correcting_factor_p16,
+    });
+    p24_indexes_a_statements.push(Evaluation {
+        point: idx_point_right_p24.clone(),
+        value: poseidon_index_evals[4] / correcting_factor_p24,
+    });
+    p24_indexes_b_statements.push(Evaluation {
+        point: idx_point_right_p24.clone(),
+        value: poseidon_index_evals[6] / correcting_factor_p24,
+    });
+    p24_indexes_res_statements.push(Evaluation {
+        point: idx_point_right_p24.clone(),
+        value: poseidon_index_evals[7] / correcting_factor_p24,
+    });
 
     if poseidon_index_evals[3] != poseidon_index_evals[2] + correcting_factor_p16 {
         return Err(ProofError::InvalidProof);
@@ -154,7 +153,7 @@ pub fn poseidon_lookup_index_statements(
     if poseidon_index_evals[5] != poseidon_index_evals[4] + correcting_factor_p24 {
         return Err(ProofError::InvalidProof);
     }
-    Ok((p16_indexes_statements, p24_indexes_statements))
+    Ok(())
 }
 
 pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
