@@ -8,7 +8,6 @@ use p3_air::BaseAir;
 use p3_field::BasedVectorSpace;
 use p3_field::ExtensionField;
 use p3_field::PrimeCharacteristicRing;
-use p3_field::dot_product;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements_for_prover};
 use pcs::{ColDims, num_packed_vars_for_dims};
@@ -89,8 +88,7 @@ pub fn prove_execution(
     let exec_witness = AirWitness::<PF<EF>>::new(&exec_columns, &exec_column_groups());
     let exec_table = AirTable::<EF, _, _>::new(VMAir, VMAir);
 
-    // TODO remove
-    exec_table.check_trace_validity(&exec_witness).unwrap();
+    // exec_table.check_trace_validity(&exec_witness).unwrap();
 
     let _validity_proof_span = info_span!("Validity proof generation").entered();
 
@@ -109,10 +107,6 @@ pub fn prove_execution(
 
     let (dot_product_columns, dot_product_padding_len) = build_dot_product_columns(&dot_products);
     let dot_product_witness = AirWitness::new(&dot_product_columns, &DOT_PRODUCT_AIR_COLUMN_GROUPS);
-    // TODO remove
-    dot_product_table
-        .check_trace_validity(&dot_product_witness)
-        .unwrap();
 
     let dot_product_flags: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[0]).unwrap();
     let dot_product_lengths: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[1]).unwrap();
@@ -699,17 +693,6 @@ pub fn prove_execution(
 
         assert_eq!(all_poseidon_indexes.len(), all_poseidon_values.len(),);
 
-        // TODO remove these checks
-        {
-            for (index, value) in all_poseidon_indexes.iter().zip(&all_poseidon_values) {
-                assert_eq!(value, &poseidon_folded_memory[index.to_usize()]);
-            }
-            assert_eq!(
-                all_poseidon_values.evaluate(&poseidon_lookup_challenge.point),
-                poseidon_lookup_challenge.value
-            );
-        }
-
         let poseidon_poly_eq_point = eval_eq(&poseidon_lookup_challenge.point);
 
         let poseidon_pushforward = compute_pushforward(
@@ -824,12 +807,6 @@ pub fn prove_execution(
 
     let concatenated_dot_product_values_spread =
         padd_with_zero_to_next_power_of_two(&dot_product_values_spread.concat());
-
-    // TODO remove
-    assert_eq!(
-        concatenated_dot_product_values_spread.evaluate(&dot_product_values_batched_point),
-        dot_product_values_batched_eval
-    );
 
     let padded_dot_product_indexes_spread =
         padd_with_zero_to_next_power_of_two(&dot_product_indexes_spread.concat());
@@ -1137,44 +1114,6 @@ pub fn prove_execution(
         point: dot_product_logup_star_indexes_inner_point.clone(),
         value: dot_product_logup_star_indexes_inner_value_res,
     };
-
-    // TODO remove (sanity check)
-    {
-        let dot_product_logup_star_indexes_inner_value: EF = dot_product(
-            eval_eq(&mem_lookup_eval_indexes_partial_point.0[3 + index_diff..5 + index_diff])
-                .into_iter(),
-            [
-                dot_product_logup_star_indexes_inner_value_a,
-                dot_product_logup_star_indexes_inner_value_b,
-                dot_product_logup_star_indexes_inner_value_res,
-                EF::ZERO,
-            ]
-            .into_iter(),
-        );
-
-        assert_eq!(
-            padded_dot_product_indexes_spread.evaluate(&MultilinearPoint(
-                mem_lookup_eval_indexes_partial_point.0[index_diff..].to_vec()
-            )),
-            mem_lookup_eval_spread_indexes_dot_product
-        );
-
-        let mut dot_product_indexes_inner_evals_incr = vec![EF::ZERO; 8];
-        for i in 0..DIMENSION {
-            dot_product_indexes_inner_evals_incr[i] = dot_product_logup_star_indexes_inner_value
-                + EF::from_usize(i)
-                    * [F::ONE, F::ONE, F::ONE, F::ZERO].evaluate(&MultilinearPoint(
-                        mem_lookup_eval_indexes_partial_point.0[3 + index_diff..5 + index_diff]
-                            .to_vec(),
-                    ));
-        }
-        assert_eq!(
-            dot_product_indexes_inner_evals_incr.evaluate(&MultilinearPoint(
-                mem_lookup_eval_indexes_partial_point.0[index_diff..3 + index_diff].to_vec(),
-            )),
-            mem_lookup_eval_spread_indexes_dot_product
-        );
-    }
 
     // First Opening
     let global_statements_base = packed_pcs_global_statements_for_prover(
