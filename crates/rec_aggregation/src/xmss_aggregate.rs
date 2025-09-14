@@ -291,12 +291,12 @@ fn test_xmss_aggregate() {
         let proving_time = time.elapsed();
         verify_execution(&bytecode, &public_input, proof_data, &batch_pcs).unwrap();
         println!(
-            "XMSS aggregation (n_signatures = {}, lifetime = 2^{})",
+            "\nXMSS aggregation (n_signatures = {}, lifetime = 2^{})",
             n_public_keys / INV_BITFIELD_DENSITY,
             LOG_LIFETIME
         );
         println!(
-            "proving time: {:?}, proof size: {} KiB (not optimized)",
+            "Proving time: {:?}, proof size: {} KiB (not optimized)",
             proving_time,
             proof_size * F::bits() / (8 * 1024)
         );

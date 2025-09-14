@@ -226,7 +226,7 @@ pub fn test_whir_recursion() {
         false,
     );
     println!(
-        "WHIR recursion, proving time: {:?}, proof size: {} KiB (not optimized)",
+        "\nWHIR recursion, proving time: {:?}, proof size: {} KiB (not optimized)",
         time.elapsed(),
         proof_size * F::bits() / (8 * 1024)
     );

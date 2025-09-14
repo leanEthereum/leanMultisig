@@ -222,7 +222,8 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
             .filter(|c| !c.public_data)
             .map(|c| 1 << c.n_vars)
             .sum();
-        tracing::info!(
+
+        println!(
             "Total committed data (full granularity): {} = 2^{:.3} | packed to 2^{:.3} -> 2^{}",
             total_commited_data,
             (total_commited_data as f64).log2(),
@@ -302,7 +303,12 @@ pub fn packed_pcs_global_statements_for_prover<
             let mut evals_to_send = Vec::new();
             if chunks.len() == 1 {
                 assert!(!chunks[0].public_data, "TODO");
-                assert_eq!(chunks[0].n_vars, statement.point.0.len(), "poly: {}", poly_index);
+                assert_eq!(
+                    chunks[0].n_vars,
+                    statement.point.0.len(),
+                    "poly: {}",
+                    poly_index
+                );
                 assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
 
                 sub_packed_statements.push(Evaluation {

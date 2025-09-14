@@ -8,6 +8,7 @@ use p3_air::BaseAir;
 use p3_field::BasedVectorSpace;
 use p3_field::ExtensionField;
 use p3_field::PrimeCharacteristicRing;
+use p3_field::dot_product;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements_for_prover};
 use pcs::{ColDims, num_packed_vars_for_dims};
@@ -115,17 +116,7 @@ pub fn prove_execution(
 
     let dot_product_flags: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[0]).unwrap();
     let dot_product_lengths: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[1]).unwrap();
-    let dot_product_indexes: Vec<PF<EF>> = padd_with_zero_to_next_power_of_two(
-        &field_slice_as_base(
-            &[
-                dot_product_columns[2].clone(),
-                dot_product_columns[3].clone(),
-                dot_product_columns[4].clone(),
-            ]
-            .concat(),
-        )
-        .unwrap(),
-    );
+
     let dot_product_computations: &[EF] = &dot_product_columns[8];
     let mut dot_product_computations_base = (0..DIMENSION).map(|_| Vec::new()).collect::<Vec<_>>();
     for row in dot_product_computations {
@@ -137,6 +128,7 @@ pub fn prove_execution(
         }
     }
 
+    let n_rows_table_dot_products = dot_product_columns[0].len() - dot_product_padding_len;
     let log_n_rows_dot_product_table = log2_strict_usize(dot_product_columns[0].len());
 
     let mut prover_state = build_prover_state::<EF>();
@@ -146,8 +138,7 @@ pub fn prove_execution(
             n_poseidons_16,
             n_poseidons_24,
             dot_products.len(),
-            log_n_rows_dot_product_table,
-            dot_product_padding_len,
+            n_rows_table_dot_products,
             private_memory.len(),
             vm_multilinear_evals.len(),
         ]
@@ -241,8 +232,12 @@ pub fn prove_execution(
         n_poseidons_24,
         p16_air.width(),
         p24_air.width(),
-        log2_strict_usize(dot_product_columns[0].len()),
+        n_rows_table_dot_products,
     );
+
+    let dot_product_col_index_a = field_slice_as_base(&dot_product_columns[2]).unwrap();
+    let dot_product_col_index_b = field_slice_as_base(&dot_product_columns[3]).unwrap();
+    let dot_product_col_index_res = field_slice_as_base(&dot_product_columns[4]).unwrap();
 
     let base_pols = [
         vec![
@@ -270,7 +265,9 @@ pub fn prove_execution(
         vec![
             dot_product_flags.as_slice(),
             dot_product_lengths.as_slice(),
-            dot_product_indexes.as_slice(),
+            dot_product_col_index_a.as_slice(),
+            dot_product_col_index_b.as_slice(),
+            dot_product_col_index_res.as_slice(),
         ],
         dot_product_computations_base
             .iter()
@@ -537,25 +534,18 @@ pub fn prove_execution(
         point: grand_product_dot_product_sumcheck_point.clone(),
         value: grand_product_dot_product_sumcheck_inner_evals[1],
     };
-    let grand_product_dot_product_table_indexes_mixing_challenges =
-        MultilinearPoint(prover_state.sample_vec(2));
-    let grand_product_dot_product_table_indexes_statement = Evaluation {
-        point: MultilinearPoint(
-            [
-                grand_product_dot_product_table_indexes_mixing_challenges
-                    .0
-                    .clone(),
-                grand_product_dot_product_sumcheck_point.0,
-            ]
-            .concat(),
-        ),
-        value: [
-            grand_product_dot_product_sumcheck_inner_evals[2],
-            grand_product_dot_product_sumcheck_inner_evals[3],
-            grand_product_dot_product_sumcheck_inner_evals[4],
-            EF::ZERO,
-        ]
-        .evaluate(&grand_product_dot_product_table_indexes_mixing_challenges),
+
+    let grand_product_dot_product_table_indexes_statement_index_a = Evaluation {
+        point: grand_product_dot_product_sumcheck_point.clone(),
+        value: grand_product_dot_product_sumcheck_inner_evals[2],
+    };
+    let grand_product_dot_product_table_indexes_statement_index_b = Evaluation {
+        point: grand_product_dot_product_sumcheck_point.clone(),
+        value: grand_product_dot_product_sumcheck_inner_evals[3],
+    };
+    let grand_product_dot_product_table_indexes_statement_index_res = Evaluation {
+        point: grand_product_dot_product_sumcheck_point.clone(),
+        value: grand_product_dot_product_sumcheck_inner_evals[4],
     };
 
     let precompile_foot_print_computation = PrecompileFootprint {
@@ -812,11 +802,11 @@ pub fn prove_execution(
         .collect::<Vec<_>>();
     let dot_product_evals_spread = dot_product_values_spread
         .iter()
-        .map(|slice| slice.evaluate(&dot_product_evals_to_prove[3].point))
+        .map(|slice| slice.evaluate(&dot_product_evals_to_prove[5].point))
         .collect::<Vec<_>>();
     assert_eq!(
         dot_product_with_base(&dot_product_evals_spread),
-        dot_product_evals_to_prove[3].value
+        dot_product_evals_to_prove[5].value
     );
     prover_state.add_extension_scalars(&dot_product_evals_spread);
     let dot_product_values_batching_scalars = MultilinearPoint(prover_state.sample_vec(3));
@@ -824,7 +814,7 @@ pub fn prove_execution(
     let dot_product_values_batched_point = MultilinearPoint(
         [
             dot_product_values_batching_scalars.0.clone(),
-            dot_product_evals_to_prove[3].point.0.clone(),
+            dot_product_evals_to_prove[5].point.0.clone(),
         ]
         .concat(),
     );
@@ -1062,17 +1052,17 @@ pub fn prove_execution(
 
     let dot_product_computation_column_evals = dot_product_computations_base
         .par_iter()
-        .map(|slice| slice.evaluate(&dot_product_evals_to_prove[4].point))
+        .map(|slice| slice.evaluate(&dot_product_evals_to_prove[6].point))
         .collect::<Vec<_>>();
     assert_eq!(
         dot_product_with_base(&dot_product_computation_column_evals),
-        dot_product_evals_to_prove[4].value
+        dot_product_evals_to_prove[6].value
     );
     prover_state.add_extension_scalars(&dot_product_computation_column_evals);
     let dot_product_computation_column_statements = (0..DIMENSION)
         .map(|i| {
             vec![Evaluation {
-                point: dot_product_evals_to_prove[4].point.clone(),
+                point: dot_product_evals_to_prove[6].point.clone(),
                 value: dot_product_computation_column_evals[i],
             }]
         })
@@ -1120,45 +1110,71 @@ pub fn prove_execution(
         base_memory_logup_star_statements.on_indexes.value
     );
 
-    // proving validity of mem_lookup_eval_spread_indexes_dot_product
-    let dot_product_logup_star_indexes_inner_eval = {
-        let dot_product_logup_star_indexes_inner_point =
-            MultilinearPoint(mem_lookup_eval_indexes_partial_point.0[3 + index_diff..].to_vec());
-        let dot_product_logup_star_indexes_inner_value =
-            dot_product_indexes.evaluate(&dot_product_logup_star_indexes_inner_point);
-        prover_state.add_extension_scalar(dot_product_logup_star_indexes_inner_value);
-        let dot_product_logup_star_indexes_inner_eval = Evaluation {
-            point: dot_product_logup_star_indexes_inner_point,
-            value: dot_product_logup_star_indexes_inner_value,
-        };
+    let dot_product_logup_star_indexes_inner_point =
+        MultilinearPoint(mem_lookup_eval_indexes_partial_point.0[5 + index_diff..].to_vec());
+    let dot_product_logup_star_indexes_inner_value_a =
+        dot_product_columns[2].evaluate(&dot_product_logup_star_indexes_inner_point);
+    let dot_product_logup_star_indexes_inner_value_b =
+        dot_product_columns[3].evaluate(&dot_product_logup_star_indexes_inner_point);
+    let dot_product_logup_star_indexes_inner_value_res =
+        dot_product_columns[4].evaluate(&dot_product_logup_star_indexes_inner_point);
 
-        // TODO remove
-        {
-            assert_eq!(
-                padded_dot_product_indexes_spread.evaluate(&MultilinearPoint(
-                    mem_lookup_eval_indexes_partial_point.0[index_diff..].to_vec()
-                )),
-                mem_lookup_eval_spread_indexes_dot_product
-            );
+    prover_state.add_extension_scalars(&[
+        dot_product_logup_star_indexes_inner_value_a,
+        dot_product_logup_star_indexes_inner_value_b,
+        dot_product_logup_star_indexes_inner_value_res,
+    ]);
 
-            let mut dot_product_indexes_inner_evals_incr = vec![EF::ZERO; 8];
-            for i in 0..DIMENSION {
-                dot_product_indexes_inner_evals_incr[i] = dot_product_logup_star_indexes_inner_value
-                    + EF::from_usize(i)
-                        * [F::ONE, F::ONE, F::ONE, F::ZERO].evaluate(&MultilinearPoint(
-                            mem_lookup_eval_indexes_partial_point.0[3 + index_diff..5 + index_diff]
-                                .to_vec(),
-                        ));
-            }
-            assert_eq!(
-                dot_product_indexes_inner_evals_incr.evaluate(&MultilinearPoint(
-                    mem_lookup_eval_indexes_partial_point.0[index_diff..3 + index_diff].to_vec(),
-                )),
-                mem_lookup_eval_spread_indexes_dot_product
-            );
-        }
-        dot_product_logup_star_indexes_inner_eval
+    let dot_product_logup_star_indexes_statement_a = Evaluation {
+        point: dot_product_logup_star_indexes_inner_point.clone(),
+        value: dot_product_logup_star_indexes_inner_value_a,
     };
+    let dot_product_logup_star_indexes_statement_b = Evaluation {
+        point: dot_product_logup_star_indexes_inner_point.clone(),
+        value: dot_product_logup_star_indexes_inner_value_b,
+    };
+    let dot_product_logup_star_indexes_statement_res = Evaluation {
+        point: dot_product_logup_star_indexes_inner_point.clone(),
+        value: dot_product_logup_star_indexes_inner_value_res,
+    };
+
+    // TODO remove (sanity check)
+    {
+        let dot_product_logup_star_indexes_inner_value: EF = dot_product(
+            eval_eq(&mem_lookup_eval_indexes_partial_point.0[3 + index_diff..5 + index_diff])
+                .into_iter(),
+            [
+                dot_product_logup_star_indexes_inner_value_a,
+                dot_product_logup_star_indexes_inner_value_b,
+                dot_product_logup_star_indexes_inner_value_res,
+                EF::ZERO,
+            ]
+            .into_iter(),
+        );
+
+        assert_eq!(
+            padded_dot_product_indexes_spread.evaluate(&MultilinearPoint(
+                mem_lookup_eval_indexes_partial_point.0[index_diff..].to_vec()
+            )),
+            mem_lookup_eval_spread_indexes_dot_product
+        );
+
+        let mut dot_product_indexes_inner_evals_incr = vec![EF::ZERO; 8];
+        for i in 0..DIMENSION {
+            dot_product_indexes_inner_evals_incr[i] = dot_product_logup_star_indexes_inner_value
+                + EF::from_usize(i)
+                    * [F::ONE, F::ONE, F::ONE, F::ZERO].evaluate(&MultilinearPoint(
+                        mem_lookup_eval_indexes_partial_point.0[3 + index_diff..5 + index_diff]
+                            .to_vec(),
+                    ));
+        }
+        assert_eq!(
+            dot_product_indexes_inner_evals_incr.evaluate(&MultilinearPoint(
+                mem_lookup_eval_indexes_partial_point.0[index_diff..3 + index_diff].to_vec(),
+            )),
+            mem_lookup_eval_spread_indexes_dot_product
+        );
+    }
 
     // First Opening
     let global_statements_base = packed_pcs_global_statements_for_prover(
@@ -1224,10 +1240,20 @@ pub fn prove_execution(
                     grand_product_dot_product_len_statement,
                 ], // dot product: length
                 vec![
-                    dot_product_evals_to_prove[2].clone(),
-                    dot_product_logup_star_indexes_inner_eval,
-                    grand_product_dot_product_table_indexes_statement,
-                ], // dot product: indexes
+                    dot_product_evals_to_prove[2].clone(), // // dot product: indexe a
+                    dot_product_logup_star_indexes_statement_a,
+                    grand_product_dot_product_table_indexes_statement_index_a,
+                ],
+                vec![
+                    dot_product_evals_to_prove[3].clone(), // // dot product: indexe b
+                    dot_product_logup_star_indexes_statement_b,
+                    grand_product_dot_product_table_indexes_statement_index_b,
+                ],
+                vec![
+                    dot_product_evals_to_prove[4].clone(), // // dot product: indexe res
+                    dot_product_logup_star_indexes_statement_res,
+                    grand_product_dot_product_table_indexes_statement_index_res,
+                ],
             ],
             dot_product_computation_column_statements,
         ]

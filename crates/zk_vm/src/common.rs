@@ -29,7 +29,7 @@ pub fn get_base_dims(
     n_poseidons_24: usize,
     p16_air_width: usize,
     p24_air_width: usize,
-    table_dot_products_log_n_rows: usize,
+    n_rows_table_dot_products: usize,
 ) -> Vec<ColDims<F>> {
     let (default_p16_row, default_p24_row) = build_poseidon_columns(
         &[WitnessPoseidon16::poseidon_of_zero()],
@@ -58,11 +58,13 @@ pub fn get_base_dims(
             .map(|i| ColDims::sparse(n_poseidons_24, default_p24_row[24 + i][0]))
             .collect::<Vec<_>>(), // rest of poseidon24 table
         vec![
-            ColDims::dense(table_dot_products_log_n_rows), // dot product: (start) flag
-            ColDims::dense(table_dot_products_log_n_rows), // dot product: length
-            ColDims::dense(table_dot_products_log_n_rows + 2), // dot product: indexes
+            ColDims::sparse(n_rows_table_dot_products, F::ONE), // dot product: (start) flag
+            ColDims::sparse(n_rows_table_dot_products, F::ONE), // dot product: length
+            ColDims::sparse(n_rows_table_dot_products, F::ZERO), // dot product: index a
+            ColDims::sparse(n_rows_table_dot_products, F::ZERO), // dot product: index b
+            ColDims::sparse(n_rows_table_dot_products, F::ZERO), // dot product: index res
         ],
-        vec![ColDims::dense(table_dot_products_log_n_rows); DIMENSION], // dot product: computation
+        vec![ColDims::sparse(n_rows_table_dot_products, F::ZERO); DIMENSION], // dot product: computation
     ]
     .concat()
 }
