@@ -185,7 +185,7 @@ fn execute_bytecode_helper(
     profiler: bool,
     function_locations: &BTreeMap<usize, String>,
 ) -> Result<ExecutionResult, RunnerError> {
-    let poseidon_16 = get_poseidon16(); // TODO avoid rebuilding each time
+    let poseidon_16 = get_poseidon16();
     let poseidon_24 = get_poseidon24();
 
     // set public memory
