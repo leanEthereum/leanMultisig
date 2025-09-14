@@ -550,12 +550,15 @@ pub fn verify_execution(
     };
     let memory_poly_eq_point_alpha = verifier_state.sample();
 
-    let log_bytecode_len = log2_ceil_usize(bytecode.instructions.len());
     let extension_dims = vec![
-        ColDims::dense(log_memory),
-        ColDims::dense(log_memory - 3),
-        ColDims::dense(log_bytecode_len),
+        ColDims::sparse(public_memory.len() + private_memory_len, EF::ZERO), // memory
+        ColDims::sparse(
+            (public_memory.len() + private_memory_len).div_ceil(VECTOR_LEN),
+            EF::ZERO,
+        ), // memory (folded)
+        ColDims::sparse(bytecode.instructions.len(), EF::ZERO),
     ];
+
     let parsed_commitment_extension = packed_pcs_parse_commitment(
         &pcs.pcs_b(
             parsed_commitment_base.num_variables(),
@@ -611,7 +614,7 @@ pub fn verify_execution(
 
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
-        log_bytecode_len,
+        log2_ceil_usize(bytecode.instructions.len()),
         log_n_cycles,
         &[bytecode_lookup_claim_1, bytecode_lookup_claim_2],
         alpha_bytecode_lookup,
