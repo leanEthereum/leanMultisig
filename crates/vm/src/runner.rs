@@ -204,7 +204,7 @@ fn execute_bytecode_helper(
 
     let initial_ap = fp + bytecode.starting_frame_memory;
     let initial_ap_vec =
-        (initial_ap + no_vec_runtime_memory).next_multiple_of(DIMENSION) / DIMENSION;
+        (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
 
     let mut pc = 0;
     let mut ap = initial_ap;
