@@ -146,6 +146,10 @@ pub struct ExecutionResult {
     pub memory: Memory,
     pub pcs: Vec<usize>,
     pub fps: Vec<usize>,
+    pub vm_poseidon16_events: Vec<VmPoseidon16Event>,
+    pub vm_poseidon24_events: Vec<VmPoseidon24Event>,
+    pub vm_dot_product_events: Vec<VmDotProductEvent>,
+    pub vm_multilinear_eval_events: Vec<VmMultilinearEvalEvent>,
 }
 
 pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
@@ -220,6 +224,12 @@ fn execute_bytecode_helper(
 
     let mut pcs = Vec::new();
     let mut fps = Vec::new();
+
+    // Events collected only in final execution
+    let mut vm_poseidon16_events: Vec<VmPoseidon16Event> = Vec::new();
+    let mut vm_poseidon24_events: Vec<VmPoseidon24Event> = Vec::new();
+    let mut vm_dot_product_events: Vec<VmDotProductEvent> = Vec::new();
+    let mut vm_multilinear_eval_events: Vec<VmMultilinearEvalEvent> = Vec::new();
 
     let mut add_counts = 0;
     let mut mul_counts = 0;
@@ -419,6 +429,8 @@ fn execute_bytecode_helper(
                 input[..VECTOR_LEN].copy_from_slice(&arg0);
                 input[VECTOR_LEN..].copy_from_slice(&arg1);
 
+                // Keep a copy of the input before permutation for event recording
+                let input_before = input;
                 poseidon_16.permute_mut(&mut input);
 
                 let res0: [F; VECTOR_LEN] = input[..VECTOR_LEN].try_into().unwrap();
@@ -426,6 +438,26 @@ fn execute_bytecode_helper(
 
                 memory.set_vector(res_value.to_usize(), res0)?;
                 memory.set_vector(1 + res_value.to_usize(), res1)?;
+
+                if final_execution {
+                    let cycle = pcs.len() - 1;
+                    let addr_input_a = a_value.to_usize();
+                    let addr_input_b = b_value.to_usize();
+                    let addr_output = res_value.to_usize();
+                    // Build output by concatenating the two result vectors we wrote to memory
+                    let output: [F; 16] = [res0.as_slice(), res1.as_slice()]
+                        .concat()
+                        .try_into()
+                        .unwrap();
+                    vm_poseidon16_events.push(VmPoseidon16Event {
+                        cycle,
+                        addr_input_a,
+                        addr_input_b,
+                        addr_output,
+                        input: input_before,
+                        output,
+                    });
+                }
 
                 pc += 1;
             }
@@ -445,11 +477,28 @@ fn execute_bytecode_helper(
                 input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&arg1);
                 input[2 * VECTOR_LEN..].copy_from_slice(&arg2);
 
+                // Keep a copy of the input before permutation for event recording
+                let input_before = input;
                 poseidon_24.permute_mut(&mut input);
 
                 let res: [F; VECTOR_LEN] = input[2 * VECTOR_LEN..].try_into().unwrap();
 
                 memory.set_vector(res_value.to_usize(), res)?;
+
+                if final_execution {
+                    let cycle = pcs.len() - 1;
+                    let addr_input_a = a_value.to_usize();
+                    let addr_input_b = b_value.to_usize();
+                    let addr_output = res_value.to_usize();
+                    vm_poseidon24_events.push(VmPoseidon24Event {
+                        cycle,
+                        addr_input_a,
+                        addr_input_b,
+                        addr_output,
+                        input: input_before,
+                        output: res,
+                    });
+                }
 
                 pc += 1;
             }
@@ -468,8 +517,25 @@ fn execute_bytecode_helper(
                 let slice_0 = memory.get_continuous_slice_of_ef_elements(ptr_arg_0, *size)?;
                 let slice_1 = memory.get_continuous_slice_of_ef_elements(ptr_arg_1, *size)?;
 
-                let dot_product = dot_product::<EF, _, _>(slice_0.into_iter(), slice_1.into_iter());
+                let dot_product = dot_product::<EF, _, _>(
+                    slice_0.iter().copied(),
+                    slice_1.iter().copied(),
+                );
                 memory.set_ef_element(ptr_res, dot_product)?;
+
+                if final_execution {
+                    let cycle = pcs.len() - 1;
+                    vm_dot_product_events.push(VmDotProductEvent {
+                        cycle,
+                        addr_0: ptr_arg_0,
+                        addr_1: ptr_arg_1,
+                        addr_res: ptr_res,
+                        len: *size,
+                        slice_0: slice_0.clone(),
+                        slice_1: slice_1.clone(),
+                        res: dot_product,
+                    });
+                }
 
                 pc += 1;
             }
@@ -488,8 +554,21 @@ fn execute_bytecode_helper(
                 let slice_coeffs = memory.slice(ptr_coeffs << *n_vars, n_coeffs)?;
                 let point = memory.get_continuous_slice_of_ef_elements(ptr_point, *n_vars)?;
 
-                let eval = slice_coeffs.evaluate(&MultilinearPoint(point));
+                let eval = slice_coeffs.evaluate(&MultilinearPoint(point.clone()));
                 memory.set_ef_element(ptr_res, eval)?;
+
+                if final_execution {
+                    let cycle = pcs.len() - 1;
+                    vm_multilinear_eval_events.push(VmMultilinearEvalEvent {
+                        cycle,
+                        addr_coeffs: ptr_coeffs,
+                        addr_point: ptr_point,
+                        addr_res: ptr_res,
+                        n_vars: *n_vars,
+                        point,
+                        res: eval,
+                    });
+                }
 
                 pc += 1;
             }
@@ -501,6 +580,11 @@ fn execute_bytecode_helper(
     fps.push(fp);
 
     if final_execution {
+        // Ensure event counts match call counts in final execution
+        debug_assert_eq!(poseidon16_calls, vm_poseidon16_events.len());
+        debug_assert_eq!(poseidon24_calls, vm_poseidon24_events.len());
+        debug_assert_eq!(dot_product_ext_ext_calls, vm_dot_product_events.len());
+        debug_assert_eq!(multilinear_eval_calls, vm_multilinear_eval_events.len());
         if profiler {
             let report = profiling_report(instruction_history, function_locations);
             println!("\n{report}");
@@ -594,5 +678,9 @@ fn execute_bytecode_helper(
         memory,
         pcs,
         fps,
+        vm_poseidon16_events,
+        vm_poseidon24_events,
+        vm_dot_product_events,
+        vm_multilinear_eval_events,
     })
 }
