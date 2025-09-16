@@ -56,6 +56,15 @@ RUSTFLAGS='-C target-cpu=native' NUM_XMSS_AGGREGATED='500' cargo test --release 
 ![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated_time.svg)
 ![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated_overhead.svg)
 
+### Proof size
+
+With conjecture "up to capacity", current proofs with rate = 1/2 are about about ≈ 400 - 500 KiB, in which ≈ 300 KiB comes from WHIR.
+
+- The remaining 100 - 200 KiB will be significantly reduced in the future (this part has not been optimized at all).
+- WHIR proof size will also be reduced, thanks to merkle pruning (TODO).
+
+Reasonable target: 256 KiB for fast proof, 128 KiB for slower proofs (rate = 1/4 or 1/8).
+
 ## Credits
 
 - [Plonky3](https://github.com/Plonky3/Plonky3) for its various performant crates (Finite fields, poseidon2 AIR etc)

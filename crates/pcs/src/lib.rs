@@ -6,8 +6,6 @@ pub use pcs::*;
 mod ring_switch;
 pub use ring_switch::*;
 
-mod combinatorics;
-
 mod packed_pcs;
 pub use packed_pcs::*;
 

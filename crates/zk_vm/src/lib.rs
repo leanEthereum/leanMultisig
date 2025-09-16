@@ -16,6 +16,7 @@ pub mod prove_execution;
 pub mod verify_execution;
 
 const UNIVARIATE_SKIPS: usize = 3;
+const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 8; // TODO optimize
 
 fn exec_column_groups() -> Vec<Range<usize>> {
     [(0..N_EXEC_AIR_COLUMNS)

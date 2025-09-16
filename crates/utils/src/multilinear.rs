@@ -167,6 +167,39 @@ pub fn batch_fold_multilinear_in_small_field_packed<EF: ExtensionField<PF<EF>>>(
         .collect()
 }
 
+pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) -> F {
+    let n_vars = point.len();
+
+    // multilinear polynomial = [0 0 --- 0][1 1 --- 1] (`limit` times 0, then `2^n_vars - limit` times 1) evaluated at `point`
+
+    assert!(
+        limit <= (1 << n_vars),
+        "limit {} is too large for n_vars {}",
+        limit,
+        n_vars
+    );
+
+    if limit == 1 << n_vars {
+        return F::ZERO;
+    }
+
+    if point.len() == 0 {
+        assert!(limit <= 1);
+        if limit == 1 { F::ZERO } else { F::ONE }
+    } else {
+        let main_bit = limit >> (n_vars - 1);
+        if main_bit == 1 {
+            // limit is at the right half
+            return point[0]
+                * multilinear_eval_constants_at_right(limit - (1 << (n_vars - 1)), &point[1..]);
+        } else {
+            // limit is at left half
+            return point[0]
+                + (F::ONE - point[0]) * multilinear_eval_constants_at_right(limit, &point[1..]);
+        }
+    }
+}
+
 // pub fn packed_multilinear<F: Field>(pols: &[Vec<F>]) -> Vec<F> {
 //     let n_vars = pols[0].num_variables();
 //     assert!(pols.iter().all(|p| p.num_variables() == n_vars));
@@ -254,5 +287,20 @@ mod tests {
             evaluate_as_larger_multilinear_pol(&pol[..1 << n_vars], &point),
             pol.evaluate(&MultilinearPoint(point))
         );
+    }
+
+    #[test]
+    fn test_multilinear_eval_constants_at_right() {
+        let n_vars = 10;
+        let mut rng = StdRng::seed_from_u64(0);
+        let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<F>>();
+        for limit in [0, 1, 2, 45, 74, 451, 741, 1022, 1023] {
+            let eval = multilinear_eval_constants_at_right(limit, &point);
+            let mut pol = F::zero_vec(1 << n_vars);
+            for i in limit..(1 << n_vars) {
+                pol[i] = F::ONE;
+            }
+            assert_eq!(eval, pol.evaluate(&MultilinearPoint(point.clone())));
+        }
     }
 }
