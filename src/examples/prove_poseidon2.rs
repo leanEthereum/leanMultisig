@@ -5,7 +5,10 @@ use p3_field::PrimeField64;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_symmetric::Permutation;
 use p3_util::log2_ceil_usize;
-use pcs::{PCS, packed_pcs_commit, packed_pcs_global_statements, packed_pcs_parse_commitment};
+use pcs::{
+    ColDims, PCS, packed_pcs_commit, packed_pcs_global_statements_for_prover,
+    packed_pcs_global_statements_for_verifier, packed_pcs_parse_commitment,
+};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::fmt;
 use std::marker::PhantomData;
@@ -43,7 +46,11 @@ impl fmt::Display for Poseidon2Benchmark {
                 / self.prover_time.as_secs_f64())
             .round() as usize
         )?;
-        writeln!(f, "Proof size: {:.1} KiB", self.proof_size / 1024.0)?;
+        writeln!(
+            f,
+            "Proof size: {:.1} KiB (not optimized)",
+            self.proof_size / 1024.0
+        )?;
         writeln!(f, "Verification: {} ms", self.verifier_time.as_millis())
     }
 }
@@ -150,31 +157,40 @@ pub fn prove_poseidon2(
     let commited_trace_polynomial_24 =
         padd_with_zero_to_next_power_of_two(&witness_columns_24.concat());
 
-    let packed_commitment_witness = packed_pcs_commit(
-        &pcs,
-        &[&commited_trace_polynomial_16, &commited_trace_polynomial_24],
-        &dft,
-        &mut prover_state,
-    );
+    let dims = [
+        ColDims::dense(log_table_area_16),
+        ColDims::dense(log_table_area_24),
+    ];
+    let log_smallest_decomposition_chunk = 0; // UNUSED because verything is power of 2
+
+    let commited_data = [
+        commited_trace_polynomial_16.as_slice(),
+        commited_trace_polynomial_24.as_slice(),
+    ];
+    let commitment_witness =
+        packed_pcs_commit(&pcs, &commited_data, &dims, &dft, &mut prover_state, 0);
 
     let evaluations_remaining_to_prove_16 =
         table_16.prove_base(&mut prover_state, univariate_skips, witness_16);
     let evaluations_remaining_to_prove_24 =
         table_24.prove_base(&mut prover_state, univariate_skips, witness_24);
 
-    let global_statements_to_prove = packed_pcs_global_statements(
-        &packed_commitment_witness.tree,
+    let global_statements_to_prove = packed_pcs_global_statements_for_prover(
+        &commited_data,
+        &dims,
+        log_smallest_decomposition_chunk,
         &[
             evaluations_remaining_to_prove_16,
             evaluations_remaining_to_prove_24,
         ],
+        &mut prover_state,
     );
     pcs.open(
         &dft,
         &mut prover_state,
         &global_statements_to_prove,
-        packed_commitment_witness.inner_witness,
-        &packed_commitment_witness.packed_polynomial,
+        commitment_witness.inner_witness,
+        &commitment_witness.packed_polynomial,
     );
 
     let prover_time = t.elapsed();
@@ -185,7 +201,8 @@ pub fn prove_poseidon2(
     let packed_parsed_commitment = packed_pcs_parse_commitment(
         &pcs,
         &mut verifier_state,
-        vec![log_table_area_16, log_table_area_24],
+        &dims,
+        log_smallest_decomposition_chunk,
     )
     .unwrap();
 
@@ -206,16 +223,20 @@ pub fn prove_poseidon2(
         )
         .unwrap();
 
-    let global_statements_to_verify = packed_pcs_global_statements(
-        &packed_parsed_commitment.tree,
+    let global_statements_to_verify = packed_pcs_global_statements_for_verifier(
+        &dims,
+        log_smallest_decomposition_chunk,
         &[
             evaluations_remaining_to_verify_16,
             evaluations_remaining_to_verify_24,
         ],
-    );
+        &mut verifier_state,
+        &Default::default(),
+    )
+    .unwrap();
     pcs.verify(
         &mut verifier_state,
-        &packed_parsed_commitment.inner_parsed_commitment,
+        &packed_parsed_commitment,
         &global_statements_to_verify,
     )
     .unwrap();

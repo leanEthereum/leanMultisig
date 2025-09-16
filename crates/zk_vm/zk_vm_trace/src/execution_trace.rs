@@ -4,9 +4,10 @@ use crate::{
     COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC,
     N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS,
 };
-use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
+use p3_field::{BasedVectorSpace, Field};
 use p3_symmetric::Permutation;
+use p3_util::log2_ceil_usize;
 use rayon::prelude::*;
 use utils::{ToUsize, get_poseidon16, get_poseidon24};
 use vm::*;
@@ -44,6 +45,19 @@ pub struct WitnessPoseidon16 {
     pub output: [F; 16],
 }
 
+impl WitnessPoseidon16 {
+    pub fn poseidon_of_zero() -> Self {
+        Self {
+            cycle: None,
+            addr_input_a: ZERO_VEC_PTR,
+            addr_input_b: ZERO_VEC_PTR,
+            addr_output: POSEIDON_16_NULL_HASH_PTR,
+            input: [F::ZERO; 16],
+            output: get_poseidon16().permute([F::ZERO; 16]),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct WitnessPoseidon24 {
     pub cycle: Option<usize>,
@@ -52,6 +66,21 @@ pub struct WitnessPoseidon24 {
     pub addr_output: usize,  // vectorized pointer (of size 1)
     pub input: [F; 24],
     pub output: [F; 8], // last 8 elements of the output
+}
+
+impl WitnessPoseidon24 {
+    pub fn poseidon_of_zero() -> Self {
+        Self {
+            cycle: None,
+            addr_input_a: ZERO_VEC_PTR,
+            addr_input_b: ZERO_VEC_PTR,
+            addr_output: POSEIDON_24_NULL_HASH_PTR,
+            input: [F::ZERO; 24],
+            output: get_poseidon24().permute([F::ZERO; 24])[16..24]
+                .try_into()
+                .unwrap(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -134,7 +163,107 @@ pub fn get_execution_trace(
         trace[COL_INDEX_MEM_ADDRESS_B][cycle] = addr_b;
         trace[COL_INDEX_MEM_ADDRESS_C][cycle] = addr_c;
 
-        // Precompile witness collection is now driven by VM events instead of rescanning here.
+        match instruction {
+            Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
+                let addr_input_a = arg_a.read_value(memory, fp).unwrap().to_usize();
+                let addr_input_b = arg_b.read_value(memory, fp).unwrap().to_usize();
+                let addr_output = res.read_value(memory, fp).unwrap().to_usize();
+                let value_a = memory.get_vector(addr_input_a).unwrap();
+                let value_b = memory.get_vector(addr_input_b).unwrap();
+                let output = memory.get_vectorized_slice(addr_output, 2).unwrap();
+                poseidons_16.push(WitnessPoseidon16 {
+                    cycle: Some(cycle),
+                    addr_input_a,
+                    addr_input_b,
+                    addr_output,
+                    input: [value_a, value_b].concat().try_into().unwrap(),
+                    output: output.try_into().unwrap(),
+                });
+            }
+            Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
+                let addr_input_a = arg_a.read_value(memory, fp).unwrap().to_usize();
+                let addr_input_b = arg_b.read_value(memory, fp).unwrap().to_usize();
+                let addr_output = res.read_value(memory, fp).unwrap().to_usize();
+                let value_a = memory.get_vectorized_slice(addr_input_a, 2).unwrap();
+                let value_b = memory.get_vector(addr_input_b).unwrap().to_vec();
+                let output = memory.get_vector(addr_output).unwrap();
+                poseidons_24.push(WitnessPoseidon24 {
+                    cycle: Some(cycle),
+                    addr_input_a,
+                    addr_input_b,
+                    addr_output,
+                    input: [value_a, value_b].concat().try_into().unwrap(),
+                    output,
+                });
+            }
+            Instruction::DotProductExtensionExtension {
+                arg0,
+                arg1,
+                res,
+                size,
+            } => {
+                let addr_0 = arg0.read_value(memory, fp).unwrap().to_usize();
+                let addr_1 = arg1.read_value(memory, fp).unwrap().to_usize();
+                let addr_res = res.read_value(memory, fp).unwrap().to_usize();
+                let slice_0 = memory
+                    .get_continuous_slice_of_ef_elements(addr_0, *size)
+                    .unwrap();
+                let slice_1 = memory
+                    .get_continuous_slice_of_ef_elements(addr_1, *size)
+                    .unwrap();
+                let res = memory.get_ef_element(addr_res).unwrap();
+                dot_products.push(WitnessDotProduct {
+                    cycle,
+                    addr_0,
+                    addr_1,
+                    addr_res,
+                    len: *size,
+                    slice_0,
+                    slice_1,
+                    res,
+                });
+            }
+            Instruction::MultilinearEval {
+                coeffs,
+                point,
+                res,
+                n_vars,
+            } => {
+                let addr_coeffs = coeffs.read_value(memory, fp).unwrap().to_usize();
+                let addr_point = point.read_value(memory, fp).unwrap().to_usize();
+                let addr_res = res.read_value(memory, fp).unwrap().to_usize();
+
+                let log_point_size = log2_ceil_usize(*n_vars * DIMENSION);
+                let point_slice = memory
+                    .slice(addr_point << log_point_size, *n_vars * DIMENSION)
+                    .unwrap();
+                for i in *n_vars * DIMENSION..(*n_vars * DIMENSION).next_power_of_two() {
+                    assert!(
+                        memory
+                            .get((addr_point << log_point_size) + i)
+                            .unwrap()
+                            .is_zero()
+                    ); // padding
+                }
+                let point = point_slice[..*n_vars * DIMENSION]
+                    .chunks_exact(DIMENSION)
+                    .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
+                    .collect::<Vec<_>>();
+
+                let res = memory.get_vector(addr_res).unwrap();
+                assert!(res[DIMENSION..].iter().all(|&x| x.is_zero()));
+                vm_multilinear_evals.push(WitnessMultilinearEval {
+                    cycle,
+                    addr_coeffs,
+                    addr_point,
+                    addr_res,
+                    n_vars: *n_vars,
+                    point,
+                    res: EF::from_basis_coefficients_slice(&res[..DIMENSION]).unwrap(),
+                });
+            }
+            _ => {}
+        }
     }
 
     // repeat the last row to get to a power of two
@@ -145,17 +274,11 @@ pub fn get_execution_trace(
         }
     }
 
-    let mut memory = memory
+    let memory = memory
         .0
         .par_iter()
         .map(|&v| v.unwrap_or(F::ZERO))
         .collect::<Vec<F>>();
-    memory.resize(
-        memory
-            .len()
-            .next_multiple_of(execution_result.public_memory_size),
-        F::ZERO,
-    );
 
     // Build witnesses from VM-collected events
     for e in &execution_result.vm_poseidon16_events {

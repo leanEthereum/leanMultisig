@@ -1,5 +1,7 @@
+use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
+use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 use utils::get_poseidon16;
@@ -189,7 +191,7 @@ fn execute_bytecode_helper(
     profiler: bool,
     function_locations: &BTreeMap<usize, String>,
 ) -> Result<ExecutionResult, RunnerError> {
-    let poseidon_16 = get_poseidon16(); // TODO avoid rebuilding each time
+    let poseidon_16 = get_poseidon16();
     let poseidon_24 = get_poseidon24();
 
     // set public memory
@@ -206,7 +208,7 @@ fn execute_bytecode_helper(
 
     let initial_ap = fp + bytecode.starting_frame_memory;
     let initial_ap_vec =
-        (initial_ap + no_vec_runtime_memory).next_multiple_of(DIMENSION) / DIMENSION;
+        (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
 
     let mut pc = 0;
     let mut ap = initial_ap;
@@ -256,13 +258,22 @@ fn execute_bytecode_helper(
                     offset,
                     size,
                     vectorized,
+                    vectorized_len,
                 } => {
                     let size = size.read_value(&memory, fp)?.to_usize();
 
                     if *vectorized {
-                        // find the next multiple of VECTOR_LEN
-                        memory.set(fp + *offset, F::from_usize(ap_vec))?;
-                        ap_vec += size;
+                        assert!(*vectorized_len >= LOG_VECTOR_LEN, "TODO");
+
+                        // padding:
+                        while !(ap_vec * VECTOR_LEN).is_multiple_of(1 << *vectorized_len) {
+                            ap_vec += 1;
+                        }
+                        memory.set(
+                            fp + *offset,
+                            F::from_usize(ap_vec >> (*vectorized_len - LOG_VECTOR_LEN)),
+                        )?;
+                        ap_vec += size << (*vectorized_len - LOG_VECTOR_LEN);
                     } else {
                         memory.set(fp + *offset, F::from_usize(ap))?;
                         ap += size;
@@ -552,10 +563,21 @@ fn execute_bytecode_helper(
                 let ptr_res = res.read_value(&memory, fp)?.to_usize();
                 let n_coeffs = 1 << *n_vars;
                 let slice_coeffs = memory.slice(ptr_coeffs << *n_vars, n_coeffs)?;
-                let point = memory.get_continuous_slice_of_ef_elements(ptr_point, *n_vars)?;
 
-                let eval = slice_coeffs.evaluate(&MultilinearPoint(point.clone()));
-                memory.set_ef_element(ptr_res, eval)?;
+                let log_point_size = log2_ceil_usize(*n_vars * DIMENSION);
+                let point_slice = memory.slice(ptr_point << log_point_size, *n_vars * DIMENSION)?;
+                for i in *n_vars * DIMENSION..(*n_vars * DIMENSION).next_power_of_two() {
+                    memory.set((ptr_point << log_point_size) + i, F::ZERO)?; // padding
+                }
+                let point = point_slice[..*n_vars * DIMENSION]
+                    .chunks_exact(DIMENSION)
+                    .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
+                    .collect::<Vec<_>>();
+
+                let eval = slice_coeffs.evaluate(&MultilinearPoint(point));
+                let mut res_vec = eval.as_basis_coefficients_slice().to_vec();
+                res_vec.resize(VECTOR_LEN, F::ZERO);
+                memory.set_vector(ptr_res, res_vec.try_into().unwrap())?;
 
                 if final_execution {
                     let cycle = pcs.len() - 1;

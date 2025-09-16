@@ -72,9 +72,11 @@ div_expr = { exp_expr ~ ("/" ~ exp_expr)* }
 exp_expr = { primary ~ ("**" ~ primary)* }
 primary = { 
     "(" ~ expression ~ ")" | 
+    log2_ceil_expr |
     array_access_expr |
     var_or_constant
 }
+log2_ceil_expr = { "log2_ceil" ~ "(" ~ expression ~ ")" }
 array_access_expr = { identifier ~ "[" ~ expression ~ "]" }
 
 // Basic elements

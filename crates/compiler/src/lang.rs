@@ -1,4 +1,5 @@
 use p3_field::PrimeCharacteristicRing;
+use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
@@ -118,6 +119,9 @@ pub enum ConstExpression {
         operation: HighLevelOperation,
         right: Box<Self>,
     },
+    Log2Ceil {
+        value: Box<Self>,
+    },
 }
 
 impl From<usize> for ConstExpression {
@@ -145,6 +149,12 @@ impl TryFrom<Expression> for ConstExpression {
                     left: Box::new(left_expr),
                     operation,
                     right: Box::new(right_expr),
+                })
+            }
+            Expression::Log2Ceil { value } => {
+                let value_expr = Self::try_from(*value)?;
+                Ok(Self::Log2Ceil {
+                    value: Box::new(value_expr),
                 })
             }
         }
@@ -182,6 +192,10 @@ impl ConstExpression {
                 operation,
                 right,
             } => Some(operation.eval(left.eval_with(func)?, right.eval_with(func)?)),
+            Self::Log2Ceil { value } => {
+                let value = value.eval_with(func)?;
+                Some(F::from_usize(log2_ceil_usize(value.to_usize())))
+            }
         }
     }
 
@@ -219,6 +233,9 @@ pub enum Expression {
         operation: HighLevelOperation,
         right: Box<Self>,
     },
+    Log2Ceil {
+        value: Box<Expression>,
+    }, // only for const expressions
 }
 
 impl From<SimpleExpr> for Expression {
@@ -259,7 +276,19 @@ impl Expression {
                 left.eval_with(value_fn, array_fn)?,
                 right.eval_with(value_fn, array_fn)?,
             )),
+            Self::Log2Ceil { value } => {
+                let value = value.eval_with(value_fn, array_fn)?;
+                Some(F::from_usize(log2_ceil_usize(value.to_usize())))
+            }
         }
+    }
+
+    pub fn scalar(scalar: usize) -> Self {
+        SimpleExpr::scalar(scalar).into()
+    }
+
+    pub fn zero() -> Self {
+        Self::scalar(0)
     }
 }
 
@@ -316,6 +345,7 @@ pub enum Line {
         var: Var,
         size: Expression,
         vectorized: bool,
+        vectorized_len: Expression,
     },
     DecomposeBits {
         var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
@@ -342,6 +372,9 @@ impl Display for Expression {
                 right,
             } => {
                 write!(f, "({left} {operation} {right})")
+            }
+            Self::Log2Ceil { value } => {
+                write!(f, "log2_ceil({value})")
             }
         }
     }
@@ -488,9 +521,10 @@ impl Line {
                 var,
                 size,
                 vectorized,
+                vectorized_len,
             } => {
                 if *vectorized {
-                    format!("{var} = malloc_vectorized({size})")
+                    format!("{var} = malloc_vec({size}, {vectorized_len})")
                 } else {
                     format!("{var} = malloc({size})")
                 }
@@ -572,6 +606,9 @@ impl Display for ConstExpression {
                 right,
             } => {
                 write!(f, "({left} {operation} {right})")
+            }
+            Self::Log2Ceil { value } => {
+                write!(f, "log2_ceil({value})")
             }
         }
     }

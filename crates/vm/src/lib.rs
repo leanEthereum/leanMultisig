@@ -14,7 +14,8 @@ pub use runner::*;
 pub type LocationInSourceCode = usize;
 
 pub const DIMENSION: usize = 5;
-pub const VECTOR_LEN: usize = 8;
+pub const LOG_VECTOR_LEN: usize = 3;
+pub const VECTOR_LEN: usize = 1 << LOG_VECTOR_LEN;
 pub type F = KoalaBear;
 pub type EF = QuinticExtensionFieldKB;
 

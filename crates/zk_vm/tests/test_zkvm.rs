@@ -8,6 +8,9 @@ use zk_vm::{
 #[test]
 fn test_zk_vm() {
     let program_str = r#"
+    const DIM = 5;
+    const SECOND_POINT = 2;
+    const SECOND_N_VARS = 7;
     
     fn main() {
         for i in 0..1000 unroll {  if 1 == 0 {  return; } } // increase bytecode size artificially
@@ -20,29 +23,31 @@ fn test_zk_vm() {
             dot_product(i*3, i + 7, (x + 4) * 8, 2);
         }
         
-        point_1 = malloc(10 * 5);
+        point_1 = malloc_vec(1, log2_ceil(10 * DIM));
+        point_1_ptr = point_1 * (2 ** log2_ceil(10 * DIM));
         for i in 0..10 {
-            point_1[i*5 + 0] = 785 + i;
-            point_1[i*5 + 1] = 4152 - i;
-            point_1[i*5 + 2] = 471*82 + i*i;
-            point_1[i*5 + 3] = 7577 + i;
-            point_1[i*5 + 4] = 676 - i;
+            point_1_ptr[i*5 + 0] = 785 + i;
+            point_1_ptr[i*5 + 1] = 4152 - i;
+            point_1_ptr[i*5 + 2] = 471*82 + i*i;
+            point_1_ptr[i*5 + 3] = 7577 + i;
+            point_1_ptr[i*5 + 4] = 676 - i;
         }
 
-        res1 = malloc(5);
+        res1 = malloc_vec(1);
         multilinear_eval(2**3, point_1, res1, 10);
 
-        point_2 = 785;
-        res2 = malloc(5);
-        multilinear_eval(1, point_2, res2, 7);
+        res2 = malloc_vec(1);
+        multilinear_eval(10, SECOND_POINT, res2, SECOND_N_VARS);
 
-        point_3 = 785;
-        res3 = malloc(5);
-        multilinear_eval(2, point_3, res3, 7);
+        res3 = malloc_vec(1);
+        multilinear_eval(11, SECOND_POINT, res3, SECOND_N_VARS);
 
-        print(res3[0], res2[0]);
+        res2_ptr = res2 * 8;
+        res3_ptr = res3 * 8;
 
-        assert res3[0] == res2[0] + 2**7;
+        print(res3_ptr[0], res2_ptr[0]);
+
+        assert res3_ptr[0] == res2_ptr[0] + 2**SECOND_N_VARS;
 
         for i in 0..1000 {
             assert i != 1000;
@@ -53,9 +58,20 @@ fn test_zk_vm() {
    "#
     .to_string();
 
-    let public_input = (0..(1 << 13) - PUBLIC_INPUT_START)
+    const SECOND_POINT: usize = 2;
+    const SECOND_N_VARS: usize = 7;
+
+    let mut public_input = (0..(1 << 13) - PUBLIC_INPUT_START)
         .map(F::from_usize)
         .collect::<Vec<_>>();
+
+    public_input[SECOND_POINT * (SECOND_N_VARS * DIMENSION).next_power_of_two()
+        + SECOND_N_VARS * DIMENSION
+        - PUBLIC_INPUT_START
+        ..(SECOND_POINT + 1) * (SECOND_N_VARS * DIMENSION).next_power_of_two()
+            - PUBLIC_INPUT_START]
+        .iter_mut()
+        .for_each(|x| *x = F::ZERO);
 
     let private_input = (0..1 << 13)
         .map(|i| F::from_usize(i).square())
@@ -72,6 +88,7 @@ fn test_zk_vm() {
         &private_input,
         &batch_pcs,
         false,
-    );
+    )
+    .0;
     verify_execution(&bytecode, &public_input, proof_data, &batch_pcs).unwrap();
 }

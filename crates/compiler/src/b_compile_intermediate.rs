@@ -491,9 +491,20 @@ fn compile_lines(
 
             SimpleLine::FunctionRet { return_data } => {
                 if compiler.func_name == "main" {
+                    // pC -> ending_pc, fp -> 0
+                    let zero_value_offset = IntermediateValue::MemoryAfterFp {
+                        offset: compiler.stack_size.into(),
+                    };
+                    compiler.stack_size += 1;
+                    instructions.push(IntermediateInstruction::Computation {
+                        operation: Operation::Add,
+                        arg_a: IntermediateValue::Constant(0.into()),
+                        arg_c: IntermediateValue::Constant(0.into()),
+                        res: zero_value_offset.clone(),
+                    });
                     instructions.push(IntermediateInstruction::Jump {
                         dest: IntermediateValue::label("@end_program".to_string()),
-                        updated_fp: None,
+                        updated_fp: Some(zero_value_offset),
                     });
                 } else {
                     compile_function_ret(&mut instructions, return_data, compiler);
@@ -504,12 +515,14 @@ fn compile_lines(
                 var,
                 size,
                 vectorized,
+                vectorized_len,
             } => {
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::RequestMemory {
                     offset: compiler.get_offset(&var.clone().into()),
                     size: IntermediateValue::from_simple_expr(size, compiler),
                     vectorized: *vectorized,
+                    vectorized_len: IntermediateValue::from_simple_expr(vectorized_len, compiler),
                 });
             }
             SimpleLine::ConstMalloc { var, size, label } => {
@@ -631,6 +644,7 @@ fn setup_function_call(
             offset: new_fp_pos.into(),
             size: ConstExpression::function_size(func_name.to_string()).into(),
             vectorized: false,
+            vectorized_len: IntermediateValue::Constant(ConstExpression::zero()),
         },
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),

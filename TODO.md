@@ -10,7 +10,6 @@
 - use RowMAjorMatrix instead of Vec<Vec> for witness, and avoid any transpositions as suggested by Thomas
 - Fill Precompile tables during bytecode execution
 - Use Univariate Skip to commit to tables with k.2^n rows (k small)
-- increase density of multi commitments -> we can almost reduce by 2x commitment costs (question: will perf be good enough in order to avoid using the "jagged pcs" (cf sp1 hypercube)?)
 - avoid field embedding in the initial sumcheck of logup*, when table / values are in base field
 - opti logup* GKR: 
     - when the indexes are not a power of 2 (which is the case in the execution table)
@@ -23,8 +22,51 @@
 - Sumcheck, case z = 0, no need to fold, only keep first half of the values (done in PR 33 by Lambda) (and also in WHIR?)
 - Custom AVX2 / AVX512 / Neon implem in Plonky3 for all of the finite field operations (done for degree 4 extension, but not degree 5)
 - the 2 executions of the program, before generating the validity proof, can be merged, using some kind of placeholders
-- both WHIR verif + XMSS aggregation programs have 40% of unused memory!! -> TODO improve the compiler to reduce memory fragmentation
 - Many times, we evaluate different multilinear polynomials (diferent columns of the same table etc) at a common point. OPTI = compute the eq(.) once, and then dot_product with everything
+- To commit to multiple AIR table using 1 single pcs, the most general form our "packed pcs" api should accept is:
+ a list of n (n not a power of 2) columns, each ending with m repeated values (in this manner we can reduce proof size when they are a lot of columns (poseidons ...))
+- in the runner of leanISA program, if we call 2 times the same function with the same arguments, we can reuse the same memory frame
+
+About "the packed pcs" (similar to SP1 Jagged PCS, slightly less efficient, but simpler (no sumchecks)):
+- The best strategy is probably to pack as much as possible (the cost increasing the density = additional inner evaluations), if we can fit below a power of 2 - epsilon  (epsilon = 20% for instance, tbd), if the sum of the non zero data is just above a power of 2, no packed technique, even the best, can help us, so we should spread aniway (to reduce the pressure of inner evaluations)
+- About those inner evaluations, there is a trick: we need to compute M1(a, b, c, d, ...) then M2(b, c, d, ...), then M3(c, d, ...) -> The trick = compute the "eq(.) for (b, c, d), then dot product with M3. Then expand to eq(b, c, d, ...), dot product with M2. Then expand to eq(a, b, c, d, ...), dot product with M1. The idea is that in this order, computing each "eq" is easier is we start from the previous one.
+- Currently the packed pcs works as follows:
+
+```
+┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐
+| || || || || || || || || || || || || || |
+| || || || || || || || || || || || || || |
+| || || || || || || || || || || || || || |
+| || || || || || || || || || || || || || |
+| || || || || || || || || || || || || || |
+| || || || || || || || || || || || || || |
+└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘
+┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐
+| || || || || || || || || || || || || || |
+| || || || || || || || || || || || || || |
+└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘
+┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐
+└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘└─┘
+```
+
+But we reduce proof size a lot using instead (TODO):
+
+```
+┌────────────────────────┐┌──────────┐┌─┐
+|                        ||          || |
+|                        ||          || |
+|                        ||          || |
+|                        ||          || |
+|                        ||          || |
+|                        ||          || |
+└────────────────────────┘└──────────┘└─┘
+┌────────────────────────┐┌──────────┐┌─┐
+|                        ||          || |
+|                        ||          || |
+└────────────────────────┘└──────────┘└─┘
+┌────────────────────────┐┌──────────┐┌─┐
+└────────────────────────┘└──────────┘└─┘
+```
 
 ## Not Perf
 
@@ -37,6 +79,7 @@
 
 - KoalaBear extension of degree 5: the current implem (in a fork of Plonky3) has not been been optimized
 - KoalaBear extension of degree 6: in order to use the (proven) Johnson bound in WHIR
+- current "packed PCS" is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
 
 ## Known leanISA compiler bugs:
 

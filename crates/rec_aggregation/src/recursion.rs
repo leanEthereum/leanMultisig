@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use compiler::compile_program;
 use p3_field::BasedVectorSpace;
+use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::padd_with_zero_to_next_multiple_of;
@@ -215,7 +216,7 @@ pub fn test_whir_recursion() {
     let (bytecode, function_locations) = compile_program(&program_str);
     let batch_pcs = build_batch_pcs();
     let time = Instant::now();
-    let proof_data = prove_execution(
+    let (proof_data, proof_size) = prove_execution(
         &bytecode,
         &program_str,
         &function_locations,
@@ -224,6 +225,10 @@ pub fn test_whir_recursion() {
         &batch_pcs,
         false,
     );
-    println!("WHIR recursion, proving time: {:?}", time.elapsed());
+    println!(
+        "\nWHIR recursion, proving time: {:?}, proof size: {} KiB (not optimized)",
+        time.elapsed(),
+        proof_size * F::bits() / (8 * 1024)
+    );
     verify_execution(&bytecode, &public_input, proof_data, &batch_pcs).unwrap();
 }

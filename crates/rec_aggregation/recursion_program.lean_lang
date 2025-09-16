@@ -351,8 +351,15 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
 
     folds = malloc(num_queries * DIM);
     if merkle_leaves_in_basefield == 1 {
+        folding_randomness_alligned = malloc_vec(1, log2_ceil(DIM * FOLDING_FACTOR_0));
+        folding_randomness_alligned_ptr = folding_randomness_alligned * (2 ** log2_ceil(DIM * FOLDING_FACTOR_0));
+        for i in 0..FOLDING_FACTOR_0 unroll {
+            assert_eq_extension(folding_randomness + i*DIM, folding_randomness_alligned_ptr + i*DIM);
+        }
         for i in 0..num_queries {
-            multilinear_eval((answers[i] * 8) / 2**FOLDING_FACTOR_0, folding_randomness, folds + i*DIM, FOLDING_FACTOR_0); // TODO batching: use a single call to multilinear eval
+            res = malloc_vec(1);
+            multilinear_eval((answers[i] * 8) / 2**FOLDING_FACTOR_0, folding_randomness_alligned, res, FOLDING_FACTOR_0); // TODO batching: use a single call to multilinear eval
+            assert_eq_extension(res * 8, folds + i*DIM);
         }
     } else {
         poly_eq = poly_eq_extension(folding_randomness, folding_factor, two_pow_folding_factor);

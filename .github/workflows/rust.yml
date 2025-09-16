@@ -1,65 +1,31 @@
-name: Rust CI
+name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: rust-ci-${{ github.ref }}
-  cancel-in-progress: true
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
-  build-test-matrix:
-    name: Build & Test (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: x64-avx2
-            os: ubuntu-latest
-            rustflags: -C target-cpu=haswell
-            run_tests: true
-          - name: x64-avx512-build
-            os: ubuntu-latest
-            rustflags: -C target-cpu=skylake-avx512
-            run_tests: false # build only to avoid SIGILL
-          - name: arm64-neon
-            # If available, use GitHub-hosted ARM64 runner
-            # e.g. ubuntu-24.04-arm64 (org setting dependent)
-            # If unavailable, consider: [self-hosted, Linux, ARM64]
-            os: ubuntu-24.04-arm64
-            rustflags: -C target-feature=+neon
-            run_tests: true
+  build:
+    runs-on: ubuntu-latest
+    name: Build & Test
+
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-      - name: Build (release)
-        run: cargo build --workspace --release --verbose
-        env:
-          RUSTFLAGS: ${{ matrix.rustflags }}
-      - name: Test (release)
-        if: ${{ matrix.run_tests == true }}
-        run: cargo test --workspace --release --verbose
-        env:
-          RUSTFLAGS: ${{ matrix.rustflags }}
+      - name: Build
+        run: cargo build --release --verbose
+      - name: Run tests
+        run: cargo test --release --verbose
 
-  clippy:
+  cargo-clippy:
     runs-on: ubuntu-latest
     name: Clippy
     steps:
@@ -69,14 +35,13 @@ jobs:
         with:
           toolchain: nightly
           components: clippy
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-      - name: Clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Clippy Check
+        run: cargo clippy --workspace --all-targets -- -Dwarnings
 
-  fmt:
+  cargo-fmt:
+    name: Cargo fmt
     runs-on: ubuntu-latest
-    name: Rustfmt
+
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
@@ -84,8 +49,5 @@ jobs:
         with:
           toolchain: nightly
           components: rustfmt
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
+      - name: Rustfmt Check
+        run: cargo fmt --all --check

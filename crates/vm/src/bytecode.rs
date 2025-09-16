@@ -78,7 +78,7 @@ pub enum Instruction {
     MultilinearEval {
         coeffs: MemOrConstant, // vectorized pointer, chunk size = 2^n_vars
         point: MemOrConstant, // normal pointer, pointing to `n_vars` continuous extension field elements
-        res: MemOrFp,         // normal pointer, pointing to 1 extension field element
+        res: MemOrFp, // vectorized pointer, pointing to 1 EF element (ending with 8 - DIM zeros)
         n_vars: usize,
     },
 }
@@ -114,7 +114,8 @@ pub enum Hint {
     RequestMemory {
         offset: usize,       // m[fp + offset] where the hint will be stored
         size: MemOrConstant, // the hint
-        vectorized: bool,
+        vectorized: bool, // if true, will be (2^vectorized_len)-alligned, and the returned pointer will be "divied" by 2^vectorized_len
+        vectorized_len: usize,
     },
     DecomposeBits {
         res_offset: usize, // m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)] will contain the decomposed bits
@@ -251,14 +252,16 @@ impl Display for Hint {
                 offset,
                 size,
                 vectorized,
+                vectorized_len,
             } => {
-                write!(
-                    f,
-                    "m[fp + {}] = {}({})",
-                    offset,
-                    if *vectorized { "malloc_vec" } else { "malloc" },
-                    size
-                )
+                if *vectorized {
+                    write!(
+                        f,
+                        "m[fp + {offset}] = request_memory_vec({size}, {vectorized_len})"
+                    )
+                } else {
+                    write!(f, "m[fp + {offset}] = request_memory({size})")
+                }
             }
             Self::DecomposeBits {
                 res_offset,
