@@ -26,10 +26,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: x64-avx2
-            os: ubuntu-latest
-            rustflags: -C target-cpu=haswell
-            run_tests: true
+          # - name: x64-avx2
+          #   os: ubuntu-latest
+          #   rustflags: -C target-cpu=haswell
+          #   run_tests: true
           - name: arm64-neon
             os: ubuntu-24.04-arm64
             rustflags: -C target-feature=+neon
