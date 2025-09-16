@@ -30,14 +30,7 @@ jobs:
             os: ubuntu-latest
             rustflags: -C target-cpu=haswell
             run_tests: true
-          - name: x64-avx512-build
-            os: ubuntu-latest
-            rustflags: -C target-cpu=skylake-avx512
-            run_tests: false # build only to avoid SIGILL
           - name: arm64-neon
-            # If available, use GitHub-hosted ARM64 runner
-            # e.g. ubuntu-24.04-arm64 (org setting dependent)
-            # If unavailable, consider: [self-hosted, Linux, ARM64]
             os: ubuntu-24.04-arm64
             rustflags: -C target-feature=+neon
             run_tests: true
