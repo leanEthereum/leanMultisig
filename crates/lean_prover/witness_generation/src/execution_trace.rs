@@ -5,10 +5,9 @@ use crate::{
     N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS,
 };
 use lean_vm::*;
+use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
-use p3_field::{BasedVectorSpace, Field};
 use p3_symmetric::Permutation;
-use p3_util::log2_ceil_usize;
 use rayon::prelude::*;
 use utils::{ToUsize, get_poseidon16, get_poseidon24};
 
@@ -162,108 +161,6 @@ pub fn get_execution_trace(
         trace[COL_INDEX_MEM_ADDRESS_A][cycle] = addr_a;
         trace[COL_INDEX_MEM_ADDRESS_B][cycle] = addr_b;
         trace[COL_INDEX_MEM_ADDRESS_C][cycle] = addr_c;
-
-        match instruction {
-            Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
-                let addr_input_a = arg_a.read_value(memory, fp).unwrap().to_usize();
-                let addr_input_b = arg_b.read_value(memory, fp).unwrap().to_usize();
-                let addr_output = res.read_value(memory, fp).unwrap().to_usize();
-                let value_a = memory.get_vector(addr_input_a).unwrap();
-                let value_b = memory.get_vector(addr_input_b).unwrap();
-                let output = memory.get_vectorized_slice(addr_output, 2).unwrap();
-                poseidons_16.push(WitnessPoseidon16 {
-                    cycle: Some(cycle),
-                    addr_input_a,
-                    addr_input_b,
-                    addr_output,
-                    input: [value_a, value_b].concat().try_into().unwrap(),
-                    output: output.try_into().unwrap(),
-                });
-            }
-            Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
-                let addr_input_a = arg_a.read_value(memory, fp).unwrap().to_usize();
-                let addr_input_b = arg_b.read_value(memory, fp).unwrap().to_usize();
-                let addr_output = res.read_value(memory, fp).unwrap().to_usize();
-                let value_a = memory.get_vectorized_slice(addr_input_a, 2).unwrap();
-                let value_b = memory.get_vector(addr_input_b).unwrap().to_vec();
-                let output = memory.get_vector(addr_output).unwrap();
-                poseidons_24.push(WitnessPoseidon24 {
-                    cycle: Some(cycle),
-                    addr_input_a,
-                    addr_input_b,
-                    addr_output,
-                    input: [value_a, value_b].concat().try_into().unwrap(),
-                    output,
-                });
-            }
-            Instruction::DotProductExtensionExtension {
-                arg0,
-                arg1,
-                res,
-                size,
-            } => {
-                let addr_0 = arg0.read_value(memory, fp).unwrap().to_usize();
-                let addr_1 = arg1.read_value(memory, fp).unwrap().to_usize();
-                let addr_res = res.read_value(memory, fp).unwrap().to_usize();
-                let slice_0 = memory
-                    .get_continuous_slice_of_ef_elements(addr_0, *size)
-                    .unwrap();
-                let slice_1 = memory
-                    .get_continuous_slice_of_ef_elements(addr_1, *size)
-                    .unwrap();
-                let res = memory.get_ef_element(addr_res).unwrap();
-                dot_products.push(WitnessDotProduct {
-                    cycle,
-                    addr_0,
-                    addr_1,
-                    addr_res,
-                    len: *size,
-                    slice_0,
-                    slice_1,
-                    res,
-                });
-            }
-            Instruction::MultilinearEval {
-                coeffs,
-                point,
-                res,
-                n_vars,
-            } => {
-                let addr_coeffs = coeffs.read_value(memory, fp).unwrap().to_usize();
-                let addr_point = point.read_value(memory, fp).unwrap().to_usize();
-                let addr_res = res.read_value(memory, fp).unwrap().to_usize();
-
-                let log_point_size = log2_ceil_usize(*n_vars * DIMENSION);
-                let point_slice = memory
-                    .slice(addr_point << log_point_size, *n_vars * DIMENSION)
-                    .unwrap();
-                for i in *n_vars * DIMENSION..(*n_vars * DIMENSION).next_power_of_two() {
-                    assert!(
-                        memory
-                            .get((addr_point << log_point_size) + i)
-                            .unwrap()
-                            .is_zero()
-                    ); // padding
-                }
-                let point = point_slice[..*n_vars * DIMENSION]
-                    .chunks_exact(DIMENSION)
-                    .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
-                    .collect::<Vec<_>>();
-
-                let res = memory.get_vector(addr_res).unwrap();
-                assert!(res[DIMENSION..].iter().all(|&x| x.is_zero()));
-                vm_multilinear_evals.push(WitnessMultilinearEval {
-                    cycle,
-                    addr_coeffs,
-                    addr_point,
-                    addr_res,
-                    n_vars: *n_vars,
-                    point,
-                    res: EF::from_basis_coefficients_slice(&res[..DIMENSION]).unwrap(),
-                });
-            }
-            _ => {}
-        }
     }
 
     // repeat the last row to get to a power of two
