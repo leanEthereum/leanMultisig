@@ -28,7 +28,7 @@ jobs:
   cargo-clippy:
     runs-on: ubuntu-latest
     name: Clippy
-    
+
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
