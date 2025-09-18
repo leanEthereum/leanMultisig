@@ -165,34 +165,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compiler"
-version = "0.1.0"
-dependencies = [
- "air",
- "lookup",
- "p3-air",
- "p3-challenger",
- "p3-field",
- "p3-koala-bear",
- "p3-matrix",
- "p3-poseidon2",
- "p3-poseidon2-air",
- "p3-symmetric",
- "p3-util",
- "pcs",
- "pest",
- "pest_derive",
- "rand",
- "rayon",
- "sumcheck",
- "tracing",
- "utils",
- "vm",
- "whir-p3",
- "xmss",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -300,6 +272,94 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+
+[[package]]
+name = "lean_compiler"
+version = "0.1.0"
+dependencies = [
+ "air",
+ "lean_vm",
+ "lookup",
+ "p3-air",
+ "p3-challenger",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-matrix",
+ "p3-poseidon2",
+ "p3-poseidon2-air",
+ "p3-symmetric",
+ "p3-util",
+ "pcs",
+ "pest",
+ "pest_derive",
+ "rand",
+ "rayon",
+ "sumcheck",
+ "tracing",
+ "utils",
+ "whir-p3",
+ "xmss",
+]
+
+[[package]]
+name = "lean_prover"
+version = "0.1.0"
+dependencies = [
+ "air",
+ "lean_compiler",
+ "lean_vm",
+ "lookup",
+ "p3-air",
+ "p3-challenger",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-matrix",
+ "p3-poseidon2",
+ "p3-poseidon2-air",
+ "p3-symmetric",
+ "p3-util",
+ "pcs",
+ "pest",
+ "pest_derive",
+ "rand",
+ "rayon",
+ "sumcheck",
+ "tracing",
+ "utils",
+ "vm_air",
+ "whir-p3",
+ "witness_generation",
+ "xmss",
+]
+
+[[package]]
+name = "lean_vm"
+version = "0.1.0"
+dependencies = [
+ "air",
+ "colored",
+ "lookup",
+ "p3-air",
+ "p3-challenger",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-matrix",
+ "p3-poseidon2",
+ "p3-poseidon2-air",
+ "p3-symmetric",
+ "p3-util",
+ "pcs",
+ "pest",
+ "pest_derive",
+ "rand",
+ "rayon",
+ "sumcheck",
+ "thiserror",
+ "tracing",
+ "utils",
+ "whir-p3",
+ "xmss",
+]
 
 [[package]]
 name = "libc"
@@ -793,7 +853,9 @@ name = "rec_aggregation"
 version = "0.1.0"
 dependencies = [
  "air",
- "compiler",
+ "lean_compiler",
+ "lean_prover",
+ "lean_vm",
  "lookup",
  "p3-air",
  "p3-challenger",
@@ -810,10 +872,8 @@ dependencies = [
  "sumcheck",
  "tracing",
  "utils",
- "vm",
  "whir-p3",
  "xmss",
- "zk_vm",
 ]
 
 [[package]]
@@ -835,18 +895,28 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
 name = "serde"
-version = "1.0.219"
+version = "1.0.225"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
+checksum = "fd6c24dee235d0da097043389623fb913daddf92c76e9f5a1db88607a0bcbd1d"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.225"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "659356f9a0cb1e529b24c01e43ad2bdf520ec4ceaf83047b83ddcc2251f96383"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.219"
+version = "1.0.225"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0276cf7f2c73365f7157c8123c21cd9a50fbbd844757af28ca1f5925fc2a00"
+checksum = "0ea936adf78b1f766949a4977b91d2f5595825bd6ec079aa9543ad2685fc4516"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1087,11 +1157,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "vm"
+name = "vm_air"
 version = "0.1.0"
 dependencies = [
  "air",
- "colored",
+ "lean_compiler",
+ "lean_vm",
  "lookup",
  "p3-air",
  "p3-challenger",
@@ -1108,27 +1179,27 @@ dependencies = [
  "rand",
  "rayon",
  "sumcheck",
- "thiserror",
  "tracing",
  "utils",
  "whir-p3",
+ "witness_generation",
  "xmss",
 ]
 
 [[package]]
 name = "wasi"
-version = "0.14.5+wasi-0.2.4"
+version = "0.14.7+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4494f6290a82f5fe584817a676a34b9d6763e8d9d18204009fb31dceca98fd4"
+checksum = "883478de20367e224c0090af9cf5f9fa85bed63a95c1abf3afc5c083ebc06e8c"
 dependencies = [
  "wasip2",
 ]
 
 [[package]]
 name = "wasip2"
-version = "1.0.0+wasi-0.2.4"
+version = "1.0.1+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03fa2761397e5bd52002cd7e73110c71af2109aca4e521a9f40473fe685b0a24"
+checksum = "0562428422c63773dad2c345a1882263bbf4d65cf3f42e90921f787ef5ad58e7"
 dependencies = [
  "wit-bindgen",
 ]
@@ -1136,7 +1207,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#298a477f6984c0610c8183a8fa4a20bae8f01fc9"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#6387b9157fee1f8994b4f4d7494de5c3e22e238e"
 dependencies = [
  "clap",
  "itertools",
@@ -1368,9 +1439,38 @@ checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
 
 [[package]]
 name = "wit-bindgen"
-version = "0.45.1"
+version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c573471f125075647d03df72e026074b7203790d41351cd6edc96f46bcccd36"
+checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
+
+[[package]]
+name = "witness_generation"
+version = "0.1.0"
+dependencies = [
+ "air",
+ "lean_compiler",
+ "lean_vm",
+ "lookup",
+ "p3-air",
+ "p3-challenger",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-matrix",
+ "p3-poseidon2",
+ "p3-poseidon2-air",
+ "p3-symmetric",
+ "p3-util",
+ "pcs",
+ "pest",
+ "pest_derive",
+ "rand",
+ "rayon",
+ "sumcheck",
+ "tracing",
+ "utils",
+ "whir-p3",
+ "xmss",
+]
 
 [[package]]
 name = "xmss"
@@ -1401,94 +1501,4 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "zk_vm"
-version = "0.1.0"
-dependencies = [
- "air",
- "compiler",
- "lookup",
- "p3-air",
- "p3-challenger",
- "p3-field",
- "p3-koala-bear",
- "p3-matrix",
- "p3-poseidon2",
- "p3-poseidon2-air",
- "p3-symmetric",
- "p3-util",
- "pcs",
- "pest",
- "pest_derive",
- "rand",
- "rayon",
- "sumcheck",
- "tracing",
- "utils",
- "vm",
- "whir-p3",
- "xmss",
- "zk_vm_air",
- "zk_vm_trace",
-]
-
-[[package]]
-name = "zk_vm_air"
-version = "0.1.0"
-dependencies = [
- "air",
- "compiler",
- "lookup",
- "p3-air",
- "p3-challenger",
- "p3-field",
- "p3-koala-bear",
- "p3-matrix",
- "p3-poseidon2",
- "p3-poseidon2-air",
- "p3-symmetric",
- "p3-util",
- "pcs",
- "pest",
- "pest_derive",
- "rand",
- "rayon",
- "sumcheck",
- "tracing",
- "utils",
- "vm",
- "whir-p3",
- "xmss",
- "zk_vm_trace",
-]
-
-[[package]]
-name = "zk_vm_trace"
-version = "0.1.0"
-dependencies = [
- "air",
- "compiler",
- "lookup",
- "p3-air",
- "p3-challenger",
- "p3-field",
- "p3-koala-bear",
- "p3-matrix",
- "p3-poseidon2",
- "p3-poseidon2-air",
- "p3-symmetric",
- "p3-util",
- "pcs",
- "pest",
- "pest_derive",
- "rand",
- "rayon",
- "sumcheck",
- "tracing",
- "utils",
- "vm",
- "whir-p3",
- "xmss",
 ]

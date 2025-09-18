@@ -9,12 +9,10 @@ use p3_field::ExtensionField;
 use p3_uni_stark::SymbolicAirBuilder;
 
 mod prove;
-pub use prove::*;
 pub mod table;
 mod uni_skip_utils;
 mod utils;
 mod verify;
-pub use verify::*;
 pub mod witness;
 
 #[cfg(test)]

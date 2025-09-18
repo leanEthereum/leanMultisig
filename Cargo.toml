@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["crates/*", "crates/zk_vm/zk_vm_trace", "crates/zk_vm/zk_vm_air"]
+members = ["crates/*", "crates/lean_prover/vm_air", "crates/lean_prover/witness_generation"]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -43,15 +43,15 @@ cast_sign_loss = "allow"
 air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
 utils = { path = "crates/utils" }
-vm = { path = "crates/vm" }
+lean_vm = { path = "crates/lean_vm" }
 xmss = { path = "crates/xmss" }
 pcs = { path = "crates/pcs" }
 lookup = { path = "crates/lookup" }
-compiler = { path = "crates/compiler" }
-zk_vm = { path = "crates/zk_vm" }
+lean_compiler = { path = "crates/lean_compiler" }
+lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
-zk_vm_trace = { path = "crates/zk_vm/zk_vm_trace" }
-zk_vm_air = { path = "crates/zk_vm/zk_vm_air" }
+witness_generation = { path = "crates/lean_prover/witness_generation" }
+vm_air = { path = "crates/lean_prover/vm_air" }
 
 # External
 thiserror = "2.0"

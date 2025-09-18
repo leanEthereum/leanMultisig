@@ -16,243 +16,92 @@ use crate::SumcheckComputation;
 use crate::SumcheckComputationPacked;
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove<'a, EF, SC, SCP>(
-    skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
-    multilinears: impl Into<MleGroup<'a, EF>>,
+pub fn prove<'a, EF, SC, SCP, M: Into<MleGroup<'a, EF>>>(
+    mut skip: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
+    multilinears: M,
     computation: &SC,
     computation_packed: &SCP,
     batching_scalars: &[EF],
-    eq_factor: Option<(Vec<EF>, Option<Mle<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
-    is_zerofier: bool,
+    mut eq_factor: Option<(Vec<EF>, Option<Mle<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    mut is_zerofier: bool,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    sum: EF,
-    missing_mul_factor: Option<EF>,
+    mut sums: EF,
+    mut missing_mul_factors: Option<EF>,
 ) -> (MultilinearPoint<EF>, Vec<EF>, EF)
 where
     EF: ExtensionField<PF<EF>>,
     SC: SumcheckComputation<PF<EF>, EF> + SumcheckComputation<EF, EF>,
     SCP: SumcheckComputationPacked<EF>,
 {
-    let (challenges, mut final_folds, mut sum) = prove_in_parallel_1(
-        vec![skips],
-        vec![multilinears],
-        vec![computation],
-        vec![computation_packed],
-        vec![batching_scalars],
-        vec![eq_factor],
-        vec![is_zerofier],
-        prover_state,
-        vec![sum],
-        vec![missing_mul_factor],
-        true,
-    );
-
-    (challenges, final_folds.pop().unwrap(), sum.pop().unwrap())
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn prove_in_parallel_1<'a, EF, SC, SCP, M: Into<MleGroup<'a, EF>>>(
-    skips: Vec<usize>, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
-    multilinears: Vec<M>,
-    computations: Vec<&SC>,
-    computations_packed: Vec<&SCP>,
-    batching_scalars: Vec<&[EF]>,
-    eq_factors: Vec<Option<(Vec<EF>, Option<Mle<EF>>)>>, // (a, b, c ...), eq_poly(b, c, ...)
-    is_zerofier: Vec<bool>,
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    sums: Vec<EF>,
-    missing_mul_factors: Vec<Option<EF>>,
-    share_initial_challenges: bool, // otherwise, share the final challenges
-) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, Vec<EF>)
-where
-    EF: ExtensionField<PF<EF>>,
-    SC: SumcheckComputation<PF<EF>, EF> + SumcheckComputation<EF, EF>,
-    SCP: SumcheckComputationPacked<EF>,
-{
-    prove_in_parallel_3::<EF, SC, SC, SC, SCP, SCP, SCP, M>(
-        skips,
-        multilinears,
-        computations,
-        vec![],
-        vec![],
-        computations_packed,
-        vec![],
-        vec![],
-        batching_scalars,
-        eq_factors,
-        is_zerofier,
-        prover_state,
-        sums,
-        missing_mul_factors,
-        share_initial_challenges,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn prove_in_parallel_3<'a, EF, SC1, SC2, SC3, SCP1, SCP2, SCP3, M: Into<MleGroup<'a, EF>>>(
-    mut skips: Vec<usize>, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
-    multilinears: Vec<M>,
-    computations_1: Vec<&SC1>,
-    computations_2: Vec<&SC2>,
-    computations_3: Vec<&SC3>,
-    computations_packed_1: Vec<&SCP1>,
-    computations_packed_2: Vec<&SCP2>,
-    computations_packed_3: Vec<&SCP3>,
-    batching_scalars: Vec<&[EF]>,
-    mut eq_factors: Vec<Option<(Vec<EF>, Option<Mle<EF>>)>>, // (a, b, c ...), eq_poly(b, c, ...)
-    mut is_zerofier: Vec<bool>,
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    mut sums: Vec<EF>,
-    mut missing_mul_factors: Vec<Option<EF>>,
-    share_initial_challenges: bool, // otherwise, share the final challenges
-) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, Vec<EF>)
-where
-    EF: ExtensionField<PF<EF>>,
-    SC1: SumcheckComputation<PF<EF>, EF> + SumcheckComputation<EF, EF>,
-    SC2: SumcheckComputation<PF<EF>, EF> + SumcheckComputation<EF, EF>,
-    SC3: SumcheckComputation<PF<EF>, EF> + SumcheckComputation<EF, EF>,
-    SCP1: SumcheckComputationPacked<EF>,
-    SCP2: SumcheckComputationPacked<EF>,
-    SCP3: SumcheckComputationPacked<EF>,
-{
-    let n_sumchecks = multilinears.len();
-    assert_eq!(n_sumchecks, skips.len());
-    assert_eq!(
-        n_sumchecks,
-        computations_1.len() + computations_2.len() + computations_3.len()
-    );
-    assert_eq!(n_sumchecks, batching_scalars.len());
-    assert_eq!(n_sumchecks, eq_factors.len());
-    assert_eq!(n_sumchecks, is_zerofier.len());
-    assert_eq!(n_sumchecks, sums.len());
-    assert_eq!(n_sumchecks, missing_mul_factors.len());
-
-    let mut multilinears: Vec<MleGroup<'a, EF>> =
-        multilinears.into_iter().map(Into::into).collect();
-    let mut eq_factors: Vec<Option<(Vec<EF>, Mle<EF>)>> = (0..n_sumchecks)
-        .map(|i| {
-            eq_factors[i].take().map(|(eq_point, eq_mle)| {
-                let eq_mle = eq_mle.unwrap_or_else(|| {
-                    let eval_eq_ext = eval_eq(&eq_point[1..]);
-                    if multilinears[i].by_ref().is_packed() {
-                        Mle::ExtensionPacked(pack_extension(&eval_eq_ext))
-                    } else {
-                        Mle::Extension(eval_eq_ext)
-                    }
-                });
-                (eq_point, eq_mle)
-            })
-        })
-        .collect();
-    let mut n_vars: Vec<usize> = multilinears.iter().map(|m| m.by_ref().n_vars()).collect();
-    for i in 0..n_sumchecks {
-        if let Some((eq_point, eq_mle)) = &eq_factors[i] {
-            assert_eq!(eq_point.len(), n_vars[i] - skips[i] + 1);
-            assert_eq!(eq_mle.n_vars(), eq_point.len() - 1);
-            assert_eq!(eq_mle.is_packed(), multilinears[i].by_ref().is_packed());
-        }
+    let mut multilinears: MleGroup<'a, EF> = multilinears.into();
+    let mut eq_factor: Option<(Vec<EF>, Mle<EF>)> = eq_factor.take().map(|(eq_point, eq_mle)| {
+        let eq_mle = eq_mle.unwrap_or_else(|| {
+            let eval_eq_ext = eval_eq(&eq_point[1..]);
+            if multilinears.by_ref().is_packed() {
+                Mle::ExtensionPacked(pack_extension(&eval_eq_ext))
+            } else {
+                Mle::Extension(eval_eq_ext)
+            }
+        });
+        (eq_point, eq_mle)
+    });
+    let mut n_vars = multilinears.by_ref().n_vars();
+    if let Some((eq_point, eq_mle)) = &eq_factor {
+        assert_eq!(eq_point.len(), n_vars - skip + 1);
+        assert_eq!(eq_mle.n_vars(), eq_point.len() - 1);
+        assert_eq!(eq_mle.is_packed(), multilinears.by_ref().is_packed());
     }
 
-    let n_rounds: Vec<usize> = (0..n_sumchecks).map(|i| n_vars[i] - skips[i] + 1).collect();
-    let max_n_rounds = Iterator::max(n_rounds.iter()).copied().unwrap();
+    let n_rounds = n_vars - skip + 1;
 
     let mut challenges = Vec::new();
-    for round in 0..max_n_rounds {
-        let concerned_sumchecks: Vec<usize> = if share_initial_challenges {
-            (0..n_sumchecks).filter(|&i| n_rounds[i] > round).collect()
-        } else {
-            let remaining_rounds = max_n_rounds - round;
-            (0..n_sumchecks)
-                .filter(|&i| n_rounds[i] >= remaining_rounds)
-                .collect()
-        };
+    for _ in 0..n_rounds {
         // If Packing is enabled, and there are too little variables, we unpack everything:
-        for &i in &concerned_sumchecks {
-            if multilinears[i].by_ref().is_packed() && n_vars[i] <= 1 + packing_log_width::<EF>() {
-                // unpack
-                multilinears[i] = multilinears[i].by_ref().unpack().into();
-                if let Some((_, eq_mle)) = &mut eq_factors[i] {
-                    *eq_mle =
-                        Mle::Extension(unpack_extension(eq_mle.as_extension_packed().unwrap()));
-                }
+        if multilinears.by_ref().is_packed() && n_vars <= 1 + packing_log_width::<EF>() {
+            // unpack
+            multilinears = multilinears.by_ref().unpack().into();
+            if let Some((_, eq_mle)) = &mut eq_factor {
+                *eq_mle = Mle::Extension(unpack_extension(eq_mle.as_extension_packed().unwrap()));
             }
         }
 
-        let mut ps = vec![WhirDensePolynomial::default(); n_sumchecks];
-        for &i in &concerned_sumchecks {
-            if i < computations_1.len() {
-                ps[i] = compute_and_send_polynomial(
-                    skips[i],
-                    &multilinears[i],
-                    computations_1[i],
-                    computations_packed_1[i],
-                    &eq_factors[i],
-                    batching_scalars[i],
-                    is_zerofier[i],
-                    prover_state,
-                    sums[i],
-                    missing_mul_factors[i],
-                );
-            } else if i < computations_1.len() + computations_2.len() {
-                ps[i] = compute_and_send_polynomial(
-                    skips[i],
-                    &multilinears[i],
-                    computations_2[i - computations_1.len()],
-                    computations_packed_2[i - computations_1.len()],
-                    &eq_factors[i],
-                    batching_scalars[i],
-                    is_zerofier[i],
-                    prover_state,
-                    sums[i],
-                    missing_mul_factors[i],
-                );
-            } else {
-                ps[i] = compute_and_send_polynomial(
-                    skips[i],
-                    &multilinears[i],
-                    computations_3[i - computations_1.len() - computations_2.len()],
-                    computations_packed_3[i - computations_1.len() - computations_2.len()],
-                    &eq_factors[i],
-                    batching_scalars[i],
-                    is_zerofier[i],
-                    prover_state,
-                    sums[i],
-                    missing_mul_factors[i],
-                );
-            }
-        }
-
+        let ps = compute_and_send_polynomial(
+            skip,
+            &multilinears,
+            computation,
+            computation_packed,
+            &eq_factor,
+            batching_scalars,
+            is_zerofier,
+            prover_state,
+            sums,
+            missing_mul_factors,
+        );
         let challenge = prover_state.sample();
         challenges.push(challenge);
 
-        for &i in &concerned_sumchecks {
-            on_challenge_received(
-                skips[i],
-                &mut multilinears[i],
-                &mut n_vars[i],
-                &mut eq_factors[i],
-                &mut sums[i],
-                &mut missing_mul_factors[i],
-                challenge,
-                &ps[i],
-            );
-            skips[i] = 1;
-            is_zerofier[i] = false;
-        }
+        on_challenge_received(
+            skip,
+            &mut multilinears,
+            &mut n_vars,
+            &mut eq_factor,
+            &mut sums,
+            &mut missing_mul_factors,
+            challenge,
+            &ps,
+        );
+        skip = 1;
+        is_zerofier = false;
     }
 
-    let final_folds = (0..n_sumchecks)
-        .map(|i| {
-            multilinears[i]
-                .by_ref()
-                .as_extension()
-                .unwrap()
-                .iter()
-                .map(|m| {
-                    assert_eq!(m.len(), 1);
-                    m[0]
-                })
-                .collect::<Vec<_>>()
+    let final_folds = multilinears
+        .by_ref()
+        .as_extension()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            assert_eq!(m.len(), 1);
+            m[0]
         })
         .collect::<Vec<_>>();
 

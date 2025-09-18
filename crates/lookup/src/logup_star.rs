@@ -58,7 +58,7 @@ where
 
     let (sc_point, inner_evals, prod) =
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
-            sumcheck::prove::<EF, _, _>(
+            sumcheck::prove::<EF, _, _, _>(
                 1,
                 MleGroupRef::ExtensionPacked(vec![&table_embedded_packed, &pushforward_packed]),
                 &ProductComputation,

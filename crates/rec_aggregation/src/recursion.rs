@@ -2,7 +2,11 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::time::Instant;
 
-use compiler::compile_program;
+use lean_compiler::compile_program;
+use lean_prover::build_batch_pcs;
+use lean_prover::prove_execution::prove_execution;
+use lean_prover::verify_execution::verify_execution;
+use lean_vm::*;
 use p3_field::BasedVectorSpace;
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
@@ -13,7 +17,6 @@ use utils::{
     MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
     build_verifier_state,
 };
-use vm::*;
 use whir_p3::{
     dft::EvalsDft,
     poly::{evals::EvaluationsList, multilinear::*},
@@ -25,9 +28,6 @@ use whir_p3::{
         verifier::*,
     },
 };
-use zk_vm::build_batch_pcs;
-use zk_vm::prove_execution::prove_execution;
-use zk_vm::verify_execution::verify_execution;
 
 #[test]
 pub fn test_whir_recursion() {

@@ -1,5 +1,5 @@
 [package]
-name = "rec_aggregation"
+name = "lean_compiler"
 version.workspace = true
 edition.workspace = true
 
@@ -7,6 +7,8 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
+pest.workspace = true
+pest_derive.workspace = true
 utils.workspace = true
 p3-field.workspace = true
 xmss.workspace = true
@@ -27,5 +29,3 @@ p3-poseidon2-air.workspace = true
 lookup.workspace = true
 sumcheck.workspace = true
 lean_vm.workspace = true
-lean_compiler.workspace = true
-lean_prover.workspace = true

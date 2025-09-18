@@ -173,7 +173,7 @@ where
             vec![u0_folded[0], u1_folded[0], u2_folded[0], u3_folded[0]],
         )
     } else {
-        let (mut sc_point, inner_evals, _) = sumcheck::prove::<EF, _, _>(
+        let (mut sc_point, inner_evals, _) = sumcheck::prove::<EF, _, _, _>(
             1,
             MleGroupRef::Extension(vec![u0_folded, u1_folded, u2_folded, u3_folded]),
             &GKRQuotientComputation { u4_const, u5_const },
@@ -297,7 +297,7 @@ where
 
     eq_poly_packed.resize(eq_poly_packed.len() / 2, Default::default());
 
-    let (mut sc_point, quarter_evals, _) = sumcheck::prove::<EF, _, _>(
+    let (mut sc_point, quarter_evals, _) = sumcheck::prove::<EF, _, _, _>(
         1,
         MleGroupRef::ExtensionPacked(vec![
             u0_folded_packed,

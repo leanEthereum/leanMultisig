@@ -6,8 +6,8 @@ pub fn init_tracing() {
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
 
-    Registry::default()
+    let _ = Registry::default()
         .with(env_filter)
         .with(ForestLayer::default())
-        .init();
+        .try_init();
 }
