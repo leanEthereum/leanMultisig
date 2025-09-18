@@ -306,6 +306,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn sumcheck_compute<SC, SCP>(
         &self,
         zs: &[usize],
@@ -469,6 +470,7 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn sumcheck_compute_not_packed<
     EF: ExtensionField<PF<EF>> + ExtensionField<IF>,
     IF: ExtensionField<PF<EF>>,

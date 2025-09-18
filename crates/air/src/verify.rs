@@ -185,6 +185,7 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     Ok(evaluations_remaining_to_verify)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_columns: usize,
