@@ -528,10 +528,8 @@ fn execute_bytecode_helper(
                 let slice_0 = memory.get_continuous_slice_of_ef_elements(ptr_arg_0, *size)?;
                 let slice_1 = memory.get_continuous_slice_of_ef_elements(ptr_arg_1, *size)?;
 
-                let dot_product = dot_product::<EF, _, _>(
-                    slice_0.iter().copied(),
-                    slice_1.iter().copied(),
-                );
+                let dot_product =
+                    dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
                 memory.set_ef_element(ptr_res, dot_product)?;
 
                 if final_execution {
