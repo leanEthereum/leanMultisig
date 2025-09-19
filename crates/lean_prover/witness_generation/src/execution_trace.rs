@@ -267,12 +267,18 @@ pub fn get_execution_trace(
     }
 
     // repeat the last row to get to a power of two
-    for j in 0..N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS {
-        let last_value = trace[j][n_cycles - 1];
-        for i in n_cycles..(1 << log_n_cycles_rounded_up) {
-            trace[j][i] = last_value;
-        }
-    }
+    let padded_len = 1 << log_n_cycles_rounded_up;
+    trace
+        .iter_mut()
+        .take(N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS)
+        .for_each(|column| {
+            let last_value = column[n_cycles - 1];
+            column
+                .iter_mut()
+                .take(padded_len)
+                .skip(n_cycles)
+                .for_each(|value| *value = last_value);
+        });
 
     let memory = memory
         .0

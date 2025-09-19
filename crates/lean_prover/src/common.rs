@@ -12,6 +12,7 @@ use whir_p3::poly::{evals::fold_multilinear, multilinear::MultilinearPoint};
 use crate::*;
 use lean_vm::*;
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_base_dims(
     n_cycles: usize,
     log_public_memory: usize,

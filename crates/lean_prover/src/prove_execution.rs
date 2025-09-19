@@ -833,12 +833,11 @@ pub fn prove_execution(
         let index_a: F = dot_product_columns[2][i].as_base().unwrap();
         let index_b: F = dot_product_columns[3][i].as_base().unwrap();
         let index_res: F = dot_product_columns[4][i].as_base().unwrap();
-        for j in 0..DIMENSION {
-            dot_product_indexes_spread[j][i] = index_a + F::from_usize(j);
-            dot_product_indexes_spread[j][i + dot_product_table_length] =
-                index_b + F::from_usize(j);
-            dot_product_indexes_spread[j][i + 2 * dot_product_table_length] =
-                index_res + F::from_usize(j);
+        for (j, slice) in dot_product_indexes_spread.iter_mut().enumerate() {
+            let offset = F::from_usize(j);
+            slice[i] = index_a + offset;
+            slice[i + dot_product_table_length] = index_b + offset;
+            slice[i + 2 * dot_product_table_length] = index_res + offset;
         }
     }
     let dot_product_values_spread = dot_product_indexes_spread
@@ -1020,7 +1019,7 @@ pub fn prove_execution(
     let packed_pcs_witness_extension = packed_pcs_commit(
         &pcs.pcs_b(
             log2_strict_usize(packed_pcs_witness_base.packed_polynomial.len()),
-            num_packed_vars_for_dims::<EF, EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
+            num_packed_vars_for_dims::<EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
         ),
         &extension_pols,
         &extension_dims,
