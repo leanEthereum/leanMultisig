@@ -86,7 +86,7 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
             table.n_columns(),
             univariate_skips,
             &inner_sums,
-            &column_groups,
+            column_groups,
             &Evaluation {
                 point: MultilinearPoint(
                     outer_statement.point[1..log_length - univariate_skips + 1].to_vec(),
@@ -206,9 +206,7 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     let mut column_scalars = vec![];
     let mut index = 0;
     for group in column_groups {
-        for i in index..index + group.len() {
-            column_scalars.push(poly_eq_batching_scalars[i]);
-        }
+        column_scalars.extend_from_slice(&poly_eq_batching_scalars[index..index + group.len()]);
         index += max_columns_per_group.next_power_of_two();
     }
 
