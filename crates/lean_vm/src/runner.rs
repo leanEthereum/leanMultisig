@@ -157,15 +157,15 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory[PUBLIC_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
 
     // "zero" vector
-    for i in ZERO_VEC_PTR * VECTOR_LEN..(ZERO_VEC_PTR + 2) * VECTOR_LEN {
-        public_memory[i] = F::ZERO;
-    }
+    let zero_start = ZERO_VEC_PTR * VECTOR_LEN;
+    let zero_end = (ZERO_VEC_PTR + 2) * VECTOR_LEN;
+    public_memory[zero_start..zero_end].fill(F::ZERO);
 
     // "one" vector
     public_memory[ONE_VEC_PTR * VECTOR_LEN] = F::ONE;
-    for i in ONE_VEC_PTR * VECTOR_LEN + 1..(ONE_VEC_PTR + 1) * VECTOR_LEN {
-        public_memory[i] = F::ZERO;
-    }
+    let one_zero_start = ONE_VEC_PTR * VECTOR_LEN + 1;
+    let one_zero_end = (ONE_VEC_PTR + 1) * VECTOR_LEN;
+    public_memory[one_zero_start..one_zero_end].fill(F::ZERO);
 
     public_memory
         [POSEIDON_16_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_16_NULL_HASH_PTR + 2) * VECTOR_LEN]
@@ -176,6 +176,7 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_bytecode_helper(
     bytecode: &Bytecode,
     public_input: &[F],

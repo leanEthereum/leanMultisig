@@ -51,8 +51,8 @@ impl Memory {
     pub fn get_ef_element(&self, index: usize) -> Result<EF, RunnerError> {
         // index: non vectorized pointer
         let mut coeffs = [F::ZERO; DIMENSION];
-        for i in 0..DIMENSION {
-            coeffs[i] = self.get(index + i)?;
+        for (offset, coeff) in coeffs.iter_mut().enumerate() {
+            *coeff = self.get(index + offset)?;
         }
         Ok(EF::from_basis_coefficients_slice(&coeffs).unwrap())
     }
