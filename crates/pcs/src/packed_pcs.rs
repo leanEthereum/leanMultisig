@@ -345,8 +345,7 @@ pub fn packed_pcs_global_statements_for_prover<
 
                         if initial_booleans.len() >= offset_in_original_booleans.len() {
                             let offset_slice = offset_in_original_booleans.as_slice();
-                            if &initial_booleans[..missing_vars] != offset_slice
-                            {
+                            if &initial_booleans[..missing_vars] != offset_slice {
                                 // this chunk is not concerned by this sparse evaluation
                                 return (None, EF::ZERO);
                             } else {
@@ -482,8 +481,7 @@ pub fn packed_pcs_global_statements_for_verifier<
 
                     if initial_booleans.len() >= offset_in_original_booleans.len() {
                         let offset_slice = offset_in_original_booleans.as_slice();
-                        if &initial_booleans[..missing_vars] != offset_slice
-                        {
+                        if &initial_booleans[..missing_vars] != offset_slice {
                             // this chunk is not concerned by this sparse evaluation
                             sub_values.push(EF::ZERO);
                         } else {

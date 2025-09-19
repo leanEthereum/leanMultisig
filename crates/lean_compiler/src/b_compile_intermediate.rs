@@ -623,7 +623,9 @@ fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(
     declared: &BTreeSet<Var>,
 ) -> Result<(), String> {
     for voc in vocs {
-        if let SimpleExpr::Var(v) = voc.borrow() && !declared.contains(v) {
+        if let SimpleExpr::Var(v) = voc.borrow()
+            && !declared.contains(v)
+        {
             return Err(format!("Variable {v} not declared"));
         }
     }

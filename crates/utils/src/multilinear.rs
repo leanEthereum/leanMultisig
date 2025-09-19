@@ -195,12 +195,10 @@ pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) 
         let main_bit = limit >> (n_vars - 1);
         if main_bit == 1 {
             // limit is at the right half
-            point[0]
-                * multilinear_eval_constants_at_right(limit - (1 << (n_vars - 1)), &point[1..])
+            point[0] * multilinear_eval_constants_at_right(limit - (1 << (n_vars - 1)), &point[1..])
         } else {
             // limit is at left half
-            point[0]
-                + (F::ONE - point[0]) * multilinear_eval_constants_at_right(limit, &point[1..])
+            point[0] + (F::ONE - point[0]) * multilinear_eval_constants_at_right(limit, &point[1..])
         }
     }
 }
@@ -284,8 +282,7 @@ mod tests {
         let n_point_vars = 7;
         let mut rng = StdRng::seed_from_u64(0);
         let mut pol = F::zero_vec(1 << n_point_vars);
-        pol
-            .iter_mut()
+        pol.iter_mut()
             .take(1 << n_vars)
             .for_each(|coeff| *coeff = rng.random());
         let point = (0..n_point_vars).map(|_| rng.random()).collect::<Vec<EF>>();
@@ -303,8 +300,7 @@ mod tests {
         for limit in [0, 1, 2, 45, 74, 451, 741, 1022, 1023] {
             let eval = multilinear_eval_constants_at_right(limit, &point);
             let mut pol = F::zero_vec(1 << n_vars);
-            pol
-                .iter_mut()
+            pol.iter_mut()
                 .take(1 << n_vars)
                 .skip(limit)
                 .for_each(|coeff| *coeff = F::ONE);
