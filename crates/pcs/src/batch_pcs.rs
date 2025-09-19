@@ -23,6 +23,7 @@ pub trait BatchPCS<FA: Field, FB: Field, EF: ExtensionField<FA> + ExtensionField
 
     fn pcs_b(&self, num_variables_a: usize, num_variables_b: usize) -> Self::PcsB;
 
+    #[allow(clippy::too_many_arguments)]
     fn batch_open(
         &self,
         dft: &EvalsDft<PF<EF>>,

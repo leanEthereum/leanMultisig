@@ -42,7 +42,7 @@ impl fmt::Display for Poseidon2Benchmark {
             1 << self.log_n_poseidons_16,
             1 << self.log_n_poseidons_24,
             self.prover_time.as_millis() as f64 / 1000.0,
-            (((1 << self.log_n_poseidons_16) + (1 << self.log_n_poseidons_24)) as f64
+            (f64::from((1 << self.log_n_poseidons_16) + (1 << self.log_n_poseidons_24))
                 / self.prover_time.as_secs_f64())
             .round() as usize
         )?;
@@ -55,6 +55,9 @@ impl fmt::Display for Poseidon2Benchmark {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::default_trait_access)]
 pub fn prove_poseidon2(
     log_n_poseidons_16: usize,
     log_n_poseidons_24: usize,
@@ -118,8 +121,8 @@ pub fn prove_poseidon2(
                 .to_vec()
         })
         .collect::<Vec<_>>();
-    let column_groups_16 = vec![0..n_columns_16];
-    let column_groups_24 = vec![0..n_columns_24];
+    let column_groups_16 = std::iter::once(0..n_columns_16).collect::<Vec<_>>();
+    let column_groups_24 = std::iter::once(0..n_columns_24).collect::<Vec<_>>();
     let witness_16 = AirWitness::new(&witness_columns_16, &column_groups_16);
     let witness_24 = AirWitness::new(&witness_columns_24, &column_groups_24);
 
