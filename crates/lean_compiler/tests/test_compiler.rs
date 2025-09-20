@@ -4,6 +4,26 @@ use p3_symmetric::Permutation;
 use utils::{get_poseidon16, get_poseidon24};
 
 #[test]
+#[should_panic]
+fn test_duplicate_name() {
+    let program = r#"
+    fn a() -> 1 {
+        return 0;
+    }
+
+    fn a() -> 1 {
+        return 1;
+    }
+
+    fn main() {
+        a();
+        return;
+    }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
 fn test_fibonacci_program() {
     // a program to check the value of the 30th Fibonacci number (832040)
     let program = r#"
