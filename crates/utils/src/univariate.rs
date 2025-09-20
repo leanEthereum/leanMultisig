@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 type CacheKey = (TypeId, usize);
+type CacheValue = Arc<OnceLock<Arc<dyn Any + Send + Sync>>>;
+type SelectorsCache = Mutex<HashMap<CacheKey, CacheValue>>;
 
-static SELECTORS_CACHE: OnceLock<
-    Mutex<HashMap<CacheKey, Arc<OnceLock<Arc<dyn Any + Send + Sync>>>>>,
-> = OnceLock::new();
+static SELECTORS_CACHE: OnceLock<SelectorsCache> = OnceLock::new();
 
 pub fn univariate_selectors<F: Field>(n: usize) -> Arc<Vec<DensePolynomial<F>>> {
     let key = (TypeId::of::<F>(), n);

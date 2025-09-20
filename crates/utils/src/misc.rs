@@ -30,25 +30,25 @@ pub const fn diff_to_next_power_of_two(n: usize) -> usize {
 }
 
 pub fn left_mut<A>(slice: &mut [A]) -> &mut [A] {
-    assert!(slice.len() % 2 == 0);
+    assert!(slice.len().is_multiple_of(2));
     let mid = slice.len() / 2;
     &mut slice[..mid]
 }
 
 pub fn right_mut<A>(slice: &mut [A]) -> &mut [A] {
-    assert!(slice.len() % 2 == 0);
+    assert!(slice.len().is_multiple_of(2));
     let mid = slice.len() / 2;
     &mut slice[mid..]
 }
 
 pub fn left_ref<A>(slice: &[A]) -> &[A] {
-    assert!(slice.len() % 2 == 0);
+    assert!(slice.len().is_multiple_of(2));
     let mid = slice.len() / 2;
     &slice[..mid]
 }
 
 pub fn right_ref<A>(slice: &[A]) -> &[A] {
-    assert!(slice.len() % 2 == 0);
+    assert!(slice.len().is_multiple_of(2));
     let mid = slice.len() / 2;
     &slice[mid..]
 }
