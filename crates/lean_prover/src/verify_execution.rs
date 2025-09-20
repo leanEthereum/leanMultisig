@@ -72,14 +72,14 @@ pub fn verify_execution(
 
     let public_memory = build_public_memory(public_input);
 
-    if log2_ceil_usize(private_memory_len + private_memory_len) > MAX_MEMORY_SIZE {
-        return Err(ProofError::InvalidProof);
-    }
-
     let log_public_memory = log2_strict_usize(public_memory.len());
     let log_memory = log2_ceil_usize(public_memory.len() + private_memory_len);
     let log_n_p16 = log2_ceil_usize(n_poseidons_16);
     let log_n_p24 = log2_ceil_usize(n_poseidons_24);
+
+    if log_memory > MAX_LOG_MEMORY_SIZE || log_memory < MIN_LOG_MEMORY_SIZE {
+        return Err(ProofError::InvalidProof);
+    }
 
     let table_dot_products_log_n_rows = log2_ceil_usize(n_rows_table_dot_products);
     let dot_product_padding_len =

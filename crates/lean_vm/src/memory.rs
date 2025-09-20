@@ -5,10 +5,11 @@ use rayon::prelude::*;
 
 use crate::*;
 
-pub const MAX_MEMORY_SIZE: usize = 1 << 29;
+pub const MIN_LOG_MEMORY_SIZE: usize = 16;
+pub const MAX_LOG_MEMORY_SIZE: usize = 29;
 
 // For now, we restrict ourselves to executions where memory usage < 2^24 words.
-// But the VM supports theorically a memory of size MAX_MEMORY_SIZE = 2^29.
+// But the VM supports theorically a memory of size 2^29.
 pub(crate) const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
 
 #[derive(Debug, Clone, Default)]
