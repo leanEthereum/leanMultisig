@@ -45,7 +45,7 @@ jobs:
           echo "RUSTFLAGS=-Ctarget-feature=${{ matrix.features }}" >> "$GITHUB_ENV"
 
       - name: Build
-        run: cargo build --all --verbose --all-targets
+        run: cargo build --all --verbose
 
       - name: Test
         run: cargo test --all --verbose
