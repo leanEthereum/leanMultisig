@@ -1,8 +1,7 @@
-use std::{env, time::Instant};
+use std::time::{Duration, Instant};
 
 use lean_compiler::*;
 use lean_prover::whir_config_builder;
-use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
@@ -11,8 +10,13 @@ use lean_prover::{prove_execution::prove_execution, verify_execution::verify_exe
 use lean_vm::*;
 use xmss::{PhonyXmssSecretKey, V, XmssSignature};
 
-#[test]
-fn test_xmss_aggregate() {
+struct XmssBenchStats {
+    proving_time: Duration,
+    proof_size: usize,
+    verified_signatures: usize,
+}
+
+fn run_xmss_benchmark<const LOG_LIFETIME: usize>(n_public_keys: usize) -> XmssBenchStats {
     // Public input:  message_hash | all_public_keys | bitield
     // Private input: signatures = (randomness | chain_tips | merkle_path)
     let mut program_str = r#"
@@ -207,13 +211,7 @@ fn test_xmss_aggregate() {
     }
    "#.to_string();
 
-    const LOG_LIFETIME: usize = 32;
     const INV_BITFIELD_DENSITY: usize = 1; // (1 / INV_BITFIELD_DENSITY) of the bits are 1 in the bitfield
-
-    let n_public_keys: usize = env::var("NUM_XMSS_AGGREGATED")
-        .unwrap_or("100".to_string())
-        .parse()
-        .unwrap();
 
     let xmss_signature_size_padded = (V + 1 + LOG_LIFETIME) + LOG_LIFETIME.div_ceil(8);
     program_str = program_str
@@ -281,32 +279,44 @@ fn test_xmss_aggregate() {
         );
         private_input.extend(F::zero_vec(LOG_LIFETIME.next_multiple_of(8) - LOG_LIFETIME));
     }
-    if env::var("PROVE_XMSS_AGGREGATED").unwrap_or("true".to_string()) == "true" {
-        utils::init_tracing();
-        let (bytecode, function_locations) = compile_program(&program_str);
-        let time = Instant::now();
-        let (proof_data, proof_size) = prove_execution(
-            &bytecode,
-            &program_str,
-            &function_locations,
-            &public_input,
-            &private_input,
-            whir_config_builder(),
-            false,
-        );
-        let proving_time = time.elapsed();
-        verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
-        println!(
-            "\nXMSS aggregation (n_signatures = {}, lifetime = 2^{})",
-            n_public_keys / INV_BITFIELD_DENSITY,
-            LOG_LIFETIME
-        );
-        println!(
-            "Proving time: {:?}, proof size: {} KiB (not optimized)",
-            proving_time,
-            proof_size * F::bits() / (8 * 1024)
-        );
-    } else {
-        compile_and_run(&program_str, &public_input, &private_input, false);
+    let (bytecode, function_locations) = compile_program(&program_str);
+    let time = Instant::now();
+    let (proof_data, proof_size) = prove_execution(
+        &bytecode,
+        &program_str,
+        &function_locations,
+        &public_input,
+        &private_input,
+        whir_config_builder(),
+        false,
+    );
+    let proving_time = time.elapsed();
+    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+    XmssBenchStats {
+        proving_time,
+        proof_size,
+        verified_signatures: n_public_keys / INV_BITFIELD_DENSITY,
     }
+}
+
+pub fn bench_xmss(n: usize, log_lifetime: usize) -> Duration {
+    match log_lifetime {
+        32 => run_xmss_benchmark::<32>(n),
+        _ => panic!("unsupported log_lifetime {log_lifetime}"),
+    }
+    .proving_time
+}
+
+#[test]
+fn test_xmss_aggregate() {
+    let stats = run_xmss_benchmark::<32>(100);
+    println!(
+        "\nXMSS aggregation (n_signatures = {}, lifetime = 2^{})",
+        stats.verified_signatures, 32
+    );
+    println!(
+        "Proving time: {:?}, proof size: {} KiB (not optimized)",
+        stats.proving_time,
+        stats.proof_size * F::bits() / (8 * 1024)
+    );
 }
