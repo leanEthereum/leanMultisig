@@ -146,7 +146,7 @@ fn split_in_chunks<F: Field>(
     }
 }
 
-fn compute_chunks<F: Field, EF: ExtensionField<F>>(
+fn compute_chunks<F: Field>(
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
 ) -> (BTreeMap<usize, Vec<Chunk>>, usize) {
@@ -178,11 +178,11 @@ fn compute_chunks<F: Field, EF: ExtensionField<F>>(
     (chunks_decomposition, packed_n_vars)
 }
 
-pub fn num_packed_vars_for_dims<F: Field, EF: ExtensionField<F>>(
+pub fn num_packed_vars_for_dims<F: Field>(
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
 ) -> usize {
-    let (_, packed_n_vars) = compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
+    let (_, packed_n_vars) = compute_chunks::<F>(dims, log_smallest_decomposition_chunk);
     packed_n_vars
 }
 
@@ -193,7 +193,7 @@ pub struct MultiCommitmentWitness<F: Field, EF: ExtensionField<F>> {
 }
 
 #[instrument(skip_all)]
-pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, H, C>(
+pub fn packed_pcs_commit<F, EF, H, C>(
     whir_config_builder: &WhirConfigBuilder<H, C, MY_DIGEST_ELEMS>,
     polynomials: &[&[F]],
     dims: &[ColDims<F>],
@@ -202,9 +202,9 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, H, C>(
     log_smallest_decomposition_chunk: usize,
 ) -> MultiCommitmentWitness<F, EF>
 where
+    F: Field + TwoAdicField + ExtensionField<PF<EF>>,
     PF<EF>: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField + ExtensionField<PF<EF>>,
-    F: TwoAdicField + ExtensionField<PF<EF>>,
     H: MerkleHasher<EF>,
     C: MerkleCompress<EF>,
     [PF<EF>; MY_DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
@@ -221,7 +221,7 @@ where
         );
     }
     let (chunks_decomposition, packed_n_vars) =
-        compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
+        compute_chunks::<F>(dims, log_smallest_decomposition_chunk);
 
     {
         // logging
@@ -292,17 +292,16 @@ pub fn packed_pcs_global_statements_for_prover<
     // - current packing is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
 
     let (chunks_decomposition, packed_vars) =
-        compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
+        compute_chunks::<F>(dims, log_smallest_decomposition_chunk);
 
     let statements_flattened = statements_per_polynomial
         .iter()
         .enumerate()
-        .map(|(poly_index, poly_statements)| {
+        .flat_map(|(poly_index, poly_statements)| {
             poly_statements
                 .iter()
                 .map(move |statement| (poly_index, statement))
         })
-        .flatten()
         .collect::<Vec<_>>();
 
     let sub_packed_statements_and_evals_to_send = statements_flattened
@@ -311,7 +310,9 @@ pub fn packed_pcs_global_statements_for_prover<
             let dim = &dims[*poly_index];
             let pol = polynomials[*poly_index];
 
-            let chunks = &chunks_decomposition[&poly_index];
+            let chunks = chunks_decomposition
+                .get(poly_index)
+                .expect("missing chunk definition for polynomial");
             assert!(!chunks.is_empty());
             let mut sub_packed_statements = Vec::new();
             let mut evals_to_send = Vec::new();
@@ -352,14 +353,14 @@ pub fn packed_pcs_global_statements_for_prover<
 
                         if !initial_booleans.is_empty()
                             && initial_booleans.len() < offset_in_original_booleans.len()
-                            && &initial_booleans
-                                == &offset_in_original_booleans[..initial_booleans.len()]
+                            && initial_booleans
+                                == offset_in_original_booleans[..initial_booleans.len()]
                         {
                             tracing::warn!("TODO: sparse statement accroos mutiple chunks");
                         }
 
                         if initial_booleans.len() >= offset_in_original_booleans.len() {
-                            if &initial_booleans[..missing_vars] != &offset_in_original_booleans {
+                            if initial_booleans[..missing_vars] != offset_in_original_booleans {
                                 // this chunk is not concerned by this sparse evaluation
                                 return (None, EF::ZERO);
                             } else {
@@ -440,7 +441,7 @@ pub fn packed_pcs_parse_commitment<
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
 ) -> Result<WhirParsedCommitment<F, EF>, ProofError> {
-    let (_, packed_n_vars) = compute_chunks::<F, EF>(&dims, log_smallest_decomposition_chunk);
+    let (_, packed_n_vars) = compute_chunks::<F>(dims, log_smallest_decomposition_chunk);
     WhirConfig::new(whir_config_builder.clone(), packed_n_vars).parse_commitment(verifier_state)
 }
 
@@ -456,12 +457,14 @@ pub fn packed_pcs_global_statements_for_verifier<
 ) -> Result<Vec<Evaluation<EF>>, ProofError> {
     assert_eq!(dims.len(), statements_per_polynomial.len());
     let (chunks_decomposition, packed_n_vars) =
-        compute_chunks::<F, EF>(dims, log_smallest_decomposition_chunk);
+        compute_chunks::<F>(dims, log_smallest_decomposition_chunk);
     let mut packed_statements = Vec::new();
     for (poly_index, statements) in statements_per_polynomial.iter().enumerate() {
         let dim = &dims[poly_index];
         let has_public_data = dim.log_public.is_some();
-        let chunks = &chunks_decomposition[&poly_index];
+        let chunks = chunks_decomposition
+            .get(&poly_index)
+            .expect("missing chunk definition for polynomial");
         assert!(!chunks.is_empty());
         for statement in statements {
             if chunks.len() == 1 {
@@ -494,7 +497,7 @@ pub fn packed_pcs_global_statements_for_verifier<
                         to_big_endian_bits(chunk.offset_in_original >> chunk.n_vars, missing_vars);
 
                     if initial_booleans.len() >= offset_in_original_booleans.len() {
-                        if &initial_booleans[..missing_vars] != &offset_in_original_booleans {
+                        if initial_booleans[..missing_vars] != offset_in_original_booleans {
                             // this chunk is not concerned by this sparse evaluation
                             sub_values.push(EF::ZERO);
                         } else {

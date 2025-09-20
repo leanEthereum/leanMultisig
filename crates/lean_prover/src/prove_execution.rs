@@ -992,7 +992,7 @@ pub fn prove_execution(
         &second_batched_whir_config_builder::<EF, EF, _, _, _>(
             whir_config_builder.clone(),
             log2_strict_usize(packed_pcs_witness_base.packed_polynomial.len()),
-            num_packed_vars_for_dims::<EF, EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
+            num_packed_vars_for_dims::<EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
         ),
         &extension_pols,
         &extension_dims,

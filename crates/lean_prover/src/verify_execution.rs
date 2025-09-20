@@ -548,7 +548,7 @@ pub fn verify_execution(
         &second_batched_whir_config_builder::<EF, EF, _, _, _>(
             whir_config_builder.clone(),
             parsed_commitment_base.num_variables,
-            num_packed_vars_for_dims::<EF, EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
+            num_packed_vars_for_dims::<EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
         ),
         &mut verifier_state,
         &extension_dims,
