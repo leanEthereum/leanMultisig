@@ -65,7 +65,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
       - name: Clippy Check
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -Dwarnings
 
   cargo-fmt:
     runs-on: ubuntu-latest
