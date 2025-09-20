@@ -1,83 +1,83 @@
-name: Rust
+name: CI
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: rust-ci-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [ "*" ]
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 1
 
 jobs:
-  build-test-matrix:
-    name: Build & Test (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
+  build_and_test:
+    name: Build and Test
     strategy:
-      fail-fast: false
       matrix:
         include:
-          - name: x64-avx2
-            os: ubuntu-latest
-            rustflags: -C target-cpu=haswell
-            run_tests: true
-          - name: arm64-neon
-            os: ubuntu-latest-arm64
-            rustflags: -C target-feature=+neon
-            run_tests: true
+          - os: ubuntu-latest
+            features: "+avx2"
+          - os: ubuntu-latest
+            features: "+avx512f"
+          - os: ubuntu-latest-arm64
+            features: "+neon"
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
-      - name: Install nightly toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: dtolnay/rust-toolchain@stable
+        id: rs-stable
+
+      - uses: actions/cache@v4
         with:
-          toolchain: nightly
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: rust-${{ steps.rs-stable.outputs.rustc_hash }}-${{ matrix.os }}-${{ matrix.features }}-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Set flags
+        run: |
+          echo "RUSTFLAGS=-Ctarget-feature=${{ matrix.features }}" >> "$GITHUB_ENV"
+
       - name: Build
-        run: cargo build --release --all --verbose
-        env:
-          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo build --all --verbose --all-targets
+
       - name: Test
-        if: ${{ matrix.run_tests == true }}
-        run: cargo test --release --all --verbose
-        env:
-          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo test --all --verbose
 
-  cargo-clippy:
+  lint:
+    name: Formatting and Clippy
     runs-on: ubuntu-latest
-    name: Clippy
+
     steps:
       - uses: actions/checkout@v4
-      - name: Install nightly toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: nightly
           components: clippy
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-      - name: Clippy Check
-        run: cargo clippy --workspace --all-targets -- -Dwarnings
+        id: rs-stable
 
-  cargo-fmt:
-    runs-on: ubuntu-latest
-    name: Rustfmt Check
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install nightly toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
           components: rustfmt
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: rust-${{ steps.rs-stable.outputs.rustc_hash }}-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Clippy
+        run: cargo +stable clippy --all-targets -- -D warnings
+
+      - name: Format
+        run: cargo +nightly fmt --all -- --check
