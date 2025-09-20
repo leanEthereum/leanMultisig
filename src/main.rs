@@ -1,9 +1,7 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
-mod examples;
-
-use crate::examples::prove_poseidon2::{Poseidon2Config, prove_poseidon2};
 use whir_p3::whir::config::{FoldingFactor, SecurityAssumption};
+use whirlaway::examples::prove_poseidon2::{Poseidon2Config, prove_poseidon2};
 
 fn main() {
     let config = Poseidon2Config {
