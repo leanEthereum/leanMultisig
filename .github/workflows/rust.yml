@@ -31,7 +31,7 @@ jobs:
             rustflags: -C target-cpu=haswell
             run_tests: true
           - name: arm64-neon
-            os: ubuntu-24.04-arm64
+            os: ubuntu-latest-arm64
             rustflags: -C target-feature=+neon
             run_tests: true
     steps:
