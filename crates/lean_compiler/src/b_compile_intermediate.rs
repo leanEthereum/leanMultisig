@@ -47,7 +47,7 @@ impl Compiler {
 }
 
 impl SimpleExpr {
-    fn into_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediaryMemOrFpOrConstant {
+    fn to_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediaryMemOrFpOrConstant {
         match self {
             Self::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                 offset: compiler.get_offset(&var.clone().into()),
@@ -368,7 +368,7 @@ fn compile_lines(
             }
 
             SimpleLine::RawAccess { res, index, shift } => {
-                validate_vars_declared(&[index.clone()], declared_vars)?;
+                validate_vars_declared(std::slice::from_ref(index), declared_vars)?;
                 if let SimpleExpr::Var(var) = res {
                     declared_vars.insert(var.clone());
                 }
@@ -379,7 +379,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Deref {
                     shift_0,
                     shift_1: shift.clone(),
-                    res: res.into_mem_after_fp_or_constant(compiler),
+                    res: res.to_mem_after_fp_or_constant(compiler),
                 });
             }
 
@@ -623,10 +623,10 @@ fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(
     declared: &BTreeSet<Var>,
 ) -> Result<(), String> {
     for voc in vocs {
-        if let SimpleExpr::Var(v) = voc.borrow() {
-            if !declared.contains(v) {
-                return Err(format!("Variable {v} not declared"));
-            }
+        if let SimpleExpr::Var(v) = voc.borrow()
+            && !declared.contains(v)
+        {
+            return Err(format!("Variable {v} not declared"));
         }
     }
     Ok(())
@@ -665,7 +665,7 @@ fn setup_function_call(
         instructions.push(IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
             shift_1: (2 + i).into(),
-            res: arg.into_mem_after_fp_or_constant(compiler),
+            res: arg.to_mem_after_fp_or_constant(compiler),
         });
     }
 

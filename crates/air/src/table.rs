@@ -81,18 +81,18 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
                 };
                 if TypeId::of::<IF>() == TypeId::of::<EF>() {
                     unsafe {
-                        self.air
-                            .eval(transmute::<_, &mut ConstraintChecker<'_, EF, EF>>(
-                                &mut constraints_checker,
-                            ));
+                        self.air.eval(transmute::<
+                            &mut ConstraintChecker<'_, IF, EF>,
+                            &mut ConstraintChecker<'_, EF, EF>,
+                        >(&mut constraints_checker));
                     }
                 } else {
                     assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
                     unsafe {
-                        self.air
-                            .eval(transmute::<_, &mut ConstraintChecker<'_, PF<EF>, EF>>(
-                                &mut constraints_checker,
-                            ));
+                        self.air.eval(transmute::<
+                            &mut ConstraintChecker<'_, IF, EF>,
+                            &mut ConstraintChecker<'_, PF<EF>, EF>,
+                        >(&mut constraints_checker));
                     }
                 }
                 handle_errors(row, &mut constraints_checker)?;
@@ -110,18 +110,18 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
                 };
                 if TypeId::of::<IF>() == TypeId::of::<EF>() {
                     unsafe {
-                        self.air
-                            .eval(transmute::<_, &mut ConstraintChecker<'_, EF, EF>>(
-                                &mut constraints_checker,
-                            ));
+                        self.air.eval(transmute::<
+                            &mut ConstraintChecker<'_, IF, EF>,
+                            &mut ConstraintChecker<'_, EF, EF>,
+                        >(&mut constraints_checker));
                     }
                 } else {
                     assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
                     unsafe {
-                        self.air
-                            .eval(transmute::<_, &mut ConstraintChecker<'_, PF<EF>, EF>>(
-                                &mut constraints_checker,
-                            ));
+                        self.air.eval(transmute::<
+                            &mut ConstraintChecker<'_, IF, EF>,
+                            &mut ConstraintChecker<'_, PF<EF>, EF>,
+                        >(&mut constraints_checker));
                     }
                 }
                 handle_errors(row, &mut constraints_checker)?;

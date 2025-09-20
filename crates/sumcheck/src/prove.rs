@@ -14,6 +14,7 @@ use crate::Mle;
 use crate::MleGroup;
 use crate::SumcheckComputation;
 use crate::SumcheckComputationPacked;
+use crate::SumcheckComputeParams;
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove<'a, EF, SC, SCP, M: Into<MleGroup<'a, EF>>>(
@@ -151,16 +152,20 @@ where
         })
         .collect::<Vec<Vec<PF<EF>>>>();
 
-    p_evals.extend(multilinears.by_ref().sumcheck_compute(
-        &zs,
-        skips,
-        eq_factor.as_ref().map(|(_, eq_mle)| eq_mle),
-        &folding_scalars,
-        computation,
-        computations_packed,
-        batching_scalars,
-        missing_mul_factor,
-    ));
+    p_evals.extend(
+        multilinears
+            .by_ref()
+            .sumcheck_compute(SumcheckComputeParams {
+                zs: &zs,
+                skips,
+                eq_mle: eq_factor.as_ref().map(|(_, eq_mle)| eq_mle),
+                folding_scalars: &folding_scalars,
+                computation,
+                computation_packed: computations_packed,
+                batching_scalars,
+                missing_mul_factor,
+            }),
+    );
 
     if !is_zerofier {
         let missing_sum_z = if let Some((eq_factor, _)) = eq_factor {

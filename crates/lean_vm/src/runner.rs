@@ -99,14 +99,16 @@ pub fn execute_bytecode(
     let mut instruction_history = ExecutionHistory::default();
     let first_exec = match execute_bytecode_helper(
         bytecode,
-        public_input,
-        private_input,
-        MAX_MEMORY_SIZE / 2,
-        false,
-        &mut std_out,
-        &mut instruction_history,
-        false,
-        function_locations,
+        ExecuteBytecodeParams {
+            public_input,
+            private_input,
+            no_vec_runtime_memory: MAX_MEMORY_SIZE / 2,
+            final_execution: false,
+            std_out: &mut std_out,
+            instruction_history: &mut instruction_history,
+            profiler: false,
+            function_locations,
+        },
     ) {
         Ok(first_exec) => first_exec,
         Err(err) => {
@@ -129,14 +131,16 @@ pub fn execute_bytecode(
     instruction_history = ExecutionHistory::default();
     execute_bytecode_helper(
         bytecode,
-        public_input,
-        private_input,
-        first_exec.no_vec_runtime_memory,
-        true,
-        &mut String::new(),
-        &mut instruction_history,
-        profiler,
-        function_locations,
+        ExecuteBytecodeParams {
+            public_input,
+            private_input,
+            no_vec_runtime_memory: first_exec.no_vec_runtime_memory,
+            final_execution: true,
+            std_out: &mut String::new(),
+            instruction_history: &mut instruction_history,
+            profiler,
+            function_locations,
+        },
     )
     .unwrap()
 }
@@ -157,14 +161,24 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory[PUBLIC_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
 
     // "zero" vector
-    for i in ZERO_VEC_PTR * VECTOR_LEN..(ZERO_VEC_PTR + 2) * VECTOR_LEN {
-        public_memory[i] = F::ZERO;
+    let zero_start = ZERO_VEC_PTR * VECTOR_LEN;
+    for slot in public_memory
+        .iter_mut()
+        .skip(zero_start)
+        .take(2 * VECTOR_LEN)
+    {
+        *slot = F::ZERO;
     }
 
     // "one" vector
     public_memory[ONE_VEC_PTR * VECTOR_LEN] = F::ONE;
-    for i in ONE_VEC_PTR * VECTOR_LEN + 1..(ONE_VEC_PTR + 1) * VECTOR_LEN {
-        public_memory[i] = F::ZERO;
+    let one_start = ONE_VEC_PTR * VECTOR_LEN + 1;
+    for slot in public_memory
+        .iter_mut()
+        .skip(one_start)
+        .take(VECTOR_LEN - 1)
+    {
+        *slot = F::ZERO;
     }
 
     public_memory
@@ -176,17 +190,32 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory
 }
 
-fn execute_bytecode_helper(
-    bytecode: &Bytecode,
-    public_input: &[F],
-    private_input: &[F],
+#[derive(Debug)]
+struct ExecuteBytecodeParams<'a> {
+    public_input: &'a [F],
+    private_input: &'a [F],
     no_vec_runtime_memory: usize,
     final_execution: bool,
-    std_out: &mut String,
-    instruction_history: &mut ExecutionHistory,
+    std_out: &'a mut String,
+    instruction_history: &'a mut ExecutionHistory,
     profiler: bool,
-    function_locations: &BTreeMap<usize, String>,
+    function_locations: &'a BTreeMap<usize, String>,
+}
+
+fn execute_bytecode_helper(
+    bytecode: &Bytecode,
+    params: ExecuteBytecodeParams<'_>,
 ) -> Result<ExecutionResult, RunnerError> {
+    let ExecuteBytecodeParams {
+        public_input,
+        private_input,
+        no_vec_runtime_memory,
+        final_execution,
+        std_out,
+        instruction_history,
+        profiler,
+        function_locations,
+    } = params;
     let poseidon_16 = get_poseidon16();
     let poseidon_24 = get_poseidon24();
 

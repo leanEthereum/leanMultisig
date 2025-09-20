@@ -18,12 +18,12 @@ pub fn get_base_dims(
     log_public_memory: usize,
     private_memory_len: usize,
     bytecode_ending_pc: usize,
-    n_poseidons_16: usize,
-    n_poseidons_24: usize,
-    p16_air_width: usize,
-    p24_air_width: usize,
+    poseidon_counts: (usize, usize),
+    poseidon_widths: (usize, usize),
     n_rows_table_dot_products: usize,
 ) -> Vec<ColDims<F>> {
+    let (n_poseidons_16, n_poseidons_24) = poseidon_counts;
+    let (p16_air_width, p24_air_width) = poseidon_widths;
     let (default_p16_row, default_p24_row) = build_poseidon_columns(
         &[WitnessPoseidon16::poseidon_of_zero()],
         &[WitnessPoseidon24::poseidon_of_zero()],

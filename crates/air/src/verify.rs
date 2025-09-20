@@ -84,16 +84,18 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
     if structured_air {
         verify_structured_columns(
             verifier_state,
-            table.n_columns(),
-            univariate_skips,
-            &inner_sums,
-            &column_groups,
-            &Evaluation::new(
-                outer_statement.point[1..log_length - univariate_skips + 1].to_vec(),
-                outer_statement.value,
-            ),
-            &outer_selector_evals,
-            log_length,
+            StructuredColumnsArgs {
+                n_columns: table.n_columns(),
+                univariate_skips,
+                all_inner_sums: &inner_sums,
+                column_groups,
+                outer_sumcheck_challenge: &Evaluation::new(
+                    outer_statement.point[1..log_length - univariate_skips + 1].to_vec(),
+                    outer_statement.value,
+                ),
+                outer_selector_evals: &outer_selector_evals,
+                log_n_rows: log_length,
+            },
         )
     } else {
         verify_many_unstructured_columns(
@@ -181,16 +183,30 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     Ok(evaluations_remaining_to_verify)
 }
 
-fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+#[derive(Debug)]
+struct StructuredColumnsArgs<'a, EF> {
     n_columns: usize,
     univariate_skips: usize,
-    all_inner_sums: &[EF],
-    column_groups: &[Range<usize>],
-    outer_sumcheck_challenge: &Evaluation<EF>,
-    outer_selector_evals: &[EF],
+    all_inner_sums: &'a [EF],
+    column_groups: &'a [Range<usize>],
+    outer_sumcheck_challenge: &'a Evaluation<EF>,
+    outer_selector_evals: &'a [EF],
     log_n_rows: usize,
+}
+
+fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    args: StructuredColumnsArgs<'_, EF>,
 ) -> Result<Vec<Evaluation<EF>>, ProofError> {
+    let StructuredColumnsArgs {
+        n_columns,
+        univariate_skips,
+        all_inner_sums,
+        column_groups,
+        outer_sumcheck_challenge,
+        outer_selector_evals,
+        log_n_rows,
+    } = args;
     let log_n_groups = log2_ceil_usize(column_groups.len());
     let max_columns_per_group = Iterator::max(column_groups.iter().map(|g| g.len())).unwrap();
     let log_max_columns_per_group = log2_ceil_usize(max_columns_per_group);
@@ -201,9 +217,13 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     let mut column_scalars = vec![];
     let mut index = 0;
     for group in column_groups {
-        for i in index..index + group.len() {
-            column_scalars.push(poly_eq_batching_scalars[i]);
-        }
+        column_scalars.extend(
+            poly_eq_batching_scalars
+                .iter()
+                .skip(index)
+                .take(group.len())
+                .copied(),
+        );
         index += max_columns_per_group.next_power_of_two();
     }
 

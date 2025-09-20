@@ -122,7 +122,7 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
         univariate_skips: usize,
         witness: AirWitness<'a, PF<EF>>,
     ) -> Vec<Evaluation<EF>> {
-        prove_air::<PF<EF>, EF, A, AP>(prover_state, univariate_skips, &self, witness)
+        prove_air::<PF<EF>, EF, A, AP>(prover_state, univariate_skips, self, witness)
     }
 
     #[instrument(name = "air: prove in extension", skip_all)]
@@ -132,7 +132,7 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
         univariate_skips: usize,
         witness: AirWitness<'a, EF>,
     ) -> Vec<Evaluation<EF>> {
-        prove_air::<EF, EF, A, AP>(prover_state, univariate_skips, &self, witness)
+        prove_air::<EF, EF, A, AP>(prover_state, univariate_skips, self, witness)
     }
 }
 
@@ -224,9 +224,13 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, 
     let mut column_scalars = vec![];
     let mut index = 0;
     for group in &witness.column_groups {
-        for i in index..index + group.len() {
-            column_scalars.push(poly_eq_batching_scalars[i]);
-        }
+        column_scalars.extend(
+            poly_eq_batching_scalars
+                .iter()
+                .skip(index)
+                .take(group.len())
+                .copied(),
+        );
         index += witness.max_columns_per_group().next_power_of_two();
     }
 

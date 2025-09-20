@@ -211,10 +211,8 @@ pub fn prove_execution(
         log_public_memory,
         private_memory.len(),
         bytecode.ending_pc,
-        n_poseidons_16,
-        n_poseidons_24,
-        p16_air.width(),
-        p24_air.width(),
+        (n_poseidons_16, n_poseidons_24),
+        (p16_air.width(), p24_air.width()),
         n_rows_table_dot_products,
     );
 
@@ -810,12 +808,14 @@ pub fn prove_execution(
         let index_a: F = dot_product_columns[2][i].as_base().unwrap();
         let index_b: F = dot_product_columns[3][i].as_base().unwrap();
         let index_res: F = dot_product_columns[4][i].as_base().unwrap();
-        for j in 0..DIMENSION {
-            dot_product_indexes_spread[j][i] = index_a + F::from_usize(j);
-            dot_product_indexes_spread[j][i + dot_product_table_length] =
-                index_b + F::from_usize(j);
-            dot_product_indexes_spread[j][i + 2 * dot_product_table_length] =
-                index_res + F::from_usize(j);
+        for (j, column) in dot_product_indexes_spread
+            .iter_mut()
+            .enumerate()
+            .take(DIMENSION)
+        {
+            column[i] = index_a + F::from_usize(j);
+            column[i + dot_product_table_length] = index_b + F::from_usize(j);
+            column[i + 2 * dot_product_table_length] = index_res + F::from_usize(j);
         }
     }
     let dot_product_values_spread = dot_product_indexes_spread

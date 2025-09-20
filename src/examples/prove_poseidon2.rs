@@ -5,13 +5,20 @@ use p3_field::PrimeField64;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_symmetric::Permutation;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use packed_pcs::*;
+use packed_pcs::{
+    ColDims, packed_pcs_commit, packed_pcs_global_statements_for_prover,
+    packed_pcs_global_statements_for_verifier, packed_pcs_parse_commitment,
+};
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::Range;
 use std::time::{Duration, Instant};
 use utils::{
-    build_merkle_compress, build_merkle_hash, build_poseidon_16_air, build_poseidon_16_air_packed,
-    build_poseidon_24_air, build_poseidon_24_air_packed, build_prover_state, build_verifier_state,
+    FSProver, MY_DIGEST_ELEMS, MyChallenger, MyMerkleCompress, MyMerkleHash, MyWhirConfigBuilder,
+    PF, PFPacking, Poseidon16Air, Poseidon24Air, build_merkle_compress, build_merkle_hash,
+    build_poseidon_16_air, build_poseidon_16_air_packed, build_poseidon_24_air,
+    build_poseidon_24_air_packed, build_prover_state, build_verifier_state,
     generate_trace_poseidon_16, generate_trace_poseidon_24, get_poseidon16, get_poseidon24,
     init_tracing, padd_with_zero_to_next_power_of_two,
 };
@@ -20,6 +27,7 @@ use whir_p3::whir::config::{FoldingFactor, SecurityAssumption, WhirConfig, WhirC
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
+type MyWhirConfig = WhirConfig<PF<EF>, EF, MyMerkleHash, MyMerkleCompress, MY_DIGEST_ELEMS>;
 
 #[derive(Clone, Debug)]
 pub struct Poseidon2Benchmark {
@@ -38,7 +46,7 @@ impl fmt::Display for Poseidon2Benchmark {
             1 << self.log_n_poseidons_16,
             1 << self.log_n_poseidons_24,
             self.prover_time.as_millis() as f64 / 1000.0,
-            (((1 << self.log_n_poseidons_16) + (1 << self.log_n_poseidons_24)) as f64
+            (f64::from((1 << self.log_n_poseidons_16) + (1 << self.log_n_poseidons_24))
                 / self.prover_time.as_secs_f64())
             .round() as usize
         )?;
@@ -51,25 +59,43 @@ impl fmt::Display for Poseidon2Benchmark {
     }
 }
 
-pub fn prove_poseidon2(
-    log_n_poseidons_16: usize,
-    log_n_poseidons_24: usize,
-    univariate_skips: usize,
-    folding_factor: FoldingFactor,
-    log_inv_rate: usize,
-    soundness_type: SecurityAssumption,
-    pow_bits: usize,
-    security_level: usize,
-    rs_domain_initial_reduction_factor: usize,
-    max_num_variables_to_send_coeffs: usize,
-    display_logs: bool,
-) -> Poseidon2Benchmark {
-    if display_logs {
-        init_tracing();
-    }
+#[derive(Clone, Debug)]
+pub struct Poseidon2Config {
+    pub log_n_poseidons_16: usize,
+    pub log_n_poseidons_24: usize,
+    pub univariate_skips: usize,
+    pub folding_factor: FoldingFactor,
+    pub log_inv_rate: usize,
+    pub soundness_type: SecurityAssumption,
+    pub pow_bits: usize,
+    pub security_level: usize,
+    pub rs_domain_initial_reduction_factor: usize,
+    pub max_num_variables_to_send_coeffs: usize,
+    pub display_logs: bool,
+}
 
-    let n_poseidons_16 = 1 << log_n_poseidons_16;
-    let n_poseidons_24 = 1 << log_n_poseidons_24;
+struct PoseidonSetup {
+    n_columns_24: usize,
+    log_table_area_16: usize,
+    log_table_area_24: usize,
+    witness_columns_16: Vec<Vec<F>>,
+    witness_columns_24: Vec<Vec<F>>,
+    column_groups_16: Vec<Range<usize>>,
+    column_groups_24: Vec<Range<usize>>,
+    table_16: AirTable<EF, Poseidon16Air<F>, Poseidon16Air<PFPacking<F>>>,
+    table_24: AirTable<EF, Poseidon24Air<F>, Poseidon24Air<PFPacking<F>>>,
+}
+
+struct ProverArtifacts {
+    prover_time: Duration,
+    whir_config_builder: MyWhirConfigBuilder,
+    whir_config: MyWhirConfig,
+    dims: [ColDims<F>; 2],
+}
+
+fn prepare_poseidon(config: &Poseidon2Config) -> PoseidonSetup {
+    let n_poseidons_16 = 1 << config.log_n_poseidons_16;
+    let n_poseidons_24 = 1 << config.log_n_poseidons_24;
 
     let poseidon_air_16 = build_poseidon_16_air();
     let poseidon_air_16_packed = build_poseidon_16_air_packed();
@@ -78,8 +104,8 @@ pub fn prove_poseidon2(
 
     let n_columns_16 = poseidon_air_16.width();
     let n_columns_24 = poseidon_air_24.width();
-    let log_table_area_16 = log_n_poseidons_16 + log2_ceil_usize(n_columns_16);
-    let log_table_area_24 = log_n_poseidons_24 + log2_ceil_usize(n_columns_24);
+    let log_table_area_16 = config.log_n_poseidons_16 + log2_ceil_usize(n_columns_16);
+    let log_table_area_24 = config.log_n_poseidons_24 + log2_ceil_usize(n_columns_24);
 
     let mut rng = StdRng::seed_from_u64(0);
     let inputs_16: Vec<[F; 16]> = (0..n_poseidons_16).map(|_| Default::default()).collect();
@@ -114,76 +140,103 @@ pub fn prove_poseidon2(
                 .to_vec()
         })
         .collect::<Vec<_>>();
-    let column_groups_16 = vec![0..n_columns_16];
-    let column_groups_24 = vec![0..n_columns_24];
-    let witness_16 = AirWitness::new(&witness_columns_16, &column_groups_16);
-    let witness_24 = AirWitness::new(&witness_columns_24, &column_groups_24);
+    let column_groups_16 = vec![Range {
+        start: 0,
+        end: n_columns_16,
+    }];
+    let column_groups_24 = vec![Range {
+        start: 0,
+        end: n_columns_24,
+    }];
 
-    let table_16 = AirTable::<EF, _, _>::new(poseidon_air_16, poseidon_air_16_packed);
-    let table_24 = AirTable::<EF, _, _>::new(poseidon_air_24, poseidon_air_24_packed);
+    let table_16: AirTable<EF, Poseidon16Air<F>, Poseidon16Air<PFPacking<F>>> =
+        AirTable::new(poseidon_air_16, poseidon_air_16_packed);
+    let table_24: AirTable<EF, Poseidon24Air<F>, Poseidon24Air<PFPacking<F>>> =
+        AirTable::new(poseidon_air_24, poseidon_air_24_packed);
 
-    let t = Instant::now();
+    PoseidonSetup {
+        n_columns_24,
+        log_table_area_16,
+        log_table_area_24,
+        witness_columns_16,
+        witness_columns_24,
+        column_groups_16,
+        column_groups_24,
+        table_16,
+        table_24,
+    }
+}
 
-    let mut prover_state = build_prover_state();
+fn run_prover_phase(
+    config: &Poseidon2Config,
+    setup: &PoseidonSetup,
+    witness_16: AirWitness<'_, F>,
+    witness_24: AirWitness<'_, F>,
+    prover_state: &mut FSProver<EF, MyChallenger>,
+) -> ProverArtifacts {
+    let start = Instant::now();
 
     let whir_config_builder = WhirConfigBuilder {
-        folding_factor,
-        soundness_type,
+        folding_factor: config.folding_factor,
+        soundness_type: config.soundness_type,
         merkle_hash: build_merkle_hash(),
         merkle_compress: build_merkle_compress(),
-        pow_bits,
-        max_num_variables_to_send_coeffs,
-        rs_domain_initial_reduction_factor,
-        security_level,
-        starting_log_inv_rate: log_inv_rate,
+        pow_bits: config.pow_bits,
+        max_num_variables_to_send_coeffs: config.max_num_variables_to_send_coeffs,
+        rs_domain_initial_reduction_factor: config.rs_domain_initial_reduction_factor,
+        security_level: config.security_level,
+        starting_log_inv_rate: config.log_inv_rate,
     };
 
-    // let pcs = RingSwitching::<F, EF, _, EXTENSION_DEGREE>::new(pcs);
     let dft = EvalsDft::new(
-        1 << (log2_ceil_usize(n_columns_24)
-            + log_n_poseidons_16.max(log_n_poseidons_24)
-            + log_inv_rate
+        1 << (log2_ceil_usize(setup.n_columns_24)
+            + config.log_n_poseidons_16.max(config.log_n_poseidons_24)
+            + config.log_inv_rate
             - whir_config_builder.folding_factor.at_round(0)),
     );
 
     let commited_trace_polynomial_16 =
-        padd_with_zero_to_next_power_of_two(&witness_columns_16.concat());
+        padd_with_zero_to_next_power_of_two(&setup.witness_columns_16.concat());
     let commited_trace_polynomial_24 =
-        padd_with_zero_to_next_power_of_two(&witness_columns_24.concat());
+        padd_with_zero_to_next_power_of_two(&setup.witness_columns_24.concat());
 
     let dims = [
-        ColDims::dense(log_table_area_16),
-        ColDims::dense(log_table_area_24),
+        ColDims::dense(setup.log_table_area_16),
+        ColDims::dense(setup.log_table_area_24),
     ];
-    let log_smallest_decomposition_chunk = 0; // UNUSED because verything is power of 2
-
-    let commited_data = [
+    let log_smallest_decomposition_chunk = 0;
+    let commited_slices = [
         commited_trace_polynomial_16.as_slice(),
         commited_trace_polynomial_24.as_slice(),
     ];
+
     let commitment_witness = packed_pcs_commit(
         &whir_config_builder,
-        &commited_data,
+        &commited_slices,
         &dims,
         &dft,
-        &mut prover_state,
-        0,
+        prover_state,
+        log_smallest_decomposition_chunk,
     );
 
     let evaluations_remaining_to_prove_16 =
-        table_16.prove_base(&mut prover_state, univariate_skips, witness_16);
+        setup
+            .table_16
+            .prove_base(prover_state, config.univariate_skips, witness_16);
     let evaluations_remaining_to_prove_24 =
-        table_24.prove_base(&mut prover_state, univariate_skips, witness_24);
+        setup
+            .table_24
+            .prove_base(prover_state, config.univariate_skips, witness_24);
 
     let global_statements_to_prove = packed_pcs_global_statements_for_prover(
-        &commited_data,
+        &commited_slices,
         &dims,
         log_smallest_decomposition_chunk,
         &[
             evaluations_remaining_to_prove_16,
             evaluations_remaining_to_prove_24,
         ],
-        &mut prover_state,
+        prover_state,
     );
     let whir_config = WhirConfig::new(
         whir_config_builder.clone(),
@@ -191,54 +244,70 @@ pub fn prove_poseidon2(
     );
     whir_config.prove(
         &dft,
-        &mut prover_state,
+        prover_state,
         global_statements_to_prove,
         commitment_witness.inner_witness,
         &commitment_witness.packed_polynomial,
     );
 
-    let prover_time = t.elapsed();
-    let time = Instant::now();
+    ProverArtifacts {
+        prover_time: start.elapsed(),
+        whir_config_builder,
+        whir_config,
+        dims,
+    }
+}
 
-    let mut verifier_state = build_verifier_state(&prover_state);
+fn run_verifier_phase(
+    config: &Poseidon2Config,
+    setup: &PoseidonSetup,
+    artifacts: &ProverArtifacts,
+    prover_state: &FSProver<EF, MyChallenger>,
+) -> Duration {
+    let start = Instant::now();
+    let mut verifier_state = build_verifier_state(prover_state);
+    let log_smallest_decomposition_chunk = 0;
 
     let packed_parsed_commitment = packed_pcs_parse_commitment(
-        &whir_config_builder,
+        &artifacts.whir_config_builder,
         &mut verifier_state,
-        &dims,
+        &artifacts.dims,
         log_smallest_decomposition_chunk,
     )
     .unwrap();
 
-    let evaluations_remaining_to_verify_16 = table_16
+    let evaluations_remaining_to_verify_16 = setup
+        .table_16
         .verify(
             &mut verifier_state,
-            univariate_skips,
-            log_n_poseidons_16,
-            &column_groups_16,
+            config.univariate_skips,
+            config.log_n_poseidons_16,
+            &setup.column_groups_16,
         )
         .unwrap();
-    let evaluations_remaining_to_verify_24 = table_24
+    let evaluations_remaining_to_verify_24 = setup
+        .table_24
         .verify(
             &mut verifier_state,
-            univariate_skips,
-            log_n_poseidons_24,
-            &column_groups_24,
+            config.univariate_skips,
+            config.log_n_poseidons_24,
+            &setup.column_groups_24,
         )
         .unwrap();
 
     let global_statements_to_verify = packed_pcs_global_statements_for_verifier(
-        &dims,
+        &artifacts.dims,
         log_smallest_decomposition_chunk,
         &[
             evaluations_remaining_to_verify_16,
             evaluations_remaining_to_verify_24,
         ],
         &mut verifier_state,
-        &Default::default(),
+        &BTreeMap::default(),
     )
     .unwrap();
-    whir_config
+    artifacts
+        .whir_config
         .verify(
             &mut verifier_state,
             &packed_parsed_commitment,
@@ -246,14 +315,28 @@ pub fn prove_poseidon2(
         )
         .unwrap();
 
-    let verifier_time = time.elapsed();
+    start.elapsed()
+}
+
+pub fn prove_poseidon2(config: &Poseidon2Config) -> Poseidon2Benchmark {
+    if config.display_logs {
+        init_tracing();
+    }
+
+    let setup = prepare_poseidon(config);
+    let witness_16 = AirWitness::new(&setup.witness_columns_16, &setup.column_groups_16);
+    let witness_24 = AirWitness::new(&setup.witness_columns_24, &setup.column_groups_24);
+
+    let mut prover_state = build_prover_state();
+    let artifacts = run_prover_phase(config, &setup, witness_16, witness_24, &mut prover_state);
+    let verifier_time = run_verifier_phase(config, &setup, &artifacts, &prover_state);
 
     let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;
 
     Poseidon2Benchmark {
-        log_n_poseidons_16,
-        log_n_poseidons_24,
-        prover_time,
+        log_n_poseidons_16: config.log_n_poseidons_16,
+        log_n_poseidons_24: config.log_n_poseidons_24,
+        prover_time: artifacts.prover_time,
         verifier_time,
         proof_size,
     }
@@ -267,19 +350,20 @@ mod tests {
 
     #[test]
     fn test_prove_poseidon2() {
-        let benchmark = prove_poseidon2(
-            13,
-            12,
-            4,
-            FoldingFactor::new(5, 3),
-            2,
-            SecurityAssumption::CapacityBound,
-            13,
-            128,
-            1,
-            5,
-            false,
-        );
+        let config = Poseidon2Config {
+            log_n_poseidons_16: 13,
+            log_n_poseidons_24: 12,
+            univariate_skips: 4,
+            folding_factor: FoldingFactor::new(5, 3),
+            log_inv_rate: 2,
+            soundness_type: SecurityAssumption::CapacityBound,
+            pow_bits: 13,
+            security_level: 128,
+            rs_domain_initial_reduction_factor: 1,
+            max_num_variables_to_send_coeffs: 5,
+            display_logs: false,
+        };
+        let benchmark = prove_poseidon2(&config);
         println!("\n{benchmark}");
     }
 }

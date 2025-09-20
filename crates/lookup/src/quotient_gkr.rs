@@ -215,7 +215,7 @@ where
 
 fn prove_gkr_quotient_step_packed<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    up_layer_packed: &Vec<EFPacking<EF>>,
+    up_layer_packed: &[EFPacking<EF>],
     claim: &Evaluation<EF>,
 ) -> (Evaluation<EF>, EF, EF)
 where

@@ -224,9 +224,7 @@ fn test_xmss_aggregate() {
             &xmss_signature_size_padded.to_string(),
         );
 
-    let bitfield = (0..n_public_keys)
-        .map(|i| i % INV_BITFIELD_DENSITY == 0)
-        .collect::<Vec<_>>();
+    let bitfield = vec![true; n_public_keys];
 
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();

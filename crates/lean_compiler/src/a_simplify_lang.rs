@@ -460,8 +460,10 @@ fn simplify_lines(
                     unimplemented!("Reverse for non-unrolled loops are not implemented yet");
                 }
 
-                let mut loop_const_malloc = ConstMalloc::default();
-                loop_const_malloc.counter = const_malloc.counter;
+                let mut loop_const_malloc = ConstMalloc {
+                    counter: const_malloc.counter,
+                    ..ConstMalloc::default()
+                };
                 let valid_aux_vars_in_array_manager_before = array_manager.valid.clone();
                 array_manager.valid.clear();
                 let simplified_body = simplify_lines(
@@ -678,16 +680,15 @@ fn simplify_expr(
     match expr {
         Expression::Value(value) => value.simplify_if_const(),
         Expression::ArrayAccess { array, index } => {
-            if let SimpleExpr::Var(array_var) = array {
-                if let Some(label) = const_malloc.map.get(array_var) {
-                    if let Ok(mut offset) = ConstExpression::try_from(*index.clone()) {
-                        offset = offset.try_naive_simplification();
-                        return SimpleExpr::ConstMallocAccess {
-                            malloc_label: *label,
-                            offset,
-                        };
-                    }
-                }
+            if let SimpleExpr::Var(array_var) = array
+                && let Some(label) = const_malloc.map.get(array_var)
+                && let Ok(mut offset) = ConstExpression::try_from(*index.clone())
+            {
+                offset = offset.try_naive_simplification();
+                return SimpleExpr::ConstMallocAccess {
+                    malloc_label: *label,
+                    offset,
+                };
             }
 
             let aux_arr = array_manager.get_aux_var(array, index); // auxiliary var to store m[array + index]
@@ -1082,30 +1083,27 @@ fn handle_array_assignment(
 ) {
     let simplified_index = simplify_expr(index, res, counters, array_manager, const_malloc);
 
-    if let SimpleExpr::Constant(offset) = simplified_index.clone() {
-        if let SimpleExpr::Var(array_var) = &array {
-            if let Some(label) = const_malloc.map.get(array_var) {
-                if let ArrayAccessType::ArrayIsAssigned(Expression::Binary {
-                    left,
-                    operation,
-                    right,
-                }) = access_type
-                {
-                    let arg0 = simplify_expr(&left, res, counters, array_manager, const_malloc);
-                    let arg1 = simplify_expr(&right, res, counters, array_manager, const_malloc);
-                    res.push(SimpleLine::Assignment {
-                        var: VarOrConstMallocAccess::ConstMallocAccess {
-                            malloc_label: *label,
-                            offset,
-                        },
-                        operation,
-                        arg0,
-                        arg1,
-                    });
-                    return;
-                }
-            }
-        }
+    if let SimpleExpr::Constant(offset) = simplified_index.clone()
+        && let SimpleExpr::Var(array_var) = &array
+        && let Some(label) = const_malloc.map.get(array_var)
+        && let ArrayAccessType::ArrayIsAssigned(Expression::Binary {
+            left,
+            operation,
+            right,
+        }) = &access_type
+    {
+        let arg0 = simplify_expr(left, res, counters, array_manager, const_malloc);
+        let arg1 = simplify_expr(right, res, counters, array_manager, const_malloc);
+        res.push(SimpleLine::Assignment {
+            var: VarOrConstMallocAccess::ConstMallocAccess {
+                malloc_label: *label,
+                offset,
+            },
+            operation: *operation,
+            arg0,
+            arg1,
+        });
+        return;
     }
 
     let value_simplified = match access_type {
