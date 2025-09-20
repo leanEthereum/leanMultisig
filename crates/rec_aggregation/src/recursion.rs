@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use lean_compiler::compile_program;
 use lean_prover::prove_execution::prove_execution;
@@ -7,7 +7,6 @@ use lean_prover::verify_execution::verify_execution;
 use lean_prover::whir_config_builder;
 use lean_vm::*;
 use p3_field::BasedVectorSpace;
-use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::padd_with_zero_to_next_multiple_of;
@@ -19,12 +18,16 @@ use whir_p3::{
     whir::config::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder},
 };
 
-#[test]
-pub fn test_whir_recursion() {
+const NUM_VARIABLES: usize = 25;
+
+struct RecursionBenchStats {
+    proving_time: Duration,
+    proof_size: usize,
+}
+
+fn run_recursion_benchmark() -> RecursionBenchStats {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("recursion_program.lean_lang");
     let mut program_str = std::fs::read_to_string(src_file).unwrap();
-
-    let num_variables = 25;
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
@@ -37,7 +40,7 @@ pub fn test_whir_recursion() {
         rs_domain_initial_reduction_factor: 3,
     };
 
-    let mut recursion_config = WhirConfig::new(recursion_config_builder.clone(), num_variables);
+    let mut recursion_config = WhirConfig::new(recursion_config_builder.clone(), NUM_VARIABLES);
 
     // TODO remove overriding this
     {
@@ -50,10 +53,6 @@ pub fn test_whir_recursion() {
     assert_eq!(recursion_config.committment_ood_samples, 1);
     // println!("Whir parameters: {}", params.to_string());
     for (i, round) in recursion_config.round_parameters.iter().enumerate() {
-        println!(
-            "Round {}: {} queries, pow: {} bits",
-            i, round.num_queries, round.pow_bits
-        );
         program_str = program_str
             .replace(
                 &format!("NUM_QUERIES_{i}_PLACEHOLDER"),
@@ -64,10 +63,6 @@ pub fn test_whir_recursion() {
                 &round.pow_bits.to_string(),
             );
     }
-    println!(
-        "Final round: {} queries, pow: {} bits",
-        recursion_config.final_queries, recursion_config.final_pow_bits
-    );
     program_str = program_str
         .replace(
             &format!("NUM_QUERIES_{}_PLACEHOLDER", recursion_config.n_rounds()),
@@ -95,11 +90,11 @@ pub fn test_whir_recursion() {
     );
 
     let mut rng = StdRng::seed_from_u64(0);
-    let polynomial = (0..1 << num_variables)
+    let polynomial = (0..1 << NUM_VARIABLES)
         .map(|_| rng.random())
         .collect::<Vec<F>>();
 
-    let point = MultilinearPoint::<EF>::rand(&mut rng, num_variables);
+    let point = MultilinearPoint::<EF>::rand(&mut rng, NUM_VARIABLES);
 
     let mut statement = Vec::new();
     let eval = polynomial.evaluate(&point);
@@ -163,7 +158,7 @@ pub fn test_whir_recursion() {
             "PADDING_FOR_INITIAL_MERKLE_LEAVES_PLACEHOLDER",
             &proof_data_padding.to_string(),
         )
-        .replace("N_VARS_PLACEHOLDER", &num_variables.to_string())
+        .replace("N_VARS_PLACEHOLDER", &NUM_VARIABLES.to_string())
         .replace(
             "LOG_INV_RATE_PLACEHOLDER",
             &recursion_config_builder.starting_log_inv_rate.to_string(),
@@ -200,10 +195,24 @@ pub fn test_whir_recursion() {
         whir_config_builder(),
         false,
     );
+    let proving_time = time.elapsed();
+    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+    RecursionBenchStats {
+        proving_time,
+        proof_size,
+    }
+}
+
+pub fn bench_recursion() -> Duration {
+    run_recursion_benchmark().proving_time
+}
+
+#[test]
+fn test_whir_recursion() {
+    let stats = run_recursion_benchmark();
     println!(
         "\nWHIR recursion, proving time: {:?}, proof size: {} KiB (not optimized)",
-        time.elapsed(),
-        proof_size * F::bits() / (8 * 1024)
+        stats.proving_time,
+        stats.proof_size * F::bits() / (8 * 1024)
     );
-    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 }
