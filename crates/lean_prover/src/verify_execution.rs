@@ -77,7 +77,7 @@ pub fn verify_execution(
     let log_n_p16 = log2_ceil_usize(n_poseidons_16);
     let log_n_p24 = log2_ceil_usize(n_poseidons_24);
 
-    if log_memory > MAX_LOG_MEMORY_SIZE || log_memory < MIN_LOG_MEMORY_SIZE {
+    if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
         return Err(ProofError::InvalidProof);
     }
 
