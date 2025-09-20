@@ -42,13 +42,13 @@ jobs:
           toolchain: nightly
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
-      - name: Build (release)
-        run: cargo build --workspace --release --verbose
+      - name: Build
+        run: cargo build --release --verbose
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-      - name: Test (release)
+      - name: Test
         if: ${{ matrix.run_tests == true }}
-        run: cargo test --workspace --release --verbose
+        run: cargo test --release --verbose
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
 
