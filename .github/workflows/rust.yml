@@ -1,4 +1,4 @@
-name: Rust CI
+name: Rust
 
 on:
   push:
@@ -52,7 +52,7 @@ jobs:
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
 
-  clippy:
+  cargo-clippy:
     runs-on: ubuntu-latest
     name: Clippy
     steps:
@@ -64,12 +64,12 @@ jobs:
           components: clippy
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
-      - name: Clippy (deny warnings)
+      - name: Clippy Check
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-  fmt:
+  cargo-fmt:
     runs-on: ubuntu-latest
-    name: Rustfmt
+    name: Rustfmt Check
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
