@@ -267,12 +267,13 @@ pub fn get_execution_trace(
     for e in &execution_result.vm_multilinear_eval_events {
         vm_multilinear_evals.push(WitnessMultilinearEval {
             cycle: e.cycle,
-            addr_coeffs: e.addr_coeffs,
-            addr_point: e.addr_point,
-            addr_res: e.addr_res,
-            n_vars: e.n_vars,
-            point: e.point.clone(),
-            res: e.res,
+            inner: RowMultilinearEval {
+                addr_coeffs: e.addr_coeffs,
+                addr_point: e.addr_point,
+                addr_res: e.addr_res,
+                point: e.point.clone(),
+                res: e.res,
+            },
         });
     }
 
@@ -616,17 +617,19 @@ mod tests {
 
         let mle_event = &execution_result.vm_multilinear_eval_events[0];
         let witness_mle = &trace.vm_multilinear_evals[0];
+        let witness_mle_row = &witness_mle.inner;
         assert_eq!(witness_mle.cycle, mle_event.cycle);
-        assert_eq!(witness_mle.addr_coeffs, mle_event.addr_coeffs);
-        assert_eq!(witness_mle.addr_point, mle_event.addr_point);
-        assert_eq!(witness_mle.addr_res, mle_event.addr_res);
-        assert_eq!(witness_mle.n_vars, mle_event.n_vars);
-        assert_eq!(witness_mle.point, mle_event.point);
-        assert_eq!(witness_mle.res, mle_event.res);
+        assert_eq!(witness_mle_row.addr_coeffs, mle_event.addr_coeffs);
+        assert_eq!(witness_mle_row.addr_point, mle_event.addr_point);
+        assert_eq!(witness_mle_row.addr_res, mle_event.addr_res);
+        assert_eq!(witness_mle_row.n_vars(), mle_event.n_vars);
+        let witness_point = &witness_mle_row.point;
+        assert_eq!(witness_point, &mle_event.point);
+        assert_eq!(witness_mle_row.res, mle_event.res);
 
         let expected_point =
             vec![EF::from_basis_coefficients_slice(&MLE_POINT_VALUES.map(f)).unwrap()];
-        assert_eq!(witness_mle.point, expected_point);
+        assert_eq!(witness_point, &expected_point);
 
         let coeff_slice = execution_result
             .memory
@@ -635,11 +638,11 @@ mod tests {
                 1 << mle_event.n_vars,
             )
             .unwrap();
-        let point = witness_mle.point[0];
+        let point = witness_point[0];
         let c0 = embed_base_into_extension(coeff_slice[0]);
         let c1 = embed_base_into_extension(coeff_slice[1]);
         let expected_mle = c0 * (EF::ONE - point) + c1 * point;
-        assert_eq!(witness_mle.res, expected_mle);
+        assert_eq!(witness_mle_row.res, expected_mle);
 
         assert_eq!(
             trace.poseidons_16.len(),
@@ -680,6 +683,6 @@ mod tests {
             .get(execution_result.fps[mle_event.cycle] + MLE_RES_OFFSET)
             .unwrap()
             .to_usize();
-        assert_eq!(witness_mle.addr_res, mle_res_ptr);
+        assert_eq!(witness_mle_row.addr_res, mle_res_ptr);
     }
 }
