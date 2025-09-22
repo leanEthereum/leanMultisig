@@ -133,6 +133,9 @@ pub enum Hint {
     LocationReport {
         location: SourceLineNumber, // debug purpose
     },
+    Label {
+        label: Label,
+    },
 }
 
 impl MemOrConstant {
@@ -296,6 +299,9 @@ impl Display for Hint {
             }
             Self::LocationReport { location: line_number } => {
                 write!(f, "source line number: {line_number}")
+            }
+            Self::Label { label } => {
+                write!(f, "label: {label}")
             }
         }
     }

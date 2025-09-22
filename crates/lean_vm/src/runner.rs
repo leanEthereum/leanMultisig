@@ -342,6 +342,7 @@ fn execute_bytecode_helper(
                     instruction_history.cycles.push(cpu_cycles_before_new_line);
                     cpu_cycles_before_new_line = 0;
                 }
+                Hint::Label { label: _label } => { /* no need to do anything */ }
             }
         }
 

@@ -91,6 +91,15 @@ pub fn compile_to_low_level_bytecode(
     let mut low_level_bytecode = Vec::new();
     let mut hints = BTreeMap::new();
 
+    for (label, pc) in label_to_pc.clone() {
+        let pc_hints: &mut Vec<Hint> =
+            match hints.try_insert(pc, vec![]) {
+                Ok(pc_hints) => pc_hints,
+                Err(_) => hints.get_mut(&pc).unwrap(),
+            };
+        pc_hints.push(Hint::Label { label });
+    }
+
     let compiler = Compiler {
         memory_size_per_function: intermediate_bytecode.memory_size_per_function,
         label_to_pc,
