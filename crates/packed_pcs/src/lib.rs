@@ -680,6 +680,7 @@ mod tests {
             &dft,
             &mut prover_state,
             packed_statements,
+            None,
             witness.inner_witness,
             &witness.packed_polynomial,
         );
@@ -702,7 +703,12 @@ mod tests {
         )
         .unwrap();
         WhirConfig::new(whir_config_builder, num_variables)
-            .verify(&mut verifier_state, &parsed_commitment, packed_statements)
+            .verify(
+                &mut verifier_state,
+                &parsed_commitment,
+                packed_statements,
+                None,
+            )
             .unwrap();
     }
 }

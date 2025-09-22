@@ -1415,7 +1415,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#4a999bc5c8067378a50f83fdee6fa25fd1ba890c"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=commit_in_the_extension#ba42435a2e9b9c8adce82186dc030818c5b5288c"
 dependencies = [
  "clap",
  "itertools 0.14.0",
@@ -1705,6 +1705,21 @@ dependencies = [
  "utils",
  "whir-p3",
  "xmss",
+]
+
+[[package]]
+name = "wrapped_pcs"
+version = "0.1.0"
+dependencies = [
+ "p3-field",
+ "p3-koala-bear",
+ "p3-util",
+ "rand",
+ "rayon",
+ "serde",
+ "tracing",
+ "utils",
+ "whir-p3",
 ]
 
 [[package]]

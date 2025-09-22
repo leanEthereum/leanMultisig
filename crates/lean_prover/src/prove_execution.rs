@@ -15,7 +15,6 @@ use std::collections::BTreeMap;
 use sumcheck::MleGroupRef;
 use tracing::info_span;
 use utils::ToUsize;
-use utils::dot_product_with_base;
 use utils::field_slice_as_base;
 use utils::pack_extension;
 use utils::{
@@ -617,13 +616,6 @@ pub fn prove_execution(
         .collect::<Vec<_>>();
 
     let dot_product_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
-    let dot_product_values_mixed = [
-        dot_product_evals_to_prove[5],
-        dot_product_evals_to_prove[6],
-        dot_product_evals_to_prove[7],
-        EF::ZERO,
-    ]
-    .evaluate(&dot_product_values_mixing_challenges);
 
     let dot_product_evals_spread = dot_product_values_spread
         .iter()
@@ -637,10 +629,7 @@ pub fn prove_execution(
             ))
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        dot_product_with_base(&dot_product_evals_spread),
-        dot_product_values_mixed
-    );
+
     prover_state.add_extension_scalars(&dot_product_evals_spread);
 
     let dot_product_values_batching_scalars = MultilinearPoint(prover_state.sample_vec(3));
@@ -1077,6 +1066,7 @@ pub fn prove_execution(
         &dft,
         &mut prover_state,
         global_statements_base,
+        None,
         packed_pcs_witness_base.inner_witness,
         &packed_pcs_witness_base.packed_polynomial,
         global_statements_extension,

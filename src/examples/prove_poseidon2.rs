@@ -232,6 +232,7 @@ fn run_prover_phase(
         &dft,
         prover_state,
         global_statements_to_prove,
+        None,
         commitment_witness.inner_witness,
         &commitment_witness.packed_polynomial,
     );
@@ -301,6 +302,7 @@ fn run_verifier_phase(
             &mut verifier_state,
             &packed_parsed_commitment,
             global_statements_to_verify,
+            None,
         )
         .unwrap();
 

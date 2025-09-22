@@ -124,6 +124,7 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
         &dft,
         &mut prover_state,
         statement.clone(),
+        None,
         witness,
         &polynomial,
     );
@@ -177,7 +178,7 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
         .unwrap();
 
     recursion_config
-        .verify(&mut verifier_state, &parsed_commitment, statement)
+        .verify(&mut verifier_state, &parsed_commitment, statement, None)
         .unwrap();
 
     // #[rustfmt::skip] // debug

@@ -801,6 +801,7 @@ pub fn verify_execution(
         global_statements_base,
         &parsed_commitment_extension,
         global_statements_extension,
+        None,
     )?;
 
     Ok(())

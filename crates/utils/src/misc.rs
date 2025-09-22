@@ -91,6 +91,24 @@ pub fn dot_product_with_base<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> EF {
         .sum::<EF>()
 }
 
+pub fn from_big_endian_bits(bits: &[bool]) -> usize {
+    bits.iter()
+        .rev()
+        .enumerate()
+        .fold(0, |acc, (i, &b)| if b { acc | (1 << i) } else { acc })
+}
+
+pub fn localisation_in_poly_eq<F: Field>(point: &[F]) -> (usize, usize) {
+    let boolean_prefix = point
+        .iter()
+        .take_while(|&x| *x == F::ZERO || *x == F::ONE)
+        .map(|x| *x == F::ONE)
+        .collect::<Vec<_>>();
+    let offset = from_big_endian_bits(&boolean_prefix);
+    let size = boolean_prefix.len();
+    (offset, size)
+}
+
 pub fn to_big_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
     (0..bit_count)
         .rev()
