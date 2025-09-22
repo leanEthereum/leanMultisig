@@ -5,7 +5,7 @@ use utils::{get_poseidon16, get_poseidon24};
 
 #[test]
 #[should_panic]
-fn test_duplicate_name() {
+fn test_duplicate_function_name() {
     let program = r#"
     fn a() -> 1 {
         return 0;
@@ -17,6 +17,20 @@ fn test_duplicate_name() {
 
     fn main() {
         a();
+        return;
+    }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+#[should_panic]
+fn test_duplicate_constant_name() {
+    let program = r#"
+    const A = 1;
+    const A = 0;
+
+    fn main() {
         return;
     }
     "#;

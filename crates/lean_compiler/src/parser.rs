@@ -51,13 +51,18 @@ pub fn parse_program(input: &str) -> Result<(Program, BTreeMap<usize, String>), 
         match pair.as_rule() {
             Rule::constant_declaration => {
                 let (name, value) = parse_constant_declaration(pair, &constants)?;
-                constants.insert(name, value);
+                if constants.insert(name.clone(), value).is_some() {
+                    panic!("Multiply defined constant: {name}");
+                }
             }
             Rule::function => {
                 let location = pair.line_col().0;
                 let function = parse_function(pair, &constants, &mut trash_var_count)?;
-                function_locations.insert(location, function.name.clone());
-                functions.insert(function.name.clone(), function);
+                let name = function.name.clone();
+                function_locations.insert(location, name.clone());
+                if functions.insert(name.clone(), function).is_some() {
+                    panic!("Multiply defined function: {name}");
+                }
             }
             Rule::EOI => break,
             _ => {}
