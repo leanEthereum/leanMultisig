@@ -5,7 +5,12 @@ use rayon::prelude::*;
 
 use crate::*;
 
-pub(crate) const MAX_MEMORY_SIZE: usize = 1 << 24;
+pub const MIN_LOG_MEMORY_SIZE: usize = 16;
+pub const MAX_LOG_MEMORY_SIZE: usize = 29;
+
+// For now, we restrict ourselves to executions where memory usage < 2^24 words.
+// But the VM supports theorically a memory of size 2^29.
+pub(crate) const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
 
 #[derive(Debug, Clone, Default)]
 pub struct Memory(pub Vec<Option<F>>);
@@ -29,7 +34,7 @@ impl Memory {
 
     pub fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
         if index >= self.0.len() {
-            if index >= MAX_MEMORY_SIZE {
+            if index >= MAX_RUNNER_MEMORY_SIZE {
                 return Err(RunnerError::OutOfMemory);
             }
             self.0.resize(index + 1, None);
@@ -51,8 +56,8 @@ impl Memory {
     pub fn get_ef_element(&self, index: usize) -> Result<EF, RunnerError> {
         // index: non vectorized pointer
         let mut coeffs = [F::ZERO; DIMENSION];
-        for i in 0..DIMENSION {
-            coeffs[i] = self.get(index + i)?;
+        for (offset, coeff) in coeffs.iter_mut().enumerate() {
+            *coeff = self.get(index + offset)?;
         }
         Ok(EF::from_basis_coefficients_slice(&coeffs).unwrap())
     }

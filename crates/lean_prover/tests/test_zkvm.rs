@@ -1,6 +1,6 @@
 use lean_compiler::*;
 use lean_prover::{
-    build_batch_pcs, prove_execution::prove_execution, verify_execution::verify_execution,
+    prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder,
 };
 use lean_vm::*;
 use p3_field::PrimeCharacteristicRing;
@@ -79,16 +79,15 @@ fn test_zk_vm() {
 
     // utils::init_tracing();
     let (bytecode, function_locations) = compile_program(&program_str);
-    let batch_pcs = build_batch_pcs();
     let proof_data = prove_execution(
         &bytecode,
         &program_str,
         &function_locations,
         &public_input,
         &private_input,
-        &batch_pcs,
+        whir_config_builder(),
         false,
     )
     .0;
-    verify_execution(&bytecode, &public_input, proof_data, &batch_pcs).unwrap();
+    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 }

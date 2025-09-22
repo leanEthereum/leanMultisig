@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, ops::Range};
+use std::borrow::Borrow;
 
 use lean_vm::{DIMENSION, EF};
 use p3_air::{Air, AirBuilder, BaseAir};
@@ -23,8 +23,6 @@ use witness_generation::WitnessDotProduct;
 */
 
 const DOT_PRODUCT_AIR_COLUMNS: usize = 9;
-pub const DOT_PRODUCT_AIR_COLUMN_GROUPS: [Range<usize>; 7] =
-    [0..1, 1..2, 2..3, 3..4, 4..5, 5..8, 8..9];
 
 #[derive(Debug)]
 pub struct DotProductAir;

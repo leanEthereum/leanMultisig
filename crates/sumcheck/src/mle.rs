@@ -306,21 +306,25 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
-    pub fn sumcheck_compute<SC, SCP>(
+    pub fn sumcheck_compute<'params, SC, SCP>(
         &self,
-        zs: &[usize],
-        skips: usize,
-        eq_mle: Option<&Mle<EF>>,
-        folding_scalars: &[Vec<PF<EF>>],
-        computation: &SC,
-        computation_packed: &SCP,
-        batching_scalars: &[EF],
-        missing_mul_factor: Option<EF>,
+        params: SumcheckComputeParams<'params, EF, SC, SCP>,
     ) -> Vec<(PF<EF>, EF)>
     where
         SC: SumcheckComputation<PF<EF>, EF> + SumcheckComputation<EF, EF>,
         SCP: SumcheckComputationPacked<EF>,
     {
+        let SumcheckComputeParams {
+            zs,
+            skips,
+            eq_mle,
+            folding_scalars,
+            computation,
+            computation_packed,
+            batching_scalars,
+            missing_mul_factor,
+        } = params;
+
         let fold_size = 1 << (self.n_vars() - skips);
         let packed_fold_size = if self.is_packed() {
             fold_size / packing_width::<EF>()
@@ -441,32 +445,63 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
                 let eq_mle = eq_mle.map(|eq_mle| eq_mle.as_extension().unwrap().as_slice());
                 sumcheck_compute_not_packed(
                     multilinears,
-                    zs,
-                    skips,
-                    eq_mle,
-                    folding_scalars,
-                    computation,
-                    batching_scalars,
-                    missing_mul_factor,
-                    fold_size,
+                    SumcheckComputeNotPackedParams {
+                        zs,
+                        skips,
+                        eq_mle,
+                        folding_scalars,
+                        computation,
+                        batching_scalars,
+                        missing_mul_factor,
+                        fold_size,
+                    },
                 )
             }
             Self::Extension(multilinears) => {
                 let eq_mle = eq_mle.map(|eq_mle| eq_mle.as_extension().unwrap().as_slice());
                 sumcheck_compute_not_packed(
                     multilinears,
-                    zs,
-                    skips,
-                    eq_mle,
-                    folding_scalars,
-                    computation,
-                    batching_scalars,
-                    missing_mul_factor,
-                    fold_size,
+                    SumcheckComputeNotPackedParams {
+                        zs,
+                        skips,
+                        eq_mle,
+                        folding_scalars,
+                        computation,
+                        batching_scalars,
+                        missing_mul_factor,
+                        fold_size,
+                    },
                 )
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub struct SumcheckComputeParams<'a, EF: ExtensionField<PF<EF>>, SC, SCP> {
+    pub zs: &'a [usize],
+    pub skips: usize,
+    pub eq_mle: Option<&'a Mle<EF>>,
+    pub folding_scalars: &'a [Vec<PF<EF>>],
+    pub computation: &'a SC,
+    pub computation_packed: &'a SCP,
+    pub batching_scalars: &'a [EF],
+    pub missing_mul_factor: Option<EF>,
+}
+
+#[derive(Debug)]
+pub struct SumcheckComputeNotPackedParams<'a, EF, SC>
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    pub zs: &'a [usize],
+    pub skips: usize,
+    pub eq_mle: Option<&'a [EF]>,
+    pub folding_scalars: &'a [Vec<PF<EF>>],
+    pub computation: &'a SC,
+    pub batching_scalars: &'a [EF],
+    pub missing_mul_factor: Option<EF>,
+    pub fold_size: usize,
 }
 
 pub fn sumcheck_compute_not_packed<
@@ -475,18 +510,22 @@ pub fn sumcheck_compute_not_packed<
     SC,
 >(
     multilinears: &[&[IF]],
-    zs: &[usize],
-    skips: usize,
-    eq_mle: Option<&[EF]>,
-    folding_scalars: &[Vec<PF<EF>>],
-    computation: &SC,
-    batching_scalars: &[EF],
-    missing_mul_factor: Option<EF>,
-    fold_size: usize,
+    params: SumcheckComputeNotPackedParams<'_, EF, SC>,
 ) -> Vec<(PF<EF>, EF)>
 where
     SC: SumcheckComputation<IF, EF>,
 {
+    let SumcheckComputeNotPackedParams {
+        zs,
+        skips,
+        eq_mle,
+        folding_scalars,
+        computation,
+        batching_scalars,
+        missing_mul_factor,
+        fold_size,
+    } = params;
+
     let all_sums = unsafe { uninitialized_vec::<EF>(zs.len() * fold_size) }; // sums for zs[0], sums for zs[1], ...
     (0..fold_size).into_par_iter().for_each(|i| {
         let eq_mle_eval = eq_mle.as_ref().map(|eq_mle| eq_mle[i]);

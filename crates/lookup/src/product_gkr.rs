@@ -18,10 +18,11 @@ use utils::packing_log_width;
 use utils::packing_width;
 use utils::right_ref;
 use utils::unpack_extension;
-use utils::{EFPacking, Evaluation, FSProver, FSVerifier, PF};
+use utils::{EFPacking, FSProver, FSVerifier, PF};
 use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::fiat_shamir::errors::ProofError;
 use whir_p3::poly::evals::EvaluationsList;
+use whir_p3::poly::multilinear::Evaluation;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
 /*
@@ -150,7 +151,7 @@ where
     let next_claim =
         inner_evals[0] * (EF::ONE - mixing_challenge) + inner_evals[1] * mixing_challenge;
 
-    (next_point, next_claim).into()
+    Evaluation::new(next_point, next_claim)
 }
 
 pub fn verify_gkr_product<EF>(
@@ -208,7 +209,7 @@ where
 
     let next_claim = eval_left * (EF::ONE - mixing_challenge) + eval_right * mixing_challenge;
 
-    Ok((next_point, next_claim).into())
+    Ok(Evaluation::new(next_point, next_claim))
 }
 
 fn product_2_by_2<EF: PrimeCharacteristicRing + Sync + Send + Copy>(layer: &[EF]) -> Vec<EF> {

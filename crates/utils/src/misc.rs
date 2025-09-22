@@ -3,7 +3,7 @@ use std::{
     ops::Range,
 };
 
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, dot_product};
 use rayon::prelude::*;
 
 use crate::PF;
@@ -30,25 +30,25 @@ pub const fn diff_to_next_power_of_two(n: usize) -> usize {
 }
 
 pub fn left_mut<A>(slice: &mut [A]) -> &mut [A] {
-    assert!(slice.len() % 2 == 0);
+    assert!(slice.len().is_multiple_of(2));
     let mid = slice.len() / 2;
     &mut slice[..mid]
 }
 
 pub fn right_mut<A>(slice: &mut [A]) -> &mut [A] {
-    assert!(slice.len() % 2 == 0);
+    assert!(slice.len().is_multiple_of(2));
     let mid = slice.len() / 2;
     &mut slice[mid..]
 }
 
 pub fn left_ref<A>(slice: &[A]) -> &[A] {
-    assert!(slice.len() % 2 == 0);
+    assert!(slice.len().is_multiple_of(2));
     let mid = slice.len() / 2;
     &slice[..mid]
 }
 
 pub fn right_ref<A>(slice: &[A]) -> &[A] {
-    assert!(slice.len() % 2 == 0);
+    assert!(slice.len().is_multiple_of(2));
     let mid = slice.len() / 2;
     &slice[mid..]
 }
@@ -66,6 +66,22 @@ pub fn remove_end<A>(slice: &[A], n: usize) -> &[A] {
 
 pub fn field_slice_as_base<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Option<Vec<F>> {
     slice.par_iter().map(|x| x.as_base()).collect()
+}
+
+pub fn transpose_slice_to_basis_coefficients<F: Field, EF: ExtensionField<F>>(
+    slice: &[EF],
+) -> Vec<Vec<F>> {
+    let res = vec![F::zero_vec(slice.len()); EF::DIMENSION];
+    slice.par_iter().enumerate().for_each(|(i, row)| {
+        let coeffs = EF::as_basis_coefficients_slice(row);
+        unsafe {
+            for (j, &coeff) in coeffs.iter().enumerate() {
+                let raw_ptr = res[j].as_ptr() as *mut F;
+                *raw_ptr.add(i) = coeff;
+            }
+        }
+    });
+    res
 }
 
 pub fn dot_product_with_base<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> EF {
@@ -113,4 +129,12 @@ pub fn debug_hash<A: Hash>(a: &A) -> u64 {
     let mut hasher = DefaultHasher::new();
     a.hash(&mut hasher);
     hasher.finish()
+}
+
+pub fn finger_print<F: Field, EF: ExtensionField<F>>(data: &[F], challenge: EF) -> EF {
+    challenge + dot_product::<EF, _, _>(challenge.powers().skip(2), data.iter().copied())
+}
+
+pub fn powers_const<F: Field, const N: usize>(base: F) -> [F; N] {
+    base.powers().collect_n(N).try_into().unwrap()
 }

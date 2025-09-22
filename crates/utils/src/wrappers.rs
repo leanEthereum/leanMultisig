@@ -13,6 +13,8 @@ use p3_symmetric::TruncatedPermutation;
 
 use rayon::prelude::*;
 use whir_p3::fiat_shamir::{prover::ProverState, verifier::VerifierState};
+use whir_p3::whir::committer::Witness;
+use whir_p3::whir::committer::reader::ParsedCommitment;
 use whir_p3::whir::config::WhirConfigBuilder;
 
 use crate::Poseidon16;
@@ -30,8 +32,9 @@ pub type FSVerifier<EF, Challenger> = VerifierState<PF<EF>, EF, Challenger>;
 pub type MyMerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 pub type MyMerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 pub type MyChallenger = DuplexChallenger<KoalaBear, Poseidon16, 16, 8>;
-pub type MyWhirConfigBuilder<F, EF> =
-    WhirConfigBuilder<F, EF, MyMerkleHash, MyMerkleCompress, MY_DIGEST_ELEMS>;
+pub type MyWhirConfigBuilder = WhirConfigBuilder<MyMerkleHash, MyMerkleCompress, MY_DIGEST_ELEMS>;
+pub type WhirWitness<F, EF> = Witness<F, EF, MY_DIGEST_ELEMS>;
+pub type WhirParsedCommitment<F, EF> = ParsedCommitment<F, EF, MY_DIGEST_ELEMS>;
 pub const MY_DIGEST_ELEMS: usize = 8;
 
 pub trait MerkleHasher<EF: Field>:

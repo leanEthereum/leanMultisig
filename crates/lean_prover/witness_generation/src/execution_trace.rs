@@ -22,16 +22,46 @@ pub struct WitnessDotProduct {
     pub slice_1: Vec<EF>,
     pub res: EF,
 }
+impl WitnessDotProduct {
+    pub fn addresses_and_len_field_repr(&self) -> [F; 4] {
+        [
+            F::from_usize(self.addr_0),
+            F::from_usize(self.addr_1),
+            F::from_usize(self.addr_res),
+            F::from_usize(self.len),
+        ]
+    }
+}
 
 #[derive(Debug)]
-pub struct WitnessMultilinearEval {
-    pub cycle: usize,
-    pub addr_coeffs: usize, // vectorized pointer, of size 8.2^size
-    pub addr_point: usize,  // vectorized pointer, of size `size`
-    pub addr_res: usize,    // vectorized pointer
-    pub n_vars: usize,
+pub struct RowMultilinearEval {
+    pub addr_coeffs: usize,
+    pub addr_point: usize,
+    pub addr_res: usize,
     pub point: Vec<EF>,
     pub res: EF,
+}
+
+impl RowMultilinearEval {
+    pub fn n_vars(&self) -> usize {
+        self.point.len()
+    }
+
+    pub fn addresses_and_n_vars_field_repr(&self) -> [F; 4] {
+        [
+            F::from_usize(self.addr_coeffs),
+            F::from_usize(self.addr_point),
+            F::from_usize(self.addr_res),
+            F::from_usize(self.n_vars()),
+        ]
+    }
+}
+
+#[derive(Debug, derive_more::Deref)]
+pub struct WitnessMultilinearEval {
+    pub cycle: usize,
+    #[deref]
+    pub inner: RowMultilinearEval,
 }
 
 #[derive(Debug)]
@@ -54,6 +84,14 @@ impl WitnessPoseidon16 {
             input: [F::ZERO; 16],
             output: get_poseidon16().permute([F::ZERO; 16]),
         }
+    }
+
+    pub fn addresses_field_repr(&self) -> [F; 3] {
+        [
+            F::from_usize(self.addr_input_a),
+            F::from_usize(self.addr_input_b),
+            F::from_usize(self.addr_output),
+        ]
     }
 }
 
@@ -80,6 +118,14 @@ impl WitnessPoseidon24 {
                 .unwrap(),
         }
     }
+
+    pub fn addresses_field_repr(&self) -> [F; 3] {
+        [
+            F::from_usize(self.addr_input_a),
+            F::from_usize(self.addr_input_b),
+            F::from_usize(self.addr_output),
+        ]
+    }
 }
 
 #[derive(Debug)]
@@ -92,6 +138,7 @@ pub struct ExecutionTrace {
     pub dot_products: Vec<WitnessDotProduct>,
     pub vm_multilinear_evals: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
+    pub non_zero_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
@@ -167,18 +214,22 @@ pub fn get_execution_trace(
     }
 
     // repeat the last row to get to a power of two
-    for j in 0..N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS {
-        let last_value = trace[j][n_cycles - 1];
-        for i in n_cycles..(1 << log_n_cycles_rounded_up) {
-            trace[j][i] = last_value;
+    for column in trace
+        .iter_mut()
+        .take(N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS)
+    {
+        let last_value = column[n_cycles - 1];
+        for cell in column.iter_mut().skip(n_cycles) {
+            *cell = last_value;
         }
     }
 
-    let memory = memory
+    let mut memory_padded = memory
         .0
         .par_iter()
         .map(|&v| v.unwrap_or(F::ZERO))
         .collect::<Vec<F>>();
+    memory_padded.resize(memory.0.len().next_power_of_two(), F::ZERO);
 
     // Build witnesses from VM-collected events
     for e in &execution_result.vm_poseidon16_events {
@@ -263,7 +314,8 @@ pub fn get_execution_trace(
         dot_products,
         vm_multilinear_evals,
         public_memory_size: execution_result.public_memory_size,
-        memory,
+        non_zero_memory_size: memory.0.len(),
+        memory: memory_padded,
     }
 }
 

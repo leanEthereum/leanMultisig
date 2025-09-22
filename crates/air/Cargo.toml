@@ -18,7 +18,6 @@ p3-air.workspace = true
 p3-uni-stark.workspace = true
 # p3-challenger.workspace = true
 p3-matrix.workspace = true
-# pcs.workspace = true
 p3-util.workspace = true
 
 [dev-dependencies]

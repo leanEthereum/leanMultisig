@@ -6,7 +6,6 @@ https://eprint.iacr.org/2025/946.pdf
 with custom GKR
 
 */
-
 use p3_field::PackedFieldExtension;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, PrimeField64, dot_product};
@@ -19,12 +18,13 @@ use utils::pack_extension;
 use utils::packing_log_width;
 use utils::packing_width;
 use utils::unpack_extension;
-use utils::{EFPacking, Evaluation, FSProver, FSVerifier, PF, PFPacking};
+use utils::{EFPacking, FSProver, FSVerifier, PF, PFPacking};
 use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::fiat_shamir::errors::ProofError;
-use whir_p3::poly::dense::WhirDensePolynomial;
+use whir_p3::poly::dense::DensePolynomial;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::evals::eval_eq;
+use whir_p3::poly::multilinear::Evaluation;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
 /*
@@ -79,10 +79,10 @@ where
     prover_state.add_extension_scalars(&layers_not_packed[n - last_packed - 2]);
 
     let point = MultilinearPoint(vec![prover_state.sample()]);
-    let mut claim = Evaluation {
-        point: point.clone(),
-        value: layers_not_packed[n - last_packed - 2].evaluate(&point),
-    };
+    let mut claim = Evaluation::new(
+        point.clone(),
+        layers_not_packed[n - last_packed - 2].evaluate(&point),
+    );
 
     let (mut up_layer_eval_left, mut up_layer_eval_right) = (EF::ZERO, EF::ZERO);
     for layer in layers_not_packed.iter().rev().skip(1) {
@@ -135,13 +135,11 @@ where
 
     let mid_len = up_layer.len() / 2;
     let quarter_len = mid_len / 2;
-    let first_sumcheck_polynomial = &WhirDensePolynomial::from_coefficients_vec(vec![
-        EF::ONE - claim.point[0],
-        claim.point[0].double() - EF::ONE,
-    ]) * &WhirDensePolynomial::from_coefficients_vec(vec![
-        sum_one_minus_x,
-        sum_x - sum_one_minus_x,
-    ]);
+    let first_sumcheck_polynomial =
+        &DensePolynomial::new(vec![
+            EF::ONE - claim.point[0],
+            claim.point[0].double() - EF::ONE,
+        ]) * &DensePolynomial::new(vec![sum_one_minus_x, sum_x - sum_one_minus_x]);
 
     // sanity check
     assert_eq!(
@@ -209,7 +207,7 @@ where
     ]));
 
     (
-        (next_point, next_claim).into(),
+        Evaluation::new(next_point, next_claim),
         up_layer_eval_left,
         up_layer_eval_right,
     )
@@ -217,7 +215,7 @@ where
 
 fn prove_gkr_quotient_step_packed<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    up_layer_packed: &Vec<EFPacking<EF>>,
+    up_layer_packed: &[EFPacking<EF>],
     claim: &Evaluation<EF>,
 ) -> (Evaluation<EF>, EF, EF)
 where
@@ -262,13 +260,11 @@ where
     let sum_x = EFPacking::<EF>::to_ext_iter([sum_x_packed]).sum::<EF>();
     let sum_one_minus_x = EFPacking::<EF>::to_ext_iter([sum_one_minus_x_packed]).sum::<EF>();
 
-    let first_sumcheck_polynomial = &WhirDensePolynomial::from_coefficients_vec(vec![
-        EF::ONE - claim.point[0],
-        claim.point[0].double() - EF::ONE,
-    ]) * &WhirDensePolynomial::from_coefficients_vec(vec![
-        sum_one_minus_x,
-        sum_x - sum_one_minus_x,
-    ]);
+    let first_sumcheck_polynomial =
+        &DensePolynomial::new(vec![
+            EF::ONE - claim.point[0],
+            claim.point[0].double() - EF::ONE,
+        ]) * &DensePolynomial::new(vec![sum_one_minus_x, sum_x - sum_one_minus_x]);
 
     // sanity check
     assert_eq!(
@@ -339,7 +335,7 @@ where
     ]));
 
     (
-        (next_point, next_claim).into(),
+        Evaluation::new(next_point, next_claim),
         up_layer_eval_left,
         up_layer_eval_right,
     )
@@ -413,7 +409,7 @@ where
             .copied(),
     );
 
-    Ok((next_point, next_claim).into())
+    Ok(Evaluation::new(next_point, next_claim))
 }
 
 pub struct GKRQuotientComputation<EF> {

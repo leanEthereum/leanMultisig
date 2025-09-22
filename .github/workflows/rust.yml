@@ -2,33 +2,62 @@ name: Rust
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
-    branches: ["main"]
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    name: Build & Test
+  build-test-matrix:
+    name: Build & Test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x64-avx2
+            os: ubuntu-latest
+            rustflags: -C target-cpu=haswell
+            run_tests: true
 
+          # TODO make arm64-neon work
+
+          # - name: arm64-neon
+          #   os: ubuntu-24.04-arm64
+          #   rustflags: -C target-feature=+neon
+          #   run_tests: true
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release --verbose
-      - name: Run tests
-        run: cargo test --release --verbose
+        run: cargo build --release --all --verbose
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+      - name: Test
+        if: ${{ matrix.run_tests == true }}
+        run: cargo test --release --all --verbose
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
 
   cargo-clippy:
     runs-on: ubuntu-latest
     name: Clippy
-
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
@@ -36,13 +65,14 @@ jobs:
         with:
           toolchain: nightly
           components: clippy
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
       - name: Clippy Check
         run: cargo clippy --workspace --all-targets -- -Dwarnings
 
   cargo-fmt:
-    name: Cargo fmt
     runs-on: ubuntu-latest
-
+    name: Rustfmt Check
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
@@ -50,5 +80,7 @@ jobs:
         with:
           toolchain: nightly
           components: rustfmt
-      - name: Rustfmt Check
-        run: cargo fmt --all --check
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check

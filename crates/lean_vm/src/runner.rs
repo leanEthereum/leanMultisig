@@ -101,7 +101,7 @@ pub fn execute_bytecode(
         bytecode,
         public_input,
         private_input,
-        MAX_MEMORY_SIZE / 2,
+        MAX_RUNNER_MEMORY_SIZE / 2,
         false,
         &mut std_out,
         &mut instruction_history,
@@ -161,14 +161,24 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory[PUBLIC_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
 
     // "zero" vector
-    for i in ZERO_VEC_PTR * VECTOR_LEN..(ZERO_VEC_PTR + 2) * VECTOR_LEN {
-        public_memory[i] = F::ZERO;
+    let zero_start = ZERO_VEC_PTR * VECTOR_LEN;
+    for slot in public_memory
+        .iter_mut()
+        .skip(zero_start)
+        .take(2 * VECTOR_LEN)
+    {
+        *slot = F::ZERO;
     }
 
     // "one" vector
     public_memory[ONE_VEC_PTR * VECTOR_LEN] = F::ONE;
-    for i in ONE_VEC_PTR * VECTOR_LEN + 1..(ONE_VEC_PTR + 1) * VECTOR_LEN {
-        public_memory[i] = F::ZERO;
+    let one_start = ONE_VEC_PTR * VECTOR_LEN + 1;
+    for slot in public_memory
+        .iter_mut()
+        .skip(one_start)
+        .take(VECTOR_LEN - 1)
+    {
+        *slot = F::ZERO;
     }
 
     public_memory
@@ -180,6 +190,7 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory
 }
 
+#[allow(clippy::too_many_arguments)] // TODO
 fn execute_bytecode_helper(
     bytecode: &Bytecode,
     public_input: &[F],

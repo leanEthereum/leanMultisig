@@ -6,7 +6,7 @@ use utils::packing_log_width;
 use utils::unpack_extension;
 use utils::{FSProver, PF, univariate_selectors};
 use whir_p3::fiat_shamir::FSChallenger;
-use whir_p3::poly::dense::WhirDensePolynomial;
+use whir_p3::poly::dense::DensePolynomial;
 use whir_p3::poly::evals::eval_eq;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
@@ -14,6 +14,7 @@ use crate::Mle;
 use crate::MleGroup;
 use crate::SumcheckComputation;
 use crate::SumcheckComputationPacked;
+use crate::SumcheckComputeParams;
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove<'a, EF, SC, SCP, M: Into<MleGroup<'a, EF>>>(
@@ -120,7 +121,7 @@ fn compute_and_send_polynomial<'a, EF, SC, SCP>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     sum: EF,
     missing_mul_factor: Option<EF>,
-) -> WhirDensePolynomial<EF>
+) -> DensePolynomial<EF>
 where
     EF: ExtensionField<PF<EF>>,
     SC: SumcheckComputation<PF<EF>, EF> + SumcheckComputation<EF, EF>,
@@ -151,16 +152,20 @@ where
         })
         .collect::<Vec<Vec<PF<EF>>>>();
 
-    p_evals.extend(multilinears.by_ref().sumcheck_compute(
-        &zs,
-        skips,
-        eq_factor.as_ref().map(|(_, eq_mle)| eq_mle),
-        &folding_scalars,
-        computation,
-        computations_packed,
-        batching_scalars,
-        missing_mul_factor,
-    ));
+    p_evals.extend(
+        multilinears
+            .by_ref()
+            .sumcheck_compute(SumcheckComputeParams {
+                zs: &zs,
+                skips,
+                eq_mle: eq_factor.as_ref().map(|(_, eq_mle)| eq_mle),
+                folding_scalars: &folding_scalars,
+                computation,
+                computation_packed: computations_packed,
+                batching_scalars,
+                missing_mul_factor,
+            }),
+    );
 
     if !is_zerofier {
         let missing_sum_z = if let Some((eq_factor, _)) = eq_factor {
@@ -177,12 +182,12 @@ where
         p_evals.push((PF::<EF>::from_usize((1 << skips) - 1), missing_sum_z));
     }
 
-    let mut p = WhirDensePolynomial::lagrange_interpolation(&p_evals).unwrap();
+    let mut p = DensePolynomial::lagrange_interpolation(&p_evals).unwrap();
 
     if let Some((eq_factor, _)) = &eq_factor {
         // https://eprint.iacr.org/2024/108.pdf Section 3.2
         // We do not take advantage of this trick to send less data, but we could do so in the future (TODO)
-        p *= &WhirDensePolynomial::lagrange_interpolation(
+        p *= &DensePolynomial::lagrange_interpolation(
             &(0..1 << skips)
                 .into_par_iter()
                 .map(|i| (PF::<EF>::from_usize(i), selectors[i].evaluate(eq_factor[0])))
@@ -212,7 +217,7 @@ fn on_challenge_received<'a, EF>(
     sum: &mut EF,
     missing_mul_factor: &mut Option<EF>,
     challenge: EF,
-    p: &WhirDensePolynomial<EF>,
+    p: &DensePolynomial<EF>,
 ) where
     EF: ExtensionField<PF<EF>>,
 {

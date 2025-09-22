@@ -45,7 +45,7 @@ sumcheck = { path = "crates/sumcheck" }
 utils = { path = "crates/utils" }
 lean_vm = { path = "crates/lean_vm" }
 xmss = { path = "crates/xmss" }
-pcs = { path = "crates/pcs" }
+packed_pcs = { path = "crates/packed_pcs" }
 lookup = { path = "crates/lookup" }
 lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
@@ -96,5 +96,21 @@ whir-p3.workspace = true
 p3-uni-stark.workspace = true
 utils.workspace = true
 p3-util.workspace = true
-pcs.workspace = true
+packed_pcs.workspace = true
 p3-air.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+rec_aggregation.workspace = true
+
+[[bench]]
+name = "poseidon2"
+harness = false
+
+[[bench]]
+name = "recursion"
+harness = false
+
+[[bench]]
+name = "xmss"
+harness = false

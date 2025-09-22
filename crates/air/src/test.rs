@@ -5,10 +5,10 @@ use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_matrix::Matrix;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{build_prover_state, build_verifier_state, padd_with_zero_to_next_power_of_two};
+use utils::{build_prover_state, build_verifier_state};
 use whir_p3::poly::evals::EvaluationsList;
 
-use crate::{table::AirTable, witness::AirWitness};
+use crate::table::AirTable;
 
 const UNIVARIATE_SKIPS: usize = 3;
 
@@ -106,9 +106,13 @@ fn generate_structured_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMN
     }
     let mut witness_cols = vec![vec![F::ZERO]; N_COLUMNS - N_PREPROCESSED_COLUMNS];
     for i in 1..n_rows {
-        for j in 0..N_COLUMNS - N_PREPROCESSED_COLUMNS {
-            let witness_cols_j_i_min_1 = witness_cols[j][i - 1];
-            witness_cols[j].push(
+        for (j, witness_col) in witness_cols
+            .iter_mut()
+            .enumerate()
+            .take(N_COLUMNS - N_PREPROCESSED_COLUMNS)
+        {
+            let witness_cols_j_i_min_1 = witness_col[i - 1];
+            witness_col.push(
                 witness_cols_j_i_min_1
                     + F::from_usize(j + N_PREPROCESSED_COLUMNS)
                     + (0..N_PREPROCESSED_COLUMNS)
@@ -131,14 +135,31 @@ fn generate_unstructured_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLU
         trace.push((0..n_rows).map(|_| rng.random()).collect::<Vec<F>>());
     }
     let mut witness_cols = vec![vec![]; N_COLUMNS - N_PREPROCESSED_COLUMNS];
-    for i in 0..n_rows {
-        for j in 0..N_COLUMNS - N_PREPROCESSED_COLUMNS {
-            witness_cols[j].push(
-                F::from_usize(j + N_PREPROCESSED_COLUMNS)
-                    + (0..N_PREPROCESSED_COLUMNS)
-                        .map(|k| trace[k][i])
-                        .product::<F>(),
-            );
+    let mut column_iters = trace[..N_PREPROCESSED_COLUMNS]
+        .iter()
+        .map(|col| col.iter())
+        .collect::<Vec<_>>();
+    if column_iters.is_empty() {
+        trace.extend(witness_cols);
+        return trace;
+    }
+    loop {
+        let mut row_product = F::ONE;
+        let mut progressed = true;
+        for iter in &mut column_iters {
+            match iter.next() {
+                Some(value) => row_product *= *value,
+                None => {
+                    progressed = false;
+                    break;
+                }
+            }
+        }
+        if !progressed {
+            break;
+        }
+        for (j, witness_col) in witness_cols.iter_mut().enumerate() {
+            witness_col.push(F::from_usize(j + N_PREPROCESSED_COLUMNS) + row_product);
         }
     }
     trace.extend(witness_cols);
@@ -153,39 +174,30 @@ fn test_structured_air() {
     let mut prover_state = build_prover_state::<EF>();
 
     let columns = generate_structured_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(log_n_rows);
-    let column_groups = vec![0..N_PREPROCESSED_COLUMNS, N_PREPROCESSED_COLUMNS..N_COLUMNS];
-    let witness = AirWitness::new(&columns, &column_groups);
+    let columns_ref = columns.iter().map(|col| col.as_slice()).collect::<Vec<_>>();
 
     let table = AirTable::<EF, _, _>::new(
         ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>,
         ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>,
     );
-    table.check_trace_validity(&witness).unwrap();
-    let evaluations_remaining_to_prove =
-        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, witness);
+    table.check_trace_validity(&columns_ref).unwrap();
+    let (point_prover, evaluations_remaining_to_prove) =
+        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
     let mut verifier_state = build_verifier_state(&prover_state);
-    let evaluations_remaining_to_verify = table
-        .verify(
-            &mut verifier_state,
-            UNIVARIATE_SKIPS,
-            log_n_rows,
-            &column_groups,
-        )
+    let (point_verifier, evaluations_remaining_to_verify) = table
+        .verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_rows)
         .unwrap();
+    assert_eq!(point_prover, point_verifier);
     assert_eq!(
         &evaluations_remaining_to_prove,
         &evaluations_remaining_to_verify
     );
-    assert_eq!(
-        padd_with_zero_to_next_power_of_two(&columns[..N_PREPROCESSED_COLUMNS].concat())
-            .evaluate(&evaluations_remaining_to_verify[0].point),
-        evaluations_remaining_to_verify[0].value
-    );
-    assert_eq!(
-        padd_with_zero_to_next_power_of_two(&columns[N_PREPROCESSED_COLUMNS..N_COLUMNS].concat())
-            .evaluate(&evaluations_remaining_to_verify[1].point),
-        evaluations_remaining_to_verify[1].value
-    );
+    for i in 0..N_COLUMNS {
+        assert_eq!(
+            columns[i].evaluate(&point_prover),
+            evaluations_remaining_to_verify[i]
+        );
+    }
 }
 
 #[test]
@@ -196,37 +208,28 @@ fn test_unstructured_air() {
     let mut prover_state = build_prover_state::<EF>();
 
     let columns = generate_unstructured_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(log_n_rows);
-    let column_groups = vec![0..N_PREPROCESSED_COLUMNS, N_PREPROCESSED_COLUMNS..N_COLUMNS];
-    let witness = AirWitness::new(&columns, &column_groups);
+    let columns_ref = columns.iter().map(|col| col.as_slice()).collect::<Vec<_>>();
 
     let table = AirTable::<EF, _, _>::new(
         ExampleUnstructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>,
         ExampleUnstructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>,
     );
-    table.check_trace_validity(&witness).unwrap();
-    let evaluations_remaining_to_prove =
-        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, witness);
+    table.check_trace_validity(&columns_ref).unwrap();
+    let (point_prover, evaluations_remaining_to_prove) =
+        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
     let mut verifier_state = build_verifier_state(&prover_state);
-    let evaluations_remaining_to_verify = table
-        .verify(
-            &mut verifier_state,
-            UNIVARIATE_SKIPS,
-            log_n_rows,
-            &column_groups,
-        )
+    let (point_verifier, evaluations_remaining_to_verify) = table
+        .verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_rows)
         .unwrap();
+    assert_eq!(point_prover, point_verifier);
     assert_eq!(
         &evaluations_remaining_to_prove,
         &evaluations_remaining_to_verify
     );
-    assert_eq!(
-        padd_with_zero_to_next_power_of_two(&columns[..N_PREPROCESSED_COLUMNS].concat())
-            .evaluate(&evaluations_remaining_to_verify[0].point),
-        evaluations_remaining_to_verify[0].value
-    );
-    assert_eq!(
-        padd_with_zero_to_next_power_of_two(&columns[N_PREPROCESSED_COLUMNS..N_COLUMNS].concat())
-            .evaluate(&evaluations_remaining_to_verify[1].point),
-        evaluations_remaining_to_verify[1].value
-    );
+    for i in 0..N_COLUMNS {
+        assert_eq!(
+            columns[i].evaluate(&point_prover),
+            evaluations_remaining_to_verify[i]
+        );
+    }
 }

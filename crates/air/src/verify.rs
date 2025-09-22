@@ -1,13 +1,12 @@
 use p3_air::BaseAir;
 use p3_field::{ExtensionField, cyclic_subgroup_known_order, dot_product};
 use p3_util::log2_ceil_usize;
-use std::ops::Range;
 use sumcheck::SumcheckComputation;
 use utils::univariate_selectors;
-use utils::{Evaluation, from_end};
 use utils::{FSVerifier, PF};
 use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::poly::evals::eval_eq;
+use whir_p3::poly::multilinear::Evaluation;
 use whir_p3::{
     fiat_shamir::errors::ProofError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -22,18 +21,17 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     table: &AirTable<EF, A, AP>,
     univariate_skips: usize,
-    log_length: usize,
-    column_groups: &[Range<usize>],
-) -> Result<Vec<Evaluation<EF>>, ProofError> {
+    log_n_rows: usize,
+) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
     let constraints_batching_scalar = verifier_state.sample();
 
-    let n_zerocheck_challenges = log_length + 1 - univariate_skips;
+    let n_zerocheck_challenges = log_n_rows + 1 - univariate_skips;
     let global_zerocheck_challenges = verifier_state.sample_vec(n_zerocheck_challenges);
 
     let (sc_sum, outer_statement) = sumcheck::verify_with_univariate_skip::<EF>(
         verifier_state,
         <A as BaseAir<PF<EF>>>::degree(&table.air) + 1,
-        log_length,
+        log_n_rows,
         univariate_skips,
     )?;
     if sc_sum != EF::ZERO {
@@ -69,10 +67,10 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
         zerocheck_selector_evals.clone().into_iter(),
         outer_selector_evals.iter().copied(),
     ) * MultilinearPoint(
-        global_zerocheck_challenges[1..log_length + 1 - univariate_skips].to_vec(),
+        global_zerocheck_challenges[1..log_n_rows + 1 - univariate_skips].to_vec(),
     )
     .eq_poly_outside(&MultilinearPoint(
-        outer_statement.point[1..log_length - univariate_skips + 1].to_vec(),
+        outer_statement.point[1..log_n_rows - univariate_skips + 1].to_vec(),
     )) * constraint_evals
         != outer_statement.value
     {
@@ -86,25 +84,21 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
             table.n_columns(),
             univariate_skips,
             &inner_sums,
-            &column_groups,
-            &Evaluation {
-                point: MultilinearPoint(
-                    outer_statement.point[1..log_length - univariate_skips + 1].to_vec(),
-                ),
-                value: outer_statement.value,
-            },
+            &Evaluation::new(
+                outer_statement.point[1..log_n_rows - univariate_skips + 1].to_vec(),
+                outer_statement.value,
+            ),
             &outer_selector_evals,
-            log_length,
+            log_n_rows,
         )
     } else {
-        verify_many_unstructured_columns(
+        verify_unstructured_columns(
             verifier_state,
             univariate_skips,
             inner_sums,
-            column_groups,
             &outer_statement.point,
             &outer_selector_evals,
-            log_length,
+            log_n_rows,
         )
     }
 }
@@ -115,101 +109,71 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
         log_n_rows: usize,
-        column_groups: &[Range<usize>],
-    ) -> Result<Vec<Evaluation<EF>>, ProofError> {
-        verify_air::<EF, A, AP>(
-            verifier_state,
-            self,
-            univariate_skips,
-            log_n_rows,
-            column_groups,
-        )
+    ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
+        verify_air::<EF, A, AP>(verifier_state, self, univariate_skips, log_n_rows)
     }
 }
 
-fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
+fn verify_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
     inner_sums: Vec<EF>,
-    column_groups: &[Range<usize>],
     outer_sumcheck_point: &MultilinearPoint<EF>,
     outer_selector_evals: &[EF],
-    log_length: usize,
-) -> Result<Vec<Evaluation<EF>>, ProofError> {
-    let max_columns_per_group = column_groups.iter().map(|g| g.len()).max().unwrap();
+    log_n_rows: usize,
+) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
+    let n_columns = inner_sums.len();
+    let columns_batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns));
 
-    let log_max_columns_per_group = log2_ceil_usize(max_columns_per_group);
-    let columns_batching_scalars = verifier_state.sample_vec(log_max_columns_per_group);
+    let sub_evals = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
 
-    let mut all_sub_evals = vec![];
-    for group in column_groups {
-        let sub_evals = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
-
-        if dot_product::<EF, _, _>(
-            sub_evals.iter().copied(),
-            outer_selector_evals.iter().copied(),
-        ) != dot_product::<EF, _, _>(
-            inner_sums[group.clone()].iter().copied(),
-            eval_eq(from_end(
-                &columns_batching_scalars,
-                log2_ceil_usize(group.len()),
-            ))[..group.len()]
-                .iter()
-                .copied(),
-        ) {
-            return Err(ProofError::InvalidProof);
-        }
-
-        all_sub_evals.push(sub_evals);
+    if dot_product::<EF, _, _>(
+        sub_evals.iter().copied(),
+        outer_selector_evals.iter().copied(),
+    ) != dot_product::<EF, _, _>(
+        inner_sums.iter().copied(),
+        eval_eq(&columns_batching_scalars).iter().copied(),
+    ) {
+        return Err(ProofError::InvalidProof);
     }
 
     let epsilons = MultilinearPoint(verifier_state.sample_vec(univariate_skips));
+    let common_point = MultilinearPoint(
+        [
+            epsilons.0.clone(),
+            outer_sumcheck_point[1..log_n_rows - univariate_skips + 1].to_vec(),
+        ]
+        .concat(),
+    );
 
-    let mut evaluations_remaining_to_verify = vec![];
-    for (j, group) in column_groups.iter().enumerate() {
-        let final_value = all_sub_evals[j].evaluate(&epsilons);
-        let final_point = MultilinearPoint(
-            [
-                from_end(&columns_batching_scalars, log2_ceil_usize(group.len())).to_vec(),
-                epsilons.0.clone(),
-                outer_sumcheck_point[1..log_length - univariate_skips + 1].to_vec(),
-            ]
-            .concat(),
-        );
-        evaluations_remaining_to_verify.push(Evaluation {
-            point: final_point,
-            value: final_value,
-        });
+    let evaluations_remaining_to_verify = verifier_state.next_extension_scalars_vec(n_columns)?;
+
+    if sub_evals.evaluate(&epsilons)
+        != dot_product(
+            eval_eq(&columns_batching_scalars).into_iter(),
+            evaluations_remaining_to_verify.iter().copied(),
+        )
+    {
+        return Err(ProofError::InvalidProof);
     }
 
-    Ok(evaluations_remaining_to_verify)
+    Ok((common_point, evaluations_remaining_to_verify))
 }
 
+#[allow(clippy::too_many_arguments)] // TODO
 fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_columns: usize,
     univariate_skips: usize,
     all_inner_sums: &[EF],
-    column_groups: &[Range<usize>],
     outer_sumcheck_challenge: &Evaluation<EF>,
     outer_selector_evals: &[EF],
     log_n_rows: usize,
-) -> Result<Vec<Evaluation<EF>>, ProofError> {
-    let log_n_groups = log2_ceil_usize(column_groups.len());
-    let max_columns_per_group = Iterator::max(column_groups.iter().map(|g| g.len())).unwrap();
-    let log_max_columns_per_group = log2_ceil_usize(max_columns_per_group);
-    let batching_scalars = verifier_state.sample_vec(log_n_groups + log_max_columns_per_group);
+) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
+    let columns_batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns));
     let alpha = verifier_state.sample();
 
-    let poly_eq_batching_scalars = eval_eq(&batching_scalars);
-    let mut column_scalars = vec![];
-    let mut index = 0;
-    for group in column_groups {
-        for i in index..index + group.len() {
-            column_scalars.push(poly_eq_batching_scalars[i]);
-        }
-        index += max_columns_per_group.next_power_of_two();
-    }
+    let poly_eq_batching_scalars = eval_eq(&columns_batching_scalars);
 
     let all_witness_up = &all_inner_sums[..n_columns];
     let all_witness_down = &all_inner_sums[n_columns..];
@@ -221,10 +185,10 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
         outer_selector_evals.iter().copied(),
     ) != dot_product::<EF, _, _>(
         all_witness_up.iter().copied(),
-        column_scalars.iter().copied(),
+        poly_eq_batching_scalars.iter().copied(),
     ) + dot_product::<EF, _, _>(
         all_witness_down.iter().copied(),
-        column_scalars.iter().copied(),
+        poly_eq_batching_scalars.iter().copied(),
     ) * alpha
     {
         return Err(ProofError::InvalidProof);
@@ -249,37 +213,18 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
 
     let final_value = inner_sumcheck_stement.value / (up + alpha * down);
 
-    let mut evaluations_remaining_to_verify = vec![];
-    for group in column_groups {
-        let point = MultilinearPoint(
-            [
-                from_end(
-                    &batching_scalars[log_n_groups..],
-                    log2_ceil_usize(group.len()),
-                )
-                .to_vec(),
-                inner_sumcheck_stement.point.0.clone(),
-            ]
-            .concat(),
-        );
-        let value = verifier_state.next_extension_scalar()?;
-        evaluations_remaining_to_verify.push(Evaluation { point, value });
-    }
+    let evaluations_remaining_to_verify = verifier_state.next_extension_scalars_vec(n_columns)?;
 
-    assert_eq!(
-        final_value,
-        dot_product(
-            eval_eq(&batching_scalars[..log_n_groups]).into_iter(),
-            column_groups
-                .iter()
-                .enumerate()
-                .map(|(i, group)| evaluations_remaining_to_verify[i].value
-                    * batching_scalars[log_n_groups
-                        ..log_n_groups + log_max_columns_per_group - log2_ceil_usize(group.len())]
-                        .iter()
-                        .map(|&x| EF::ONE - x)
-                        .product::<EF>())
+    if final_value
+        != dot_product(
+            eval_eq(&columns_batching_scalars).into_iter(),
+            evaluations_remaining_to_verify.iter().copied(),
         )
-    );
-    Ok(evaluations_remaining_to_verify)
+    {
+        return Err(ProofError::InvalidProof);
+    }
+    Ok((
+        inner_sumcheck_stement.point.clone(),
+        evaluations_remaining_to_verify,
+    ))
 }

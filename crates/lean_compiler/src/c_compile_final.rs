@@ -152,23 +152,23 @@ fn compile_block(
                 mut arg_c,
                 res,
             } => {
-                if let Some(arg_a_cst) = try_as_constant(&arg_a, compiler) {
-                    if let Some(arg_b_cst) = try_as_constant(&arg_c, compiler) {
-                        // res = constant +/x constant
+                if let Some(arg_a_cst) = try_as_constant(&arg_a, compiler)
+                    && let Some(arg_b_cst) = try_as_constant(&arg_c, compiler)
+                {
+                    // res = constant +/x constant
 
-                        let op_res = operation.compute(arg_a_cst, arg_b_cst);
+                    let op_res = operation.compute(arg_a_cst, arg_b_cst);
 
-                        let res: MemOrFp = res.try_into_mem_or_fp(compiler).unwrap();
+                    let res: MemOrFp = res.try_into_mem_or_fp(compiler).unwrap();
 
-                        low_level_bytecode.push(Instruction::Computation {
-                            operation: Operation::Add,
-                            arg_a: MemOrConstant::zero(),
-                            arg_c: res,
-                            res: MemOrConstant::Constant(op_res),
-                        });
-                        pc += 1;
-                        continue;
-                    }
+                    low_level_bytecode.push(Instruction::Computation {
+                        operation: Operation::Add,
+                        arg_a: MemOrConstant::zero(),
+                        arg_c: res,
+                        res: MemOrConstant::Constant(op_res),
+                    });
+                    pc += 1;
+                    continue;
                 }
 
                 if arg_c.is_constant() {

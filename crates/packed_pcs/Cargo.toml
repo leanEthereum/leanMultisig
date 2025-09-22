@@ -1,5 +1,5 @@
 [package]
-name = "pcs"
+name = "packed_pcs"
 version.workspace = true
 edition.workspace = true
 
@@ -9,11 +9,9 @@ workspace = true
 [dependencies]
 p3-field.workspace = true
 tracing.workspace = true
-sumcheck.workspace = true
 utils.workspace = true
 whir-p3.workspace = true
 rayon.workspace = true
-p3-symmetric.workspace = true
 serde.workspace = true
 p3-util.workspace = true
 

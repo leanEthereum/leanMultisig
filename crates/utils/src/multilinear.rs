@@ -21,7 +21,7 @@ pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>, D>(
     let dim = <EF as BasedVectorSpace<F>>::DIMENSION;
 
     let m_transmuted: &[F] =
-        unsafe { std::slice::from_raw_parts(std::mem::transmute(m.as_ptr()), m.len() * dim) };
+        unsafe { std::slice::from_raw_parts(m.as_ptr().cast::<F>(), m.len() * dim) };
     let res_transmuted = {
         let new_size = m.len() * dim / scalars.len();
 
@@ -183,19 +183,17 @@ pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) 
         return F::ZERO;
     }
 
-    if point.len() == 0 {
+    if point.is_empty() {
         assert!(limit <= 1);
         if limit == 1 { F::ZERO } else { F::ONE }
     } else {
         let main_bit = limit >> (n_vars - 1);
         if main_bit == 1 {
             // limit is at the right half
-            return point[0]
-                * multilinear_eval_constants_at_right(limit - (1 << (n_vars - 1)), &point[1..]);
+            point[0] * multilinear_eval_constants_at_right(limit - (1 << (n_vars - 1)), &point[1..])
         } else {
             // limit is at left half
-            return point[0]
-                + (F::ONE - point[0]) * multilinear_eval_constants_at_right(limit, &point[1..]);
+            point[0] + (F::ONE - point[0]) * multilinear_eval_constants_at_right(limit, &point[1..])
         }
     }
 }
@@ -279,9 +277,9 @@ mod tests {
         let n_point_vars = 7;
         let mut rng = StdRng::seed_from_u64(0);
         let mut pol = F::zero_vec(1 << n_point_vars);
-        for i in 0..(1 << n_vars) {
-            pol[i] = rng.random();
-        }
+        pol.iter_mut()
+            .take(1 << n_vars)
+            .for_each(|coeff| *coeff = rng.random());
         let point = (0..n_point_vars).map(|_| rng.random()).collect::<Vec<EF>>();
         assert_eq!(
             evaluate_as_larger_multilinear_pol(&pol[..1 << n_vars], &point),
@@ -297,9 +295,10 @@ mod tests {
         for limit in [0, 1, 2, 45, 74, 451, 741, 1022, 1023] {
             let eval = multilinear_eval_constants_at_right(limit, &point);
             let mut pol = F::zero_vec(1 << n_vars);
-            for i in limit..(1 << n_vars) {
-                pol[i] = F::ONE;
-            }
+            pol.iter_mut()
+                .take(1 << n_vars)
+                .skip(limit)
+                .for_each(|coeff| *coeff = F::ONE);
             assert_eq!(eval, pol.evaluate(&MultilinearPoint(point.clone())));
         }
     }

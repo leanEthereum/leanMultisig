@@ -8,7 +8,7 @@ use p3_uni_stark::get_symbolic_constraints;
 use tracing::instrument;
 use utils::{ConstraintChecker, PF};
 
-use crate::{NormalAir, PackedAir, witness::AirWitness};
+use crate::{NormalAir, PackedAir};
 
 #[derive(Debug)]
 pub struct AirTable<EF: Field, A, AP> {
@@ -41,12 +41,14 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
     #[instrument(name = "Check trace validity", skip_all)]
     pub fn check_trace_validity<IF: ExtensionField<PF<EF>>>(
         &self,
-        witness: &AirWitness<'_, IF>,
+        witness: &[&[IF]],
     ) -> Result<(), String>
     where
         EF: ExtensionField<IF>,
     {
-        if witness.n_columns() != self.n_columns() {
+        let n_rows = witness[0].len();
+        assert!(witness.iter().all(|col| col.len() == n_rows));
+        if witness.len() != self.n_columns() {
             return Err("Invalid number of columns".to_string());
         }
         let handle_errors = |row: usize, constraint_checker: &mut ConstraintChecker<'_, IF, EF>| {
@@ -65,7 +67,7 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
             Ok(())
         };
         if <A as BaseAir<PF<EF>>>::structured(&self.air) {
-            for row in 0..witness.n_rows() - 1 {
+            for row in 0..n_rows - 1 {
                 let up = (0..self.n_columns())
                     .map(|j| witness[j][row])
                     .collect::<Vec<_>>();
@@ -81,24 +83,25 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
                 };
                 if TypeId::of::<IF>() == TypeId::of::<EF>() {
                     unsafe {
-                        self.air
-                            .eval(transmute::<_, &mut ConstraintChecker<'_, EF, EF>>(
-                                &mut constraints_checker,
-                            ));
+                        self.air.eval(transmute::<
+                            &mut ConstraintChecker<'_, IF, EF>,
+                            &mut ConstraintChecker<'_, EF, EF>,
+                        >(&mut constraints_checker));
                     }
                 } else {
                     assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
                     unsafe {
-                        self.air
-                            .eval(transmute::<_, &mut ConstraintChecker<'_, PF<EF>, EF>>(
-                                &mut constraints_checker,
-                            ));
+                        self.air.eval(transmute::<
+                            &mut ConstraintChecker<'_, IF, EF>,
+                            &mut ConstraintChecker<'_, PF<EF>, EF>,
+                        >(&mut constraints_checker));
                     }
                 }
                 handle_errors(row, &mut constraints_checker)?;
             }
         } else {
-            for row in 0..witness.n_rows() {
+            #[allow(clippy::needless_range_loop)]
+            for row in 0..n_rows {
                 let up = (0..self.n_columns())
                     .map(|j| witness[j][row])
                     .collect::<Vec<_>>();
@@ -110,18 +113,18 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
                 };
                 if TypeId::of::<IF>() == TypeId::of::<EF>() {
                     unsafe {
-                        self.air
-                            .eval(transmute::<_, &mut ConstraintChecker<'_, EF, EF>>(
-                                &mut constraints_checker,
-                            ));
+                        self.air.eval(transmute::<
+                            &mut ConstraintChecker<'_, IF, EF>,
+                            &mut ConstraintChecker<'_, EF, EF>,
+                        >(&mut constraints_checker));
                     }
                 } else {
                     assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
                     unsafe {
-                        self.air
-                            .eval(transmute::<_, &mut ConstraintChecker<'_, PF<EF>, EF>>(
-                                &mut constraints_checker,
-                            ));
+                        self.air.eval(transmute::<
+                            &mut ConstraintChecker<'_, IF, EF>,
+                            &mut ConstraintChecker<'_, PF<EF>, EF>,
+                        >(&mut constraints_checker));
                     }
                 }
                 handle_errors(row, &mut constraints_checker)?;

@@ -1,8 +1,8 @@
 use p3_field::ExtensionField;
-use utils::{Evaluation, FSVerifier, PF};
+use utils::{FSVerifier, PF};
 use whir_p3::{
     fiat_shamir::{FSChallenger, errors::ProofError},
-    poly::{dense::WhirDensePolynomial, multilinear::MultilinearPoint},
+    poly::{dense::DensePolynomial, multilinear::Evaluation},
 };
 
 pub fn verify<EF>(
@@ -70,7 +70,7 @@ where
         let deg = max_degree_per_vars[var];
         let sumation_set = &sumation_sets[var];
         let coeffs = verifier_state.next_extension_scalars_vec(deg + 1)?;
-        let pol = WhirDensePolynomial::from_coefficients_vec(coeffs);
+        let pol = DensePolynomial::new(coeffs);
         let computed_sum = sumation_set.iter().map(|&s| pol.evaluate(s)).sum();
         if first_round {
             first_round = false;
@@ -84,11 +84,5 @@ where
         target = pol.evaluate(challenge);
     }
 
-    Ok((
-        sum,
-        Evaluation {
-            point: MultilinearPoint(challenges),
-            value: target,
-        },
-    ))
+    Ok((sum, Evaluation::new(challenges, target)))
 }
