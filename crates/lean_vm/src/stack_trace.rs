@@ -2,13 +2,13 @@ use std::collections::BTreeMap;
 
 use colored::Colorize;
 
-use crate::LocationInSourceCode;
+use crate::SourceLineNumber;
 
 const STACK_TRACE_MAX_LINES_PER_FUNCTION: usize = 5;
 
 pub(crate) fn pretty_stack_trace(
     source_code: &str,
-    instructions: &[LocationInSourceCode], // LocationInSourceCode = usize
+    instructions: &[SourceLineNumber], // SourceLineNumber = usize
     function_locations: &BTreeMap<usize, String>,
 ) -> String {
     let source_lines: Vec<&str> = source_code.lines().collect();
@@ -131,7 +131,7 @@ pub(crate) fn find_function_for_line(
 
 fn count_remaining_lines_in_function(
     current_idx: usize,
-    instructions: &[LocationInSourceCode],
+    instructions: &[SourceLineNumber],
     function_locations: &BTreeMap<usize, String>,
     current_function_line: usize,
 ) -> usize {

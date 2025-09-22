@@ -7,7 +7,7 @@ use crate::{
     },
     precompiles::Precompile,
 };
-use lean_vm::LocationInSourceCode;
+use lean_vm::SourceLineNumber;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -137,7 +137,7 @@ pub enum SimpleLine {
     },
     // noop, debug purpose only
     LocationReport {
-        location: LocationInSourceCode,
+        location: SourceLineNumber,
     },
 }
 

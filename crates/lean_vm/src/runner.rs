@@ -83,7 +83,7 @@ impl MemOrFpOrConstant {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ExecutionHistory {
-    pub(crate) lines: Vec<LocationInSourceCode>,
+    pub(crate) lines: Vec<SourceLineNumber>,
     pub(crate) cycles: Vec<usize>, // for each line, how many cycles it took
 }
 

@@ -1,4 +1,4 @@
-use crate::{F, LocationInSourceCode};
+use crate::{F, SourceLineNumber};
 use p3_field::PrimeCharacteristicRing;
 use std::{
     collections::BTreeMap,
@@ -7,10 +7,12 @@ use std::{
 
 pub type Label = String;
 
+pub type CodeAddress = usize;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bytecode {
     pub instructions: Vec<Instruction>,
-    pub hints: BTreeMap<usize, Vec<Hint>>, // pc -> hints
+    pub hints: BTreeMap<CodeAddress, Vec<Hint>>,
     pub starting_frame_memory: usize,
     pub ending_pc: usize,
 }
@@ -129,7 +131,7 @@ pub enum Hint {
         content: Vec<MemOrConstant>,
     },
     LocationReport {
-        location: LocationInSourceCode, // debug purpose
+        location: SourceLineNumber, // debug purpose
     },
 }
 

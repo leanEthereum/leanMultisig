@@ -11,7 +11,7 @@ pub use lean_isa::*;
 pub use memory::*;
 pub use runner::*;
 
-pub type LocationInSourceCode = usize;
+pub type SourceLineNumber = usize;
 
 pub const DIMENSION: usize = 5;
 pub const LOG_VECTOR_LEN: usize = 3;

@@ -175,7 +175,7 @@ fn parse_parameter(pair: Pair<'_, Rule>) -> Result<(String, bool), ParseError> {
     Ok((first.as_str().to_string(), false))
 }
 
-fn on_new_located_line(lines: &mut Vec<Line>, line_and_location: (Line, LocationInSourceCode)) {
+fn on_new_located_line(lines: &mut Vec<Line>, line_and_location: (Line, SourceLineNumber)) {
     let (line, location) = line_and_location;
     lines.push(Line::LocationReport { location });
     lines.push(line);
@@ -185,7 +185,7 @@ fn parse_statement(
     pair: Pair<'_, Rule>,
     constants: &BTreeMap<String, usize>,
     trash_var_count: &mut usize,
-) -> Result<(Line, LocationInSourceCode), ParseError> {
+) -> Result<(Line, SourceLineNumber), ParseError> {
     let location = pair.line_col().0;
     let inner = pair.into_inner().next().unwrap();
     let line = match inner.as_rule() {

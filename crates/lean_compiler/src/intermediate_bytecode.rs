@@ -150,7 +150,7 @@ pub enum IntermediateInstruction {
     },
     // noop, debug purpose only
     LocationReport {
-        location: LocationInSourceCode,
+        location: SourceLineNumber,
     },
 }
 

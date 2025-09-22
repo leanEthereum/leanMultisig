@@ -356,7 +356,7 @@ pub enum Line {
     },
     // noop, debug purpose only
     LocationReport {
-        location: LocationInSourceCode,
+        location: SourceLineNumber,
     },
 }
 impl Display for Expression {
