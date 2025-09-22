@@ -294,7 +294,9 @@ impl Display for Hint {
             Self::Inverse { arg, res_offset } => {
                 write!(f, "m[fp + {res_offset}] = inverse({arg})")
             }
-            Self::LocationReport { .. } => Ok(()),
+            Self::LocationReport { location: line_number } => {
+                write!(f, "source line number: {line_number}")
+            }
         }
     }
 }
