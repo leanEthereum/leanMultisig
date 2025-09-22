@@ -165,6 +165,14 @@ pub fn get_execution_trace(
         .enumerate()
     {
         if pc == bytecode.ending_pc {
+            if pc < bytecode.instructions.len() {
+                let field_repr = field_representation(&bytecode.instructions[pc]);
+                for (j, field) in field_repr.iter().enumerate() {
+                    trace[j][cycle] = *field;
+                }
+            }
+            trace[COL_INDEX_PC][cycle] = F::from_usize(pc);
+            trace[COL_INDEX_FP][cycle] = F::from_usize(fp);
             continue;
         }
         let instruction = &bytecode.instructions[pc];
