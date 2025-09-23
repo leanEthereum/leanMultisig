@@ -470,6 +470,7 @@ version = "0.1.0"
 dependencies = [
  "air",
  "colored",
+ "derive_more",
  "lookup",
  "p3-air",
  "p3-challenger",

@@ -46,7 +46,7 @@ pub fn prove_execution(
         poseidons_16, // padded with empty poseidons
         poseidons_24, // padded with empty poseidons
         dot_products,
-        vm_multilinear_evals,
+        multilinear_evals: vm_multilinear_evals,
         public_memory_size,
         non_zero_memory_size,
         memory, // padded with zeros to next power of two
@@ -59,7 +59,7 @@ pub fn prove_execution(
             function_locations,
             vm_profiler,
         );
-        get_execution_trace(bytecode, &execution_result)
+        get_execution_trace(bytecode, execution_result)
     });
 
     let public_memory = &memory[..public_memory_size];

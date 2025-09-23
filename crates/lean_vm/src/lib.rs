@@ -1,4 +1,6 @@
+use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
+use p3_symmetric::Permutation;
 
 mod error;
 mod lean_isa;
@@ -10,6 +12,7 @@ pub use error::*;
 pub use lean_isa::*;
 pub use memory::*;
 pub use runner::*;
+use utils::{get_poseidon16, get_poseidon24};
 
 pub type LocationInSourceCode = usize;
 
@@ -30,7 +33,7 @@ pub const PUBLIC_INPUT_START: usize = 6 * 8; // normal pointer
 // allowing zk_vm_trace to construct Witness* without rescanning memory.
 
 #[derive(Debug, Clone)]
-pub struct VmDotProductEvent {
+pub struct WitnessDotProduct {
     pub cycle: usize,
     pub addr_0: usize,   // normal pointer
     pub addr_1: usize,   // normal pointer
@@ -40,21 +43,51 @@ pub struct VmDotProductEvent {
     pub slice_1: Vec<EF>,
     pub res: EF,
 }
+impl WitnessDotProduct {
+    pub fn addresses_and_len_field_repr(&self) -> [F; 4] {
+        [
+            F::from_usize(self.addr_0),
+            F::from_usize(self.addr_1),
+            F::from_usize(self.addr_res),
+            F::from_usize(self.len),
+        ]
+    }
+}
 
-#[derive(Debug, Clone)]
-pub struct VmMultilinearEvalEvent {
-    pub cycle: usize,
-    pub addr_coeffs: usize, // vectorized pointer, of size 8*2^n_vars
-    pub addr_point: usize,  // vectorized pointer, of size n_vars
-    pub addr_res: usize,    // vectorized pointer
-    pub n_vars: usize,
+#[derive(Debug)]
+pub struct RowMultilinearEval {
+    pub addr_coeffs: usize,
+    pub addr_point: usize,
+    pub addr_res: usize,
     pub point: Vec<EF>,
     pub res: EF,
 }
 
-#[derive(Debug, Clone)]
-pub struct VmPoseidon16Event {
+impl RowMultilinearEval {
+    pub fn n_vars(&self) -> usize {
+        self.point.len()
+    }
+
+    pub fn addresses_and_n_vars_field_repr(&self) -> [F; 4] {
+        [
+            F::from_usize(self.addr_coeffs),
+            F::from_usize(self.addr_point),
+            F::from_usize(self.addr_res),
+            F::from_usize(self.n_vars()),
+        ]
+    }
+}
+
+#[derive(Debug, derive_more::Deref)]
+pub struct WitnessMultilinearEval {
     pub cycle: usize,
+    #[deref]
+    pub inner: RowMultilinearEval,
+}
+
+#[derive(Debug, Clone)]
+pub struct WitnessPoseidon16 {
+    pub cycle: Option<usize>,
     pub addr_input_a: usize, // vectorized pointer (size 1)
     pub addr_input_b: usize, // vectorized pointer (size 1)
     pub addr_output: usize,  // vectorized pointer (size 2)
@@ -62,12 +95,56 @@ pub struct VmPoseidon16Event {
     pub output: [F; 16],
 }
 
+impl WitnessPoseidon16 {
+    pub fn poseidon_of_zero() -> Self {
+        Self {
+            cycle: None,
+            addr_input_a: ZERO_VEC_PTR,
+            addr_input_b: ZERO_VEC_PTR,
+            addr_output: POSEIDON_16_NULL_HASH_PTR,
+            input: [F::ZERO; 16],
+            output: get_poseidon16().permute([F::ZERO; 16]),
+        }
+    }
+
+    pub fn addresses_field_repr(&self) -> [F; 3] {
+        [
+            F::from_usize(self.addr_input_a),
+            F::from_usize(self.addr_input_b),
+            F::from_usize(self.addr_output),
+        ]
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct VmPoseidon24Event {
-    pub cycle: usize,
+pub struct WitnessPoseidon24 {
+    pub cycle: Option<usize>,
     pub addr_input_a: usize, // vectorized pointer (size 2)
     pub addr_input_b: usize, // vectorized pointer (size 1)
     pub addr_output: usize,  // vectorized pointer (size 1)
     pub input: [F; 24],
     pub output: [F; 8], // last 8 elements of the output
+}
+
+impl WitnessPoseidon24 {
+    pub fn poseidon_of_zero() -> Self {
+        Self {
+            cycle: None,
+            addr_input_a: ZERO_VEC_PTR,
+            addr_input_b: ZERO_VEC_PTR,
+            addr_output: POSEIDON_24_NULL_HASH_PTR,
+            input: [F::ZERO; 24],
+            output: get_poseidon24().permute([F::ZERO; 24])[16..24]
+                .try_into()
+                .unwrap(),
+        }
+    }
+
+    pub fn addresses_field_repr(&self) -> [F; 3] {
+        [
+            F::from_usize(self.addr_input_a),
+            F::from_usize(self.addr_input_b),
+            F::from_usize(self.addr_output),
+        ]
+    }
 }
