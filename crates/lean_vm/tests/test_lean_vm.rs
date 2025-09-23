@@ -1,3 +1,4 @@
+use lean_vm::error::ExecutionResult;
 use lean_vm::*;
 use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
