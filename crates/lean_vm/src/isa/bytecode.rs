@@ -1,7 +1,7 @@
 //! Bytecode representation and management
 
-use super::operands::Hint;
 use super::Instruction;
+use super::operands::Hint;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 

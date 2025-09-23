@@ -2,7 +2,9 @@
 
 use crate::core::F;
 use crate::execution::Memory;
-use crate::witness::{WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24};
+use crate::witness::{
+    WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
+};
 use thiserror::Error;
 
 /// Errors that can occur during VM execution
@@ -56,4 +58,3 @@ impl ExecutionResult {
         true
     }
 }
-

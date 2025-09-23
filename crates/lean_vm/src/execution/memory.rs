@@ -1,6 +1,6 @@
 //! Memory management for the VM
 
-use crate::core::{EF, F, DIMENSION, VECTOR_LEN, MAX_RUNNER_MEMORY_SIZE};
+use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use rayon::prelude::*;
