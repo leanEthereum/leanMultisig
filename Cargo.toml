@@ -102,7 +102,6 @@ p3-air.workspace = true
 [dev-dependencies]
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 rec_aggregation.workspace = true
-rayon.workspace = true
 
 [[bench]]
 name = "poseidon2"

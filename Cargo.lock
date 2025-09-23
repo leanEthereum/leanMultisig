@@ -1458,7 +1458,6 @@ dependencies = [
  "p3-util",
  "packed_pcs",
  "rand",
- "rayon",
  "rec_aggregation",
  "utils",
  "whir-p3",
