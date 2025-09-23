@@ -6,9 +6,9 @@ use crate::core::{
 };
 use crate::diagnostics::{ExecutionResult, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
+use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::isa::operands::hint::HintExecutionContext;
-use crate::isa::Bytecode;
 use crate::witness::{
     WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
