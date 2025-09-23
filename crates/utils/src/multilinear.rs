@@ -214,11 +214,32 @@ pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) 
 
 pub fn add_multilinears<F: Field>(pol1: &[F], pol2: &[F]) -> Vec<F> {
     assert_eq!(pol1.len(), pol2.len());
-    let mut dst = pol1.to_vec();
-    dst.par_iter_mut()
-        .zip(pol2.par_iter())
-        .for_each(|(a, b)| *a += *b);
-    dst
+
+    if pol1.is_empty() {
+        return Vec::new();
+    }
+
+    let len = pol1.len();
+    let mut result = Vec::with_capacity(len);
+    #[allow(clippy::uninit_vec)]
+    unsafe {
+        result.set_len(len);
+    }
+
+    result
+        .par_iter_mut()
+        .zip(pol1.par_iter().zip(pol2.par_iter()))
+        .for_each(|(dst, (a, b))| {
+            *dst = if a.is_zero() {
+                *b
+            } else if b.is_zero() {
+                *a
+            } else {
+                *a + *b
+            }
+        });
+
+    result
 }
 
 pub fn padd_with_zero_to_next_power_of_two<F: Field>(pol: &[F]) -> Vec<F> {
