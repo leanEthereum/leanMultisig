@@ -30,7 +30,7 @@ pub struct WitnessDotProduct {
 impl WitnessDotProduct {
     /// Create a new dot product witness with all required data
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub const fn new(
         cycle: usize,
         addr_0: usize,
         addr_1: usize,

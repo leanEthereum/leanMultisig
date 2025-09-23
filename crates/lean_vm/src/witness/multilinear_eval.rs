@@ -42,7 +42,7 @@ impl RowMultilinearEval {
     /// Get the number of variables in this multilinear polynomial
     ///
     /// This is determined by the length of the evaluation point vector
-    pub fn n_vars(&self) -> usize {
+    pub const fn n_vars(&self) -> usize {
         self.point.len()
     }
 
@@ -73,7 +73,7 @@ pub struct WitnessMultilinearEval {
 
 impl WitnessMultilinearEval {
     /// Create a new multilinear evaluation witness
-    pub fn new(cycle: usize, inner: RowMultilinearEval) -> Self {
+    pub const fn new(cycle: usize, inner: RowMultilinearEval) -> Self {
         Self { cycle, inner }
     }
 }

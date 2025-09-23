@@ -27,7 +27,7 @@ pub struct WitnessPoseidon24 {
 
 impl WitnessPoseidon24 {
     /// Create a new Poseidon24 witness with all hash data
-    pub fn new(
+    pub const fn new(
         cycle: Option<usize>,
         addr_input_a: usize,
         addr_input_b: usize,
