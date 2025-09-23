@@ -5,8 +5,8 @@ use p3_field::{ExtensionField, Field, cyclic_subgroup_known_order};
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use sumcheck::{MleGroup, MleGroupOwned, MleGroupRef, ProductComputation};
 use tracing::{info_span, instrument};
-use utils::PF;
-use utils::{FSProver, add_multilinears, multilinears_linear_combination};
+use utils::{FSProver, multilinears_linear_combination};
+use utils::{PF, add_multilinears_inplace};
 use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear, scale_poly};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
@@ -195,8 +195,9 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
 
     let batched_column =
         multilinears_linear_combination(witness, &poly_eq_batching_scalars[..n_columns]);
-    let batched_column_mixed = add_multilinears(
-        &column_up(&batched_column),
+    let mut batched_column_mixed = column_up(&batched_column);
+    add_multilinears_inplace(
+        &mut batched_column_mixed,
         &scale_poly(&column_down(&batched_column), alpha),
     );
     // TODO do not recompute this (we can deduce it from already computed values)
@@ -217,13 +218,9 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
     // TODO do not recompute this (we can deduce it from already computed values)
     let inner_sum = batched_column_mixed.evaluate(&MultilinearPoint(point.clone()));
 
-    let inner_mle = MleGroupOwned::Extension(vec![
-        add_multilinears(
-            &matrix_up_folded(&point),
-            &scale_poly(&matrix_down_folded(&point), alpha),
-        ),
-        batched_column,
-    ]);
+    let mut mat_up = matrix_up_folded(&point);
+    add_multilinears_inplace(&mut mat_up, &scale_poly(&matrix_down_folded(&point), alpha));
+    let inner_mle = MleGroupOwned::Extension(vec![mat_up, batched_column]);
 
     let (inner_challenges, _, _) = sumcheck::prove::<EF, _, _, _>(
         1,
