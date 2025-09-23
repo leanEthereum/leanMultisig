@@ -8,7 +8,7 @@ use crate::diagnostics::{ExecutionResult, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::instruction::InstructionContext;
 use crate::isa::operands::hint::HintExecutionContext;
-use crate::isa::{Bytecode, Instruction};
+use crate::isa::Bytecode;
 use crate::witness::{
     WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
@@ -230,13 +230,12 @@ fn execute_bytecode_helper(
         instruction.execute_instruction(&mut instruction_ctx)?;
 
         // Update call counters based on instruction type
-        match instruction {
-            Instruction::Poseidon2_16 { .. } => poseidon16_calls += 1,
-            Instruction::Poseidon2_24 { .. } => poseidon24_calls += 1,
-            Instruction::DotProductExtensionExtension { .. } => dot_product_ext_ext_calls += 1,
-            Instruction::MultilinearEval { .. } => multilinear_eval_calls += 1,
-            _ => {}
-        }
+        instruction.update_call_counters(
+            &mut poseidon16_calls,
+            &mut poseidon24_calls,
+            &mut dot_product_ext_ext_calls,
+            &mut multilinear_eval_calls,
+        );
     }
 
     debug_assert_eq!(pc, bytecode.ending_pc);

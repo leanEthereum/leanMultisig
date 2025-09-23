@@ -53,7 +53,9 @@ pub struct ExecutionResult {
 }
 
 impl ExecutionResult {
-    /// Check if execution was successful (always true for this version)
+    /// Check if execution was successful
+    ///
+    /// TODO: placeholder for now.
     pub fn is_success(&self) -> bool {
         true
     }

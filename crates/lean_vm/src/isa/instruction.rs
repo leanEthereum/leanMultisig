@@ -378,6 +378,23 @@ impl Instruction {
             }
         }
     }
+
+    /// Update call counters based on instruction type
+    pub fn update_call_counters(
+        &self,
+        poseidon16_calls: &mut usize,
+        poseidon24_calls: &mut usize,
+        dot_product_ext_ext_calls: &mut usize,
+        multilinear_eval_calls: &mut usize,
+    ) {
+        match self {
+            Self::Poseidon2_16 { .. } => *poseidon16_calls += 1,
+            Self::Poseidon2_24 { .. } => *poseidon24_calls += 1,
+            Self::DotProductExtensionExtension { .. } => *dot_product_ext_ext_calls += 1,
+            Self::MultilinearEval { .. } => *multilinear_eval_calls += 1,
+            _ => {}
+        }
+    }
 }
 
 impl Display for Instruction {

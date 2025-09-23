@@ -24,11 +24,11 @@ impl ExecutionHistory {
         self.cycles.iter().sum()
     }
 
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.lines.len()
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.lines.is_empty()
     }
 }
