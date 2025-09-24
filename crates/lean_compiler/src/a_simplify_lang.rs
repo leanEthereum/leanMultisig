@@ -1679,8 +1679,8 @@ fn handle_const_arguments(program: &mut Program) {
 
         // Add any newly discovered functions
         for (name, func) in additional_functions {
-            if !new_functions.contains_key(&name) {
-                new_functions.insert(name, func);
+            if let std::collections::btree_map::Entry::Vacant(e) = new_functions.entry(name) {
+                e.insert(func);
                 changed = true;
             }
         }
