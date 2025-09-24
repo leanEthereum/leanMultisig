@@ -8,9 +8,6 @@ mod instruction_encoder;
 pub use execution_trace::*;
 pub use instruction_encoder::*;
 
-mod poseidon_tables;
-pub use poseidon_tables::*;
-
 pub const N_INSTRUCTION_COLUMNS: usize = 15;
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
 pub const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with logup*)
