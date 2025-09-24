@@ -53,6 +53,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
         }
         Instruction::Jump {
             condition,
+            label: _,
             dest,
             updated_fp,
         } => {

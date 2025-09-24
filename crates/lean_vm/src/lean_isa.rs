@@ -57,6 +57,7 @@ pub enum Instruction {
     }, // res = m[m[fp + shift_0] + shift_1]
     Jump {
         condition: MemOrConstant,
+        label: Label, // for debugging purposes
         dest: MemOrConstant,
         updated_fp: MemOrFp,
     },
@@ -232,12 +233,13 @@ impl Display for Instruction {
             }
             Self::Jump {
                 condition,
+                label,
                 dest,
                 updated_fp,
             } => {
                 write!(
                     f,
-                    "if {condition} != 0 jump to {dest} with next(fp) = {updated_fp}"
+                    "if {condition} != 0 jump to {label} = {dest} with next(fp) = {updated_fp}"
                 )
             }
             Self::Poseidon2_16 { arg_a, arg_b, res } => {

@@ -414,6 +414,7 @@ fn execute_bytecode_helper(
             }
             Instruction::Jump {
                 condition,
+                label: _,
                 dest,
                 updated_fp,
             } => {
