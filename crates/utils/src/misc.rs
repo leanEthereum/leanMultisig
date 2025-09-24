@@ -1,8 +1,3 @@
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-    ops::Range,
-};
-
 use p3_field::{BasedVectorSpace, ExtensionField, Field, dot_product};
 use rayon::prelude::*;
 
@@ -16,29 +11,6 @@ pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
     );
     assert_eq!(slice.as_ptr() as usize % std::mem::align_of::<After>(), 0);
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const After, new_len) }
-}
-
-pub const fn shift_range(range: Range<usize>, shift: usize) -> Range<usize> {
-    Range {
-        start: range.start + shift,
-        end: range.end + shift,
-    }
-}
-
-pub const fn diff_to_next_power_of_two(n: usize) -> usize {
-    n.next_power_of_two() - n
-}
-
-pub fn left_mut<A>(slice: &mut [A]) -> &mut [A] {
-    assert!(slice.len().is_multiple_of(2));
-    let mid = slice.len() / 2;
-    &mut slice[..mid]
-}
-
-pub fn right_mut<A>(slice: &mut [A]) -> &mut [A] {
-    assert!(slice.len().is_multiple_of(2));
-    let mid = slice.len() / 2;
-    &mut slice[mid..]
 }
 
 pub fn left_ref<A>(slice: &[A]) -> &[A] {
@@ -56,12 +28,6 @@ pub fn right_ref<A>(slice: &[A]) -> &[A] {
 pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     assert!(n <= slice.len());
     &slice[slice.len() - n..]
-}
-
-pub fn remove_end<A>(slice: &[A], n: usize) -> &[A] {
-    assert!(n <= slice.len());
-    let len = slice.len();
-    &slice[..len - n]
 }
 
 pub fn field_slice_as_base<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Option<Vec<F>> {
@@ -123,12 +89,6 @@ macro_rules! assert_eq_many {
             )+
         }
     };
-}
-
-pub fn debug_hash<A: Hash>(a: &A) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    a.hash(&mut hasher);
-    hasher.finish()
 }
 
 pub fn finger_print<F: Field, EF: ExtensionField<F>>(data: &[F], challenge: EF) -> EF {
