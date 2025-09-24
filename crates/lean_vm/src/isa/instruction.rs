@@ -2,8 +2,7 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
-use crate::Label;
-use crate::core::{DIMENSION, EF, F, VECTOR_LEN};
+use crate::core::{Label, DIMENSION, EF, F, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
 use crate::witness::{

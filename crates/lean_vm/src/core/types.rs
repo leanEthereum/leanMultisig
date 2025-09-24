@@ -11,3 +11,6 @@ pub type SourceLineNumber = usize;
 
 /// String label for bytecode locations
 pub type Label = String;
+
+/// Bytecode address (i.e., a value of the program counter)
+pub type CodeAddress = usize;

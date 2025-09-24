@@ -1,5 +1,4 @@
-use crate::Label;
-use crate::core::{DIMENSION, F, LOG_VECTOR_LEN, SourceLineNumber, VECTOR_LEN};
+use crate::core::{Label, DIMENSION, F, LOG_VECTOR_LEN, SourceLineNumber, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;

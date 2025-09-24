@@ -12,8 +12,6 @@ pub use execution::*;
 pub use isa::*;
 pub use witness::*;
 
-pub type SourceLineNumber = usize;
-
 /// Main execution entry point for the VM
 pub fn execute_bytecode(
     bytecode: &Bytecode,

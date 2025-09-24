@@ -1,12 +1,10 @@
 //! Bytecode representation and management
 
-use crate::Hint;
+use crate::{CodeAddress, Hint};
 
 use super::Instruction;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
-
-pub type CodeAddress = usize;
 
 /// Complete bytecode representation with instructions and hints
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
