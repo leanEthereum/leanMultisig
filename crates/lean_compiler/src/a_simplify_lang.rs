@@ -1514,7 +1514,6 @@ fn handle_inlined_functions(program: &mut Program) {
         .map(|(name, func)| (name.clone(), func.clone()))
         .collect::<BTreeMap<_, _>>();
 
-
     for func in inlined_functions.values() {
         assert!(
             !func.has_const_arguments(),
@@ -1576,7 +1575,10 @@ fn handle_inlined_functions(program: &mut Program) {
         max_iterations -= 1;
     }
 
-    assert!(max_iterations > 0, "Too many iterations processing inline functions");
+    assert!(
+        max_iterations > 0,
+        "Too many iterations processing inline functions"
+    );
 
     // Remove all inlined functions from the program (they've been inlined)
     for func_name in inlined_functions.keys() {
