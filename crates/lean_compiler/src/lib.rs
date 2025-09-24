@@ -26,7 +26,11 @@ pub fn compile_program(program: &str) -> (Bytecode, BTreeMap<usize, String>) {
     let intermediate_bytecode = compile_to_intermediate_bytecode(simple_program).unwrap();
     // println!("Intermediate Bytecode:\n\n{}", intermediate_bytecode.to_string());
     let compiled = compile_to_low_level_bytecode(intermediate_bytecode).unwrap();
-    println!("Compiled Program:\n\n{}", compiled.to_string());
+    println!("Function Locations: \n");
+    for (loc, name) in function_locations.iter() {
+        println!("{name}: {loc}");
+    }
+    println!("\n\nCompiled Program:\n\n{}", compiled.to_string());
     (compiled, function_locations)
 }
 
