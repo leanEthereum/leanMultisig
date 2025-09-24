@@ -92,11 +92,10 @@ pub fn compile_to_low_level_bytecode(
     let mut hints = BTreeMap::new();
 
     for (label, pc) in label_to_pc.clone() {
-        let pc_hints: &mut Vec<Hint> =
-            match hints.try_insert(pc, vec![]) {
-                Ok(pc_hints) => pc_hints,
-                Err(_) => hints.get_mut(&pc).unwrap(),
-            };
+        let pc_hints: &mut Vec<Hint> = match hints.try_insert(pc, vec![]) {
+            Ok(pc_hints) => pc_hints,
+            Err(_) => hints.get_mut(&pc).unwrap(),
+        };
         pc_hints.push(Hint::Label { label });
     }
 
@@ -152,46 +151,43 @@ fn compile_block(
         _ => None,
     };
 
-    let codegen_jump =
-        |hints: &BTreeMap<CodeAddress, Vec<Hint>>,
-            low_level_bytecode: &mut Vec<Instruction>,
-            condition: IntermediateValue,
-            dest: IntermediateValue,
-            updated_fp: Option<IntermediateValue>| {
-            let dest = try_as_mem_or_constant(&dest)
-                .expect("Fatal: Could not materialize jump destination");
-            let label =
-                match dest {
-                    MemOrConstant::Constant(dest) => {
-                        hints.get(&usize::try_from(dest.as_canonical_u32()).unwrap())
-                            .map(|hints: &Vec<Hint>| hints.iter().find_map(|x| {
-                                    match x {
-                                        Hint::Label { label } => Some(label),
-                                        _ => None,
-                                    }
-                                }))
-                            .flatten()
-                            .expect("Fatal: Unlabeled jump destination")
-                            .clone()
-                    },
-                    MemOrConstant::MemoryAfterFp { offset } => {
-                        if offset >= 0 {
-                            format!("fp+{offset}")
-                        } else {
-                            format!("fp-{offset}")
-                        }
-                    },
-                };
-            let updated_fp = updated_fp
-                .map(|fp| try_as_mem_or_fp(&fp).unwrap())
-                .unwrap_or(MemOrFp::Fp);
-            low_level_bytecode.push(Instruction::Jump {
-                condition: try_as_mem_or_constant(&condition).unwrap(),
-                label,
-                dest,
-                updated_fp,
-            });
+    let codegen_jump = |hints: &BTreeMap<CodeAddress, Vec<Hint>>,
+                        low_level_bytecode: &mut Vec<Instruction>,
+                        condition: IntermediateValue,
+                        dest: IntermediateValue,
+                        updated_fp: Option<IntermediateValue>| {
+        let dest =
+            try_as_mem_or_constant(&dest).expect("Fatal: Could not materialize jump destination");
+        let label = match dest {
+            MemOrConstant::Constant(dest) => hints
+                .get(&usize::try_from(dest.as_canonical_u32()).unwrap())
+                .map(|hints: &Vec<Hint>| {
+                    hints.iter().find_map(|x| match x {
+                        Hint::Label { label } => Some(label),
+                        _ => None,
+                    })
+                })
+                .flatten()
+                .expect("Fatal: Unlabeled jump destination")
+                .clone(),
+            MemOrConstant::MemoryAfterFp { offset } => {
+                if offset >= 0 {
+                    format!("fp+{offset}")
+                } else {
+                    format!("fp-{offset}")
+                }
+            }
         };
+        let updated_fp = updated_fp
+            .map(|fp| try_as_mem_or_fp(&fp).unwrap())
+            .unwrap_or(MemOrFp::Fp);
+        low_level_bytecode.push(Instruction::Jump {
+            condition: try_as_mem_or_constant(&condition).unwrap(),
+            label,
+            dest,
+            updated_fp,
+        });
+    };
 
     let mut pc = pc_start;
     for instruction in block {
@@ -266,11 +262,10 @@ fn compile_block(
                 condition,
                 dest,
                 updated_fp,
-            } => {
-                codegen_jump(hints, low_level_bytecode, condition, dest, updated_fp)
-            }
+            } => codegen_jump(hints, low_level_bytecode, condition, dest, updated_fp),
             IntermediateInstruction::Jump { dest, updated_fp } => {
-                let one = IntermediateValue::Constant(ConstExpression::Value(ConstantValue::Scalar(1)));
+                let one =
+                    IntermediateValue::Constant(ConstExpression::Value(ConstantValue::Scalar(1)));
                 codegen_jump(hints, low_level_bytecode, one, dest, updated_fp)
             }
             IntermediateInstruction::Poseidon2_16 { arg_a, arg_b, res } => {
