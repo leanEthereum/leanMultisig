@@ -30,7 +30,7 @@ pub fn compile_program(program: &str) -> (Bytecode, BTreeMap<usize, String>) {
     for (loc, name) in function_locations.iter() {
         println!("{name}: {loc}");
     }
-    println!("\n\nCompiled Program:\n\n{}", compiled.to_string());
+    println!("\n\nCompiled Program:\n\n{compiled}");
     (compiled, function_locations)
 }
 

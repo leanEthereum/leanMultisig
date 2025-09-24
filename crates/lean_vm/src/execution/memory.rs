@@ -1,29 +1,31 @@
-use crate::F;
-use p3_field::BasedVectorSpace;
-use p3_field::PrimeCharacteristicRing;
-use rayon::prelude::*;
+//! Memory management for the VM
 
-use crate::*;
+use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE, VECTOR_LEN};
+use crate::diagnostics::RunnerError;
+use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
+use rayon::prelude::*;
 
 pub const MIN_LOG_MEMORY_SIZE: usize = 16;
 pub const MAX_LOG_MEMORY_SIZE: usize = 29;
 
-// For now, we restrict ourselves to executions where memory usage < 2^24 words.
-// But the VM supports theorically a memory of size 2^29.
-pub(crate) const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
-
+/// VM memory implementation with sparse allocation
 #[derive(Debug, Clone, Default)]
 pub struct Memory(pub Vec<Option<F>>);
 
 impl Memory {
-    /// Creates a new memory instance, initializing it with public data.
+    /// Creates a new memory instance, initializing it with public data
     pub fn new(public_memory: Vec<F>) -> Self {
         Self(public_memory.into_par_iter().map(Some).collect())
     }
 
-    /// Reads a single value from a memory address.
+    /// Creates an empty memory instance
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Reads a single value from a memory address
     ///
-    /// Returns an error if the address is uninitialized.
+    /// Returns an error if the address is uninitialized
     pub fn get(&self, index: usize) -> Result<F, RunnerError> {
         self.0
             .get(index)
@@ -32,6 +34,10 @@ impl Memory {
             .ok_or(RunnerError::UndefinedMemory)
     }
 
+    /// Sets a value at a memory address
+    ///
+    /// Returns an error if the address is already set to a different value
+    /// or if we exceed memory limits
     pub fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
         if index >= self.0.len() {
             if index >= MAX_RUNNER_MEMORY_SIZE {
@@ -49,10 +55,17 @@ impl Memory {
         Ok(())
     }
 
+    /// Gets the current size of allocated memory
+    pub const fn size(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Get a vector from vectorized memory
     pub fn get_vector(&self, index: usize) -> Result<[F; VECTOR_LEN], RunnerError> {
         Ok(self.get_vectorized_slice(index, 1)?.try_into().unwrap())
     }
 
+    /// Get an extension field element from memory
     pub fn get_ef_element(&self, index: usize) -> Result<EF, RunnerError> {
         // index: non vectorized pointer
         let mut coeffs = [F::ZERO; DIMENSION];
@@ -68,6 +81,7 @@ impl Memory {
         (0..total_len).map(|i| self.get(start + i)).collect()
     }
 
+    /// Get a continuous slice of extension field elements
     pub fn get_continuous_slice_of_ef_elements(
         &self,
         index: usize, // normal pointer
@@ -78,10 +92,7 @@ impl Memory {
             .collect()
     }
 
-    pub fn slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        (0..len).map(|i| self.get(index + i)).collect()
-    }
-
+    /// Set an extension field element in memory
     pub fn set_ef_element(&mut self, index: usize, value: EF) -> Result<(), RunnerError> {
         for (i, v) in value.as_basis_coefficients_slice().iter().enumerate() {
             self.set(index + i, *v)?;
@@ -89,6 +100,7 @@ impl Memory {
         Ok(())
     }
 
+    /// Set a vector in vectorized memory
     pub fn set_vector(&mut self, index: usize, value: [F; VECTOR_LEN]) -> Result<(), RunnerError> {
         for (i, v) in value.iter().enumerate() {
             let idx = VECTOR_LEN * index + i;
@@ -97,12 +109,8 @@ impl Memory {
         Ok(())
     }
 
-    pub fn set_vectorized_slice(&mut self, index: usize, value: &[F]) -> Result<(), RunnerError> {
-        assert!(value.len().is_multiple_of(VECTOR_LEN));
-        let start = index * VECTOR_LEN;
-        value
-            .iter()
-            .enumerate()
-            .try_for_each(|(i, &v)| self.set(start + i, v))
+    /// Get a slice from memory for multilinear evaluation
+    pub fn slice(&self, start: usize, len: usize) -> Result<Vec<F>, RunnerError> {
+        (0..len).map(|i| self.get(start + i)).collect()
     }
 }

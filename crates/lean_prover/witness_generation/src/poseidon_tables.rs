@@ -1,11 +1,9 @@
-use lean_vm::F;
+use lean_vm::{F, WitnessPoseidon16, WitnessPoseidon24};
 use p3_field::PrimeCharacteristicRing;
 use rayon::prelude::*;
 use utils::{
     generate_trace_poseidon_16, generate_trace_poseidon_24, padd_with_zero_to_next_power_of_two,
 };
-
-use crate::{WitnessPoseidon16, WitnessPoseidon24};
 
 pub fn build_poseidon_columns(
     poseidons_16: &[WitnessPoseidon16],
