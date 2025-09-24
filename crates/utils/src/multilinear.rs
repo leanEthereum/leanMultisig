@@ -174,9 +174,7 @@ pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) 
 
     assert!(
         limit <= (1 << n_vars),
-        "limit {} is too large for n_vars {}",
-        limit,
-        n_vars
+        "limit {limit} is too large for n_vars {n_vars}"
     );
 
     if limit == 1 << n_vars {

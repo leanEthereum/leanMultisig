@@ -161,21 +161,16 @@ fn compile_block(
         let label = match dest {
             MemOrConstant::Constant(dest) => hints
                 .get(&usize::try_from(dest.as_canonical_u32()).unwrap())
-                .map(|hints: &Vec<Hint>| {
+                .and_then(|hints: &Vec<Hint>| {
                     hints.iter().find_map(|x| match x {
                         Hint::Label { label } => Some(label),
                         _ => None,
                     })
                 })
-                .flatten()
                 .expect("Fatal: Unlabeled jump destination")
                 .clone(),
             MemOrConstant::MemoryAfterFp { offset } => {
-                if offset >= 0 {
-                    format!("fp+{offset}")
-                } else {
-                    format!("fp-{offset}")
-                }
+                format!("fp+{offset}")
             }
         };
         let updated_fp = updated_fp

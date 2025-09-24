@@ -321,8 +321,7 @@ pub fn packed_pcs_global_statements_for_prover<
                 assert_eq!(
                     chunks[0].n_vars,
                     statement.point.0.len(),
-                    "poly: {}",
-                    poly_index
+                    "poly: {poly_index}"
                 );
                 assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
 
