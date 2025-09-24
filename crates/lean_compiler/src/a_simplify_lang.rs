@@ -1639,7 +1639,6 @@ fn handle_inlined_functions_helper(
 }
 
 fn handle_const_arguments(program: &mut Program) {
-    // TODO this doesnt suupport const functions calling other const functions
     let mut new_functions = BTreeMap::<String, Function>::new();
     let constant_functions = program
         .functions
@@ -1648,9 +1647,45 @@ fn handle_const_arguments(program: &mut Program) {
         .map(|(name, func)| (name.clone(), func.clone()))
         .collect::<BTreeMap<_, _>>();
 
+    // First pass: process non-const functions that call const functions
     for func in program.functions.values_mut() {
-        handle_const_arguments_helper(&mut func.body, &constant_functions, &mut new_functions);
+        if !func.has_const_arguments() {
+            handle_const_arguments_helper(&mut func.body, &constant_functions, &mut new_functions);
+        }
     }
+
+    // Process newly created const functions recursively until no more changes
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut additional_functions = BTreeMap::new();
+
+        // Collect all function names to process
+        let function_names: Vec<String> = new_functions.keys().cloned().collect();
+
+        for name in function_names {
+            if let Some(func) = new_functions.get_mut(&name) {
+                let initial_count = additional_functions.len();
+                handle_const_arguments_helper(
+                    &mut func.body,
+                    &constant_functions,
+                    &mut additional_functions,
+                );
+                if additional_functions.len() > initial_count {
+                    changed = true;
+                }
+            }
+        }
+
+        // Add any newly discovered functions
+        for (name, func) in additional_functions {
+            if !new_functions.contains_key(&name) {
+                new_functions.insert(name, func);
+                changed = true;
+            }
+        }
+    }
+
     for (name, func) in new_functions {
         assert!(!program.functions.contains_key(&name),);
         program.functions.insert(name, func);

@@ -441,3 +441,26 @@ fn test_match() {
 //    "#;
 //     compile_and_run(program, &[], &[]);
 // }
+
+#[test]
+fn test_const_functions_calling_const_functions() {
+    // Test that const functions can call other const functions
+    let program = r#"
+    fn main() {
+        y = compute_value(3);
+        print(y);
+        return;
+    }
+
+    fn compute_value(const n) -> 1 {
+        result = complex_computation(n, 5);
+        return result;
+    }
+
+    fn complex_computation(const a, const b) -> 1 {
+        return a * a + b * b;
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}
