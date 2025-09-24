@@ -464,3 +464,53 @@ fn test_const_functions_calling_const_functions() {
 
     compile_and_run(program, &[], &[], false);
 }
+
+#[test]
+fn test_inline_functions_calling_inline_functions() {
+    let program = r#"
+    fn main() {
+        x = double(3);
+        y = quad(x);
+        print(y);
+        return;
+    }
+
+    fn double(a) inline -> 1 {
+        return a + a;
+    }
+
+    fn quad(b) inline -> 1 {
+        result = double(b);
+        return result + result;
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_nested_inline_functions() {
+    let program = r#"
+    fn main() {
+        result = level_one(3);
+        print(result);
+        return;
+    }
+
+    fn level_one(x) inline -> 1 {
+        result = level_two(x);
+        return result;
+    }
+
+    fn level_two(y) inline -> 1 {
+        result = level_three(y);
+        return result;
+    }
+
+    fn level_three(z) inline -> 1 {
+        return z * z * z;
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}

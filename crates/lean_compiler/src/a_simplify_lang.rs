@@ -1514,6 +1514,7 @@ fn handle_inlined_functions(program: &mut Program) {
         .map(|(name, func)| (name.clone(), func.clone()))
         .collect::<BTreeMap<_, _>>();
 
+
     for func in inlined_functions.values() {
         assert!(
             !func.has_const_arguments(),
@@ -1521,28 +1522,65 @@ fn handle_inlined_functions(program: &mut Program) {
         );
     }
 
-    for func in program.functions.values_mut() {
-        if func.inlined {
-            let mut func_called = Vec::new();
-            get_function_called(&func.body, &mut func_called);
-            for func_called in func_called {
-                assert!(
-                    !inlined_functions.contains_key(&func_called),
-                    "Inlined functions calling other inlined functions are not supported yet"
+    // Process inline functions iteratively to handle dependencies
+    // Repeat until all inline function calls are resolved
+    let mut max_iterations = 10;
+    while max_iterations > 0 {
+        let mut any_changes = false;
+
+        // Process non-inlined functions
+        for func in program.functions.values_mut() {
+            if !func.inlined {
+                let mut counter1 = Counter::new();
+                let mut counter2 = Counter::new();
+                let old_body = func.body.clone();
+
+                handle_inlined_functions_helper(
+                    &mut func.body,
+                    &inlined_functions,
+                    &mut counter1,
+                    &mut counter2,
                 );
+
+                if func.body != old_body {
+                    any_changes = true;
+                }
             }
-        } else {
-            handle_inlined_functions_helper(
-                &mut func.body,
-                &inlined_functions,
-                &mut Counter::new(),
-                &mut Counter::new(),
-            );
         }
+
+        // Process inlined functions that may call other inlined functions
+        // We need to update them so that when they get inlined later, they don't have unresolved calls
+        for func in program.functions.values_mut() {
+            if func.inlined {
+                let mut counter1 = Counter::new();
+                let mut counter2 = Counter::new();
+                let old_body = func.body.clone();
+
+                handle_inlined_functions_helper(
+                    &mut func.body,
+                    &inlined_functions,
+                    &mut counter1,
+                    &mut counter2,
+                );
+
+                if func.body != old_body {
+                    any_changes = true;
+                }
+            }
+        }
+
+        if !any_changes {
+            break;
+        }
+
+        max_iterations -= 1;
     }
 
-    for func in inlined_functions.keys() {
-        program.functions.remove(func);
+    assert!(max_iterations > 0, "Too many iterations processing inline functions");
+
+    // Remove all inlined functions from the program (they've been inlined)
+    for func_name in inlined_functions.keys() {
+        program.functions.remove(func_name);
     }
 }
 
