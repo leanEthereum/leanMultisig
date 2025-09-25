@@ -1161,9 +1161,9 @@ fn make_non_exhaustive_exhaustive(lines: &mut Vec<Line>) {
 // Only look for direct returns, not nested ones
 fn has_direct_return(lines: &[Line]) -> bool {
     for line in lines {
-        match line {
-            Line::FunctionRet { .. } => return true,
-            _ => {} // Don't recurse into nested structures
+        // Don't recurse into nested structures
+        if let Line::FunctionRet { .. } = line {
+            return true;
         }
     }
     false
