@@ -111,7 +111,7 @@ pub fn compile_to_intermediate_bytecode(
         let instructions = compile_function(function, &mut compiler)?;
         compiler
             .bytecode
-            .insert(format!("@function_{}", function.name), instructions);
+            .insert(Label::function(&function.name), instructions);
         memory_sizes.insert(function.name.clone(), compiler.stack_size);
     }
 
@@ -186,7 +186,7 @@ fn compile_lines(
 
             SimpleLine::Match { value, arms } => {
                 let match_index = compiler.match_blocks.len();
-                let end_label = format!("@match_end_{match_index}");
+                let end_label = Label::match_end(match_index);
 
                 let value_simplified = IntermediateValue::from_simple_expr(value, compiler);
 
@@ -264,9 +264,9 @@ fn compile_lines(
                 compiler.if_counter += 1;
 
                 let (if_label, else_label, end_label) = (
-                    format!("@if_{if_id}"),
-                    format!("@else_{if_id}"),
-                    format!("@if_else_end_{if_id}"),
+                    Label::if_label(if_id),
+                    Label::else_label(if_id),
+                    Label::if_else_end(if_id),
                 );
 
                 // c: condition
@@ -336,7 +336,7 @@ fn compile_lines(
                 let then_instructions = compile_lines(
                     then_branch,
                     compiler,
-                    Some(end_label.to_string()),
+                    Some(end_label.clone()),
                     &mut then_declared_vars,
                 )?;
                 let then_stack = compiler.stack_size;
@@ -346,7 +346,7 @@ fn compile_lines(
                 let else_instructions = compile_lines(
                     else_branch,
                     compiler,
-                    Some(end_label.to_string()),
+                    Some(end_label.clone()),
                     &mut else_declared_vars,
                 )?;
                 let else_stack = compiler.stack_size;
@@ -390,7 +390,7 @@ fn compile_lines(
             } => {
                 let call_id = compiler.call_counter;
                 compiler.call_counter += 1;
-                let return_label = format!("@return_from_call_{call_id}");
+                let return_label = Label::return_from_call(call_id);
 
                 let new_fp_pos = compiler.stack_size;
                 compiler.stack_size += 1;
@@ -503,7 +503,7 @@ fn compile_lines(
                         res: zero_value_offset.clone(),
                     });
                     instructions.push(IntermediateInstruction::Jump {
-                        dest: IntermediateValue::label("@end_program".to_string()),
+                        dest: IntermediateValue::label(Label::EndProgram),
                         updated_fp: Some(zero_value_offset),
                     });
                 } else {
@@ -636,13 +636,13 @@ fn setup_function_call(
     func_name: &str,
     args: &[SimpleExpr],
     new_fp_pos: usize,
-    return_label: &str,
+    return_label: &Label,
     compiler: &Compiler,
 ) -> Result<Vec<IntermediateInstruction>, String> {
     let mut instructions = vec![
         IntermediateInstruction::RequestMemory {
             offset: new_fp_pos.into(),
-            size: ConstExpression::function_size(func_name.to_string()).into(),
+            size: ConstExpression::function_size(Label::function(func_name)).into(),
             vectorized: false,
             vectorized_len: IntermediateValue::Constant(ConstExpression::zero()),
         },
@@ -650,7 +650,7 @@ fn setup_function_call(
             shift_0: new_fp_pos.into(),
             shift_1: ConstExpression::zero(),
             res: IntermediaryMemOrFpOrConstant::Constant(ConstExpression::label(
-                return_label.to_string(),
+                return_label.clone(),
             )),
         },
         IntermediateInstruction::Deref {
@@ -670,7 +670,7 @@ fn setup_function_call(
     }
 
     instructions.push(IntermediateInstruction::Jump {
-        dest: IntermediateValue::label(format!("@function_{func_name}")),
+        dest: IntermediateValue::label(Label::function(func_name)),
         updated_fp: Some(IntermediateValue::MemoryAfterFp {
             offset: new_fp_pos.into(),
         }),

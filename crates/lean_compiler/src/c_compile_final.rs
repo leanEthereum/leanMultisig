@@ -37,9 +37,9 @@ pub fn compile_to_low_level_bytecode(
     mut intermediate_bytecode: IntermediateBytecode,
 ) -> Result<Bytecode, String> {
     intermediate_bytecode.bytecode.insert(
-        "@end_program".to_string(),
+        Label::EndProgram,
         vec![IntermediateInstruction::Jump {
-            dest: IntermediateValue::label("@end_program".to_string()),
+            dest: IntermediateValue::label(Label::EndProgram),
             updated_fp: None,
         }],
     );
@@ -50,10 +50,10 @@ pub fn compile_to_low_level_bytecode(
         .unwrap();
 
     let mut label_to_pc = BTreeMap::new();
-    label_to_pc.insert("@function_main".to_string(), 0);
+    label_to_pc.insert(Label::function("main"), 0);
     let entrypoint = intermediate_bytecode
         .bytecode
-        .remove("@function_main")
+        .remove(&Label::function("main"))
         .ok_or("No main function found in the compiled program")?;
 
     let mut code_blocks = vec![(0, entrypoint.clone())];
@@ -64,7 +64,7 @@ pub fn compile_to_low_level_bytecode(
         pc += count_real_instructions(instructions);
     }
 
-    let ending_pc = label_to_pc.get("@end_program").copied().unwrap();
+    let ending_pc = label_to_pc.get(&Label::EndProgram).copied().unwrap();
 
     let mut match_block_sizes = Vec::new();
     let mut match_first_block_starts = Vec::new();
@@ -168,9 +168,7 @@ fn compile_block(
                 })
                 .expect("Fatal: Unlabeled jump destination")
                 .clone(),
-            MemOrConstant::MemoryAfterFp { offset } => {
-                format!("fp+{offset}")
-            }
+            MemOrConstant::MemoryAfterFp { offset } => Label::custom(format!("fp+{offset}")),
         };
         let updated_fp = updated_fp
             .map(|fp| try_as_mem_or_fp(&fp).unwrap())
@@ -376,10 +374,16 @@ fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
         ConstantValue::PublicInputStart => PUBLIC_INPUT_START,
         ConstantValue::PointerToZeroVector => ZERO_VEC_PTR,
         ConstantValue::PointerToOneVector => ONE_VEC_PTR,
-        ConstantValue::FunctionSize { function_name } => *compiler
-            .memory_size_per_function
-            .get(function_name)
-            .unwrap_or_else(|| panic!("Function {function_name} not found in memory size map")),
+        ConstantValue::FunctionSize { function_name } => {
+            let func_name_str = match function_name {
+                Label::Function(name) => name,
+                _ => panic!("Expected function label, got: {function_name}"),
+            };
+            *compiler
+                .memory_size_per_function
+                .get(func_name_str)
+                .unwrap_or_else(|| panic!("Function {func_name_str} not found in memory size map"))
+        }
         ConstantValue::Label(label) => compiler.label_to_pc.get(label).copied().unwrap(),
         ConstantValue::MatchBlockSize { match_index } => compiler.match_block_sizes[*match_index],
         ConstantValue::MatchFirstBlockStart { match_index } => {
