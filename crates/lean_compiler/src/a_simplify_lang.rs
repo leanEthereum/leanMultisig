@@ -916,6 +916,51 @@ pub fn inline_lines(
     res: &[Var],
     inlining_count: usize,
 ) {
+    // First, check if this function has multiple return paths
+    let return_count = count_returns(lines);
+
+    if return_count <= 1 {
+        // Simple case: use the original logic for single returns
+        inline_lines_simple(lines, args, res, inlining_count);
+    } else {
+        // Complex case: handle multiple returns with jump-based control flow
+        inline_lines_with_jumps(lines, args, res, inlining_count);
+    }
+}
+
+fn count_returns(lines: &[Line]) -> usize {
+    let mut count = 0;
+    for line in lines {
+        match line {
+            Line::FunctionRet { .. } => count += 1,
+            Line::Match { arms, .. } => {
+                for (_, arm_lines) in arms {
+                    count += count_returns(arm_lines);
+                }
+            }
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                count += count_returns(then_branch);
+                count += count_returns(else_branch);
+            }
+            Line::ForLoop { body, .. } => {
+                count += count_returns(body);
+            }
+            _ => {}
+        }
+    }
+    count
+}
+
+fn inline_lines_simple(
+    lines: &mut Vec<Line>,
+    args: &BTreeMap<Var, SimpleExpr>,
+    res: &[Var],
+    inlining_count: usize,
+) {
     let inline_condition = |condition: &mut Boolean| {
         let (Boolean::Equal { left, right } | Boolean::Different { left, right }) = condition;
         inline_expr(left, args, inlining_count);
@@ -974,6 +1019,8 @@ pub fn inline_lines(
                 for expr in return_data.iter_mut() {
                     inline_expr(expr, args, inlining_count);
                 }
+
+                // Simple case: direct assignment is safe since we know there's only one return
                 lines_to_replace.push((
                     i,
                     res.iter()
@@ -1036,6 +1083,268 @@ pub fn inline_lines(
             Line::Panic | Line::Break | Line::LocationReport { .. } => {}
         }
     }
+    for (i, new_lines) in lines_to_replace.into_iter().rev() {
+        lines.splice(i..=i, new_lines);
+    }
+}
+
+fn inline_lines_with_jumps(
+    lines: &mut Vec<Line>,
+    args: &BTreeMap<Var, SimpleExpr>,
+    res: &[Var],
+    inlining_count: usize,
+) {
+    // Convert non-exhaustive conditions to exhaustive ones
+    //
+    // Find if-statements that contain returns and don't have else clauses
+    // Move all subsequent statements into the else clause
+    make_non_exhaustive_exhaustive(lines);
+
+    // Now apply the standard inlining
+    inline_lines_simple(lines, args, res, inlining_count);
+}
+
+fn make_non_exhaustive_exhaustive(lines: &mut Vec<Line>) {
+    let mut i = 0;
+    while i < lines.len() {
+        // Check if we need to restructure at this position
+        let should_restructure = if let Line::IfCondition {
+            condition: _,
+            then_branch,
+            else_branch,
+        } = &lines[i]
+        {
+            else_branch.is_empty() && has_return(then_branch)
+        } else {
+            false
+        };
+
+        if should_restructure {
+            // Extract the if condition and split the remaining statements
+            let mut subsequent_statements = lines.split_off(i + 1);
+            if let Line::IfCondition {
+                condition: _,
+                then_branch,
+                else_branch,
+            } = &mut lines[i]
+            {
+                // Recursively process the then branch
+                make_non_exhaustive_exhaustive(then_branch);
+
+                // Move subsequent statements to else branch
+                else_branch.append(&mut subsequent_statements);
+
+                // Recursively process the new else branch
+                make_non_exhaustive_exhaustive(else_branch);
+            }
+            break; // We've restructured, so we're done with this level
+        } else {
+            // Process nested conditions
+            if let Line::IfCondition {
+                condition: _,
+                then_branch,
+                else_branch,
+            } = &mut lines[i]
+            {
+                make_non_exhaustive_exhaustive(then_branch);
+                make_non_exhaustive_exhaustive(else_branch);
+            }
+        }
+        i += 1;
+    }
+}
+
+fn has_return(lines: &[Line]) -> bool {
+    for line in lines {
+        match line {
+            Line::FunctionRet { .. } => return true,
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                if has_return(then_branch) || has_return(else_branch) {
+                    return true;
+                }
+            }
+            Line::Match { arms, .. } => {
+                for (_, arm_lines) in arms {
+                    if has_return(arm_lines) {
+                        return true;
+                    }
+                }
+            }
+            Line::ForLoop { body, .. } => {
+                if has_return(body) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn transform_returns_with_flag(
+    lines: &mut Vec<Line>,
+    args: &BTreeMap<Var, SimpleExpr>,
+    res: &[Var],
+    inlining_count: usize,
+    returned_flag: &str,
+) {
+    let inline_condition = |condition: &mut Boolean| {
+        let (Boolean::Equal { left, right } | Boolean::Different { left, right }) = condition;
+        inline_expr(left, args, inlining_count);
+        inline_expr(right, args, inlining_count);
+    };
+
+    let inline_internal_var = |var: &mut Var| {
+        assert!(
+            !args.contains_key(var),
+            "Variable {var} is both an argument and assigned in the inlined function"
+        );
+        *var = format!("@inlined_var_{inlining_count}_{var}");
+    };
+
+    let mut lines_to_replace = vec![];
+
+    for (i, line) in lines.iter_mut().enumerate() {
+        match line {
+            Line::Match { value, arms } => {
+                inline_expr(value, args, inlining_count);
+                for (_, statements) in arms {
+                    transform_returns_with_flag(
+                        statements,
+                        args,
+                        res,
+                        inlining_count,
+                        returned_flag,
+                    );
+                }
+            }
+            Line::Assignment { var, value } => {
+                inline_expr(value, args, inlining_count);
+                inline_internal_var(var);
+            }
+            Line::IfCondition {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                inline_condition(condition);
+                transform_returns_with_flag(then_branch, args, res, inlining_count, returned_flag);
+                transform_returns_with_flag(else_branch, args, res, inlining_count, returned_flag);
+            }
+            Line::FunctionCall {
+                args: func_args,
+                return_data,
+                ..
+            } => {
+                for arg in func_args {
+                    inline_expr(arg, args, inlining_count);
+                }
+                for return_var in return_data {
+                    inline_internal_var(return_var);
+                }
+            }
+            Line::Assert(condition) => {
+                inline_condition(condition);
+            }
+            Line::FunctionRet { return_data } => {
+                assert_eq!(return_data.len(), res.len());
+
+                for expr in return_data.iter_mut() {
+                    inline_expr(expr, args, inlining_count);
+                }
+
+                // For multiple returns, we need to use conditional assignment to prevent SSA violations
+                // Only assign to result variables if we haven't already returned
+                let mut new_lines = vec![];
+
+                // Check if we haven't returned yet
+                let condition = Boolean::Equal {
+                    left: Expression::Value(SimpleExpr::Var(returned_flag.to_string())),
+                    right: Expression::Value(SimpleExpr::scalar(0)),
+                };
+
+                // Create assignments inside an if condition
+                let assignments = res
+                    .iter()
+                    .zip(return_data)
+                    .map(|(res_var, expr)| Line::Assignment {
+                        var: res_var.clone(),
+                        value: expr.clone(),
+                    })
+                    .collect::<Vec<_>>();
+
+                // Add assignment to set the returned flag
+                let mut then_branch = assignments;
+                then_branch.push(Line::Assignment {
+                    var: returned_flag.to_string(),
+                    value: Expression::Value(SimpleExpr::scalar(1)),
+                });
+
+                new_lines.push(Line::IfCondition {
+                    condition,
+                    then_branch,
+                    else_branch: vec![], // Empty else branch
+                });
+
+                lines_to_replace.push((i, new_lines));
+            }
+            Line::MAlloc { var, size, .. } => {
+                inline_expr(size, args, inlining_count);
+                inline_internal_var(var);
+            }
+            Line::Precompile {
+                precompile: _,
+                args: precompile_args,
+            } => {
+                for arg in precompile_args {
+                    inline_expr(arg, args, inlining_count);
+                }
+            }
+            Line::ForLoop {
+                iterator,
+                start,
+                end,
+                body,
+                rev: _,
+                unroll: _,
+            } => {
+                transform_returns_with_flag(body, args, res, inlining_count, returned_flag);
+                inline_internal_var(iterator);
+                inline_expr(start, args, inlining_count);
+                inline_expr(end, args, inlining_count);
+            }
+            Line::Print { content, .. } => {
+                for var in content {
+                    inline_expr(var, args, inlining_count);
+                }
+            }
+            Line::DecomposeBits { var, to_decompose } => {
+                for expr in to_decompose {
+                    inline_expr(expr, args, inlining_count);
+                }
+                inline_internal_var(var);
+            }
+            Line::CounterHint { var } => {
+                inline_internal_var(var);
+            }
+            Line::ArrayAssign {
+                array,
+                index,
+                value,
+            } => {
+                inline_simple_expr(array, args, inlining_count);
+                inline_expr(index, args, inlining_count);
+                inline_expr(value, args, inlining_count);
+            }
+            Line::Panic | Line::Break | Line::LocationReport { .. } => {}
+        }
+    }
+
+    // Apply the replacements
     for (i, new_lines) in lines_to_replace.into_iter().rev() {
         lines.splice(i..=i, new_lines);
     }

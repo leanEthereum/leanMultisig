@@ -514,3 +514,94 @@ fn test_nested_inline_functions() {
 
     compile_and_run(program, &[], &[], false);
 }
+
+#[test]
+fn test_inline_multiple_returns() {
+    let program = r#"
+    fn main() {
+        result = conditional_return(5);
+        print(result);
+        return;
+    }
+
+    fn conditional_return(x) inline -> 1 {
+        if x == 5 {
+            return 100;
+        } else {
+            if x == 3 {
+                return 200;
+            } else {
+                return 300;
+            }
+        }
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_complex_multiple_returns() {
+    let program = r#"
+    fn main() {
+        result1 = complex_return(1, 2);
+        result2 = complex_return(3, 4);
+        print(result1);
+        print(result2);
+        return;
+    }
+
+    fn complex_return(a, b) inline -> 1 {
+        sum = a + b;
+        if sum == 3 {
+            return 100;
+        } else {
+            if sum == 7 {
+                return 200;
+            } else {
+                if a == 1 {
+                    return 150;
+                } else {
+                    return 300;
+                }
+            }
+        }
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_non_exhaustive_conditions() {
+    let program = r#"
+    fn main() {
+        result1 = works(0);
+        result2 = works(1);
+        result3 = doesnt_work(0);
+        result4 = doesnt_work(1);
+        print(result1);
+        print(result2);
+        print(result3);
+        print(result4);
+        return;
+    }
+
+    fn works(x) inline -> 1 {
+        if x == 0 {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
+
+    fn doesnt_work(x) inline -> 1 {
+        if x == 0 {
+            return 0;
+        }
+        return 1;
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}
