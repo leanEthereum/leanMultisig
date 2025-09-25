@@ -578,8 +578,8 @@ fn test_inline_non_exhaustive_conditions() {
     fn main() {
         result1 = works(0);
         result2 = works(1);
-        result3 = doesnt_work(0);
-        result4 = doesnt_work(1);
+        result3 = should_work(0);
+        result4 = should_work(1);
         print(result1);
         print(result2);
         print(result3);
@@ -595,13 +595,35 @@ fn test_inline_non_exhaustive_conditions() {
         }
     }
 
-    fn doesnt_work(x) inline -> 1 {
+    fn should_work(x) inline -> 1 {
         if x == 0 {
             return 0;
         }
         return 1;
     }
     "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_of_todo() {
+    let program = r#"
+       fn main() {
+           b = should_work(1);
+           print(b);
+           return;
+       }
+
+       fn should_work(x) inline -> 1 {
+           if x == 1 {
+               if x == 0 {
+                   return 100;
+               }
+           }
+           return 200;
+       }
+       "#;
 
     compile_and_run(program, &[], &[], false);
 }

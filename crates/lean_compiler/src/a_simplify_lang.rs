@@ -1114,7 +1114,11 @@ fn make_non_exhaustive_exhaustive(lines: &mut Vec<Line>) {
             else_branch,
         } = &lines[i]
         {
-            else_branch.is_empty() && has_return(then_branch)
+            // Only restructure if:
+            // 1. The else branch is empty AND
+            // 2. The then branch has a direct return (not nested) AND
+            // 3. There are subsequent statements
+            else_branch.is_empty() && has_direct_return(then_branch) && i + 1 < lines.len()
         } else {
             false
         };
@@ -1128,7 +1132,7 @@ fn make_non_exhaustive_exhaustive(lines: &mut Vec<Line>) {
                 else_branch,
             } = &mut lines[i]
             {
-                // Recursively process the then branch
+                // Recursively process the then branch first
                 make_non_exhaustive_exhaustive(then_branch);
 
                 // Move subsequent statements to else branch
@@ -1152,6 +1156,49 @@ fn make_non_exhaustive_exhaustive(lines: &mut Vec<Line>) {
         }
         i += 1;
     }
+}
+
+// Only look for direct returns, not nested ones
+fn has_direct_return(lines: &[Line]) -> bool {
+    for line in lines {
+        match line {
+            Line::FunctionRet { .. } => return true,
+            _ => {} // Don't recurse into nested structures
+        }
+    }
+    false
+}
+
+// More comprehensive return detection that looks for returns anywhere in nested structures
+fn has_return_anywhere(lines: &[Line]) -> bool {
+    for line in lines {
+        match line {
+            Line::FunctionRet { .. } => return true,
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                if has_return_anywhere(then_branch) || has_return_anywhere(else_branch) {
+                    return true;
+                }
+            }
+            Line::Match { arms, .. } => {
+                for (_, arm_lines) in arms {
+                    if has_return_anywhere(arm_lines) {
+                        return true;
+                    }
+                }
+            }
+            Line::ForLoop { body, .. } => {
+                if has_return_anywhere(body) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn has_return(lines: &[Line]) -> bool {
