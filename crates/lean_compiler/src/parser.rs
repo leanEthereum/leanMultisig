@@ -1,4 +1,4 @@
-use crate::intermediate_bytecode::*;
+use crate::ir::*;
 use crate::lang::*;
 use crate::precompiles::PRECOMPILES;
 use lean_vm::*;
