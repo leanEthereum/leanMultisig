@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
-use std::fmt::{Display, Formatter, Result as FmtResult};
 use super::instruction::IntermediateInstruction;
 use lean_vm::Label;
+use std::collections::BTreeMap;
+use std::fmt::{Display, Formatter};
 
 /// Container for the complete intermediate representation of a program.
 ///
@@ -26,7 +26,7 @@ pub struct IntermediateBytecode {
 }
 
 impl Display for IntermediateBytecode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for (label, instructions) in &self.bytecode {
             writeln!(f, "\n{label}:")?;
             for instruction in instructions {

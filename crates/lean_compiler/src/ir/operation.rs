@@ -2,7 +2,7 @@ use crate::F;
 use lean_vm::Operation;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::PrimeField64;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
 /// High-level operations that can be performed in the IR.
@@ -39,7 +39,7 @@ impl HighLevelOperation {
 }
 
 impl Display for HighLevelOperation {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Add => write!(f, "+"),
             Self::Mul => write!(f, "*"),

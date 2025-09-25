@@ -2,89 +2,81 @@ use super::operation::HighLevelOperation;
 use super::value::{IntermediaryMemOrFpOrConstant, IntermediateValue};
 use crate::lang::ConstExpression;
 use lean_vm::{Operation, SourceLineNumber};
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.
 #[derive(Debug, Clone)]
 pub enum IntermediateInstruction {
-    /// Basic arithmetic computation: res = arg_a op arg_c
     Computation {
         operation: Operation,
         arg_a: IntermediateValue,
         arg_c: IntermediateValue,
         res: IntermediateValue,
     },
-    /// Indirect memory access: res = m[m[fp + shift_0] + shift_1]
     Deref {
         shift_0: ConstExpression,
         shift_1: ConstExpression,
         res: IntermediaryMemOrFpOrConstant,
-    },
-    /// Abort execution
+    }, // res = m[m[fp + shift_0]]
     Panic,
-    /// Unconditional jump
     Jump {
         dest: IntermediateValue,
         updated_fp: Option<IntermediateValue>,
     },
-    /// Conditional jump (jump if condition != 0)
     JumpIfNotZero {
         condition: IntermediateValue,
         dest: IntermediateValue,
         updated_fp: Option<IntermediateValue>,
     },
-    /// Poseidon2 hash with 16-element state
     Poseidon2_16 {
-        arg_a: IntermediateValue, // vectorized pointer, size 1
-        arg_b: IntermediateValue, // vectorized pointer, size 1
-        res: IntermediateValue,   // vectorized pointer, size 2
+        arg_a: IntermediateValue, // vectorized pointer, of size 1
+        arg_b: IntermediateValue, // vectorized pointer, of size 1
+        res: IntermediateValue,   // vectorized pointer, of size 2
     },
-    /// Poseidon2 hash with 24-element state
     Poseidon2_24 {
-        arg_a: IntermediateValue, // vectorized pointer, size 2
-        arg_b: IntermediateValue, // vectorized pointer, size 1
-        res: IntermediateValue,   // vectorized pointer, size 1
+        arg_a: IntermediateValue, // vectorized pointer, of size 2 (2 first inputs)
+        arg_b: IntermediateValue, // vectorized pointer, of size 1 (3rd = last input)
+        res: IntermediateValue,   // vectorized pointer, of size 1 (3rd = last output)
     },
-    /// Dot product computation
     DotProduct {
         arg0: IntermediateValue, // vectorized pointer
         arg1: IntermediateValue, // vectorized pointer
         res: IntermediateValue,  // vectorized pointer
         size: ConstExpression,
     },
-    /// Multilinear polynomial evaluation
     MultilinearEval {
         coeffs: IntermediateValue, // vectorized pointer, chunk size = 2^n_vars
-        point: IntermediateValue,  // vectorized pointer, size n_vars
-        res: IntermediateValue,    // vectorized pointer, size 1
+        point: IntermediateValue,  // vectorized pointer, of size `n_vars`
+        res: IntermediateValue,    // vectorized pointer, of size 1
         n_vars: ConstExpression,
     },
-    /// Field element inverse hint
+    // HINTS (does not appears in the final bytecode)
     Inverse {
-        arg: IntermediateValue,
-        res_offset: usize,
+        // If the value is zero, it will return zero.
+        arg: IntermediateValue, // the value to invert
+        res_offset: usize,      // m[fp + res_offset] will contain the result
     },
-    /// Memory allocation request
     RequestMemory {
-        offset: ConstExpression,
-        size: IntermediateValue,
-        vectorized: bool,
+        offset: ConstExpression, // m[fp + offset] where the hint will be stored
+        size: IntermediateValue, // the hint
+        vectorized: bool, // if true, will be (2^vectorized_len)-alligned, and the returned pointer will be "divied" by 2^vectorized_len
         vectorized_len: IntermediateValue,
     },
-    /// Bit decomposition hint
     DecomposeBits {
-        res_offset: usize,
+        res_offset: usize, // m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)] will contain the decomposed bits
         to_decompose: Vec<IntermediateValue>,
     },
-    /// Counter hint for loops
-    CounterHint { res_offset: usize },
-    /// Print values for debugging
-    Print {
-        line_info: String,
-        content: Vec<IntermediateValue>,
+    CounterHint {
+        res_offset: usize,
     },
-    /// Source location tracking (no-op)
-    LocationReport { location: SourceLineNumber },
+    Print {
+        line_info: String, // information about the line where the print occurs
+        content: Vec<IntermediateValue>, // values to print
+    },
+    // noop, debug purpose only
+    LocationReport {
+        location: SourceLineNumber,
+    },
 }
 
 impl IntermediateInstruction {
@@ -134,7 +126,7 @@ impl IntermediateInstruction {
 }
 
 impl Display for IntermediateInstruction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Computation {
                 operation,

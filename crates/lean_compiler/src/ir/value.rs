@@ -1,6 +1,6 @@
 use crate::lang::ConstExpression;
 use lean_vm::Label;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Display, Formatter};
 
 /// Represents different types of values in the intermediate representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,7 +36,7 @@ impl From<Label> for IntermediateValue {
 }
 
 impl Display for IntermediateValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Constant(value) => write!(f, "{value}"),
             Self::Fp => write!(f, "fp"),
@@ -62,7 +62,7 @@ pub enum IntermediaryMemOrFpOrConstant {
 }
 
 impl Display for IntermediaryMemOrFpOrConstant {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
             Self::Fp => write!(f, "fp"),
