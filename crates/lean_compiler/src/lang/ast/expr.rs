@@ -4,8 +4,8 @@ use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
 
+use crate::lang::values::{ConstExpression, ConstMallocLabel, ConstantValue, Var};
 use crate::{F, ir::HighLevelOperation};
-use crate::lang::values::{ConstExpression, ConstantValue, Var, ConstMallocLabel};
 use utils::ToUsize;
 
 /// Simple expression that can be a variable, constant, or memory access.
@@ -96,9 +96,7 @@ pub enum Expression {
         right: Box<Self>,
     },
     /// Ceiling of log base 2.
-    Log2Ceil {
-        value: Box<Expression>,
-    },
+    Log2Ceil { value: Box<Expression> },
 }
 
 impl From<SimpleExpr> for Expression {
@@ -192,5 +190,142 @@ impl Display for SimpleExpr {
                 write!(f, "malloc_access({malloc_label}, {offset})")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_expr_constants() {
+        assert!(SimpleExpr::zero().is_constant());
+        assert!(SimpleExpr::one().is_constant());
+        assert!(SimpleExpr::scalar(42).is_constant());
+        assert!(!SimpleExpr::Var("x".to_string()).is_constant());
+    }
+
+    #[test]
+    fn test_simple_expr_as_constant() {
+        let var = SimpleExpr::Var("x".to_string());
+        let constant = SimpleExpr::scalar(5);
+
+        assert_eq!(var.as_constant(), None);
+        assert_eq!(constant.as_constant(), Some(ConstExpression::scalar(5)));
+    }
+
+    #[test]
+    fn test_expression_scalar_creation() {
+        let expr = Expression::scalar(10);
+        assert_eq!(expr.naive_eval().unwrap().to_usize(), 10);
+    }
+
+    #[test]
+    fn test_simple_expr_display() {
+        assert_eq!(SimpleExpr::Var("x".to_string()).to_string(), "x");
+        assert_eq!(SimpleExpr::scalar(42).to_string(), "42");
+
+        let malloc_access = SimpleExpr::ConstMallocAccess {
+            malloc_label: 5,
+            offset: ConstExpression::scalar(10),
+        };
+        assert_eq!(malloc_access.to_string(), "malloc_access(5, 10)");
+    }
+
+    #[test]
+    fn test_expression_display() {
+        let var = Expression::Value(SimpleExpr::Var("x".to_string()));
+        assert_eq!(var.to_string(), "x");
+
+        let array_access = Expression::ArrayAccess {
+            array: SimpleExpr::Var("arr".to_string()),
+            index: Box::new(Expression::scalar(0)),
+        };
+        assert_eq!(array_access.to_string(), "arr[0]");
+
+        let log2_ceil = Expression::Log2Ceil {
+            value: Box::new(Expression::scalar(8)),
+        };
+        assert_eq!(log2_ceil.to_string(), "log2_ceil(8)");
+
+        let binary = Expression::Binary {
+            left: Box::new(Expression::scalar(5)),
+            operation: crate::ir::HighLevelOperation::Mul,
+            right: Box::new(Expression::scalar(2)),
+        };
+        assert_eq!(binary.to_string(), "(5 * 2)");
+    }
+
+    #[test]
+    fn test_expression_eval_with() {
+        let value_fn = |expr: &SimpleExpr| match expr {
+            SimpleExpr::Var(name) if name == "x" => Some(F::from_usize(10)),
+            SimpleExpr::Constant(c) => c.naive_eval(),
+            _ => None,
+        };
+        let array_fn = |array: &SimpleExpr, index: F| -> Option<F> {
+            if matches!(array, SimpleExpr::Var(name) if name == "arr") {
+                Some(F::from_usize(index.to_usize() * 2))
+            } else {
+                None
+            }
+        };
+
+        // Test Value variant
+        let var_expr = Expression::Value(SimpleExpr::Var("x".to_string()));
+        assert_eq!(
+            var_expr.eval_with(&value_fn, &array_fn).unwrap().to_usize(),
+            10
+        );
+
+        // Test ArrayAccess variant
+        let array_expr = Expression::ArrayAccess {
+            array: SimpleExpr::Var("arr".to_string()),
+            index: Box::new(Expression::scalar(5)),
+        };
+        assert_eq!(
+            array_expr
+                .eval_with(&value_fn, &array_fn)
+                .unwrap()
+                .to_usize(),
+            10
+        );
+
+        // Test Binary variant
+        let binary_expr = Expression::Binary {
+            left: Box::new(Expression::scalar(3)),
+            operation: crate::ir::HighLevelOperation::Add,
+            right: Box::new(Expression::scalar(7)),
+        };
+        assert_eq!(
+            binary_expr
+                .eval_with(&value_fn, &array_fn)
+                .unwrap()
+                .to_usize(),
+            10
+        );
+
+        // Test Log2Ceil variant
+        let log2_expr = Expression::Log2Ceil {
+            value: Box::new(Expression::scalar(8)),
+        };
+        assert_eq!(
+            log2_expr
+                .eval_with(&value_fn, &array_fn)
+                .unwrap()
+                .to_usize(),
+            3
+        );
+    }
+
+    #[test]
+    fn test_simple_expr_simplify_if_const() {
+        let var = SimpleExpr::Var("x".to_string());
+        let simplified_var = var.simplify_if_const();
+        assert_eq!(simplified_var, var);
+
+        let constant = SimpleExpr::scalar(42);
+        let simplified_constant = constant.simplify_if_const();
+        assert_eq!(simplified_constant, SimpleExpr::scalar(42));
     }
 }

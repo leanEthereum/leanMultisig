@@ -84,3 +84,124 @@ impl Display for Function {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::{Expression, SimpleExpr};
+
+    #[test]
+    fn test_function_has_const_arguments() {
+        let func_with_const = Function {
+            name: "test".to_string(),
+            arguments: vec![("x".to_string(), false), ("y".to_string(), true)],
+            inlined: false,
+            n_returned_vars: 1,
+            body: vec![],
+        };
+        assert!(func_with_const.has_const_arguments());
+
+        let func_no_const = Function {
+            name: "test".to_string(),
+            arguments: vec![("x".to_string(), false), ("y".to_string(), false)],
+            inlined: false,
+            n_returned_vars: 1,
+            body: vec![],
+        };
+        assert!(!func_no_const.has_const_arguments());
+    }
+
+    #[test]
+    fn test_function_display_empty_body() {
+        let func = Function {
+            name: "empty_fn".to_string(),
+            arguments: vec![("x".to_string(), false)],
+            inlined: false,
+            n_returned_vars: 0,
+            body: vec![],
+        };
+        assert_eq!(func.to_string(), "fn empty_fn(x) -> 0 {}");
+    }
+
+    #[test]
+    fn test_function_display_with_const_args() {
+        let func = Function {
+            name: "const_fn".to_string(),
+            arguments: vec![("x".to_string(), true), ("y".to_string(), false)],
+            inlined: false,
+            n_returned_vars: 1,
+            body: vec![],
+        };
+        assert_eq!(func.to_string(), "fn const_fn(const x, y) -> 1 {}");
+    }
+
+    #[test]
+    fn test_program_display() {
+        let mut program = Program {
+            functions: BTreeMap::new(),
+        };
+
+        let func = Function {
+            name: "test".to_string(),
+            arguments: vec![],
+            inlined: false,
+            n_returned_vars: 0,
+            body: vec![],
+        };
+
+        program.functions.insert("test".to_string(), func);
+        assert_eq!(program.to_string(), "fn test() -> 0 {}");
+    }
+
+    #[test]
+    fn test_program_multiple_functions_display() {
+        let mut program = Program {
+            functions: BTreeMap::new(),
+        };
+
+        let func1 = Function {
+            name: "func1".to_string(),
+            arguments: vec![],
+            inlined: false,
+            n_returned_vars: 0,
+            body: vec![],
+        };
+
+        let func2 = Function {
+            name: "func2".to_string(),
+            arguments: vec![],
+            inlined: false,
+            n_returned_vars: 1,
+            body: vec![],
+        };
+
+        program.functions.insert("func1".to_string(), func1);
+        program.functions.insert("func2".to_string(), func2);
+
+        let result = program.to_string();
+        assert_eq!(result, "fn func1() -> 0 {}\nfn func2() -> 1 {}");
+    }
+
+    #[test]
+    fn test_function_display_with_body() {
+        let func = Function {
+            name: "test_func".to_string(),
+            arguments: vec![("x".to_string(), false)],
+            inlined: false,
+            n_returned_vars: 1,
+            body: vec![
+                Line::Assignment {
+                    var: "result".to_string(),
+                    value: Expression::scalar(42),
+                },
+                Line::FunctionRet {
+                    return_data: vec![Expression::Value(SimpleExpr::Var("result".to_string()))],
+                },
+            ],
+        };
+        assert_eq!(
+            func.to_string(),
+            "fn test_func(x) -> 1 {\n    result = 42\n    return result\n}"
+        );
+    }
+}

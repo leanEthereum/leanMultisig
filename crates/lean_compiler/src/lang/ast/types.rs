@@ -25,3 +25,27 @@ impl Display for Boolean {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::SimpleExpr;
+
+    #[test]
+    fn test_boolean_equal_display() {
+        let equal = Boolean::Equal {
+            left: Expression::scalar(5),
+            right: Expression::scalar(10),
+        };
+        assert_eq!(equal.to_string(), "5 == 10");
+    }
+
+    #[test]
+    fn test_boolean_different_display() {
+        let different = Boolean::Different {
+            left: Expression::Value(SimpleExpr::Var("x".to_string())),
+            right: Expression::scalar(0),
+        };
+        assert_eq!(different.to_string(), "x != 0");
+    }
+}
