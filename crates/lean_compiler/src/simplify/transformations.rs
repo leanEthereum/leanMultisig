@@ -490,3 +490,642 @@ fn inline_simple_expr(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ir::HighLevelOperation, lang::*};
+
+    fn create_test_program() -> Program {
+        Program {
+            functions: BTreeMap::new(),
+        }
+    }
+
+    fn create_simple_function(name: &str, inlined: bool) -> Function {
+        Function {
+            name: name.to_string(),
+            arguments: vec![("x".to_string(), false), ("y".to_string(), false)],
+            inlined,
+            body: vec![Line::Assignment {
+                var: "result".to_string(),
+                value: Expression::Binary {
+                    left: Box::new(Expression::Value(SimpleExpr::Var("x".to_string()))),
+                    operation: HighLevelOperation::Add,
+                    right: Box::new(Expression::Value(SimpleExpr::Var("y".to_string()))),
+                },
+            }],
+            n_returned_vars: 1,
+        }
+    }
+
+    fn create_const_function(name: &str) -> Function {
+        Function {
+            name: name.to_string(),
+            arguments: vec![("x".to_string(), false), ("size".to_string(), true)],
+            inlined: false,
+            body: vec![Line::Assignment {
+                var: "result".to_string(),
+                value: Expression::Binary {
+                    left: Box::new(Expression::Value(SimpleExpr::Var("x".to_string()))),
+                    operation: HighLevelOperation::Add,
+                    right: Box::new(Expression::Value(SimpleExpr::Var("size".to_string()))),
+                },
+            }],
+            n_returned_vars: 1,
+        }
+    }
+
+    #[test]
+    fn test_handle_inlined_functions_simple_inline() {
+        let mut program = create_test_program();
+
+        // Create an inlined function
+        let inlined_func = create_simple_function("inline_add", true);
+        program
+            .functions
+            .insert("inline_add".to_string(), inlined_func);
+
+        // Create a function that calls the inlined function
+        let caller_func = Function {
+            name: "caller".to_string(),
+            arguments: vec![("a".to_string(), false), ("b".to_string(), false)],
+            inlined: false,
+            body: vec![Line::FunctionCall {
+                function_name: "inline_add".to_string(),
+                args: vec![
+                    Expression::Value(SimpleExpr::Var("a".to_string())),
+                    Expression::Value(SimpleExpr::Var("b".to_string())),
+                ],
+                return_data: vec!["sum".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("caller".to_string(), caller_func);
+
+        handle_inlined_functions(&mut program);
+
+        // The inlined function should be removed
+        assert!(!program.functions.contains_key("inline_add"));
+
+        // The caller function should have the inlined code
+        let caller = program.functions.get("caller").unwrap();
+        assert_eq!(caller.body.len(), 1);
+        if let Line::Assignment { var, value } = &caller.body[0] {
+            assert!(var.starts_with("@inlined_var_"));
+            if let Expression::Binary {
+                left,
+                operation,
+                right,
+            } = value
+            {
+                assert_eq!(operation, &HighLevelOperation::Add);
+                if let Expression::Value(SimpleExpr::Var(left_var)) = left.as_ref() {
+                    assert_eq!(left_var, "a");
+                }
+                if let Expression::Value(SimpleExpr::Var(right_var)) = right.as_ref() {
+                    assert_eq!(right_var, "b");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_handle_inlined_functions_complex_args() {
+        let mut program = create_test_program();
+
+        // Create an inlined function
+        let inlined_func = create_simple_function("inline_add", true);
+        program
+            .functions
+            .insert("inline_add".to_string(), inlined_func);
+
+        // Create a function that calls the inlined function with complex arguments
+        let caller_func = Function {
+            name: "caller".to_string(),
+            arguments: vec![("a".to_string(), false), ("b".to_string(), false)],
+            inlined: false,
+            body: vec![Line::FunctionCall {
+                function_name: "inline_add".to_string(),
+                args: vec![
+                    Expression::Binary {
+                        left: Box::new(Expression::Value(SimpleExpr::Var("a".to_string()))),
+                        operation: HighLevelOperation::Mul,
+                        right: Box::new(Expression::Value(SimpleExpr::Constant(
+                            ConstExpression::scalar(2),
+                        ))),
+                    },
+                    Expression::Value(SimpleExpr::Var("b".to_string())),
+                ],
+                return_data: vec!["result".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("caller".to_string(), caller_func);
+
+        handle_inlined_functions(&mut program);
+
+        // Check that auxiliary variables are created for complex arguments
+        let caller = program.functions.get("caller").unwrap();
+        assert!(caller.body.len() >= 2); // At least one aux var assignment + the inlined body
+
+        // First instruction should be auxiliary variable assignment for complex argument
+        if let Line::Assignment { var, value } = &caller.body[0] {
+            assert!(var.starts_with("@inlined_var_"));
+            if let Expression::Binary { operation, .. } = value {
+                assert_eq!(operation, &HighLevelOperation::Mul);
+            }
+        }
+    }
+
+    #[test]
+    fn test_handle_inlined_functions_nested_inline() {
+        let mut program = create_test_program();
+
+        // Create first inlined function
+        let inline1 = Function {
+            name: "inline1".to_string(),
+            arguments: vec![("x".to_string(), false)],
+            inlined: true,
+            body: vec![Line::Assignment {
+                var: "temp".to_string(),
+                value: Expression::Binary {
+                    left: Box::new(Expression::Value(SimpleExpr::Var("x".to_string()))),
+                    operation: HighLevelOperation::Add,
+                    right: Box::new(Expression::Value(SimpleExpr::Constant(
+                        ConstExpression::scalar(1),
+                    ))),
+                },
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("inline1".to_string(), inline1);
+
+        // Create second inlined function that calls the first
+        let inline2 = Function {
+            name: "inline2".to_string(),
+            arguments: vec![("y".to_string(), false)],
+            inlined: true,
+            body: vec![Line::FunctionCall {
+                function_name: "inline1".to_string(),
+                args: vec![Expression::Value(SimpleExpr::Var("y".to_string()))],
+                return_data: vec!["result".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("inline2".to_string(), inline2);
+
+        // Create main function that calls inline2
+        let main_func = Function {
+            name: "main".to_string(),
+            arguments: vec![("input".to_string(), false)],
+            inlined: false,
+            body: vec![Line::FunctionCall {
+                function_name: "inline2".to_string(),
+                args: vec![Expression::Value(SimpleExpr::Var("input".to_string()))],
+                return_data: vec!["output".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("main".to_string(), main_func);
+
+        handle_inlined_functions(&mut program);
+
+        // All inlined functions should be removed
+        assert!(!program.functions.contains_key("inline1"));
+        assert!(!program.functions.contains_key("inline2"));
+
+        // Main function should contain the fully inlined code
+        let main = program.functions.get("main").unwrap();
+        assert!(!main.body.is_empty());
+
+        // Should have the actual computation inlined
+        let has_add_op = main.body.iter().any(|line| {
+            if let Line::Assignment { value, .. } = line {
+                if let Expression::Binary { operation, .. } = value {
+                    return *operation == HighLevelOperation::Add;
+                }
+            }
+            false
+        });
+        assert!(has_add_op);
+    }
+
+    #[test]
+    fn test_handle_inlined_functions_if_condition() {
+        let mut program = create_test_program();
+
+        // Create an inlined function
+        let inlined_func = create_simple_function("inline_add", true);
+        program
+            .functions
+            .insert("inline_add".to_string(), inlined_func);
+
+        // Create a function that calls the inlined function inside an if condition
+        let caller_func = Function {
+            name: "caller".to_string(),
+            arguments: vec![("condition".to_string(), false)],
+            inlined: false,
+            body: vec![Line::IfCondition {
+                condition: Boolean::Equal {
+                    left: Expression::Value(SimpleExpr::Var("condition".to_string())),
+                    right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
+                },
+                then_branch: vec![Line::FunctionCall {
+                    function_name: "inline_add".to_string(),
+                    args: vec![
+                        Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(5))),
+                        Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(3))),
+                    ],
+                    return_data: vec!["result".to_string()],
+                }],
+                else_branch: vec![],
+            }],
+            n_returned_vars: 0,
+        };
+        program.functions.insert("caller".to_string(), caller_func);
+
+        handle_inlined_functions(&mut program);
+
+        // Check that the function call is inlined inside the if condition
+        let caller = program.functions.get("caller").unwrap();
+        if let Line::IfCondition { then_branch, .. } = &caller.body[0] {
+            assert!(!then_branch.is_empty());
+            // Should have inlined assignment
+            if let Line::Assignment { .. } = &then_branch[0] {
+                // Good, the function was inlined
+            } else {
+                panic!("Expected inlined assignment in then branch");
+            }
+        } else {
+            panic!("Expected if condition");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Too many iterations processing inline functions")]
+    fn test_handle_inlined_functions_infinite_recursion() {
+        let mut program = create_test_program();
+
+        // Create an inlined function A that calls inlined function B
+        let func_a = Function {
+            name: "func_a".to_string(),
+            arguments: vec![("x".to_string(), false)],
+            inlined: true,
+            body: vec![Line::FunctionCall {
+                function_name: "func_b".to_string(),
+                args: vec![Expression::Value(SimpleExpr::Var("x".to_string()))],
+                return_data: vec!["result".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+
+        // Create an inlined function B that calls inlined function A (mutual recursion)
+        let func_b = Function {
+            name: "func_b".to_string(),
+            arguments: vec![("x".to_string(), false)],
+            inlined: true,
+            body: vec![Line::FunctionCall {
+                function_name: "func_a".to_string(),
+                args: vec![Expression::Value(SimpleExpr::Var("x".to_string()))],
+                return_data: vec!["result".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+
+        program.functions.insert("func_a".to_string(), func_a);
+        program.functions.insert("func_b".to_string(), func_b);
+
+        // Create main function that calls func_a (which will trigger the mutual recursion)
+        let main_func = Function {
+            name: "main".to_string(),
+            arguments: vec![],
+            inlined: false,
+            body: vec![Line::FunctionCall {
+                function_name: "func_a".to_string(),
+                args: vec![Expression::Value(SimpleExpr::Constant(
+                    ConstExpression::scalar(1),
+                ))],
+                return_data: vec!["result".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("main".to_string(), main_func);
+
+        // This should panic due to infinite mutual recursion detection
+        handle_inlined_functions(&mut program);
+    }
+
+    #[test]
+    fn test_handle_const_arguments_simple() {
+        let mut program = create_test_program();
+
+        // Create a function with constant arguments
+        let const_func = create_const_function("const_func");
+        program
+            .functions
+            .insert("const_func".to_string(), const_func);
+
+        // Create a function that calls const_func with constant value
+        let caller_func = Function {
+            name: "caller".to_string(),
+            arguments: vec![("input".to_string(), false)],
+            inlined: false,
+            body: vec![Line::FunctionCall {
+                function_name: "const_func".to_string(),
+                args: vec![
+                    Expression::Value(SimpleExpr::Var("input".to_string())),
+                    Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(10))),
+                ],
+                return_data: vec!["result".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("caller".to_string(), caller_func);
+
+        handle_const_arguments(&mut program);
+
+        // Original const function should be removed
+        assert!(!program.functions.contains_key("const_func"));
+
+        // Should have a new specialized function
+        let specialized_name = "const_func_size=10";
+        assert!(program.functions.contains_key(specialized_name));
+
+        // Caller should call the specialized function
+        let caller = program.functions.get("caller").unwrap();
+        if let Line::FunctionCall {
+            function_name,
+            args,
+            ..
+        } = &caller.body[0]
+        {
+            assert_eq!(function_name, specialized_name);
+            assert_eq!(args.len(), 1); // Only non-const arguments
+        }
+    }
+
+    #[test]
+    fn test_handle_const_arguments_multiple_values() {
+        let mut program = create_test_program();
+
+        let const_func = create_const_function("const_func");
+        program
+            .functions
+            .insert("const_func".to_string(), const_func);
+
+        // Create two callers with different constant values
+        let caller1 = Function {
+            name: "caller1".to_string(),
+            arguments: vec![("input".to_string(), false)],
+            inlined: false,
+            body: vec![Line::FunctionCall {
+                function_name: "const_func".to_string(),
+                args: vec![
+                    Expression::Value(SimpleExpr::Var("input".to_string())),
+                    Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(5))),
+                ],
+                return_data: vec!["result1".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("caller1".to_string(), caller1);
+
+        let caller2 = Function {
+            name: "caller2".to_string(),
+            arguments: vec![("input".to_string(), false)],
+            inlined: false,
+            body: vec![Line::FunctionCall {
+                function_name: "const_func".to_string(),
+                args: vec![
+                    Expression::Value(SimpleExpr::Var("input".to_string())),
+                    Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(10))),
+                ],
+                return_data: vec!["result2".to_string()],
+            }],
+            n_returned_vars: 1,
+        };
+        program.functions.insert("caller2".to_string(), caller2);
+
+        handle_const_arguments(&mut program);
+
+        // Should have two specialized functions
+        assert!(program.functions.contains_key("const_func_size=5"));
+        assert!(program.functions.contains_key("const_func_size=10"));
+        assert!(!program.functions.contains_key("const_func"));
+
+        // Callers should reference the correct specialized functions
+        let caller1 = program.functions.get("caller1").unwrap();
+        if let Line::FunctionCall { function_name, .. } = &caller1.body[0] {
+            assert_eq!(function_name, "const_func_size=5");
+        }
+
+        let caller2 = program.functions.get("caller2").unwrap();
+        if let Line::FunctionCall { function_name, .. } = &caller2.body[0] {
+            assert_eq!(function_name, "const_func_size=10");
+        }
+    }
+
+    #[test]
+    fn test_inline_lines_assignment() {
+        let mut lines = vec![Line::Assignment {
+            var: "x".to_string(),
+            value: Expression::Value(SimpleExpr::Var("arg1".to_string())),
+        }];
+
+        let mut args = BTreeMap::new();
+        args.insert(
+            "arg1".to_string(),
+            SimpleExpr::Constant(ConstExpression::scalar(42)),
+        );
+
+        let res = vec!["result".to_string()];
+
+        inline_lines(&mut lines, &args, &res, 0);
+
+        // Variable should be renamed and argument replaced
+        if let Line::Assignment { var, value } = &lines[0] {
+            assert_eq!(var, "@inlined_var_0_x");
+            if let Expression::Value(SimpleExpr::Constant(const_expr)) = value {
+                assert_eq!(const_expr, &ConstExpression::scalar(42));
+            } else {
+                panic!("Expected constant value");
+            }
+        }
+    }
+
+    #[test]
+    fn test_inline_lines_function_return() {
+        let mut lines = vec![Line::FunctionRet {
+            return_data: vec![
+                Expression::Value(SimpleExpr::Var("local_var".to_string())),
+                Expression::Value(SimpleExpr::Var("arg1".to_string())),
+            ],
+        }];
+
+        let mut args = BTreeMap::new();
+        args.insert("arg1".to_string(), SimpleExpr::Var("input".to_string()));
+
+        let res = vec!["output1".to_string(), "output2".to_string()];
+
+        inline_lines(&mut lines, &args, &res, 1);
+
+        // Function return should be converted to assignments
+        assert_eq!(lines.len(), 2);
+
+        if let Line::Assignment { var, value } = &lines[0] {
+            assert_eq!(var, "output1");
+            if let Expression::Value(SimpleExpr::Var(var_name)) = value {
+                assert_eq!(var_name, "@inlined_var_1_local_var");
+            } else {
+                panic!("Expected variable value in first assignment");
+            }
+        } else {
+            panic!("Expected assignment in first line");
+        }
+
+        if let Line::Assignment { var, value } = &lines[1] {
+            assert_eq!(var, "output2");
+            if let Expression::Value(SimpleExpr::Var(var_name)) = value {
+                assert_eq!(var_name, "input");
+            } else {
+                panic!("Expected variable value in second assignment");
+            }
+        } else {
+            panic!("Expected assignment in second line");
+        }
+    }
+
+    #[test]
+    fn test_inline_lines_if_condition() {
+        let mut lines = vec![Line::IfCondition {
+            condition: Boolean::Equal {
+                left: Expression::Value(SimpleExpr::Var("arg1".to_string())),
+                right: Expression::Value(SimpleExpr::Var("local_var".to_string())),
+            },
+            then_branch: vec![Line::Assignment {
+                var: "then_var".to_string(),
+                value: Expression::Value(SimpleExpr::Var("arg1".to_string())),
+            }],
+            else_branch: vec![Line::Assignment {
+                var: "else_var".to_string(),
+                value: Expression::Value(SimpleExpr::Var("local_var".to_string())),
+            }],
+        }];
+
+        let mut args = BTreeMap::new();
+        args.insert("arg1".to_string(), SimpleExpr::Var("input".to_string()));
+
+        let res = vec![];
+
+        inline_lines(&mut lines, &args, &res, 2);
+
+        if let Line::IfCondition {
+            condition,
+            then_branch,
+            else_branch,
+        } = &lines[0]
+        {
+            // Condition variables should be inlined
+            if let Boolean::Equal { left, right } = condition {
+                if let Expression::Value(SimpleExpr::Var(left_var)) = left {
+                    assert_eq!(left_var, "input");
+                } else {
+                    panic!("Expected variable in left side of condition");
+                }
+                if let Expression::Value(SimpleExpr::Var(right_var)) = right {
+                    assert_eq!(right_var, "@inlined_var_2_local_var");
+                } else {
+                    panic!("Expected variable in right side of condition");
+                }
+            } else {
+                panic!("Expected Equal condition");
+            }
+
+            // Variables in branches should be renamed
+            if let Line::Assignment { var, value } = &then_branch[0] {
+                assert_eq!(var, "@inlined_var_2_then_var");
+                if let Expression::Value(SimpleExpr::Var(val_var)) = value {
+                    assert_eq!(val_var, "input");
+                } else {
+                    panic!("Expected variable value in then branch assignment");
+                }
+            } else {
+                panic!("Expected assignment in then branch");
+            }
+
+            if let Line::Assignment { var, value } = &else_branch[0] {
+                assert_eq!(var, "@inlined_var_2_else_var");
+                if let Expression::Value(SimpleExpr::Var(val_var)) = value {
+                    assert_eq!(val_var, "@inlined_var_2_local_var");
+                } else {
+                    panic!("Expected variable value in else branch assignment");
+                }
+            } else {
+                panic!("Expected assignment in else branch");
+            }
+        } else {
+            panic!("Expected if condition");
+        }
+    }
+
+    #[test]
+    fn test_inline_lines_for_loop() {
+        let mut lines = vec![Line::ForLoop {
+            iterator: "i".to_string(),
+            start: Expression::Value(SimpleExpr::Var("arg1".to_string())),
+            end: Expression::Value(SimpleExpr::Var("local_end".to_string())),
+            body: vec![Line::Assignment {
+                var: "loop_var".to_string(),
+                value: Expression::Value(SimpleExpr::Var("i".to_string())),
+            }],
+            rev: false,
+            unroll: false,
+        }];
+
+        let mut args = BTreeMap::new();
+        args.insert(
+            "arg1".to_string(),
+            SimpleExpr::Constant(ConstExpression::scalar(0)),
+        );
+
+        let res = vec![];
+
+        inline_lines(&mut lines, &args, &res, 3);
+
+        if let Line::ForLoop {
+            iterator,
+            start,
+            end,
+            body,
+            ..
+        } = &lines[0]
+        {
+            // Iterator should be renamed
+            assert_eq!(iterator, "@inlined_var_3_i");
+
+            // Start expression should use inlined argument
+            if let Expression::Value(SimpleExpr::Constant(const_expr)) = start {
+                assert_eq!(const_expr, &ConstExpression::scalar(0));
+            } else {
+                panic!("Expected constant start value in for loop");
+            }
+
+            // End variable should be renamed
+            if let Expression::Value(SimpleExpr::Var(end_var)) = end {
+                assert_eq!(end_var, "@inlined_var_3_local_end");
+            } else {
+                panic!("Expected variable end value in for loop");
+            }
+
+            // Body variables should be renamed
+            if let Line::Assignment { var, .. } = &body[0] {
+                assert_eq!(var, "@inlined_var_3_loop_var");
+            } else {
+                panic!("Expected assignment in for loop body");
+            }
+        } else {
+            panic!("Expected for loop");
+        }
+    }
+}

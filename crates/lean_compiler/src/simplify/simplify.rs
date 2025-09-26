@@ -756,3 +756,821 @@ fn create_recursive_function(
         instructions,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ir::HighLevelOperation, lang::*, simplify::types::*};
+
+    fn create_test_counters() -> Counters {
+        Counters::default()
+    }
+
+    fn create_test_array_manager() -> ArrayManager {
+        ArrayManager::default()
+    }
+
+    fn create_test_const_malloc() -> ConstMalloc {
+        ConstMalloc::default()
+    }
+
+    #[test]
+    fn test_simplify_lines_match() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Match {
+            value: Expression::Value(SimpleExpr::Var("x".to_string())),
+            arms: vec![(0, vec![Line::Panic]), (1, vec![Line::Break])],
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            true,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0], SimpleLine::Match { .. }));
+
+        if let SimpleLine::Match { value, arms } = &result[0] {
+            assert_eq!(value, &SimpleExpr::Var("x".to_string()));
+            assert_eq!(arms.len(), 2);
+            assert_eq!(arms[0], vec![SimpleLine::Panic]);
+            assert_eq!(
+                arms[1],
+                vec![SimpleLine::FunctionRet {
+                    return_data: vec![]
+                }]
+            );
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_assignment_value() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Assignment {
+            var: "x".to_string(),
+            value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(42))),
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::Assignment {
+            var,
+            operation,
+            arg0,
+            arg1,
+        } = &result[0]
+        {
+            assert_eq!(var, &VarOrConstMallocAccess::Var("x".to_string()));
+            assert_eq!(operation, &HighLevelOperation::Add);
+            assert_eq!(arg0, &SimpleExpr::Constant(ConstExpression::scalar(42)));
+            assert_eq!(arg1, &SimpleExpr::zero());
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_assignment_binary() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Assignment {
+            var: "result".to_string(),
+            value: Expression::Binary {
+                left: Box::new(Expression::Value(SimpleExpr::Var("a".to_string()))),
+                operation: HighLevelOperation::Add,
+                right: Box::new(Expression::Value(SimpleExpr::Var("b".to_string()))),
+            },
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::Assignment {
+            var,
+            operation,
+            arg0,
+            arg1,
+        } = &result[0]
+        {
+            assert_eq!(var, &VarOrConstMallocAccess::Var("result".to_string()));
+            assert_eq!(operation, &HighLevelOperation::Add);
+            assert_eq!(arg0, &SimpleExpr::Var("a".to_string()));
+            assert_eq!(arg1, &SimpleExpr::Var("b".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_assert_equal() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Assert(Boolean::Equal {
+            left: Expression::Value(SimpleExpr::Var("x".to_string())),
+            right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(5))),
+        })];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::Assignment {
+            var,
+            operation,
+            arg0,
+            arg1,
+        } = &result[0]
+        {
+            assert_eq!(var, &VarOrConstMallocAccess::Var("x".to_string()));
+            assert_eq!(operation, &HighLevelOperation::Add);
+            assert_eq!(arg0, &SimpleExpr::Constant(ConstExpression::scalar(5)));
+            assert_eq!(arg1, &SimpleExpr::zero());
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_assert_different() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Assert(Boolean::Different {
+            left: Expression::Value(SimpleExpr::Var("x".to_string())),
+            right: Expression::Value(SimpleExpr::Var("y".to_string())),
+        })];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 2);
+
+        if let SimpleLine::Assignment {
+            var,
+            operation,
+            arg0,
+            arg1,
+        } = &result[0]
+        {
+            assert!(var.to_string().starts_with("@aux_var_"));
+            assert_eq!(operation, &HighLevelOperation::Sub);
+            assert_eq!(arg0, &SimpleExpr::Var("x".to_string()));
+            assert_eq!(arg1, &SimpleExpr::Var("y".to_string()));
+        }
+
+        if let SimpleLine::IfNotZero {
+            condition,
+            then_branch,
+            else_branch,
+        } = &result[1]
+        {
+            assert!(condition.to_string().starts_with("@aux_var_"));
+            assert_eq!(then_branch.len(), 0);
+            assert_eq!(else_branch, &vec![SimpleLine::Panic]);
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_function_call() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::FunctionCall {
+            function_name: "foo".to_string(),
+            args: vec![
+                Expression::Value(SimpleExpr::Var("x".to_string())),
+                Expression::Value(SimpleExpr::Var("y".to_string())),
+            ],
+            return_data: vec!["result".to_string()],
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::FunctionCall {
+            function_name,
+            args,
+            return_data,
+        } = &result[0]
+        {
+            assert_eq!(function_name, "foo");
+            assert_eq!(args.len(), 2);
+            assert_eq!(args[0], SimpleExpr::Var("x".to_string()));
+            assert_eq!(args[1], SimpleExpr::Var("y".to_string()));
+            assert_eq!(return_data, &vec!["result".to_string()]);
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_function_ret() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::FunctionRet {
+            return_data: vec![
+                Expression::Value(SimpleExpr::Var("x".to_string())),
+                Expression::Value(SimpleExpr::Var("y".to_string())),
+            ],
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::FunctionRet { return_data } = &result[0] {
+            assert_eq!(return_data.len(), 2);
+            assert_eq!(return_data[0], SimpleExpr::Var("x".to_string()));
+            assert_eq!(return_data[1], SimpleExpr::Var("y".to_string()));
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Function return inside a loop is not currently supported")]
+    fn test_simplify_lines_function_ret_in_loop() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::FunctionRet {
+            return_data: vec![Expression::Value(SimpleExpr::Var("x".to_string()))],
+        }];
+
+        simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            true, // in_a_loop = true
+            &mut array_manager,
+            &mut const_malloc,
+        );
+    }
+
+    #[test]
+    fn test_simplify_lines_precompile() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Precompile {
+            precompile: crate::precompiles::POSEIDON_16,
+            args: vec![
+                Expression::Value(SimpleExpr::Var("input".to_string())),
+                Expression::Value(SimpleExpr::Var("size".to_string())),
+            ],
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::Precompile { precompile, args } = &result[0] {
+            assert_eq!(precompile, &crate::precompiles::POSEIDON_16);
+            assert_eq!(args.len(), 2);
+            assert_eq!(args[0], SimpleExpr::Var("input".to_string()));
+            assert_eq!(args[1], SimpleExpr::Var("size".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_print() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Print {
+            line_info: "123".to_string(),
+            content: vec![
+                Expression::Value(SimpleExpr::Var("debug1".to_string())),
+                Expression::Value(SimpleExpr::Var("debug2".to_string())),
+            ],
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::Print { line_info, content } = &result[0] {
+            assert_eq!(line_info, "123");
+            assert_eq!(content.len(), 2);
+            assert_eq!(content[0], SimpleExpr::Var("debug1".to_string()));
+            assert_eq!(content[1], SimpleExpr::Var("debug2".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_break() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Break];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            true, // in_a_loop = true
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::FunctionRet { return_data } = &result[0] {
+            assert_eq!(return_data.len(), 0);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Break statement outside of a loop")]
+    fn test_simplify_lines_break_outside_loop() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Break];
+
+        simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false, // in_a_loop = false
+            &mut array_manager,
+            &mut const_malloc,
+        );
+    }
+
+    #[test]
+    fn test_simplify_lines_decompose_bits() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::DecomposeBits {
+            var: "bits".to_string(),
+            to_decompose: vec![
+                Expression::Value(SimpleExpr::Var("value1".to_string())),
+                Expression::Value(SimpleExpr::Var("value2".to_string())),
+            ],
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::DecomposeBits {
+            var,
+            to_decompose,
+            label,
+        } = &result[0]
+        {
+            assert_eq!(var, "bits");
+            assert_eq!(to_decompose.len(), 2);
+            assert_eq!(to_decompose[0], SimpleExpr::Var("value1".to_string()));
+            assert_eq!(to_decompose[1], SimpleExpr::Var("value2".to_string()));
+            assert_eq!(label, &0);
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_counter_hint() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::CounterHint {
+            var: "hint_var".to_string(),
+        }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::CounterHint { var } = &result[0] {
+            assert_eq!(var, "hint_var");
+        }
+    }
+
+    #[test]
+    fn test_simplify_lines_panic() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::Panic];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], SimpleLine::Panic);
+    }
+
+    #[test]
+    fn test_simplify_lines_location_report() {
+        let mut counters = create_test_counters();
+        let mut new_functions = BTreeMap::new();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        let lines = vec![Line::LocationReport { location: 456 }];
+
+        let result = simplify_lines(
+            &lines,
+            &mut counters,
+            &mut new_functions,
+            false,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(result.len(), 1);
+        if let SimpleLine::LocationReport { location } = &result[0] {
+            assert_eq!(location, &456);
+        }
+    }
+
+    #[test]
+    fn test_simplify_expr_value() {
+        let mut lines = Vec::new();
+        let mut counters = create_test_counters();
+        let mut array_manager = create_test_array_manager();
+        let const_malloc = create_test_const_malloc();
+
+        let expr = Expression::Value(SimpleExpr::Var("x".to_string()));
+        let result = simplify_expr(
+            &expr,
+            &mut lines,
+            &mut counters,
+            &mut array_manager,
+            &const_malloc,
+        );
+
+        assert_eq!(result, SimpleExpr::Var("x".to_string()));
+        assert_eq!(lines.len(), 0);
+    }
+
+    #[test]
+    fn test_simplify_expr_binary_constants() {
+        let mut lines = Vec::new();
+        let mut counters = create_test_counters();
+        let mut array_manager = create_test_array_manager();
+        let const_malloc = create_test_const_malloc();
+
+        let expr = Expression::Binary {
+            left: Box::new(Expression::Value(SimpleExpr::Constant(
+                ConstExpression::scalar(5),
+            ))),
+            operation: HighLevelOperation::Add,
+            right: Box::new(Expression::Value(SimpleExpr::Constant(
+                ConstExpression::scalar(3),
+            ))),
+        };
+
+        let result = simplify_expr(
+            &expr,
+            &mut lines,
+            &mut counters,
+            &mut array_manager,
+            &const_malloc,
+        );
+
+        if let SimpleExpr::Constant(ConstExpression::Binary {
+            left,
+            operation,
+            right,
+        }) = result
+        {
+            assert_eq!(left.as_ref(), &ConstExpression::scalar(5));
+            assert_eq!(operation, HighLevelOperation::Add);
+            assert_eq!(right.as_ref(), &ConstExpression::scalar(3));
+        } else {
+            panic!("Expected constant binary expression");
+        }
+        assert_eq!(lines.len(), 0);
+    }
+
+    #[test]
+    fn test_simplify_expr_binary_variables() {
+        let mut lines = Vec::new();
+        let mut counters = create_test_counters();
+        let mut array_manager = create_test_array_manager();
+        let const_malloc = create_test_const_malloc();
+
+        let expr = Expression::Binary {
+            left: Box::new(Expression::Value(SimpleExpr::Var("x".to_string()))),
+            operation: HighLevelOperation::Add,
+            right: Box::new(Expression::Value(SimpleExpr::Var("y".to_string()))),
+        };
+
+        let result = simplify_expr(
+            &expr,
+            &mut lines,
+            &mut counters,
+            &mut array_manager,
+            &const_malloc,
+        );
+
+        if let SimpleExpr::Var(var_name) = result {
+            assert!(var_name.starts_with("@aux_var_"));
+        } else {
+            panic!("Expected variable");
+        }
+        assert_eq!(lines.len(), 1);
+        if let SimpleLine::Assignment {
+            var,
+            operation,
+            arg0,
+            arg1,
+        } = &lines[0]
+        {
+            assert!(var.to_string().starts_with("@aux_var_"));
+            assert_eq!(operation, &HighLevelOperation::Add);
+            assert_eq!(arg0, &SimpleExpr::Var("x".to_string()));
+            assert_eq!(arg1, &SimpleExpr::Var("y".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_simplify_expr_log2ceil() {
+        let mut lines = Vec::new();
+        let mut counters = create_test_counters();
+        let mut array_manager = create_test_array_manager();
+        let const_malloc = create_test_const_malloc();
+
+        let expr = Expression::Log2Ceil {
+            value: Box::new(Expression::Value(SimpleExpr::Constant(
+                ConstExpression::scalar(8),
+            ))),
+        };
+
+        let result = simplify_expr(
+            &expr,
+            &mut lines,
+            &mut counters,
+            &mut array_manager,
+            &const_malloc,
+        );
+
+        if let SimpleExpr::Constant(ConstExpression::Log2Ceil { value }) = result {
+            assert_eq!(value.as_ref(), &ConstExpression::scalar(8));
+        } else {
+            panic!("Expected constant log2ceil expression");
+        }
+        assert_eq!(lines.len(), 0);
+    }
+
+    #[test]
+    fn test_handle_malloc_const_size() {
+        let mut res = Vec::new();
+        let mut counters = create_test_counters();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        handle_malloc(
+            &"array".to_string(),
+            &Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(10))),
+            false,
+            &Expression::Value(SimpleExpr::zero()),
+            &mut res,
+            &mut counters,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(res.len(), 1);
+        if let SimpleLine::ConstMalloc { var, size, label } = &res[0] {
+            assert_eq!(var, "array");
+            assert_eq!(size, &ConstExpression::scalar(10));
+            assert_eq!(label, &0);
+        }
+        assert!(const_malloc.map.contains_key("array"));
+        assert_eq!(const_malloc.counter, 1);
+    }
+
+    #[test]
+    fn test_handle_malloc_variable_size() {
+        let mut res = Vec::new();
+        let mut counters = create_test_counters();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        handle_malloc(
+            &"array".to_string(),
+            &Expression::Value(SimpleExpr::Var("size_var".to_string())),
+            false,
+            &Expression::Value(SimpleExpr::zero()),
+            &mut res,
+            &mut counters,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(res.len(), 1);
+        if let SimpleLine::HintMAlloc {
+            var,
+            size,
+            vectorized,
+            vectorized_len,
+        } = &res[0]
+        {
+            assert_eq!(var, "array");
+            assert_eq!(size, &SimpleExpr::Var("size_var".to_string()));
+            assert_eq!(vectorized, &false);
+            assert_eq!(vectorized_len, &SimpleExpr::zero());
+        }
+        assert!(!const_malloc.map.contains_key("array"));
+    }
+
+    #[test]
+    fn test_handle_malloc_vectorized() {
+        let mut res = Vec::new();
+        let mut counters = create_test_counters();
+        let mut array_manager = create_test_array_manager();
+        let mut const_malloc = create_test_const_malloc();
+
+        handle_malloc(
+            &"vec_array".to_string(),
+            &Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(5))),
+            true, // vectorized
+            &Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(4))),
+            &mut res,
+            &mut counters,
+            &mut array_manager,
+            &mut const_malloc,
+        );
+
+        assert_eq!(res.len(), 1);
+        if let SimpleLine::HintMAlloc {
+            var,
+            size,
+            vectorized,
+            vectorized_len,
+        } = &res[0]
+        {
+            assert_eq!(var, "vec_array");
+            assert_eq!(size, &SimpleExpr::Constant(ConstExpression::scalar(5)));
+            assert_eq!(vectorized, &true);
+            assert_eq!(
+                vectorized_len,
+                &SimpleExpr::Constant(ConstExpression::scalar(4))
+            );
+        }
+        assert!(!const_malloc.map.contains_key("vec_array"));
+    }
+
+    #[test]
+    fn test_create_recursive_function() {
+        let name = "@loop_0".to_string();
+        let args = vec!["i".to_string(), "x".to_string(), "y".to_string()];
+        let iterator = "i".to_string();
+        let end = SimpleExpr::Constant(ConstExpression::scalar(10));
+        let body = vec![SimpleLine::Assignment {
+            var: VarOrConstMallocAccess::Var("z".to_string()),
+            operation: HighLevelOperation::Add,
+            arg0: SimpleExpr::Var("x".to_string()),
+            arg1: SimpleExpr::Var("y".to_string()),
+        }];
+        let external_vars = vec!["x".to_string(), "y".to_string()];
+
+        let result = create_recursive_function(
+            name.clone(),
+            args.clone(),
+            iterator.clone(),
+            end,
+            body,
+            &external_vars,
+        );
+
+        assert_eq!(result.name, name);
+        assert_eq!(result.arguments, args);
+        assert_eq!(result.n_returned_vars, 0);
+        assert_eq!(result.instructions.len(), 2);
+
+        // Check first instruction (comparison)
+        if let SimpleLine::Assignment {
+            var,
+            operation,
+            arg0,
+            arg1,
+        } = &result.instructions[0]
+        {
+            assert_eq!(var.to_string(), "@diff_i");
+            assert_eq!(operation, &HighLevelOperation::Sub);
+            assert_eq!(arg0, &SimpleExpr::Var("i".to_string()));
+            assert_eq!(arg1, &SimpleExpr::Constant(ConstExpression::scalar(10)));
+        }
+
+        // Check second instruction (conditional)
+        if let SimpleLine::IfNotZero {
+            condition,
+            then_branch,
+            else_branch,
+        } = &result.instructions[1]
+        {
+            assert_eq!(condition.to_string(), "@diff_i");
+            assert_eq!(then_branch.len(), 4); // body + increment + recursive call + return
+            assert_eq!(else_branch.len(), 1); // just return
+
+            // Check else branch (termination condition)
+            if let SimpleLine::FunctionRet { return_data } = &else_branch[0] {
+                assert_eq!(return_data.len(), 0);
+            }
+        }
+    }
+}
