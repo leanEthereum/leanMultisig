@@ -3,11 +3,11 @@ use std::collections::BTreeMap;
 use lean_vm::*;
 
 use crate::{
-    c_compile_final::compile_to_low_level_bytecode, codegen::Compiler, parser::parse_program,
+    backend::compile_to_low_level_bytecode, codegen::Compiler, parser::parse_program,
     simplify::simplify_program,
 };
 
-mod c_compile_final;
+mod backend;
 pub mod codegen;
 pub mod ir;
 mod lang;
@@ -44,19 +44,4 @@ pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F], p
         &function_locations,
         profiler,
     );
-}
-
-#[derive(Debug, Clone, Default)]
-struct Counter(usize);
-
-impl Counter {
-    const fn next(&mut self) -> usize {
-        let val = self.0;
-        self.0 += 1;
-        val
-    }
-
-    const fn new() -> Self {
-        Self(0)
-    }
 }

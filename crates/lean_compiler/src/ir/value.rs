@@ -55,6 +55,30 @@ impl IntermediateValue {
             offset: compiler.get_offset(var_or_const),
         }
     }
+
+    /// Converts this value to a MemOrFp for low-level code generation.
+    pub fn try_into_mem_or_fp(&self, compiler: &crate::backend::evaluation::CodeGenerator) -> Result<lean_vm::MemOrFp, String> {
+        match self {
+            Self::MemoryAfterFp { offset } => Ok(lean_vm::MemOrFp::MemoryAfterFp {
+                offset: crate::backend::evaluation::eval_const_expression_usize(offset, compiler),
+            }),
+            Self::Fp => Ok(lean_vm::MemOrFp::Fp),
+            _ => Err(format!("Cannot convert {self:?} to MemOrFp")),
+        }
+    }
+
+    /// Converts this value to a MemOrConstant for low-level code generation.
+    pub fn try_into_mem_or_constant(&self, compiler: &crate::backend::evaluation::CodeGenerator) -> Result<lean_vm::MemOrConstant, String> {
+        if let Some(cst) = crate::backend::evaluation::try_as_constant(self, compiler) {
+            return Ok(lean_vm::MemOrConstant::Constant(cst));
+        }
+        if let Self::MemoryAfterFp { offset } = self {
+            return Ok(lean_vm::MemOrConstant::MemoryAfterFp {
+                offset: crate::backend::evaluation::eval_const_expression_usize(offset, compiler),
+            });
+        }
+        Err(format!("Cannot convert {self:?} to MemOrConstant"))
+    }
 }
 
 impl From<ConstExpression> for IntermediateValue {

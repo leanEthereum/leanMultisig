@@ -9,6 +9,24 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+/// Simple counter for generating unique identifiers.
+#[derive(Debug, Clone, Default)]
+pub struct Counter(pub usize);
+
+impl Counter {
+    /// Creates a new counter starting at 0.
+    pub const fn new() -> Self {
+        Self(0)
+    }
+
+    /// Returns the next value and increments the counter.
+    pub fn next(&mut self) -> usize {
+        let val = self.0;
+        self.0 += 1;
+        val
+    }
+}
+
 /// Simplified program representation after language simplification.
 #[derive(Debug, Clone)]
 pub struct SimpleProgram {

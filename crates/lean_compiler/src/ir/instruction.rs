@@ -80,6 +80,27 @@ pub enum IntermediateInstruction {
 }
 
 impl IntermediateInstruction {
+    /// Returns true if this instruction is a hint (doesn't consume a program counter).
+    pub const fn is_hint(&self) -> bool {
+        match self {
+            Self::RequestMemory { .. }
+            | Self::Print { .. }
+            | Self::DecomposeBits { .. }
+            | Self::CounterHint { .. }
+            | Self::Inverse { .. }
+            | Self::LocationReport { .. } => true,
+            Self::Computation { .. }
+            | Self::Panic
+            | Self::Deref { .. }
+            | Self::JumpIfNotZero { .. }
+            | Self::Jump { .. }
+            | Self::Poseidon2_16 { .. }
+            | Self::Poseidon2_24 { .. }
+            | Self::DotProduct { .. }
+            | Self::MultilinearEval { .. } => false,
+        }
+    }
+
     pub fn computation(
         operation: HighLevelOperation,
         arg_a: IntermediateValue,

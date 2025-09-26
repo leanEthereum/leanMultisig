@@ -1,8 +1,5 @@
-use super::utilities::replace_vars_by_const_in_lines;
-use crate::{
-    Counter,
-    lang::{Boolean, Expression, Function, Line, Program, SimpleExpr, Var},
-};
+use super::{utilities::replace_vars_by_const_in_lines, types::Counter};
+use crate::lang::{Boolean, Expression, Function, Line, Program, SimpleExpr, Var};
 use std::collections::BTreeMap;
 
 /// Handle inlined functions by replacing calls with function body.
