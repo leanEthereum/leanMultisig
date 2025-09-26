@@ -219,7 +219,7 @@ pub fn simplify_lines(
                 let simplified_content = content
                     .iter()
                     .map(|var| simplify_expr(var, &mut res, counters, array_manager, const_malloc))
-                    .collect::<Vec<_>>();
+                    .collect();
                 res.push(SimpleLine::Print {
                     line_info: line_info.clone(),
                     content: simplified_content,
@@ -255,7 +255,7 @@ pub fn simplify_lines(
                     .map(|expr| {
                         simplify_expr(expr, &mut res, counters, array_manager, const_malloc)
                     })
-                    .collect::<Vec<_>>();
+                    .collect();
                 let label = const_malloc.counter;
                 const_malloc.counter += 1;
                 const_malloc.map.insert(var.clone(), label);

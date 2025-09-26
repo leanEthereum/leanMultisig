@@ -32,10 +32,10 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
             .arguments
             .iter()
             .map(|(v, is_const)| {
-                assert!(!is_const,);
+                assert!(!is_const);
                 v.clone()
             })
-            .collect::<Vec<_>>();
+            .collect();
         new_functions.insert(
             name.clone(),
             SimpleFunction {
