@@ -3,17 +3,18 @@ use std::collections::BTreeMap;
 use lean_vm::*;
 
 use crate::{
-    a_simplify_lang::simplify_program, b_compile_intermediate::compile_to_intermediate_bytecode,
+    b_compile_intermediate::compile_to_intermediate_bytecode,
     c_compile_final::compile_to_low_level_bytecode, parser::parse_program,
+    simplify::simplify_program,
 };
 
-mod a_simplify_lang;
 mod b_compile_intermediate;
 mod c_compile_final;
 pub mod ir;
 mod lang;
 mod parser;
 mod precompiles;
+mod simplify;
 pub use precompiles::PRECOMPILES;
 
 pub fn compile_program(program: &str) -> (Bytecode, BTreeMap<usize, String>) {

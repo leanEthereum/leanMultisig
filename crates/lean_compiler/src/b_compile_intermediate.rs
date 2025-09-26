@@ -1,4 +1,4 @@
-use crate::{F, a_simplify_lang::*, ir::*, lang::*, precompiles::*};
+use crate::{F, ir::*, lang::*, precompiles::*, simplify::*};
 use lean_vm::*;
 use p3_field::Field;
 use std::{
