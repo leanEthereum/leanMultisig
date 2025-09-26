@@ -431,4 +431,13 @@ mod tests {
         let location = Line::LocationReport { location: 42 };
         assert_eq!(location.to_string(), "");
     }
+
+    #[test]
+    fn test_line_precompile_display() {
+        let precompile_line = Line::Precompile {
+            precompile: crate::precompiles::POSEIDON_16,
+            args: vec![Expression::scalar(1), Expression::scalar(2)],
+        };
+        assert_eq!(precompile_line.to_string(), "poseidon16(1, 2)");
+    }
 }

@@ -228,7 +228,10 @@ mod tests {
 
         let label = Label::function("test");
         assert_eq!(
-            ConstantValue::FunctionSize { function_name: label.clone() }.to_string(),
+            ConstantValue::FunctionSize {
+                function_name: label.clone()
+            }
+            .to_string(),
             format!("@function_size_{}", label)
         );
     }
@@ -295,14 +298,22 @@ mod tests {
     fn test_const_expression_function_size() {
         let label = Label::function("test_fn");
         let func_size = ConstExpression::function_size(label.clone());
-        assert_eq!(func_size, ConstExpression::Value(ConstantValue::FunctionSize { function_name: label }));
+        assert_eq!(
+            func_size,
+            ConstExpression::Value(ConstantValue::FunctionSize {
+                function_name: label
+            })
+        );
     }
 
     #[test]
     fn test_const_expression_label() {
         let label = Label::function("main");
         let label_expr = ConstExpression::label(label.clone());
-        assert_eq!(label_expr, ConstExpression::Value(ConstantValue::Label(label)));
+        assert_eq!(
+            label_expr,
+            ConstExpression::Value(ConstantValue::Label(label))
+        );
     }
 
     #[test]
