@@ -87,28 +87,3 @@ But we reduce proof size a lot using instead (TODO):
   is a valid memory access (i.e. the index is < M the memory size), but currently the DEREF instruction forces us to 'store' the result, in m[fp + i] (resp m[fp + k]).
   TLDR: adding a new encoding field for DEREF would save 2 memory cells / range check. If this can also increase perf in alternative scenario (other instructions for isntance),
   potentially we should consider it.
-
-## Known leanISA compiler bugs:
-
-### Non exhaustive conditions in inlined functions
-
-Currently, to inline functions we simply replace the "return" keyword by some variable assignment, i.e.
-we do not properly handle conditions, we would need to add some JUMPs ...
-
-```
-fn works(x) inline -> 1 {
-    if x == 0 {
-        return 0;
-    } else {
-        return 1;
-    }
-}
-
-fn doesnt_work(x) inline -> 1 {
-    if x == 0 {
-        return 0; // will be compiled to `res = 0`;
-    } // the bug: we do not JUMP here, when inlined
-    return 1; // will be compiled to `res = 1`; -> invalid (res = 0 and = 1 at the same time)
-}
-```
-
