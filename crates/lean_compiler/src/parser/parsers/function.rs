@@ -268,6 +268,8 @@ impl Parse<Vec<Expression>> for TupleExpressionParser {
 mod tests {
     use super::*;
     use crate::lang::{Expression, Line};
+    use crate::parser::grammar::{LangParser, Rule};
+    use pest::Parser;
 
     #[test]
     fn test_malloc_vec_no_return_data() {
@@ -388,5 +390,182 @@ mod tests {
         } else {
             panic!("Expected SemanticError");
         }
+    }
+
+    #[test]
+    fn test_malloc_builtin() {
+        let args = vec![Expression::scalar(200)];
+        let return_data = vec!["mem".to_string()];
+
+        let result =
+            FunctionCallParser::handle_builtin_function("malloc".to_string(), args, return_data)
+                .unwrap();
+
+        if let Line::MAlloc {
+            var,
+            size,
+            vectorized,
+            vectorized_len,
+        } = result
+        {
+            assert_eq!(var, "mem");
+            assert_eq!(size, Expression::scalar(200));
+            assert!(!vectorized);
+            assert_eq!(vectorized_len, Expression::zero());
+        } else {
+            panic!("Expected MAlloc");
+        }
+    }
+
+    #[test]
+    fn test_print_builtin() {
+        let args = vec![
+            Expression::scalar(42),
+            Expression::Value(crate::lang::SimpleExpr::Var("x".to_string())),
+        ];
+        let return_data = vec![];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "print".to_string(),
+            args.clone(),
+            return_data,
+        )
+        .unwrap();
+
+        if let Line::Print { line_info, content } = result {
+            assert_eq!(line_info, "print");
+            assert_eq!(content, args);
+        } else {
+            panic!("Expected Print");
+        }
+    }
+
+    #[test]
+    fn test_decompose_bits_builtin() {
+        let args = vec![Expression::scalar(255)];
+        let return_data = vec!["bits".to_string()];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "decompose_bits".to_string(),
+            args.clone(),
+            return_data,
+        )
+        .unwrap();
+
+        if let Line::DecomposeBits { var, to_decompose } = result {
+            assert_eq!(var, "bits");
+            assert_eq!(to_decompose, args);
+        } else {
+            panic!("Expected DecomposeBits");
+        }
+    }
+
+    #[test]
+    fn test_counter_hint_builtin() {
+        let args = vec![];
+        let return_data = vec!["counter".to_string()];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "counter_hint".to_string(),
+            args,
+            return_data,
+        )
+        .unwrap();
+
+        if let Line::CounterHint { var } = result {
+            assert_eq!(var, "counter");
+        } else {
+            panic!("Expected CounterHint");
+        }
+    }
+
+    #[test]
+    fn test_panic_builtin() {
+        let args = vec![];
+        let return_data = vec![];
+
+        let result =
+            FunctionCallParser::handle_builtin_function("panic".to_string(), args, return_data)
+                .unwrap();
+
+        assert_eq!(result, Line::Panic);
+    }
+
+    #[test]
+    fn test_regular_function_call() {
+        let args = vec![Expression::scalar(1), Expression::scalar(2)];
+        let return_data = vec!["result".to_string()];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "my_function".to_string(),
+            args.clone(),
+            return_data.clone(),
+        )
+        .unwrap();
+
+        if let Line::FunctionCall {
+            function_name,
+            args: call_args,
+            return_data: call_return,
+        } = result
+        {
+            assert_eq!(function_name, "my_function");
+            assert_eq!(call_args, args);
+            assert_eq!(call_return, return_data);
+        } else {
+            panic!("Expected FunctionCall");
+        }
+    }
+
+    #[test]
+    fn test_tuple_expression_parser() {
+        let mut ctx = ParseContext::new();
+        let input = "42, x, 100";
+        let mut pairs = LangParser::parse(Rule::tuple_expression, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = TupleExpressionParser::parse(pair, &mut ctx).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], Expression::scalar(42));
+        assert_eq!(
+            result[1],
+            Expression::Value(crate::lang::SimpleExpr::Var("x".to_string()))
+        );
+        assert_eq!(result[2], Expression::scalar(100));
+    }
+
+    #[test]
+    fn test_parameter_parser_regular() {
+        let mut ctx = ParseContext::new();
+        let input = "param1";
+        let mut pairs = LangParser::parse(Rule::parameter, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ParameterParser::parse(pair, &mut ctx).unwrap();
+        assert_eq!(result, ("param1".to_string(), false));
+    }
+
+    #[test]
+    fn test_parameter_parser_const() {
+        let mut ctx = ParseContext::new();
+        let input = "const param2";
+        let mut pairs = LangParser::parse(Rule::parameter, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ParameterParser::parse(pair, &mut ctx).unwrap();
+        assert_eq!(result, ("param2".to_string(), true));
+    }
+
+    #[test]
+    fn test_return_count_parser() {
+        let mut ctx = ParseContext::new();
+        ctx.add_constant("RETURN_COUNT".to_string(), 3).unwrap();
+
+        let input = "-> 3";
+        let mut pairs = LangParser::parse(Rule::return_count, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ReturnCountParser::parse(pair, &mut ctx).unwrap();
+        assert_eq!(result, 3);
     }
 }
