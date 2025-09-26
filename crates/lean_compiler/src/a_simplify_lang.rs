@@ -1,6 +1,6 @@
 use crate::{
     Counter, F,
-    intermediate_bytecode::HighLevelOperation,
+    ir::HighLevelOperation,
     lang::{
         Boolean, ConstExpression, ConstMallocLabel, Expression, Function, Line, Program,
         SimpleExpr, Var,

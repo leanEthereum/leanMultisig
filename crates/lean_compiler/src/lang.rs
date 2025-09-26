@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
-use crate::{F, intermediate_bytecode::HighLevelOperation, precompiles::Precompile};
+use crate::{F, ir::HighLevelOperation, precompiles::Precompile};
 
 #[derive(Debug, Clone)]
 pub struct Program {

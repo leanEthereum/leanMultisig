@@ -1,7 +1,7 @@
 use super::literal::VarOrConstantParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
-    intermediate_bytecode::HighLevelOperation,
+    ir::HighLevelOperation,
     lang::Expression,
     parser::{
         error::{ParseResult, SemanticError},
