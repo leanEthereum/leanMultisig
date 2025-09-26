@@ -135,10 +135,11 @@ impl Parse<Line> for ForStatementParser {
         // Check for optional reverse clause using efficient peek
         let mut rev = false;
         if let Some(peeked) = inner.peek()
-            && peeked.as_rule() == Rule::rev_clause {
-                rev = true;
-                inner.next(); // Consume the rev clause
-            }
+            && peeked.as_rule() == Rule::rev_clause
+        {
+            rev = true;
+            inner.next(); // Consume the rev clause
+        }
 
         let start = ExpressionParser::parse(next_inner_pair(&mut inner, "loop start")?, ctx)?;
         let end = ExpressionParser::parse(next_inner_pair(&mut inner, "loop end")?, ctx)?;

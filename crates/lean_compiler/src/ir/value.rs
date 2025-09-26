@@ -38,10 +38,12 @@ impl IntermediateValue {
                 malloc_label,
                 offset,
             } => Self::MemoryAfterFp {
-                offset: compiler.get_offset(&crate::simplify::VarOrConstMallocAccess::ConstMallocAccess {
-                    malloc_label: *malloc_label,
-                    offset: offset.clone(),
-                }),
+                offset: compiler.get_offset(
+                    &crate::simplify::VarOrConstMallocAccess::ConstMallocAccess {
+                        malloc_label: *malloc_label,
+                        offset: offset.clone(),
+                    },
+                ),
             },
         }
     }
@@ -57,7 +59,10 @@ impl IntermediateValue {
     }
 
     /// Converts this value to a MemOrFp for low-level code generation.
-    pub fn try_into_mem_or_fp(&self, compiler: &crate::backend::evaluation::CodeGenerator) -> Result<lean_vm::MemOrFp, String> {
+    pub fn try_into_mem_or_fp(
+        &self,
+        compiler: &crate::backend::evaluation::CodeGenerator,
+    ) -> Result<lean_vm::MemOrFp, String> {
         match self {
             Self::MemoryAfterFp { offset } => Ok(lean_vm::MemOrFp::MemoryAfterFp {
                 offset: crate::backend::evaluation::eval_const_expression_usize(offset, compiler),
@@ -68,7 +73,10 @@ impl IntermediateValue {
     }
 
     /// Converts this value to a MemOrConstant for low-level code generation.
-    pub fn try_into_mem_or_constant(&self, compiler: &crate::backend::evaluation::CodeGenerator) -> Result<lean_vm::MemOrConstant, String> {
+    pub fn try_into_mem_or_constant(
+        &self,
+        compiler: &crate::backend::evaluation::CodeGenerator,
+    ) -> Result<lean_vm::MemOrConstant, String> {
         if let Some(cst) = crate::backend::evaluation::try_as_constant(self, compiler) {
             return Ok(lean_vm::MemOrConstant::Constant(cst));
         }

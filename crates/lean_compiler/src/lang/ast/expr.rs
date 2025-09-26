@@ -62,17 +62,25 @@ impl SimpleExpr {
     }
 
     /// Converts this SimpleExpr to an IntermediaryMemOrFpOrConstant for code generation.
-    pub fn to_mem_after_fp_or_constant(&self, compiler: &crate::codegen::Compiler) -> IntermediaryMemOrFpOrConstant {
+    pub fn to_mem_after_fp_or_constant(
+        &self,
+        compiler: &crate::codegen::Compiler,
+    ) -> IntermediaryMemOrFpOrConstant {
         match self {
             Self::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                 offset: compiler.get_offset(&var.clone().into()),
             },
             Self::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
-            Self::ConstMallocAccess { malloc_label, offset } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                offset: compiler.get_offset(&crate::simplify::VarOrConstMallocAccess::ConstMallocAccess {
-                    malloc_label: *malloc_label,
-                    offset: offset.clone(),
-                }),
+            Self::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                offset: compiler.get_offset(
+                    &crate::simplify::VarOrConstMallocAccess::ConstMallocAccess {
+                        malloc_label: *malloc_label,
+                        offset: offset.clone(),
+                    },
+                ),
             },
         }
     }
