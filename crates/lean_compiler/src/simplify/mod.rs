@@ -1,4 +1,4 @@
-pub mod simplify;
+pub mod processor;
 pub mod transformations;
 pub mod types;
 pub mod unroll;
@@ -20,7 +20,7 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
 
     for (name, func) in &program.functions {
         let mut array_manager = ArrayManager::default();
-        let simplified_instructions = simplify::simplify_lines(
+        let simplified_instructions = processor::simplify_lines(
             &func.body,
             &mut counters,
             &mut new_functions,

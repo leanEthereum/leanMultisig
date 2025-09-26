@@ -360,6 +360,7 @@ pub fn simplify_expr(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_if_condition(
     condition: &Boolean,
     then_branch: &[Line],
@@ -438,6 +439,7 @@ fn handle_if_condition(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_for_loop(
     iterator: &Var,
     start: &Expression,
@@ -547,6 +549,7 @@ fn handle_for_loop(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_unrolled_loop(
     iterator: &Var,
     start: &Expression,
@@ -593,6 +596,7 @@ fn handle_unrolled_loop(
     res.extend(unrolled_lines);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_malloc(
     var: &Var,
     size: &Expression,
@@ -627,7 +631,7 @@ fn handle_malloc(
             res.push(SimpleLine::HintMAlloc {
                 var: var.clone(),
                 size: simplified_size,
-                vectorized: vectorized,
+                vectorized,
                 vectorized_len: simplified_vectorized_len,
             });
         }

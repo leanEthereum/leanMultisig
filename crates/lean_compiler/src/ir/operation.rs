@@ -88,6 +88,7 @@ mod tests {
     #[test]
     fn test_high_level_operation_clone() {
         let original = HighLevelOperation::Add;
+        #[allow(clippy::clone_on_copy)]
         let cloned = original.clone();
         assert_eq!(original, cloned);
     }

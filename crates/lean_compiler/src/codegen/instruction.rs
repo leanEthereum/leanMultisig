@@ -1,161 +1,17 @@
-use crate::{F, ir::*, lang::*, precompiles::*, simplify::*};
+/// Instruction compilation module.
+///
+/// This module handles the compilation of individual SimpleLine instructions
+/// to intermediate bytecode, managing control flow and variable state.
+use crate::{codegen::*, ir::*, lang::*, simplify::*};
 use lean_vm::*;
-use p3_field::Field;
-use std::{
-    borrow::Borrow,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::collections::BTreeSet;
 use utils::ToUsize;
 
-#[derive(Default)]
-struct Compiler {
-    bytecode: BTreeMap<Label, Vec<IntermediateInstruction>>,
-    match_blocks: Vec<Vec<Vec<IntermediateInstruction>>>, // each match = many bytecode blocks, each bytecode block = many instructions
-    if_counter: usize,
-    call_counter: usize,
-    func_name: String,
-    var_positions: BTreeMap<Var, usize>, // var -> memory offset from fp
-    args_count: usize,
-    stack_size: usize,
-    const_mallocs: BTreeMap<ConstMallocLabel, usize>, // const_malloc_label -> start = memory offset from fp
-}
-
-impl Compiler {
-    fn get_offset(&self, var: &VarOrConstMallocAccess) -> ConstExpression {
-        match var {
-            VarOrConstMallocAccess::Var(var) => (*self
-                .var_positions
-                .get(var)
-                .unwrap_or_else(|| panic!("Variable {var} not in scope")))
-            .into(),
-            VarOrConstMallocAccess::ConstMallocAccess {
-                malloc_label,
-                offset,
-            } => ConstExpression::Binary {
-                left: Box::new(
-                    self.const_mallocs
-                        .get(malloc_label)
-                        .copied()
-                        .unwrap_or_else(|| panic!("Const malloc {malloc_label} not in scope"))
-                        .into(),
-                ),
-                operation: HighLevelOperation::Add,
-                right: Box::new(offset.clone()),
-            },
-        }
-    }
-}
-
-impl SimpleExpr {
-    fn to_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediaryMemOrFpOrConstant {
-        match self {
-            Self::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                offset: compiler.get_offset(&var.clone().into()),
-            },
-            Self::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
-            Self::ConstMallocAccess {
-                malloc_label,
-                offset,
-            } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
-                    malloc_label: *malloc_label,
-                    offset: offset.clone(),
-                }),
-            },
-        }
-    }
-}
-
-impl IntermediateValue {
-    fn from_simple_expr(expr: &SimpleExpr, compiler: &Compiler) -> Self {
-        match expr {
-            SimpleExpr::Var(var) => Self::MemoryAfterFp {
-                offset: compiler.get_offset(&var.clone().into()),
-            },
-            SimpleExpr::Constant(c) => Self::Constant(c.clone()),
-            SimpleExpr::ConstMallocAccess {
-                malloc_label,
-                offset,
-            } => Self::MemoryAfterFp {
-                offset: ConstExpression::Binary {
-                    left: Box::new(
-                        compiler
-                            .const_mallocs
-                            .get(malloc_label)
-                            .copied()
-                            .unwrap_or_else(|| panic!("Const malloc {malloc_label} not in scope"))
-                            .into(),
-                    ),
-                    operation: HighLevelOperation::Add,
-                    right: Box::new(offset.clone()),
-                },
-            },
-        }
-    }
-
-    fn from_var_or_const_malloc_access(
-        var_or_const: &VarOrConstMallocAccess,
-        compiler: &Compiler,
-    ) -> Self {
-        Self::from_simple_expr(&var_or_const.clone().into(), compiler)
-    }
-}
-
-pub fn compile_to_intermediate_bytecode(
-    simple_program: SimpleProgram,
-) -> Result<IntermediateBytecode, String> {
-    let mut compiler = Compiler::default();
-    let mut memory_sizes = BTreeMap::new();
-
-    for function in simple_program.functions.values() {
-        let instructions = compile_function(function, &mut compiler)?;
-        compiler
-            .bytecode
-            .insert(Label::function(&function.name), instructions);
-        memory_sizes.insert(function.name.clone(), compiler.stack_size);
-    }
-
-    Ok(IntermediateBytecode {
-        bytecode: compiler.bytecode,
-        match_blocks: compiler.match_blocks,
-        memory_size_per_function: memory_sizes,
-    })
-}
-
-fn compile_function(
-    function: &SimpleFunction,
-    compiler: &mut Compiler,
-) -> Result<Vec<IntermediateInstruction>, String> {
-    let mut internal_vars = find_internal_vars(&function.instructions);
-
-    internal_vars.retain(|var| !function.arguments.contains(var));
-
-    // memory layout: pc, fp, args, return_vars, internal_vars
-    let mut stack_pos = 2; // Reserve space for pc and fp
-    let mut var_positions = BTreeMap::new();
-
-    for (i, var) in function.arguments.iter().enumerate() {
-        var_positions.insert(var.clone(), stack_pos + i);
-    }
-    stack_pos += function.arguments.len();
-
-    stack_pos += function.n_returned_vars;
-
-    for (i, var) in internal_vars.iter().enumerate() {
-        var_positions.insert(var.clone(), stack_pos + i);
-    }
-    stack_pos += internal_vars.len();
-
-    compiler.func_name = function.name.clone();
-    compiler.var_positions = var_positions;
-    compiler.stack_size = stack_pos;
-    compiler.args_count = function.arguments.len();
-
-    let mut declared_vars: BTreeSet<Var> = function.arguments.iter().cloned().collect();
-    compile_lines(&function.instructions, compiler, None, &mut declared_vars)
-}
-
-fn compile_lines(
+/// Compiles a sequence of SimpleLine instructions to intermediate bytecode.
+///
+/// This function is the core of the instruction compiler, handling all
+/// SimpleLine variants and managing control flow between them.
+pub fn compile_lines(
     lines: &[SimpleLine],
     compiler: &mut Compiler,
     final_jump: Option<Label>,
@@ -435,58 +291,33 @@ fn compile_lines(
                 return Ok(instructions);
             }
 
-            SimpleLine::Precompile {
-                precompile:
-                    Precompile {
-                        name: PrecompileName::Poseidon16,
-                        ..
-                    },
-                args,
-            } => {
-                compile_poseidon(&mut instructions, args, compiler, true)?;
-            }
+            SimpleLine::Precompile { precompile, args } => {
+                use crate::precompiles::PrecompileName;
 
-            SimpleLine::Precompile {
-                precompile:
-                    Precompile {
-                        name: PrecompileName::Poseidon24,
-                        ..
-                    },
-                args,
-            } => {
-                compile_poseidon(&mut instructions, args, compiler, false)?;
-            }
-            SimpleLine::Precompile {
-                precompile:
-                    Precompile {
-                        name: PrecompileName::DotProduct,
-                        ..
-                    },
-                args,
-                ..
-            } => {
-                instructions.push(IntermediateInstruction::DotProduct {
-                    arg0: IntermediateValue::from_simple_expr(&args[0], compiler),
-                    arg1: IntermediateValue::from_simple_expr(&args[1], compiler),
-                    res: IntermediateValue::from_simple_expr(&args[2], compiler),
-                    size: args[3].as_constant().unwrap(),
-                });
-            }
-            SimpleLine::Precompile {
-                precompile:
-                    Precompile {
-                        name: PrecompileName::MultilinearEval,
-                        ..
-                    },
-                args,
-                ..
-            } => {
-                instructions.push(IntermediateInstruction::MultilinearEval {
-                    coeffs: IntermediateValue::from_simple_expr(&args[0], compiler),
-                    point: IntermediateValue::from_simple_expr(&args[1], compiler),
-                    res: IntermediateValue::from_simple_expr(&args[2], compiler),
-                    n_vars: args[3].as_constant().unwrap(),
-                });
+                match &precompile.name {
+                    PrecompileName::Poseidon16 => {
+                        compile_poseidon(&mut instructions, args, compiler, true)?;
+                    }
+                    PrecompileName::Poseidon24 => {
+                        compile_poseidon(&mut instructions, args, compiler, false)?;
+                    }
+                    PrecompileName::DotProduct => {
+                        instructions.push(IntermediateInstruction::DotProduct {
+                            arg0: IntermediateValue::from_simple_expr(&args[0], compiler),
+                            arg1: IntermediateValue::from_simple_expr(&args[1], compiler),
+                            res: IntermediateValue::from_simple_expr(&args[2], compiler),
+                            size: args[3].as_constant().unwrap(),
+                        });
+                    }
+                    PrecompileName::MultilinearEval => {
+                        instructions.push(IntermediateInstruction::MultilinearEval {
+                            coeffs: IntermediateValue::from_simple_expr(&args[0], compiler),
+                            point: IntermediateValue::from_simple_expr(&args[1], compiler),
+                            res: IntermediateValue::from_simple_expr(&args[2], compiler),
+                            n_vars: args[3].as_constant().unwrap(),
+                        });
+                    }
+                }
             }
 
             SimpleLine::FunctionRet { return_data } => {
@@ -534,6 +365,8 @@ fn compile_lines(
                 to_decompose,
                 label,
             } => {
+                use p3_field::Field;
+
                 instructions.push(IntermediateInstruction::DecomposeBits {
                     res_offset: compiler.stack_size,
                     to_decompose: to_decompose
@@ -610,7 +443,7 @@ fn handle_const_malloc(
 }
 
 // Helper functions
-fn mark_vars_as_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &mut BTreeSet<Var>) {
+fn mark_vars_as_declared<VoC: std::borrow::Borrow<SimpleExpr>>(vocs: &[VoC], declared: &mut BTreeSet<Var>) {
     for voc in vocs {
         if let SimpleExpr::Var(v) = voc.borrow() {
             declared.insert(v.clone());
@@ -618,7 +451,7 @@ fn mark_vars_as_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &mut B
     }
 }
 
-fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(
+fn validate_vars_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
     vocs: &[VoC],
     declared: &BTreeSet<Var>,
 ) -> Result<(), String> {
@@ -725,50 +558,4 @@ fn compile_function_ret(
         dest: IntermediateValue::MemoryAfterFp { offset: 0.into() },
         updated_fp: Some(IntermediateValue::MemoryAfterFp { offset: 1.into() }),
     });
-}
-
-fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
-    let mut internal_vars = BTreeSet::new();
-    for line in lines {
-        match line {
-            SimpleLine::Match { arms, .. } => {
-                for arm in arms {
-                    internal_vars.extend(find_internal_vars(arm));
-                }
-            }
-            SimpleLine::Assignment { var, .. } => {
-                if let VarOrConstMallocAccess::Var(var) = var {
-                    internal_vars.insert(var.clone());
-                }
-            }
-            SimpleLine::HintMAlloc { var, .. }
-            | SimpleLine::ConstMalloc { var, .. }
-            | SimpleLine::DecomposeBits { var, .. }
-            | SimpleLine::CounterHint { var } => {
-                internal_vars.insert(var.clone());
-            }
-            SimpleLine::RawAccess { res, .. } => {
-                if let SimpleExpr::Var(var) = res {
-                    internal_vars.insert(var.clone());
-                }
-            }
-            SimpleLine::FunctionCall { return_data, .. } => {
-                internal_vars.extend(return_data.iter().cloned());
-            }
-            SimpleLine::IfNotZero {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                internal_vars.extend(find_internal_vars(then_branch));
-                internal_vars.extend(find_internal_vars(else_branch));
-            }
-            SimpleLine::Panic
-            | SimpleLine::Print { .. }
-            | SimpleLine::FunctionRet { .. }
-            | SimpleLine::Precompile { .. }
-            | SimpleLine::LocationReport { .. } => {}
-        }
-    }
-    internal_vars
 }

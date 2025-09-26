@@ -298,6 +298,45 @@ pub fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>
     }
 }
 
+/// Extract function calls from line sequence.
+pub fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
+    for line in lines {
+        match line {
+            Line::Match { value: _, arms } => {
+                for (_, statements) in arms {
+                    get_function_called(statements, function_called);
+                }
+            }
+            Line::FunctionCall { function_name, .. } => {
+                function_called.push(function_name.clone());
+            }
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                get_function_called(then_branch, function_called);
+                get_function_called(else_branch, function_called);
+            }
+            Line::ForLoop { body, .. } => {
+                get_function_called(body, function_called);
+            }
+            Line::Assignment { .. }
+            | Line::ArrayAssign { .. }
+            | Line::Assert { .. }
+            | Line::FunctionRet { .. }
+            | Line::Precompile { .. }
+            | Line::Print { .. }
+            | Line::DecomposeBits { .. }
+            | Line::CounterHint { .. }
+            | Line::MAlloc { .. }
+            | Line::Panic
+            | Line::Break
+            | Line::LocationReport { .. } => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -884,44 +923,5 @@ mod tests {
                 else_branch: vec![],
             }]
         );
-    }
-}
-
-/// Extract function calls from line sequence.
-pub fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
-    for line in lines {
-        match line {
-            Line::Match { value: _, arms } => {
-                for (_, statements) in arms {
-                    get_function_called(statements, function_called);
-                }
-            }
-            Line::FunctionCall { function_name, .. } => {
-                function_called.push(function_name.clone());
-            }
-            Line::IfCondition {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                get_function_called(then_branch, function_called);
-                get_function_called(else_branch, function_called);
-            }
-            Line::ForLoop { body, .. } => {
-                get_function_called(body, function_called);
-            }
-            Line::Assignment { .. }
-            | Line::ArrayAssign { .. }
-            | Line::Assert { .. }
-            | Line::FunctionRet { .. }
-            | Line::Precompile { .. }
-            | Line::Print { .. }
-            | Line::DecomposeBits { .. }
-            | Line::CounterHint { .. }
-            | Line::MAlloc { .. }
-            | Line::Panic
-            | Line::Break
-            | Line::LocationReport { .. } => {}
-        }
     }
 }

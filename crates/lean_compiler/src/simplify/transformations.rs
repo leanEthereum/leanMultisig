@@ -701,10 +701,10 @@ mod tests {
 
         // Should have the actual computation inlined
         let has_add_op = main.body.iter().any(|line| {
-            if let Line::Assignment { value, .. } = line {
-                if let Expression::Binary { operation, .. } = value {
-                    return *operation == HighLevelOperation::Add;
-                }
+            if let Line::Assignment { value, .. } = line
+                && let Expression::Binary { operation, .. } = value
+            {
+                return *operation == HighLevelOperation::Add;
             }
             false
         });

@@ -1,5 +1,6 @@
 //! Expression types for the AST.
 
+use crate::ir::IntermediaryMemOrFpOrConstant;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
@@ -57,6 +58,22 @@ impl SimpleExpr {
             Self::Var(_) => None,
             Self::Constant(constant) => Some(constant.clone()),
             Self::ConstMallocAccess { .. } => None,
+        }
+    }
+
+    /// Converts this SimpleExpr to an IntermediaryMemOrFpOrConstant for code generation.
+    pub fn to_mem_after_fp_or_constant(&self, compiler: &crate::codegen::Compiler) -> IntermediaryMemOrFpOrConstant {
+        match self {
+            Self::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                offset: compiler.get_offset(&var.clone().into()),
+            },
+            Self::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
+            Self::ConstMallocAccess { malloc_label, offset } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                offset: compiler.get_offset(&crate::simplify::VarOrConstMallocAccess::ConstMallocAccess {
+                    malloc_label: *malloc_label,
+                    offset: offset.clone(),
+                }),
+            },
         }
     }
 }
@@ -196,6 +213,8 @@ impl Display for SimpleExpr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::IntermediaryMemOrFpOrConstant;
+    use crate::lang::ConstExpression;
 
     #[test]
     fn test_simple_expr_constants() {
@@ -327,5 +346,75 @@ mod tests {
         let constant = SimpleExpr::scalar(42);
         let simplified_constant = constant.simplify_if_const();
         assert_eq!(simplified_constant, SimpleExpr::scalar(42));
+    }
+
+    #[test]
+    fn test_simple_expr_to_mem_after_fp_or_constant() {
+        let mut compiler = crate::codegen::Compiler::new();
+        compiler.var_positions.insert("x".to_string(), 5);
+        compiler.const_mallocs.insert(0, 10);
+
+        // Test variable conversion
+        let var_expr = SimpleExpr::Var("x".to_string());
+        let result = var_expr.to_mem_after_fp_or_constant(&compiler);
+        if let IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset } = result {
+            assert_eq!(offset, ConstExpression::scalar(5));
+        } else {
+            panic!("Expected MemoryAfterFp variant");
+        }
+
+        // Test constant conversion
+        let const_expr = SimpleExpr::scalar(42);
+        let result = const_expr.to_mem_after_fp_or_constant(&compiler);
+        if let IntermediaryMemOrFpOrConstant::Constant(const_expr) = result {
+            assert_eq!(const_expr, ConstExpression::scalar(42));
+        } else {
+            panic!("Expected Constant variant");
+        }
+
+        // Test const malloc access conversion
+        let malloc_expr = SimpleExpr::ConstMallocAccess {
+            malloc_label: 0,
+            offset: ConstExpression::scalar(3),
+        };
+        let result = malloc_expr.to_mem_after_fp_or_constant(&compiler);
+        if let IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset } = result {
+            // Should be 10 + 3 = 13
+            if let ConstExpression::Binary {
+                operation,
+                left,
+                right,
+            } = offset
+            {
+                assert_eq!(operation, crate::ir::HighLevelOperation::Add);
+                assert_eq!(left.as_ref(), &ConstExpression::scalar(10));
+                assert_eq!(right.as_ref(), &ConstExpression::scalar(3));
+            } else {
+                panic!("Expected binary expression for const malloc access");
+            }
+        } else {
+            panic!("Expected MemoryAfterFp variant");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Variable y not in scope")]
+    fn test_simple_expr_to_mem_after_fp_or_constant_unknown_var() {
+        let compiler = crate::codegen::Compiler::new();
+
+        let var_expr = SimpleExpr::Var("y".to_string());
+        let _result = var_expr.to_mem_after_fp_or_constant(&compiler);
+    }
+
+    #[test]
+    #[should_panic(expected = "Const malloc 1 not in scope")]
+    fn test_simple_expr_to_mem_after_fp_or_constant_unknown_malloc() {
+        let compiler = crate::codegen::Compiler::new();
+
+        let malloc_expr = SimpleExpr::ConstMallocAccess {
+            malloc_label: 1,
+            offset: ConstExpression::scalar(0),
+        };
+        let _result = malloc_expr.to_mem_after_fp_or_constant(&compiler);
     }
 }

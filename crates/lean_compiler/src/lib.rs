@@ -3,13 +3,12 @@ use std::collections::BTreeMap;
 use lean_vm::*;
 
 use crate::{
-    b_compile_intermediate::compile_to_intermediate_bytecode,
-    c_compile_final::compile_to_low_level_bytecode, parser::parse_program,
+    c_compile_final::compile_to_low_level_bytecode, codegen::Compiler, parser::parse_program,
     simplify::simplify_program,
 };
 
-mod b_compile_intermediate;
 mod c_compile_final;
+pub mod codegen;
 pub mod ir;
 mod lang;
 mod parser;
@@ -17,19 +16,21 @@ mod precompiles;
 mod simplify;
 pub use precompiles::PRECOMPILES;
 
+/// Compiles a program.
 pub fn compile_program(program: &str) -> (Bytecode, BTreeMap<usize, String>) {
-    let (parsed_program, function_locations) = parse_program(program).unwrap();
-    // println!("Parsed program: {}", parsed_program.to_string());
+    let (parsed_program, function_locations) =
+        parse_program(program).unwrap_or_else(|e| panic!("Parse error: {}", e));
+
     let simple_program = simplify_program(parsed_program);
-    // println!("Simplified program: {}", simple_program.to_string());
-    let intermediate_bytecode = compile_to_intermediate_bytecode(simple_program).unwrap();
-    // println!("Intermediate Bytecode:\n\n{}", intermediate_bytecode.to_string());
-    let compiled = compile_to_low_level_bytecode(intermediate_bytecode).unwrap();
-    println!("Function Locations: \n");
-    for (loc, name) in function_locations.iter() {
-        println!("{name}: {loc}");
-    }
-    println!("\n\nCompiled Program:\n\n{compiled}");
+
+    let mut compiler = Compiler::new();
+    let intermediate_bytecode = compiler
+        .compile_program(simple_program)
+        .unwrap_or_else(|e| panic!("Compilation error: {}", e));
+
+    let compiled = compile_to_low_level_bytecode(intermediate_bytecode)
+        .unwrap_or_else(|e| panic!("Low-level compilation error: {}", e));
+
     (compiled, function_locations)
 }
 

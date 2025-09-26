@@ -1,4 +1,4 @@
-use crate::lang::ConstExpression;
+use crate::lang::{ConstExpression, SimpleExpr};
 use lean_vm::Label;
 use std::fmt::{Display, Formatter};
 
@@ -14,12 +14,46 @@ pub enum IntermediateValue {
 }
 
 impl IntermediateValue {
+    /// Creates an IntermediateValue from a label.
     pub const fn label(label: Label) -> Self {
         Self::Constant(ConstExpression::label(label))
     }
 
+    /// Returns true if this value is a constant.
     pub const fn is_constant(&self) -> bool {
         matches!(self, Self::Constant(_))
+    }
+
+    /// Creates an IntermediateValue from a SimpleExpr during code generation.
+    pub fn from_simple_expr(
+        expr: &crate::lang::SimpleExpr,
+        compiler: &crate::codegen::Compiler,
+    ) -> Self {
+        match expr {
+            SimpleExpr::Var(var) => Self::MemoryAfterFp {
+                offset: compiler.get_offset(&var.clone().into()),
+            },
+            SimpleExpr::Constant(c) => Self::Constant(c.clone()),
+            SimpleExpr::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => Self::MemoryAfterFp {
+                offset: compiler.get_offset(&crate::simplify::VarOrConstMallocAccess::ConstMallocAccess {
+                    malloc_label: *malloc_label,
+                    offset: offset.clone(),
+                }),
+            },
+        }
+    }
+
+    /// Creates an IntermediateValue from a VarOrConstMallocAccess during code generation.
+    pub fn from_var_or_const_malloc_access(
+        var_or_const: &crate::simplify::VarOrConstMallocAccess,
+        compiler: &crate::codegen::Compiler,
+    ) -> Self {
+        Self::MemoryAfterFp {
+            offset: compiler.get_offset(var_or_const),
+        }
     }
 }
 
@@ -74,7 +108,8 @@ impl Display for IntermediaryMemOrFpOrConstant {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::ConstExpression;
+    use crate::lang::{ConstExpression, SimpleExpr};
+    use crate::simplify::VarOrConstMallocAccess;
     use lean_vm::Label;
 
     #[test]
@@ -563,5 +598,117 @@ mod tests {
             IntermediaryMemOrFpOrConstant::Fp => {}
             IntermediaryMemOrFpOrConstant::Constant(_) => {}
         }
+    }
+
+    #[test]
+    fn test_intermediate_value_from_simple_expr() {
+        let mut compiler = crate::codegen::Compiler::new();
+        compiler.var_positions.insert("x".to_string(), 3);
+        compiler.const_mallocs.insert(0, 8);
+
+        // Test variable conversion
+        let var_expr = SimpleExpr::Var("x".to_string());
+        let result = IntermediateValue::from_simple_expr(&var_expr, &compiler);
+        if let IntermediateValue::MemoryAfterFp { offset } = result {
+            assert_eq!(offset, ConstExpression::scalar(3));
+        } else {
+            panic!("Expected MemoryAfterFp variant");
+        }
+
+        // Test constant conversion
+        let const_expr = SimpleExpr::scalar(42);
+        let result = IntermediateValue::from_simple_expr(&const_expr, &compiler);
+        if let IntermediateValue::Constant(const_val) = result {
+            assert_eq!(const_val, ConstExpression::scalar(42));
+        } else {
+            panic!("Expected Constant variant");
+        }
+
+        // Test const malloc access conversion
+        let malloc_expr = SimpleExpr::ConstMallocAccess {
+            malloc_label: 0,
+            offset: ConstExpression::scalar(2),
+        };
+        let result = IntermediateValue::from_simple_expr(&malloc_expr, &compiler);
+        if let IntermediateValue::MemoryAfterFp { offset } = result {
+            // Should be binary expression: 8 + 2
+            if let ConstExpression::Binary {
+                operation,
+                left,
+                right,
+            } = offset
+            {
+                assert_eq!(operation, crate::ir::HighLevelOperation::Add);
+                assert_eq!(left.as_ref(), &ConstExpression::scalar(8));
+                assert_eq!(right.as_ref(), &ConstExpression::scalar(2));
+            } else {
+                panic!("Expected binary expression for const malloc");
+            }
+        } else {
+            panic!("Expected MemoryAfterFp variant");
+        }
+    }
+
+    #[test]
+    fn test_intermediate_value_from_var_or_const_malloc_access() {
+        let mut compiler = crate::codegen::Compiler::new();
+        compiler.var_positions.insert("y".to_string(), 7);
+        compiler.const_mallocs.insert(1, 15);
+
+        // Test variable access
+        let var_access = VarOrConstMallocAccess::Var("y".to_string());
+        let result = IntermediateValue::from_var_or_const_malloc_access(&var_access, &compiler);
+        if let IntermediateValue::MemoryAfterFp { offset } = result {
+            assert_eq!(offset, ConstExpression::scalar(7));
+        } else {
+            panic!("Expected MemoryAfterFp variant");
+        }
+
+        // Test const malloc access
+        let malloc_access = VarOrConstMallocAccess::ConstMallocAccess {
+            malloc_label: 1,
+            offset: ConstExpression::scalar(5),
+        };
+        let result = IntermediateValue::from_var_or_const_malloc_access(&malloc_access, &compiler);
+        if let IntermediateValue::MemoryAfterFp { offset } = result {
+            // Should be binary expression: 15 + 5
+            if let ConstExpression::Binary {
+                operation,
+                left,
+                right,
+            } = offset
+            {
+                assert_eq!(operation, crate::ir::HighLevelOperation::Add);
+                assert_eq!(left.as_ref(), &ConstExpression::scalar(15));
+                assert_eq!(right.as_ref(), &ConstExpression::scalar(5));
+            } else {
+                panic!("Expected binary expression for const malloc");
+            }
+        } else {
+            panic!("Expected MemoryAfterFp variant");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Variable z not in scope")]
+    fn test_intermediate_value_from_simple_expr_unknown_var() {
+        use crate::lang::SimpleExpr;
+
+        let compiler = crate::codegen::Compiler::new();
+
+        let var_expr = SimpleExpr::Var("z".to_string());
+        let _result = IntermediateValue::from_simple_expr(&var_expr, &compiler);
+    }
+
+    #[test]
+    #[should_panic(expected = "Const malloc 5 not in scope")]
+    fn test_intermediate_value_from_simple_expr_unknown_malloc() {
+        let compiler = crate::codegen::Compiler::new();
+
+        let malloc_expr = SimpleExpr::ConstMallocAccess {
+            malloc_label: 5,
+            offset: ConstExpression::scalar(1),
+        };
+        let _result = IntermediateValue::from_simple_expr(&malloc_expr, &compiler);
     }
 }
