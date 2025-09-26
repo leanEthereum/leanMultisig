@@ -514,3 +514,368 @@ fn test_nested_inline_functions() {
 
     compile_and_run(program, &[], &[], false);
 }
+
+#[test]
+fn test_inline_multiple_returns() {
+    let program = r#"
+    fn main() {
+        result = conditional_return(5);
+        print(result);
+        return;
+    }
+
+    fn conditional_return(x) inline -> 1 {
+        if x == 5 {
+            return 100;
+        } else {
+            if x == 3 {
+                return 200;
+            } else {
+                return 300;
+            }
+        }
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_complex_multiple_returns() {
+    let program = r#"
+    fn main() {
+        result1 = complex_return(1, 2);
+        result2 = complex_return(3, 4);
+        print(result1);
+        print(result2);
+        return;
+    }
+
+    fn complex_return(a, b) inline -> 1 {
+        sum = a + b;
+        if sum == 3 {
+            return 100;
+        } else {
+            if sum == 7 {
+                return 200;
+            } else {
+                if a == 1 {
+                    return 150;
+                } else {
+                    return 300;
+                }
+            }
+        }
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_non_exhaustive_conditions() {
+    let program = r#"
+    fn main() {
+        result1 = works(0);
+        result2 = works(1);
+        result3 = should_work(0);
+        result4 = should_work(1);
+        print(result1);
+        print(result2);
+        print(result3);
+        print(result4);
+        return;
+    }
+
+    fn works(x) inline -> 1 {
+        if x == 0 {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
+
+    fn should_work(x) inline -> 1 {
+        if x == 0 {
+            return 0;
+        }
+        return 1;
+    }
+    "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_edge_cases() {
+    let program = r#"
+       fn main() {
+           b = should_work(1);
+           print(b);
+           return;
+       }
+
+       fn should_work(x) inline -> 1 {
+           if x == 1 {
+               if x == 0 {
+                   return 100;
+               }
+           }
+           return 200;
+       }
+       "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_edge_cases1() {
+    let program = r#"
+       fn main() {
+           b = doesnt_work(1);
+           print(b);
+           return;
+       }
+
+       fn doesnt_work(x) inline -> 1 {
+           if x == 1 {
+               if x == 0 {
+                   return 100;
+               }
+               if x == 1 {
+                   return 200;
+               }
+           }
+           return 300;
+       }
+       "#;
+
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_simple_exhaustive() {
+    let program = r#"
+        fn main() {
+            result = simple(1);
+            print(result);
+            return;
+        }
+
+        fn simple(x) inline -> 1 {
+            if x == 0 {
+                return 100;
+            } else {
+                return 200;
+            }
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_simple_non_exhaustive() {
+    let program = r#"
+        fn main() {
+            result = simple(1);
+            print(result);
+            return;
+        }
+
+        fn simple(x) inline -> 1 {
+            if x == 0 {
+                return 100;
+            }
+            return 200;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_nested_exhaustive() {
+    let program = r#"
+        fn main() {
+            result = nested(1);
+            print(result);
+            return;
+        }
+
+        fn nested(x) inline -> 1 {
+            if x == 1 {
+                if x == 0 {
+                    return 100;
+                } else {
+                    return 200;
+                }
+            } else {
+                return 300;
+            }
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_nested_non_exhaustive_simple() {
+    let program = r#"
+        fn main() {
+            result = nested(1);
+            print(result);
+            return;
+        }
+
+        fn nested(x) inline -> 1 {
+            if x == 1 {
+                if x == 0 {
+                    return 100;
+                }
+            }
+            return 200;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_nested_non_exhaustive_complex() {
+    let program = r#"
+        fn main() {
+            result = nested(1);
+            print(result);
+            return;
+        }
+
+        fn nested(x) inline -> 1 {
+            if x == 1 {
+                if x == 0 {
+                    return 100;
+                }
+                if x == 1 {
+                    return 200;
+                }
+            }
+            return 300;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_triple_nested() {
+    let program = r#"
+        fn main() {
+            result = triple(1);
+            print(result);
+            return;
+        }
+
+        fn triple(x) inline -> 1 {
+            if x == 1 {
+                if x == 2 {
+                    if x == 3 {
+                        return 100;
+                    }
+                    return 200;
+                }
+                if x == 1 {
+                    return 300;
+                }
+            }
+            return 400;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_multiple_conditions_same_level() {
+    let program = r#"
+        fn main() {
+            result = multiple(2);
+            print(result);
+            return;
+        }
+
+        fn multiple(x) inline -> 1 {
+            if x == 1 {
+                return 100;
+            }
+            if x == 2 {
+                return 200;
+            }
+            if x == 3 {
+                return 300;
+            }
+            return 400;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_mixed_patterns() {
+    let program = r#"
+        fn main() {
+            result1 = mixed(0);
+            result2 = mixed(1);
+            result3 = mixed(2);
+            print(result1);
+            print(result2);
+            print(result3);
+            return;
+        }
+
+        fn mixed(x) inline -> 1 {
+            if x == 0 {
+                return 100;
+            } else {
+                if x == 1 {
+                    if x == 2 {
+                        return 200;
+                    }
+                    return 300;
+                }
+            }
+            return 400;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_all_cases_comprehensive() {
+    let program = r#"
+        fn main() {
+            // Test all different input values
+            for i in 0..4 {
+                result = comprehensive(i);
+                print(result);
+            }
+            return;
+        }
+
+        fn comprehensive(x) inline -> 1 {
+            if x == 0 {
+                return 1000;
+            }
+            if x == 1 {
+                if x == 2 {
+                    return 2000;
+                }
+                if x == 1 {
+                    return 3000;
+                }
+            }
+            if x == 2 {
+                if x == 0 {
+                    return 4000;
+                } else {
+                    return 5000;
+                }
+            }
+            return 6000;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
