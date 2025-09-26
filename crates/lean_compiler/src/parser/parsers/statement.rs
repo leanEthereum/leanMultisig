@@ -10,6 +10,21 @@ use crate::{
     },
 };
 
+/// Add a statement with location tracking.
+fn add_statement_with_location(
+    lines: &mut Vec<Line>,
+    pair: ParsePair<'_>,
+    ctx: &mut ParseContext,
+) -> ParseResult<()> {
+    let location = pair.line_col().0;
+    let line = StatementParser::parse(pair, ctx)?;
+
+    lines.push(Line::LocationReport { location });
+    lines.push(line);
+
+    Ok(())
+}
+
 /// Parser for all statement types.
 pub struct StatementParser;
 
@@ -86,12 +101,12 @@ impl Parse<Line> for IfStatementParser {
         for item in inner {
             match item.as_rule() {
                 Rule::statement => {
-                    Self::add_statement_with_location(&mut then_branch, item, ctx)?;
+                    add_statement_with_location(&mut then_branch, item, ctx)?;
                 }
                 Rule::else_clause => {
                     for else_item in item.into_inner() {
                         if else_item.as_rule() == Rule::statement {
-                            Self::add_statement_with_location(&mut else_branch, else_item, ctx)?;
+                            add_statement_with_location(&mut else_branch, else_item, ctx)?;
                         }
                     }
                 }
@@ -107,22 +122,6 @@ impl Parse<Line> for IfStatementParser {
     }
 }
 
-impl IfStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport { location });
-        lines.push(line);
-
-        Ok(())
-    }
-}
-
 /// Parser for for-loop statements.
 pub struct ForStatementParser;
 
@@ -133,17 +132,14 @@ impl Parse<Line> for ForStatementParser {
             .as_str()
             .to_string();
 
-        // Check for optional reverse clause by collecting remaining items
+        // Check for optional reverse clause using efficient peek
         let mut rev = false;
-        let remaining_items: Vec<_> = inner.collect();
-        let mut item_index = 0;
-
-        if !remaining_items.is_empty() && remaining_items[0].as_rule() == Rule::rev_clause {
-            rev = true;
-            item_index = 1;
+        if let Some(peeked) = inner.peek() {
+            if peeked.as_rule() == Rule::rev_clause {
+                rev = true;
+                inner.next(); // Consume the rev clause
+            }
         }
-
-        let mut inner = remaining_items.into_iter().skip(item_index);
 
         let start = ExpressionParser::parse(next_inner_pair(&mut inner, "loop start")?, ctx)?;
         let end = ExpressionParser::parse(next_inner_pair(&mut inner, "loop end")?, ctx)?;
@@ -157,7 +153,7 @@ impl Parse<Line> for ForStatementParser {
                     unroll = true;
                 }
                 Rule::statement => {
-                    Self::add_statement_with_location(&mut body, item, ctx)?;
+                    add_statement_with_location(&mut body, item, ctx)?;
                 }
                 _ => {}
             }
@@ -171,22 +167,6 @@ impl Parse<Line> for ForStatementParser {
             rev,
             unroll,
         })
-    }
-}
-
-impl ForStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport { location });
-        lines.push(line);
-
-        Ok(())
     }
 }
 
@@ -209,7 +189,7 @@ impl Parse<Line> for MatchStatementParser {
                 let mut statements = Vec::new();
                 for stmt in arm_inner {
                     if stmt.as_rule() == Rule::statement {
-                        Self::add_statement_with_location(&mut statements, stmt, ctx)?;
+                        add_statement_with_location(&mut statements, stmt, ctx)?;
                     }
                 }
 
@@ -218,22 +198,6 @@ impl Parse<Line> for MatchStatementParser {
         }
 
         Ok(Line::Match { value, arms })
-    }
-}
-
-impl MatchStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport { location });
-        lines.push(line);
-
-        Ok(())
     }
 }
 
