@@ -133,14 +133,17 @@ impl Parse<Line> for ForStatementParser {
             .as_str()
             .to_string();
 
-        // Check for optional reverse clause
+        // Check for optional reverse clause by collecting remaining items
         let mut rev = false;
-        if let Some(next_peek) = inner.clone().next()
-            && next_peek.as_rule() == Rule::rev_clause
-        {
+        let remaining_items: Vec<_> = inner.collect();
+        let mut item_index = 0;
+
+        if !remaining_items.is_empty() && remaining_items[0].as_rule() == Rule::rev_clause {
             rev = true;
-            inner.next(); // Consume the rev clause
+            item_index = 1;
         }
+
+        let mut inner = remaining_items.into_iter().skip(item_index);
 
         let start = ExpressionParser::parse(next_inner_pair(&mut inner, "loop start")?, ctx)?;
         let end = ExpressionParser::parse(next_inner_pair(&mut inner, "loop end")?, ctx)?;
@@ -293,5 +296,113 @@ impl Parse<Line> for AssertNotEqParser {
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
         Ok(Line::Assert(Boolean::Different { left, right }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::Line;
+    use crate::parser::grammar::{LangParser, Rule};
+    use pest::Parser;
+
+    #[test]
+    fn test_for_loop_with_rev_clause() {
+        let mut ctx = ParseContext::new();
+        let input = r#"for i in rev 0..10 { break; }"#;
+        let mut pairs = LangParser::parse(Rule::for_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ForLoop {
+            iterator,
+            start: _,
+            end: _,
+            body: _,
+            rev,
+            unroll,
+        } = result
+        {
+            assert_eq!(iterator, "i");
+            assert!(rev);
+            assert!(!unroll);
+        } else {
+            panic!("Expected ForLoop");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_without_rev_clause() {
+        let mut ctx = ParseContext::new();
+        let input = r#"for i in 0..10 { break; }"#;
+        let mut pairs = LangParser::parse(Rule::for_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ForLoop {
+            iterator,
+            start: _,
+            end: _,
+            body: _,
+            rev,
+            unroll,
+        } = result
+        {
+            assert_eq!(iterator, "i");
+            assert!(!rev);
+            assert!(!unroll);
+        } else {
+            panic!("Expected ForLoop");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_with_unroll_clause() {
+        let mut ctx = ParseContext::new();
+        let input = r#"for i in 0..10 unroll { break; }"#;
+        let mut pairs = LangParser::parse(Rule::for_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ForLoop {
+            iterator,
+            start: _,
+            end: _,
+            body: _,
+            rev,
+            unroll,
+        } = result
+        {
+            assert_eq!(iterator, "i");
+            assert!(!rev);
+            assert!(unroll);
+        } else {
+            panic!("Expected ForLoop");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_with_rev_and_unroll() {
+        let mut ctx = ParseContext::new();
+        let input = r#"for i in rev 0..10 unroll { break; }"#;
+        let mut pairs = LangParser::parse(Rule::for_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ForLoop {
+            iterator,
+            start: _,
+            end: _,
+            body: _,
+            rev,
+            unroll,
+        } = result
+        {
+            assert_eq!(iterator, "i");
+            assert!(rev);
+            assert!(unroll);
+        } else {
+            panic!("Expected ForLoop");
+        }
     }
 }

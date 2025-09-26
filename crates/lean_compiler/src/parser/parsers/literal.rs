@@ -55,7 +55,12 @@ impl Parse<SimpleExpr> for VarOrConstantParser {
 
         match pair.as_rule() {
             Rule::var_or_constant => {
-                let inner = pair.into_inner().next().unwrap();
+                let inner = pair.into_inner().next().ok_or_else(|| {
+                    SemanticError::with_context(
+                        "Expected var_or_constant inner content",
+                        "variable or constant parsing",
+                    )
+                })?;
                 Self::parse(inner, ctx)
             }
             Rule::identifier | Rule::constant_value => {
@@ -106,7 +111,12 @@ pub struct ConstExprParser;
 
 impl Parse<usize> for ConstExprParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<usize> {
-        let inner = pair.into_inner().next().unwrap();
+        let inner = pair.into_inner().next().ok_or_else(|| {
+            SemanticError::with_context(
+                "Expected const_expr inner content",
+                "constant expression parsing",
+            )
+        })?;
 
         match inner.as_rule() {
             Rule::constant_value => {
@@ -279,5 +289,21 @@ mod tests {
 
         let result = ConstExprParser::parse(pair, &mut ctx);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_var_or_constant_parser_invalid_rule() {
+        let mut ctx = ParseContext::new();
+        let input = "42";
+        let mut pairs = LangParser::parse(Rule::number, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = VarOrConstantParser::parse(pair, &mut ctx);
+        assert!(result.is_err());
+        if let Err(crate::parser::error::ParseError::SemanticError(error)) = result {
+            assert!(error.message.contains("Expected identifier or constant"));
+        } else {
+            panic!("Expected SemanticError");
+        }
     }
 }

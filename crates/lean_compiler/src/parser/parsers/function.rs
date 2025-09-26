@@ -171,12 +171,18 @@ impl FunctionCallParser {
                 })
             }
             "malloc_vec" => {
+                if return_data.len() != 1 {
+                    return Err(
+                        SemanticError::new("malloc_vec must return exactly one value").into(),
+                    );
+                }
+
                 let vectorized_len = if args.len() == 1 {
                     Expression::scalar(LOG_VECTOR_LEN)
                 } else if args.len() == 2 {
                     args[1].clone()
                 } else {
-                    return Err(SemanticError::new("Invalid malloc_vec call").into());
+                    return Err(SemanticError::new("malloc_vec takes 1 or 2 arguments").into());
                 };
 
                 Ok(Line::MAlloc {
@@ -255,5 +261,132 @@ impl Parse<Vec<Expression>> for TupleExpressionParser {
         pair.into_inner()
             .map(|item| ExpressionParser::parse(item, ctx))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::{Expression, Line};
+
+    #[test]
+    fn test_malloc_vec_no_return_data() {
+        let args = vec![Expression::scalar(100)];
+        let return_data = vec![];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "malloc_vec".to_string(),
+            args,
+            return_data,
+        );
+
+        assert!(result.is_err());
+        if let Err(crate::parser::error::ParseError::SemanticError(error)) = result {
+            assert!(
+                error
+                    .message
+                    .contains("malloc_vec must return exactly one value")
+            );
+        } else {
+            panic!("Expected SemanticError");
+        }
+    }
+
+    #[test]
+    fn test_malloc_vec_too_many_return_values() {
+        let args = vec![Expression::scalar(100)];
+        let return_data = vec!["ptr1".to_string(), "ptr2".to_string()];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "malloc_vec".to_string(),
+            args,
+            return_data,
+        );
+
+        assert!(result.is_err());
+        if let Err(crate::parser::error::ParseError::SemanticError(error)) = result {
+            assert!(
+                error
+                    .message
+                    .contains("malloc_vec must return exactly one value")
+            );
+        } else {
+            panic!("Expected SemanticError");
+        }
+    }
+
+    #[test]
+    fn test_malloc_vec_valid_one_arg() {
+        let args = vec![Expression::scalar(100)];
+        let return_data = vec!["ptr".to_string()];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "malloc_vec".to_string(),
+            args,
+            return_data,
+        )
+        .unwrap();
+
+        if let Line::MAlloc {
+            var,
+            size: _,
+            vectorized,
+            vectorized_len: _,
+        } = result
+        {
+            assert_eq!(var, "ptr");
+            assert!(vectorized);
+        } else {
+            panic!("Expected MAlloc line");
+        }
+    }
+
+    #[test]
+    fn test_malloc_vec_valid_two_args() {
+        let args = vec![Expression::scalar(100), Expression::scalar(8)];
+        let return_data = vec!["ptr".to_string()];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "malloc_vec".to_string(),
+            args,
+            return_data,
+        )
+        .unwrap();
+
+        if let Line::MAlloc {
+            var,
+            size: _,
+            vectorized,
+            vectorized_len: _,
+        } = result
+        {
+            assert_eq!(var, "ptr");
+            assert!(vectorized);
+        } else {
+            panic!("Expected MAlloc line");
+        }
+    }
+
+    #[test]
+    fn test_malloc_vec_too_many_args() {
+        let args = vec![
+            Expression::scalar(100),
+            Expression::scalar(8),
+            Expression::scalar(16),
+        ];
+        let return_data = vec!["ptr".to_string()];
+
+        let result = FunctionCallParser::handle_builtin_function(
+            "malloc_vec".to_string(),
+            args,
+            return_data,
+        );
+
+        assert!(result.is_err());
+        if let Err(crate::parser::error::ParseError::SemanticError(error)) = result {
+            assert!(error.message.contains("malloc_vec takes 1 or 2 arguments"));
+        } else {
+            panic!("Expected SemanticError");
+        }
     }
 }

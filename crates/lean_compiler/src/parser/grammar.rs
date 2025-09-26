@@ -32,7 +32,14 @@ pub fn next_inner<'i>(
 /// Utility function to parse the main program structure.
 pub fn parse_source(input: &str) -> Result<ParsePair<'_>, Box<pest::error::Error<Rule>>> {
     let mut pairs = LangParser::parse(Rule::program, input)?;
-    Ok(pairs.next().unwrap())
+    pairs.next().ok_or_else(|| {
+        Box::new(pest::error::Error::new_from_pos(
+            pest::error::ErrorVariant::CustomError {
+                message: "No program found in input".to_string(),
+            },
+            pest::Position::from_start(input),
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -79,6 +86,20 @@ mod tests {
     #[test]
     fn test_parse_source_invalid() {
         let input = "invalid syntax $%@";
+        let result = parse_source(input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_source_empty_input() {
+        let input = "";
+        let result = parse_source(input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_source_whitespace_only() {
+        let input = "   \n\t  ";
         let result = parse_source(input);
         assert!(result.is_err());
     }
