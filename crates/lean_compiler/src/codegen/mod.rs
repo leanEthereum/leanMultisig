@@ -1,8 +1,5 @@
-/// Code generation module for compiling simplified AST to intermediate bytecode.
-///
-/// This module provides clean, modular components for compiling high-level
-/// language constructs into low-level intermediate representation, following
-/// best practices from LLVM, GCC, and other production compilers.
+//! Code generation module for compiling simplified AST to intermediate bytecode.
+
 pub mod compiler;
 pub mod function;
 pub mod instruction;

@@ -1,9 +1,5 @@
-/// Function compilation module.
-///
-/// This module handles the compilation of individual functions from the simplified
-/// AST to intermediate bytecode, managing function-specific state and control flow.
 use crate::{codegen::*, ir::*, lang::*, simplify::*};
-use std::collections::{BTreeSet, BTreeMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Compiles a single function to intermediate bytecode.
 ///
@@ -80,9 +76,10 @@ mod tests {
         assert!(!instructions.is_empty());
 
         // Should contain at least the assignment and return
-        assert!(instructions.iter().any(|inst| matches!(
-            inst,
-            IntermediateInstruction::Computation { .. }
-        )));
+        assert!(
+            instructions
+                .iter()
+                .any(|inst| matches!(inst, IntermediateInstruction::Computation { .. }))
+        );
     }
 }

@@ -1,7 +1,3 @@
-/// Memory management utilities for code generation.
-///
-/// This module handles variable discovery, stack layout, and memory allocation
-/// during compilation.
 use crate::{lang::*, simplify::*};
 use std::collections::BTreeSet;
 
@@ -62,9 +58,9 @@ pub fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{SimpleExpr, ConstExpression};
-    use crate::simplify::VarOrConstMallocAccess;
     use crate::ir::HighLevelOperation;
+    use crate::lang::{ConstExpression, SimpleExpr};
+    use crate::simplify::VarOrConstMallocAccess;
 
     #[test]
     fn test_find_internal_vars_empty() {
@@ -194,7 +190,9 @@ mod tests {
     fn test_find_internal_vars_no_op_instructions() {
         let lines = vec![
             SimpleLine::Panic,
-            SimpleLine::FunctionRet { return_data: vec![] },
+            SimpleLine::FunctionRet {
+                return_data: vec![],
+            },
             SimpleLine::Print {
                 line_info: "test".to_string(),
                 content: vec![SimpleExpr::scalar(42)],

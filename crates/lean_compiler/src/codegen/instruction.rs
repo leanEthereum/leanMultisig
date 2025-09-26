@@ -1,7 +1,3 @@
-/// Instruction compilation module.
-///
-/// This module handles the compilation of individual SimpleLine instructions
-/// to intermediate bytecode, managing control flow and variable state.
 use crate::{codegen::*, ir::*, lang::*, simplify::*};
 use lean_vm::*;
 use std::collections::BTreeSet;
@@ -443,7 +439,10 @@ fn handle_const_malloc(
 }
 
 // Helper functions
-fn mark_vars_as_declared<VoC: std::borrow::Borrow<SimpleExpr>>(vocs: &[VoC], declared: &mut BTreeSet<Var>) {
+fn mark_vars_as_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
+    vocs: &[VoC],
+    declared: &mut BTreeSet<Var>,
+) {
     for voc in vocs {
         if let SimpleExpr::Var(v) = voc.borrow() {
             declared.insert(v.clone());
