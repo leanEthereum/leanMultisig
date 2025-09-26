@@ -16,21 +16,20 @@ pub struct ProgramParser;
 impl Parse<(Program, BTreeMap<usize, String>)> for ProgramParser {
     fn parse(
         pair: ParsePair<'_>,
-        _ctx: &mut ParseContext,
+        ctx: &mut ParseContext,
     ) -> ParseResult<(Program, BTreeMap<usize, String>)> {
-        let mut ctx = ParseContext::new();
         let mut functions = BTreeMap::new();
         let mut function_locations = BTreeMap::new();
 
         for item in pair.into_inner() {
             match item.as_rule() {
                 Rule::constant_declaration => {
-                    let (name, value) = ConstantDeclarationParser::parse(item, &mut ctx)?;
+                    let (name, value) = ConstantDeclarationParser::parse(item, ctx)?;
                     ctx.add_constant(name, value)?;
                 }
                 Rule::function => {
                     let location = item.line_col().0;
-                    let function = FunctionParser::parse(item, &mut ctx)?;
+                    let function = FunctionParser::parse(item, ctx)?;
                     let name = function.name.clone();
 
                     function_locations.insert(location, name.clone());
