@@ -153,3 +153,131 @@ impl Parse<Vec<SimpleExpr>> for VarListParser {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::{ConstExpression, ConstantValue};
+    use crate::parser::grammar::{LangParser, Rule};
+    use pest::Parser;
+
+    #[test]
+    fn test_var_or_constant_parser_identifier() {
+        let mut ctx = ParseContext::new();
+        let input = "test_var";
+        let mut pairs = LangParser::parse(Rule::identifier, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = VarOrConstantParser::parse(pair, &mut ctx).unwrap();
+        if let SimpleExpr::Var(name) = result {
+            assert_eq!(name, "test_var");
+        } else {
+            panic!("Expected variable");
+        }
+    }
+
+    #[test]
+    fn test_var_or_constant_parser_numeric_literal() {
+        let mut ctx = ParseContext::new();
+        let input = "42";
+        let mut pairs = LangParser::parse(Rule::constant_value, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = VarOrConstantParser::parse(pair, &mut ctx).unwrap();
+        if let SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(value))) = result {
+            assert_eq!(value, 42);
+        } else {
+            panic!("Expected scalar constant");
+        }
+    }
+
+    #[test]
+    fn test_var_or_constant_parser_defined_constant() {
+        let mut ctx = ParseContext::new();
+        ctx.add_constant("MY_CONST".to_string(), 100).unwrap();
+
+        let input = "MY_CONST";
+        let mut pairs = LangParser::parse(Rule::identifier, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = VarOrConstantParser::parse(pair, &mut ctx).unwrap();
+        if let SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(value))) = result {
+            assert_eq!(value, 100);
+        } else {
+            panic!("Expected scalar constant");
+        }
+    }
+
+    #[test]
+    fn test_var_or_constant_parser_public_input_start() {
+        let mut ctx = ParseContext::new();
+        let input = "public_input_start";
+        let mut pairs = LangParser::parse(Rule::constant_value, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = VarOrConstantParser::parse(pair, &mut ctx).unwrap();
+        if let SimpleExpr::Constant(ConstExpression::Value(ConstantValue::PublicInputStart)) =
+            result
+        {
+            // Success
+        } else {
+            panic!("Expected PublicInputStart constant");
+        }
+    }
+
+    #[test]
+    fn test_var_or_constant_parser_pointer_to_zero_vector() {
+        let mut ctx = ParseContext::new();
+        let input = "pointer_to_zero_vector";
+        let mut pairs = LangParser::parse(Rule::identifier, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = VarOrConstantParser::parse(pair, &mut ctx).unwrap();
+        if let SimpleExpr::Constant(ConstExpression::Value(ConstantValue::PointerToZeroVector)) =
+            result
+        {
+            // Success
+        } else {
+            panic!("Expected PointerToZeroVector constant");
+        }
+    }
+
+    #[test]
+    fn test_var_or_constant_parser_pointer_to_one_vector() {
+        let mut ctx = ParseContext::new();
+        let input = "pointer_to_one_vector";
+        let mut pairs = LangParser::parse(Rule::identifier, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = VarOrConstantParser::parse(pair, &mut ctx).unwrap();
+        if let SimpleExpr::Constant(ConstExpression::Value(ConstantValue::PointerToOneVector)) =
+            result
+        {
+            // Success
+        } else {
+            panic!("Expected PointerToOneVector constant");
+        }
+    }
+
+    #[test]
+    fn test_const_expr_parser_numeric() {
+        let mut ctx = ParseContext::new();
+        let input = "123";
+        let mut pairs = LangParser::parse(Rule::pattern, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ConstExprParser::parse(pair, &mut ctx).unwrap();
+        assert_eq!(result, 123);
+    }
+
+    #[test]
+    fn test_const_expr_parser_public_input_start_error() {
+        let mut ctx = ParseContext::new();
+        let input = "public_input_start";
+        let mut pairs = LangParser::parse(Rule::pattern, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ConstExprParser::parse(pair, &mut ctx);
+        assert!(result.is_err());
+    }
+}

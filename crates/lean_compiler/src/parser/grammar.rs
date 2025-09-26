@@ -34,3 +34,52 @@ pub fn parse_source(input: &str) -> Result<ParsePair<'_>, Box<pest::error::Error
     let mut pairs = LangParser::parse(Rule::program, input)?;
     Ok(pairs.next().unwrap())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_location() {
+        let input = "fn main() {}";
+        if let Ok(pair) = parse_source(input) {
+            let (line, col) = get_location(&pair);
+            assert_eq!(line, 1);
+            assert_eq!(col, 1);
+        }
+    }
+
+    #[test]
+    fn test_next_inner_found() {
+        let input = "fn main() {}";
+        if let Ok(pair) = parse_source(input) {
+            let mut inner = pair.into_inner();
+            let result = next_inner(&mut inner, "function");
+            assert!(result.is_some());
+        }
+    }
+
+    #[test]
+    fn test_next_inner_not_found() {
+        let empty_iter = std::iter::empty();
+        let result = next_inner(empty_iter, "missing");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_source_valid() {
+        let input = "fn main() {}";
+        let result = parse_source(input);
+        assert!(result.is_ok());
+        if let Ok(pair) = result {
+            assert_eq!(pair.as_rule(), Rule::program);
+        }
+    }
+
+    #[test]
+    fn test_parse_source_invalid() {
+        let input = "invalid syntax $%@";
+        let result = parse_source(input);
+        assert!(result.is_err());
+    }
+}
