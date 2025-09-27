@@ -1487,568 +1487,143 @@ mod tests {
         assert!(has_add_op);
     }
 
-    // #[test]
-    // fn test_ssa_violation_multiple_returns() {
-    //     // Test case: function with multiple returns that can both execute
-    //     // This exposes the SSA violation where both returns try to assign the same variable
-    //     let mut lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("arg1".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-    //             },
-    //             then_branch: vec![
-    //                 Line::IfCondition {
-    //                     condition: Boolean::Equal {
-    //                         left: Expression::Value(SimpleExpr::Var("arg1".to_string())),
-    //                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //                     },
-    //                     then_branch: vec![Line::FunctionRet {
-    //                         return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //                     }],
-    //                     else_branch: vec![],
-    //                 },
-    //                 Line::IfCondition {
-    //                     condition: Boolean::Equal {
-    //                         left: Expression::Value(SimpleExpr::Var("arg1".to_string())),
-    //                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-    //                     },
-    //                     then_branch: vec![Line::FunctionRet {
-    //                         return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //                     }],
-    //                     else_branch: vec![],
-    //                 },
-    //             ],
-    //             else_branch: vec![],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(300)))],
-    //         },
-    //     ];
+    #[test]
+    fn test_ssa_violation_detection() {
+        // Test detection of simple non-exhaustive pattern
+        let simple_pattern = vec![
+            Line::IfCondition {
+                condition: Boolean::Equal {
+                    left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                    right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
+                },
+                then_branch: vec![Line::FunctionRet {
+                    return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
+                }],
+                else_branch: vec![],
+            },
+            Line::FunctionRet {
+                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
+            },
+        ];
 
-    //     let mut args = BTreeMap::new();
-    //     args.insert("arg1".to_string(), SimpleExpr::Constant(ConstExpression::scalar(1)));
-    //     let res = vec!["result".to_string()];
+        assert!(needs_return_flag_logic(&simple_pattern));
+        assert!(has_simple_non_exhaustive_if_returns(&simple_pattern));
+    }
 
-    //     // This should not cause SSA violations with our new implementation
-    //     inline_lines(&mut lines, &args, &res, 0);
+    #[test]
+    fn test_ssa_violation_nested_detection() {
+        // Test detection of nested non-exhaustive pattern
+        let nested_pattern = vec![
+            Line::IfCondition {
+                condition: Boolean::Equal {
+                    left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                    right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
+                },
+                then_branch: vec![Line::IfCondition {
+                    condition: Boolean::Equal {
+                        left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                        right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
+                    },
+                    then_branch: vec![Line::FunctionRet {
+                        return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
+                    }],
+                    else_branch: vec![],
+                }],
+                else_branch: vec![],
+            },
+            Line::FunctionRet {
+                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(300)))],
+            },
+        ];
 
-    //     // We should have return flag logic that prevents multiple assignments to the same variable
-    //     let has_return_flag = lines.iter().any(|line| {
-    //         if let Line::Assignment { var, .. } = line {
-    //             var.contains("returned") || var.contains("return_flag")
-    //         } else {
-    //             false
-    //         }
-    //     });
+        assert!(needs_return_flag_logic(&nested_pattern));
+        assert!(has_nested_if_with_returns(&nested_pattern));
+    }
 
-    //     // The fix should introduce return flag logic
-    //     assert!(has_return_flag, "Expected return flag logic to prevent SSA violations");
-    // }
+    #[test]
+    fn test_no_ssa_violation_exhaustive() {
+        // Test exhaustive pattern doesn't need special handling
+        let exhaustive_pattern = vec![Line::IfCondition {
+            condition: Boolean::Equal {
+                left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
+            },
+            then_branch: vec![Line::FunctionRet {
+                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
+            }],
+            else_branch: vec![Line::FunctionRet {
+                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
+            }],
+        }];
 
-    // #[test]
-    // fn test_ssa_violation_fixed_with_return_flag() {
-    //     // Test that our return flag mechanism works correctly
-    //     let mut lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("arg1".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //             },
-    //             then_branch: vec![Line::FunctionRet {
-    //                 return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //             }],
-    //             else_branch: vec![],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //         },
-    //     ];
+        assert!(!needs_return_flag_logic(&exhaustive_pattern));
+    }
 
-    //     let mut args = BTreeMap::new();
-    //     args.insert("arg1".to_string(), SimpleExpr::Constant(ConstExpression::scalar(1)));
-    //     let res = vec!["result".to_string()];
+    #[test]
+    fn test_control_flow_restructuring() {
+        // Test that control flow restructuring works for simple case
+        let mut lines = vec![
+            Line::IfCondition {
+                condition: Boolean::Equal {
+                    left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                    right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
+                },
+                then_branch: vec![Line::Assignment {
+                    var: "result".to_string(),
+                    value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100))),
+                }],
+                else_branch: vec![],
+            },
+            Line::Assignment {
+                var: "result".to_string(),
+                value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200))),
+            },
+        ];
 
-    //     inline_lines(&mut lines, &args, &res, 0);
+        let res = vec!["result".to_string()];
+        fix_ssa_violations_by_restructuring_control_flow(&mut lines, &res);
 
-    //     // Count how many times the result variable is assigned
-    //     let result_assignments = lines.iter().filter(|line| {
-    //         if let Line::Assignment { var, .. } = line {
-    //             var == "result"
-    //         } else {
-    //             false
-    //         }
-    //     }).count();
+        // Should be restructured to proper if-else
+        assert_eq!(lines.len(), 1);
+        if let Line::IfCondition { condition: _, then_branch, else_branch } = &lines[0] {
+            assert_eq!(then_branch.len(), 1);
+            assert_eq!(else_branch.len(), 1);
+        } else {
+            panic!("Expected restructured if-else condition");
+        }
+    }
 
-    //     // With return flag logic, we should have conditional assignments
-    //     let has_conditional_assignment = lines.iter().any(|line| {
-    //         if let Line::IfCondition { .. } = line {
-    //             true
-    //         } else {
-    //             false
-    //         }
-    //     });
+    #[test]
+    fn test_inline_with_ssa_fix() {
+        // Test end-to-end inline with SSA fix
+        let mut lines = vec![
+            Line::IfCondition {
+                condition: Boolean::Equal {
+                    left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                    right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
+                },
+                then_branch: vec![Line::FunctionRet {
+                    return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
+                }],
+                else_branch: vec![],
+            },
+            Line::FunctionRet {
+                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
+            },
+        ];
 
-    //     assert!(has_conditional_assignment, "Expected conditional assignments using return flags");
-    // }
+        let args = BTreeMap::new();
+        let res = vec!["result".to_string()];
+        inline_lines(&mut lines, &args, &res, 0);
 
-    // #[test]
-    // fn test_nested_returns_case() {
-    //     // Test deeply nested returns that can cause SSA violations
-    //     let mut lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-    //             },
-    //             then_branch: vec![
-    //                 Line::IfCondition {
-    //                     condition: Boolean::Equal {
-    //                         left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(2))),
-    //                     },
-    //                     then_branch: vec![
-    //                         Line::IfCondition {
-    //                             condition: Boolean::Equal {
-    //                                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(3))),
-    //                             },
-    //                             then_branch: vec![Line::FunctionRet {
-    //                                 return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //                             }],
-    //                             else_branch: vec![],
-    //                         },
-    //                         Line::FunctionRet {
-    //                             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //                         },
-    //                     ],
-    //                     else_branch: vec![],
-    //                 },
-    //                 Line::IfCondition {
-    //                     condition: Boolean::Equal {
-    //                         left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-    //                     },
-    //                     then_branch: vec![Line::FunctionRet {
-    //                         return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(300)))],
-    //                     }],
-    //                     else_branch: vec![],
-    //                 },
-    //             ],
-    //             else_branch: vec![],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(400)))],
-    //         },
-    //     ];
+        // Should not have multiple assignments to same variable
+        let result_assignments = lines.iter().filter(|line| {
+            matches!(line, Line::Assignment { var, .. } if var == "result")
+        }).count();
 
-    //     let args = BTreeMap::new();
-    //     let res = vec!["result".to_string()];
-
-    //     // Should not panic with SSA violations
-    //     inline_lines(&mut lines, &args, &res, 0);
-
-    //     // Should generate return flag logic
-    //     let has_return_logic = lines.iter().any(|line| {
-    //         match line {
-    //             Line::Assignment { var, .. } => var.contains("returned"),
-    //             Line::IfCondition { condition, .. } => {
-    //                 // Check if condition involves return flag
-    //                 match condition {
-    //                     Boolean::Equal { left, right } | Boolean::Different { left, right } => {
-    //                         let check_expr = |expr: &Expression| -> bool {
-    //                             if let Expression::Value(SimpleExpr::Var(var)) = expr {
-    //                                 var.contains("returned")
-    //                             } else {
-    //                                 false
-    //                             }
-    //                         };
-    //                         check_expr(left) || check_expr(right)
-    //                     }
-    //                 }
-    //             }
-    //             _ => false,
-    //         }
-    //     });
-
-    //     assert!(has_return_logic, "Expected return flag logic for complex nested returns");
-    // }
-
-    // #[test]
-    // fn test_failing_case_exact_replica() {
-    //     // Exact replica of the failing case from the integration test
-    //     let mut lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-    //             },
-    //             then_branch: vec![
-    //                 Line::IfCondition {
-    //                     condition: Boolean::Equal {
-    //                         left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //                     },
-    //                     then_branch: vec![Line::FunctionRet {
-    //                         return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //                     }],
-    //                     else_branch: vec![],
-    //                 },
-    //                 Line::IfCondition {
-    //                     condition: Boolean::Equal {
-    //                         left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-    //                     },
-    //                     then_branch: vec![Line::FunctionRet {
-    //                         return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //                     }],
-    //                     else_branch: vec![],
-    //                 },
-    //             ],
-    //             else_branch: vec![],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(300)))],
-    //         },
-    //     ];
-
-    //     let args = BTreeMap::new();
-    //     let res = vec!["b".to_string()];
-
-    //     // This exact case should not cause SSA violations after our fix
-    //     inline_lines(&mut lines, &args, &res, 0);
-
-    //     // Should not have multiple unconditional assignments to the same variable
-    //     let unconditional_assignments = lines.iter().filter(|line| {
-    //         if let Line::Assignment { var, .. } = line {
-    //             var == "b"
-    //         } else {
-    //             false
-    //         }
-    //     }).count();
-
-    //     // With proper return flag logic, direct assignments should be conditional
-    //     assert!(unconditional_assignments <= 1,
-    //         "Too many unconditional assignments to result variable, expected return flag logic");
-    // }
-
-    // #[test]
-    // fn test_vm_constraint_issue() {
-    //     // Test the specific constraint that causes VM to fail: multiple writes to same memory slot
-    //     let mut lines = vec![
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(42)))],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(84)))],
-    //         },
-    //     ];
-
-    //     let args = BTreeMap::new();
-    //     let res = vec!["output".to_string()];
-
-    //     inline_lines(&mut lines, &args, &res, 0);
-
-    //     // After fix, should not have multiple direct assignments
-    //     let direct_assignments = lines.iter().filter(|line| {
-    //         if let Line::Assignment { var, .. } = line {
-    //             var == "output"
-    //         } else {
-    //             false
-    //         }
-    //     }).count();
-
-    //     // Should use return flag mechanism instead of direct assignments
-    //     assert!(direct_assignments <= 1, "Expected single assignment using return flags");
-    // }
-
-    // #[test]
-    // fn test_debug_return_flag_generation() {
-    //     // Debug test to see what code gets generated
-    //     let mut lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //             },
-    //             then_branch: vec![Line::FunctionRet {
-    //                 return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //             }],
-    //             else_branch: vec![],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //         },
-    //     ];
-
-    //     let args = BTreeMap::new();
-    //     let res = vec!["result".to_string()];
-
-    //     println!("Before inlining:");
-    //     for (i, line) in lines.iter().enumerate() {
-    //         println!("{}: {}", i, line);
-    //     }
-
-    //     inline_lines(&mut lines, &args, &res, 0);
-
-    //     println!("\nAfter inlining:");
-    //     for (i, line) in lines.iter().enumerate() {
-    //         println!("{}: {}", i, line);
-    //     }
-
-    //     // Check if there are still any FunctionRet statements after processing
-    //     let has_unprocessed_returns = has_return_statements_in_branch(&lines);
-    //     println!("\nHas unprocessed returns: {}", has_unprocessed_returns);
-
-    //     // Should have return flag logic
-    //     let has_return_flag_init = lines.iter().any(|line| {
-    //         if let Line::Assignment { var, .. } = line {
-    //             var.contains("returned")
-    //         } else {
-    //             false
-    //         }
-    //     });
-
-    //     assert!(has_return_flag_init, "Expected return flag initialization");
-    // }
-
-    // #[test]
-    // fn test_debug_non_exhaustive_detection() {
-    //     // Test the simple non-exhaustive case
-    //     let lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //             },
-    //             then_branch: vec![Line::FunctionRet {
-    //                 return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //             }],
-    //             else_branch: vec![],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //         },
-    //     ];
-
-    //     let needs_flag = needs_return_flag_logic(&lines);
-    //     println!("Non-exhaustive case needs flag logic: {}", needs_flag);
-
-    //     // Test the exhaustive case
-    //     let exhaustive_lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //             },
-    //             then_branch: vec![Line::FunctionRet {
-    //                 return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //             }],
-    //             else_branch: vec![Line::FunctionRet {
-    //                 return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //             }],
-    //         },
-    //     ];
-
-    //     let exhaustive_needs_flag = needs_return_flag_logic(&exhaustive_lines);
-    //     println!("Exhaustive case needs flag logic: {}", exhaustive_needs_flag);
-
-    //     assert!(needs_flag, "Non-exhaustive case should need flag logic");
-    //     assert!(!exhaustive_needs_flag, "Exhaustive case should not need flag logic");
-    // }
-
-    // #[test]
-    // fn test_debug_detection_logic() {
-    //     // Test the exact pattern from test_inline_edge_cases1
-    //     let lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-    //             },
-    //             then_branch: vec![
-    //                 Line::IfCondition {
-    //                     condition: Boolean::Equal {
-    //                         left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //                     },
-    //                     then_branch: vec![Line::FunctionRet {
-    //                         return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //                     }],
-    //                     else_branch: vec![],
-    //                 },
-    //                 Line::IfCondition {
-    //                     condition: Boolean::Equal {
-    //                         left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-    //                     },
-    //                     then_branch: vec![Line::FunctionRet {
-    //                         return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //                     }],
-    //                     else_branch: vec![],
-    //                 },
-    //             ],
-    //             else_branch: vec![],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(300)))],
-    //         },
-    //     ];
-
-    //     let needs_flag = needs_return_flag_logic(&lines);
-    //     println!("Edge case 1 pattern needs flag logic: {}", needs_flag);
-    //     println!("Has nested if returns: {}", has_nested_if_with_returns(&lines));
-    //     println!("Has final return: {}", lines.iter().any(|line| matches!(line, Line::FunctionRet { .. })));
-
-    //     // This should detect the problematic pattern
-    //     assert!(needs_flag, "Should detect the edge case 1 pattern as needing flag logic");
-    // }
-
-    // #[test]
-    // fn test_debug_vm_constraint_issue() {
-    //     // Test the exact pattern that causes VM constraint failures
-    //     // This isolates the specific issue with return flag variables
-    //     let mut lines = vec![
-    //         Line::IfCondition {
-    //             condition: Boolean::Equal {
-    //                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //             },
-    //             then_branch: vec![Line::FunctionRet {
-    //                 return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //             }],
-    //             else_branch: vec![],
-    //         },
-    //         Line::FunctionRet {
-    //             return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //         },
-    //     ];
-
-    //     let args = BTreeMap::new();
-    //     let res = vec!["result".to_string()];
-
-    //     println!("Testing VM constraint issue pattern...");
-    //     println!("Before inlining:");
-    //     for (i, line) in lines.iter().enumerate() {
-    //         println!("{}: {}", i, line);
-    //     }
-
-    //     inline_lines(&mut lines, &args, &res, 0);
-
-    //     println!("\nAfter inlining:");
-    //     for (i, line) in lines.iter().enumerate() {
-    //         println!("{}: {}", i, line);
-    //     }
-
-    //     // The issue might be with how we're structuring the flag logic
-    //     // Let's verify the exact pattern that gets generated
-
-    //     // Look for the flag initialization
-    //     let has_flag_init = lines.iter().any(|line| {
-    //         if let Line::Assignment { var, value } = line {
-    //             var.contains("returned") &&
-    //             if let Expression::Value(SimpleExpr::Constant(const_val)) = value {
-    //                 const_val == &ConstExpression::scalar(1)
-    //             } else {
-    //                 false
-    //             }
-    //         } else {
-    //             false
-    //         }
-    //     });
-
-    //     // Look for the flag conditions
-    //     let flag_conditions = lines.iter().filter_map(|line| {
-    //         if let Line::IfCondition { condition, .. } = line {
-    //             if let Boolean::Equal { left, right } = condition {
-    //                 if let (Expression::Value(SimpleExpr::Var(var)), Expression::Value(SimpleExpr::Constant(val))) = (left, right) {
-    //                     if var.contains("returned") {
-    //                         Some(val.clone())
-    //                     } else {
-    //                         None
-    //                     }
-    //                 } else {
-    //                     None
-    //                 }
-    //             } else {
-    //                 None
-    //             }
-    //         } else {
-    //             None
-    //         }
-    //     }).collect::<Vec<_>>();
-
-    //     println!("Flag init found: {}", has_flag_init);
-    //     println!("Flag conditions: {:?}", flag_conditions);
-
-    //     assert!(has_flag_init, "Should have flag initialization");
-    //     assert!(!flag_conditions.is_empty(), "Should have flag conditions");
-    // }
-
-    // #[test]
-    // fn test_complete_compilation_pipeline() {
-    //     // Test that our fix works with the complete compilation pipeline for inline functions
-    //     let inline_func = Function {
-    //         name: "problematic".to_string(),
-    //         arguments: vec![("x".to_string(), false)],
-    //         inlined: true,
-    //         body: vec![
-    //             Line::IfCondition {
-    //                 condition: Boolean::Equal {
-    //                     left: Expression::Value(SimpleExpr::Var("x".to_string())),
-    //                     right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-    //                 },
-    //                 then_branch: vec![Line::FunctionRet {
-    //                     return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
-    //                 }],
-    //                 else_branch: vec![],
-    //             },
-    //             Line::FunctionRet {
-    //                 return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
-    //             },
-    //         ],
-    //         n_returned_vars: 1,
-    //     };
-
-    //     let caller_func = Function {
-    //         name: "caller".to_string(),
-    //         arguments: vec![],
-    //         inlined: false,
-    //         body: vec![Line::FunctionCall {
-    //             function_name: "problematic".to_string(),
-    //             args: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1)))],
-    //             return_data: vec!["result".to_string()],
-    //         }],
-    //         n_returned_vars: 0,
-    //     };
-
-    //     let mut program = Program {
-    //         functions: BTreeMap::new(),
-    //     };
-    //     program.functions.insert("problematic".to_string(), inline_func);
-    //     program.functions.insert("caller".to_string(), caller_func);
-
-    //     // This should not panic with our fix
-    //     handle_inlined_functions(&mut program);
-
-    //     // Verify the inlined function was removed
-    //     assert!(!program.functions.contains_key("problematic"));
-
-    //     // Verify caller has inlined content with proper return flag logic
-    //     let caller = program.functions.get("caller").unwrap();
-    //     assert!(!caller.body.is_empty());
-
-    //     // Should contain return flag assignments and conditions
-    //     let has_return_flag_assignment = caller.body.iter().any(|line| {
-    //         if let Line::Assignment { var, .. } = line {
-    //             var.contains("returned")
-    //         } else {
-    //             false
-    //         }
-    //     });
-
-    //     assert!(has_return_flag_assignment, "Expected return flag logic in inlined function");
-    // }
+        // With restructuring, direct assignments should be minimal
+        assert!(result_assignments <= 1, "Should avoid multiple direct assignments");
+    }
 
     #[test]
     fn test_handle_inlined_functions_if_condition() {
