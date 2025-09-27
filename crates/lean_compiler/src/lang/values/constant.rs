@@ -4,6 +4,7 @@ use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
+use crate::lang::ast::{Expression, SimpleExpr};
 use crate::{F, ir::HighLevelOperation};
 
 /// Constant value types for compile-time computation.
@@ -108,11 +109,10 @@ impl ConstExpression {
     }
 }
 
-impl TryFrom<crate::lang::ast::Expression> for ConstExpression {
+impl TryFrom<Expression> for ConstExpression {
     type Error = ();
 
-    fn try_from(value: crate::lang::ast::Expression) -> Result<Self, Self::Error> {
-        use crate::lang::ast::{Expression, SimpleExpr};
+    fn try_from(value: Expression) -> Result<Self, Self::Error> {
         match value {
             Expression::Value(SimpleExpr::Constant(const_expr)) => Ok(const_expr),
             Expression::Value(_) => Err(()),
@@ -318,8 +318,6 @@ mod tests {
 
     #[test]
     fn test_const_expression_try_from() {
-        use crate::lang::ast::{Expression, SimpleExpr};
-
         // Test successful conversion
         let const_expr = ConstExpression::scalar(10);
         let expr = Expression::Value(SimpleExpr::Constant(const_expr.clone()));

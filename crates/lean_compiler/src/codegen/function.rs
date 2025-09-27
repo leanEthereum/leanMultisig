@@ -1,3 +1,4 @@
+use crate::codegen::{instruction::compile_lines, memory::find_internal_vars};
 use crate::{codegen::*, ir::*, lang::*};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,7 +10,7 @@ pub fn compile_function(
     function: &SimpleFunction,
     compiler: &mut Compiler,
 ) -> Result<Vec<IntermediateInstruction>, String> {
-    let mut internal_vars = crate::codegen::memory::find_internal_vars(&function.instructions);
+    let mut internal_vars = find_internal_vars(&function.instructions);
     internal_vars.retain(|var| !function.arguments.contains(var));
 
     // memory layout: pc, fp, args, return_vars, internal_vars
@@ -34,12 +35,7 @@ pub fn compile_function(
     compiler.args_count = function.arguments.len();
 
     let mut declared_vars: BTreeSet<Var> = function.arguments.iter().cloned().collect();
-    crate::codegen::instruction::compile_lines(
-        &function.instructions,
-        compiler,
-        None,
-        &mut declared_vars,
-    )
+    compile_lines(&function.instructions, compiler, None, &mut declared_vars)
 }
 
 #[cfg(test)]

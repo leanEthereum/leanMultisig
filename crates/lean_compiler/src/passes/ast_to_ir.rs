@@ -7,10 +7,7 @@
 //! ready for code generation.
 
 use super::{Pass, PassResult};
-use crate::ir::{
-    SimpleProgram, conversion,
-    types::{ArrayManager, ConstMalloc, Counters},
-};
+use crate::ir::{ArrayManager, ConstMalloc, Counters, SimpleFunction, SimpleProgram, conversion};
 use crate::lang::Program;
 use std::collections::BTreeMap;
 
@@ -71,7 +68,7 @@ impl AstToIrPass {
                 .collect();
 
             // Create the IR function
-            let ir_function = crate::ir::types::SimpleFunction {
+            let ir_function = SimpleFunction {
                 name: name.clone(),
                 arguments: ir_arguments,
                 n_returned_vars: ast_function.n_returned_vars,

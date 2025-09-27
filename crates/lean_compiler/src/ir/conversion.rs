@@ -1,14 +1,12 @@
 use super::{
+    HighLevelOperation,
     types::{
         ArrayAccessType, ArrayManager, ConstMalloc, Counters, SimpleFunction, SimpleLine,
         VarOrConstMallocAccess,
     },
     utilities::find_variable_usage,
 };
-use crate::{
-    ir::HighLevelOperation,
-    lang::{Boolean, ConstExpression, Expression, Line, SimpleExpr, Var},
-};
+use crate::lang::{Boolean, ConstExpression, Expression, Line, SimpleExpr, Var};
 use std::collections::BTreeMap;
 use utils::ToUsize;
 
@@ -764,8 +762,7 @@ fn create_recursive_function(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::types::*;
-    use crate::{ir::HighLevelOperation, lang::*};
+    use crate::lang::*;
 
     fn create_test_counters() -> Counters {
         Counters::default()

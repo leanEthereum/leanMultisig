@@ -1,3 +1,4 @@
+use crate::codegen::function::compile_function;
 use crate::{ir::*, lang::*};
 use lean_vm::*;
 use std::collections::BTreeMap;
@@ -39,7 +40,7 @@ impl Compiler {
         let mut memory_sizes = BTreeMap::new();
 
         for function in simple_program.functions.values() {
-            let instructions = crate::codegen::function::compile_function(function, self)?;
+            let instructions = compile_function(function, self)?;
             self.bytecode
                 .insert(Label::function(&function.name), instructions);
             memory_sizes.insert(function.name.clone(), self.stack_size);
@@ -108,7 +109,7 @@ mod tests {
             n_returned_vars: 1,
         };
 
-        let result = crate::codegen::function::compile_function(&function, &mut compiler);
+        let result = compile_function(&function, &mut compiler);
         assert!(result.is_ok());
 
         assert_eq!(compiler.func_name, "test");
