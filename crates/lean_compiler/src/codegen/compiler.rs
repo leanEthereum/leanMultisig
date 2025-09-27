@@ -81,8 +81,8 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::SimpleExpr;
     use crate::ir::{SimpleFunction, SimpleLine, VarOrConstMallocAccess};
+    use crate::lang::SimpleExpr;
 
     #[test]
     fn test_compiler_creation() {

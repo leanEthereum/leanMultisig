@@ -140,8 +140,8 @@ impl Display for IntermediaryMemOrFpOrConstant {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{ConstExpression, SimpleExpr};
     use crate::ir::VarOrConstMallocAccess;
+    use crate::lang::{ConstExpression, SimpleExpr};
     use lean_vm::Label;
 
     #[test]

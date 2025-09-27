@@ -45,8 +45,8 @@ pub fn compile_function(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::SimpleExpr;
     use crate::ir::VarOrConstMallocAccess;
+    use crate::lang::SimpleExpr;
 
     #[test]
     fn test_compile_simple_function() {

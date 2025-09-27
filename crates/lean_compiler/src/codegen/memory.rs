@@ -1,4 +1,4 @@
-use crate::{lang::*, ir::*};
+use crate::{ir::*, lang::*};
 use std::collections::BTreeSet;
 
 /// Finds all internal variables declared within a set of instructions.
@@ -59,8 +59,8 @@ pub fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
 mod tests {
     use super::*;
     use crate::ir::HighLevelOperation;
-    use crate::lang::{ConstExpression, SimpleExpr};
     use crate::ir::VarOrConstMallocAccess;
+    use crate::lang::{ConstExpression, SimpleExpr};
 
     #[test]
     fn test_find_internal_vars_empty() {

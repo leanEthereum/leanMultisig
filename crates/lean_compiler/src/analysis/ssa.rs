@@ -1,7 +1,7 @@
 //! SSA (Static Single Assignment) analysis utilities.
 
-use crate::lang::{Line, Expression, Boolean, Var};
 use super::visitors::{Visitor, VisitorResult};
+use crate::lang::{Boolean, Expression, Line, Var};
 use std::collections::{HashMap, HashSet};
 
 /// Tracks variable assignments to detect SSA violations
@@ -131,7 +131,12 @@ impl ReturnContextCollector {
         collector.contexts
     }
 
-    fn collect_recursive(&mut self, lines: &[Line], return_vars: &[Var], current_conditions: Vec<Boolean>) {
+    fn collect_recursive(
+        &mut self,
+        lines: &[Line],
+        return_vars: &[Var],
+        current_conditions: Vec<Boolean>,
+    ) {
         for line in lines {
             match line {
                 Line::Assignment { var, value } if return_vars.contains(var) => {
@@ -141,7 +146,11 @@ impl ReturnContextCollector {
                     };
                     self.contexts.push(context);
                 }
-                Line::IfCondition { condition, then_branch, else_branch } => {
+                Line::IfCondition {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
                     // Collect from then branch with added condition
                     let mut then_conditions = current_conditions.clone();
                     then_conditions.push(condition.clone());
@@ -234,7 +243,7 @@ pub fn create_ssa_repair_strategy(contexts: &[ReturnContext]) -> Vec<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{SimpleExpr, ConstExpression};
+    use crate::lang::{ConstExpression, SimpleExpr};
 
     #[test]
     fn test_ssa_analyzer_no_violations() {
@@ -273,12 +282,10 @@ mod tests {
 
     #[test]
     fn test_return_context_collection() {
-        let lines = vec![
-            Line::Assignment {
-                var: "result".to_string(),
-                value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(42))),
-            },
-        ];
+        let lines = vec![Line::Assignment {
+            var: "result".to_string(),
+            value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(42))),
+        }];
 
         let return_vars = vec!["result".to_string()];
         let contexts = ReturnContextCollector::collect_from(&lines, &return_vars);
@@ -296,12 +303,10 @@ mod tests {
                     left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                     right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                 },
-                then_branch: vec![
-                    Line::Assignment {
-                        var: "result".to_string(),
-                        value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100))),
-                    }
-                ],
+                then_branch: vec![Line::Assignment {
+                    var: "result".to_string(),
+                    value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100))),
+                }],
                 else_branch: vec![],
             },
             Line::Assignment {

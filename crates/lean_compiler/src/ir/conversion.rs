@@ -764,8 +764,8 @@ fn create_recursive_function(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ir::HighLevelOperation, lang::*};
     use crate::ir::types::*;
+    use crate::{ir::HighLevelOperation, lang::*};
 
     fn create_test_counters() -> Counters {
         Counters::default()
