@@ -3,13 +3,18 @@
 use crate::{
     ir::{
         IntermediateInstruction, IntermediateValue, SimpleLine,
-        compile::{Compile, CompileContext, CompileResult, validate_vars_declared},
+        compile::{
+            Compile, CompileContext, CompileResult, FindInternalVars, validate_vars_declared,
+        },
         simple_line::compile_lines,
     },
-    lang::{ConstExpression, SimpleExpr},
+    lang::{ConstExpression, SimpleExpr, Var},
 };
 use lean_vm::{Label, Operation};
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Conditional branching (if-not-zero) instruction.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -205,6 +210,19 @@ impl Display for Branch {
                 self.condition, then_str, else_str
             )
         }
+    }
+}
+
+impl FindInternalVars for Branch {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        let mut vars = BTreeSet::new();
+        for line in &self.then_branch {
+            vars.extend(line.find_internal_vars());
+        }
+        for line in &self.else_branch {
+            vars.extend(line.find_internal_vars());
+        }
+        vars
     }
 }
 

@@ -3,11 +3,14 @@
 use crate::{
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
     },
     lang::SimpleExpr,
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Debug print statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -46,6 +49,12 @@ impl Display for Print {
             .collect::<Vec<_>>()
             .join(", ");
         write!(f, "print({})", content_str)
+    }
+}
+
+impl FindInternalVars for Print {
+    fn find_internal_vars(&self) -> BTreeSet<crate::lang::Var> {
+        BTreeSet::new()
     }
 }
 

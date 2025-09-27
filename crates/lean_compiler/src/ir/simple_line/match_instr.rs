@@ -3,13 +3,16 @@
 use crate::{
     ir::{
         IntermediateInstruction, IntermediateValue, SimpleLine,
-        compile::{Compile, CompileContext, CompileResult},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
         simple_line::compile_lines,
     },
-    lang::{ConstExpression, SimpleExpr},
+    lang::{ConstExpression, SimpleExpr, Var},
 };
 use lean_vm::{Label, Operation};
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Pattern matching with computed jumps.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -145,6 +148,18 @@ impl Display for Match {
             .join(", ");
 
         write!(f, "match {} {{ {} }}", self.value, arms_str)
+    }
+}
+
+impl FindInternalVars for Match {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        let mut vars = BTreeSet::new();
+        for arm in &self.arms {
+            for line in arm {
+                vars.extend(line.find_internal_vars());
+            }
+        }
+        vars
     }
 }
 

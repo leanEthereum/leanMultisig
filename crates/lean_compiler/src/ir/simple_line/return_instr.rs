@@ -3,12 +3,15 @@
 use crate::{
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
     },
     lang::SimpleExpr,
 };
 use lean_vm::Label;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Function return with values.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -71,6 +74,12 @@ impl Display for Return {
             .collect::<Vec<_>>()
             .join(", ");
         write!(f, "return {}", return_data_str)
+    }
+}
+
+impl FindInternalVars for Return {
+    fn find_internal_vars(&self) -> BTreeSet<crate::lang::Var> {
+        BTreeSet::new()
     }
 }
 

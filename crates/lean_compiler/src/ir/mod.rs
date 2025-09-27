@@ -27,4 +27,4 @@ pub use types::{ArrayManager, ConstMalloc, Counters, SimpleProgram, VarOrConstMa
 pub use utilities::replace_vars_by_const_in_lines;
 
 // New trait-based compilation exports
-pub use compile::{Compile, CompileContext, CompileResult};
+pub use compile::{Compile, CompileContext, CompileResult, FindInternalVars};

@@ -4,13 +4,18 @@ use crate::{
     codegen::Compiler,
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult, validate_vars_declared},
+        compile::{
+            Compile, CompileContext, CompileResult, FindInternalVars, validate_vars_declared,
+        },
         simple_line::compile_lines,
     },
     lang::{ConstExpression, SimpleExpr, Var},
 };
 use lean_vm::Label;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Function invocation with argument passing.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -108,6 +113,12 @@ impl Display for FunctionCall {
                 return_data_str, self.function_name, args_str
             )
         }
+    }
+}
+
+impl FindInternalVars for FunctionCall {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        self.return_data.iter().cloned().collect()
     }
 }
 

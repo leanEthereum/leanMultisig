@@ -4,12 +4,15 @@ use crate::{
     codegen::Compiler,
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
     },
     lang::SimpleExpr,
     precompiles::{Precompile, PrecompileName},
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Precompiled cryptographic operations.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -69,6 +72,12 @@ impl Display for PrecompileOp {
                 .collect::<Vec<_>>()
                 .join(", ")
         )
+    }
+}
+
+impl FindInternalVars for PrecompileOp {
+    fn find_internal_vars(&self) -> BTreeSet<crate::lang::Var> {
+        BTreeSet::new()
     }
 }
 

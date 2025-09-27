@@ -3,11 +3,14 @@
 use crate::{
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
     },
     lang::{SimpleExpr, Var},
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Dynamic memory allocation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -52,6 +55,14 @@ impl Display for DynamicAlloc {
         } else {
             write!(f, "{} = malloc({})", self.var, self.size)
         }
+    }
+}
+
+impl FindInternalVars for DynamicAlloc {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        let mut vars = BTreeSet::new();
+        vars.insert(self.var.clone());
+        vars
     }
 }
 

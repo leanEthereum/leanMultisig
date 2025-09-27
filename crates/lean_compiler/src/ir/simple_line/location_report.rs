@@ -2,10 +2,13 @@
 
 use crate::ir::{
     IntermediateInstruction,
-    compile::{Compile, CompileContext, CompileResult},
+    compile::{Compile, CompileContext, CompileResult, FindInternalVars},
 };
 use lean_vm::SourceLineNumber;
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Source location tracking for debugging.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -32,6 +35,12 @@ impl Display for LocationReport {
     fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         // Location reports are typically not displayed
         Ok(())
+    }
+}
+
+impl FindInternalVars for LocationReport {
+    fn find_internal_vars(&self) -> BTreeSet<crate::lang::Var> {
+        BTreeSet::new()
     }
 }
 

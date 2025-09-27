@@ -19,7 +19,7 @@ use crate::{
     codegen::Compiler,
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
     },
     lang::Var,
 };
@@ -154,9 +154,24 @@ impl IndentedDisplay for SimpleLine {
     }
 }
 
-impl SimpleLine {
-    pub fn to_string_with_indent(&self, indent: usize) -> String {
-        IndentedDisplay::to_string_with_indent(self, indent)
+impl FindInternalVars for SimpleLine {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        match self {
+            SimpleLine::Match(instr) => instr.find_internal_vars(),
+            SimpleLine::Assignment(instr) => instr.find_internal_vars(),
+            SimpleLine::RawMemoryAccess(instr) => instr.find_internal_vars(),
+            SimpleLine::Branch(instr) => instr.find_internal_vars(),
+            SimpleLine::FunctionCall(instr) => instr.find_internal_vars(),
+            SimpleLine::Return(instr) => instr.find_internal_vars(),
+            SimpleLine::Precompile(instr) => instr.find_internal_vars(),
+            SimpleLine::Panic(instr) => instr.find_internal_vars(),
+            SimpleLine::DecomposeBits(instr) => instr.find_internal_vars(),
+            SimpleLine::CounterHint(instr) => instr.find_internal_vars(),
+            SimpleLine::Print(instr) => instr.find_internal_vars(),
+            SimpleLine::DynamicAlloc(instr) => instr.find_internal_vars(),
+            SimpleLine::StaticAlloc(instr) => instr.find_internal_vars(),
+            SimpleLine::LocationReport(instr) => instr.find_internal_vars(),
+        }
     }
 }
 
@@ -171,13 +186,7 @@ pub fn compile_lines(
     let mut ctx = CompileContext::new(compiler, final_jump, declared_vars);
 
     for (i, line) in lines.iter().enumerate() {
-        let remaining = &lines[i + 1..];
-
-        // Compile the current instruction
-        let line_instructions = line.compile(&mut ctx, remaining)?;
-
-        instructions.extend(line_instructions);
-
+        instructions.extend(line.compile(&mut ctx, &lines[i + 1..])?);
         // Some instructions (like control flow) handle remaining lines themselves
         if should_stop_processing(line) {
             return Ok(instructions);
@@ -196,9 +205,17 @@ pub fn compile_lines(
 }
 
 /// Determines if instruction processing should stop after this instruction.
-fn should_stop_processing(line: &SimpleLine) -> bool {
+const fn should_stop_processing(line: &SimpleLine) -> bool {
     matches!(
         line,
         SimpleLine::Match(_) | SimpleLine::Branch(_) | SimpleLine::FunctionCall(_)
     )
+}
+
+/// Finds all internal variables declared within a set of instructions.
+pub fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
+    lines
+        .iter()
+        .flat_map(FindInternalVars::find_internal_vars)
+        .collect()
 }

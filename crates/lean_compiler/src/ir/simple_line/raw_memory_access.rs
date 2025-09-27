@@ -3,11 +3,16 @@
 use crate::{
     ir::{
         IntermediateInstruction,
-        compile::{Compile, CompileContext, CompileResult, validate_vars_declared},
+        compile::{
+            Compile, CompileContext, CompileResult, FindInternalVars, validate_vars_declared,
+        },
     },
-    lang::{ConstExpression, SimpleExpr},
+    lang::{ConstExpression, SimpleExpr, Var},
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Direct memory access operations.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -52,6 +57,16 @@ impl Compile for RawMemoryAccess {
 impl Display for RawMemoryAccess {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "memory[{} + {}] = {}", self.index, self.shift, self.res)
+    }
+}
+
+impl FindInternalVars for RawMemoryAccess {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        let mut vars = BTreeSet::new();
+        if let SimpleExpr::Var(var) = &self.res {
+            vars.insert(var.clone());
+        }
+        vars
     }
 }
 

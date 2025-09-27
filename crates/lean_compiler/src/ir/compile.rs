@@ -54,6 +54,15 @@ pub trait Compile {
     ) -> CompileResult;
 }
 
+/// Trait for finding internal variables declared by instructions.
+pub trait FindInternalVars {
+    /// Finds all internal variables declared within this instruction.
+    ///
+    /// # Returns
+    /// Set of variable names that need stack allocation
+    fn find_internal_vars(&self) -> BTreeSet<Var>;
+}
+
 pub fn mark_vars_as_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
     vocs: &[VoC],
     declared: &mut BTreeSet<Var>,

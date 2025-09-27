@@ -3,11 +3,14 @@
 use crate::{
     ir::{
         IntermediateInstruction,
-        compile::{Compile, CompileContext, CompileResult},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
     },
     lang::Var,
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 use utils::ToUsize;
 
 /// Counter value hint for loops.
@@ -41,6 +44,14 @@ impl Compile for CounterHint {
 impl Display for CounterHint {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} = counter_hint()", self.var)
+    }
+}
+
+impl FindInternalVars for CounterHint {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        let mut vars = BTreeSet::new();
+        vars.insert(self.var.clone());
+        vars
     }
 }
 

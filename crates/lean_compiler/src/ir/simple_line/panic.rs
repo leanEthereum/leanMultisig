@@ -2,9 +2,12 @@
 
 use crate::ir::{
     IntermediateInstruction,
-    compile::{Compile, CompileContext, CompileResult},
+    compile::{Compile, CompileContext, CompileResult, FindInternalVars},
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Unconditional program termination instruction.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -23,6 +26,12 @@ impl Compile for Panic {
 impl Display for Panic {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "panic")
+    }
+}
+
+impl FindInternalVars for Panic {
+    fn find_internal_vars(&self) -> BTreeSet<crate::lang::Var> {
+        BTreeSet::new()
     }
 }
 

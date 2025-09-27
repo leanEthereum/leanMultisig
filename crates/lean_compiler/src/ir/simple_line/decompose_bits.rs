@@ -3,11 +3,14 @@
 use crate::{
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult, handle_const_malloc},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars, handle_const_malloc},
     },
     lang::{ConstMallocLabel, SimpleExpr, Var},
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Bit decomposition for field elements.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -67,6 +70,14 @@ impl Display for DecomposeBits {
                 .collect::<Vec<_>>()
                 .join(", ")
         )
+    }
+}
+
+impl FindInternalVars for DecomposeBits {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        let mut vars = BTreeSet::new();
+        vars.insert(self.var.clone());
+        vars
     }
 }
 

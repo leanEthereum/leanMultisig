@@ -1,10 +1,13 @@
 //! Static memory allocation instruction implementation.
 
 use crate::{
-    ir::compile::{Compile, CompileContext, CompileResult, handle_const_malloc},
+    ir::compile::{Compile, CompileContext, CompileResult, FindInternalVars, handle_const_malloc},
     lang::{ConstExpression, ConstMallocLabel, Var},
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 use utils::ToUsize;
 
 /// Static compile-time memory allocation.
@@ -46,6 +49,14 @@ impl Compile for StaticAlloc {
 impl Display for StaticAlloc {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} = malloc({})", self.var, self.size)
+    }
+}
+
+impl FindInternalVars for StaticAlloc {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        let mut vars = BTreeSet::new();
+        vars.insert(self.var.clone());
+        vars
     }
 }
 

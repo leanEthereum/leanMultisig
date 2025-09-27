@@ -1,11 +1,11 @@
 //! Simple function representation and compilation.
 
 use crate::{
-    codegen::{Compiler, memory::find_internal_vars},
+    codegen::Compiler,
     ir::{
         IntermediateInstruction,
         compile::{Compile, CompileContext, CompileResult},
-        simple_line::{SimpleLine, compile_lines},
+        simple_line::{SimpleLine, compile_lines, find_internal_vars},
     },
     lang::Var,
 };

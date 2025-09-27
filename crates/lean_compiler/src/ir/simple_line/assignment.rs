@@ -2,12 +2,15 @@
 
 use crate::{
     ir::{
-        compile::{Compile, CompileContext, CompileResult},
+        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
         {HighLevelOperation, IntermediateInstruction, IntermediateValue, VarOrConstMallocAccess},
     },
-    lang::SimpleExpr,
+    lang::{SimpleExpr, Var},
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Display, Formatter},
+};
 
 /// Variable assignment with binary operations.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -54,6 +57,16 @@ impl Display for Assignment {
             "{} = {} {} {}",
             self.var, self.arg0, self.operation, self.arg1
         )
+    }
+}
+
+impl FindInternalVars for Assignment {
+    fn find_internal_vars(&self) -> BTreeSet<Var> {
+        let mut vars = BTreeSet::new();
+        if let VarOrConstMallocAccess::Var(var) = &self.var {
+            vars.insert(var.clone());
+        }
+        vars
     }
 }
 
