@@ -11,7 +11,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Pattern matching statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -61,7 +61,7 @@ impl IndentedDisplay for Match {
     }
 }
 
-impl ReplaceVarsForUnroll for Match {
+impl StatementAnalysis for Match {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -80,13 +80,42 @@ impl ReplaceVarsForUnroll for Match {
             replace_vars_for_unroll(body, iterator, unroll_index, iterator_value, internal_vars);
         }
     }
-}
 
-impl ReplaceVarsWithConst for Match {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
         crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.value, map);
         for (_, body) in &mut self.arms {
-            crate::ir::utilities::replace_vars_by_const_in_lines(body, map);
+            for line in body {
+                line.replace_vars_with_const(map);
+            }
         }
+    }
+
+    fn get_function_calls(&self, function_calls: &mut Vec<String>) {
+        crate::ir::utilities::get_function_calls_in_expr(&self.value, function_calls);
+        for (_, body) in &self.arms {
+            for line in body {
+                line.get_function_calls(function_calls);
+            }
+        }
+    }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        let (value_internal, value_external) =
+            crate::ir::utilities::find_internal_vars_in_expr(&self.value);
+        internal_vars.extend(value_internal);
+        external_vars.extend(value_external);
+
+        for (_, body) in &self.arms {
+            for line in body {
+                let (line_internal, line_external) = line.find_internal_vars();
+                internal_vars.extend(line_internal);
+                external_vars.extend(line_external);
+            }
+        }
+
+        (internal_vars, external_vars)
     }
 }

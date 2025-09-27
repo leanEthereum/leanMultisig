@@ -1,5 +1,5 @@
 use crate::lang::{
-    ConstExpression, Expression, Line, SimpleExpr, Var, traits::ReplaceVarsForUnroll,
+    ConstExpression, Expression, Line, SimpleExpr, Var, ast::statement::traits::StatementAnalysis,
 };
 use std::collections::BTreeSet;
 

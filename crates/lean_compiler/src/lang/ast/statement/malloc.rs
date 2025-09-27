@@ -10,7 +10,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Memory allocation statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -41,7 +41,7 @@ impl Display for MAlloc {
 
 impl IndentedDisplay for MAlloc {}
 
-impl ReplaceVarsForUnroll for MAlloc {
+impl StatementAnalysis for MAlloc {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -49,36 +49,47 @@ impl ReplaceVarsForUnroll for MAlloc {
         iterator_value: usize,
         internal_vars: &BTreeSet<Var>,
     ) {
-        assert!(self.var != *iterator, "Weird");
-        self.var = format!("@unrolled_{unroll_index}_{iterator_value}_{}", self.var);
+        assert_ne!(&self.var, iterator, "Weird");
+        if internal_vars.contains(&self.var) {
+            self.var = format!("@unrolled_{unroll_index}_{iterator_value}_{}", self.var);
+        }
         crate::ir::unroll::replace_vars_for_unroll_in_expr(
-            &mut self.size,
-            iterator,
-            unroll_index,
-            iterator_value,
-            internal_vars,
+            &mut self.size, iterator, unroll_index, iterator_value, internal_vars,
         );
         crate::ir::unroll::replace_vars_for_unroll_in_expr(
-            &mut self.vectorized_len,
-            iterator,
-            unroll_index,
-            iterator_value,
-            internal_vars,
+            &mut self.vectorized_len, iterator, unroll_index, iterator_value, internal_vars,
         );
     }
-}
 
-impl ReplaceVarsWithConst for MAlloc {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
-        assert!(
-            !map.contains_key(&self.var),
-            "Variable {} is a constant",
-            self.var
-        );
         crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.size, map);
         crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.vectorized_len, map);
     }
+
+    fn get_function_calls(&self, function_calls: &mut Vec<String>) {
+        crate::ir::utilities::get_function_calls_in_expr(&self.size, function_calls);
+        crate::ir::utilities::get_function_calls_in_expr(&self.vectorized_len, function_calls);
+    }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        internal_vars.insert(self.var.clone());
+
+        let (size_internal, size_external) = crate::ir::utilities::find_internal_vars_in_expr(&self.size);
+        internal_vars.extend(size_internal);
+        external_vars.extend(size_external);
+
+        let (len_internal, len_external) = crate::ir::utilities::find_internal_vars_in_expr(&self.vectorized_len);
+        internal_vars.extend(len_internal);
+        external_vars.extend(len_external);
+
+        (internal_vars, external_vars)
+    }
 }
+
+
 
 #[cfg(test)]
 mod tests {

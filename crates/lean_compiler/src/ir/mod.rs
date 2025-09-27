@@ -23,8 +23,5 @@ pub use simple_function::SimpleFunction;
 pub use simple_line::SimpleLine;
 pub use types::{ArrayManager, ConstMalloc, Counters, SimpleProgram, VarOrConstMallocAccess};
 
-// Re-export utilities
-pub use utilities::replace_vars_by_const_in_lines;
-
 // New trait-based compilation exports
 pub use compiler::{Compile, CompileContext, CompileResult, FindInternalVars};

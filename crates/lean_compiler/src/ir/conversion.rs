@@ -5,9 +5,8 @@ use super::{
         Match, Panic, PrecompileOp, Print, RawMemoryAccess, Return, SimpleLine, StaticAlloc,
     },
     types::{ArrayAccessType, ArrayManager, ConstMalloc, Counters, VarOrConstMallocAccess},
-    utilities::find_variable_usage,
 };
-use crate::lang;
+use crate::lang::{self, find_variable_usage};
 use crate::lang::{Boolean, ConstExpression, Expression, Line, SimpleExpr, Var};
 use std::collections::BTreeMap;
 use utils::ToUsize;

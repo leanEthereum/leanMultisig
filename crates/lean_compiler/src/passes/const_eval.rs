@@ -1,8 +1,7 @@
 //! Constant evaluation pass.
 
 use super::{Pass, PassError, PassResult};
-use crate::ir::utilities::replace_vars_by_const_in_lines;
-use crate::lang::{Function, FunctionCall, Line, Program};
+use crate::lang::{Function, FunctionCall, Line, Program, replace_vars_by_const_in_lines};
 use std::collections::BTreeMap;
 
 /// Pass for handling constant argument evaluation

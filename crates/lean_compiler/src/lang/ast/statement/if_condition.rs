@@ -3,11 +3,13 @@
 use crate::{
     F,
     ir::{
-        replace_vars_by_const_in_lines,
         unroll::{replace_vars_for_unroll, replace_vars_for_unroll_in_expr},
         utilities::replace_vars_by_const_in_expr,
     },
-    lang::{ast::types::Boolean, values::Var},
+    lang::{
+        ast::types::Boolean, find_variable_usage, get_function_called,
+        replace_vars_by_const_in_lines, values::Var,
+    },
     traits::IndentedDisplay,
 };
 use std::{
@@ -15,7 +17,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Conditional branching statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -84,7 +86,7 @@ impl IndentedDisplay for IfCondition {
     }
 }
 
-impl ReplaceVarsForUnroll for IfCondition {
+impl StatementAnalysis for IfCondition {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -126,9 +128,7 @@ impl ReplaceVarsForUnroll for IfCondition {
             internal_vars,
         );
     }
-}
 
-impl ReplaceVarsWithConst for IfCondition {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
         match &mut self.condition {
             crate::lang::ast::types::Boolean::Equal { left, right }
@@ -140,4 +140,49 @@ impl ReplaceVarsWithConst for IfCondition {
         replace_vars_by_const_in_lines(&mut self.then_branch, map);
         replace_vars_by_const_in_lines(&mut self.else_branch, map);
     }
+
+    fn get_function_calls(&self, function_calls: &mut Vec<String>) {
+        get_function_called(&self.then_branch, function_calls);
+        get_function_called(&self.else_branch, function_calls);
+    }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        // Helper function to extract vars from boolean condition
+        let add_condition_vars =
+            |condition: &Boolean, external_vars: &mut BTreeSet<Var>| match condition {
+                Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+                    for var in crate::ir::utilities::vars_in_expression(left) {
+                        external_vars.insert(var);
+                    }
+                    for var in crate::ir::utilities::vars_in_expression(right) {
+                        external_vars.insert(var);
+                    }
+                }
+            };
+
+        // Add condition variables as external
+        add_condition_vars(&self.condition, &mut external_vars);
+
+        // Recursively find variables in then/else branches
+        let (then_internal, then_external) = find_variable_usage(&self.then_branch);
+        let (else_internal, else_external) = find_variable_usage(&self.else_branch);
+
+        // Variables defined in either branch are internal to the if statement
+        internal_vars.extend(then_internal.union(&else_internal).cloned());
+
+        // External variables from branches (excluding already internal ones)
+        external_vars.extend(
+            then_external
+                .union(&else_external)
+                .filter(|v| !internal_vars.contains(*v))
+                .cloned(),
+        );
+
+        (internal_vars, external_vars)
+    }
 }
+
+// Legacy trait compatibility

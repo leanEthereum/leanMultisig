@@ -10,7 +10,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Function return statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -33,7 +33,7 @@ impl Display for FunctionRet {
 
 impl IndentedDisplay for FunctionRet {}
 
-impl ReplaceVarsForUnroll for FunctionRet {
+impl StatementAnalysis for FunctionRet {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -41,25 +41,40 @@ impl ReplaceVarsForUnroll for FunctionRet {
         iterator_value: usize,
         internal_vars: &BTreeSet<Var>,
     ) {
-        for ret in &mut self.return_data {
+        for expr in &mut self.return_data {
             crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                ret,
-                iterator,
-                unroll_index,
-                iterator_value,
-                internal_vars,
+                expr, iterator, unroll_index, iterator_value, internal_vars,
             );
         }
     }
-}
 
-impl ReplaceVarsWithConst for FunctionRet {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
         for expr in &mut self.return_data {
             crate::ir::utilities::replace_vars_by_const_in_expr(expr, map);
         }
     }
+
+    fn get_function_calls(&self, function_calls: &mut Vec<String>) {
+        for expr in &self.return_data {
+            crate::ir::utilities::get_function_calls_in_expr(expr, function_calls);
+        }
+    }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        for expr in &self.return_data {
+            let (expr_internal, expr_external) = crate::ir::utilities::find_internal_vars_in_expr(expr);
+            internal_vars.extend(expr_internal);
+            external_vars.extend(expr_external);
+        }
+
+        (internal_vars, external_vars)
+    }
 }
+
+
 
 #[cfg(test)]
 mod tests {

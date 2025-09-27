@@ -10,7 +10,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Function call statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -48,7 +48,8 @@ impl Display for FunctionCall {
 
 impl IndentedDisplay for FunctionCall {}
 
-impl ReplaceVarsForUnroll for FunctionCall {
+
+impl StatementAnalysis for FunctionCall {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -70,9 +71,7 @@ impl ReplaceVarsForUnroll for FunctionCall {
             *ret = format!("@unrolled_{unroll_index}_{iterator_value}_{ret}");
         }
     }
-}
 
-impl ReplaceVarsWithConst for FunctionCall {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
         for arg in &mut self.args {
             crate::ir::utilities::replace_vars_by_const_in_expr(arg, map);
@@ -84,7 +83,31 @@ impl ReplaceVarsWithConst for FunctionCall {
             );
         }
     }
+
+    fn get_function_calls(&self, function_calls: &mut Vec<String>) {
+        function_calls.push(self.function_name.clone());
+    }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        // Return variables are internal
+        internal_vars.extend(self.return_data.iter().cloned());
+
+        // Variables in arguments are external (unless they're already internal)
+        for arg in &self.args {
+            for var in crate::ir::utilities::vars_in_expression(arg) {
+                if !internal_vars.contains(&var) {
+                    external_vars.insert(var);
+                }
+            }
+        }
+
+        (internal_vars, external_vars)
+    }
 }
+
 
 #[cfg(test)]
 mod tests {

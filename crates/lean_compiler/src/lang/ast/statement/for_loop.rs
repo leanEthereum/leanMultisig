@@ -2,11 +2,8 @@
 
 use crate::{
     F,
-    ir::{
-        replace_vars_by_const_in_lines, unroll::replace_vars_for_unroll,
-        utilities::replace_vars_by_const_in_expr,
-    },
-    lang::{expr::Expression, values::Var},
+    ir::unroll::replace_vars_for_unroll,
+    lang::{expr::Expression, replace_vars_by_const_in_lines, values::Var},
     traits::IndentedDisplay,
 };
 use std::{
@@ -14,7 +11,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// For loop statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -77,7 +74,7 @@ impl IndentedDisplay for ForLoop {
     }
 }
 
-impl ReplaceVarsForUnroll for ForLoop {
+impl StatementAnalysis for ForLoop {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -85,11 +82,7 @@ impl ReplaceVarsForUnroll for ForLoop {
         iterator_value: usize,
         internal_vars: &BTreeSet<Var>,
     ) {
-        assert!(self.iterator != *iterator);
-        self.iterator = format!(
-            "@unrolled_{unroll_index}_{iterator_value}_{}",
-            self.iterator
-        );
+        // Replace variables in start and end expressions
         crate::ir::unroll::replace_vars_for_unroll_in_expr(
             &mut self.start,
             iterator,
@@ -104,6 +97,16 @@ impl ReplaceVarsForUnroll for ForLoop {
             iterator_value,
             internal_vars,
         );
+
+        // Rename the iterator variable if it's internal
+        if internal_vars.contains(&self.iterator) {
+            self.iterator = format!(
+                "@unrolled_{unroll_index}_{iterator_value}_{}",
+                self.iterator
+            );
+        }
+
+        // Process the loop body
         replace_vars_for_unroll(
             &mut self.body,
             iterator,
@@ -112,12 +115,44 @@ impl ReplaceVarsForUnroll for ForLoop {
             internal_vars,
         );
     }
-}
 
-impl ReplaceVarsWithConst for ForLoop {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
-        replace_vars_by_const_in_expr(&mut self.start, map);
-        replace_vars_by_const_in_expr(&mut self.end, map);
+        crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.start, map);
+        crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.end, map);
         replace_vars_by_const_in_lines(&mut self.body, map);
+    }
+
+    fn get_function_calls(&self, function_calls: &mut Vec<String>) {
+        crate::ir::utilities::get_function_calls_in_expr(&self.start, function_calls);
+        crate::ir::utilities::get_function_calls_in_expr(&self.end, function_calls);
+        for line in &self.body {
+            line.get_function_calls(function_calls);
+        }
+    }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        // The iterator variable is internal to the loop
+        internal_vars.insert(self.iterator.clone());
+
+        let (start_internal, start_external) =
+            crate::ir::utilities::find_internal_vars_in_expr(&self.start);
+        internal_vars.extend(start_internal);
+        external_vars.extend(start_external);
+
+        let (end_internal, end_external) =
+            crate::ir::utilities::find_internal_vars_in_expr(&self.end);
+        internal_vars.extend(end_internal);
+        external_vars.extend(end_external);
+
+        for line in &self.body {
+            let (line_internal, line_external) = line.find_internal_vars();
+            internal_vars.extend(line_internal);
+            external_vars.extend(line_external);
+        }
+
+        (internal_vars, external_vars)
     }
 }

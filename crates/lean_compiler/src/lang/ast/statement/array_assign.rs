@@ -13,7 +13,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Array element assignment statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -34,7 +34,7 @@ impl Display for ArrayAssign {
 
 impl IndentedDisplay for ArrayAssign {}
 
-impl ReplaceVarsForUnroll for ArrayAssign {
+impl StatementAnalysis for ArrayAssign {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -42,7 +42,7 @@ impl ReplaceVarsForUnroll for ArrayAssign {
         iterator_value: usize,
         internal_vars: &BTreeSet<Var>,
     ) {
-        // array[index] = value
+        // arr[index] = value
         if let SimpleExpr::Var(array_var) = &mut self.array {
             assert!(array_var != iterator, "Weird");
             if internal_vars.contains(array_var) {
@@ -64,20 +64,37 @@ impl ReplaceVarsForUnroll for ArrayAssign {
             internal_vars,
         );
     }
-}
 
-impl ReplaceVarsWithConst for ArrayAssign {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
-        if let SimpleExpr::Var(array_var) = &self.array {
-            assert!(
-                !map.contains_key(array_var),
-                "Array {array_var} is a constant"
-            );
-        }
+        crate::ir::utilities::replace_vars_by_const_in_expr(
+            &mut Expression::Value(self.array.clone()),
+            map,
+        );
         crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.index, map);
         crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.value, map);
     }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        // Array assignment doesn't create new internal variables, it modifies existing ones
+        if let SimpleExpr::Var(array_var) = &self.array {
+            external_vars.insert(array_var.clone());
+        }
+
+        let (index_internal, index_external) = crate::ir::utilities::find_internal_vars_in_expr(&self.index);
+        internal_vars.extend(index_internal);
+        external_vars.extend(index_external);
+
+        let (value_internal, value_external) = crate::ir::utilities::find_internal_vars_in_expr(&self.value);
+        internal_vars.extend(value_internal);
+        external_vars.extend(value_external);
+
+        (internal_vars, external_vars)
+    }
 }
+
 
 #[cfg(test)]
 mod tests {

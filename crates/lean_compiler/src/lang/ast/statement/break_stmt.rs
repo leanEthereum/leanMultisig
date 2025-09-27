@@ -1,12 +1,9 @@
 //! Break statement implementation.
 
-use crate::{F, lang::values::Var, traits::IndentedDisplay};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::{Display, Formatter},
-};
+use crate::traits::IndentedDisplay;
+use std::fmt::{Display, Formatter};
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Break statement for loop control.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -20,23 +17,8 @@ impl Display for Break {
 
 impl IndentedDisplay for Break {}
 
-impl ReplaceVarsForUnroll for Break {
-    fn replace_vars_for_unroll(
-        &mut self,
-        _iterator: &Var,
-        _unroll_index: usize,
-        _iterator_value: usize,
-        _internal_vars: &BTreeSet<Var>,
-    ) {
-        // Break statements don't contain variables, so nothing to replace
-    }
-}
-
-impl ReplaceVarsWithConst for Break {
-    fn replace_vars_with_const(&mut self, _map: &BTreeMap<Var, F>) {
-        // Break statements don't contain variables, so nothing to replace
-    }
-}
+// Break uses all default implementations from StatementAnalysis
+impl StatementAnalysis for Break {}
 
 #[cfg(test)]
 mod tests {

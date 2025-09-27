@@ -1,13 +1,10 @@
 //! Location report statement implementation.
 
-use crate::{F, lang::values::Var, traits::IndentedDisplay};
+use crate::traits::IndentedDisplay;
 use lean_vm::SourceLineNumber;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::{Display, Formatter},
-};
+use std::fmt::{Display, Formatter};
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Source location tracking statement for debugging.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -30,23 +27,7 @@ impl IndentedDisplay for LocationReport {
     }
 }
 
-impl ReplaceVarsForUnroll for LocationReport {
-    fn replace_vars_for_unroll(
-        &mut self,
-        _iterator: &Var,
-        _unroll_index: usize,
-        _iterator_value: usize,
-        _internal_vars: &BTreeSet<Var>,
-    ) {
-        // Location reports don't contain variables, so nothing to replace
-    }
-}
-
-impl ReplaceVarsWithConst for LocationReport {
-    fn replace_vars_with_const(&mut self, _map: &BTreeMap<Var, F>) {
-        // Location reports don't contain variables, so nothing to replace
-    }
-}
+impl StatementAnalysis for LocationReport {}
 
 #[cfg(test)]
 mod tests {

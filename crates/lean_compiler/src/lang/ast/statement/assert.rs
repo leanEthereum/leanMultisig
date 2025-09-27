@@ -10,7 +10,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Assert statement for runtime checks.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -27,7 +27,7 @@ impl Display for Assert {
 
 impl IndentedDisplay for Assert {}
 
-impl ReplaceVarsForUnroll for Assert {
+impl StatementAnalysis for Assert {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -36,36 +36,79 @@ impl ReplaceVarsForUnroll for Assert {
         internal_vars: &BTreeSet<Var>,
     ) {
         match &mut self.condition {
-            Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+            Boolean::Equal { left, right } => {
                 crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                    left,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
+                    left, iterator, unroll_index, iterator_value, internal_vars,
                 );
                 crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                    right,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
+                    right, iterator, unroll_index, iterator_value, internal_vars,
+                );
+            }
+            Boolean::Different { left, right } => {
+                crate::ir::unroll::replace_vars_for_unroll_in_expr(
+                    left, iterator, unroll_index, iterator_value, internal_vars,
+                );
+                crate::ir::unroll::replace_vars_for_unroll_in_expr(
+                    right, iterator, unroll_index, iterator_value, internal_vars,
                 );
             }
         }
     }
-}
 
-impl ReplaceVarsWithConst for Assert {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
         match &mut self.condition {
-            Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+            Boolean::Equal { left, right } => {
+                crate::ir::utilities::replace_vars_by_const_in_expr(left, map);
+                crate::ir::utilities::replace_vars_by_const_in_expr(right, map);
+            }
+            Boolean::Different { left, right } => {
                 crate::ir::utilities::replace_vars_by_const_in_expr(left, map);
                 crate::ir::utilities::replace_vars_by_const_in_expr(right, map);
             }
         }
     }
+
+    fn get_function_calls(&self, function_calls: &mut Vec<String>) {
+        match &self.condition {
+            Boolean::Equal { left, right } => {
+                crate::ir::utilities::get_function_calls_in_expr(left, function_calls);
+                crate::ir::utilities::get_function_calls_in_expr(right, function_calls);
+            }
+            Boolean::Different { left, right } => {
+                crate::ir::utilities::get_function_calls_in_expr(left, function_calls);
+                crate::ir::utilities::get_function_calls_in_expr(right, function_calls);
+            }
+        }
+    }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        match &self.condition {
+            Boolean::Equal { left, right } => {
+                let (left_internal, left_external) = crate::ir::utilities::find_internal_vars_in_expr(left);
+                let (right_internal, right_external) = crate::ir::utilities::find_internal_vars_in_expr(right);
+                internal_vars.extend(left_internal);
+                internal_vars.extend(right_internal);
+                external_vars.extend(left_external);
+                external_vars.extend(right_external);
+            }
+            Boolean::Different { left, right } => {
+                let (left_internal, left_external) = crate::ir::utilities::find_internal_vars_in_expr(left);
+                let (right_internal, right_external) = crate::ir::utilities::find_internal_vars_in_expr(right);
+                internal_vars.extend(left_internal);
+                internal_vars.extend(right_internal);
+                external_vars.extend(left_external);
+                external_vars.extend(right_external);
+            }
+        }
+
+        (internal_vars, external_vars)
+    }
 }
+
+
 
 #[cfg(test)]
 mod tests {

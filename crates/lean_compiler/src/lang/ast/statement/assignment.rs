@@ -10,7 +10,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Variable assignment statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -29,7 +29,7 @@ impl Display for Assignment {
 
 impl IndentedDisplay for Assignment {}
 
-impl ReplaceVarsForUnroll for Assignment {
+impl StatementAnalysis for Assignment {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -47,9 +47,7 @@ impl ReplaceVarsForUnroll for Assignment {
             internal_vars,
         );
     }
-}
 
-impl ReplaceVarsWithConst for Assignment {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
         assert!(
             !map.contains_key(&self.var),
@@ -58,7 +56,25 @@ impl ReplaceVarsWithConst for Assignment {
         );
         crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.value, map);
     }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        // The assigned variable is internal
+        internal_vars.insert(self.var.clone());
+
+        // Variables used in the expression are external (unless they're already internal)
+        for var in crate::ir::utilities::vars_in_expression(&self.value) {
+            if !internal_vars.contains(&var) {
+                external_vars.insert(var);
+            }
+        }
+
+        (internal_vars, external_vars)
+    }
 }
+
 
 #[cfg(test)]
 mod tests {

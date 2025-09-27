@@ -1,12 +1,12 @@
 //! Counter hint statement implementation.
 
-use crate::{F, lang::values::Var, traits::IndentedDisplay};
+use crate::{lang::values::Var, traits::IndentedDisplay};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Counter value hint statement for loops.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -23,25 +23,24 @@ impl Display for CounterHint {
 
 impl IndentedDisplay for CounterHint {}
 
-impl ReplaceVarsForUnroll for CounterHint {
+impl StatementAnalysis for CounterHint {
     fn replace_vars_for_unroll(
         &mut self,
-        _iterator: &Var,
+        iterator: &Var,
         unroll_index: usize,
         iterator_value: usize,
-        _internal_vars: &BTreeSet<Var>,
+        internal_vars: &BTreeSet<Var>,
     ) {
-        self.var = format!("@unrolled_{unroll_index}_{iterator_value}_{}", self.var);
+        assert_ne!(&self.var, iterator, "Weird");
+        if internal_vars.contains(&self.var) {
+            self.var = format!("@unrolled_{unroll_index}_{iterator_value}_{}", self.var);
+        }
     }
-}
 
-impl ReplaceVarsWithConst for CounterHint {
-    fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
-        assert!(
-            !map.contains_key(&self.var),
-            "Variable {} is a constant",
-            self.var
-        );
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        internal_vars.insert(self.var.clone());
+        (internal_vars, BTreeSet::new())
     }
 }
 

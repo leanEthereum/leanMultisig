@@ -1,12 +1,9 @@
 //! Panic statement implementation.
 
-use crate::{F, lang::values::Var, traits::IndentedDisplay};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::{Display, Formatter},
-};
+use crate::traits::IndentedDisplay;
+use std::fmt::{Display, Formatter};
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Unconditional program termination.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -20,23 +17,7 @@ impl Display for Panic {
 
 impl IndentedDisplay for Panic {}
 
-impl ReplaceVarsForUnroll for Panic {
-    fn replace_vars_for_unroll(
-        &mut self,
-        _iterator: &Var,
-        _unroll_index: usize,
-        _iterator_value: usize,
-        _internal_vars: &BTreeSet<Var>,
-    ) {
-        // Panic statements don't contain variables, so nothing to replace
-    }
-}
-
-impl ReplaceVarsWithConst for Panic {
-    fn replace_vars_with_const(&mut self, _map: &BTreeMap<Var, F>) {
-        // Panic statements don't contain variables, so nothing to replace
-    }
-}
+impl StatementAnalysis for Panic {}
 
 #[cfg(test)]
 mod tests {

@@ -10,7 +10,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
+use super::traits::StatementAnalysis;
 
 /// Debug print statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -35,7 +35,7 @@ impl Display for Print {
 
 impl IndentedDisplay for Print {}
 
-impl ReplaceVarsForUnroll for Print {
+impl StatementAnalysis for Print {
     fn replace_vars_for_unroll(
         &mut self,
         iterator: &Var,
@@ -43,26 +43,41 @@ impl ReplaceVarsForUnroll for Print {
         iterator_value: usize,
         internal_vars: &BTreeSet<Var>,
     ) {
-        self.line_info += &format!(" (unrolled {unroll_index} {iterator_value})");
+        self.line_info = format!("{} (unrolled {} {})", self.line_info, unroll_index, iterator_value);
         for expr in &mut self.content {
             crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                expr,
-                iterator,
-                unroll_index,
-                iterator_value,
-                internal_vars,
+                expr, iterator, unroll_index, iterator_value, internal_vars,
             );
         }
     }
-}
 
-impl ReplaceVarsWithConst for Print {
     fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
         for expr in &mut self.content {
             crate::ir::utilities::replace_vars_by_const_in_expr(expr, map);
         }
     }
+
+    fn get_function_calls(&self, function_calls: &mut Vec<String>) {
+        for expr in &self.content {
+            crate::ir::utilities::get_function_calls_in_expr(expr, function_calls);
+        }
+    }
+
+    fn find_internal_vars(&self) -> (BTreeSet<Var>, BTreeSet<Var>) {
+        let mut internal_vars = BTreeSet::new();
+        let mut external_vars = BTreeSet::new();
+
+        for expr in &self.content {
+            let (expr_internal, expr_external) = crate::ir::utilities::find_internal_vars_in_expr(expr);
+            internal_vars.extend(expr_internal);
+            external_vars.extend(expr_external);
+        }
+
+        (internal_vars, external_vars)
+    }
 }
+
+
 
 #[cfg(test)]
 mod tests {
