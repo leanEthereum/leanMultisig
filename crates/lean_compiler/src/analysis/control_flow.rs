@@ -158,11 +158,13 @@ mod tests {
 
     #[test]
     fn test_control_flow_analyzer_simple() {
-        let lines = vec![Line::FunctionRet(crate::lang::ast::statement::FunctionRet {
-            return_data: vec![Expression::Value(SimpleExpr::Constant(
-                ConstExpression::scalar(42),
-            ))],
-        })];
+        let lines = vec![Line::FunctionRet(
+            crate::lang::ast::statement::FunctionRet {
+                return_data: vec![Expression::Value(SimpleExpr::Constant(
+                    ConstExpression::scalar(42),
+                ))],
+            },
+        )];
 
         let analysis = ControlFlowAnalyzer::analyze(&lines);
         assert!(analysis.has_returns);
@@ -172,18 +174,22 @@ mod tests {
 
     #[test]
     fn test_control_flow_analyzer_nested() {
-        let lines = vec![Line::IfCondition(crate::lang::ast::statement::IfCondition {
-            condition: Boolean::Equal {
-                left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-                right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
+        let lines = vec![Line::IfCondition(
+            crate::lang::ast::statement::IfCondition {
+                condition: Boolean::Equal {
+                    left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
+                    right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
+                },
+                then_branch: vec![Line::FunctionRet(
+                    crate::lang::ast::statement::FunctionRet {
+                        return_data: vec![Expression::Value(SimpleExpr::Constant(
+                            ConstExpression::scalar(100),
+                        ))],
+                    },
+                )],
+                else_branch: vec![],
             },
-            then_branch: vec![Line::FunctionRet(crate::lang::ast::statement::FunctionRet {
-                return_data: vec![Expression::Value(SimpleExpr::Constant(
-                    ConstExpression::scalar(100),
-                ))],
-            })],
-            else_branch: vec![],
-        })];
+        )];
 
         let analysis = ControlFlowAnalyzer::analyze(&lines);
         assert!(analysis.has_returns);
@@ -199,11 +205,13 @@ mod tests {
                     left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                     right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                 },
-                then_branch: vec![Line::FunctionRet(crate::lang::ast::statement::FunctionRet {
-                    return_data: vec![Expression::Value(SimpleExpr::Constant(
-                        ConstExpression::scalar(100),
-                    ))],
-                })],
+                then_branch: vec![Line::FunctionRet(
+                    crate::lang::ast::statement::FunctionRet {
+                        return_data: vec![Expression::Value(SimpleExpr::Constant(
+                            ConstExpression::scalar(100),
+                        ))],
+                    },
+                )],
                 else_branch: vec![],
             }),
             Line::FunctionRet(crate::lang::ast::statement::FunctionRet {

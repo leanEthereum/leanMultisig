@@ -1,9 +1,6 @@
 //! Match statement implementation.
 
-use crate::{
-    lang::expr::Expression,
-    traits::IndentedDisplay,
-};
+use crate::{lang::expr::Expression, traits::IndentedDisplay};
 use std::fmt::{Display, Formatter};
 
 /// Pattern matching statement.
@@ -17,7 +14,8 @@ pub struct Match {
 
 impl Display for Match {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let arms_str = self.arms
+        let arms_str = self
+            .arms
             .iter()
             .map(|(const_expr, body)| {
                 let body_str = body
@@ -36,7 +34,8 @@ impl Display for Match {
 impl IndentedDisplay for Match {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
-        let arms_str = self.arms
+        let arms_str = self
+            .arms
             .iter()
             .map(|(const_expr, body)| {
                 let body_str = body

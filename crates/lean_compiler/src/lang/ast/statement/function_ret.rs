@@ -1,9 +1,6 @@
 //! Function return statement implementation.
 
-use crate::{
-    lang::expr::Expression,
-    traits::IndentedDisplay,
-};
+use crate::{lang::expr::Expression, traits::IndentedDisplay};
 use std::fmt::{Display, Formatter};
 
 /// Function return statement.
@@ -15,7 +12,8 @@ pub struct FunctionRet {
 
 impl Display for FunctionRet {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let return_data_str = self.return_data
+        let return_data_str = self
+            .return_data
             .iter()
             .map(|arg| format!("{arg}"))
             .collect::<Vec<_>>()

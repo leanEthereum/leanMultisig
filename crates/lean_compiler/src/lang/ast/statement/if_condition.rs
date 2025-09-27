@@ -1,9 +1,6 @@
 //! If condition statement implementation.
 
-use crate::{
-    lang::ast::types::Boolean,
-    traits::IndentedDisplay,
-};
+use crate::{lang::ast::types::Boolean, traits::IndentedDisplay};
 use std::fmt::{Display, Formatter};
 
 /// Conditional branching statement.
@@ -19,13 +16,15 @@ pub struct IfCondition {
 
 impl Display for IfCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let then_str = self.then_branch
+        let then_str = self
+            .then_branch
             .iter()
             .map(|line| line.to_string_with_indent(1))
             .collect::<Vec<_>>()
             .join("\n");
 
-        let else_str = self.else_branch
+        let else_str = self
+            .else_branch
             .iter()
             .map(|line| line.to_string_with_indent(1))
             .collect::<Vec<_>>()
@@ -34,7 +33,11 @@ impl Display for IfCondition {
         if self.else_branch.is_empty() {
             write!(f, "if {} {{\n{then_str}\n}}", self.condition)
         } else {
-            write!(f, "if {} {{\n{then_str}\n}} else {{\n{else_str}\n}}", self.condition)
+            write!(
+                f,
+                "if {} {{\n{then_str}\n}} else {{\n{else_str}\n}}",
+                self.condition
+            )
         }
     }
 }
@@ -42,13 +45,15 @@ impl Display for IfCondition {
 impl IndentedDisplay for IfCondition {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
-        let then_str = self.then_branch
+        let then_str = self
+            .then_branch
             .iter()
             .map(|line| line.to_string_with_indent(indent + 1))
             .collect::<Vec<_>>()
             .join("\n");
 
-        let else_str = self.else_branch
+        let else_str = self
+            .else_branch
             .iter()
             .map(|line| line.to_string_with_indent(indent + 1))
             .collect::<Vec<_>>()

@@ -1,9 +1,6 @@
 //! Counter hint statement implementation.
 
-use crate::{
-    lang::values::Var,
-    traits::IndentedDisplay,
-};
+use crate::{lang::values::Var, traits::IndentedDisplay};
 use std::fmt::{Display, Formatter};
 
 /// Counter value hint statement for loops.
@@ -38,6 +35,9 @@ mod tests {
         let hint = CounterHint {
             var: "loop_counter".to_string(),
         };
-        assert_eq!(hint.to_string_with_indent(3), "            loop_counter = counter_hint(loop_counter)");
+        assert_eq!(
+            hint.to_string_with_indent(3),
+            "            loop_counter = counter_hint(loop_counter)"
+        );
     }
 }

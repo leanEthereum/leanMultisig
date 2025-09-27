@@ -41,8 +41,16 @@ impl ConstEvalPass {
                     }
                 }
                 Line::IfCondition(if_cond) => {
-                    Self::process_function(&mut if_cond.then_branch, constant_functions, new_functions);
-                    Self::process_function(&mut if_cond.else_branch, constant_functions, new_functions);
+                    Self::process_function(
+                        &mut if_cond.then_branch,
+                        constant_functions,
+                        new_functions,
+                    );
+                    Self::process_function(
+                        &mut if_cond.else_branch,
+                        constant_functions,
+                        new_functions,
+                    );
                 }
                 Line::ForLoop(for_loop) => {
                     Self::process_function(&mut for_loop.body, constant_functions, new_functions);

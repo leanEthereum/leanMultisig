@@ -1,9 +1,6 @@
 //! Print statement implementation.
 
-use crate::{
-    lang::expr::Expression,
-    traits::IndentedDisplay,
-};
+use crate::{lang::expr::Expression, traits::IndentedDisplay};
 use std::fmt::{Display, Formatter};
 
 /// Debug print statement.
@@ -17,7 +14,8 @@ pub struct Print {
 
 impl Display for Print {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let content_str = self.content
+        let content_str = self
+            .content
             .iter()
             .map(|c| format!("{c}"))
             .collect::<Vec<_>>()

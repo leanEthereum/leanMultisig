@@ -1,7 +1,7 @@
 //! Array assignment statement implementation.
 
 use crate::{
-    lang::{expr::{Expression, SimpleExpr}},
+    lang::expr::{Expression, SimpleExpr},
     traits::IndentedDisplay,
 };
 use std::fmt::{Display, Formatter};
@@ -47,6 +47,9 @@ mod tests {
             index: Expression::scalar(5),
             value: Expression::scalar(42),
         };
-        assert_eq!(array_assign.to_string_with_indent(2), "        data[5] = 42");
+        assert_eq!(
+            array_assign.to_string_with_indent(2),
+            "        data[5] = 42"
+        );
     }
 }

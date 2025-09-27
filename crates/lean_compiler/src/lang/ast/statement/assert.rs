@@ -1,9 +1,6 @@
 //! Assert statement implementation.
 
-use crate::{
-    lang::ast::types::Boolean,
-    traits::IndentedDisplay,
-};
+use crate::{lang::ast::types::Boolean, traits::IndentedDisplay};
 use std::fmt::{Display, Formatter};
 
 /// Assert statement for runtime checks.
@@ -24,7 +21,10 @@ impl IndentedDisplay for Assert {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{ast::types::Boolean, expr::{Expression, SimpleExpr}};
+    use crate::lang::{
+        ast::types::Boolean,
+        expr::{Expression, SimpleExpr},
+    };
 
     #[test]
     fn test_assert_display() {

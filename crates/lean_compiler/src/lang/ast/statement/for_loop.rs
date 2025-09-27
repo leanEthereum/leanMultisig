@@ -25,7 +25,8 @@ pub struct ForLoop {
 
 impl Display for ForLoop {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let body_str = self.body
+        let body_str = self
+            .body
             .iter()
             .map(|line| line.to_string_with_indent(1))
             .collect::<Vec<_>>()
@@ -46,7 +47,8 @@ impl Display for ForLoop {
 impl IndentedDisplay for ForLoop {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
-        let body_str = self.body
+        let body_str = self
+            .body
             .iter()
             .map(|line| line.to_string_with_indent(indent + 1))
             .collect::<Vec<_>>()

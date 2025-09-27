@@ -19,12 +19,14 @@ pub struct FunctionCall {
 
 impl Display for FunctionCall {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let args_str = self.args
+        let args_str = self
+            .args
             .iter()
             .map(|arg| format!("{arg}"))
             .collect::<Vec<_>>()
             .join(", ");
-        let return_data_str = self.return_data
+        let return_data_str = self
+            .return_data
             .iter()
             .map(|var| var.to_string())
             .collect::<Vec<_>>()

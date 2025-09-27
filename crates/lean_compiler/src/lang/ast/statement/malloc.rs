@@ -22,7 +22,11 @@ pub struct MAlloc {
 impl Display for MAlloc {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.vectorized {
-            write!(f, "{} = malloc_vec({}, {})", self.var, self.size, self.vectorized_len)
+            write!(
+                f,
+                "{} = malloc_vec({}, {})",
+                self.var, self.size, self.vectorized_len
+            )
         } else {
             write!(f, "{} = malloc({})", self.var, self.size)
         }
@@ -66,6 +70,9 @@ mod tests {
             vectorized: false,
             vectorized_len: Expression::scalar(1),
         };
-        assert_eq!(malloc.to_string_with_indent(2), "        buffer = malloc(256)");
+        assert_eq!(
+            malloc.to_string_with_indent(2),
+            "        buffer = malloc(256)"
+        );
     }
 }

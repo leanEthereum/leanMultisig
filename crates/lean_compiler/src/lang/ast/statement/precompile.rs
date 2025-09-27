@@ -1,10 +1,6 @@
 //! Precompile statement implementation.
 
-use crate::{
-    lang::expr::Expression,
-    precompiles::Precompile,
-    traits::IndentedDisplay,
-};
+use crate::{lang::expr::Expression, precompiles::Precompile, traits::IndentedDisplay};
 use std::fmt::{Display, Formatter};
 
 /// Precompiled cryptographic operation statement.
@@ -22,7 +18,8 @@ impl Display for PrecompileStmt {
             f,
             "{}({})",
             self.precompile.name,
-            self.args.iter()
+            self.args
+                .iter()
                 .map(|arg| format!("{arg}"))
                 .collect::<Vec<_>>()
                 .join(", ")

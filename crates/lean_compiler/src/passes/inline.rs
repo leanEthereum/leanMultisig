@@ -261,10 +261,12 @@ impl InlinePass {
                 let new_lines = res
                     .iter()
                     .zip(return_data)
-                    .map(|(res_var, expr)| Line::Assignment(crate::lang::ast::statement::Assignment {
-                        var: res_var.clone(),
-                        value: expr.clone(),
-                    }))
+                    .map(|(res_var, expr)| {
+                        Line::Assignment(crate::lang::ast::statement::Assignment {
+                            var: res_var.clone(),
+                            value: expr.clone(),
+                        })
+                    })
                     .collect::<Vec<_>>();
 
                 lines_to_replace.push((line_index, new_lines));
