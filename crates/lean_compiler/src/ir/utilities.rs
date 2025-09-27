@@ -1,7 +1,9 @@
-use crate::{
-    F,
-    lang::{Boolean, Expression, Line, SimpleExpr, Var},
+use crate::lang;
+use crate::lang::{
+    ArrayAssign, Assert, Assignment, Boolean, CounterHint, DecomposeBits, Expression, ForLoop,
+    FunctionCall, FunctionRet, IfCondition, Line, MAlloc, Match, PrecompileStmt, SimpleExpr,
 };
+use crate::{F, lang::Var};
 use std::collections::{BTreeMap, BTreeSet};
 use utils::ToUsize;
 
@@ -28,7 +30,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
 
     for line in lines {
         match line {
-            Line::Match { value, arms } => {
+            Line::Match(Match { value, arms }) => {
                 on_new_expr(value, &internal_vars, &mut external_vars);
                 for (_, statements) in arms {
                     let (stmt_internal, stmt_external) = find_variable_usage(statements);
@@ -40,15 +42,15 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                     );
                 }
             }
-            Line::Assignment { var, value } => {
+            Line::Assignment(Assignment { var, value }) => {
                 on_new_expr(value, &internal_vars, &mut external_vars);
                 internal_vars.insert(var.clone());
             }
-            Line::IfCondition {
+            Line::IfCondition(IfCondition {
                 condition,
                 then_branch,
                 else_branch,
-            } => {
+            }) => {
                 on_new_condition(condition, &internal_vars, &mut external_vars);
 
                 let (then_internal, then_external) = find_variable_usage(then_branch);
@@ -62,56 +64,56 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                         .cloned(),
                 );
             }
-            Line::FunctionCall {
+            Line::FunctionCall(FunctionCall {
                 args, return_data, ..
-            } => {
+            }) => {
                 for arg in args {
                     on_new_expr(arg, &internal_vars, &mut external_vars);
                 }
                 internal_vars.extend(return_data.iter().cloned());
             }
-            Line::Assert(condition) => {
+            Line::Assert(Assert { condition }) => {
                 on_new_condition(condition, &internal_vars, &mut external_vars);
             }
-            Line::FunctionRet { return_data } => {
+            Line::FunctionRet(FunctionRet { return_data }) => {
                 for ret in return_data {
                     on_new_expr(ret, &internal_vars, &mut external_vars);
                 }
             }
-            Line::MAlloc { var, size, .. } => {
+            Line::MAlloc(MAlloc { var, size, .. }) => {
                 on_new_expr(size, &internal_vars, &mut external_vars);
                 internal_vars.insert(var.clone());
             }
-            Line::Precompile {
+            Line::Precompile(PrecompileStmt {
                 precompile: _,
                 args,
-            } => {
+            }) => {
                 for arg in args {
                     on_new_expr(arg, &internal_vars, &mut external_vars);
                 }
             }
-            Line::Print { content, .. } => {
+            Line::Print(lang::Print { content, .. }) => {
                 for var in content {
                     on_new_expr(var, &internal_vars, &mut external_vars);
                 }
             }
-            Line::DecomposeBits { var, to_decompose } => {
+            Line::DecomposeBits(DecomposeBits { var, to_decompose }) => {
                 for expr in to_decompose {
                     on_new_expr(expr, &internal_vars, &mut external_vars);
                 }
                 internal_vars.insert(var.clone());
             }
-            Line::CounterHint { var } => {
+            Line::CounterHint(CounterHint { var }) => {
                 internal_vars.insert(var.clone());
             }
-            Line::ForLoop {
+            Line::ForLoop(ForLoop {
                 iterator,
                 start,
                 end,
                 body,
                 rev: _,
                 unroll: _,
-            } => {
+            }) => {
                 let (body_internal, body_external) = find_variable_usage(body);
                 internal_vars.extend(body_internal);
                 internal_vars.insert(iterator.clone());
@@ -119,16 +121,16 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 on_new_expr(start, &internal_vars, &mut external_vars);
                 on_new_expr(end, &internal_vars, &mut external_vars);
             }
-            Line::ArrayAssign {
+            Line::ArrayAssign(ArrayAssign {
                 array,
                 index,
                 value,
-            } => {
+            }) => {
                 on_new_expr(&array.clone().into(), &internal_vars, &mut external_vars);
                 on_new_expr(index, &internal_vars, &mut external_vars);
                 on_new_expr(value, &internal_vars, &mut external_vars);
             }
-            Line::Panic | Line::Break | Line::LocationReport { .. } => {}
+            Line::Panic(_) | Line::Break(_) | Line::LocationReport { .. } => {}
         }
     }
 
@@ -198,21 +200,21 @@ pub fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, 
 pub fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
     for line in lines {
         match line {
-            Line::Match { value, arms } => {
+            Line::Match(lang::Match { value, arms }) => {
                 replace_vars_by_const_in_expr(value, map);
                 for (_, statements) in arms {
                     replace_vars_by_const_in_lines(statements, map);
                 }
             }
-            Line::Assignment { var, value } => {
+            Line::Assignment(lang::Assignment { var, value }) => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(value, map);
             }
-            Line::ArrayAssign {
+            Line::ArrayAssign(lang::ArrayAssign {
                 array,
                 index,
                 value,
-            } => {
+            }) => {
                 if let SimpleExpr::Var(array_var) = array {
                     assert!(
                         !map.contains_key(array_var),
@@ -222,9 +224,9 @@ pub fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>
                 replace_vars_by_const_in_expr(index, map);
                 replace_vars_by_const_in_expr(value, map);
             }
-            Line::FunctionCall {
-                args, return_data, ..
-            } => {
+            Line::FunctionCall(call) => {
+                let args = &mut call.args;
+                let return_data = &call.return_data;
                 for arg in args {
                     replace_vars_by_const_in_expr(arg, map);
                 }
@@ -235,65 +237,60 @@ pub fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>
                     );
                 }
             }
-            Line::IfCondition {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                match condition {
+            Line::IfCondition(if_cond) => {
+                match &mut if_cond.condition {
                     Boolean::Equal { left, right } | Boolean::Different { left, right } => {
                         replace_vars_by_const_in_expr(left, map);
                         replace_vars_by_const_in_expr(right, map);
                     }
                 }
-                replace_vars_by_const_in_lines(then_branch, map);
-                replace_vars_by_const_in_lines(else_branch, map);
+                replace_vars_by_const_in_lines(&mut if_cond.then_branch, map);
+                replace_vars_by_const_in_lines(&mut if_cond.else_branch, map);
             }
-            Line::ForLoop {
-                body, start, end, ..
-            } => {
-                replace_vars_by_const_in_expr(start, map);
-                replace_vars_by_const_in_expr(end, map);
-                replace_vars_by_const_in_lines(body, map);
+            Line::ForLoop(for_loop) => {
+                replace_vars_by_const_in_expr(&mut for_loop.start, map);
+                replace_vars_by_const_in_expr(&mut for_loop.end, map);
+                replace_vars_by_const_in_lines(&mut for_loop.body, map);
             }
-            Line::Assert(condition) => match condition {
+            Line::Assert(assert) => match &mut assert.condition {
                 Boolean::Equal { left, right } | Boolean::Different { left, right } => {
                     replace_vars_by_const_in_expr(left, map);
                     replace_vars_by_const_in_expr(right, map);
                 }
             },
-            Line::FunctionRet { return_data } => {
-                for ret in return_data {
-                    replace_vars_by_const_in_expr(ret, map);
-                }
-            }
-            Line::Precompile {
-                precompile: _,
-                args,
-            } => {
-                for arg in args {
-                    replace_vars_by_const_in_expr(arg, map);
-                }
-            }
-            Line::Print { content, .. } => {
-                for var in content {
-                    replace_vars_by_const_in_expr(var, map);
-                }
-            }
-            Line::DecomposeBits { var, to_decompose } => {
-                assert!(!map.contains_key(var), "Variable {var} is a constant");
-                for expr in to_decompose {
+            Line::FunctionRet(ret) => {
+                for expr in &mut ret.return_data {
                     replace_vars_by_const_in_expr(expr, map);
                 }
             }
-            Line::CounterHint { var } => {
+            Line::Precompile(precompile) => {
+                for arg in &mut precompile.args {
+                    replace_vars_by_const_in_expr(arg, map);
+                }
+            }
+            Line::Print(print) => {
+                for var in &mut print.content {
+                    replace_vars_by_const_in_expr(var, map);
+                }
+            }
+            Line::DecomposeBits(decompose) => {
+                assert!(
+                    !map.contains_key(&decompose.var),
+                    "Variable {} is a constant",
+                    decompose.var
+                );
+                for expr in &mut decompose.to_decompose {
+                    replace_vars_by_const_in_expr(expr, map);
+                }
+            }
+            Line::CounterHint(CounterHint { var }) => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
             }
-            Line::MAlloc { var, size, .. } => {
+            Line::MAlloc(MAlloc { var, size, .. }) => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(size, map);
             }
-            Line::Panic | Line::Break | Line::LocationReport { .. } => {}
+            Line::Panic(_) | Line::Break(_) | Line::LocationReport { .. } => {}
         }
     }
 }
@@ -302,37 +299,37 @@ pub fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>
 pub fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
     for line in lines {
         match line {
-            Line::Match { value: _, arms } => {
+            Line::Match(Match { value: _, arms }) => {
                 for (_, statements) in arms {
                     get_function_called(statements, function_called);
                 }
             }
-            Line::FunctionCall { function_name, .. } => {
+            Line::FunctionCall(FunctionCall { function_name, .. }) => {
                 function_called.push(function_name.clone());
             }
-            Line::IfCondition {
+            Line::IfCondition(IfCondition {
                 then_branch,
                 else_branch,
                 ..
-            } => {
+            }) => {
                 get_function_called(then_branch, function_called);
                 get_function_called(else_branch, function_called);
             }
-            Line::ForLoop { body, .. } => {
-                get_function_called(body, function_called);
+            Line::ForLoop(for_loop) => {
+                get_function_called(&for_loop.body, function_called);
             }
-            Line::Assignment { .. }
-            | Line::ArrayAssign { .. }
-            | Line::Assert { .. }
-            | Line::FunctionRet { .. }
-            | Line::Precompile { .. }
-            | Line::Print { .. }
-            | Line::DecomposeBits { .. }
-            | Line::CounterHint { .. }
-            | Line::MAlloc { .. }
-            | Line::Panic
-            | Line::Break
-            | Line::LocationReport { .. } => {}
+            Line::Assignment(_)
+            | Line::ArrayAssign(_)
+            | Line::Assert(_)
+            | Line::FunctionRet(_)
+            | Line::Precompile(_)
+            | Line::Print(_)
+            | Line::DecomposeBits(_)
+            | Line::CounterHint(_)
+            | Line::MAlloc(_)
+            | Line::Panic(_)
+            | Line::Break(_)
+            | Line::LocationReport(_) => {}
         }
     }
 }
@@ -340,7 +337,11 @@ pub fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{Boolean, Expression, Line, SimpleExpr};
+    use crate::lang::{
+        ArrayAssign, Assert, Assignment, Boolean, CounterHint, DecomposeBits, Expression, ForLoop,
+        FunctionCall, FunctionRet, IfCondition, Line, MAlloc, Match, PrecompileStmt, Print,
+        SimpleExpr,
+    };
     use p3_field::PrimeCharacteristicRing;
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -355,10 +356,10 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_assignment() {
-        let lines = vec![Line::Assignment {
+        let lines = vec![Line::Assignment(Assignment {
             var: "x".to_string(),
             value: Expression::scalar(42),
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(internal, BTreeSet::from(["x".to_string()]));
@@ -367,10 +368,10 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_assignment_with_external_var() {
-        let lines = vec![Line::Assignment {
+        let lines = vec![Line::Assignment(Assignment {
             var: "x".to_string(),
             value: Expression::Value(SimpleExpr::Var("y".to_string())),
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(internal, BTreeSet::from(["x".to_string()]));
@@ -379,11 +380,11 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_function_call() {
-        let lines = vec![Line::FunctionCall {
+        let lines = vec![Line::FunctionCall(FunctionCall {
             function_name: "test".to_string(),
             args: vec![Expression::Value(SimpleExpr::Var("input".to_string()))],
             return_data: vec!["output".to_string()],
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(internal, BTreeSet::from(["output".to_string()]));
@@ -392,20 +393,20 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_if_condition() {
-        let lines = vec![Line::IfCondition {
+        let lines = vec![Line::IfCondition(IfCondition {
             condition: Boolean::Equal {
                 left: Expression::Value(SimpleExpr::Var("a".to_string())),
                 right: Expression::scalar(10),
             },
-            then_branch: vec![Line::Assignment {
+            then_branch: vec![Line::Assignment(Assignment {
                 var: "b".to_string(),
                 value: Expression::scalar(1),
-            }],
-            else_branch: vec![Line::Assignment {
+            })],
+            else_branch: vec![Line::Assignment(Assignment {
                 var: "c".to_string(),
                 value: Expression::scalar(2),
-            }],
-        }];
+            })],
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(internal, BTreeSet::from(["b".to_string(), "c".to_string()]));
@@ -414,21 +415,21 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_for_loop() {
-        let lines = vec![Line::ForLoop {
+        let lines = vec![Line::ForLoop(ForLoop {
             iterator: "i".to_string(),
             start: Expression::scalar(0),
             end: Expression::Value(SimpleExpr::Var("n".to_string())),
-            body: vec![Line::Assignment {
+            body: vec![Line::Assignment(Assignment {
                 var: "sum".to_string(),
                 value: Expression::Binary {
                     left: Box::new(Expression::Value(SimpleExpr::Var("sum".to_string()))),
                     operation: crate::ir::HighLevelOperation::Add,
                     right: Box::new(Expression::Value(SimpleExpr::Var("i".to_string()))),
                 },
-            }],
+            })],
             rev: false,
             unroll: false,
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(
@@ -440,25 +441,25 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_match() {
-        let lines = vec![Line::Match {
+        let lines = vec![Line::Match(Match {
             value: Expression::Value(SimpleExpr::Var("x".to_string())),
             arms: vec![
                 (
                     0,
-                    vec![Line::Assignment {
+                    vec![Line::Assignment(Assignment {
                         var: "a".to_string(),
                         value: Expression::scalar(1),
-                    }],
+                    })],
                 ),
                 (
                     1,
-                    vec![Line::Assignment {
+                    vec![Line::Assignment(Assignment {
                         var: "b".to_string(),
                         value: Expression::scalar(2),
-                    }],
+                    })],
                 ),
             ],
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(internal, BTreeSet::from(["a".to_string(), "b".to_string()]));
@@ -467,12 +468,12 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_malloc() {
-        let lines = vec![Line::MAlloc {
+        let lines = vec![Line::MAlloc(MAlloc {
             var: "ptr".to_string(),
             size: Expression::Value(SimpleExpr::Var("size".to_string())),
             vectorized: false,
             vectorized_len: Expression::zero(),
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(internal, BTreeSet::from(["ptr".to_string()]));
@@ -481,10 +482,10 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_decompose_bits() {
-        let lines = vec![Line::DecomposeBits {
+        let lines = vec![Line::DecomposeBits(DecomposeBits {
             var: "bits".to_string(),
             to_decompose: vec![Expression::Value(SimpleExpr::Var("value".to_string()))],
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(internal, BTreeSet::from(["bits".to_string()]));
@@ -493,9 +494,9 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_counter_hint() {
-        let lines = vec![Line::CounterHint {
+        let lines = vec![Line::CounterHint(CounterHint {
             var: "counter".to_string(),
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert_eq!(internal, BTreeSet::from(["counter".to_string()]));
@@ -504,9 +505,11 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_assert() {
-        let lines = vec![Line::Assert(Boolean::Different {
-            left: Expression::Value(SimpleExpr::Var("x".to_string())),
-            right: Expression::Value(SimpleExpr::Var("y".to_string())),
+        let lines = vec![Line::Assert(Assert {
+            condition: Boolean::Different {
+                left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                right: Expression::Value(SimpleExpr::Var("y".to_string())),
+            },
         })];
         let (internal, external) = find_variable_usage(&lines);
 
@@ -516,9 +519,9 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_function_ret() {
-        let lines = vec![Line::FunctionRet {
+        let lines = vec![Line::FunctionRet(FunctionRet {
             return_data: vec![Expression::Value(SimpleExpr::Var("result".to_string()))],
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert!(internal.is_empty());
@@ -527,10 +530,10 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_precompile() {
-        let lines = vec![Line::Precompile {
+        let lines = vec![Line::Precompile(PrecompileStmt {
             precompile: crate::precompiles::PRECOMPILES[0].clone(),
             args: vec![Expression::Value(SimpleExpr::Var("input".to_string()))],
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert!(internal.is_empty());
@@ -539,10 +542,10 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_print() {
-        let lines = vec![Line::Print {
+        let lines = vec![Line::Print(Print {
             line_info: "debug".to_string(),
             content: vec![Expression::Value(SimpleExpr::Var("debug_var".to_string()))],
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert!(internal.is_empty());
@@ -551,11 +554,11 @@ mod tests {
 
     #[test]
     fn test_find_variable_usage_array_assign() {
-        let lines = vec![Line::ArrayAssign {
+        let lines = vec![Line::ArrayAssign(ArrayAssign {
             array: SimpleExpr::Var("arr".to_string()),
             index: Expression::Value(SimpleExpr::Var("idx".to_string())),
             value: Expression::Value(SimpleExpr::Var("val".to_string())),
-        }];
+        })];
         let (internal, external) = find_variable_usage(&lines);
 
         assert!(internal.is_empty());
@@ -727,11 +730,11 @@ mod tests {
 
     #[test]
     fn test_get_function_called_function_call() {
-        let lines = vec![Line::FunctionCall {
+        let lines = vec![Line::FunctionCall(FunctionCall {
             function_name: "test_func".to_string(),
             args: vec![],
             return_data: vec![],
-        }];
+        })];
         let mut function_called = Vec::new();
 
         get_function_called(&lines, &mut function_called);
@@ -742,20 +745,20 @@ mod tests {
     #[test]
     fn test_get_function_called_multiple_calls() {
         let lines = vec![
-            Line::FunctionCall {
+            Line::FunctionCall(FunctionCall {
                 function_name: "func1".to_string(),
                 args: vec![],
                 return_data: vec![],
-            },
-            Line::Assignment {
+            }),
+            Line::Assignment(Assignment {
                 var: "x".to_string(),
                 value: Expression::scalar(42),
-            },
-            Line::FunctionCall {
+            }),
+            Line::FunctionCall(FunctionCall {
                 function_name: "func2".to_string(),
                 args: vec![],
                 return_data: vec![],
-            },
+            }),
         ];
         let mut function_called = Vec::new();
 
@@ -769,22 +772,22 @@ mod tests {
 
     #[test]
     fn test_get_function_called_if_condition() {
-        let lines = vec![Line::IfCondition {
+        let lines = vec![Line::IfCondition(IfCondition {
             condition: Boolean::Equal {
                 left: Expression::scalar(1),
                 right: Expression::scalar(1),
             },
-            then_branch: vec![Line::FunctionCall {
+            then_branch: vec![Line::FunctionCall(FunctionCall {
                 function_name: "then_func".to_string(),
                 args: vec![],
                 return_data: vec![],
-            }],
-            else_branch: vec![Line::FunctionCall {
+            })],
+            else_branch: vec![Line::FunctionCall(FunctionCall {
                 function_name: "else_func".to_string(),
                 args: vec![],
                 return_data: vec![],
-            }],
-        }];
+            })],
+        })];
         let mut function_called = Vec::new();
 
         get_function_called(&lines, &mut function_called);
@@ -797,18 +800,18 @@ mod tests {
 
     #[test]
     fn test_get_function_called_for_loop() {
-        let lines = vec![Line::ForLoop {
+        let lines = vec![Line::ForLoop(ForLoop {
             iterator: "i".to_string(),
             start: Expression::scalar(0),
             end: Expression::scalar(10),
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "loop_func".to_string(),
                 args: vec![],
                 return_data: vec![],
-            }],
+            })],
             rev: false,
             unroll: false,
-        }];
+        })];
         let mut function_called = Vec::new();
 
         get_function_called(&lines, &mut function_called);
@@ -818,27 +821,27 @@ mod tests {
 
     #[test]
     fn test_get_function_called_match() {
-        let lines = vec![Line::Match {
+        let lines = vec![Line::Match(Match {
             value: Expression::scalar(1),
             arms: vec![
                 (
                     0,
-                    vec![Line::FunctionCall {
+                    vec![Line::FunctionCall(FunctionCall {
                         function_name: "arm0_func".to_string(),
                         args: vec![],
                         return_data: vec![],
-                    }],
+                    })],
                 ),
                 (
                     1,
-                    vec![Line::FunctionCall {
+                    vec![Line::FunctionCall(FunctionCall {
                         function_name: "arm1_func".to_string(),
                         args: vec![],
                         return_data: vec![],
-                    }],
+                    })],
                 ),
             ],
-        }];
+        })];
         let mut function_called = Vec::new();
 
         get_function_called(&lines, &mut function_called);
@@ -851,10 +854,10 @@ mod tests {
 
     #[test]
     fn test_replace_vars_by_const_in_lines_assignment() {
-        let mut lines = vec![Line::Assignment {
+        let mut lines = vec![Line::Assignment(Assignment {
             var: "y".to_string(),
             value: Expression::Value(SimpleExpr::Var("x".to_string())),
-        }];
+        })];
         let mut map = BTreeMap::new();
         map.insert("x".to_string(), crate::F::from_usize(42));
 
@@ -862,20 +865,20 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::Assignment {
+            vec![Line::Assignment(Assignment {
                 var: "y".to_string(),
                 value: Expression::scalar(42),
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_by_const_in_lines_function_call() {
-        let mut lines = vec![Line::FunctionCall {
+        let mut lines = vec![Line::FunctionCall(FunctionCall {
             function_name: "test".to_string(),
             args: vec![Expression::Value(SimpleExpr::Var("x".to_string()))],
             return_data: vec!["result".to_string()],
-        }];
+        })];
         let mut map = BTreeMap::new();
         map.insert("x".to_string(), crate::F::from_usize(100));
 
@@ -883,27 +886,27 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::FunctionCall {
+            vec![Line::FunctionCall(FunctionCall {
                 function_name: "test".to_string(),
                 args: vec![Expression::scalar(100)],
                 return_data: vec!["result".to_string()],
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_by_const_in_lines_if_condition() {
-        let mut lines = vec![Line::IfCondition {
+        let mut lines = vec![Line::IfCondition(IfCondition {
             condition: Boolean::Equal {
                 left: Expression::Value(SimpleExpr::Var("x".to_string())),
                 right: Expression::scalar(10),
             },
-            then_branch: vec![Line::Assignment {
+            then_branch: vec![Line::Assignment(Assignment {
                 var: "y".to_string(),
                 value: Expression::Value(SimpleExpr::Var("x".to_string())),
-            }],
+            })],
             else_branch: vec![],
-        }];
+        })];
         let mut map = BTreeMap::new();
         map.insert("x".to_string(), crate::F::from_usize(5));
 
@@ -911,17 +914,17 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::IfCondition {
+            vec![Line::IfCondition(IfCondition {
                 condition: Boolean::Equal {
                     left: Expression::scalar(5),
                     right: Expression::scalar(10),
                 },
-                then_branch: vec![Line::Assignment {
+                then_branch: vec![Line::Assignment(Assignment {
                     var: "y".to_string(),
                     value: Expression::scalar(5),
-                }],
+                })],
                 else_branch: vec![],
-            }]
+            })]
         );
     }
 }

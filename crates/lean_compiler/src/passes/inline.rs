@@ -76,11 +76,10 @@ impl InlinePass {
     ) {
         for i in (0..lines.len()).rev() {
             match &mut lines[i] {
-                Line::FunctionCall {
-                    function_name,
-                    args,
-                    return_data,
-                } => {
+                Line::FunctionCall(call) => {
+                    let function_name = &call.function_name;
+                    let args = &call.args;
+                    let return_data = &call.return_data;
                     if let Some(func) = inlined_functions.get(function_name) {
                         let inlined_lines = Self::inline_function_call(
                             func,
@@ -94,34 +93,30 @@ impl InlinePass {
                         lines.splice(i..i, inlined_lines); // Insert inlined content
                     }
                 }
-                Line::IfCondition {
-                    then_branch,
-                    else_branch,
-                    ..
-                } => {
+                Line::IfCondition(if_cond) => {
                     Self::process_lines(
-                        then_branch,
+                        &mut if_cond.then_branch,
                         inlined_functions,
                         inlined_var_counter,
                         total_inlined_counter,
                     );
                     Self::process_lines(
-                        else_branch,
-                        inlined_functions,
-                        inlined_var_counter,
-                        total_inlined_counter,
-                    );
-                }
-                Line::ForLoop { body, .. } => {
-                    Self::process_lines(
-                        body,
+                        &mut if_cond.else_branch,
                         inlined_functions,
                         inlined_var_counter,
                         total_inlined_counter,
                     );
                 }
-                Line::Match { arms, .. } => {
-                    for (_, arm) in arms {
+                Line::ForLoop(for_loop) => {
+                    Self::process_lines(
+                        &mut for_loop.body,
+                        inlined_functions,
+                        inlined_var_counter,
+                        total_inlined_counter,
+                    );
+                }
+                Line::Match(match_stmt) => {
+                    for (_, arm) in &mut match_stmt.arms {
                         Self::process_lines(
                             arm,
                             inlined_functions,
@@ -152,10 +147,10 @@ impl InlinePass {
                 simplified_args.push(simple_expr.clone());
             } else {
                 let aux_var = format!("@inlined_var_{}", inlined_var_counter.next_value());
-                inlined_lines.push(Line::Assignment {
+                inlined_lines.push(Line::Assignment(crate::lang::ast::statement::Assignment {
                     var: aux_var.clone(),
                     value: arg.clone(),
-                });
+                }));
                 simplified_args.push(SimpleExpr::Var(aux_var));
             }
         }
@@ -228,41 +223,34 @@ impl InlinePass {
         line_index: usize,
     ) {
         match line {
-            Line::Match { value, arms } => {
-                Self::inline_expr(value, args, inlining_count);
-                for (_, statements) in arms {
+            Line::Match(match_stmt) => {
+                Self::inline_expr(&mut match_stmt.value, args, inlining_count);
+                for (_, statements) in &mut match_stmt.arms {
                     Self::inline_lines(statements, args, res, inlining_count);
                 }
             }
-            Line::Assignment { var, value } => {
-                Self::inline_expr(value, args, inlining_count);
-                Self::inline_internal_var(var, inlining_count);
+            Line::Assignment(assignment) => {
+                Self::inline_expr(&mut assignment.value, args, inlining_count);
+                Self::inline_internal_var(&mut assignment.var, inlining_count);
             }
-            Line::IfCondition {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                Self::inline_boolean(condition, args, inlining_count);
-                Self::inline_lines(then_branch, args, res, inlining_count);
-                Self::inline_lines(else_branch, args, res, inlining_count);
+            Line::IfCondition(if_cond) => {
+                Self::inline_boolean(&mut if_cond.condition, args, inlining_count);
+                Self::inline_lines(&mut if_cond.then_branch, args, res, inlining_count);
+                Self::inline_lines(&mut if_cond.else_branch, args, res, inlining_count);
             }
-            Line::FunctionCall {
-                args: func_args,
-                return_data,
-                ..
-            } => {
-                for arg in func_args {
+            Line::FunctionCall(call) => {
+                for arg in &mut call.args {
                     Self::inline_expr(arg, args, inlining_count);
                 }
-                for return_var in return_data {
+                for return_var in &mut call.return_data {
                     Self::inline_internal_var(return_var, inlining_count);
                 }
             }
-            Line::Assert(condition) => {
-                Self::inline_boolean(condition, args, inlining_count);
+            Line::Assert(assert) => {
+                Self::inline_boolean(&mut assert.condition, args, inlining_count);
             }
-            Line::FunctionRet { return_data } => {
+            Line::FunctionRet(ret) => {
+                let return_data = &mut ret.return_data;
                 assert_eq!(return_data.len(), res.len());
 
                 for expr in return_data.iter_mut() {
@@ -273,68 +261,50 @@ impl InlinePass {
                 let new_lines = res
                     .iter()
                     .zip(return_data)
-                    .map(|(res_var, expr)| Line::Assignment {
+                    .map(|(res_var, expr)| Line::Assignment(crate::lang::ast::statement::Assignment {
                         var: res_var.clone(),
                         value: expr.clone(),
-                    })
+                    }))
                     .collect::<Vec<_>>();
 
                 lines_to_replace.push((line_index, new_lines));
             }
-            Line::MAlloc {
-                var,
-                size,
-                vectorized_len,
-                ..
-            } => {
-                Self::inline_expr(size, args, inlining_count);
-                Self::inline_expr(vectorized_len, args, inlining_count);
-                Self::inline_internal_var(var, inlining_count);
+            Line::MAlloc(malloc) => {
+                Self::inline_expr(&mut malloc.size, args, inlining_count);
+                Self::inline_expr(&mut malloc.vectorized_len, args, inlining_count);
+                Self::inline_internal_var(&mut malloc.var, inlining_count);
             }
-            Line::Precompile {
-                args: precompile_args,
-                ..
-            } => {
-                for arg in precompile_args {
+            Line::Precompile(precompile) => {
+                for arg in &mut precompile.args {
                     Self::inline_expr(arg, args, inlining_count);
                 }
             }
-            Line::Print { content, .. } => {
-                for var in content {
+            Line::Print(print) => {
+                for var in &mut print.content {
                     Self::inline_expr(var, args, inlining_count);
                 }
             }
-            Line::DecomposeBits { var, to_decompose } => {
-                for expr in to_decompose {
+            Line::DecomposeBits(decompose) => {
+                for expr in &mut decompose.to_decompose {
                     Self::inline_expr(expr, args, inlining_count);
                 }
-                Self::inline_internal_var(var, inlining_count);
+                Self::inline_internal_var(&mut decompose.var, inlining_count);
             }
-            Line::CounterHint { var } => {
-                Self::inline_internal_var(var, inlining_count);
+            Line::CounterHint(hint) => {
+                Self::inline_internal_var(&mut hint.var, inlining_count);
             }
-            Line::ForLoop {
-                iterator,
-                start,
-                end,
-                body,
-                ..
-            } => {
-                Self::inline_lines(body, args, res, inlining_count);
-                Self::inline_internal_var(iterator, inlining_count);
-                Self::inline_expr(start, args, inlining_count);
-                Self::inline_expr(end, args, inlining_count);
+            Line::ForLoop(for_loop) => {
+                Self::inline_lines(&mut for_loop.body, args, res, inlining_count);
+                Self::inline_internal_var(&mut for_loop.iterator, inlining_count);
+                Self::inline_expr(&mut for_loop.start, args, inlining_count);
+                Self::inline_expr(&mut for_loop.end, args, inlining_count);
             }
-            Line::ArrayAssign {
-                array,
-                index,
-                value,
-            } => {
-                Self::inline_simple_expr(array, args, inlining_count);
-                Self::inline_expr(index, args, inlining_count);
-                Self::inline_expr(value, args, inlining_count);
+            Line::ArrayAssign(array_assign) => {
+                Self::inline_simple_expr(&mut array_assign.array, args, inlining_count);
+                Self::inline_expr(&mut array_assign.index, args, inlining_count);
+                Self::inline_expr(&mut array_assign.value, args, inlining_count);
             }
-            Line::Panic | Line::Break | Line::LocationReport { .. } => {}
+            Line::Panic(_) | Line::Break(_) | Line::LocationReport(_) => {}
         }
     }
 
@@ -474,7 +444,9 @@ impl Pass for InlinePass {
 mod tests {
     use super::*;
     use crate::ir::HighLevelOperation;
-    use crate::lang::{Boolean, ConstExpression};
+    use crate::lang::{
+        Assignment, Boolean, ConstExpression, FunctionCall, FunctionRet, IfCondition,
+    };
     use std::collections::BTreeMap;
 
     fn create_test_program() -> Program {
@@ -488,14 +460,14 @@ mod tests {
             name: name.to_string(),
             arguments: vec![("x".to_string(), false), ("y".to_string(), false)],
             inlined,
-            body: vec![Line::Assignment {
+            body: vec![Line::Assignment(Assignment {
                 var: "result".to_string(),
                 value: Expression::Binary {
                     left: Box::new(Expression::Value(SimpleExpr::Var("x".to_string()))),
                     operation: HighLevelOperation::Add,
                     right: Box::new(Expression::Value(SimpleExpr::Var("y".to_string()))),
                 },
-            }],
+            })],
             n_returned_vars: 1,
         }
     }
@@ -515,14 +487,14 @@ mod tests {
             name: "caller".to_string(),
             arguments: vec![("a".to_string(), false), ("b".to_string(), false)],
             inlined: false,
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "inline_add".to_string(),
                 args: vec![
                     Expression::Value(SimpleExpr::Var("a".to_string())),
                     Expression::Value(SimpleExpr::Var("b".to_string())),
                 ],
                 return_data: vec!["sum".to_string()],
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("caller".to_string(), caller_func);
@@ -551,7 +523,7 @@ mod tests {
             name: "caller".to_string(),
             arguments: vec![("a".to_string(), false), ("b".to_string(), false)],
             inlined: false,
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "inline_add".to_string(),
                 args: vec![
                     Expression::Binary {
@@ -564,7 +536,7 @@ mod tests {
                     Expression::Value(SimpleExpr::Var("b".to_string())),
                 ],
                 return_data: vec!["result".to_string()],
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("caller".to_string(), caller_func);
@@ -588,7 +560,7 @@ mod tests {
             name: "inline1".to_string(),
             arguments: vec![("x".to_string(), false)],
             inlined: true,
-            body: vec![Line::Assignment {
+            body: vec![Line::Assignment(Assignment {
                 var: "temp".to_string(),
                 value: Expression::Binary {
                     left: Box::new(Expression::Value(SimpleExpr::Var("x".to_string()))),
@@ -597,7 +569,7 @@ mod tests {
                         ConstExpression::scalar(1),
                     ))),
                 },
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("inline1".to_string(), inline1);
@@ -607,11 +579,11 @@ mod tests {
             name: "inline2".to_string(),
             arguments: vec![("y".to_string(), false)],
             inlined: true,
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "inline1".to_string(),
                 args: vec![Expression::Value(SimpleExpr::Var("y".to_string()))],
                 return_data: vec!["result".to_string()],
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("inline2".to_string(), inline2);
@@ -621,11 +593,11 @@ mod tests {
             name: "main".to_string(),
             arguments: vec![("input".to_string(), false)],
             inlined: false,
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "inline2".to_string(),
                 args: vec![Expression::Value(SimpleExpr::Var("input".to_string()))],
                 return_data: vec!["output".to_string()],
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("main".to_string(), main_func);
@@ -654,23 +626,23 @@ mod tests {
             arguments: vec![("x".to_string(), false)],
             inlined: true,
             body: vec![
-                Line::IfCondition {
+                Line::IfCondition(IfCondition {
                     condition: Boolean::Equal {
                         left: Expression::Value(SimpleExpr::Var("x".to_string())),
                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
                     },
-                    then_branch: vec![Line::FunctionRet {
+                    then_branch: vec![Line::FunctionRet(FunctionRet {
                         return_data: vec![Expression::Value(SimpleExpr::Constant(
                             ConstExpression::scalar(100),
                         ))],
-                    }],
+                    })],
                     else_branch: vec![],
-                },
-                Line::FunctionRet {
+                }),
+                Line::FunctionRet(FunctionRet {
                     return_data: vec![Expression::Value(SimpleExpr::Constant(
                         ConstExpression::scalar(200),
                     ))],
-                },
+                }),
             ],
             n_returned_vars: 1,
         };
@@ -682,11 +654,11 @@ mod tests {
             name: "caller".to_string(),
             arguments: vec![("input".to_string(), false)],
             inlined: false,
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "inline_cond".to_string(),
                 args: vec![Expression::Value(SimpleExpr::Var("input".to_string()))],
                 return_data: vec!["result".to_string()],
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("caller".to_string(), caller_func);

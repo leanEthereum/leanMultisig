@@ -2,7 +2,9 @@
 
 use super::{Pass, PassResult};
 use crate::analysis::ssa;
-use crate::lang::{Boolean, ConstExpression, Expression, Line, Program, SimpleExpr, Var};
+use crate::lang::{
+    Assignment, Boolean, ConstExpression, Expression, IfCondition, Line, Program, SimpleExpr, Var,
+};
 
 /// Pass for repairing SSA violations
 pub struct SSARepairPass;
@@ -74,7 +76,7 @@ fn restructure_nested_assignments(lines: &mut Vec<Line>, res: &[Var]) {
     let mut lines_to_remove = Vec::new();
 
     for (i, line) in lines.iter().enumerate() {
-        if let Line::Assignment { var, value } = line {
+        if let Line::Assignment(Assignment { var, value }) = line {
             if var == result_var {
                 final_assignment = Some((value.clone(), i));
                 lines_to_remove.push(i);
@@ -115,14 +117,14 @@ fn extract_nested_assignment(line: &Line, result_var: &str) -> Option<(Vec<Boole
         conditions: &mut Vec<Boolean>,
     ) -> Option<Expression> {
         match line {
-            Line::IfCondition {
+            Line::IfCondition(IfCondition {
                 condition,
                 then_branch,
                 else_branch: _,
-            } => {
+            }) => {
                 // Check if then_branch has assignment to result_var
                 for then_line in then_branch {
-                    if let Line::Assignment { var, value } = then_line
+                    if let Line::Assignment(Assignment { var, value }) = then_line
                         && var == result_var
                     {
                         conditions.push(condition.clone());
@@ -155,29 +157,29 @@ fn build_if_else_structure(
     result_var: &str,
 ) -> Line {
     if assignments.is_empty() {
-        return Line::Assignment {
+        return Line::Assignment(Assignment {
             var: result_var.to_string(),
             value: final_value,
-        };
+        });
     }
 
     // For now, handle simple case: single nested condition
     if let Some((conditions, value)) = assignments.first() {
-        let then_branch = vec![Line::Assignment {
+        let then_branch = vec![Line::Assignment(Assignment {
             var: result_var.to_string(),
             value: value.clone(),
-        }];
-        let else_branch = vec![Line::Assignment {
+        })];
+        let else_branch = vec![Line::Assignment(Assignment {
             var: result_var.to_string(),
             value: final_value,
-        }];
+        })];
 
         create_nested_conditions(conditions, then_branch, else_branch)
     } else {
-        Line::Assignment {
+        Line::Assignment(Assignment {
             var: result_var.to_string(),
             value: final_value,
-        }
+        })
     }
 }
 
@@ -188,38 +190,38 @@ fn create_nested_conditions(
     else_branch: Vec<Line>,
 ) -> Line {
     if conditions.is_empty() {
-        return Line::IfCondition {
+        return Line::IfCondition(IfCondition {
             condition: Boolean::Equal {
                 left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
             },
             then_branch,
             else_branch,
-        };
+        });
     }
 
     if conditions.len() == 1 {
-        Line::IfCondition {
+        Line::IfCondition(IfCondition {
             condition: conditions[0].clone(),
             then_branch,
             else_branch,
-        }
+        })
     } else {
         // Create nested if-else structure
         let inner_structure =
             create_nested_conditions(&conditions[1..], then_branch, else_branch.clone());
-        Line::IfCondition {
+        Line::IfCondition(IfCondition {
             condition: conditions[0].clone(),
             then_branch: vec![inner_structure],
             else_branch,
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::ConstExpression;
+    use crate::lang::{Assignment, ConstExpression, IfCondition};
     use std::collections::BTreeMap;
 
     #[test]
@@ -234,23 +236,23 @@ mod tests {
             arguments: vec![("x".to_string(), false)],
             inlined: false,
             body: vec![
-                Line::IfCondition {
+                Line::IfCondition(IfCondition {
                     condition: Boolean::Equal {
                         left: Expression::Value(SimpleExpr::Var("x".to_string())),
                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
                     },
-                    then_branch: vec![Line::Assignment {
+                    then_branch: vec![Line::Assignment(Assignment {
                         var: "result_0".to_string(),
                         value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(
                             100,
                         ))),
-                    }],
+                    })],
                     else_branch: vec![],
-                },
-                Line::Assignment {
+                }),
+                Line::Assignment(Assignment {
                     var: "result_0".to_string(),
                     value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200))),
-                },
+                }),
             ],
             n_returned_vars: 1,
         };
@@ -269,21 +271,21 @@ mod tests {
     #[test]
     fn test_repair_ssa_violations() {
         let mut lines = vec![
-            Line::IfCondition {
+            Line::IfCondition(IfCondition {
                 condition: Boolean::Equal {
                     left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                     right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                 },
-                then_branch: vec![Line::Assignment {
+                then_branch: vec![Line::Assignment(Assignment {
                     var: "result".to_string(),
                     value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100))),
-                }],
+                })],
                 else_branch: vec![],
-            },
-            Line::Assignment {
+            }),
+            Line::Assignment(Assignment {
                 var: "result".to_string(),
                 value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200))),
-            },
+            }),
         ];
 
         let res = vec!["result".to_string()];
@@ -300,14 +302,14 @@ mod tests {
     #[test]
     fn test_no_repair_needed() {
         let mut lines = vec![
-            Line::Assignment {
+            Line::Assignment(Assignment {
                 var: "x".to_string(),
                 value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-            },
-            Line::Assignment {
+            }),
+            Line::Assignment(Assignment {
                 var: "y".to_string(),
                 value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(2))),
-            },
+            }),
         ];
 
         let original_lines = lines.clone();

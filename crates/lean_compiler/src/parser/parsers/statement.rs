@@ -2,6 +2,9 @@ use super::expression::ExpressionParser;
 use super::function::{FunctionCallParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
+use crate::lang::{
+    ArrayAssign, Assert, Assignment, Break, ForLoop, IfCondition, LocationReport, Match,
+};
 use crate::{
     lang::{Boolean, Line},
     parser::{
@@ -19,7 +22,7 @@ fn add_statement_with_location(
     let location = pair.line_col().0;
     let line = StatementParser::parse(pair, ctx)?;
 
-    lines.push(Line::LocationReport { location });
+    lines.push(Line::LocationReport(LocationReport { location }));
     lines.push(line);
 
     Ok(())
@@ -42,7 +45,7 @@ impl Parse<Line> for StatementParser {
             Rule::function_call => FunctionCallParser::parse(inner, ctx),
             Rule::assert_eq_statement => AssertEqParser::parse(inner, ctx),
             Rule::assert_not_eq_statement => AssertNotEqParser::parse(inner, ctx),
-            Rule::break_statement => Ok(Line::Break),
+            Rule::break_statement => Ok(Line::Break(Break)),
             Rule::continue_statement => {
                 Err(SemanticError::new("Continue statement not implemented yet").into())
             }
@@ -63,7 +66,7 @@ impl Parse<Line> for AssignmentParser {
         let expr = next_inner_pair(&mut inner, "assignment value")?;
         let value = ExpressionParser::parse(expr, ctx)?;
 
-        Ok(Line::Assignment { var, value })
+        Ok(Line::Assignment(Assignment { var, value }))
     }
 }
 
@@ -79,11 +82,11 @@ impl Parse<Line> for ArrayAssignParser {
         let index = ExpressionParser::parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
         let value = ExpressionParser::parse(next_inner_pair(&mut inner, "array value")?, ctx)?;
 
-        Ok(Line::ArrayAssign {
+        Ok(Line::ArrayAssign(ArrayAssign {
             array: array.into(),
             index,
             value,
-        })
+        }))
     }
 }
 
@@ -114,11 +117,11 @@ impl Parse<Line> for IfStatementParser {
             }
         }
 
-        Ok(Line::IfCondition {
+        Ok(Line::IfCondition(IfCondition {
             condition,
             then_branch,
             else_branch,
-        })
+        }))
     }
 }
 
@@ -159,14 +162,14 @@ impl Parse<Line> for ForStatementParser {
             }
         }
 
-        Ok(Line::ForLoop {
+        Ok(Line::ForLoop(ForLoop {
             iterator,
             start,
             end,
             body,
             rev,
             unroll,
-        })
+        }))
     }
 }
 
@@ -197,7 +200,7 @@ impl Parse<Line> for MatchStatementParser {
             }
         }
 
-        Ok(Line::Match { value, arms })
+        Ok(Line::Match(Match { value, arms }))
     }
 }
 
@@ -214,7 +217,9 @@ impl Parse<Line> for ReturnStatementParser {
             }
         }
 
-        Ok(Line::FunctionRet { return_data })
+        Ok(Line::FunctionRet(
+            crate::lang::ast::statement::FunctionRet { return_data },
+        ))
     }
 }
 
@@ -246,7 +251,9 @@ impl Parse<Line> for AssertEqParser {
         let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
-        Ok(Line::Assert(Boolean::Equal { left, right }))
+        Ok(Line::Assert(Assert {
+            condition: Boolean::Equal { left, right },
+        }))
     }
 }
 
@@ -259,14 +266,18 @@ impl Parse<Line> for AssertNotEqParser {
         let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
-        Ok(Line::Assert(Boolean::Different { left, right }))
+        Ok(Line::Assert(Assert {
+            condition: Boolean::Different { left, right },
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::Line;
+    use crate::lang::{
+        ArrayAssign, Assert, Assignment, ForLoop, FunctionRet, IfCondition, Line, Match,
+    };
     use crate::parser::grammar::{LangParser, Rule};
     use pest::Parser;
 
@@ -278,14 +289,14 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::ForLoop {
+        if let Line::ForLoop(ForLoop {
             iterator,
             start,
             end,
             body,
             rev,
             unroll,
-        } = result
+        }) = result
         {
             assert_eq!(iterator, "i");
             assert_eq!(start, crate::lang::Expression::scalar(0));
@@ -306,14 +317,14 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::ForLoop {
+        if let Line::ForLoop(ForLoop {
             iterator,
             start,
             end,
             body,
             rev,
             unroll,
-        } = result
+        }) = result
         {
             assert_eq!(iterator, "i");
             assert_eq!(start, crate::lang::Expression::scalar(0));
@@ -334,14 +345,14 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::ForLoop {
+        if let Line::ForLoop(ForLoop {
             iterator,
             start,
             end,
             body,
             rev,
             unroll,
-        } = result
+        }) = result
         {
             assert_eq!(iterator, "i");
             assert_eq!(start, crate::lang::Expression::scalar(0));
@@ -362,14 +373,14 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::ForLoop {
+        if let Line::ForLoop(ForLoop {
             iterator,
             start,
             end,
             body,
             rev,
             unroll,
-        } = result
+        }) = result
         {
             assert_eq!(iterator, "i");
             assert_eq!(start, crate::lang::Expression::scalar(0));
@@ -390,7 +401,7 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = StatementParser::parse(pair, &mut ctx).unwrap();
-        assert_eq!(result, Line::Break);
+        assert_eq!(result, Line::Break(Break));
     }
 
     #[test]
@@ -421,7 +432,7 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = AssignmentParser::parse(pair, &mut ctx).unwrap();
-        if let Line::Assignment { var, value } = result {
+        if let Line::Assignment(Assignment { var, value }) = result {
             assert_eq!(var, "x");
             assert_eq!(value, crate::lang::Expression::scalar(42));
         } else {
@@ -437,11 +448,11 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = ArrayAssignParser::parse(pair, &mut ctx).unwrap();
-        if let Line::ArrayAssign {
+        if let Line::ArrayAssign(ArrayAssign {
             array,
             index,
             value,
-        } = result
+        }) = result
         {
             assert_eq!(array, crate::lang::SimpleExpr::Var("arr".to_string()));
             assert_eq!(index, crate::lang::Expression::scalar(5));
@@ -459,7 +470,10 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = AssertEqParser::parse(pair, &mut ctx).unwrap();
-        if let Line::Assert(crate::lang::Boolean::Equal { left, right }) = result {
+        if let Line::Assert(Assert {
+            condition: crate::lang::Boolean::Equal { left, right },
+        }) = result
+        {
             assert_eq!(left, crate::lang::Expression::scalar(10));
             assert_eq!(right, crate::lang::Expression::scalar(20));
         } else {
@@ -475,7 +489,10 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = AssertNotEqParser::parse(pair, &mut ctx).unwrap();
-        if let Line::Assert(crate::lang::Boolean::Different { left, right }) = result {
+        if let Line::Assert(Assert {
+            condition: crate::lang::Boolean::Different { left, right },
+        }) = result
+        {
             assert_eq!(left, crate::lang::Expression::scalar(10));
             assert_eq!(right, crate::lang::Expression::scalar(20));
         } else {
@@ -529,7 +546,7 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = ReturnStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::FunctionRet { return_data } = result {
+        if let Line::FunctionRet(FunctionRet { return_data }) = result {
             assert!(return_data.is_empty());
         } else {
             panic!("Expected FunctionRet");
@@ -544,7 +561,7 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = ReturnStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::FunctionRet { return_data } = result {
+        if let Line::FunctionRet(FunctionRet { return_data }) = result {
             assert_eq!(return_data.len(), 2);
             assert_eq!(return_data[0], crate::lang::Expression::scalar(42));
             assert_eq!(return_data[1], crate::lang::Expression::scalar(100));
@@ -561,7 +578,7 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = MatchStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::Match { value, arms } = result {
+        if let Line::Match(Match { value, arms }) = result {
             assert_eq!(
                 value,
                 crate::lang::Expression::Value(crate::lang::SimpleExpr::Var("x".to_string()))
@@ -584,11 +601,11 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = IfStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::IfCondition {
+        if let Line::IfCondition(IfCondition {
             condition,
             then_branch,
             else_branch,
-        } = result
+        }) = result
         {
             if let crate::lang::Boolean::Equal { left, right } = condition {
                 assert_eq!(
@@ -614,11 +631,11 @@ mod tests {
         let pair = pairs.next().unwrap();
 
         let result = IfStatementParser::parse(pair, &mut ctx).unwrap();
-        if let Line::IfCondition {
+        if let Line::IfCondition(IfCondition {
             condition,
             then_branch,
             else_branch,
-        } = result
+        }) = result
         {
             if let crate::lang::Boolean::Equal { left, right } = condition {
                 assert_eq!(

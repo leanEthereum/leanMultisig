@@ -37,18 +37,16 @@ impl ControlFlowAnalyzer {
 
     fn analyze_line_depth(&mut self, line: &Line, depth: usize) {
         match line {
-            Line::FunctionRet { .. } => {
+            Line::FunctionRet(_) => {
                 self.has_returns = true;
                 self.return_count += 1;
                 if depth > 0 {
                     self.has_nested_returns = true;
                 }
             }
-            Line::IfCondition {
-                then_branch,
-                else_branch,
-                ..
-            } => {
+            Line::IfCondition(if_cond) => {
+                let then_branch = &if_cond.then_branch;
+                let else_branch = &if_cond.else_branch;
                 // Non-exhaustive if else_branch is empty
                 if else_branch.is_empty() && !then_branch.is_empty() {
                     self.has_non_exhaustive_conditions = true;
@@ -61,13 +59,13 @@ impl ControlFlowAnalyzer {
                     self.analyze_line_depth(line, depth + 1);
                 }
             }
-            Line::ForLoop { body, .. } => {
-                for line in body {
+            Line::ForLoop(for_loop) => {
+                for line in &for_loop.body {
                     self.analyze_line_depth(line, depth + 1);
                 }
             }
-            Line::Match { arms, .. } => {
-                for (_, arm_lines) in arms {
+            Line::Match(match_stmt) => {
+                for (_, arm_lines) in &match_stmt.arms {
                     for line in arm_lines {
                         self.analyze_line_depth(line, depth + 1);
                     }
@@ -120,7 +118,7 @@ impl Default for ReturnCollector {
 
 impl<T> Visitor<T> for ReturnCollector {
     fn visit_line(&mut self, line: &Line) -> VisitorResult<T> {
-        if let Line::FunctionRet { .. } = line {
+        if let Line::FunctionRet(_) = line {
             self.returns.push(line.clone());
         }
         // Continue walking to find nested returns
@@ -143,13 +141,9 @@ pub fn has_ssa_violation_pattern(lines: &[Line]) -> bool {
 pub fn find_non_exhaustive_if_with_returns(lines: &[Line]) -> Vec<&Line> {
     let mut found = Vec::new();
     for line in lines {
-        if let Line::IfCondition {
-            then_branch,
-            else_branch,
-            ..
-        } = line
-            && else_branch.is_empty()
-            && has_return_in_branch(then_branch)
+        if let Line::IfCondition(if_cond) = line
+            && if_cond.else_branch.is_empty()
+            && has_return_in_branch(&if_cond.then_branch)
         {
             found.push(line);
         }
@@ -164,11 +158,11 @@ mod tests {
 
     #[test]
     fn test_control_flow_analyzer_simple() {
-        let lines = vec![Line::FunctionRet {
+        let lines = vec![Line::FunctionRet(crate::lang::ast::statement::FunctionRet {
             return_data: vec![Expression::Value(SimpleExpr::Constant(
                 ConstExpression::scalar(42),
             ))],
-        }];
+        })];
 
         let analysis = ControlFlowAnalyzer::analyze(&lines);
         assert!(analysis.has_returns);
@@ -178,18 +172,18 @@ mod tests {
 
     #[test]
     fn test_control_flow_analyzer_nested() {
-        let lines = vec![Line::IfCondition {
+        let lines = vec![Line::IfCondition(crate::lang::ast::statement::IfCondition {
             condition: Boolean::Equal {
                 left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
             },
-            then_branch: vec![Line::FunctionRet {
+            then_branch: vec![Line::FunctionRet(crate::lang::ast::statement::FunctionRet {
                 return_data: vec![Expression::Value(SimpleExpr::Constant(
                     ConstExpression::scalar(100),
                 ))],
-            }],
+            })],
             else_branch: vec![],
-        }];
+        })];
 
         let analysis = ControlFlowAnalyzer::analyze(&lines);
         assert!(analysis.has_returns);
@@ -200,23 +194,23 @@ mod tests {
     #[test]
     fn test_ssa_violation_detection() {
         let lines = vec![
-            Line::IfCondition {
+            Line::IfCondition(crate::lang::ast::statement::IfCondition {
                 condition: Boolean::Equal {
                     left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                     right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                 },
-                then_branch: vec![Line::FunctionRet {
+                then_branch: vec![Line::FunctionRet(crate::lang::ast::statement::FunctionRet {
                     return_data: vec![Expression::Value(SimpleExpr::Constant(
                         ConstExpression::scalar(100),
                     ))],
-                }],
+                })],
                 else_branch: vec![],
-            },
-            Line::FunctionRet {
+            }),
+            Line::FunctionRet(crate::lang::ast::statement::FunctionRet {
                 return_data: vec![Expression::Value(SimpleExpr::Constant(
                     ConstExpression::scalar(200),
                 ))],
-            },
+            }),
         ];
 
         assert!(has_ssa_violation_pattern(&lines));

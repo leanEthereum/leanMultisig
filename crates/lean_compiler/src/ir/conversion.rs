@@ -7,6 +7,7 @@ use super::{
     types::{ArrayAccessType, ArrayManager, ConstMalloc, Counters, VarOrConstMallocAccess},
     utilities::find_variable_usage,
 };
+use crate::lang;
 use crate::lang::{Boolean, ConstExpression, Expression, Line, SimpleExpr, Var};
 use std::collections::BTreeMap;
 use utils::ToUsize;
@@ -23,7 +24,7 @@ pub fn simplify_lines(
     let mut res = Vec::new();
     for line in lines {
         match line {
-            Line::Match { value, arms } => {
+            Line::Match(lang::Match { value, arms }) => {
                 let simple_value =
                     simplify_expr(value, &mut res, counters, array_manager, const_malloc);
                 let mut simple_arms = vec![];
@@ -46,7 +47,7 @@ pub fn simplify_lines(
                     arms: simple_arms,
                 }));
             }
-            Line::Assignment { var, value } => match value {
+            Line::Assignment(lang::Assignment { var, value }) => match value {
                 Expression::Value(value) => {
                     res.push(SimpleLine::Assignment(Assignment {
                         var: var.clone().into(),
@@ -83,11 +84,11 @@ pub fn simplify_lines(
                 }
                 Expression::Log2Ceil { .. } => unreachable!(),
             },
-            Line::ArrayAssign {
+            Line::ArrayAssign(lang::ArrayAssign {
                 array,
                 index,
                 value,
-            } => {
+            }) => {
                 handle_array_assignment(
                     counters,
                     &mut res,
@@ -98,7 +99,7 @@ pub fn simplify_lines(
                     const_malloc,
                 );
             }
-            Line::Assert(boolean) => match boolean {
+            Line::Assert(lang::Assert { condition: boolean }) => match boolean {
                 Boolean::Different { left, right } => {
                     let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
                     let right =
@@ -136,11 +137,11 @@ pub fn simplify_lines(
                     }));
                 }
             },
-            Line::IfCondition {
+            Line::IfCondition(lang::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
-            } => {
+            }) => {
                 handle_if_condition(
                     condition,
                     then_branch,
@@ -153,14 +154,14 @@ pub fn simplify_lines(
                     const_malloc,
                 );
             }
-            Line::ForLoop {
+            Line::ForLoop(lang::ForLoop {
                 iterator,
                 start,
                 end,
                 body,
                 rev,
                 unroll,
-            } => {
+            }) => {
                 handle_for_loop(
                     iterator,
                     start,
@@ -176,11 +177,11 @@ pub fn simplify_lines(
                     const_malloc,
                 );
             }
-            Line::FunctionCall {
+            Line::FunctionCall(lang::FunctionCall {
                 function_name,
                 args,
                 return_data,
-            } => {
+            }) => {
                 let simplified_args = args
                     .iter()
                     .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc))
@@ -191,7 +192,7 @@ pub fn simplify_lines(
                     return_data: return_data.clone(),
                 }));
             }
-            Line::FunctionRet { return_data } => {
+            Line::FunctionRet(lang::FunctionRet { return_data }) => {
                 assert!(
                     !in_a_loop,
                     "Function return inside a loop is not currently supported"
@@ -204,7 +205,7 @@ pub fn simplify_lines(
                     return_data: simplified_return_data,
                 }));
             }
-            Line::Precompile { precompile, args } => {
+            Line::Precompile(lang::PrecompileStmt { precompile, args }) => {
                 let simplified_args = args
                     .iter()
                     .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc))
@@ -214,7 +215,7 @@ pub fn simplify_lines(
                     args: simplified_args,
                 }));
             }
-            Line::Print { line_info, content } => {
+            Line::Print(lang::Print { line_info, content }) => {
                 let simplified_content = content
                     .iter()
                     .map(|var| simplify_expr(var, &mut res, counters, array_manager, const_malloc))
@@ -224,18 +225,18 @@ pub fn simplify_lines(
                     content: simplified_content,
                 }));
             }
-            Line::Break => {
+            Line::Break(_) => {
                 assert!(in_a_loop, "Break statement outside of a loop");
                 res.push(SimpleLine::Return(Return {
                     return_data: vec![],
                 }));
             }
-            Line::MAlloc {
+            Line::MAlloc(lang::MAlloc {
                 var,
                 size,
                 vectorized,
                 vectorized_len,
-            } => {
+            }) => {
                 handle_malloc(
                     var,
                     size,
@@ -247,7 +248,7 @@ pub fn simplify_lines(
                     const_malloc,
                 );
             }
-            Line::DecomposeBits { var, to_decompose } => {
+            Line::DecomposeBits(lang::DecomposeBits { var, to_decompose }) => {
                 assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
                 let simplified_to_decompose = to_decompose
                     .iter()
@@ -264,13 +265,13 @@ pub fn simplify_lines(
                     label,
                 }));
             }
-            Line::CounterHint { var } => {
+            Line::CounterHint(lang::CounterHint { var }) => {
                 res.push(SimpleLine::CounterHint(CounterHint { var: var.clone() }));
             }
-            Line::Panic => {
+            Line::Panic(_) => {
                 res.push(SimpleLine::Panic(Panic));
             }
-            Line::LocationReport { location } => {
+            Line::LocationReport(lang::LocationReport { location }) => {
                 res.push(SimpleLine::LocationReport(LocationReport {
                     location: *location,
                 }));
@@ -763,7 +764,10 @@ fn create_recursive_function(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::*;
+    use crate::{
+        ir::{self, simple_line::Assignment},
+        lang::{self, *},
+    };
 
     fn create_test_counters() -> Counters {
         Counters::default()
@@ -784,10 +788,13 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Match {
+        let lines = vec![Line::Match(lang::Match {
             value: Expression::Value(SimpleExpr::Var("x".to_string())),
-            arms: vec![(0, vec![Line::Panic]), (1, vec![Line::Break])],
-        }];
+            arms: vec![
+                (0, vec![Line::Panic(lang::Panic)]),
+                (1, vec![Line::Break(lang::Break)]),
+            ],
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -799,12 +806,15 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        assert!(matches!(result[0], SimpleLine::Match(Match { .. })));
+        assert!(matches!(
+            result[0],
+            SimpleLine::Match(ir::simple_line::Match { .. })
+        ));
 
-        if let SimpleLine::Match(Match { value, arms }) = &result[0] {
+        if let SimpleLine::Match(ir::simple_line::Match { value, arms }) = &result[0] {
             assert_eq!(value, &SimpleExpr::Var("x".to_string()));
             assert_eq!(arms.len(), 2);
-            assert_eq!(arms[0], vec![SimpleLine::Panic(Panic)]);
+            assert_eq!(arms[0], vec![SimpleLine::Panic(ir::simple_line::Panic)]);
             assert_eq!(
                 arms[1],
                 vec![SimpleLine::Return(Return {
@@ -821,10 +831,10 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Assignment {
+        let lines = vec![Line::Assignment(lang::Assignment {
             var: "x".to_string(),
             value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(42))),
-        }];
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -857,14 +867,14 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Assignment {
+        let lines = vec![Line::Assignment(lang::Assignment {
             var: "result".to_string(),
             value: Expression::Binary {
                 left: Box::new(Expression::Value(SimpleExpr::Var("a".to_string()))),
                 operation: HighLevelOperation::Add,
                 right: Box::new(Expression::Value(SimpleExpr::Var("b".to_string()))),
             },
-        }];
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -897,9 +907,11 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Assert(Boolean::Equal {
-            left: Expression::Value(SimpleExpr::Var("x".to_string())),
-            right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(5))),
+        let lines = vec![Line::Assert(Assert {
+            condition: Boolean::Equal {
+                left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(5))),
+            },
         })];
 
         let result = simplify_lines(
@@ -933,9 +945,11 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Assert(Boolean::Different {
-            left: Expression::Value(SimpleExpr::Var("x".to_string())),
-            right: Expression::Value(SimpleExpr::Var("y".to_string())),
+        let lines = vec![Line::Assert(Assert {
+            condition: Boolean::Different {
+                left: Expression::Value(SimpleExpr::Var("x".to_string())),
+                right: Expression::Value(SimpleExpr::Var("y".to_string())),
+            },
         })];
 
         let result = simplify_lines(
@@ -970,7 +984,10 @@ mod tests {
         {
             assert!(condition.to_string().starts_with("@aux_var_"));
             assert_eq!(then_branch.len(), 0);
-            assert_eq!(else_branch, &vec![SimpleLine::Panic(Panic)]);
+            assert_eq!(
+                else_branch,
+                &vec![SimpleLine::Panic(ir::simple_line::Panic)]
+            );
         }
     }
 
@@ -981,14 +998,14 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::FunctionCall {
+        let lines = vec![Line::FunctionCall(lang::FunctionCall {
             function_name: "foo".to_string(),
             args: vec![
                 Expression::Value(SimpleExpr::Var("x".to_string())),
                 Expression::Value(SimpleExpr::Var("y".to_string())),
             ],
             return_data: vec!["result".to_string()],
-        }];
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -1000,7 +1017,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::FunctionCall(FunctionCall {
+        if let SimpleLine::FunctionCall(ir::simple_line::FunctionCall {
             function_name,
             args,
             return_data,
@@ -1021,12 +1038,12 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::FunctionRet {
+        let lines = vec![Line::FunctionRet(FunctionRet {
             return_data: vec![
                 Expression::Value(SimpleExpr::Var("x".to_string())),
                 Expression::Value(SimpleExpr::Var("y".to_string())),
             ],
-        }];
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -1053,9 +1070,9 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::FunctionRet {
+        let lines = vec![Line::FunctionRet(FunctionRet {
             return_data: vec![Expression::Value(SimpleExpr::Var("x".to_string()))],
-        }];
+        })];
 
         simplify_lines(
             &lines,
@@ -1074,13 +1091,13 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Precompile {
+        let lines = vec![Line::Precompile(PrecompileStmt {
             precompile: crate::precompiles::POSEIDON_16,
             args: vec![
                 Expression::Value(SimpleExpr::Var("input".to_string())),
                 Expression::Value(SimpleExpr::Var("size".to_string())),
             ],
-        }];
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -1107,13 +1124,13 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Print {
+        let lines = vec![Line::Print(lang::Print {
             line_info: "123".to_string(),
             content: vec![
                 Expression::Value(SimpleExpr::Var("debug1".to_string())),
                 Expression::Value(SimpleExpr::Var("debug2".to_string())),
             ],
-        }];
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -1125,7 +1142,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::Print(Print { line_info, content }) = &result[0] {
+        if let SimpleLine::Print(ir::simple_line::Print { line_info, content }) = &result[0] {
             assert_eq!(line_info, "123");
             assert_eq!(content.len(), 2);
             assert_eq!(content[0], SimpleExpr::Var("debug1".to_string()));
@@ -1140,7 +1157,7 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Break];
+        let lines = vec![Line::Break(Break)];
 
         let result = simplify_lines(
             &lines,
@@ -1165,7 +1182,7 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Break];
+        let lines = vec![Line::Break(Break)];
 
         simplify_lines(
             &lines,
@@ -1184,13 +1201,13 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::DecomposeBits {
+        let lines = vec![Line::DecomposeBits(lang::DecomposeBits {
             var: "bits".to_string(),
             to_decompose: vec![
                 Expression::Value(SimpleExpr::Var("value1".to_string())),
                 Expression::Value(SimpleExpr::Var("value2".to_string())),
             ],
-        }];
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -1202,7 +1219,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::DecomposeBits(DecomposeBits {
+        if let SimpleLine::DecomposeBits(ir::simple_line::DecomposeBits {
             var,
             to_decompose,
             label,
@@ -1223,9 +1240,9 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::CounterHint {
+        let lines = vec![Line::CounterHint(lang::CounterHint {
             var: "hint_var".to_string(),
-        }];
+        })];
 
         let result = simplify_lines(
             &lines,
@@ -1237,7 +1254,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::CounterHint(CounterHint { var }) = &result[0] {
+        if let SimpleLine::CounterHint(ir::simple_line::CounterHint { var }) = &result[0] {
             assert_eq!(var, "hint_var");
         }
     }
@@ -1249,7 +1266,7 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::Panic];
+        let lines = vec![Line::Panic(lang::Panic)];
 
         let result = simplify_lines(
             &lines,
@@ -1261,7 +1278,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], SimpleLine::Panic(Panic));
+        assert_eq!(result[0], SimpleLine::Panic(ir::simple_line::Panic));
     }
 
     #[test]
@@ -1271,7 +1288,7 @@ mod tests {
         let mut array_manager = create_test_array_manager();
         let mut const_malloc = create_test_const_malloc();
 
-        let lines = vec![Line::LocationReport { location: 456 }];
+        let lines = vec![Line::LocationReport(lang::LocationReport { location: 456 })];
 
         let result = simplify_lines(
             &lines,
@@ -1283,7 +1300,8 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::LocationReport(LocationReport { location }) = &result[0] {
+        if let SimpleLine::LocationReport(ir::simple_line::LocationReport { location }) = &result[0]
+        {
             assert_eq!(location, &456);
         }
     }

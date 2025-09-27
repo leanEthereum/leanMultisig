@@ -88,7 +88,7 @@ impl Display for Function {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{Expression, SimpleExpr};
+    use crate::lang::{Assignment, Expression, FunctionRet, SimpleExpr};
 
     #[test]
     fn test_function_has_const_arguments() {
@@ -190,13 +190,13 @@ mod tests {
             inlined: false,
             n_returned_vars: 1,
             body: vec![
-                Line::Assignment {
+                Line::Assignment(Assignment {
                     var: "result".to_string(),
                     value: Expression::scalar(42),
-                },
-                Line::FunctionRet {
+                }),
+                Line::FunctionRet(FunctionRet {
                     return_data: vec![Expression::Value(SimpleExpr::Var("result".to_string()))],
-                },
+                }),
             ],
         };
         assert_eq!(

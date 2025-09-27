@@ -1,4 +1,8 @@
-use crate::lang::{Boolean, ConstExpression, Expression, Line, SimpleExpr, Var};
+use crate::lang::{
+    ArrayAssign, Assert, Assignment, Boolean, ConstExpression, CounterHint, DecomposeBits,
+    Expression, ForLoop, FunctionCall, FunctionRet, IfCondition, Line, MAlloc, Match,
+    PrecompileStmt, Print, SimpleExpr, Var,
+};
 use std::collections::BTreeSet;
 
 /// Replace variables for unrolling in an expression.
@@ -74,7 +78,7 @@ pub fn replace_vars_for_unroll(
 ) {
     for line in lines {
         match line {
-            Line::Match { value, arms } => {
+            Line::Match(Match { value, arms }) => {
                 replace_vars_for_unroll_in_expr(
                     value,
                     iterator,
@@ -92,7 +96,7 @@ pub fn replace_vars_for_unroll(
                     );
                 }
             }
-            Line::Assignment { var, value } => {
+            Line::Assignment(Assignment { var, value }) => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(
@@ -103,12 +107,12 @@ pub fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
-            Line::ArrayAssign {
+            Line::ArrayAssign(ArrayAssign {
                 // array[index] = value
                 array,
                 index,
                 value,
-            } => {
+            }) => {
                 if let SimpleExpr::Var(array_var) = array {
                     assert!(array_var != iterator, "Weird");
                     if internal_vars.contains(array_var) {
@@ -131,7 +135,9 @@ pub fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
-            Line::Assert(Boolean::Equal { left, right } | Boolean::Different { left, right }) => {
+            Line::Assert(Assert {
+                condition: Boolean::Equal { left, right } | Boolean::Different { left, right },
+            }) => {
                 replace_vars_for_unroll_in_expr(
                     left,
                     iterator,
@@ -147,11 +153,11 @@ pub fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
-            Line::IfCondition {
+            Line::IfCondition(IfCondition {
                 condition: Boolean::Equal { left, right } | Boolean::Different { left, right },
                 then_branch,
                 else_branch,
-            } => {
+            }) => {
                 replace_vars_for_unroll_in_expr(
                     left,
                     iterator,
@@ -181,14 +187,14 @@ pub fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
-            Line::ForLoop {
+            Line::ForLoop(ForLoop {
                 iterator: other_iterator,
                 start,
                 end,
                 body,
                 rev: _,
                 unroll: _,
-            } => {
+            }) => {
                 assert!(other_iterator != iterator);
                 *other_iterator =
                     format!("@unrolled_{unroll_index}_{iterator_value}_{other_iterator}");
@@ -214,11 +220,11 @@ pub fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
-            Line::FunctionCall {
+            Line::FunctionCall(FunctionCall {
                 function_name: _,
                 args,
                 return_data,
-            } => {
+            }) => {
                 // Function calls are not unrolled, so we don't need to change them
                 for arg in args {
                     replace_vars_for_unroll_in_expr(
@@ -233,7 +239,7 @@ pub fn replace_vars_for_unroll(
                     *ret = format!("@unrolled_{unroll_index}_{iterator_value}_{ret}");
                 }
             }
-            Line::FunctionRet { return_data } => {
+            Line::FunctionRet(FunctionRet { return_data }) => {
                 for ret in return_data {
                     replace_vars_for_unroll_in_expr(
                         ret,
@@ -244,10 +250,10 @@ pub fn replace_vars_for_unroll(
                     );
                 }
             }
-            Line::Precompile {
+            Line::Precompile(PrecompileStmt {
                 precompile: _,
                 args,
-            } => {
+            }) => {
                 for arg in args {
                     replace_vars_for_unroll_in_expr(
                         arg,
@@ -258,7 +264,7 @@ pub fn replace_vars_for_unroll(
                     );
                 }
             }
-            Line::Print { line_info, content } => {
+            Line::Print(Print { line_info, content }) => {
                 // Print statements are not unrolled, so we don't need to change them
                 *line_info += &format!(" (unrolled {unroll_index} {iterator_value})");
                 for var in content {
@@ -271,12 +277,12 @@ pub fn replace_vars_for_unroll(
                     );
                 }
             }
-            Line::MAlloc {
+            Line::MAlloc(MAlloc {
                 var,
                 size,
                 vectorized: _,
                 vectorized_len,
-            } => {
+            }) => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(
@@ -294,7 +300,7 @@ pub fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
-            Line::DecomposeBits { var, to_decompose } => {
+            Line::DecomposeBits(DecomposeBits { var, to_decompose }) => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 for expr in to_decompose {
@@ -307,16 +313,20 @@ pub fn replace_vars_for_unroll(
                     );
                 }
             }
-            Line::CounterHint { var } => {
+            Line::CounterHint(CounterHint { var }) => {
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
             }
-            Line::Break | Line::Panic | Line::LocationReport { .. } => {}
+            Line::Break(_) | Line::Panic(_) | Line::LocationReport { .. } => {}
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::lang::{
+        Assert, Assignment, Break, FunctionCall, IfCondition, LocationReport, Panic,
+    };
+
     use super::*;
 
     #[test]
@@ -423,14 +433,14 @@ mod tests {
 
     #[test]
     fn test_replace_vars_for_unroll_assignment() {
-        let mut lines = vec![Line::Assignment {
+        let mut lines = vec![Line::Assignment(Assignment {
             var: "sum".to_string(),
             value: Expression::Binary {
                 left: Box::new(Expression::Value(SimpleExpr::Var("sum".to_string()))),
                 operation: crate::ir::HighLevelOperation::Add,
                 right: Box::new(Expression::Value(SimpleExpr::Var("i".to_string()))),
             },
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("sum".to_string());
@@ -439,7 +449,7 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::Assignment {
+            vec![Line::Assignment(Assignment {
                 var: "@unrolled_1_5_sum".to_string(),
                 value: Expression::Binary {
                     left: Box::new(Expression::Value(SimpleExpr::Var(
@@ -448,17 +458,17 @@ mod tests {
                     operation: crate::ir::HighLevelOperation::Add,
                     right: Box::new(Expression::scalar(5)),
                 },
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_function_call() {
-        let mut lines = vec![Line::FunctionCall {
+        let mut lines = vec![Line::FunctionCall(FunctionCall {
             function_name: "test_func".to_string(),
             args: vec![Expression::Value(SimpleExpr::Var("i".to_string()))],
             return_data: vec!["result".to_string()],
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("result".to_string());
@@ -467,27 +477,27 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::FunctionCall {
+            vec![Line::FunctionCall(FunctionCall {
                 function_name: "test_func".to_string(),
                 args: vec![Expression::scalar(8)],
                 return_data: vec!["@unrolled_2_8_result".to_string()],
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_if_condition() {
-        let mut lines = vec![Line::IfCondition {
+        let mut lines = vec![Line::IfCondition(IfCondition {
             condition: Boolean::Equal {
                 left: Expression::Value(SimpleExpr::Var("i".to_string())),
                 right: Expression::scalar(5),
             },
-            then_branch: vec![Line::Assignment {
+            then_branch: vec![Line::Assignment(Assignment {
                 var: "x".to_string(),
                 value: Expression::scalar(1),
-            }],
+            })],
             else_branch: vec![],
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("x".to_string());
@@ -496,33 +506,33 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::IfCondition {
+            vec![Line::IfCondition(IfCondition {
                 condition: Boolean::Equal {
                     left: Expression::scalar(3),
                     right: Expression::scalar(5),
                 },
-                then_branch: vec![Line::Assignment {
+                then_branch: vec![Line::Assignment(Assignment {
                     var: "@unrolled_0_3_x".to_string(),
                     value: Expression::scalar(1),
-                }],
+                })],
                 else_branch: vec![],
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_for_loop() {
-        let mut lines = vec![Line::ForLoop {
+        let mut lines = vec![Line::ForLoop(ForLoop {
             iterator: "j".to_string(),
             start: Expression::Value(SimpleExpr::Var("i".to_string())),
             end: Expression::scalar(10),
-            body: vec![Line::Assignment {
+            body: vec![Line::Assignment(Assignment {
                 var: "total".to_string(),
                 value: Expression::Value(SimpleExpr::Var("j".to_string())),
-            }],
+            })],
             rev: false,
             unroll: false,
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("j".to_string());
@@ -532,41 +542,41 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::ForLoop {
+            vec![Line::ForLoop(ForLoop {
                 iterator: "@unrolled_1_7_j".to_string(),
                 start: Expression::scalar(7),
                 end: Expression::scalar(10),
-                body: vec![Line::Assignment {
+                body: vec![Line::Assignment(Assignment {
                     var: "@unrolled_1_7_total".to_string(),
                     value: Expression::Value(SimpleExpr::Var("@unrolled_1_7_j".to_string())),
-                }],
+                })],
                 rev: false,
                 unroll: false,
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_match() {
-        let mut lines = vec![Line::Match {
+        let mut lines = vec![Line::Match(Match {
             value: Expression::Value(SimpleExpr::Var("i".to_string())),
             arms: vec![
                 (
                     0,
-                    vec![Line::Assignment {
+                    vec![Line::Assignment(Assignment {
                         var: "a".to_string(),
                         value: Expression::scalar(1),
-                    }],
+                    })],
                 ),
                 (
                     1,
-                    vec![Line::Assignment {
+                    vec![Line::Assignment(Assignment {
                         var: "b".to_string(),
                         value: Expression::scalar(2),
-                    }],
+                    })],
                 ),
             ],
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("a".to_string());
@@ -576,33 +586,35 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::Match {
+            vec![Line::Match(Match {
                 value: Expression::scalar(4),
                 arms: vec![
                     (
                         0,
-                        vec![Line::Assignment {
+                        vec![Line::Assignment(Assignment {
                             var: "@unrolled_3_4_a".to_string(),
                             value: Expression::scalar(1),
-                        }]
+                        })]
                     ),
                     (
                         1,
-                        vec![Line::Assignment {
+                        vec![Line::Assignment(Assignment {
                             var: "@unrolled_3_4_b".to_string(),
                             value: Expression::scalar(2),
-                        }]
+                        })]
                     ),
                 ],
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_assert() {
-        let mut lines = vec![Line::Assert(Boolean::Different {
-            left: Expression::Value(SimpleExpr::Var("i".to_string())),
-            right: Expression::Value(SimpleExpr::Var("x".to_string())),
+        let mut lines = vec![Line::Assert(Assert {
+            condition: Boolean::Different {
+                left: Expression::Value(SimpleExpr::Var("i".to_string())),
+                right: Expression::Value(SimpleExpr::Var("x".to_string())),
+            },
         })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
@@ -612,21 +624,23 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::Assert(Boolean::Different {
-                left: Expression::scalar(6),
-                right: Expression::Value(SimpleExpr::Var("@unrolled_0_6_x".to_string())),
+            vec![Line::Assert(Assert {
+                condition: Boolean::Different {
+                    left: Expression::scalar(6),
+                    right: Expression::Value(SimpleExpr::Var("@unrolled_0_6_x".to_string())),
+                }
             })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_malloc() {
-        let mut lines = vec![Line::MAlloc {
+        let mut lines = vec![Line::MAlloc(MAlloc {
             var: "ptr".to_string(),
             size: Expression::Value(SimpleExpr::Var("i".to_string())),
             vectorized: false,
             vectorized_len: Expression::scalar(1),
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("ptr".to_string());
@@ -635,21 +649,21 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::MAlloc {
+            vec![Line::MAlloc(MAlloc {
                 var: "@unrolled_1_64_ptr".to_string(),
                 size: Expression::scalar(64),
                 vectorized: false,
                 vectorized_len: Expression::scalar(1),
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_decompose_bits() {
-        let mut lines = vec![Line::DecomposeBits {
+        let mut lines = vec![Line::DecomposeBits(DecomposeBits {
             var: "bits".to_string(),
             to_decompose: vec![Expression::Value(SimpleExpr::Var("i".to_string()))],
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("bits".to_string());
@@ -658,18 +672,18 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::DecomposeBits {
+            vec![Line::DecomposeBits(DecomposeBits {
                 var: "@unrolled_2_255_bits".to_string(),
                 to_decompose: vec![Expression::scalar(255)],
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_counter_hint() {
-        let mut lines = vec![Line::CounterHint {
+        let mut lines = vec![Line::CounterHint(CounterHint {
             var: "counter".to_string(),
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("counter".to_string());
@@ -678,18 +692,18 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::CounterHint {
+            vec![Line::CounterHint(CounterHint {
                 var: "@unrolled_0_1_counter".to_string(),
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_print() {
-        let mut lines = vec![Line::Print {
+        let mut lines = vec![Line::Print(Print {
             line_info: "debug".to_string(),
             content: vec![Expression::Value(SimpleExpr::Var("i".to_string()))],
-        }];
+        })];
         let iterator = "i".to_string();
         let internal_vars = BTreeSet::new();
 
@@ -697,20 +711,20 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::Print {
+            vec![Line::Print(Print {
                 line_info: "debug (unrolled 5 42)".to_string(),
                 content: vec![Expression::scalar(42)],
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_array_assign() {
-        let mut lines = vec![Line::ArrayAssign {
+        let mut lines = vec![Line::ArrayAssign(ArrayAssign {
             array: SimpleExpr::Var("arr".to_string()),
             index: Expression::Value(SimpleExpr::Var("i".to_string())),
             value: Expression::Value(SimpleExpr::Var("val".to_string())),
-        }];
+        })];
         let iterator = "i".to_string();
         let mut internal_vars = BTreeSet::new();
         internal_vars.insert("arr".to_string());
@@ -720,19 +734,19 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::ArrayAssign {
+            vec![Line::ArrayAssign(ArrayAssign {
                 array: SimpleExpr::Var("@unrolled_1_12_arr".to_string()),
                 index: Expression::scalar(12),
                 value: Expression::Value(SimpleExpr::Var("@unrolled_1_12_val".to_string())),
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_function_ret() {
-        let mut lines = vec![Line::FunctionRet {
+        let mut lines = vec![Line::FunctionRet(FunctionRet {
             return_data: vec![Expression::Value(SimpleExpr::Var("i".to_string()))],
-        }];
+        })];
         let iterator = "i".to_string();
         let internal_vars = BTreeSet::new();
 
@@ -740,18 +754,18 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::FunctionRet {
+            vec![Line::FunctionRet(FunctionRet {
                 return_data: vec![Expression::scalar(100)],
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_precompile() {
-        let mut lines = vec![Line::Precompile {
+        let mut lines = vec![Line::Precompile(PrecompileStmt {
             precompile: crate::precompiles::PRECOMPILES[0].clone(),
             args: vec![Expression::Value(SimpleExpr::Var("i".to_string()))],
-        }];
+        })];
         let iterator = "i".to_string();
         let internal_vars = BTreeSet::new();
 
@@ -759,19 +773,19 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::Precompile {
+            vec![Line::Precompile(PrecompileStmt {
                 precompile: crate::precompiles::PRECOMPILES[0].clone(),
                 args: vec![Expression::scalar(25)],
-            }]
+            })]
         );
     }
 
     #[test]
     fn test_replace_vars_for_unroll_no_op_lines() {
         let mut lines = vec![
-            Line::Break,
-            Line::Panic,
-            Line::LocationReport { location: 42 },
+            Line::Break(Break),
+            Line::Panic(Panic),
+            Line::LocationReport(LocationReport { location: 42 }),
         ];
         let iterator = "i".to_string();
         let internal_vars = BTreeSet::new();

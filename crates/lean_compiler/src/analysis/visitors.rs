@@ -1,6 +1,6 @@
 //! Visitor traits for AST traversal.
 
-use crate::lang::{Boolean, Expression, Function, Line, Program, SimpleExpr};
+use crate::lang::{self, Boolean, Expression, Function, Line, Program, SimpleExpr};
 use std::ops::ControlFlow;
 
 /// Result type for visitor operations
@@ -86,85 +86,71 @@ where
     V: Visitor<T> + ?Sized,
 {
     match line {
-        Line::Match { value, arms } => {
-            visitor.visit_expression(value)?;
-            for (_, arm_lines) in arms {
+        Line::Match(match_stmt) => {
+            visitor.visit_expression(&match_stmt.value)?;
+            for (_, arm_lines) in &match_stmt.arms {
                 for arm_line in arm_lines {
                     visitor.visit_line(arm_line)?;
                 }
             }
         }
-        Line::Assignment { value, .. } => {
-            visitor.visit_expression(value)?;
+        Line::Assignment(assignment) => {
+            visitor.visit_expression(&assignment.value)?;
         }
-        Line::ArrayAssign {
-            array,
-            index,
-            value,
-        } => {
-            visitor.visit_simple_expr(array)?;
-            visitor.visit_expression(index)?;
-            visitor.visit_expression(value)?;
+        Line::ArrayAssign(array_assign) => {
+            visitor.visit_simple_expr(&array_assign.array)?;
+            visitor.visit_expression(&array_assign.index)?;
+            visitor.visit_expression(&array_assign.value)?;
         }
-        Line::Assert(condition) => {
-            visitor.visit_boolean(condition)?;
+        Line::Assert(assert) => {
+            visitor.visit_boolean(&assert.condition)?;
         }
-        Line::IfCondition {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            visitor.visit_boolean(condition)?;
-            for line in then_branch {
+        Line::IfCondition(if_cond) => {
+            visitor.visit_boolean(&if_cond.condition)?;
+            for line in &if_cond.then_branch {
                 visitor.visit_line(line)?;
             }
-            for line in else_branch {
+            for line in &if_cond.else_branch {
                 visitor.visit_line(line)?;
             }
         }
-        Line::ForLoop {
-            start, end, body, ..
-        } => {
-            visitor.visit_expression(start)?;
-            visitor.visit_expression(end)?;
-            for line in body {
+        Line::ForLoop(for_loop) => {
+            visitor.visit_expression(&for_loop.start)?;
+            visitor.visit_expression(&for_loop.end)?;
+            for line in &for_loop.body {
                 visitor.visit_line(line)?;
             }
         }
-        Line::FunctionCall { args, .. } => {
-            for arg in args {
+        Line::FunctionCall(call) => {
+            for arg in &call.args {
                 visitor.visit_expression(arg)?;
             }
         }
-        Line::FunctionRet { return_data } => {
-            for expr in return_data {
+        Line::FunctionRet(ret) => {
+            for expr in &ret.return_data {
                 visitor.visit_expression(expr)?;
             }
         }
-        Line::Precompile { args, .. } => {
-            for arg in args {
+        Line::Precompile(precompile) => {
+            for arg in &precompile.args {
                 visitor.visit_expression(arg)?;
             }
         }
-        Line::Print { content, .. } => {
-            for expr in content {
+        Line::Print(print) => {
+            for expr in &print.content {
                 visitor.visit_expression(expr)?;
             }
         }
-        Line::MAlloc {
-            size,
-            vectorized_len,
-            ..
-        } => {
-            visitor.visit_expression(size)?;
-            visitor.visit_expression(vectorized_len)?;
+        Line::MAlloc(malloc) => {
+            visitor.visit_expression(&malloc.size)?;
+            visitor.visit_expression(&malloc.vectorized_len)?;
         }
-        Line::DecomposeBits { to_decompose, .. } => {
-            for expr in to_decompose {
+        Line::DecomposeBits(decompose) => {
+            for expr in &decompose.to_decompose {
                 visitor.visit_expression(expr)?;
             }
         }
-        Line::Break | Line::Panic | Line::CounterHint { .. } | Line::LocationReport { .. } => {}
+        Line::Break(_) | Line::Panic(_) | Line::CounterHint(_) | Line::LocationReport(_) => {}
     }
     ControlFlow::Continue(())
 }
@@ -237,7 +223,7 @@ where
     V: MutVisitor<T> + ?Sized,
 {
     match line {
-        Line::Match { value, arms } => {
+        Line::Match(lang::Match { value, arms }) => {
             visitor.visit_expression(value)?;
             for (_, arm_lines) in arms {
                 for arm_line in arm_lines {
@@ -245,26 +231,26 @@ where
                 }
             }
         }
-        Line::Assignment { value, .. } => {
+        Line::Assignment(lang::Assignment { value, .. }) => {
             visitor.visit_expression(value)?;
         }
-        Line::ArrayAssign {
+        Line::ArrayAssign(lang::ArrayAssign {
             array,
             index,
             value,
-        } => {
+        }) => {
             visitor.visit_simple_expr(array)?;
             visitor.visit_expression(index)?;
             visitor.visit_expression(value)?;
         }
-        Line::Assert(condition) => {
+        Line::Assert(lang::Assert { condition }) => {
             visitor.visit_boolean(condition)?;
         }
-        Line::IfCondition {
+        Line::IfCondition(lang::IfCondition {
             condition,
             then_branch,
             else_branch,
-        } => {
+        }) => {
             visitor.visit_boolean(condition)?;
             for line in then_branch {
                 visitor.visit_line(line)?;
@@ -273,49 +259,49 @@ where
                 visitor.visit_line(line)?;
             }
         }
-        Line::ForLoop {
+        Line::ForLoop(lang::ForLoop {
             start, end, body, ..
-        } => {
+        }) => {
             visitor.visit_expression(start)?;
             visitor.visit_expression(end)?;
             for line in body {
                 visitor.visit_line(line)?;
             }
         }
-        Line::FunctionCall { args, .. } => {
+        Line::FunctionCall(lang::FunctionCall { args, .. }) => {
             for arg in args {
                 visitor.visit_expression(arg)?;
             }
         }
-        Line::FunctionRet { return_data } => {
+        Line::FunctionRet(lang::FunctionRet { return_data }) => {
             for expr in return_data {
                 visitor.visit_expression(expr)?;
             }
         }
-        Line::Precompile { args, .. } => {
+        Line::Precompile(lang::PrecompileStmt { args, .. }) => {
             for arg in args {
                 visitor.visit_expression(arg)?;
             }
         }
-        Line::Print { content, .. } => {
+        Line::Print(lang::Print { content, .. }) => {
             for expr in content {
                 visitor.visit_expression(expr)?;
             }
         }
-        Line::MAlloc {
+        Line::MAlloc(lang::MAlloc {
             size,
             vectorized_len,
             ..
-        } => {
+        }) => {
             visitor.visit_expression(size)?;
             visitor.visit_expression(vectorized_len)?;
         }
-        Line::DecomposeBits { to_decompose, .. } => {
+        Line::DecomposeBits(lang::DecomposeBits { to_decompose, .. }) => {
             for expr in to_decompose {
                 visitor.visit_expression(expr)?;
             }
         }
-        Line::Break | Line::Panic | Line::CounterHint { .. } | Line::LocationReport { .. } => {}
+        Line::Break(_) | Line::Panic(_) | Line::CounterHint(_) | Line::LocationReport(_) => {}
     }
     ControlFlow::Continue(())
 }

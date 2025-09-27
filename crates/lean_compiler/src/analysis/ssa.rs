@@ -51,23 +51,23 @@ impl Default for SSAAnalyzer {
 impl<T> Visitor<T> for SSAAnalyzer {
     fn visit_line(&mut self, line: &Line) -> VisitorResult<T> {
         match line {
-            Line::Assignment { var, .. } => {
-                self.record_assignment(var);
+            Line::Assignment(assignment) => {
+                self.record_assignment(&assignment.var);
             }
             Line::ArrayAssign { .. } => {
                 // Array assignments don't violate SSA for scalar variables
             }
-            Line::MAlloc { var, .. } => {
-                self.record_assignment(var);
+            Line::MAlloc(malloc) => {
+                self.record_assignment(&malloc.var);
             }
-            Line::DecomposeBits { var, .. } => {
-                self.record_assignment(var);
+            Line::DecomposeBits(decompose) => {
+                self.record_assignment(&decompose.var);
             }
-            Line::CounterHint { var } => {
-                self.record_assignment(var);
+            Line::CounterHint(hint) => {
+                self.record_assignment(&hint.var);
             }
-            Line::FunctionCall { return_data, .. } => {
-                for var in return_data {
+            Line::FunctionCall(call) => {
+                for var in &call.return_data {
                     self.record_assignment(var);
                 }
             }
@@ -139,18 +139,17 @@ impl ReturnContextCollector {
     ) {
         for line in lines {
             match line {
-                Line::Assignment { var, value } if return_vars.contains(var) => {
+                Line::Assignment(assignment) if return_vars.contains(&assignment.var) => {
                     let context = ReturnContext {
                         conditions: current_conditions.clone(),
-                        assignments: vec![(var.clone(), value.clone())],
+                        assignments: vec![(assignment.var.clone(), assignment.value.clone())],
                     };
                     self.contexts.push(context);
                 }
-                Line::IfCondition {
-                    condition,
-                    then_branch,
-                    else_branch,
-                } => {
+                Line::IfCondition(if_cond) => {
+                    let condition = &if_cond.condition;
+                    let then_branch = &if_cond.then_branch;
+                    let else_branch = &if_cond.else_branch;
                     // Collect from then branch with added condition
                     let mut then_conditions = current_conditions.clone();
                     then_conditions.push(condition.clone());
@@ -173,12 +172,12 @@ impl ReturnContextCollector {
                         self.collect_recursive(else_branch, return_vars, else_conditions);
                     }
                 }
-                Line::ForLoop { body, .. } => {
+                Line::ForLoop(for_loop) => {
                     // For simplicity, treat loop body as unconditional context
-                    self.collect_recursive(body, return_vars, current_conditions.clone());
+                    self.collect_recursive(&for_loop.body, return_vars, current_conditions.clone());
                 }
-                Line::Match { arms, .. } => {
-                    for (_, arm_lines) in arms {
+                Line::Match(match_stmt) => {
+                    for (_, arm_lines) in &match_stmt.arms {
                         self.collect_recursive(arm_lines, return_vars, current_conditions.clone());
                     }
                 }
@@ -231,10 +230,10 @@ pub fn create_ssa_repair_strategy(contexts: &[ReturnContext]) -> Vec<Line> {
 
     let mut result = Vec::new();
     for (var, expr) in &first_context.assignments {
-        result.push(Line::Assignment {
+        result.push(Line::Assignment(crate::lang::ast::statement::Assignment {
             var: var.clone(),
             value: expr.clone(),
-        });
+        }));
     }
 
     result
@@ -243,19 +242,19 @@ pub fn create_ssa_repair_strategy(contexts: &[ReturnContext]) -> Vec<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lang::{ConstExpression, SimpleExpr};
+    use crate::lang::{Assignment, ConstExpression, IfCondition, SimpleExpr};
 
     #[test]
     fn test_ssa_analyzer_no_violations() {
         let lines = vec![
-            Line::Assignment {
+            Line::Assignment(Assignment {
                 var: "x".to_string(),
                 value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-            },
-            Line::Assignment {
+            }),
+            Line::Assignment(Assignment {
                 var: "y".to_string(),
                 value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(2))),
-            },
+            }),
         ];
 
         let analyzer = SSAAnalyzer::analyze(&lines);
@@ -265,14 +264,14 @@ mod tests {
     #[test]
     fn test_ssa_analyzer_with_violations() {
         let lines = vec![
-            Line::Assignment {
+            Line::Assignment(Assignment {
                 var: "x".to_string(),
                 value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
-            },
-            Line::Assignment {
+            }),
+            Line::Assignment(Assignment {
                 var: "x".to_string(),
                 value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(2))),
-            },
+            }),
         ];
 
         let analyzer = SSAAnalyzer::analyze(&lines);
@@ -282,10 +281,10 @@ mod tests {
 
     #[test]
     fn test_return_context_collection() {
-        let lines = vec![Line::Assignment {
+        let lines = vec![Line::Assignment(Assignment {
             var: "result".to_string(),
             value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(42))),
-        }];
+        })];
 
         let return_vars = vec!["result".to_string()];
         let contexts = ReturnContextCollector::collect_from(&lines, &return_vars);
@@ -298,21 +297,21 @@ mod tests {
     #[test]
     fn test_detect_return_ssa_violations() {
         let lines = vec![
-            Line::IfCondition {
+            Line::IfCondition(IfCondition {
                 condition: Boolean::Equal {
                     left: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                     right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                 },
-                then_branch: vec![Line::Assignment {
+                then_branch: vec![Line::Assignment(Assignment {
                     var: "result".to_string(),
                     value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100))),
-                }],
+                })],
                 else_branch: vec![],
-            },
-            Line::Assignment {
+            }),
+            Line::Assignment(Assignment {
                 var: "result".to_string(),
                 value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200))),
-            },
+            }),
         ];
 
         let return_vars = vec!["result".to_string()];

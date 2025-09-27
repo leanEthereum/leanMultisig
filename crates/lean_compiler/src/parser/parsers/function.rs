@@ -2,6 +2,9 @@ use super::expression::ExpressionParser;
 use super::literal::VarListParser;
 use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
+use crate::lang::{
+    CounterHint, DecomposeBits, FunctionCall, LocationReport, MAlloc, Panic, PrecompileStmt, Print,
+};
 use crate::{
     lang::{Expression, Function, Line, SimpleExpr},
     parser::{
@@ -68,7 +71,7 @@ impl FunctionParser {
         let location = pair.line_col().0;
         let line = StatementParser::parse(pair, ctx)?;
 
-        lines.push(Line::LocationReport { location });
+        lines.push(Line::LocationReport(LocationReport { location }));
         lines.push(line);
 
         Ok(())
@@ -163,12 +166,12 @@ impl FunctionCallParser {
                 if args.len() != 1 || return_data.len() != 1 {
                     return Err(SemanticError::new("Invalid malloc call").into());
                 }
-                Ok(Line::MAlloc {
+                Ok(Line::MAlloc(MAlloc {
                     var: return_data[0].clone(),
                     size: args[0].clone(),
                     vectorized: false,
                     vectorized_len: Expression::zero(),
-                })
+                }))
             }
             "malloc_vec" => {
                 if return_data.len() != 1 {
@@ -185,12 +188,12 @@ impl FunctionCallParser {
                     return Err(SemanticError::new("malloc_vec takes 1 or 2 arguments").into());
                 };
 
-                Ok(Line::MAlloc {
+                Ok(Line::MAlloc(MAlloc {
                     var: return_data[0].clone(),
                     size: args[0].clone(),
                     vectorized: true,
                     vectorized_len,
-                })
+                }))
             }
             "print" => {
                 if !return_data.is_empty() {
@@ -198,27 +201,27 @@ impl FunctionCallParser {
                         SemanticError::new("Print function should not return values").into(),
                     );
                 }
-                Ok(Line::Print {
+                Ok(Line::Print(Print {
                     line_info: function_name.clone(),
                     content: args,
-                })
+                }))
             }
             "decompose_bits" => {
                 if args.is_empty() || return_data.len() != 1 {
                     return Err(SemanticError::new("Invalid decompose_bits call").into());
                 }
-                Ok(Line::DecomposeBits {
+                Ok(Line::DecomposeBits(DecomposeBits {
                     var: return_data[0].clone(),
                     to_decompose: args,
-                })
+                }))
             }
             "counter_hint" => {
                 if !args.is_empty() || return_data.len() != 1 {
                     return Err(SemanticError::new("Invalid counter_hint call").into());
                 }
-                Ok(Line::CounterHint {
+                Ok(Line::CounterHint(CounterHint {
                     var: return_data[0].clone(),
-                })
+                }))
             }
             "panic" => {
                 if !return_data.is_empty() || !args.is_empty() {
@@ -226,7 +229,7 @@ impl FunctionCallParser {
                         SemanticError::new("Panic has no args and returns no values").into(),
                     );
                 }
-                Ok(Line::Panic)
+                Ok(Line::Panic(Panic))
             }
             _ => {
                 // Check for precompile functions
@@ -237,16 +240,16 @@ impl FunctionCallParser {
                     if args.len() != precompile.n_inputs {
                         return Err(SemanticError::new("Invalid precompile call").into());
                     }
-                    Ok(Line::Precompile {
+                    Ok(Line::Precompile(PrecompileStmt {
                         precompile: precompile.clone(),
                         args,
-                    })
+                    }))
                 } else {
-                    Ok(Line::FunctionCall {
+                    Ok(Line::FunctionCall(FunctionCall {
                         function_name,
                         args,
                         return_data,
-                    })
+                    }))
                 }
             }
         }
@@ -329,12 +332,12 @@ mod tests {
         )
         .unwrap();
 
-        if let Line::MAlloc {
+        if let Line::MAlloc(MAlloc {
             var,
             size: _,
             vectorized,
             vectorized_len: _,
-        } = result
+        }) = result
         {
             assert_eq!(var, "ptr");
             assert!(vectorized);
@@ -355,12 +358,12 @@ mod tests {
         )
         .unwrap();
 
-        if let Line::MAlloc {
+        if let Line::MAlloc(MAlloc {
             var,
             size: _,
             vectorized,
             vectorized_len: _,
-        } = result
+        }) = result
         {
             assert_eq!(var, "ptr");
             assert!(vectorized);
@@ -401,12 +404,12 @@ mod tests {
             FunctionCallParser::handle_builtin_function("malloc".to_string(), args, return_data)
                 .unwrap();
 
-        if let Line::MAlloc {
+        if let Line::MAlloc(MAlloc {
             var,
             size,
             vectorized,
             vectorized_len,
-        } = result
+        }) = result
         {
             assert_eq!(var, "mem");
             assert_eq!(size, Expression::scalar(200));
@@ -432,7 +435,7 @@ mod tests {
         )
         .unwrap();
 
-        if let Line::Print { line_info, content } = result {
+        if let Line::Print(Print { line_info, content }) = result {
             assert_eq!(line_info, "print");
             assert_eq!(content, args);
         } else {
@@ -452,7 +455,7 @@ mod tests {
         )
         .unwrap();
 
-        if let Line::DecomposeBits { var, to_decompose } = result {
+        if let Line::DecomposeBits(DecomposeBits { var, to_decompose }) = result {
             assert_eq!(var, "bits");
             assert_eq!(to_decompose, args);
         } else {
@@ -472,7 +475,7 @@ mod tests {
         )
         .unwrap();
 
-        if let Line::CounterHint { var } = result {
+        if let Line::CounterHint(CounterHint { var }) = result {
             assert_eq!(var, "counter");
         } else {
             panic!("Expected CounterHint");
@@ -488,7 +491,7 @@ mod tests {
             FunctionCallParser::handle_builtin_function("panic".to_string(), args, return_data)
                 .unwrap();
 
-        assert_eq!(result, Line::Panic);
+        assert_eq!(result, Line::Panic(Panic));
     }
 
     #[test]
@@ -503,11 +506,11 @@ mod tests {
         )
         .unwrap();
 
-        if let Line::FunctionCall {
+        if let Line::FunctionCall(FunctionCall {
             function_name,
             args: call_args,
             return_data: call_return,
-        } = result
+        }) = result
         {
             assert_eq!(function_name, "my_function");
             assert_eq!(call_args, args);

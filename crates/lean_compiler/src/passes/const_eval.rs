@@ -2,7 +2,7 @@
 
 use super::{Pass, PassError, PassResult};
 use crate::ir::utilities::replace_vars_by_const_in_lines;
-use crate::lang::{Function, Line, Program};
+use crate::lang::{Function, FunctionCall, Line, Program};
 use std::collections::BTreeMap;
 
 /// Pass for handling constant argument evaluation
@@ -31,25 +31,21 @@ impl ConstEvalPass {
     ) {
         for line in lines {
             match line {
-                Line::FunctionCall {
+                Line::FunctionCall(FunctionCall {
                     function_name,
                     args,
                     return_data: _,
-                } => {
+                }) => {
                     if let Some(func) = constant_functions.get(function_name) {
                         Self::handle_const_function_call(func, function_name, args, new_functions);
                     }
                 }
-                Line::IfCondition {
-                    then_branch,
-                    else_branch,
-                    ..
-                } => {
-                    Self::process_function(then_branch, constant_functions, new_functions);
-                    Self::process_function(else_branch, constant_functions, new_functions);
+                Line::IfCondition(if_cond) => {
+                    Self::process_function(&mut if_cond.then_branch, constant_functions, new_functions);
+                    Self::process_function(&mut if_cond.else_branch, constant_functions, new_functions);
                 }
-                Line::ForLoop { body, .. } => {
-                    Self::process_function(body, constant_functions, new_functions);
+                Line::ForLoop(for_loop) => {
+                    Self::process_function(&mut for_loop.body, constant_functions, new_functions);
                 }
                 _ => {}
             }
@@ -206,7 +202,7 @@ impl Pass for ConstEvalPass {
 mod tests {
     use super::*;
     use crate::ir::HighLevelOperation;
-    use crate::lang::{ConstExpression, Expression, Line, SimpleExpr};
+    use crate::lang::{Assignment, ConstExpression, Expression, FunctionCall, Line, SimpleExpr};
     use std::collections::BTreeMap;
 
     fn create_const_function(name: &str) -> Function {
@@ -214,14 +210,14 @@ mod tests {
             name: name.to_string(),
             arguments: vec![("x".to_string(), false), ("size".to_string(), true)],
             inlined: false,
-            body: vec![Line::Assignment {
+            body: vec![Line::Assignment(Assignment {
                 var: "result".to_string(),
                 value: Expression::Binary {
                     left: Box::new(Expression::Value(SimpleExpr::Var("x".to_string()))),
                     operation: HighLevelOperation::Add,
                     right: Box::new(Expression::Value(SimpleExpr::Var("size".to_string()))),
                 },
-            }],
+            })],
             n_returned_vars: 1,
         }
     }
@@ -243,14 +239,14 @@ mod tests {
             name: "caller".to_string(),
             arguments: vec![("input".to_string(), false)],
             inlined: false,
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "const_func".to_string(),
                 args: vec![
                     Expression::Value(SimpleExpr::Var("input".to_string())),
                     Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(10))),
                 ],
                 return_data: vec!["result".to_string()],
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("caller".to_string(), caller_func);
@@ -269,11 +265,11 @@ mod tests {
 
         // Caller should call the specialized function
         let caller = program.functions.get("caller").unwrap();
-        if let Line::FunctionCall {
+        if let Line::FunctionCall(FunctionCall {
             function_name,
             args,
             ..
-        } = &caller.body[0]
+        }) = &caller.body[0]
         {
             assert_eq!(function_name, specialized_name);
             assert_eq!(args.len(), 1); // Only non-const arguments
@@ -296,14 +292,14 @@ mod tests {
             name: "caller1".to_string(),
             arguments: vec![("input".to_string(), false)],
             inlined: false,
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "const_func".to_string(),
                 args: vec![
                     Expression::Value(SimpleExpr::Var("input".to_string())),
                     Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(5))),
                 ],
                 return_data: vec!["result1".to_string()],
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("caller1".to_string(), caller1);
@@ -312,14 +308,14 @@ mod tests {
             name: "caller2".to_string(),
             arguments: vec![("input".to_string(), false)],
             inlined: false,
-            body: vec![Line::FunctionCall {
+            body: vec![Line::FunctionCall(FunctionCall {
                 function_name: "const_func".to_string(),
                 args: vec![
                     Expression::Value(SimpleExpr::Var("input".to_string())),
                     Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(10))),
                 ],
                 return_data: vec!["result2".to_string()],
-            }],
+            })],
             n_returned_vars: 1,
         };
         program.functions.insert("caller2".to_string(), caller2);
