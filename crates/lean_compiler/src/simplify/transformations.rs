@@ -2,6 +2,10 @@ use super::{types::Counter, utilities::replace_vars_by_const_in_lines};
 use crate::lang::{Boolean, ConstExpression, Expression, Function, Line, Program, SimpleExpr, Var};
 use std::collections::BTreeMap;
 
+/// Type alias for complex context structures
+type ReturnContext = (Vec<Boolean>, Vec<(String, Expression)>);
+type ReturnContexts = Vec<ReturnContext>;
+
 /// Handle inlined functions by replacing calls with function body.
 pub fn handle_inlined_functions(program: &mut Program) {
     let inlined_functions = program
@@ -339,7 +343,7 @@ fn inline_lines_with_flag(
     args: &BTreeMap<Var, SimpleExpr>,
     res: &[Var],
     inlining_count: usize,
-    return_flag_var: Option<&str>,
+    _return_flag_var: Option<&str>,
 ) {
     let inline_condition = |condition: &mut Boolean| {
         let (Boolean::Equal { left, right } | Boolean::Different { left, right }) = condition;
@@ -369,7 +373,7 @@ fn inline_lines_with_flag(
             Line::Match { value, arms } => {
                 inline_expr(value, args, inlining_count);
                 for (_, statements) in arms {
-                    inline_lines_with_flag(statements, args, res, inlining_count, return_flag_var);
+                    inline_lines_with_flag(statements, args, res, inlining_count, _return_flag_var);
                 }
             }
             Line::Assignment { var, value } => {
@@ -383,8 +387,8 @@ fn inline_lines_with_flag(
             } => {
                 inline_condition(condition);
 
-                inline_lines_with_flag(then_branch, args, res, inlining_count, return_flag_var);
-                inline_lines_with_flag(else_branch, args, res, inlining_count, return_flag_var);
+                inline_lines_with_flag(then_branch, args, res, inlining_count, _return_flag_var);
+                inline_lines_with_flag(else_branch, args, res, inlining_count, _return_flag_var);
             }
             Line::FunctionCall {
                 args: func_args,
@@ -541,36 +545,30 @@ fn has_nested_non_exhaustive_returns(lines: &[Line]) -> bool {
 /// Check if there are nested if conditions that contain returns
 fn has_nested_if_with_returns(lines: &[Line]) -> bool {
     for line in lines {
-        match line {
-            Line::IfCondition {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                // Check if this if contains nested ifs with returns
-                for nested_line in then_branch.iter().chain(else_branch.iter()) {
-                    if let Line::IfCondition {
-                        then_branch: nested_then,
-                        else_branch: nested_else,
-                        ..
-                    } = nested_line
-                    {
-                        if has_return_statements_in_branch(nested_then)
-                            || has_return_statements_in_branch(nested_else)
-                        {
-                            return true;
-                        }
-                    }
-                }
-
-                // Recurse
-                if has_nested_if_with_returns(then_branch)
-                    || has_nested_if_with_returns(else_branch)
+        if let Line::IfCondition {
+            then_branch,
+            else_branch,
+            ..
+        } = line
+        {
+            // Check if this if contains nested ifs with returns
+            for nested_line in then_branch.iter().chain(else_branch.iter()) {
+                if let Line::IfCondition {
+                    then_branch: nested_then,
+                    else_branch: nested_else,
+                    ..
+                } = nested_line
+                    && (has_return_statements_in_branch(nested_then)
+                        || has_return_statements_in_branch(nested_else))
                 {
                     return true;
                 }
             }
-            _ => {}
+
+            // Recurse
+            if has_nested_if_with_returns(then_branch) || has_nested_if_with_returns(else_branch) {
+                return true;
+            }
         }
     }
     false
@@ -642,8 +640,8 @@ fn has_non_exhaustive_returns(lines: &[Line]) -> bool {
 }
 
 /// Helper function to check for non-exhaustive return patterns
-fn check_non_exhaustive_patterns(lines: &[Line], inside_condition: bool) -> bool {
-    let mut has_unconditional_return = false;
+fn check_non_exhaustive_patterns(lines: &[Line], _inside_condition: bool) -> bool {
+    let mut _has_unconditional_return = false;
 
     for (i, line) in lines.iter().enumerate() {
         match line {
@@ -657,7 +655,7 @@ fn check_non_exhaustive_patterns(lines: &[Line], inside_condition: bool) -> bool
                         return true; // Multiple returns that could both execute
                     }
                 }
-                has_unconditional_return = true;
+                _has_unconditional_return = true;
             }
             Line::IfCondition {
                 then_branch,
@@ -832,7 +830,7 @@ fn apply_return_flag_logic(lines: &mut Vec<Line>, res: &[Var]) {
         return; // No return variables to handle
     }
 
-    let flag_var = format!("returned_flag_{}", res.get(0).unwrap_or(&String::new()));
+    let flag_var = format!("returned_flag_{}", res.first().unwrap_or(&String::new()));
 
     // Initialize flag to 0
     lines.insert(
@@ -853,38 +851,37 @@ fn convert_returns_to_conditional_assignments(lines: &mut Vec<Line>, res: &[Var]
 
     for (i, line) in lines.iter().enumerate() {
         // Look for assignments to result variables
-        if let Line::Assignment { var, value } = line {
-            if res.contains(var) {
-                // This is an assignment to a result variable - make it conditional
-                let condition = Boolean::Equal {
-                    left: Expression::Value(SimpleExpr::Var(flag_var.to_string())),
-                    right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
-                };
+        if let Line::Assignment { var, value } = line
+            && res.contains(var)
+        {
+            // This is an assignment to a result variable - make it conditional
+            let condition = Boolean::Equal {
+                left: Expression::Value(SimpleExpr::Var(flag_var.to_string())),
+                right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
+            };
 
-                let mut new_lines = vec![];
-
+            let new_lines = vec![
                 // Conditional assignment to result variable
-                new_lines.push(Line::IfCondition {
+                Line::IfCondition {
                     condition: condition.clone(),
                     then_branch: vec![Line::Assignment {
                         var: var.clone(),
                         value: value.clone(),
                     }],
                     else_branch: vec![],
-                });
-
+                },
                 // Set flag to 1 to prevent future assignments
-                new_lines.push(Line::IfCondition {
+                Line::IfCondition {
                     condition,
                     then_branch: vec![Line::Assignment {
                         var: flag_var.to_string(),
                         value: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(1))),
                     }],
                     else_branch: vec![],
-                });
+                },
+            ];
 
-                replacements.push((i, new_lines));
-            }
+            replacements.push((i, new_lines));
         }
     }
 
@@ -999,15 +996,15 @@ fn extract_nested_assignment(line: &Line, result_var: &str) -> Option<(Vec<Boole
             Line::IfCondition {
                 condition,
                 then_branch,
-                else_branch,
+                else_branch: _,
             } => {
                 // Check if then_branch has assignment to result_var
                 for then_line in then_branch {
-                    if let Line::Assignment { var, value } = then_line {
-                        if var == result_var {
-                            conditions.push(condition.clone());
-                            return Some(value.clone());
-                        }
+                    if let Line::Assignment { var, value } = then_line
+                        && var == result_var
+                    {
+                        conditions.push(condition.clone());
+                        return Some(value.clone());
                     }
                     // Recursively check nested ifs
                     conditions.push(condition.clone());
@@ -1026,11 +1023,7 @@ fn extract_nested_assignment(line: &Line, result_var: &str) -> Option<(Vec<Boole
     }
 
     let mut conditions = Vec::new();
-    if let Some(value) = extract_recursive(line, result_var, &mut conditions) {
-        Some((conditions, value))
-    } else {
-        None
-    }
+    extract_recursive(line, result_var, &mut conditions).map(|value| (conditions, value))
 }
 
 /// Build if-else structure from conditions and assignments
@@ -1173,7 +1166,7 @@ fn restructure_fallthrough_pattern(lines: &mut Vec<Line>, res: &[Var]) {
 fn collect_return_contexts(
     lines: &[Line],
     res: &[Var],
-    contexts: &mut Vec<(Vec<Boolean>, Vec<(String, Expression)>)>,
+    contexts: &mut ReturnContexts,
     current_conditions: Vec<Boolean>,
 ) {
     for line in lines {
@@ -1214,10 +1207,7 @@ fn collect_return_contexts(
 }
 
 /// Build nested if-else structure that ensures only one assignment per variable
-fn build_nested_control_flow(
-    contexts: &[(Vec<Boolean>, Vec<(String, Expression)>)],
-    res: &[Var],
-) -> Vec<Line> {
+fn build_nested_control_flow(contexts: &[ReturnContext], _res: &[Var]) -> Vec<Line> {
     if contexts.is_empty() {
         return vec![];
     }
