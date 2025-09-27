@@ -3,7 +3,7 @@
 use crate::{
     ir::{
         IntermediateInstruction,
-        compile::{
+        compiler::{
             Compile, CompileContext, CompileResult, FindInternalVars, validate_vars_declared,
         },
     },

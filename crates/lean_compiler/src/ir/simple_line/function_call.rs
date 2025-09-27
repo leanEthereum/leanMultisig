@@ -1,11 +1,11 @@
 //! Function call instruction implementation.
 
 use crate::{
-    codegen::Compiler,
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{
-            Compile, CompileContext, CompileResult, FindInternalVars, validate_vars_declared,
+        compiler::{
+            Compile, CompileContext, CompileResult, Compiler, FindInternalVars,
+            validate_vars_declared,
         },
         simple_line::compile_lines,
     },

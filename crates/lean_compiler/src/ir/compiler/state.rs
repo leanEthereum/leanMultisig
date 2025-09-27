@@ -1,3 +1,5 @@
+//! Compiler state and main compilation logic.
+
 use crate::{
     ir::{simple_function::compile_function, *},
     lang::*,

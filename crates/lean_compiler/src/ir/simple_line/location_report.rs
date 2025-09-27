@@ -2,7 +2,7 @@
 
 use crate::ir::{
     IntermediateInstruction,
-    compile::{Compile, CompileContext, CompileResult, FindInternalVars},
+    compiler::{Compile, CompileContext, CompileResult, FindInternalVars},
 };
 use lean_vm::SourceLineNumber;
 use std::{

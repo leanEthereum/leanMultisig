@@ -2,7 +2,7 @@
 
 use crate::{
     ir::{
-        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
+        compiler::{Compile, CompileContext, CompileResult, FindInternalVars},
         {HighLevelOperation, IntermediateInstruction, IntermediateValue, VarOrConstMallocAccess},
     },
     lang::{SimpleExpr, Var},
@@ -39,7 +39,7 @@ impl Compile for Assignment {
         );
 
         // Mark operand variables as declared if they're variables
-        crate::ir::compile::mark_vars_as_declared(&[&self.arg0, &self.arg1], ctx.declared_vars);
+        crate::ir::compiler::mark_vars_as_declared(&[&self.arg0, &self.arg1], ctx.declared_vars);
 
         // Mark target variable as declared if it's a variable
         if let VarOrConstMallocAccess::Var(var) = &self.var {

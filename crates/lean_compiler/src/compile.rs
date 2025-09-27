@@ -2,8 +2,7 @@
 
 use crate::{
     backend::compile_to_low_level_bytecode,
-    codegen::Compiler,
-    ir::SimpleProgram,
+    ir::{SimpleProgram, compiler::Compiler},
     lang::Program,
     parser::parse_program,
     passes::{Pass, PassPipeline, PassResult, ast_to_ir::AstToIrPass},

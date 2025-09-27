@@ -1,10 +1,9 @@
 //! Precompiled operation instruction implementation.
 
 use crate::{
-    codegen::Compiler,
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
+        compiler::{Compile, CompileContext, CompileResult, Compiler, FindInternalVars},
     },
     lang::SimpleExpr,
     precompiles::{Precompile, PrecompileName},

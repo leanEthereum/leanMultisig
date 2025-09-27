@@ -1,68 +1,14 @@
-//! Generic compilation trait for IR instructions.
+//! Helper functions for compilation operations.
 
+use super::state::Compiler;
 use crate::{
-    codegen::Compiler,
     ir::{IntermediateInstruction, IntermediateValue},
-    lang::{SimpleExpr, Var},
+    lang::{ConstMallocLabel, SimpleExpr, Var},
 };
-use lean_vm::{Label, Operation};
+use lean_vm::Operation;
 use std::collections::BTreeSet;
 
-/// Result type for compilation operations.
-pub type CompileResult<T = Vec<IntermediateInstruction>> = Result<T, String>;
-
-/// Compilation context shared across instruction compilers.
-#[derive(Debug)]
-pub struct CompileContext<'a> {
-    /// The main compiler instance with bytecode generation state
-    pub compiler: &'a mut Compiler,
-    /// Optional jump target for control flow continuation
-    pub final_jump: Option<Label>,
-    /// Set of variables declared in current scope
-    pub declared_vars: &'a mut BTreeSet<Var>,
-}
-
-impl<'a> CompileContext<'a> {
-    /// Creates a new compilation context.
-    pub fn new(
-        compiler: &'a mut Compiler,
-        final_jump: Option<Label>,
-        declared_vars: &'a mut BTreeSet<Var>,
-    ) -> Self {
-        Self {
-            compiler,
-            final_jump,
-            declared_vars,
-        }
-    }
-}
-
-/// Core trait for compiling instruction types into intermediate bytecode.
-pub trait Compile {
-    /// Compiles the instruction into intermediate bytecode.
-    ///
-    /// # Arguments
-    /// * `ctx` - Compilation context containing compiler state and scope information
-    /// * `remaining_lines` - Remaining SimpleLine instructions in the current block for control flow
-    ///
-    /// # Returns
-    /// Vector of intermediate instructions or compilation error
-    fn compile(
-        &self,
-        ctx: &mut CompileContext<'_>,
-        remaining_lines: &[crate::ir::SimpleLine],
-    ) -> CompileResult;
-}
-
-/// Trait for finding internal variables declared by instructions.
-pub trait FindInternalVars {
-    /// Finds all internal variables declared within this instruction.
-    ///
-    /// # Returns
-    /// Set of variable names that need stack allocation
-    fn find_internal_vars(&self) -> BTreeSet<Var>;
-}
-
+/// Marks variables as declared in the given scope.
 pub fn mark_vars_as_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
     vocs: &[VoC],
     declared: &mut BTreeSet<Var>,
@@ -74,6 +20,7 @@ pub fn mark_vars_as_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
     }
 }
 
+/// Validates that all variables in expressions have been declared.
 pub fn validate_vars_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
     vocs: &[VoC],
     declared: &BTreeSet<Var>,
@@ -88,13 +35,14 @@ pub fn validate_vars_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
     Ok(())
 }
 
+/// Handles constant malloc allocation by updating compiler state and generating instructions.
 pub fn handle_const_malloc(
     declared_vars: &mut BTreeSet<Var>,
     instructions: &mut Vec<IntermediateInstruction>,
     compiler: &mut Compiler,
     var: &Var,
     size: usize,
-    label: &crate::lang::ConstMallocLabel,
+    label: &ConstMallocLabel,
 ) {
     declared_vars.insert(var.clone());
     instructions.push(IntermediateInstruction::Computation {
@@ -112,6 +60,7 @@ pub fn handle_const_malloc(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lang::SimpleExpr;
     use std::collections::BTreeSet;
 
     #[test]

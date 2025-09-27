@@ -1,7 +1,7 @@
 //! Static memory allocation instruction implementation.
 
 use crate::{
-    ir::compile::{Compile, CompileContext, CompileResult, FindInternalVars, handle_const_malloc},
+    ir::compiler::{Compile, CompileContext, CompileResult, FindInternalVars, handle_const_malloc},
     lang::{ConstExpression, ConstMallocLabel, Var},
 };
 use std::{

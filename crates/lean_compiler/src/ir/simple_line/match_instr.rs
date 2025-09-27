@@ -3,7 +3,7 @@
 use crate::{
     ir::{
         IntermediateInstruction, IntermediateValue, SimpleLine,
-        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
+        compiler::{Compile, CompileContext, CompileResult, FindInternalVars},
         simple_line::compile_lines,
     },
     lang::{ConstExpression, SimpleExpr, Var},

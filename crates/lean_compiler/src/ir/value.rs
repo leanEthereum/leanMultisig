@@ -1,4 +1,5 @@
 use crate::backend::evaluation::{CodeGenerator, eval_const_expression_usize, try_as_constant};
+use crate::ir::compiler::Compiler;
 use crate::lang::{ConstExpression, SimpleExpr};
 use lean_vm::Label;
 use std::fmt::{Display, Formatter};
@@ -26,10 +27,7 @@ impl IntermediateValue {
     }
 
     /// Creates an IntermediateValue from a SimpleExpr during code generation.
-    pub fn from_simple_expr(
-        expr: &crate::lang::SimpleExpr,
-        compiler: &crate::codegen::Compiler,
-    ) -> Self {
+    pub fn from_simple_expr(expr: &crate::lang::SimpleExpr, compiler: &Compiler) -> Self {
         match expr {
             SimpleExpr::Var(var) => Self::MemoryAfterFp {
                 offset: compiler.get_offset(&var.clone().into()),
@@ -52,7 +50,7 @@ impl IntermediateValue {
     /// Creates an IntermediateValue from a VarOrConstMallocAccess during code generation.
     pub fn from_var_or_const_malloc_access(
         var_or_const: &crate::ir::VarOrConstMallocAccess,
-        compiler: &crate::codegen::Compiler,
+        compiler: &Compiler,
     ) -> Self {
         Self::MemoryAfterFp {
             offset: compiler.get_offset(var_or_const),
@@ -632,7 +630,7 @@ mod tests {
 
     #[test]
     fn test_intermediate_value_from_simple_expr() {
-        let mut compiler = crate::codegen::Compiler::new();
+        let mut compiler = Compiler::new();
         compiler.var_positions.insert("x".to_string(), 3);
         compiler.const_mallocs.insert(0, 8);
 
@@ -681,7 +679,7 @@ mod tests {
 
     #[test]
     fn test_intermediate_value_from_var_or_const_malloc_access() {
-        let mut compiler = crate::codegen::Compiler::new();
+        let mut compiler = Compiler::new();
         compiler.var_positions.insert("y".to_string(), 7);
         compiler.const_mallocs.insert(1, 15);
 
@@ -724,7 +722,7 @@ mod tests {
     fn test_intermediate_value_from_simple_expr_unknown_var() {
         use crate::lang::SimpleExpr;
 
-        let compiler = crate::codegen::Compiler::new();
+        let compiler = Compiler::new();
 
         let var_expr = SimpleExpr::Var("z".to_string());
         let _result = IntermediateValue::from_simple_expr(&var_expr, &compiler);
@@ -733,7 +731,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Const malloc 5 not in scope")]
     fn test_intermediate_value_from_simple_expr_unknown_malloc() {
-        let compiler = crate::codegen::Compiler::new();
+        let compiler = Compiler::new();
 
         let malloc_expr = SimpleExpr::ConstMallocAccess {
             malloc_label: 5,

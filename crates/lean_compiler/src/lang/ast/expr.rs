@@ -1,6 +1,7 @@
 //! Expression types for the AST.
 
 use crate::ir::IntermediaryMemOrFpOrConstant;
+use crate::ir::compiler::Compiler;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
@@ -64,7 +65,7 @@ impl SimpleExpr {
     /// Converts this SimpleExpr to an IntermediaryMemOrFpOrConstant for code generation.
     pub fn to_mem_after_fp_or_constant(
         &self,
-        compiler: &crate::codegen::Compiler,
+        compiler: &Compiler,
     ) -> IntermediaryMemOrFpOrConstant {
         match self {
             Self::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
@@ -222,6 +223,7 @@ impl Display for SimpleExpr {
 mod tests {
     use super::*;
     use crate::ir::IntermediaryMemOrFpOrConstant;
+    use crate::ir::compiler::Compiler;
     use crate::lang::ConstExpression;
 
     #[test]
@@ -358,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_simple_expr_to_mem_after_fp_or_constant() {
-        let mut compiler = crate::codegen::Compiler::new();
+        let mut compiler = Compiler::new();
         compiler.var_positions.insert("x".to_string(), 5);
         compiler.const_mallocs.insert(0, 10);
 
@@ -408,7 +410,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Variable y not in scope")]
     fn test_simple_expr_to_mem_after_fp_or_constant_unknown_var() {
-        let compiler = crate::codegen::Compiler::new();
+        let compiler = Compiler::new();
 
         let var_expr = SimpleExpr::Var("y".to_string());
         let _result = var_expr.to_mem_after_fp_or_constant(&compiler);
@@ -417,7 +419,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Const malloc 1 not in scope")]
     fn test_simple_expr_to_mem_after_fp_or_constant_unknown_malloc() {
-        let compiler = crate::codegen::Compiler::new();
+        let compiler = Compiler::new();
 
         let malloc_expr = SimpleExpr::ConstMallocAccess {
             malloc_label: 1,

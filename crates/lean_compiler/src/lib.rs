@@ -7,7 +7,6 @@ pub use passes::{PassPipeline, PassPipelineBuilder};
 
 mod analysis;
 mod backend;
-pub mod codegen;
 mod compile;
 pub mod ir;
 mod lang;

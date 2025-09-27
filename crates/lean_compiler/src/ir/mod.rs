@@ -1,7 +1,7 @@
 //! Intermediate Representation (IR) for the Lean compiler.
 
 pub mod bytecode;
-pub mod compile;
+pub mod compiler;
 pub mod conversion;
 pub mod instruction;
 pub mod operation;
@@ -27,4 +27,4 @@ pub use types::{ArrayManager, ConstMalloc, Counters, SimpleProgram, VarOrConstMa
 pub use utilities::replace_vars_by_const_in_lines;
 
 // New trait-based compilation exports
-pub use compile::{Compile, CompileContext, CompileResult, FindInternalVars};
+pub use compiler::{Compile, CompileContext, CompileResult, FindInternalVars};

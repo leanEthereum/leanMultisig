@@ -3,7 +3,7 @@
 use crate::{
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult, FindInternalVars, handle_const_malloc},
+        compiler::{Compile, CompileContext, CompileResult, FindInternalVars, handle_const_malloc},
     },
     lang::{ConstMallocLabel, SimpleExpr, Var},
 };

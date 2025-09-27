@@ -16,10 +16,9 @@ pub mod return_instr;
 pub mod static_alloc;
 
 use crate::{
-    codegen::Compiler,
     ir::{
         IntermediateInstruction, IntermediateValue,
-        compile::{Compile, CompileContext, CompileResult, FindInternalVars},
+        compiler::{Compile, CompileContext, CompileResult, Compiler, FindInternalVars},
     },
     lang::Var,
 };

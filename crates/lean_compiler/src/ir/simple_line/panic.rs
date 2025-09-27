@@ -2,7 +2,7 @@
 
 use crate::ir::{
     IntermediateInstruction,
-    compile::{Compile, CompileContext, CompileResult, FindInternalVars},
+    compiler::{Compile, CompileContext, CompileResult, FindInternalVars},
 };
 use std::{
     collections::BTreeSet,
