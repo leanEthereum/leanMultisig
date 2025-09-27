@@ -1,5 +1,7 @@
-use crate::codegen::function::compile_function;
-use crate::{ir::*, lang::*};
+use crate::{
+    ir::{simple_function::compile_function, *},
+    lang::*,
+};
 use lean_vm::*;
 use std::collections::BTreeMap;
 

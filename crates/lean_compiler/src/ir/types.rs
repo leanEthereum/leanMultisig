@@ -1,4 +1,7 @@
-use crate::lang::{ConstExpression, ConstMallocLabel, SimpleExpr, Var};
+use crate::{
+    ir::SimpleFunction,
+    lang::{ConstExpression, ConstMallocLabel, SimpleExpr, Var},
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -26,15 +29,6 @@ impl Counter {
 #[derive(Debug, Clone)]
 pub struct SimpleProgram {
     pub functions: BTreeMap<String, SimpleFunction>,
-}
-
-/// Simplified function representation.
-#[derive(Debug, Clone)]
-pub struct SimpleFunction {
-    pub name: String,
-    pub arguments: Vec<Var>,
-    pub n_returned_vars: usize,
-    pub instructions: Vec<crate::ir::simple_line::SimpleLine>,
 }
 
 /// Variable or constant malloc access for assignments.
@@ -145,38 +139,6 @@ impl Display for VarOrConstMallocAccess {
             } => {
                 write!(f, "ConstMallocAccess({malloc_label}, {offset})")
             }
-        }
-    }
-}
-
-impl Display for SimpleFunction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let args_str = self
-            .arguments
-            .iter()
-            .map(|arg| arg.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let instructions_str = self
-            .instructions
-            .iter()
-            .map(|line| line.to_string_with_indent(1))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        if self.instructions.is_empty() {
-            write!(
-                f,
-                "fn {}({}) -> {} {{}}",
-                self.name, args_str, self.n_returned_vars
-            )
-        } else {
-            write!(
-                f,
-                "fn {}({}) -> {} {{\n{}\n}}",
-                self.name, args_str, self.n_returned_vars, instructions_str
-            )
         }
     }
 }
@@ -520,87 +482,6 @@ mod tests {
 
         let expected = "match x { 0 => [panic], 1 => [return ] }";
         assert_eq!(format!("{}", line), expected);
-    }
-
-    #[test]
-    fn test_simple_function_display_empty() {
-        let function = SimpleFunction {
-            name: "test".to_string(),
-            arguments: vec!["x".to_string(), "y".to_string()],
-            n_returned_vars: 1,
-            instructions: vec![],
-        };
-
-        assert_eq!(format!("{}", function), "fn test(x, y) -> 1 {}");
-    }
-
-    #[test]
-    fn test_simple_function_display_with_body() {
-        let function = SimpleFunction {
-            name: "test".to_string(),
-            arguments: vec!["x".to_string()],
-            n_returned_vars: 1,
-            instructions: vec![SimpleLine::Panic(Panic)],
-        };
-
-        assert_eq!(format!("{}", function), "fn test(x) -> 1 {\n    panic\n}");
-    }
-
-    #[test]
-    fn test_simple_program_display_empty() {
-        let program = SimpleProgram {
-            functions: BTreeMap::new(),
-        };
-
-        assert_eq!(format!("{}", program), "");
-    }
-
-    #[test]
-    fn test_simple_program_display_single_function() {
-        let mut functions = BTreeMap::new();
-        functions.insert(
-            "test".to_string(),
-            SimpleFunction {
-                name: "test".to_string(),
-                arguments: vec![],
-                n_returned_vars: 0,
-                instructions: vec![SimpleLine::Panic(Panic)],
-            },
-        );
-
-        let program = SimpleProgram { functions };
-
-        assert_eq!(format!("{}", program), "fn test() -> 0 {\n    panic\n}");
-    }
-
-    #[test]
-    fn test_simple_program_display_multiple_functions() {
-        let mut functions = BTreeMap::new();
-        functions.insert(
-            "func1".to_string(),
-            SimpleFunction {
-                name: "func1".to_string(),
-                arguments: vec![],
-                n_returned_vars: 0,
-                instructions: vec![],
-            },
-        );
-        functions.insert(
-            "func2".to_string(),
-            SimpleFunction {
-                name: "func2".to_string(),
-                arguments: vec![],
-                n_returned_vars: 0,
-                instructions: vec![],
-            },
-        );
-
-        let program = SimpleProgram { functions };
-
-        assert_eq!(
-            format!("{}", program),
-            "fn func1() -> 0 {}\nfn func2() -> 0 {}"
-        );
     }
 
     #[test]

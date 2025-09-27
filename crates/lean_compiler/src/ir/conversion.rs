@@ -1,13 +1,10 @@
 use super::{
-    HighLevelOperation,
+    HighLevelOperation, SimpleFunction,
     simple_line::{
         Assignment, Branch, CounterHint, DecomposeBits, DynamicAlloc, FunctionCall, LocationReport,
         Match, Panic, PrecompileOp, Print, RawMemoryAccess, Return, SimpleLine, StaticAlloc,
     },
-    types::{
-        ArrayAccessType, ArrayManager, ConstMalloc, Counters, SimpleFunction,
-        VarOrConstMallocAccess,
-    },
+    types::{ArrayAccessType, ArrayManager, ConstMalloc, Counters, VarOrConstMallocAccess},
     utilities::find_variable_usage,
 };
 use crate::lang::{Boolean, ConstExpression, Expression, Line, SimpleExpr, Var};
