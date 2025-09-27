@@ -1,7 +1,5 @@
 use crate::lang::{
-    ArrayAssign, Assert, Assignment, Boolean, ConstExpression, CounterHint, DecomposeBits,
-    Expression, ForLoop, FunctionCall, FunctionRet, IfCondition, Line, MAlloc, Match,
-    PrecompileStmt, Print, SimpleExpr, Var,
+    ConstExpression, Expression, Line, SimpleExpr, Var, traits::ReplaceVarsForUnroll,
 };
 use std::collections::BTreeSet;
 
@@ -77,254 +75,16 @@ pub fn replace_vars_for_unroll(
     internal_vars: &BTreeSet<Var>,
 ) {
     for line in lines {
-        match line {
-            Line::Match(Match { value, arms }) => {
-                replace_vars_for_unroll_in_expr(
-                    value,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                for (_, statements) in arms {
-                    replace_vars_for_unroll(
-                        statements,
-                        iterator,
-                        unroll_index,
-                        iterator_value,
-                        internal_vars,
-                    );
-                }
-            }
-            Line::Assignment(Assignment { var, value }) => {
-                assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-                replace_vars_for_unroll_in_expr(
-                    value,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-            }
-            Line::ArrayAssign(ArrayAssign {
-                // array[index] = value
-                array,
-                index,
-                value,
-            }) => {
-                if let SimpleExpr::Var(array_var) = array {
-                    assert!(array_var != iterator, "Weird");
-                    if internal_vars.contains(array_var) {
-                        *array_var =
-                            format!("@unrolled_{unroll_index}_{iterator_value}_{array_var}");
-                    }
-                }
-                replace_vars_for_unroll_in_expr(
-                    index,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll_in_expr(
-                    value,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-            }
-            Line::Assert(Assert {
-                condition: Boolean::Equal { left, right } | Boolean::Different { left, right },
-            }) => {
-                replace_vars_for_unroll_in_expr(
-                    left,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll_in_expr(
-                    right,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-            }
-            Line::IfCondition(IfCondition {
-                condition: Boolean::Equal { left, right } | Boolean::Different { left, right },
-                then_branch,
-                else_branch,
-            }) => {
-                replace_vars_for_unroll_in_expr(
-                    left,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll_in_expr(
-                    right,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll(
-                    then_branch,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll(
-                    else_branch,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-            }
-            Line::ForLoop(ForLoop {
-                iterator: other_iterator,
-                start,
-                end,
-                body,
-                rev: _,
-                unroll: _,
-            }) => {
-                assert!(other_iterator != iterator);
-                *other_iterator =
-                    format!("@unrolled_{unroll_index}_{iterator_value}_{other_iterator}");
-                replace_vars_for_unroll_in_expr(
-                    start,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll_in_expr(
-                    end,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll(
-                    body,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-            }
-            Line::FunctionCall(FunctionCall {
-                function_name: _,
-                args,
-                return_data,
-            }) => {
-                // Function calls are not unrolled, so we don't need to change them
-                for arg in args {
-                    replace_vars_for_unroll_in_expr(
-                        arg,
-                        iterator,
-                        unroll_index,
-                        iterator_value,
-                        internal_vars,
-                    );
-                }
-                for ret in return_data {
-                    *ret = format!("@unrolled_{unroll_index}_{iterator_value}_{ret}");
-                }
-            }
-            Line::FunctionRet(FunctionRet { return_data }) => {
-                for ret in return_data {
-                    replace_vars_for_unroll_in_expr(
-                        ret,
-                        iterator,
-                        unroll_index,
-                        iterator_value,
-                        internal_vars,
-                    );
-                }
-            }
-            Line::Precompile(PrecompileStmt {
-                precompile: _,
-                args,
-            }) => {
-                for arg in args {
-                    replace_vars_for_unroll_in_expr(
-                        arg,
-                        iterator,
-                        unroll_index,
-                        iterator_value,
-                        internal_vars,
-                    );
-                }
-            }
-            Line::Print(Print { line_info, content }) => {
-                // Print statements are not unrolled, so we don't need to change them
-                *line_info += &format!(" (unrolled {unroll_index} {iterator_value})");
-                for var in content {
-                    replace_vars_for_unroll_in_expr(
-                        var,
-                        iterator,
-                        unroll_index,
-                        iterator_value,
-                        internal_vars,
-                    );
-                }
-            }
-            Line::MAlloc(MAlloc {
-                var,
-                size,
-                vectorized: _,
-                vectorized_len,
-            }) => {
-                assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-                replace_vars_for_unroll_in_expr(
-                    size,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll_in_expr(
-                    vectorized_len,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-            }
-            Line::DecomposeBits(DecomposeBits { var, to_decompose }) => {
-                assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-                for expr in to_decompose {
-                    replace_vars_for_unroll_in_expr(
-                        expr,
-                        iterator,
-                        unroll_index,
-                        iterator_value,
-                        internal_vars,
-                    );
-                }
-            }
-            Line::CounterHint(CounterHint { var }) => {
-                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-            }
-            Line::Break(_) | Line::Panic(_) | Line::LocationReport { .. } => {}
-        }
+        line.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::lang;
     use crate::lang::{
-        Assert, Assignment, Break, FunctionCall, IfCondition, LocationReport, Panic,
+        ArrayAssign, Assert, Assignment, Break, CounterHint, DecomposeBits, FunctionCall,
+        FunctionRet, IfCondition, LocationReport, MAlloc, Panic, PrecompileStmt, Print,
     };
 
     use super::*;
@@ -488,7 +248,7 @@ mod tests {
     #[test]
     fn test_replace_vars_for_unroll_if_condition() {
         let mut lines = vec![Line::IfCondition(IfCondition {
-            condition: Boolean::Equal {
+            condition: lang::Boolean::Equal {
                 left: Expression::Value(SimpleExpr::Var("i".to_string())),
                 right: Expression::scalar(5),
             },
@@ -507,7 +267,7 @@ mod tests {
         assert_eq!(
             lines,
             vec![Line::IfCondition(IfCondition {
-                condition: Boolean::Equal {
+                condition: lang::Boolean::Equal {
                     left: Expression::scalar(3),
                     right: Expression::scalar(5),
                 },
@@ -522,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_replace_vars_for_unroll_for_loop() {
-        let mut lines = vec![Line::ForLoop(ForLoop {
+        let mut lines = vec![Line::ForLoop(lang::ForLoop {
             iterator: "j".to_string(),
             start: Expression::Value(SimpleExpr::Var("i".to_string())),
             end: Expression::scalar(10),
@@ -542,7 +302,7 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::ForLoop(ForLoop {
+            vec![Line::ForLoop(lang::ForLoop {
                 iterator: "@unrolled_1_7_j".to_string(),
                 start: Expression::scalar(7),
                 end: Expression::scalar(10),
@@ -558,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_replace_vars_for_unroll_match() {
-        let mut lines = vec![Line::Match(Match {
+        let mut lines = vec![Line::Match(lang::Match {
             value: Expression::Value(SimpleExpr::Var("i".to_string())),
             arms: vec![
                 (
@@ -586,7 +346,7 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec![Line::Match(Match {
+            vec![Line::Match(lang::Match {
                 value: Expression::scalar(4),
                 arms: vec![
                     (
@@ -611,7 +371,7 @@ mod tests {
     #[test]
     fn test_replace_vars_for_unroll_assert() {
         let mut lines = vec![Line::Assert(Assert {
-            condition: Boolean::Different {
+            condition: lang::Boolean::Different {
                 left: Expression::Value(SimpleExpr::Var("i".to_string())),
                 right: Expression::Value(SimpleExpr::Var("x".to_string())),
             },
@@ -625,7 +385,7 @@ mod tests {
         assert_eq!(
             lines,
             vec![Line::Assert(Assert {
-                condition: Boolean::Different {
+                condition: lang::Boolean::Different {
                     left: Expression::scalar(6),
                     right: Expression::Value(SimpleExpr::Var("@unrolled_0_6_x".to_string())),
                 }

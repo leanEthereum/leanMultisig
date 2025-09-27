@@ -16,9 +16,14 @@ pub mod match_stmt;
 pub mod panic;
 pub mod precompile;
 pub mod print;
+pub mod traits;
 
-use crate::traits::IndentedDisplay;
-use std::fmt::{Display, Formatter};
+use crate::{F, traits::IndentedDisplay};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
+};
+use traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
 
 pub use array_assign::ArrayAssign;
 pub use assert::Assert;
@@ -116,6 +121,90 @@ impl IndentedDisplay for Line {
             Line::DecomposeBits(stmt) => stmt.to_string_with_indent(indent),
             Line::CounterHint(stmt) => stmt.to_string_with_indent(indent),
             Line::LocationReport(stmt) => stmt.to_string_with_indent(indent),
+        }
+    }
+}
+
+impl ReplaceVarsForUnroll for Line {
+    fn replace_vars_for_unroll(
+        &mut self,
+        iterator: &crate::lang::values::Var,
+        unroll_index: usize,
+        iterator_value: usize,
+        internal_vars: &BTreeSet<crate::lang::values::Var>,
+    ) {
+        match self {
+            Line::Match(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::Assignment(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::ArrayAssign(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::Assert(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::IfCondition(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::ForLoop(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::FunctionCall(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::FunctionRet(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::Precompile(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::Break(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::Panic(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::Print(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::MAlloc(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::DecomposeBits(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::CounterHint(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+            Line::LocationReport(stmt) => {
+                stmt.replace_vars_for_unroll(iterator, unroll_index, iterator_value, internal_vars)
+            }
+        }
+    }
+}
+
+impl ReplaceVarsWithConst for Line {
+    fn replace_vars_with_const(&mut self, map: &BTreeMap<crate::lang::values::Var, F>) {
+        match self {
+            Line::Match(stmt) => stmt.replace_vars_with_const(map),
+            Line::Assignment(stmt) => stmt.replace_vars_with_const(map),
+            Line::ArrayAssign(stmt) => stmt.replace_vars_with_const(map),
+            Line::Assert(stmt) => stmt.replace_vars_with_const(map),
+            Line::IfCondition(stmt) => stmt.replace_vars_with_const(map),
+            Line::ForLoop(stmt) => stmt.replace_vars_with_const(map),
+            Line::FunctionCall(stmt) => stmt.replace_vars_with_const(map),
+            Line::FunctionRet(stmt) => stmt.replace_vars_with_const(map),
+            Line::Precompile(stmt) => stmt.replace_vars_with_const(map),
+            Line::Break(stmt) => stmt.replace_vars_with_const(map),
+            Line::Panic(stmt) => stmt.replace_vars_with_const(map),
+            Line::Print(stmt) => stmt.replace_vars_with_const(map),
+            Line::MAlloc(stmt) => stmt.replace_vars_with_const(map),
+            Line::DecomposeBits(stmt) => stmt.replace_vars_with_const(map),
+            Line::CounterHint(stmt) => stmt.replace_vars_with_const(map),
+            Line::LocationReport(stmt) => stmt.replace_vars_with_const(map),
         }
     }
 }

@@ -1,10 +1,20 @@
 //! For loop statement implementation.
 
 use crate::{
+    F,
+    ir::{
+        replace_vars_by_const_in_lines, unroll::replace_vars_for_unroll,
+        utilities::replace_vars_by_const_in_expr,
+    },
     lang::{expr::Expression, values::Var},
     traits::IndentedDisplay,
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
+};
+
+use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
 
 /// For loop statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -64,5 +74,50 @@ impl IndentedDisplay for ForLoop {
             body_str,
             spaces
         )
+    }
+}
+
+impl ReplaceVarsForUnroll for ForLoop {
+    fn replace_vars_for_unroll(
+        &mut self,
+        iterator: &Var,
+        unroll_index: usize,
+        iterator_value: usize,
+        internal_vars: &BTreeSet<Var>,
+    ) {
+        assert!(self.iterator != *iterator);
+        self.iterator = format!(
+            "@unrolled_{unroll_index}_{iterator_value}_{}",
+            self.iterator
+        );
+        crate::ir::unroll::replace_vars_for_unroll_in_expr(
+            &mut self.start,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
+        );
+        crate::ir::unroll::replace_vars_for_unroll_in_expr(
+            &mut self.end,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
+        );
+        replace_vars_for_unroll(
+            &mut self.body,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
+        );
+    }
+}
+
+impl ReplaceVarsWithConst for ForLoop {
+    fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
+        replace_vars_by_const_in_expr(&mut self.start, map);
+        replace_vars_by_const_in_expr(&mut self.end, map);
+        replace_vars_by_const_in_lines(&mut self.body, map);
     }
 }

@@ -1,10 +1,19 @@
 //! Array assignment statement implementation.
 
 use crate::{
-    lang::expr::{Expression, SimpleExpr},
+    F,
+    lang::{
+        expr::{Expression, SimpleExpr},
+        values::Var,
+    },
     traits::IndentedDisplay,
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
+};
+
+use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
 
 /// Array element assignment statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -24,6 +33,51 @@ impl Display for ArrayAssign {
 }
 
 impl IndentedDisplay for ArrayAssign {}
+
+impl ReplaceVarsForUnroll for ArrayAssign {
+    fn replace_vars_for_unroll(
+        &mut self,
+        iterator: &Var,
+        unroll_index: usize,
+        iterator_value: usize,
+        internal_vars: &BTreeSet<Var>,
+    ) {
+        // array[index] = value
+        if let SimpleExpr::Var(array_var) = &mut self.array {
+            assert!(array_var != iterator, "Weird");
+            if internal_vars.contains(array_var) {
+                *array_var = format!("@unrolled_{unroll_index}_{iterator_value}_{array_var}");
+            }
+        }
+        crate::ir::unroll::replace_vars_for_unroll_in_expr(
+            &mut self.index,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
+        );
+        crate::ir::unroll::replace_vars_for_unroll_in_expr(
+            &mut self.value,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
+        );
+    }
+}
+
+impl ReplaceVarsWithConst for ArrayAssign {
+    fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
+        if let SimpleExpr::Var(array_var) = &self.array {
+            assert!(
+                !map.contains_key(array_var),
+                "Array {array_var} is a constant"
+            );
+        }
+        crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.index, map);
+        crate::ir::utilities::replace_vars_by_const_in_expr(&mut self.value, map);
+    }
+}
 
 #[cfg(test)]
 mod tests {

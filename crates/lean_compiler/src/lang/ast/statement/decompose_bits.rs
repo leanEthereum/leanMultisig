@@ -1,10 +1,16 @@
 //! Bit decomposition statement implementation.
 
 use crate::{
+    F,
     lang::{expr::Expression, values::Var},
     traits::IndentedDisplay,
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
+};
+
+use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
 
 /// Bit decomposition statement for field elements.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -31,6 +37,41 @@ impl Display for DecomposeBits {
 }
 
 impl IndentedDisplay for DecomposeBits {}
+
+impl ReplaceVarsForUnroll for DecomposeBits {
+    fn replace_vars_for_unroll(
+        &mut self,
+        iterator: &Var,
+        unroll_index: usize,
+        iterator_value: usize,
+        internal_vars: &BTreeSet<Var>,
+    ) {
+        assert!(self.var != *iterator, "Weird");
+        self.var = format!("@unrolled_{unroll_index}_{iterator_value}_{}", self.var);
+        for expr in &mut self.to_decompose {
+            crate::ir::unroll::replace_vars_for_unroll_in_expr(
+                expr,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
+            );
+        }
+    }
+}
+
+impl ReplaceVarsWithConst for DecomposeBits {
+    fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
+        assert!(
+            !map.contains_key(&self.var),
+            "Variable {} is a constant",
+            self.var
+        );
+        for expr in &mut self.to_decompose {
+            crate::ir::utilities::replace_vars_by_const_in_expr(expr, map);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

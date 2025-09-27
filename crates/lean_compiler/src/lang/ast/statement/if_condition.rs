@@ -1,7 +1,21 @@
 //! If condition statement implementation.
 
-use crate::{lang::ast::types::Boolean, traits::IndentedDisplay};
-use std::fmt::{Display, Formatter};
+use crate::{
+    F,
+    ir::{
+        replace_vars_by_const_in_lines,
+        unroll::{replace_vars_for_unroll, replace_vars_for_unroll_in_expr},
+        utilities::replace_vars_by_const_in_expr,
+    },
+    lang::{ast::types::Boolean, values::Var},
+    traits::IndentedDisplay,
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
+};
+
+use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
 
 /// Conditional branching statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -67,5 +81,63 @@ impl IndentedDisplay for IfCondition {
                 self.condition
             )
         }
+    }
+}
+
+impl ReplaceVarsForUnroll for IfCondition {
+    fn replace_vars_for_unroll(
+        &mut self,
+        iterator: &Var,
+        unroll_index: usize,
+        iterator_value: usize,
+        internal_vars: &BTreeSet<Var>,
+    ) {
+        match &mut self.condition {
+            crate::lang::ast::types::Boolean::Equal { left, right }
+            | crate::lang::ast::types::Boolean::Different { left, right } => {
+                replace_vars_for_unroll_in_expr(
+                    left,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll_in_expr(
+                    right,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+            }
+        }
+        replace_vars_for_unroll(
+            &mut self.then_branch,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
+        );
+        replace_vars_for_unroll(
+            &mut self.else_branch,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
+        );
+    }
+}
+
+impl ReplaceVarsWithConst for IfCondition {
+    fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
+        match &mut self.condition {
+            crate::lang::ast::types::Boolean::Equal { left, right }
+            | crate::lang::ast::types::Boolean::Different { left, right } => {
+                replace_vars_by_const_in_expr(left, map);
+                replace_vars_by_const_in_expr(right, map);
+            }
+        }
+        replace_vars_by_const_in_lines(&mut self.then_branch, map);
+        replace_vars_by_const_in_lines(&mut self.else_branch, map);
     }
 }

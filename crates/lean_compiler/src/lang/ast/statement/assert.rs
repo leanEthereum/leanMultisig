@@ -1,7 +1,16 @@
 //! Assert statement implementation.
 
-use crate::{lang::ast::types::Boolean, traits::IndentedDisplay};
-use std::fmt::{Display, Formatter};
+use crate::{
+    F,
+    lang::{ast::types::Boolean, values::Var},
+    traits::IndentedDisplay,
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
+};
+
+use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
 
 /// Assert statement for runtime checks.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -17,6 +26,46 @@ impl Display for Assert {
 }
 
 impl IndentedDisplay for Assert {}
+
+impl ReplaceVarsForUnroll for Assert {
+    fn replace_vars_for_unroll(
+        &mut self,
+        iterator: &Var,
+        unroll_index: usize,
+        iterator_value: usize,
+        internal_vars: &BTreeSet<Var>,
+    ) {
+        match &mut self.condition {
+            Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+                crate::ir::unroll::replace_vars_for_unroll_in_expr(
+                    left,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                crate::ir::unroll::replace_vars_for_unroll_in_expr(
+                    right,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+            }
+        }
+    }
+}
+
+impl ReplaceVarsWithConst for Assert {
+    fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
+        match &mut self.condition {
+            Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+                crate::ir::utilities::replace_vars_by_const_in_expr(left, map);
+                crate::ir::utilities::replace_vars_by_const_in_expr(right, map);
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

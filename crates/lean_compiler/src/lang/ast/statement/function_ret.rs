@@ -1,7 +1,16 @@
 //! Function return statement implementation.
 
-use crate::{lang::expr::Expression, traits::IndentedDisplay};
-use std::fmt::{Display, Formatter};
+use crate::{
+    F,
+    lang::{expr::Expression, values::Var},
+    traits::IndentedDisplay,
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
+};
+
+use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
 
 /// Function return statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -23,6 +32,34 @@ impl Display for FunctionRet {
 }
 
 impl IndentedDisplay for FunctionRet {}
+
+impl ReplaceVarsForUnroll for FunctionRet {
+    fn replace_vars_for_unroll(
+        &mut self,
+        iterator: &Var,
+        unroll_index: usize,
+        iterator_value: usize,
+        internal_vars: &BTreeSet<Var>,
+    ) {
+        for ret in &mut self.return_data {
+            crate::ir::unroll::replace_vars_for_unroll_in_expr(
+                ret,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
+            );
+        }
+    }
+}
+
+impl ReplaceVarsWithConst for FunctionRet {
+    fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
+        for expr in &mut self.return_data {
+            crate::ir::utilities::replace_vars_by_const_in_expr(expr, map);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,10 +1,16 @@
 //! Function call statement implementation.
 
 use crate::{
+    F,
     lang::{expr::Expression, values::Var},
     traits::IndentedDisplay,
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
+};
+
+use super::traits::{ReplaceVarsForUnroll, ReplaceVarsWithConst};
 
 /// Function call statement.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -41,6 +47,44 @@ impl Display for FunctionCall {
 }
 
 impl IndentedDisplay for FunctionCall {}
+
+impl ReplaceVarsForUnroll for FunctionCall {
+    fn replace_vars_for_unroll(
+        &mut self,
+        iterator: &Var,
+        unroll_index: usize,
+        iterator_value: usize,
+        internal_vars: &BTreeSet<Var>,
+    ) {
+        // Function calls are not unrolled, so we don't need to change them
+        for arg in &mut self.args {
+            crate::ir::unroll::replace_vars_for_unroll_in_expr(
+                arg,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
+            );
+        }
+        for ret in &mut self.return_data {
+            *ret = format!("@unrolled_{unroll_index}_{iterator_value}_{ret}");
+        }
+    }
+}
+
+impl ReplaceVarsWithConst for FunctionCall {
+    fn replace_vars_with_const(&mut self, map: &BTreeMap<Var, F>) {
+        for arg in &mut self.args {
+            crate::ir::utilities::replace_vars_by_const_in_expr(arg, map);
+        }
+        for ret in &self.return_data {
+            assert!(
+                !map.contains_key(ret),
+                "Return variable {ret} is a constant"
+            );
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

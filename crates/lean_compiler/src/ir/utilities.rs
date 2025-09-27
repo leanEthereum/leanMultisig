@@ -1,4 +1,5 @@
 use crate::lang;
+use crate::lang::ast::statement::traits::ReplaceVarsWithConst;
 use crate::lang::{
     ArrayAssign, Assert, Assignment, Boolean, CounterHint, DecomposeBits, Expression, ForLoop,
     FunctionCall, FunctionRet, IfCondition, Line, MAlloc, Match, PrecompileStmt, SimpleExpr,
@@ -199,99 +200,7 @@ pub fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, 
 /// Replace variables with constants in a line sequence.
 pub fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
     for line in lines {
-        match line {
-            Line::Match(lang::Match { value, arms }) => {
-                replace_vars_by_const_in_expr(value, map);
-                for (_, statements) in arms {
-                    replace_vars_by_const_in_lines(statements, map);
-                }
-            }
-            Line::Assignment(lang::Assignment { var, value }) => {
-                assert!(!map.contains_key(var), "Variable {var} is a constant");
-                replace_vars_by_const_in_expr(value, map);
-            }
-            Line::ArrayAssign(lang::ArrayAssign {
-                array,
-                index,
-                value,
-            }) => {
-                if let SimpleExpr::Var(array_var) = array {
-                    assert!(
-                        !map.contains_key(array_var),
-                        "Array {array_var} is a constant"
-                    );
-                }
-                replace_vars_by_const_in_expr(index, map);
-                replace_vars_by_const_in_expr(value, map);
-            }
-            Line::FunctionCall(call) => {
-                let args = &mut call.args;
-                let return_data = &call.return_data;
-                for arg in args {
-                    replace_vars_by_const_in_expr(arg, map);
-                }
-                for ret in return_data {
-                    assert!(
-                        !map.contains_key(ret),
-                        "Return variable {ret} is a constant"
-                    );
-                }
-            }
-            Line::IfCondition(if_cond) => {
-                match &mut if_cond.condition {
-                    Boolean::Equal { left, right } | Boolean::Different { left, right } => {
-                        replace_vars_by_const_in_expr(left, map);
-                        replace_vars_by_const_in_expr(right, map);
-                    }
-                }
-                replace_vars_by_const_in_lines(&mut if_cond.then_branch, map);
-                replace_vars_by_const_in_lines(&mut if_cond.else_branch, map);
-            }
-            Line::ForLoop(for_loop) => {
-                replace_vars_by_const_in_expr(&mut for_loop.start, map);
-                replace_vars_by_const_in_expr(&mut for_loop.end, map);
-                replace_vars_by_const_in_lines(&mut for_loop.body, map);
-            }
-            Line::Assert(assert) => match &mut assert.condition {
-                Boolean::Equal { left, right } | Boolean::Different { left, right } => {
-                    replace_vars_by_const_in_expr(left, map);
-                    replace_vars_by_const_in_expr(right, map);
-                }
-            },
-            Line::FunctionRet(ret) => {
-                for expr in &mut ret.return_data {
-                    replace_vars_by_const_in_expr(expr, map);
-                }
-            }
-            Line::Precompile(precompile) => {
-                for arg in &mut precompile.args {
-                    replace_vars_by_const_in_expr(arg, map);
-                }
-            }
-            Line::Print(print) => {
-                for var in &mut print.content {
-                    replace_vars_by_const_in_expr(var, map);
-                }
-            }
-            Line::DecomposeBits(decompose) => {
-                assert!(
-                    !map.contains_key(&decompose.var),
-                    "Variable {} is a constant",
-                    decompose.var
-                );
-                for expr in &mut decompose.to_decompose {
-                    replace_vars_by_const_in_expr(expr, map);
-                }
-            }
-            Line::CounterHint(CounterHint { var }) => {
-                assert!(!map.contains_key(var), "Variable {var} is a constant");
-            }
-            Line::MAlloc(MAlloc { var, size, .. }) => {
-                assert!(!map.contains_key(var), "Variable {var} is a constant");
-                replace_vars_by_const_in_expr(size, map);
-            }
-            Line::Panic(_) | Line::Break(_) | Line::LocationReport { .. } => {}
-        }
+        line.replace_vars_with_const(map);
     }
 }
 
