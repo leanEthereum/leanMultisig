@@ -13,6 +13,7 @@ mod lang;
 mod parser;
 mod passes;
 mod precompiles;
+pub mod traits;
 pub use precompiles::PRECOMPILES;
 
 /// Compiles a program using the new pass architecture.

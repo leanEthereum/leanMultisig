@@ -21,22 +21,13 @@ use crate::{
         compiler::{Compile, CompileContext, CompileResult, Compiler, FindInternalVars},
     },
     lang::Var,
+    traits::IndentedDisplay,
 };
 use lean_vm::Label;
 use std::{
     collections::BTreeSet,
     fmt::{Display, Formatter},
 };
-
-/// Trait for displaying instructions with proper indentation.
-pub trait IndentedDisplay: Display {
-    /// Returns a string representation with the specified indentation level.
-    ///
-    /// Default implementation just adds indentation to the Display output.
-    fn to_string_with_indent(&self, indent: usize) -> String {
-        format!("{}{}", "    ".repeat(indent), self)
-    }
-}
 
 pub use assignment::Assignment;
 pub use branch::Branch;
