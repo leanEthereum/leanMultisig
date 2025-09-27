@@ -1497,12 +1497,16 @@ mod tests {
                     right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
                 },
                 then_branch: vec![Line::FunctionRet {
-                    return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
+                    return_data: vec![Expression::Value(SimpleExpr::Constant(
+                        ConstExpression::scalar(100),
+                    ))],
                 }],
                 else_branch: vec![],
             },
             Line::FunctionRet {
-                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
+                return_data: vec![Expression::Value(SimpleExpr::Constant(
+                    ConstExpression::scalar(200),
+                ))],
             },
         ];
 
@@ -1525,14 +1529,18 @@ mod tests {
                         right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
                     },
                     then_branch: vec![Line::FunctionRet {
-                        return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
+                        return_data: vec![Expression::Value(SimpleExpr::Constant(
+                            ConstExpression::scalar(100),
+                        ))],
                     }],
                     else_branch: vec![],
                 }],
                 else_branch: vec![],
             },
             Line::FunctionRet {
-                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(300)))],
+                return_data: vec![Expression::Value(SimpleExpr::Constant(
+                    ConstExpression::scalar(300),
+                ))],
             },
         ];
 
@@ -1549,10 +1557,14 @@ mod tests {
                 right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
             },
             then_branch: vec![Line::FunctionRet {
-                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
+                return_data: vec![Expression::Value(SimpleExpr::Constant(
+                    ConstExpression::scalar(100),
+                ))],
             }],
             else_branch: vec![Line::FunctionRet {
-                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
+                return_data: vec![Expression::Value(SimpleExpr::Constant(
+                    ConstExpression::scalar(200),
+                ))],
             }],
         }];
 
@@ -1585,7 +1597,12 @@ mod tests {
 
         // Should be restructured to proper if-else
         assert_eq!(lines.len(), 1);
-        if let Line::IfCondition { condition: _, then_branch, else_branch } = &lines[0] {
+        if let Line::IfCondition {
+            condition: _,
+            then_branch,
+            else_branch,
+        } = &lines[0]
+        {
             assert_eq!(then_branch.len(), 1);
             assert_eq!(else_branch.len(), 1);
         } else {
@@ -1603,12 +1620,16 @@ mod tests {
                     right: Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(0))),
                 },
                 then_branch: vec![Line::FunctionRet {
-                    return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(100)))],
+                    return_data: vec![Expression::Value(SimpleExpr::Constant(
+                        ConstExpression::scalar(100),
+                    ))],
                 }],
                 else_branch: vec![],
             },
             Line::FunctionRet {
-                return_data: vec![Expression::Value(SimpleExpr::Constant(ConstExpression::scalar(200)))],
+                return_data: vec![Expression::Value(SimpleExpr::Constant(
+                    ConstExpression::scalar(200),
+                ))],
             },
         ];
 
@@ -1617,12 +1638,16 @@ mod tests {
         inline_lines(&mut lines, &args, &res, 0);
 
         // Should not have multiple assignments to same variable
-        let result_assignments = lines.iter().filter(|line| {
-            matches!(line, Line::Assignment { var, .. } if var == "result")
-        }).count();
+        let result_assignments = lines
+            .iter()
+            .filter(|line| matches!(line, Line::Assignment { var, .. } if var == "result"))
+            .count();
 
         // With restructuring, direct assignments should be minimal
-        assert!(result_assignments <= 1, "Should avoid multiple direct assignments");
+        assert!(
+            result_assignments <= 1,
+            "Should avoid multiple direct assignments"
+        );
     }
 
     #[test]
