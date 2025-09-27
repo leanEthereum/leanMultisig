@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::lang::values::Var;
 
-use super::stmt::Line;
+use super::statement::Line;
 
 /// A complete Lean program containing multiple functions.
 #[derive(Debug, Clone)]
