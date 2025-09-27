@@ -86,3 +86,121 @@ pub fn next_inner_pair<'i>(
         .next()
         .ok_or_else(|| SemanticError::with_context("Unexpected end of input", context).into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::grammar::Rule;
+
+    #[test]
+    fn test_parse_context_new() {
+        let ctx = ParseContext::new();
+        assert!(ctx.constants.is_empty());
+        assert_eq!(ctx.trash_var_count, 0);
+    }
+
+    #[test]
+    fn test_parse_context_default() {
+        let ctx = ParseContext::default();
+        assert!(ctx.constants.is_empty());
+        assert_eq!(ctx.trash_var_count, 0);
+    }
+
+    #[test]
+    fn test_add_constant_success() {
+        let mut ctx = ParseContext::new();
+        let result = ctx.add_constant("test".to_string(), 42);
+        assert!(result.is_ok());
+        assert_eq!(ctx.get_constant("test"), Some(42));
+    }
+
+    #[test]
+    fn test_add_constant_duplicate() {
+        let mut ctx = ParseContext::new();
+        ctx.add_constant("test".to_string(), 42).unwrap();
+        let result = ctx.add_constant("test".to_string(), 24);
+        assert!(result.is_err());
+        if let Err(error) = result {
+            assert!(error.message.contains("Multiply defined constant"));
+        }
+    }
+
+    #[test]
+    fn test_get_constant_exists() {
+        let mut ctx = ParseContext::new();
+        ctx.add_constant("test".to_string(), 42).unwrap();
+        assert_eq!(ctx.get_constant("test"), Some(42));
+    }
+
+    #[test]
+    fn test_get_constant_not_exists() {
+        let ctx = ParseContext::new();
+        assert_eq!(ctx.get_constant("missing"), None);
+    }
+
+    #[test]
+    fn test_next_trash_var() {
+        let mut ctx = ParseContext::new();
+        let first = ctx.next_trash_var();
+        let second = ctx.next_trash_var();
+
+        assert_eq!(first, "@trash_1");
+        assert_eq!(second, "@trash_2");
+        assert_eq!(ctx.trash_var_count, 2);
+    }
+
+    #[test]
+    fn test_expect_rule_success() {
+        use crate::parser::grammar::LangParser;
+        use pest::Parser;
+
+        let input = "fn main() {}";
+        let mut pairs = LangParser::parse(Rule::program, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = expect_rule(&pair, Rule::program);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_expect_rule_failure() {
+        use crate::parser::grammar::LangParser;
+        use pest::Parser;
+
+        let input = "fn main() {}";
+        let mut pairs = LangParser::parse(Rule::program, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = expect_rule(&pair, Rule::function);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_next_inner_pair_success() {
+        use crate::parser::grammar::LangParser;
+        use pest::Parser;
+
+        let input = "fn main() {}";
+        let mut pairs = LangParser::parse(Rule::program, input).unwrap();
+        let pair = pairs.next().unwrap();
+        let mut inner = pair.into_inner();
+
+        let result = next_inner_pair(&mut inner, "test context");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_next_inner_pair_failure() {
+        let mut empty_iter = std::iter::empty();
+        let result = next_inner_pair(&mut empty_iter, "test context");
+        assert!(result.is_err());
+        if let Err(error) = result {
+            if let crate::parser::error::ParseError::SemanticError(se) = error {
+                assert_eq!(se.message, "Unexpected end of input");
+                assert_eq!(se.context, Some("test context".to_string()));
+            } else {
+                panic!("Expected SemanticError");
+            }
+        }
+    }
+}
