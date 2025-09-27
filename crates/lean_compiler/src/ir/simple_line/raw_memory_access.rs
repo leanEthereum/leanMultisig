@@ -34,7 +34,9 @@ impl Compile for RawMemoryAccess {
 
         let shift_0 = match &self.index {
             SimpleExpr::Constant(c) => c.clone(),
-            _ => ctx.compiler.get_offset(&self.index.clone().try_into().unwrap()),
+            _ => ctx
+                .compiler
+                .get_offset(&self.index.clone().try_into().unwrap()),
         };
 
         let instruction = IntermediateInstruction::Deref {

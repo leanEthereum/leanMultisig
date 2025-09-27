@@ -129,11 +129,13 @@ fn generate_jump_table(
 
 impl Display for Match {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let arms_str = self.arms
+        let arms_str = self
+            .arms
             .iter()
             .enumerate()
             .map(|(pattern, stmt)| {
-                let stmt_str = stmt.iter()
+                let stmt_str = stmt
+                    .iter()
                     .map(|line| format!("{}", line))
                     .collect::<Vec<_>>()
                     .join("; ");
@@ -149,7 +151,8 @@ impl Display for Match {
 impl crate::ir::simple_line::IndentedDisplay for Match {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
-        let arms_str = self.arms
+        let arms_str = self
+            .arms
             .iter()
             .enumerate()
             .map(|(pattern, stmt)| {
@@ -164,6 +167,9 @@ impl crate::ir::simple_line::IndentedDisplay for Match {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        format!("{}match {} {{\n{}\n{}}}", spaces, self.value, arms_str, spaces)
+        format!(
+            "{}match {} {{\n{}\n{}}}",
+            spaces, self.value, arms_str, spaces
+        )
     }
 }

@@ -39,7 +39,8 @@ impl Compile for Print {
 
 impl Display for Print {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let content_str = self.content
+        let content_str = self
+            .content
             .iter()
             .map(|c| format!("{}", c))
             .collect::<Vec<_>>()

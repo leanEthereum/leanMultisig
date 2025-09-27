@@ -49,7 +49,11 @@ impl Compile for Assignment {
 
 impl Display for Assignment {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} = {} {} {}", self.var, self.arg0, self.operation, self.arg1)
+        write!(
+            f,
+            "{} = {} {} {}",
+            self.var, self.arg0, self.operation, self.arg1
+        )
     }
 }
 

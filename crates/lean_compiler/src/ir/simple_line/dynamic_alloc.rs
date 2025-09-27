@@ -44,7 +44,11 @@ impl Compile for DynamicAlloc {
 impl Display for DynamicAlloc {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.vectorized {
-            write!(f, "{} = malloc_vec({}, {})", self.var, self.size, self.vectorized_len)
+            write!(
+                f,
+                "{} = malloc_vec({}, {})",
+                self.var, self.size, self.vectorized_len
+            )
         } else {
             write!(f, "{} = malloc({})", self.var, self.size)
         }

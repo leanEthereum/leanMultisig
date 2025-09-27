@@ -20,8 +20,7 @@ pub use value::{IntermediaryMemOrFpOrConstant, IntermediateValue};
 // High-level IR exports (AST to IR)
 pub use simple_line::SimpleLine;
 pub use types::{
-    ArrayManager, ConstMalloc, Counters, SimpleFunction, SimpleProgram,
-    VarOrConstMallocAccess,
+    ArrayManager, ConstMalloc, Counters, SimpleFunction, SimpleProgram, VarOrConstMallocAccess,
 };
 
 // Re-export utilities

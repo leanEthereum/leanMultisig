@@ -7,8 +7,8 @@ use crate::{
     },
     lang::Var,
 };
-use utils::ToUsize;
 use std::fmt::{Display, Formatter};
+use utils::ToUsize;
 
 /// Counter value hint for loops.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
