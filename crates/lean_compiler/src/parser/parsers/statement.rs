@@ -2,6 +2,9 @@ use super::expression::ExpressionParser;
 use super::function::{FunctionCallParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
+use crate::lang::{
+    ArrayAssign, Assert, Assignment, Break, ForLoop, IfCondition, LocationReport, Match,
+};
 use crate::{
     lang::{Boolean, Line},
     parser::{
@@ -9,6 +12,21 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
+
+/// Add a statement with location tracking.
+fn add_statement_with_location(
+    lines: &mut Vec<Line>,
+    pair: ParsePair<'_>,
+    ctx: &mut ParseContext,
+) -> ParseResult<()> {
+    let location = pair.line_col().0;
+    let line = StatementParser::parse(pair, ctx)?;
+
+    lines.push(Line::LocationReport(LocationReport { location }));
+    lines.push(line);
+
+    Ok(())
+}
 
 /// Parser for all statement types.
 pub struct StatementParser;
@@ -27,7 +45,7 @@ impl Parse<Line> for StatementParser {
             Rule::function_call => FunctionCallParser::parse(inner, ctx),
             Rule::assert_eq_statement => AssertEqParser::parse(inner, ctx),
             Rule::assert_not_eq_statement => AssertNotEqParser::parse(inner, ctx),
-            Rule::break_statement => Ok(Line::Break),
+            Rule::break_statement => Ok(Line::Break(Break)),
             Rule::continue_statement => {
                 Err(SemanticError::new("Continue statement not implemented yet").into())
             }
@@ -48,7 +66,7 @@ impl Parse<Line> for AssignmentParser {
         let expr = next_inner_pair(&mut inner, "assignment value")?;
         let value = ExpressionParser::parse(expr, ctx)?;
 
-        Ok(Line::Assignment { var, value })
+        Ok(Line::Assignment(Assignment { var, value }))
     }
 }
 
@@ -64,11 +82,11 @@ impl Parse<Line> for ArrayAssignParser {
         let index = ExpressionParser::parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
         let value = ExpressionParser::parse(next_inner_pair(&mut inner, "array value")?, ctx)?;
 
-        Ok(Line::ArrayAssign {
+        Ok(Line::ArrayAssign(ArrayAssign {
             array: array.into(),
             index,
             value,
-        })
+        }))
     }
 }
 
@@ -86,12 +104,12 @@ impl Parse<Line> for IfStatementParser {
         for item in inner {
             match item.as_rule() {
                 Rule::statement => {
-                    Self::add_statement_with_location(&mut then_branch, item, ctx)?;
+                    add_statement_with_location(&mut then_branch, item, ctx)?;
                 }
                 Rule::else_clause => {
                     for else_item in item.into_inner() {
                         if else_item.as_rule() == Rule::statement {
-                            Self::add_statement_with_location(&mut else_branch, else_item, ctx)?;
+                            add_statement_with_location(&mut else_branch, else_item, ctx)?;
                         }
                     }
                 }
@@ -99,27 +117,11 @@ impl Parse<Line> for IfStatementParser {
             }
         }
 
-        Ok(Line::IfCondition {
+        Ok(Line::IfCondition(IfCondition {
             condition,
             then_branch,
             else_branch,
-        })
-    }
-}
-
-impl IfStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport { location });
-        lines.push(line);
-
-        Ok(())
+        }))
     }
 }
 
@@ -133,10 +135,10 @@ impl Parse<Line> for ForStatementParser {
             .as_str()
             .to_string();
 
-        // Check for optional reverse clause
+        // Check for optional reverse clause using efficient peek
         let mut rev = false;
-        if let Some(next_peek) = inner.clone().next()
-            && next_peek.as_rule() == Rule::rev_clause
+        if let Some(peeked) = inner.peek()
+            && peeked.as_rule() == Rule::rev_clause
         {
             rev = true;
             inner.next(); // Consume the rev clause
@@ -154,36 +156,20 @@ impl Parse<Line> for ForStatementParser {
                     unroll = true;
                 }
                 Rule::statement => {
-                    Self::add_statement_with_location(&mut body, item, ctx)?;
+                    add_statement_with_location(&mut body, item, ctx)?;
                 }
                 _ => {}
             }
         }
 
-        Ok(Line::ForLoop {
+        Ok(Line::ForLoop(ForLoop {
             iterator,
             start,
             end,
             body,
             rev,
             unroll,
-        })
-    }
-}
-
-impl ForStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport { location });
-        lines.push(line);
-
-        Ok(())
+        }))
     }
 }
 
@@ -206,7 +192,7 @@ impl Parse<Line> for MatchStatementParser {
                 let mut statements = Vec::new();
                 for stmt in arm_inner {
                     if stmt.as_rule() == Rule::statement {
-                        Self::add_statement_with_location(&mut statements, stmt, ctx)?;
+                        add_statement_with_location(&mut statements, stmt, ctx)?;
                     }
                 }
 
@@ -214,23 +200,7 @@ impl Parse<Line> for MatchStatementParser {
             }
         }
 
-        Ok(Line::Match { value, arms })
-    }
-}
-
-impl MatchStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport { location });
-        lines.push(line);
-
-        Ok(())
+        Ok(Line::Match(Match { value, arms }))
     }
 }
 
@@ -247,7 +217,9 @@ impl Parse<Line> for ReturnStatementParser {
             }
         }
 
-        Ok(Line::FunctionRet { return_data })
+        Ok(Line::FunctionRet(
+            crate::lang::ast::statement::FunctionRet { return_data },
+        ))
     }
 }
 
@@ -279,7 +251,9 @@ impl Parse<Line> for AssertEqParser {
         let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
-        Ok(Line::Assert(Boolean::Equal { left, right }))
+        Ok(Line::Assert(Assert {
+            condition: Boolean::Equal { left, right },
+        }))
     }
 }
 
@@ -292,6 +266,390 @@ impl Parse<Line> for AssertNotEqParser {
         let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
-        Ok(Line::Assert(Boolean::Different { left, right }))
+        Ok(Line::Assert(Assert {
+            condition: Boolean::Different { left, right },
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::{
+        ArrayAssign, Assert, Assignment, ForLoop, FunctionRet, IfCondition, Line, Match,
+    };
+    use crate::parser::grammar::{LangParser, Rule};
+    use pest::Parser;
+
+    #[test]
+    fn test_for_loop_with_rev_clause() {
+        let mut ctx = ParseContext::new();
+        let input = r#"for i in rev 0..10 { break; }"#;
+        let mut pairs = LangParser::parse(Rule::for_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ForLoop(ForLoop {
+            iterator,
+            start,
+            end,
+            body,
+            rev,
+            unroll,
+        }) = result
+        {
+            assert_eq!(iterator, "i");
+            assert_eq!(start, crate::lang::Expression::scalar(0));
+            assert_eq!(end, crate::lang::Expression::scalar(10));
+            assert_eq!(body.len(), 2); // LocationReport + Break
+            assert!(rev);
+            assert!(!unroll);
+        } else {
+            panic!("Expected ForLoop");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_without_rev_clause() {
+        let mut ctx = ParseContext::new();
+        let input = r#"for i in 0..10 { break; }"#;
+        let mut pairs = LangParser::parse(Rule::for_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ForLoop(ForLoop {
+            iterator,
+            start,
+            end,
+            body,
+            rev,
+            unroll,
+        }) = result
+        {
+            assert_eq!(iterator, "i");
+            assert_eq!(start, crate::lang::Expression::scalar(0));
+            assert_eq!(end, crate::lang::Expression::scalar(10));
+            assert_eq!(body.len(), 2); // LocationReport + Break
+            assert!(!rev);
+            assert!(!unroll);
+        } else {
+            panic!("Expected ForLoop");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_with_unroll_clause() {
+        let mut ctx = ParseContext::new();
+        let input = r#"for i in 0..10 unroll { break; }"#;
+        let mut pairs = LangParser::parse(Rule::for_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ForLoop(ForLoop {
+            iterator,
+            start,
+            end,
+            body,
+            rev,
+            unroll,
+        }) = result
+        {
+            assert_eq!(iterator, "i");
+            assert_eq!(start, crate::lang::Expression::scalar(0));
+            assert_eq!(end, crate::lang::Expression::scalar(10));
+            assert_eq!(body.len(), 2); // LocationReport + Break
+            assert!(!rev);
+            assert!(unroll);
+        } else {
+            panic!("Expected ForLoop");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_with_rev_and_unroll() {
+        let mut ctx = ParseContext::new();
+        let input = r#"for i in rev 0..10 unroll { break; }"#;
+        let mut pairs = LangParser::parse(Rule::for_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ForStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ForLoop(ForLoop {
+            iterator,
+            start,
+            end,
+            body,
+            rev,
+            unroll,
+        }) = result
+        {
+            assert_eq!(iterator, "i");
+            assert_eq!(start, crate::lang::Expression::scalar(0));
+            assert_eq!(end, crate::lang::Expression::scalar(10));
+            assert_eq!(body.len(), 2); // LocationReport + Break
+            assert!(rev);
+            assert!(unroll);
+        } else {
+            panic!("Expected ForLoop");
+        }
+    }
+
+    #[test]
+    fn test_statement_parser_break_statement() {
+        let mut ctx = ParseContext::new();
+        let input = "break;";
+        let mut pairs = LangParser::parse(Rule::statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = StatementParser::parse(pair, &mut ctx).unwrap();
+        assert_eq!(result, Line::Break(Break));
+    }
+
+    #[test]
+    fn test_statement_parser_continue_statement() {
+        let mut ctx = ParseContext::new();
+        let input = "continue;";
+        let mut pairs = LangParser::parse(Rule::statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = StatementParser::parse(pair, &mut ctx);
+        assert!(result.is_err());
+        if let Err(crate::parser::error::ParseError::SemanticError(error)) = result {
+            assert!(
+                error
+                    .message
+                    .contains("Continue statement not implemented yet")
+            );
+        } else {
+            panic!("Expected SemanticError");
+        }
+    }
+
+    #[test]
+    fn test_assignment_parser() {
+        let mut ctx = ParseContext::new();
+        let input = "x = 42;";
+        let mut pairs = LangParser::parse(Rule::single_assignment, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = AssignmentParser::parse(pair, &mut ctx).unwrap();
+        if let Line::Assignment(Assignment { var, value }) = result {
+            assert_eq!(var, "x");
+            assert_eq!(value, crate::lang::Expression::scalar(42));
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_array_assign_parser() {
+        let mut ctx = ParseContext::new();
+        let input = "arr[5] = 100;";
+        let mut pairs = LangParser::parse(Rule::array_assign, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ArrayAssignParser::parse(pair, &mut ctx).unwrap();
+        if let Line::ArrayAssign(ArrayAssign {
+            array,
+            index,
+            value,
+        }) = result
+        {
+            assert_eq!(array, crate::lang::SimpleExpr::Var("arr".to_string()));
+            assert_eq!(index, crate::lang::Expression::scalar(5));
+            assert_eq!(value, crate::lang::Expression::scalar(100));
+        } else {
+            panic!("Expected ArrayAssign");
+        }
+    }
+
+    #[test]
+    fn test_assert_eq_parser() {
+        let mut ctx = ParseContext::new();
+        let input = "assert 10 == 20;";
+        let mut pairs = LangParser::parse(Rule::assert_eq_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = AssertEqParser::parse(pair, &mut ctx).unwrap();
+        if let Line::Assert(Assert {
+            condition: crate::lang::Boolean::Equal { left, right },
+        }) = result
+        {
+            assert_eq!(left, crate::lang::Expression::scalar(10));
+            assert_eq!(right, crate::lang::Expression::scalar(20));
+        } else {
+            panic!("Expected Assert with Equal condition");
+        }
+    }
+
+    #[test]
+    fn test_assert_not_eq_parser() {
+        let mut ctx = ParseContext::new();
+        let input = "assert 10 != 20;";
+        let mut pairs = LangParser::parse(Rule::assert_not_eq_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = AssertNotEqParser::parse(pair, &mut ctx).unwrap();
+        if let Line::Assert(Assert {
+            condition: crate::lang::Boolean::Different { left, right },
+        }) = result
+        {
+            assert_eq!(left, crate::lang::Expression::scalar(10));
+            assert_eq!(right, crate::lang::Expression::scalar(20));
+        } else {
+            panic!("Expected Assert with Different condition");
+        }
+    }
+
+    #[test]
+    fn test_condition_parser_equal() {
+        let mut ctx = ParseContext::new();
+        let input = "x == 5";
+        let mut pairs = LangParser::parse(Rule::condition, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ConditionParser::parse(pair, &mut ctx).unwrap();
+        if let crate::lang::Boolean::Equal { left, right } = result {
+            assert_eq!(
+                left,
+                crate::lang::Expression::Value(crate::lang::SimpleExpr::Var("x".to_string()))
+            );
+            assert_eq!(right, crate::lang::Expression::scalar(5));
+        } else {
+            panic!("Expected Equal condition");
+        }
+    }
+
+    #[test]
+    fn test_condition_parser_different() {
+        let mut ctx = ParseContext::new();
+        let input = "y != 10";
+        let mut pairs = LangParser::parse(Rule::condition, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ConditionParser::parse(pair, &mut ctx).unwrap();
+        if let crate::lang::Boolean::Different { left, right } = result {
+            assert_eq!(
+                left,
+                crate::lang::Expression::Value(crate::lang::SimpleExpr::Var("y".to_string()))
+            );
+            assert_eq!(right, crate::lang::Expression::scalar(10));
+        } else {
+            panic!("Expected Different condition");
+        }
+    }
+
+    #[test]
+    fn test_return_statement_parser_empty() {
+        let mut ctx = ParseContext::new();
+        let input = "return;";
+        let mut pairs = LangParser::parse(Rule::return_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ReturnStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::FunctionRet(FunctionRet { return_data }) = result {
+            assert!(return_data.is_empty());
+        } else {
+            panic!("Expected FunctionRet");
+        }
+    }
+
+    #[test]
+    fn test_return_statement_parser_with_values() {
+        let mut ctx = ParseContext::new();
+        let input = "return 42, 100;";
+        let mut pairs = LangParser::parse(Rule::return_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = ReturnStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::FunctionRet(FunctionRet { return_data }) = result {
+            assert_eq!(return_data.len(), 2);
+            assert_eq!(return_data[0], crate::lang::Expression::scalar(42));
+            assert_eq!(return_data[1], crate::lang::Expression::scalar(100));
+        } else {
+            panic!("Expected FunctionRet");
+        }
+    }
+
+    #[test]
+    fn test_match_statement_parser() {
+        let mut ctx = ParseContext::new();
+        let input = r#"match x { 0 => { break; } 1 => { break; } }"#;
+        let mut pairs = LangParser::parse(Rule::match_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = MatchStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::Match(Match { value, arms }) = result {
+            assert_eq!(
+                value,
+                crate::lang::Expression::Value(crate::lang::SimpleExpr::Var("x".to_string()))
+            );
+            assert_eq!(arms.len(), 2);
+            assert_eq!(arms[0].0, 0);
+            assert_eq!(arms[1].0, 1);
+            assert_eq!(arms[0].1.len(), 2); // LocationReport + Break
+            assert_eq!(arms[1].1.len(), 2); // LocationReport + Break
+        } else {
+            panic!("Expected Match");
+        }
+    }
+
+    #[test]
+    fn test_if_statement_parser_no_else() {
+        let mut ctx = ParseContext::new();
+        let input = r#"if x == 0 { break; }"#;
+        let mut pairs = LangParser::parse(Rule::if_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = IfStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::IfCondition(IfCondition {
+            condition,
+            then_branch,
+            else_branch,
+        }) = result
+        {
+            if let crate::lang::Boolean::Equal { left, right } = condition {
+                assert_eq!(
+                    left,
+                    crate::lang::Expression::Value(crate::lang::SimpleExpr::Var("x".to_string()))
+                );
+                assert_eq!(right, crate::lang::Expression::scalar(0));
+            } else {
+                panic!("Expected Equal condition");
+            }
+            assert_eq!(then_branch.len(), 2); // LocationReport + Break
+            assert!(else_branch.is_empty());
+        } else {
+            panic!("Expected IfCondition");
+        }
+    }
+
+    #[test]
+    fn test_if_statement_parser_with_else() {
+        let mut ctx = ParseContext::new();
+        let input = r#"if x == 0 { break; } else { break; }"#;
+        let mut pairs = LangParser::parse(Rule::if_statement, input).unwrap();
+        let pair = pairs.next().unwrap();
+
+        let result = IfStatementParser::parse(pair, &mut ctx).unwrap();
+        if let Line::IfCondition(IfCondition {
+            condition,
+            then_branch,
+            else_branch,
+        }) = result
+        {
+            if let crate::lang::Boolean::Equal { left, right } = condition {
+                assert_eq!(
+                    left,
+                    crate::lang::Expression::Value(crate::lang::SimpleExpr::Var("x".to_string()))
+                );
+                assert_eq!(right, crate::lang::Expression::scalar(0));
+            } else {
+                panic!("Expected Equal condition");
+            }
+            assert_eq!(then_branch.len(), 2); // LocationReport + Break
+            assert_eq!(else_branch.len(), 2); // LocationReport + Break
+        } else {
+            panic!("Expected IfCondition");
+        }
     }
 }

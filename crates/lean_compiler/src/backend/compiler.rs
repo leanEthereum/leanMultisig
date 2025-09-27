@@ -1,38 +1,14 @@
-use crate::{F, PUBLIC_INPUT_START, ZERO_VEC_PTR, ir::*, lang::*};
+use super::evaluation::*;
+use crate::{ir::*, lang::*};
 use lean_vm::*;
-use p3_field::{PrimeCharacteristicRing, PrimeField32};
+use p3_field::PrimeField32;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 
-impl IntermediateInstruction {
-    const fn is_hint(&self) -> bool {
-        match self {
-            Self::RequestMemory { .. }
-            | Self::Print { .. }
-            | Self::DecomposeBits { .. }
-            | Self::CounterHint { .. }
-            | Self::Inverse { .. }
-            | Self::LocationReport { .. } => true,
-            Self::Computation { .. }
-            | Self::Panic
-            | Self::Deref { .. }
-            | Self::JumpIfNotZero { .. }
-            | Self::Jump { .. }
-            | Self::Poseidon2_16 { .. }
-            | Self::Poseidon2_24 { .. }
-            | Self::DotProduct { .. }
-            | Self::MultilinearEval { .. } => false,
-        }
-    }
-}
-
-struct Compiler {
-    memory_size_per_function: BTreeMap<String, usize>,
-    label_to_pc: BTreeMap<Label, CodeAddress>,
-    match_block_sizes: Vec<usize>,
-    match_first_block_starts: Vec<CodeAddress>,
-}
-
+/// Compiles intermediate bytecode to low-level VM bytecode.
+///
+/// This is the main entry point for the backend compilation phase,
+/// taking intermediate representation and producing executable VM code.
 pub fn compile_to_low_level_bytecode(
     mut intermediate_bytecode: IntermediateBytecode,
 ) -> Result<Bytecode, String> {
@@ -47,7 +23,7 @@ pub fn compile_to_low_level_bytecode(
     let starting_frame_memory = *intermediate_bytecode
         .memory_size_per_function
         .get("main")
-        .unwrap();
+        .ok_or("No main function found in memory size map")?;
 
     let mut label_to_pc = BTreeMap::new();
     label_to_pc.insert(Label::function("main"), 0);
@@ -98,7 +74,7 @@ pub fn compile_to_low_level_bytecode(
             .push(Hint::Label { label });
     }
 
-    let compiler = Compiler {
+    let compiler = CodeGenerator {
         memory_size_per_function: intermediate_bytecode.memory_size_per_function,
         label_to_pc,
         match_block_sizes,
@@ -123,8 +99,9 @@ pub fn compile_to_low_level_bytecode(
     })
 }
 
+/// Compiles a block of intermediate instructions to low-level VM instructions.
 fn compile_block(
-    compiler: &Compiler,
+    compiler: &CodeGenerator,
     block: &[IntermediateInstruction],
     pc_start: CodeAddress,
     low_level_bytecode: &mut Vec<Instruction>,
@@ -364,71 +341,75 @@ fn compile_block(
     }
 }
 
+/// Counts the number of real instructions (non-hints) in a block.
 fn count_real_instructions(instrs: &[IntermediateInstruction]) -> usize {
     instrs.iter().filter(|instr| !instr.is_hint()).count()
 }
 
-fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
-    match constant {
-        ConstantValue::Scalar(scalar) => *scalar,
-        ConstantValue::PublicInputStart => PUBLIC_INPUT_START,
-        ConstantValue::PointerToZeroVector => ZERO_VEC_PTR,
-        ConstantValue::PointerToOneVector => ONE_VEC_PTR,
-        ConstantValue::FunctionSize { function_name } => {
-            let func_name_str = match function_name {
-                Label::Function(name) => name,
-                _ => panic!("Expected function label, got: {function_name}"),
-            };
-            *compiler
-                .memory_size_per_function
-                .get(func_name_str)
-                .unwrap_or_else(|| panic!("Function {func_name_str} not found in memory size map"))
-        }
-        ConstantValue::Label(label) => compiler.label_to_pc.get(label).copied().unwrap(),
-        ConstantValue::MatchBlockSize { match_index } => compiler.match_block_sizes[*match_index],
-        ConstantValue::MatchFirstBlockStart { match_index } => {
-            compiler.match_first_block_starts[*match_index]
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::{IntermediateBytecode, IntermediateInstruction, IntermediateValue};
+    use crate::lang::ConstExpression;
+    use lean_vm::{Label, Operation};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn test_count_real_instructions() {
+        let instructions = vec![
+            IntermediateInstruction::Computation {
+                operation: Operation::Add,
+                arg_a: IntermediateValue::Fp,
+                arg_c: IntermediateValue::Constant(ConstExpression::scalar(1)),
+                res: IntermediateValue::Fp,
+            },
+            IntermediateInstruction::Print {
+                line_info: "test".to_string(),
+                content: vec![],
+            },
+            IntermediateInstruction::Panic,
+        ];
+
+        // Only 2 real instructions (Computation and Panic), Print is a hint
+        assert_eq!(count_real_instructions(&instructions), 2);
     }
-}
 
-fn eval_const_expression(constant: &ConstExpression, compiler: &Compiler) -> F {
-    constant
-        .eval_with(&|cst| Some(F::from_usize(eval_constant_value(cst, compiler))))
-        .unwrap()
-}
+    #[test]
+    fn test_compile_to_low_level_bytecode_no_main() {
+        let intermediate_bytecode = IntermediateBytecode {
+            bytecode: BTreeMap::new(),
+            match_blocks: Vec::new(),
+            memory_size_per_function: BTreeMap::new(),
+        };
 
-fn eval_const_expression_usize(constant: &ConstExpression, compiler: &Compiler) -> usize {
-    eval_const_expression(constant, compiler).to_usize()
-}
-
-fn try_as_constant(value: &IntermediateValue, compiler: &Compiler) -> Option<F> {
-    if let IntermediateValue::Constant(c) = value {
-        Some(eval_const_expression(c, compiler))
-    } else {
-        None
+        let result = compile_to_low_level_bytecode(intermediate_bytecode);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No main function found"));
     }
-}
 
-impl IntermediateValue {
-    fn try_into_mem_or_fp(&self, compiler: &Compiler) -> Result<MemOrFp, String> {
-        match self {
-            Self::MemoryAfterFp { offset } => Ok(MemOrFp::MemoryAfterFp {
-                offset: eval_const_expression_usize(offset, compiler),
-            }),
-            Self::Fp => Ok(MemOrFp::Fp),
-            _ => Err(format!("Cannot convert {self:?} to MemOrFp")),
-        }
-    }
-    fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {
-        if let Some(cst) = try_as_constant(self, compiler) {
-            return Ok(MemOrConstant::Constant(cst));
-        }
-        if let Self::MemoryAfterFp { offset } = self {
-            return Ok(MemOrConstant::MemoryAfterFp {
-                offset: eval_const_expression_usize(offset, compiler),
-            });
-        }
-        Err(format!("Cannot convert {self:?} to MemOrConstant"))
+    #[test]
+    fn test_compile_to_low_level_bytecode_simple() {
+        let mut bytecode = BTreeMap::new();
+        let mut memory_sizes = BTreeMap::new();
+
+        // Simple main function with one instruction
+        bytecode.insert(
+            Label::function("main"),
+            vec![IntermediateInstruction::Panic],
+        );
+        memory_sizes.insert("main".to_string(), 10);
+
+        let intermediate_bytecode = IntermediateBytecode {
+            bytecode,
+            match_blocks: Vec::new(),
+            memory_size_per_function: memory_sizes,
+        };
+
+        let result = compile_to_low_level_bytecode(intermediate_bytecode);
+        assert!(result.is_ok());
+
+        let bytecode = result.unwrap();
+        assert_eq!(bytecode.starting_frame_memory, 10);
+        assert!(!bytecode.instructions.is_empty());
     }
 }

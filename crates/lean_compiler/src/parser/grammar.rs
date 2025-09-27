@@ -18,19 +18,74 @@ pub fn get_location(pair: &ParsePair<'_>) -> (usize, usize) {
     pair.line_col()
 }
 
-/// Utility function to safely get the next inner element from a parser.
-pub fn next_inner<'i>(
-    mut pairs: impl Iterator<Item = ParsePair<'i>>,
-    expected: &str,
-) -> Option<ParsePair<'i>> {
-    pairs.next().or_else(|| {
-        eprintln!("Warning: Expected {} but found nothing", expected);
-        None
-    })
-}
-
 /// Utility function to parse the main program structure.
 pub fn parse_source(input: &str) -> Result<ParsePair<'_>, Box<pest::error::Error<Rule>>> {
     let mut pairs = LangParser::parse(Rule::program, input)?;
-    Ok(pairs.next().unwrap())
+    pairs.next().ok_or_else(|| {
+        Box::new(pest::error::Error::new_from_pos(
+            pest::error::ErrorVariant::CustomError {
+                message: "No program found in input".to_string(),
+            },
+            pest::Position::from_start(input),
+        ))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_location() {
+        let input = "fn main() {}";
+        if let Ok(pair) = parse_source(input) {
+            let (line, col) = get_location(&pair);
+            assert_eq!(line, 1);
+            assert_eq!(col, 1);
+        }
+    }
+
+    #[test]
+    fn test_get_location_functionality() {
+        let input = "fn main() {}";
+        if let Ok(pair) = parse_source(input) {
+            let mut inner = pair.into_inner();
+            if let Some(func_pair) = inner.next() {
+                let (line, col) = get_location(&func_pair);
+                assert_eq!(line, 1);
+                assert_eq!(col, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_source_valid() {
+        let input = "fn main() {}";
+        let result = parse_source(input);
+        assert!(result.is_ok());
+        if let Ok(pair) = result {
+            assert_eq!(pair.as_rule(), Rule::program);
+        }
+    }
+
+    #[test]
+    fn test_parse_source_invalid() {
+        let input = "invalid syntax $%@";
+        let result = parse_source(input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_source_empty_input() {
+        let input = "";
+        let result = parse_source(input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_source_whitespace_only() {
+        let input = "   \n\t  ";
+        let result = parse_source(input);
+        assert!(result.is_err());
+    }
 }
