@@ -879,3 +879,315 @@ fn test_all_cases_comprehensive() {
     "#;
     compile_and_run(program, &[], &[], false);
 }
+
+#[test]
+fn test_inline_returns_in_loops() {
+    let program = r#"
+        fn main() {
+            result = loop_returns(3);
+            print(result);
+            return;
+        }
+
+        fn loop_returns(n) inline -> 1 {
+            for i in 0..n {
+                if i == 1 {
+                    return 100;
+                }
+            }
+            return 200;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_nested_loops_returns() {
+    let program = r#"
+        fn main() {
+            result = nested_loop_returns(2, 2);
+            print(result);
+            return;
+        }
+
+        fn nested_loop_returns(x, y) inline -> 1 {
+            for i in 0..x {
+                for j in 0..y {
+                    if i == j {
+                        return 300;
+                    }
+                }
+                if i == 1 {
+                    return 400;
+                }
+            }
+            return 500;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_returns_in_match() {
+    let program = r#"
+        fn main() {
+            result1 = match_returns(0);
+            result2 = match_returns(1);
+            result3 = match_returns(5);
+            print(result1);
+            print(result2);
+            print(result3);
+            return;
+        }
+
+        fn match_returns(x) inline -> 1 {
+            if x == 0 {
+                return 100;
+            }
+            if x == 1 {
+                return 200;
+            }
+            if x == 2 {
+                return 250;
+            }
+            return 300;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_multiple_return_values_ssa() {
+    let program = r#"
+        fn main() {
+            a, b = multi_return(1);
+            print(a);
+            print(b);
+            return;
+        }
+
+        fn multi_return(x) inline -> 2 {
+            if x == 0 {
+                return 100, 200;
+            }
+            return 300, 400;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_multiple_returns_complex_ssa() {
+    let program = r#"
+        fn main() {
+            a, b, c = complex_multi_return(2);
+            print(a);
+            print(b);
+            print(c);
+            return;
+        }
+
+        fn complex_multi_return(x) inline -> 3 {
+            if x == 1 {
+                if x == 0 {
+                    return 100, 200, 300;
+                }
+                return 400, 500, 600;
+            }
+            return 700, 800, 900;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_deeply_nested_conditions() {
+    let program = r#"
+        fn main() {
+            result = deeply_nested(2);
+            print(result);
+            return;
+        }
+
+        fn deeply_nested(x) inline -> 1 {
+            if x == 1 {
+                if x == 2 {
+                    if x == 3 {
+                        if x == 4 {
+                            return 1000;
+                        }
+                        return 2000;
+                    }
+                    return 3000;
+                }
+                return 4000;
+            }
+            return 5000;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_mixed_control_flow_ssa() {
+    let program = r#"
+        fn main() {
+            result = mixed_control_flow(1, 2);
+            print(result);
+            return;
+        }
+
+        fn mixed_control_flow(x, y) inline -> 1 {
+            if x == 1 {
+                for i in 0..y {
+                    if i == 1 {
+                        return 100;
+                    }
+                }
+                match y {
+                    2 => { return 200; }
+                    1 => { return 150; }
+                }
+                return 300;
+            }
+            return 400;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_complex_fallthrough_patterns() {
+    let program = r#"
+        fn main() {
+            result1 = complex_fallthrough(0);
+            result2 = complex_fallthrough(1);
+            result3 = complex_fallthrough(2);
+            print(result1);
+            print(result2);
+            print(result3);
+            return;
+        }
+
+        fn complex_fallthrough(x) inline -> 1 {
+            if x == 0 {
+                if x == 1 { return 100; }
+                if x == 0 { return 200; }
+            } else {
+                if x == 1 {
+                    if x == 2 { return 300; }
+                    return 400;
+                }
+            }
+            return 500;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_with_inline_calls() {
+    let program = r#"
+        fn main() {
+            result = caller_inline(2);
+            print(result);
+            return;
+        }
+
+        fn caller_inline(x) inline -> 1 {
+            if x == 1 {
+                return 100;
+            }
+            return 200;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_early_return_chain() {
+    let program = r#"
+        fn main() {
+            result = early_return_chain(5);
+            print(result);
+            return;
+        }
+
+        fn early_return_chain(x) inline -> 1 {
+            if x == 15 {
+                return x * 2;
+            }
+            if x == 10 {
+                return x * 3;
+            }
+            if x == 5 {
+                return x * 4;
+            }
+            return 0;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_non_exhaustive_with_loops() {
+    let program = r#"
+        fn main() {
+            result = non_exhaustive_loops(3);
+            print(result);
+            return;
+        }
+
+        fn non_exhaustive_loops(n) inline -> 1 {
+            if n == 3 {
+                for i in 0..n {
+                    if i == 2 {
+                        return 600;
+                    }
+                }
+                if n == 1 {
+                    return 700;
+                }
+            }
+            return 800;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
+
+#[test]
+fn test_inline_asymmetric_branching() {
+    let program = r#"
+        fn main() {
+            result1 = asymmetric(0);
+            result2 = asymmetric(1);
+            result3 = asymmetric(2);
+            print(result1);
+            print(result2);
+            print(result3);
+            return;
+        }
+
+        fn asymmetric(x) inline -> 1 {
+            if x == 0 {
+                if x == 1 {
+                    return 900;
+                }
+            } else {
+                if x == 1 {
+                    if x == 2 {
+                        if x == 3 {
+                            return 1000;
+                        }
+                        return 1100;
+                    }
+                    return 1200;
+                } else {
+                    return 1300;
+                }
+            }
+            return 1400;
+        }
+    "#;
+    compile_and_run(program, &[], &[], false);
+}
