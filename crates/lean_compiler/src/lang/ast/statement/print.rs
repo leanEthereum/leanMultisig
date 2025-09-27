@@ -43,10 +43,17 @@ impl StatementAnalysis for Print {
         iterator_value: usize,
         internal_vars: &BTreeSet<Var>,
     ) {
-        self.line_info = format!("{} (unrolled {} {})", self.line_info, unroll_index, iterator_value);
+        self.line_info = format!(
+            "{} (unrolled {} {})",
+            self.line_info, unroll_index, iterator_value
+        );
         for expr in &mut self.content {
             crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                expr, iterator, unroll_index, iterator_value, internal_vars,
+                expr,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
             );
         }
     }
@@ -68,7 +75,8 @@ impl StatementAnalysis for Print {
         let mut external_vars = BTreeSet::new();
 
         for expr in &self.content {
-            let (expr_internal, expr_external) = crate::ir::utilities::find_internal_vars_in_expr(expr);
+            let (expr_internal, expr_external) =
+                crate::ir::utilities::find_internal_vars_in_expr(expr);
             internal_vars.extend(expr_internal);
             external_vars.extend(expr_external);
         }
@@ -76,8 +84,6 @@ impl StatementAnalysis for Print {
         (internal_vars, external_vars)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

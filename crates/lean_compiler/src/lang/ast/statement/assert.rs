@@ -38,18 +38,34 @@ impl StatementAnalysis for Assert {
         match &mut self.condition {
             Boolean::Equal { left, right } => {
                 crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                    left, iterator, unroll_index, iterator_value, internal_vars,
+                    left,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
                 );
                 crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                    right, iterator, unroll_index, iterator_value, internal_vars,
+                    right,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
                 );
             }
             Boolean::Different { left, right } => {
                 crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                    left, iterator, unroll_index, iterator_value, internal_vars,
+                    left,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
                 );
                 crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                    right, iterator, unroll_index, iterator_value, internal_vars,
+                    right,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
                 );
             }
         }
@@ -87,16 +103,20 @@ impl StatementAnalysis for Assert {
 
         match &self.condition {
             Boolean::Equal { left, right } => {
-                let (left_internal, left_external) = crate::ir::utilities::find_internal_vars_in_expr(left);
-                let (right_internal, right_external) = crate::ir::utilities::find_internal_vars_in_expr(right);
+                let (left_internal, left_external) =
+                    crate::ir::utilities::find_internal_vars_in_expr(left);
+                let (right_internal, right_external) =
+                    crate::ir::utilities::find_internal_vars_in_expr(right);
                 internal_vars.extend(left_internal);
                 internal_vars.extend(right_internal);
                 external_vars.extend(left_external);
                 external_vars.extend(right_external);
             }
             Boolean::Different { left, right } => {
-                let (left_internal, left_external) = crate::ir::utilities::find_internal_vars_in_expr(left);
-                let (right_internal, right_external) = crate::ir::utilities::find_internal_vars_in_expr(right);
+                let (left_internal, left_external) =
+                    crate::ir::utilities::find_internal_vars_in_expr(left);
+                let (right_internal, right_external) =
+                    crate::ir::utilities::find_internal_vars_in_expr(right);
                 internal_vars.extend(left_internal);
                 internal_vars.extend(right_internal);
                 external_vars.extend(left_external);
@@ -107,8 +127,6 @@ impl StatementAnalysis for Assert {
         (internal_vars, external_vars)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

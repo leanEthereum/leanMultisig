@@ -75,7 +75,6 @@ impl StatementAnalysis for Assignment {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

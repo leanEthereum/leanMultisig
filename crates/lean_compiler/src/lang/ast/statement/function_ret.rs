@@ -43,7 +43,11 @@ impl StatementAnalysis for FunctionRet {
     ) {
         for expr in &mut self.return_data {
             crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                expr, iterator, unroll_index, iterator_value, internal_vars,
+                expr,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
             );
         }
     }
@@ -65,7 +69,8 @@ impl StatementAnalysis for FunctionRet {
         let mut external_vars = BTreeSet::new();
 
         for expr in &self.return_data {
-            let (expr_internal, expr_external) = crate::ir::utilities::find_internal_vars_in_expr(expr);
+            let (expr_internal, expr_external) =
+                crate::ir::utilities::find_internal_vars_in_expr(expr);
             internal_vars.extend(expr_internal);
             external_vars.extend(expr_external);
         }
@@ -73,8 +78,6 @@ impl StatementAnalysis for FunctionRet {
         (internal_vars, external_vars)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

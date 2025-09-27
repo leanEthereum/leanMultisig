@@ -48,7 +48,6 @@ impl Display for FunctionCall {
 
 impl IndentedDisplay for FunctionCall {}
 
-
 impl StatementAnalysis for FunctionCall {
     fn replace_vars_for_unroll(
         &mut self,
@@ -107,7 +106,6 @@ impl StatementAnalysis for FunctionCall {
         (internal_vars, external_vars)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

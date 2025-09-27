@@ -49,7 +49,11 @@ impl StatementAnalysis for PrecompileStmt {
     ) {
         for arg in &mut self.args {
             crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                arg, iterator, unroll_index, iterator_value, internal_vars,
+                arg,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
             );
         }
     }
@@ -71,7 +75,8 @@ impl StatementAnalysis for PrecompileStmt {
         let mut external_vars = BTreeSet::new();
 
         for arg in &self.args {
-            let (arg_internal, arg_external) = crate::ir::utilities::find_internal_vars_in_expr(arg);
+            let (arg_internal, arg_external) =
+                crate::ir::utilities::find_internal_vars_in_expr(arg);
             internal_vars.extend(arg_internal);
             external_vars.extend(arg_external);
         }
@@ -79,8 +84,6 @@ impl StatementAnalysis for PrecompileStmt {
         (internal_vars, external_vars)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

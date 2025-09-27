@@ -52,7 +52,11 @@ impl StatementAnalysis for DecomposeBits {
         }
         for expr in &mut self.to_decompose {
             crate::ir::unroll::replace_vars_for_unroll_in_expr(
-                expr, iterator, unroll_index, iterator_value, internal_vars,
+                expr,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
             );
         }
     }
@@ -76,7 +80,8 @@ impl StatementAnalysis for DecomposeBits {
         internal_vars.insert(self.var.clone());
 
         for expr in &self.to_decompose {
-            let (expr_internal, expr_external) = crate::ir::utilities::find_internal_vars_in_expr(expr);
+            let (expr_internal, expr_external) =
+                crate::ir::utilities::find_internal_vars_in_expr(expr);
             internal_vars.extend(expr_internal);
             external_vars.extend(expr_external);
         }
@@ -84,8 +89,6 @@ impl StatementAnalysis for DecomposeBits {
         (internal_vars, external_vars)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

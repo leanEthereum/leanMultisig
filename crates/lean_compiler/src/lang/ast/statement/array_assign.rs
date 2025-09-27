@@ -83,18 +83,19 @@ impl StatementAnalysis for ArrayAssign {
             external_vars.insert(array_var.clone());
         }
 
-        let (index_internal, index_external) = crate::ir::utilities::find_internal_vars_in_expr(&self.index);
+        let (index_internal, index_external) =
+            crate::ir::utilities::find_internal_vars_in_expr(&self.index);
         internal_vars.extend(index_internal);
         external_vars.extend(index_external);
 
-        let (value_internal, value_external) = crate::ir::utilities::find_internal_vars_in_expr(&self.value);
+        let (value_internal, value_external) =
+            crate::ir::utilities::find_internal_vars_in_expr(&self.value);
         internal_vars.extend(value_internal);
         external_vars.extend(value_external);
 
         (internal_vars, external_vars)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

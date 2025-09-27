@@ -54,10 +54,18 @@ impl StatementAnalysis for MAlloc {
             self.var = format!("@unrolled_{unroll_index}_{iterator_value}_{}", self.var);
         }
         crate::ir::unroll::replace_vars_for_unroll_in_expr(
-            &mut self.size, iterator, unroll_index, iterator_value, internal_vars,
+            &mut self.size,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
         );
         crate::ir::unroll::replace_vars_for_unroll_in_expr(
-            &mut self.vectorized_len, iterator, unroll_index, iterator_value, internal_vars,
+            &mut self.vectorized_len,
+            iterator,
+            unroll_index,
+            iterator_value,
+            internal_vars,
         );
     }
 
@@ -77,19 +85,19 @@ impl StatementAnalysis for MAlloc {
 
         internal_vars.insert(self.var.clone());
 
-        let (size_internal, size_external) = crate::ir::utilities::find_internal_vars_in_expr(&self.size);
+        let (size_internal, size_external) =
+            crate::ir::utilities::find_internal_vars_in_expr(&self.size);
         internal_vars.extend(size_internal);
         external_vars.extend(size_external);
 
-        let (len_internal, len_external) = crate::ir::utilities::find_internal_vars_in_expr(&self.vectorized_len);
+        let (len_internal, len_external) =
+            crate::ir::utilities::find_internal_vars_in_expr(&self.vectorized_len);
         internal_vars.extend(len_internal);
         external_vars.extend(len_external);
 
         (internal_vars, external_vars)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
