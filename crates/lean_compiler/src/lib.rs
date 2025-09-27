@@ -2,36 +2,23 @@ use std::collections::BTreeMap;
 
 use lean_vm::*;
 
-use crate::{
-    backend::compile_to_low_level_bytecode, codegen::Compiler, parser::parse_program,
-    simplify::simplify_program,
-};
+pub use compile::{compile_program_with_passes, compile_with_custom_passes};
+pub use passes::{PassPipeline, PassPipelineBuilder};
 
+mod analysis;
 mod backend;
 pub mod codegen;
+mod compile;
 pub mod ir;
 mod lang;
 mod parser;
+mod passes;
 mod precompiles;
-mod simplify;
 pub use precompiles::PRECOMPILES;
 
-/// Compiles a program.
+/// Compiles a program using the new pass architecture.
 pub fn compile_program(program: &str) -> (Bytecode, BTreeMap<usize, String>) {
-    let (parsed_program, function_locations) =
-        parse_program(program).unwrap_or_else(|e| panic!("Parse error: {}", e));
-
-    let simple_program = simplify_program(parsed_program);
-
-    let mut compiler = Compiler::new();
-    let intermediate_bytecode = compiler
-        .compile_program(simple_program)
-        .unwrap_or_else(|e| panic!("Compilation error: {}", e));
-
-    let compiled = compile_to_low_level_bytecode(intermediate_bytecode)
-        .unwrap_or_else(|e| panic!("Low-level compilation error: {}", e));
-
-    (compiled, function_locations)
+    compile_program_with_passes(program).unwrap_or_else(|e| panic!("Compilation error: {}", e))
 }
 
 pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F], profiler: bool) {

@@ -1,4 +1,4 @@
-use crate::{codegen::*, ir::*, lang::*, simplify::*};
+use crate::{codegen::*, ir::*, lang::*};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Compiles a single function to intermediate bytecode.
@@ -46,7 +46,7 @@ pub fn compile_function(
 mod tests {
     use super::*;
     use crate::lang::SimpleExpr;
-    use crate::simplify::VarOrConstMallocAccess;
+    use crate::ir::VarOrConstMallocAccess;
 
     #[test]
     fn test_compile_simple_function() {

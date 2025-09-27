@@ -39,7 +39,7 @@ impl IntermediateValue {
                 offset,
             } => Self::MemoryAfterFp {
                 offset: compiler.get_offset(
-                    &crate::simplify::VarOrConstMallocAccess::ConstMallocAccess {
+                    &crate::ir::VarOrConstMallocAccess::ConstMallocAccess {
                         malloc_label: *malloc_label,
                         offset: offset.clone(),
                     },
@@ -50,7 +50,7 @@ impl IntermediateValue {
 
     /// Creates an IntermediateValue from a VarOrConstMallocAccess during code generation.
     pub fn from_var_or_const_malloc_access(
-        var_or_const: &crate::simplify::VarOrConstMallocAccess,
+        var_or_const: &crate::ir::VarOrConstMallocAccess,
         compiler: &crate::codegen::Compiler,
     ) -> Self {
         Self::MemoryAfterFp {
@@ -141,7 +141,7 @@ impl Display for IntermediaryMemOrFpOrConstant {
 mod tests {
     use super::*;
     use crate::lang::{ConstExpression, SimpleExpr};
-    use crate::simplify::VarOrConstMallocAccess;
+    use crate::ir::VarOrConstMallocAccess;
     use lean_vm::Label;
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::{codegen::*, ir::*, lang::*, simplify::*};
+use crate::{codegen::*, ir::*, lang::*};
 use lean_vm::*;
 use std::collections::BTreeSet;
 use utils::ToUsize;

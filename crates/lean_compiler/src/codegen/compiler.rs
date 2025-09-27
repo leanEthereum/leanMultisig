@@ -1,4 +1,4 @@
-use crate::{ir::*, lang::*, simplify::*};
+use crate::{ir::*, lang::*};
 use lean_vm::*;
 use std::collections::BTreeMap;
 
@@ -82,7 +82,7 @@ impl Compiler {
 mod tests {
     use super::*;
     use crate::lang::SimpleExpr;
-    use crate::simplify::{SimpleFunction, SimpleLine, VarOrConstMallocAccess};
+    use crate::ir::{SimpleFunction, SimpleLine, VarOrConstMallocAccess};
 
     #[test]
     fn test_compiler_creation() {

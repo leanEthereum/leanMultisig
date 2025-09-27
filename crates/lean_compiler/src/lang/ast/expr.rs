@@ -76,7 +76,7 @@ impl SimpleExpr {
                 offset,
             } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                 offset: compiler.get_offset(
-                    &crate::simplify::VarOrConstMallocAccess::ConstMallocAccess {
+                    &crate::ir::VarOrConstMallocAccess::ConstMallocAccess {
                         malloc_label: *malloc_label,
                         offset: offset.clone(),
                     },

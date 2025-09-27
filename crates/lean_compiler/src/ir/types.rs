@@ -20,7 +20,7 @@ impl Counter {
     }
 
     /// Returns the next value and increments the counter.
-    pub fn next(&mut self) -> usize {
+    pub fn next_value(&mut self) -> usize {
         let val = self.0;
         self.0 += 1;
         val
@@ -167,7 +167,7 @@ pub enum ArrayAccessType {
 
 /// Internal state for various counters during simplification.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Counters {
+pub struct Counters {
     pub(crate) aux_vars: usize,
     pub(crate) loops: usize,
     pub(crate) unrolls: usize,
@@ -175,7 +175,7 @@ pub(crate) struct Counters {
 
 /// Array access management for optimization.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ArrayManager {
+pub struct ArrayManager {
     pub(crate) counter: usize,
     pub(crate) aux_vars: BTreeMap<(SimpleExpr, crate::lang::Expression), Var>, // (array, index) -> aux_var
     pub(crate) valid: BTreeSet<Var>, // currently valid aux vars

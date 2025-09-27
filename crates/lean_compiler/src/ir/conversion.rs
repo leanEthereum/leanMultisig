@@ -500,7 +500,7 @@ fn handle_for_loop(
 
     // Include variables in start/end
     for expr in [start, end] {
-        for var in crate::simplify::utilities::vars_in_expression(expr) {
+        for var in super::utilities::vars_in_expression(expr) {
             external_vars.insert(var);
         }
     }
@@ -764,7 +764,8 @@ fn create_recursive_function(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ir::HighLevelOperation, lang::*, simplify::types::*};
+    use crate::{ir::HighLevelOperation, lang::*};
+    use crate::ir::types::*;
 
     fn create_test_counters() -> Counters {
         Counters::default()
