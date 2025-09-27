@@ -1,0 +1,47 @@
+//! Counter hint instruction implementation.
+
+use crate::{
+    ir::{
+        IntermediateInstruction,
+        compile::{Compile, CompileContext, CompileResult},
+    },
+    lang::Var,
+};
+use utils::ToUsize;
+use std::fmt::{Display, Formatter};
+
+/// Counter value hint for loops.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CounterHint {
+    /// Variable to store the counter hint value
+    pub var: Var,
+}
+
+impl Compile for CounterHint {
+    fn compile(
+        &self,
+        ctx: &mut CompileContext<'_>,
+        _remaining_lines: &[crate::ir::SimpleLine],
+    ) -> CompileResult {
+        ctx.declared_vars.insert(self.var.clone());
+
+        let instruction = IntermediateInstruction::CounterHint {
+            res_offset: ctx
+                .compiler
+                .get_offset(&self.var.clone().into())
+                .naive_eval()
+                .unwrap()
+                .to_usize(),
+        };
+
+        Ok(vec![instruction])
+    }
+}
+
+impl Display for CounterHint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} = counter_hint()", self.var)
+    }
+}
+
+impl crate::ir::simple_line::IndentedDisplay for CounterHint {}

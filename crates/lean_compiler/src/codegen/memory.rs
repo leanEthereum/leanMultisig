@@ -10,43 +10,45 @@ pub fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
 
     for line in lines {
         match line {
-            SimpleLine::Match { arms, .. } => {
-                for arm in arms {
+            SimpleLine::Match(m) => {
+                for arm in &m.arms {
                     internal_vars.extend(find_internal_vars(arm));
                 }
             }
-            SimpleLine::Assignment { var, .. } => {
-                if let VarOrConstMallocAccess::Var(var) = var {
+            SimpleLine::Assignment(a) => {
+                if let VarOrConstMallocAccess::Var(var) = &a.var {
                     internal_vars.insert(var.clone());
                 }
             }
-            SimpleLine::HintMAlloc { var, .. }
-            | SimpleLine::ConstMalloc { var, .. }
-            | SimpleLine::DecomposeBits { var, .. }
-            | SimpleLine::CounterHint { var } => {
-                internal_vars.insert(var.clone());
+            SimpleLine::DynamicAlloc(d) => {
+                internal_vars.insert(d.var.clone());
             }
-            SimpleLine::RawAccess { res, .. } => {
-                if let SimpleExpr::Var(var) = res {
+            SimpleLine::StaticAlloc(s) => {
+                internal_vars.insert(s.var.clone());
+            }
+            SimpleLine::DecomposeBits(d) => {
+                internal_vars.insert(d.var.clone());
+            }
+            SimpleLine::CounterHint(c) => {
+                internal_vars.insert(c.var.clone());
+            }
+            SimpleLine::RawMemoryAccess(r) => {
+                if let SimpleExpr::Var(var) = &r.res {
                     internal_vars.insert(var.clone());
                 }
             }
-            SimpleLine::FunctionCall { return_data, .. } => {
-                internal_vars.extend(return_data.iter().cloned());
+            SimpleLine::FunctionCall(f) => {
+                internal_vars.extend(f.return_data.iter().cloned());
             }
-            SimpleLine::IfNotZero {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                internal_vars.extend(find_internal_vars(then_branch));
-                internal_vars.extend(find_internal_vars(else_branch));
+            SimpleLine::Branch(b) => {
+                internal_vars.extend(find_internal_vars(&b.then_branch));
+                internal_vars.extend(find_internal_vars(&b.else_branch));
             }
-            SimpleLine::Panic
-            | SimpleLine::Print { .. }
-            | SimpleLine::FunctionRet { .. }
-            | SimpleLine::Precompile { .. }
-            | SimpleLine::LocationReport { .. } => {
+            SimpleLine::Panic(_)
+            | SimpleLine::Print(_)
+            | SimpleLine::Return(_)
+            | SimpleLine::Precompile(_)
+            | SimpleLine::LocationReport(_) => {
                 // These instructions don't declare variables
             }
         }
@@ -60,6 +62,18 @@ mod tests {
     use super::*;
     use crate::ir::HighLevelOperation;
     use crate::ir::VarOrConstMallocAccess;
+    use crate::ir::simple_line::Assignment;
+    use crate::ir::simple_line::Branch;
+    use crate::ir::simple_line::CounterHint;
+    use crate::ir::simple_line::DynamicAlloc;
+    use crate::ir::simple_line::FunctionCall;
+    use crate::ir::simple_line::LocationReport;
+    use crate::ir::simple_line::Match;
+    use crate::ir::simple_line::Panic;
+    use crate::ir::simple_line::Print;
+    use crate::ir::simple_line::RawMemoryAccess;
+    use crate::ir::simple_line::Return;
+    use crate::ir::simple_line::StaticAlloc;
     use crate::lang::{ConstExpression, SimpleExpr};
 
     #[test]
@@ -71,12 +85,12 @@ mod tests {
 
     #[test]
     fn test_find_internal_vars_assignment() {
-        let lines = vec![SimpleLine::Assignment {
+        let lines = vec![SimpleLine::Assignment(Assignment {
             var: VarOrConstMallocAccess::Var("x".to_string()),
             operation: HighLevelOperation::Add,
             arg0: SimpleExpr::scalar(1),
             arg1: SimpleExpr::scalar(2),
-        }];
+        })];
 
         let vars = find_internal_vars(&lines);
         assert_eq!(vars.len(), 1);
@@ -85,11 +99,11 @@ mod tests {
 
     #[test]
     fn test_find_internal_vars_function_call() {
-        let lines = vec![SimpleLine::FunctionCall {
+        let lines = vec![SimpleLine::FunctionCall(FunctionCall {
             function_name: "foo".to_string(),
             args: vec![SimpleExpr::scalar(42)],
             return_data: vec!["result1".to_string(), "result2".to_string()],
-        }];
+        })];
 
         let vars = find_internal_vars(&lines);
         assert_eq!(vars.len(), 2);
@@ -99,21 +113,21 @@ mod tests {
 
     #[test]
     fn test_find_internal_vars_if_not_zero() {
-        let lines = vec![SimpleLine::IfNotZero {
+        let lines = vec![SimpleLine::Branch(Branch {
             condition: SimpleExpr::Var("cond".to_string()),
-            then_branch: vec![SimpleLine::Assignment {
+            then_branch: vec![SimpleLine::Assignment(Assignment {
                 var: VarOrConstMallocAccess::Var("then_var".to_string()),
                 operation: HighLevelOperation::Add,
                 arg0: SimpleExpr::scalar(1),
                 arg1: SimpleExpr::scalar(0),
-            }],
-            else_branch: vec![SimpleLine::Assignment {
+            })],
+            else_branch: vec![SimpleLine::Assignment(Assignment {
                 var: VarOrConstMallocAccess::Var("else_var".to_string()),
                 operation: HighLevelOperation::Sub,
                 arg0: SimpleExpr::scalar(2),
                 arg1: SimpleExpr::scalar(0),
-            }],
-        }];
+            })],
+        })];
 
         let vars = find_internal_vars(&lines);
         assert_eq!(vars.len(), 2);
@@ -123,23 +137,23 @@ mod tests {
 
     #[test]
     fn test_find_internal_vars_match() {
-        let lines = vec![SimpleLine::Match {
+        let lines = vec![SimpleLine::Match(Match {
             value: SimpleExpr::Var("input".to_string()),
             arms: vec![
-                vec![SimpleLine::Assignment {
+                vec![SimpleLine::Assignment(Assignment {
                     var: VarOrConstMallocAccess::Var("arm1_var".to_string()),
                     operation: HighLevelOperation::Mul,
                     arg0: SimpleExpr::scalar(3),
                     arg1: SimpleExpr::scalar(4),
-                }],
-                vec![SimpleLine::Assignment {
+                })],
+                vec![SimpleLine::Assignment(Assignment {
                     var: VarOrConstMallocAccess::Var("arm2_var".to_string()),
                     operation: HighLevelOperation::Div,
                     arg0: SimpleExpr::scalar(8),
                     arg1: SimpleExpr::scalar(2),
-                }],
+                })],
             ],
-        }];
+        })];
 
         let vars = find_internal_vars(&lines);
         assert_eq!(vars.len(), 2);
@@ -150,20 +164,20 @@ mod tests {
     #[test]
     fn test_find_internal_vars_various_malloc_types() {
         let lines = vec![
-            SimpleLine::HintMAlloc {
+            SimpleLine::DynamicAlloc(DynamicAlloc {
                 var: "hint_var".to_string(),
                 size: SimpleExpr::scalar(10),
                 vectorized: false,
                 vectorized_len: SimpleExpr::scalar(0),
-            },
-            SimpleLine::ConstMalloc {
+            }),
+            SimpleLine::StaticAlloc(StaticAlloc {
                 var: "const_var".to_string(),
                 size: ConstExpression::scalar(20),
                 label: 0,
-            },
-            SimpleLine::CounterHint {
+            }),
+            SimpleLine::CounterHint(CounterHint {
                 var: "counter_var".to_string(),
-            },
+            }),
         ];
 
         let vars = find_internal_vars(&lines);
@@ -175,11 +189,11 @@ mod tests {
 
     #[test]
     fn test_find_internal_vars_raw_access() {
-        let lines = vec![SimpleLine::RawAccess {
+        let lines = vec![SimpleLine::RawMemoryAccess(RawMemoryAccess {
             res: SimpleExpr::Var("raw_var".to_string()),
             index: SimpleExpr::scalar(5),
             shift: ConstExpression::scalar(1),
-        }];
+        })];
 
         let vars = find_internal_vars(&lines);
         assert_eq!(vars.len(), 1);
@@ -189,15 +203,15 @@ mod tests {
     #[test]
     fn test_find_internal_vars_no_op_instructions() {
         let lines = vec![
-            SimpleLine::Panic,
-            SimpleLine::FunctionRet {
+            SimpleLine::Panic(Panic),
+            SimpleLine::Return(Return {
                 return_data: vec![],
-            },
-            SimpleLine::Print {
+            }),
+            SimpleLine::Print(Print {
                 line_info: "test".to_string(),
                 content: vec![SimpleExpr::scalar(42)],
-            },
-            SimpleLine::LocationReport { location: 0 },
+            }),
+            SimpleLine::LocationReport(LocationReport { location: 0 }),
         ];
 
         let vars = find_internal_vars(&lines);

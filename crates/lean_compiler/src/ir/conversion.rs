@@ -1,7 +1,11 @@
 use super::{
     HighLevelOperation,
+    simple_line::{
+        Assignment, Branch, CounterHint, DecomposeBits, DynamicAlloc, FunctionCall, LocationReport,
+        Match, Panic, PrecompileOp, Print, RawMemoryAccess, Return, SimpleLine, StaticAlloc,
+    },
     types::{
-        ArrayAccessType, ArrayManager, ConstMalloc, Counters, SimpleFunction, SimpleLine,
+        ArrayAccessType, ArrayManager, ConstMalloc, Counters, SimpleFunction,
         VarOrConstMallocAccess,
     },
     utilities::find_variable_usage,
@@ -40,19 +44,19 @@ pub fn simplify_lines(
                         const_malloc,
                     ));
                 }
-                res.push(SimpleLine::Match {
+                res.push(SimpleLine::Match(Match {
                     value: simple_value,
                     arms: simple_arms,
-                });
+                }));
             }
             Line::Assignment { var, value } => match value {
                 Expression::Value(value) => {
-                    res.push(SimpleLine::Assignment {
+                    res.push(SimpleLine::Assignment(Assignment {
                         var: var.clone().into(),
                         operation: HighLevelOperation::Add,
                         arg0: value.clone(),
                         arg1: SimpleExpr::zero(),
-                    });
+                    }));
                 }
                 Expression::ArrayAccess { array, index } => {
                     handle_array_assignment(
@@ -73,12 +77,12 @@ pub fn simplify_lines(
                     let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
                     let right =
                         simplify_expr(right, &mut res, counters, array_manager, const_malloc);
-                    res.push(SimpleLine::Assignment {
+                    res.push(SimpleLine::Assignment(Assignment {
                         var: var.clone().into(),
                         operation: *operation,
                         arg0: left,
                         arg1: right,
-                    });
+                    }));
                 }
                 Expression::Log2Ceil { .. } => unreachable!(),
             },
@@ -104,17 +108,17 @@ pub fn simplify_lines(
                         simplify_expr(right, &mut res, counters, array_manager, const_malloc);
                     let diff_var = format!("@aux_var_{}", counters.aux_vars);
                     counters.aux_vars += 1;
-                    res.push(SimpleLine::Assignment {
+                    res.push(SimpleLine::Assignment(Assignment {
                         var: diff_var.clone().into(),
                         operation: HighLevelOperation::Sub,
                         arg0: left,
                         arg1: right,
-                    });
-                    res.push(SimpleLine::IfNotZero {
+                    }));
+                    res.push(SimpleLine::Branch(Branch {
                         condition: diff_var.into(),
                         then_branch: vec![],
-                        else_branch: vec![SimpleLine::Panic],
-                    });
+                        else_branch: vec![SimpleLine::Panic(Panic)],
+                    }));
                 }
                 Boolean::Equal { left, right } => {
                     let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
@@ -127,12 +131,12 @@ pub fn simplify_lines(
                     } else {
                         unreachable!("Weird: {:?}, {:?}", left, right)
                     };
-                    res.push(SimpleLine::Assignment {
+                    res.push(SimpleLine::Assignment(Assignment {
                         var,
                         operation: HighLevelOperation::Add,
                         arg0: other,
                         arg1: SimpleExpr::zero(),
-                    });
+                    }));
                 }
             },
             Line::IfCondition {
@@ -184,11 +188,11 @@ pub fn simplify_lines(
                     .iter()
                     .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
-                res.push(SimpleLine::FunctionCall {
+                res.push(SimpleLine::FunctionCall(FunctionCall {
                     function_name: function_name.clone(),
                     args: simplified_args,
                     return_data: return_data.clone(),
-                });
+                }));
             }
             Line::FunctionRet { return_data } => {
                 assert!(
@@ -199,35 +203,35 @@ pub fn simplify_lines(
                     .iter()
                     .map(|ret| simplify_expr(ret, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
-                res.push(SimpleLine::FunctionRet {
+                res.push(SimpleLine::Return(Return {
                     return_data: simplified_return_data,
-                });
+                }));
             }
             Line::Precompile { precompile, args } => {
                 let simplified_args = args
                     .iter()
                     .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
-                res.push(SimpleLine::Precompile {
+                res.push(SimpleLine::Precompile(PrecompileOp {
                     precompile: precompile.clone(),
                     args: simplified_args,
-                });
+                }));
             }
             Line::Print { line_info, content } => {
                 let simplified_content = content
                     .iter()
                     .map(|var| simplify_expr(var, &mut res, counters, array_manager, const_malloc))
                     .collect();
-                res.push(SimpleLine::Print {
+                res.push(SimpleLine::Print(Print {
                     line_info: line_info.clone(),
                     content: simplified_content,
-                });
+                }));
             }
             Line::Break => {
                 assert!(in_a_loop, "Break statement outside of a loop");
-                res.push(SimpleLine::FunctionRet {
+                res.push(SimpleLine::Return(Return {
                     return_data: vec![],
-                });
+                }));
             }
             Line::MAlloc {
                 var,
@@ -257,22 +261,22 @@ pub fn simplify_lines(
                 let label = const_malloc.counter;
                 const_malloc.counter += 1;
                 const_malloc.map.insert(var.clone(), label);
-                res.push(SimpleLine::DecomposeBits {
+                res.push(SimpleLine::DecomposeBits(DecomposeBits {
                     var: var.clone(),
                     to_decompose: simplified_to_decompose,
                     label,
-                });
+                }));
             }
             Line::CounterHint { var } => {
-                res.push(SimpleLine::CounterHint { var: var.clone() });
+                res.push(SimpleLine::CounterHint(CounterHint { var: var.clone() }));
             }
             Line::Panic => {
-                res.push(SimpleLine::Panic);
+                res.push(SimpleLine::Panic(Panic));
             }
             Line::LocationReport { location } => {
-                res.push(SimpleLine::LocationReport {
+                res.push(SimpleLine::LocationReport(LocationReport {
                     location: *location,
-                });
+                }));
             }
         }
     }
@@ -339,12 +343,12 @@ pub fn simplify_expr(
 
             let aux_var = format!("@aux_var_{}", counters.aux_vars);
             counters.aux_vars += 1;
-            lines.push(SimpleLine::Assignment {
+            lines.push(SimpleLine::Assignment(Assignment {
                 var: aux_var.clone().into(),
                 operation: *operation,
                 arg0: left_var,
                 arg1: right_var,
-            });
+            }));
             SimpleExpr::Var(aux_var)
         }
         Expression::Log2Ceil { value } => {
@@ -381,12 +385,12 @@ fn handle_if_condition(
 
     let diff_var = format!("@diff_{}", counters.aux_vars);
     counters.aux_vars += 1;
-    res.push(SimpleLine::Assignment {
+    res.push(SimpleLine::Assignment(Assignment {
         var: diff_var.clone().into(),
         operation: HighLevelOperation::Sub,
         arg0: left_simplified,
         arg1: right_simplified,
-    });
+    }));
 
     let forbidden_vars_before = const_malloc.forbidden_vars.clone();
 
@@ -430,11 +434,11 @@ fn handle_if_condition(
         .cloned()
         .collect();
 
-    res.push(SimpleLine::IfNotZero {
+    res.push(SimpleLine::Branch(Branch {
         condition: diff_var.into(),
         then_branch: then_branch_simplified,
         else_branch: else_branch_simplified,
-    });
+    }));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -540,11 +544,11 @@ fn handle_for_loop(
     let mut call_args = vec![start_simplified];
     call_args.extend(external_vars.iter().map(|v| v.clone().into()));
 
-    res.push(SimpleLine::FunctionCall {
+    res.push(SimpleLine::FunctionCall(FunctionCall {
         function_name: func_name,
         args: call_args,
         return_data: vec![],
-    });
+    }));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -619,19 +623,19 @@ fn handle_malloc(
             let label = const_malloc.counter;
             const_malloc.counter += 1;
             const_malloc.map.insert(var.clone(), label);
-            res.push(SimpleLine::ConstMalloc {
+            res.push(SimpleLine::StaticAlloc(StaticAlloc {
                 var: var.clone(),
                 size: const_size,
                 label,
-            });
+            }));
         }
         _ => {
-            res.push(SimpleLine::HintMAlloc {
+            res.push(SimpleLine::DynamicAlloc(DynamicAlloc {
                 var: var.clone(),
                 size: simplified_size,
                 vectorized,
                 vectorized_len: simplified_vectorized_len,
-            });
+            }));
         }
     }
 }
@@ -659,7 +663,7 @@ pub fn handle_array_assignment(
     {
         let arg0 = simplify_expr(left, res, counters, array_manager, const_malloc);
         let arg1 = simplify_expr(right, res, counters, array_manager, const_malloc);
-        res.push(SimpleLine::Assignment {
+        res.push(SimpleLine::Assignment(Assignment {
             var: VarOrConstMallocAccess::ConstMallocAccess {
                 malloc_label: *label,
                 offset,
@@ -667,7 +671,7 @@ pub fn handle_array_assignment(
             operation: *operation,
             arg0,
             arg1,
-        });
+        }));
         return;
     }
 
@@ -686,21 +690,21 @@ pub fn handle_array_assignment(
             // Create pointer variable: ptr = array + index
             let ptr_var = format!("@aux_var_{}", counters.aux_vars);
             counters.aux_vars += 1;
-            res.push(SimpleLine::Assignment {
+            res.push(SimpleLine::Assignment(Assignment {
                 var: ptr_var.clone().into(),
                 operation: HighLevelOperation::Add,
                 arg0: array,
                 arg1: simplified_index,
-            });
+            }));
             (SimpleExpr::Var(ptr_var), ConstExpression::zero())
         }
     };
 
-    res.push(SimpleLine::RawAccess {
+    res.push(SimpleLine::RawMemoryAccess(RawMemoryAccess {
         res: value_simplified,
         index: index_var,
         shift,
-    });
+    }));
 }
 
 fn create_recursive_function(
@@ -713,42 +717,42 @@ fn create_recursive_function(
 ) -> SimpleFunction {
     // Add iterator increment
     let next_iter = format!("@incremented_{iterator}");
-    body.push(SimpleLine::Assignment {
+    body.push(SimpleLine::Assignment(Assignment {
         var: next_iter.clone().into(),
         operation: HighLevelOperation::Add,
         arg0: iterator.clone().into(),
         arg1: SimpleExpr::one(),
-    });
+    }));
 
     // Add recursive call
     let mut recursive_args: Vec<SimpleExpr> = vec![next_iter.into()];
     recursive_args.extend(external_vars.iter().map(|v| v.clone().into()));
 
-    body.push(SimpleLine::FunctionCall {
+    body.push(SimpleLine::FunctionCall(FunctionCall {
         function_name: name.clone(),
         args: recursive_args,
         return_data: vec![],
-    });
-    body.push(SimpleLine::FunctionRet {
+    }));
+    body.push(SimpleLine::Return(Return {
         return_data: vec![],
-    });
+    }));
 
     let diff_var = format!("@diff_{iterator}");
 
     let instructions = vec![
-        SimpleLine::Assignment {
+        SimpleLine::Assignment(Assignment {
             var: diff_var.clone().into(),
             operation: HighLevelOperation::Sub,
             arg0: iterator.into(),
             arg1: end,
-        },
-        SimpleLine::IfNotZero {
+        }),
+        SimpleLine::Branch(Branch {
             condition: diff_var.into(),
             then_branch: body,
-            else_branch: vec![SimpleLine::FunctionRet {
+            else_branch: vec![SimpleLine::Return(Return {
                 return_data: vec![],
-            }],
-        },
+            })],
+        }),
     ];
 
     SimpleFunction {
@@ -798,17 +802,17 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        assert!(matches!(result[0], SimpleLine::Match { .. }));
+        assert!(matches!(result[0], SimpleLine::Match(Match { .. })));
 
-        if let SimpleLine::Match { value, arms } = &result[0] {
+        if let SimpleLine::Match(Match { value, arms }) = &result[0] {
             assert_eq!(value, &SimpleExpr::Var("x".to_string()));
             assert_eq!(arms.len(), 2);
-            assert_eq!(arms[0], vec![SimpleLine::Panic]);
+            assert_eq!(arms[0], vec![SimpleLine::Panic(Panic)]);
             assert_eq!(
                 arms[1],
-                vec![SimpleLine::FunctionRet {
+                vec![SimpleLine::Return(Return {
                     return_data: vec![]
-                }]
+                })]
             );
         }
     }
@@ -835,12 +839,12 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::Assignment {
+        if let SimpleLine::Assignment(Assignment {
             var,
             operation,
             arg0,
             arg1,
-        } = &result[0]
+        }) = &result[0]
         {
             assert_eq!(var, &VarOrConstMallocAccess::Var("x".to_string()));
             assert_eq!(operation, &HighLevelOperation::Add);
@@ -875,12 +879,12 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::Assignment {
+        if let SimpleLine::Assignment(Assignment {
             var,
             operation,
             arg0,
             arg1,
-        } = &result[0]
+        }) = &result[0]
         {
             assert_eq!(var, &VarOrConstMallocAccess::Var("result".to_string()));
             assert_eq!(operation, &HighLevelOperation::Add);
@@ -911,12 +915,12 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::Assignment {
+        if let SimpleLine::Assignment(Assignment {
             var,
             operation,
             arg0,
             arg1,
-        } = &result[0]
+        }) = &result[0]
         {
             assert_eq!(var, &VarOrConstMallocAccess::Var("x".to_string()));
             assert_eq!(operation, &HighLevelOperation::Add);
@@ -948,12 +952,12 @@ mod tests {
 
         assert_eq!(result.len(), 2);
 
-        if let SimpleLine::Assignment {
+        if let SimpleLine::Assignment(Assignment {
             var,
             operation,
             arg0,
             arg1,
-        } = &result[0]
+        }) = &result[0]
         {
             assert!(var.to_string().starts_with("@aux_var_"));
             assert_eq!(operation, &HighLevelOperation::Sub);
@@ -961,15 +965,15 @@ mod tests {
             assert_eq!(arg1, &SimpleExpr::Var("y".to_string()));
         }
 
-        if let SimpleLine::IfNotZero {
+        if let SimpleLine::Branch(Branch {
             condition,
             then_branch,
             else_branch,
-        } = &result[1]
+        }) = &result[1]
         {
             assert!(condition.to_string().starts_with("@aux_var_"));
             assert_eq!(then_branch.len(), 0);
-            assert_eq!(else_branch, &vec![SimpleLine::Panic]);
+            assert_eq!(else_branch, &vec![SimpleLine::Panic(Panic)]);
         }
     }
 
@@ -999,11 +1003,11 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::FunctionCall {
+        if let SimpleLine::FunctionCall(FunctionCall {
             function_name,
             args,
             return_data,
-        } = &result[0]
+        }) = &result[0]
         {
             assert_eq!(function_name, "foo");
             assert_eq!(args.len(), 2);
@@ -1037,7 +1041,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::FunctionRet { return_data } = &result[0] {
+        if let SimpleLine::Return(Return { return_data }) = &result[0] {
             assert_eq!(return_data.len(), 2);
             assert_eq!(return_data[0], SimpleExpr::Var("x".to_string()));
             assert_eq!(return_data[1], SimpleExpr::Var("y".to_string()));
@@ -1091,7 +1095,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::Precompile { precompile, args } = &result[0] {
+        if let SimpleLine::Precompile(PrecompileOp { precompile, args }) = &result[0] {
             assert_eq!(precompile, &crate::precompiles::POSEIDON_16);
             assert_eq!(args.len(), 2);
             assert_eq!(args[0], SimpleExpr::Var("input".to_string()));
@@ -1124,7 +1128,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::Print { line_info, content } = &result[0] {
+        if let SimpleLine::Print(Print { line_info, content }) = &result[0] {
             assert_eq!(line_info, "123");
             assert_eq!(content.len(), 2);
             assert_eq!(content[0], SimpleExpr::Var("debug1".to_string()));
@@ -1151,7 +1155,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::FunctionRet { return_data } = &result[0] {
+        if let SimpleLine::Return(Return { return_data }) = &result[0] {
             assert_eq!(return_data.len(), 0);
         }
     }
@@ -1201,11 +1205,11 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::DecomposeBits {
+        if let SimpleLine::DecomposeBits(DecomposeBits {
             var,
             to_decompose,
             label,
-        } = &result[0]
+        }) = &result[0]
         {
             assert_eq!(var, "bits");
             assert_eq!(to_decompose.len(), 2);
@@ -1236,7 +1240,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::CounterHint { var } = &result[0] {
+        if let SimpleLine::CounterHint(CounterHint { var }) = &result[0] {
             assert_eq!(var, "hint_var");
         }
     }
@@ -1260,7 +1264,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], SimpleLine::Panic);
+        assert_eq!(result[0], SimpleLine::Panic(Panic));
     }
 
     #[test]
@@ -1282,7 +1286,7 @@ mod tests {
         );
 
         assert_eq!(result.len(), 1);
-        if let SimpleLine::LocationReport { location } = &result[0] {
+        if let SimpleLine::LocationReport(LocationReport { location }) = &result[0] {
             assert_eq!(location, &456);
         }
     }
@@ -1374,12 +1378,12 @@ mod tests {
             panic!("Expected variable");
         }
         assert_eq!(lines.len(), 1);
-        if let SimpleLine::Assignment {
+        if let SimpleLine::Assignment(Assignment {
             var,
             operation,
             arg0,
             arg1,
-        } = &lines[0]
+        }) = &lines[0]
         {
             assert!(var.to_string().starts_with("@aux_var_"));
             assert_eq!(operation, &HighLevelOperation::Add);
@@ -1436,7 +1440,7 @@ mod tests {
         );
 
         assert_eq!(res.len(), 1);
-        if let SimpleLine::ConstMalloc { var, size, label } = &res[0] {
+        if let SimpleLine::StaticAlloc(StaticAlloc { var, size, label }) = &res[0] {
             assert_eq!(var, "array");
             assert_eq!(size, &ConstExpression::scalar(10));
             assert_eq!(label, &0);
@@ -1464,12 +1468,12 @@ mod tests {
         );
 
         assert_eq!(res.len(), 1);
-        if let SimpleLine::HintMAlloc {
+        if let SimpleLine::DynamicAlloc(DynamicAlloc {
             var,
             size,
             vectorized,
             vectorized_len,
-        } = &res[0]
+        }) = &res[0]
         {
             assert_eq!(var, "array");
             assert_eq!(size, &SimpleExpr::Var("size_var".to_string()));
@@ -1498,12 +1502,12 @@ mod tests {
         );
 
         assert_eq!(res.len(), 1);
-        if let SimpleLine::HintMAlloc {
+        if let SimpleLine::DynamicAlloc(DynamicAlloc {
             var,
             size,
             vectorized,
             vectorized_len,
-        } = &res[0]
+        }) = &res[0]
         {
             assert_eq!(var, "vec_array");
             assert_eq!(size, &SimpleExpr::Constant(ConstExpression::scalar(5)));
@@ -1522,12 +1526,12 @@ mod tests {
         let args = vec!["i".to_string(), "x".to_string(), "y".to_string()];
         let iterator = "i".to_string();
         let end = SimpleExpr::Constant(ConstExpression::scalar(10));
-        let body = vec![SimpleLine::Assignment {
+        let body = vec![SimpleLine::Assignment(Assignment {
             var: VarOrConstMallocAccess::Var("z".to_string()),
             operation: HighLevelOperation::Add,
             arg0: SimpleExpr::Var("x".to_string()),
             arg1: SimpleExpr::Var("y".to_string()),
-        }];
+        })];
         let external_vars = vec!["x".to_string(), "y".to_string()];
 
         let result = create_recursive_function(
@@ -1545,12 +1549,12 @@ mod tests {
         assert_eq!(result.instructions.len(), 2);
 
         // Check first instruction (comparison)
-        if let SimpleLine::Assignment {
+        if let SimpleLine::Assignment(Assignment {
             var,
             operation,
             arg0,
             arg1,
-        } = &result.instructions[0]
+        }) = &result.instructions[0]
         {
             assert_eq!(var.to_string(), "@diff_i");
             assert_eq!(operation, &HighLevelOperation::Sub);
@@ -1559,18 +1563,18 @@ mod tests {
         }
 
         // Check second instruction (conditional)
-        if let SimpleLine::IfNotZero {
+        if let SimpleLine::Branch(Branch {
             condition,
             then_branch,
             else_branch,
-        } = &result.instructions[1]
+        }) = &result.instructions[1]
         {
             assert_eq!(condition.to_string(), "@diff_i");
             assert_eq!(then_branch.len(), 4); // body + increment + recursive call + return
             assert_eq!(else_branch.len(), 1); // just return
 
             // Check else branch (termination condition)
-            if let SimpleLine::FunctionRet { return_data } = &else_branch[0] {
+            if let SimpleLine::Return(Return { return_data }) = &else_branch[0] {
                 assert_eq!(return_data.len(), 0);
             }
         }

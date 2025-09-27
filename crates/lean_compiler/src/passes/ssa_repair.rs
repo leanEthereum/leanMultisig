@@ -48,7 +48,6 @@ impl Pass for SSARepairPass {
 }
 
 /// Repair SSA violations by restructuring control flow
-/// This is the main entry point that implements the working algorithm from the old transformations
 pub fn repair_ssa_violations(lines: &mut Vec<Line>, res: &[Var]) {
     fix_ssa_violations_by_restructuring_control_flow(lines, res);
 }

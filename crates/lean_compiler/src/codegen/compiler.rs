@@ -82,6 +82,7 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::simple_line::Assignment;
     use crate::ir::{SimpleFunction, SimpleLine, VarOrConstMallocAccess};
     use crate::lang::SimpleExpr;
 
@@ -100,12 +101,12 @@ mod tests {
         let function = SimpleFunction {
             name: "test".to_string(),
             arguments: vec!["x".to_string(), "y".to_string()],
-            instructions: vec![SimpleLine::Assignment {
+            instructions: vec![SimpleLine::Assignment(Assignment {
                 var: VarOrConstMallocAccess::Var("result".to_string()),
                 operation: HighLevelOperation::Add,
                 arg0: SimpleExpr::Var("x".to_string()),
                 arg1: SimpleExpr::Var("y".to_string()),
-            }],
+            })],
             n_returned_vars: 1,
         };
 

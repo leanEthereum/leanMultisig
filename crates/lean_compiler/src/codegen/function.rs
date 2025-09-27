@@ -1,4 +1,5 @@
-use crate::codegen::{instruction::compile_lines, memory::find_internal_vars};
+use crate::codegen::memory::find_internal_vars;
+use crate::ir::simple_line::compile_lines;
 use crate::{codegen::*, ir::*, lang::*};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -42,6 +43,7 @@ pub fn compile_function(
 mod tests {
     use super::*;
     use crate::ir::VarOrConstMallocAccess;
+    use crate::ir::simple_line::{Assignment, Return};
     use crate::lang::SimpleExpr;
 
     #[test]
@@ -50,15 +52,15 @@ mod tests {
             name: "add".to_string(),
             arguments: vec!["a".to_string(), "b".to_string()],
             instructions: vec![
-                SimpleLine::Assignment {
+                SimpleLine::Assignment(Assignment {
                     var: VarOrConstMallocAccess::Var("result".to_string()),
                     operation: HighLevelOperation::Add,
                     arg0: SimpleExpr::Var("a".to_string()),
                     arg1: SimpleExpr::Var("b".to_string()),
-                },
-                SimpleLine::FunctionRet {
+                }),
+                SimpleLine::Return(Return {
                     return_data: vec![SimpleExpr::Var("result".to_string())],
-                },
+                }),
             ],
             n_returned_vars: 1,
         };

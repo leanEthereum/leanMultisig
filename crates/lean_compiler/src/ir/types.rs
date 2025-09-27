@@ -1,9 +1,4 @@
-use crate::{
-    ir::HighLevelOperation,
-    lang::{ConstExpression, ConstMallocLabel, SimpleExpr, Var},
-    precompiles::Precompile,
-};
-use lean_vm::SourceLineNumber;
+use crate::lang::{ConstExpression, ConstMallocLabel, SimpleExpr, Var};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -39,7 +34,7 @@ pub struct SimpleFunction {
     pub name: String,
     pub arguments: Vec<Var>,
     pub n_returned_vars: usize,
-    pub instructions: Vec<SimpleLine>,
+    pub instructions: Vec<crate::ir::simple_line::SimpleLine>,
 }
 
 /// Variable or constant malloc access for assignments.
@@ -89,73 +84,6 @@ impl From<Var> for VarOrConstMallocAccess {
     fn from(var: Var) -> Self {
         Self::Var(var)
     }
-}
-
-/// Simplified language instruction representation.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SimpleLine {
-    Match {
-        value: SimpleExpr,
-        arms: Vec<Vec<Self>>, // patterns = 0, 1, ...
-    },
-    Assignment {
-        var: VarOrConstMallocAccess,
-        operation: HighLevelOperation,
-        arg0: SimpleExpr,
-        arg1: SimpleExpr,
-    },
-    RawAccess {
-        res: SimpleExpr,
-        index: SimpleExpr,
-        shift: ConstExpression,
-    }, // res = memory[index + shift]
-    IfNotZero {
-        condition: SimpleExpr,
-        then_branch: Vec<Self>,
-        else_branch: Vec<Self>,
-    },
-    FunctionCall {
-        function_name: String,
-        args: Vec<SimpleExpr>,
-        return_data: Vec<Var>,
-    },
-    FunctionRet {
-        return_data: Vec<SimpleExpr>,
-    },
-    Precompile {
-        precompile: Precompile,
-        args: Vec<SimpleExpr>,
-    },
-    Panic,
-    // Hints
-    DecomposeBits {
-        var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
-        to_decompose: Vec<SimpleExpr>,
-        label: ConstMallocLabel,
-    },
-    CounterHint {
-        var: Var,
-    },
-    Print {
-        line_info: String,
-        content: Vec<SimpleExpr>,
-    },
-    HintMAlloc {
-        var: Var,
-        size: SimpleExpr,
-        vectorized: bool,
-        vectorized_len: SimpleExpr,
-    },
-    ConstMalloc {
-        // always not vectorized
-        var: Var,
-        size: ConstExpression,
-        label: ConstMallocLabel,
-    },
-    // noop, debug purpose only
-    LocationReport {
-        location: SourceLineNumber,
-    },
 }
 
 /// Helper enum for array access operations.
@@ -221,166 +149,6 @@ impl Display for VarOrConstMallocAccess {
     }
 }
 
-impl Display for SimpleLine {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string_with_indent(0))
-    }
-}
-
-impl SimpleLine {
-    fn to_string_with_indent(&self, indent: usize) -> String {
-        let spaces = "    ".repeat(indent);
-        let line_str = match self {
-            Self::Match { value, arms } => {
-                let arms_str = arms
-                    .iter()
-                    .enumerate()
-                    .map(|(pattern, stmt)| {
-                        format!(
-                            "{} => {}",
-                            pattern,
-                            stmt.iter()
-                                .map(|line| line.to_string_with_indent(indent + 1))
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                format!("match {value} {{\n{arms_str}\n{spaces}}}")
-            }
-            Self::Assignment {
-                var,
-                operation,
-                arg0,
-                arg1,
-            } => {
-                format!("{var} = {arg0} {operation} {arg1}")
-            }
-            Self::DecomposeBits {
-                var: result,
-                to_decompose,
-                label: _,
-            } => {
-                format!(
-                    "{} = decompose_bits({})",
-                    result,
-                    to_decompose
-                        .iter()
-                        .map(|expr| format!("{expr}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
-            Self::CounterHint { var: result } => {
-                format!("{result} = counter_hint()")
-            }
-            Self::RawAccess { res, index, shift } => {
-                format!("memory[{index} + {shift}] = {res}")
-            }
-            Self::IfNotZero {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let then_str = then_branch
-                    .iter()
-                    .map(|line| line.to_string_with_indent(indent + 1))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                let else_str = else_branch
-                    .iter()
-                    .map(|line| line.to_string_with_indent(indent + 1))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                if else_branch.is_empty() {
-                    format!("if {condition} != 0 {{\n{then_str}\n{spaces}}}")
-                } else {
-                    format!(
-                        "if {condition} != 0 {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}"
-                    )
-                }
-            }
-            Self::FunctionCall {
-                function_name,
-                args,
-                return_data,
-            } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| format!("{arg}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let return_data_str = return_data
-                    .iter()
-                    .map(|var| var.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                if return_data.is_empty() {
-                    format!("{function_name}({args_str})")
-                } else {
-                    format!("{return_data_str} = {function_name}({args_str})")
-                }
-            }
-            Self::FunctionRet { return_data } => {
-                let return_data_str = return_data
-                    .iter()
-                    .map(|arg| format!("{arg}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("return {return_data_str}")
-            }
-            Self::Precompile { precompile, args } => {
-                format!(
-                    "{}({})",
-                    &precompile.name,
-                    args.iter()
-                        .map(|arg| format!("{arg}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
-            Self::Print {
-                line_info: _,
-                content,
-            } => {
-                let content_str = content
-                    .iter()
-                    .map(|c| format!("{c}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("print({content_str})")
-            }
-            Self::HintMAlloc {
-                var,
-                size,
-                vectorized,
-                vectorized_len,
-            } => {
-                if *vectorized {
-                    format!("{var} = malloc_vec({size}, {vectorized_len})")
-                } else {
-                    format!("{var} = malloc({size})")
-                }
-            }
-            Self::ConstMalloc {
-                var,
-                size,
-                label: _,
-            } => {
-                format!("{var} = malloc({size})")
-            }
-            Self::Panic => "panic".to_string(),
-            Self::LocationReport { .. } => Default::default(),
-        };
-        format!("{spaces}{line_str}")
-    }
-}
-
 impl Display for SimpleFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let args_str = self
@@ -430,6 +198,11 @@ impl Display for SimpleProgram {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::SimpleLine;
+    use crate::ir::simple_line::{
+        Assignment, CounterHint, DecomposeBits, DynamicAlloc, FunctionCall, LocationReport, Match,
+        Panic, PrecompileOp, Print, RawMemoryAccess, Return, StaticAlloc,
+    };
     use crate::lang::{ConstExpression, SimpleExpr};
     use crate::precompiles::PRECOMPILES;
 
@@ -591,152 +364,126 @@ mod tests {
 
     #[test]
     fn test_simple_line_display_assignment() {
-        let line = SimpleLine::Assignment {
+        let line = SimpleLine::Assignment(Assignment {
             var: VarOrConstMallocAccess::Var("x".to_string()),
             operation: crate::ir::HighLevelOperation::Add,
             arg0: SimpleExpr::Var("a".to_string()),
             arg1: SimpleExpr::Var("b".to_string()),
-        };
+        });
 
         assert_eq!(format!("{}", line), "x = a + b");
     }
 
     #[test]
     fn test_simple_line_display_panic() {
-        let line = SimpleLine::Panic;
+        let line = SimpleLine::Panic(Panic);
 
         assert_eq!(format!("{}", line), "panic");
     }
 
     #[test]
     fn test_simple_line_display_function_call_no_return() {
-        let line = SimpleLine::FunctionCall {
+        let line = SimpleLine::FunctionCall(FunctionCall {
             function_name: "test_func".to_string(),
             args: vec![SimpleExpr::scalar(42), SimpleExpr::Var("x".to_string())],
             return_data: vec![],
-        };
+        });
 
         assert_eq!(format!("{}", line), "test_func(42, x)");
     }
 
     #[test]
     fn test_simple_line_display_function_call_with_return() {
-        let line = SimpleLine::FunctionCall {
+        let line = SimpleLine::FunctionCall(FunctionCall {
             function_name: "test_func".to_string(),
             args: vec![SimpleExpr::scalar(42)],
             return_data: vec!["result".to_string()],
-        };
+        });
 
         assert_eq!(format!("{}", line), "result = test_func(42)");
     }
 
     #[test]
     fn test_simple_line_display_function_ret() {
-        let line = SimpleLine::FunctionRet {
+        let line = SimpleLine::Return(Return {
             return_data: vec![SimpleExpr::scalar(42), SimpleExpr::Var("x".to_string())],
-        };
+        });
 
         assert_eq!(format!("{}", line), "return 42, x");
     }
 
     #[test]
-    fn test_simple_line_display_if_not_zero_no_else() {
-        let line = SimpleLine::IfNotZero {
-            condition: SimpleExpr::Var("x".to_string()),
-            then_branch: vec![SimpleLine::Panic],
-            else_branch: vec![],
-        };
-
-        let expected = "if x != 0 {\n    panic\n}";
-        assert_eq!(format!("{}", line), expected);
-    }
-
-    #[test]
-    fn test_simple_line_display_if_not_zero_with_else() {
-        let line = SimpleLine::IfNotZero {
-            condition: SimpleExpr::Var("x".to_string()),
-            then_branch: vec![SimpleLine::Panic],
-            else_branch: vec![SimpleLine::FunctionRet {
-                return_data: vec![],
-            }],
-        };
-
-        let expected = "if x != 0 {\n    panic\n} else {\n    return \n}";
-        assert_eq!(format!("{}", line), expected);
-    }
-
-    #[test]
     fn test_simple_line_display_counter_hint() {
-        let line = SimpleLine::CounterHint {
+        let line = SimpleLine::CounterHint(CounterHint {
             var: "counter".to_string(),
-        };
+        });
 
         assert_eq!(format!("{}", line), "counter = counter_hint()");
     }
 
     #[test]
     fn test_simple_line_display_decompose_bits() {
-        let line = SimpleLine::DecomposeBits {
+        let line = SimpleLine::DecomposeBits(DecomposeBits {
             var: "bits".to_string(),
             to_decompose: vec![SimpleExpr::scalar(255), SimpleExpr::Var("x".to_string())],
             label: 42,
-        };
+        });
 
         assert_eq!(format!("{}", line), "bits = decompose_bits(255, x)");
     }
 
     #[test]
     fn test_simple_line_display_raw_access() {
-        let line = SimpleLine::RawAccess {
+        let line = SimpleLine::RawMemoryAccess(RawMemoryAccess {
             res: SimpleExpr::Var("result".to_string()),
             index: SimpleExpr::Var("ptr".to_string()),
             shift: ConstExpression::from(10),
-        };
+        });
 
         assert_eq!(format!("{}", line), "memory[ptr + 10] = result");
     }
 
     #[test]
     fn test_simple_line_display_print() {
-        let line = SimpleLine::Print {
+        let line = SimpleLine::Print(Print {
             line_info: "debug".to_string(),
             content: vec![SimpleExpr::scalar(42), SimpleExpr::Var("x".to_string())],
-        };
+        });
 
         assert_eq!(format!("{}", line), "print(42, x)");
     }
 
     #[test]
     fn test_simple_line_display_hint_malloc_non_vectorized() {
-        let line = SimpleLine::HintMAlloc {
+        let line = SimpleLine::DynamicAlloc(DynamicAlloc {
             var: "ptr".to_string(),
             size: SimpleExpr::scalar(100),
             vectorized: false,
             vectorized_len: SimpleExpr::zero(),
-        };
+        });
 
         assert_eq!(format!("{}", line), "ptr = malloc(100)");
     }
 
     #[test]
     fn test_simple_line_display_hint_malloc_vectorized() {
-        let line = SimpleLine::HintMAlloc {
+        let line = SimpleLine::DynamicAlloc(DynamicAlloc {
             var: "ptr".to_string(),
             size: SimpleExpr::scalar(100),
             vectorized: true,
             vectorized_len: SimpleExpr::scalar(8),
-        };
+        });
 
         assert_eq!(format!("{}", line), "ptr = malloc_vec(100, 8)");
     }
 
     #[test]
     fn test_simple_line_display_const_malloc() {
-        let line = SimpleLine::ConstMalloc {
+        let line = SimpleLine::StaticAlloc(StaticAlloc {
             var: "ptr".to_string(),
             size: ConstExpression::from(100),
             label: 42,
-        };
+        });
 
         assert_eq!(format!("{}", line), "ptr = malloc(100)");
     }
@@ -744,34 +491,34 @@ mod tests {
     #[test]
     fn test_simple_line_display_precompile() {
         let precompile = PRECOMPILES[0].clone();
-        let line = SimpleLine::Precompile {
+        let line = SimpleLine::Precompile(PrecompileOp {
             precompile,
             args: vec![SimpleExpr::scalar(42)],
-        };
+        });
 
         assert_eq!(format!("{}", line), format!("{}(42)", PRECOMPILES[0].name));
     }
 
     #[test]
     fn test_simple_line_display_location_report() {
-        let line = SimpleLine::LocationReport { location: 42 };
+        let line = SimpleLine::LocationReport(LocationReport { location: 42 });
 
         assert_eq!(format!("{}", line), ""); // LocationReport displays as empty
     }
 
     #[test]
     fn test_simple_line_display_match() {
-        let line = SimpleLine::Match {
+        let line = SimpleLine::Match(Match {
             value: SimpleExpr::Var("x".to_string()),
             arms: vec![
-                vec![SimpleLine::Panic],
-                vec![SimpleLine::FunctionRet {
+                vec![SimpleLine::Panic(Panic)],
+                vec![SimpleLine::Return(Return {
                     return_data: vec![],
-                }],
+                })],
             ],
-        };
+        });
 
-        let expected = "match x {\n0 =>     panic, 1 =>     return \n}";
+        let expected = "match x { 0 => [panic], 1 => [return ] }";
         assert_eq!(format!("{}", line), expected);
     }
 
@@ -793,7 +540,7 @@ mod tests {
             name: "test".to_string(),
             arguments: vec!["x".to_string()],
             n_returned_vars: 1,
-            instructions: vec![SimpleLine::Panic],
+            instructions: vec![SimpleLine::Panic(Panic)],
         };
 
         assert_eq!(format!("{}", function), "fn test(x) -> 1 {\n    panic\n}");
@@ -817,7 +564,7 @@ mod tests {
                 name: "test".to_string(),
                 arguments: vec![],
                 n_returned_vars: 0,
-                instructions: vec![SimpleLine::Panic],
+                instructions: vec![SimpleLine::Panic(Panic)],
             },
         );
 

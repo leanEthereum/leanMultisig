@@ -1,11 +1,63 @@
-use crate::lang::*;
-use std::{borrow::Borrow, collections::BTreeSet};
+//! Generic compilation trait for IR instructions.
 
-/// Marks variables as declared in the declaration tracking set.
-///
-/// This helper function extracts variables from expressions and adds them
-/// to the declared variables set for tracking purposes.
-pub fn mark_vars_as_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &mut BTreeSet<Var>) {
+use crate::{
+    codegen::Compiler,
+    ir::{IntermediateInstruction, IntermediateValue},
+    lang::{SimpleExpr, Var},
+};
+use lean_vm::{Label, Operation};
+use std::collections::BTreeSet;
+
+/// Result type for compilation operations.
+pub type CompileResult<T = Vec<IntermediateInstruction>> = Result<T, String>;
+
+/// Compilation context shared across instruction compilers.
+#[derive(Debug)]
+pub struct CompileContext<'a> {
+    /// The main compiler instance with bytecode generation state
+    pub compiler: &'a mut Compiler,
+    /// Optional jump target for control flow continuation
+    pub final_jump: Option<Label>,
+    /// Set of variables declared in current scope
+    pub declared_vars: &'a mut BTreeSet<Var>,
+}
+
+impl<'a> CompileContext<'a> {
+    /// Creates a new compilation context.
+    pub fn new(
+        compiler: &'a mut Compiler,
+        final_jump: Option<Label>,
+        declared_vars: &'a mut BTreeSet<Var>,
+    ) -> Self {
+        Self {
+            compiler,
+            final_jump,
+            declared_vars,
+        }
+    }
+}
+
+/// Core trait for compiling instruction types into intermediate bytecode.
+pub trait Compile {
+    /// Compiles the instruction into intermediate bytecode.
+    ///
+    /// # Arguments
+    /// * `ctx` - Compilation context containing compiler state and scope information
+    /// * `remaining_lines` - Remaining SimpleLine instructions in the current block for control flow
+    ///
+    /// # Returns
+    /// Vector of intermediate instructions or compilation error
+    fn compile(
+        &self,
+        ctx: &mut CompileContext<'_>,
+        remaining_lines: &[crate::ir::SimpleLine],
+    ) -> CompileResult;
+}
+
+pub fn mark_vars_as_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
+    vocs: &[VoC],
+    declared: &mut BTreeSet<Var>,
+) {
     for voc in vocs {
         if let SimpleExpr::Var(v) = voc.borrow() {
             declared.insert(v.clone());
@@ -13,11 +65,7 @@ pub fn mark_vars_as_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &m
     }
 }
 
-/// Validates that all variables in expressions are declared.
-///
-/// This function checks that all variable references have been declared
-/// before use, helping catch undeclared variable errors during compilation.
-pub fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(
+pub fn validate_vars_declared<VoC: std::borrow::Borrow<SimpleExpr>>(
     vocs: &[VoC],
     declared: &BTreeSet<Var>,
 ) -> Result<(), String> {
@@ -29,6 +77,27 @@ pub fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(
         }
     }
     Ok(())
+}
+
+pub fn handle_const_malloc(
+    declared_vars: &mut BTreeSet<Var>,
+    instructions: &mut Vec<IntermediateInstruction>,
+    compiler: &mut Compiler,
+    var: &Var,
+    size: usize,
+    label: &crate::lang::ConstMallocLabel,
+) {
+    declared_vars.insert(var.clone());
+    instructions.push(IntermediateInstruction::Computation {
+        operation: Operation::Add,
+        arg_a: IntermediateValue::Constant(compiler.stack_size.into()),
+        arg_c: IntermediateValue::Fp,
+        res: IntermediateValue::MemoryAfterFp {
+            offset: compiler.get_offset(&var.clone().into()),
+        },
+    });
+    compiler.const_mallocs.insert(*label, compiler.stack_size);
+    compiler.stack_size += size;
 }
 
 #[cfg(test)]
