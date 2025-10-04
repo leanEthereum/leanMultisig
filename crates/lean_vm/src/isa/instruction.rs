@@ -59,8 +59,10 @@ pub enum Instruction {
         arg_a: MemOrConstant,
         /// Second input vector (vectorized pointer, size 1)
         arg_b: MemOrConstant,
-        /// Output hash result (vectorized pointer, size 2)
+        /// Output hash result (vectorized pointer, size 1 or 2 depending on compression)
         res: MemOrFp,
+        /// Whether to perform compression (output size 1) or not (output size 2)
+        is_compression: bool,
     },
 
     /// Poseidon2 cryptographic hash with 24-element input
@@ -203,7 +205,12 @@ impl Instruction {
                 *ctx.jump_counts += 1;
                 Ok(())
             }
-            Self::Poseidon2_16 { arg_a, arg_b, res } => {
+            Self::Poseidon2_16 {
+                arg_a,
+                arg_b,
+                res,
+                is_compression,
+            } => {
                 let poseidon_16 = get_poseidon16();
 
                 let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
@@ -224,8 +231,10 @@ impl Instruction {
                 let res0: [F; VECTOR_LEN] = input[..VECTOR_LEN].try_into().unwrap();
                 let res1: [F; VECTOR_LEN] = input[VECTOR_LEN..].try_into().unwrap();
 
-                ctx.memory.set_vector(res_value.to_usize(), res0)?;
-                ctx.memory.set_vector(1 + res_value.to_usize(), res1)?;
+                ctx.memory.set_vector(res_value.to_usize(), res1)?;
+                if !is_compression {
+                    ctx.memory.set_vector(1 + res_value.to_usize(), res1)?;
+                }
 
                 {
                     let cycle = ctx.pcs.len() - 1;
@@ -244,6 +253,7 @@ impl Instruction {
                         addr_output,
                         input: input_before,
                         output,
+                        is_compression: *is_compression,
                     });
                 }
 
@@ -426,8 +436,8 @@ impl Display for Instruction {
                     "if {condition} != 0 jump to {label} = {dest} with next(fp) = {updated_fp}"
                 )
             }
-            Self::Poseidon2_16 { arg_a, arg_b, res } => {
-                write!(f, "{res} = poseidon2_16({arg_a}, {arg_b})")
+            Self::Poseidon2_16 { arg_a, arg_b, res, is_compression } => {
+                write!(f, "{res} = poseidon2_16({arg_a}, {arg_b}, compression={is_compression})")
             }
             Self::Poseidon2_24 { arg_a, arg_b, res } => {
                 write!(f, "{res} = poseidon2_24({arg_a}, {arg_b})")

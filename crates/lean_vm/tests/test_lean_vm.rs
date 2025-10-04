@@ -163,6 +163,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
             res: MemOrFp::MemoryAfterFp {
                 offset: POSEIDON16_RES_OFFSET,
             },
+            is_compression: false
         },
         Instruction::Poseidon2_24 {
             arg_a: MemOrConstant::Constant(f(POSEIDON24_ARG_A_PTR as u64)),

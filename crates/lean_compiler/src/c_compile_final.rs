@@ -261,11 +261,12 @@ fn compile_block(
                     IntermediateValue::Constant(ConstExpression::Value(ConstantValue::Scalar(1)));
                 codegen_jump(hints, low_level_bytecode, one, dest, updated_fp)
             }
-            IntermediateInstruction::Poseidon2_16 { arg_a, arg_b, res } => {
+            IntermediateInstruction::Poseidon2_16 { arg_a, arg_b, res, is_compression } => {
                 low_level_bytecode.push(Instruction::Poseidon2_16 {
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
                     arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
                     res: try_as_mem_or_fp(&res).unwrap(),
+                    is_compression,
                 });
             }
             IntermediateInstruction::Poseidon2_24 { arg_a, arg_b, res } => {

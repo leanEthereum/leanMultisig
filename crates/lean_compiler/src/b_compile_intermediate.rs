@@ -707,19 +707,24 @@ fn compile_poseidon(
     compiler: &Compiler,
     over_16: bool, // otherwise over_24
 ) -> Result<(), String> {
-    assert_eq!(args.len(), 3);
-
     let low_level_arg_a = IntermediateValue::from_simple_expr(&args[0], compiler);
     let low_level_arg_b = IntermediateValue::from_simple_expr(&args[1], compiler);
     let low_level_res = IntermediateValue::from_simple_expr(&args[2], compiler);
 
     if over_16 {
+        assert_eq!(args.len(), 4);
+        let is_compression = args[3].as_constant().unwrap().naive_eval().unwrap();
+        assert!(is_compression.is_zero() || is_compression.is_one());
+        let is_compression = is_compression.is_one();
+
         instructions.push(IntermediateInstruction::Poseidon2_16 {
             arg_a: low_level_arg_a,
             arg_b: low_level_arg_b,
             res: low_level_res,
+            is_compression,
         });
     } else {
+        assert_eq!(args.len(), 3);
         instructions.push(IntermediateInstruction::Poseidon2_24 {
             arg_a: low_level_arg_a,
             arg_b: low_level_arg_b,

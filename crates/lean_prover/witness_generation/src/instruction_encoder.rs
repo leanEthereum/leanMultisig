@@ -62,11 +62,17 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             set_nu_b(&mut fields, dest);
             set_nu_c(&mut fields, updated_fp);
         }
-        Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
+        Instruction::Poseidon2_16 {
+            arg_a,
+            arg_b,
+            res,
+            is_compression,
+        } => {
             fields[11] = F::ONE; // POSEIDON_16 = 1
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, res);
+            fields[10] = F::from_bool(*is_compression); // AUX = "is_compression"
         }
         Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
             fields[12] = F::ONE; // POSEIDON_24 = 1

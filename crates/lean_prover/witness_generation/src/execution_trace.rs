@@ -7,9 +7,8 @@ use crate::{
 use lean_vm::*;
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
-use p3_symmetric::Permutation;
 use rayon::prelude::*;
-use utils::{ToUsize, get_poseidon16, get_poseidon24};
+use utils::ToUsize;
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
@@ -105,11 +104,6 @@ pub fn get_execution_trace(
     let n_poseidons_16 = execution_result.poseidons_16.len();
     let n_poseidons_24 = execution_result.poseidons_24.len();
 
-    let empty_poseidon16_output = get_poseidon16().permute([F::ZERO; 16]);
-    let empty_poseidon24_output = get_poseidon24().permute([F::ZERO; 24])[16..24]
-        .try_into()
-        .unwrap();
-
     let ExecutionResult {
         mut poseidons_16,
         mut poseidons_24,
@@ -118,26 +112,14 @@ pub fn get_execution_trace(
         ..
     } = execution_result;
 
-    poseidons_16.extend(
-        (0..n_poseidons_16.next_power_of_two() - n_poseidons_16).map(|_| WitnessPoseidon16 {
-            cycle: None,
-            addr_input_a: 0,
-            addr_input_b: 0,
-            addr_output: POSEIDON_16_NULL_HASH_PTR,
-            input: [F::ZERO; 16],
-            output: empty_poseidon16_output,
-        }),
-    );
-    poseidons_24.extend(
-        (0..n_poseidons_24.next_power_of_two() - n_poseidons_24).map(|_| WitnessPoseidon24 {
-            cycle: None,
-            addr_input_a: 0,
-            addr_input_b: 0,
-            addr_output: POSEIDON_24_NULL_HASH_PTR,
-            input: [F::ZERO; 24],
-            output: empty_poseidon24_output,
-        }),
-    );
+    poseidons_16.extend(vec![
+        WitnessPoseidon16::poseidon_of_zero();
+        n_poseidons_16.next_power_of_two() - n_poseidons_16
+    ]);
+    poseidons_24.extend(vec![
+        WitnessPoseidon24::poseidon_of_zero();
+        n_poseidons_24.next_power_of_two() - n_poseidons_24
+    ]);
 
     ExecutionTrace {
         full_trace: trace,

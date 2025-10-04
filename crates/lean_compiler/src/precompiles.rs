@@ -27,7 +27,7 @@ impl Display for PrecompileName {
 
 pub const POSEIDON_16: Precompile = Precompile {
     name: PrecompileName::Poseidon16,
-    n_inputs: 3,
+    n_inputs: 4,
 };
 
 pub const POSEIDON_24: Precompile = Precompile {

@@ -31,7 +31,8 @@ pub enum IntermediateInstruction {
     Poseidon2_16 {
         arg_a: IntermediateValue, // vectorized pointer, of size 1
         arg_b: IntermediateValue, // vectorized pointer, of size 1
-        res: IntermediateValue,   // vectorized pointer, of size 2
+        res: IntermediateValue,   // vectorized pointer, of size 1 if `is_compression`, else size 2
+        is_compression: bool
     },
     Poseidon2_24 {
         arg_a: IntermediateValue, // vectorized pointer, of size 2 (2 first inputs)
@@ -168,8 +169,8 @@ impl Display for IntermediateInstruction {
                     write!(f, "jump_if_not_zero {condition} to {dest}")
                 }
             }
-            Self::Poseidon2_16 { arg_a, arg_b, res } => {
-                write!(f, "{res} = poseidon2_16({arg_a}, {arg_b})")
+            Self::Poseidon2_16 { arg_a, arg_b, res, is_compression } => {
+                write!(f, "{res} = poseidon2_16({arg_a}, {arg_b}, is_compression={is_compression})")
             }
             Self::Poseidon2_24 { arg_a, arg_b, res } => {
                 write!(f, "{res} = poseidon2_24({arg_a}, {arg_b})")
