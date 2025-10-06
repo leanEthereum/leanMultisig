@@ -12,9 +12,12 @@ use p3_koala_bear::KoalaBear;
 use p3_koala_bear::Poseidon2KoalaBear;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_poseidon2::ExternalLayerConstants;
-use p3_poseidon2_air::Poseidon2Air;
-use p3_poseidon2_air::RoundConstants;
-use p3_poseidon2_air::generate_trace_rows;
+use p3_poseidon2_air::p16::Poseidon2Air16;
+use p3_poseidon2_air::p16::RoundConstants16;
+use p3_poseidon2_air::p16::generate_trace_rows_16;
+use p3_poseidon2_air::p24::Poseidon2Air24;
+use p3_poseidon2_air::p24::RoundConstants24;
+use p3_poseidon2_air::p24::generate_trace_rows_24;
 
 pub type Poseidon16 = Poseidon2KoalaBear<16>;
 pub type Poseidon24 = Poseidon2KoalaBear<24>;
@@ -32,7 +35,7 @@ pub const SBOX_REGISTERS: usize = 0;
 
 pub type MyLinearLayers = GenericPoseidon2LinearLayersKoalaBear;
 
-pub type Poseidon16Air<F> = Poseidon2Air<
+pub type Poseidon16Air<F> = Poseidon2Air16<
     F,
     MyLinearLayers,
     16,
@@ -43,7 +46,7 @@ pub type Poseidon16Air<F> = Poseidon2Air<
     PARTIAL_ROUNDS_16,
 >;
 
-pub type Poseidon24Air<F> = Poseidon2Air<
+pub type Poseidon24Air<F> = Poseidon2Air24<
     F,
     MyLinearLayers,
     24,
@@ -103,8 +106,8 @@ pub fn build_poseidon_24_air_packed() -> Poseidon24Air<PFPacking<KoalaBear>> {
 }
 
 fn build_poseidon16_constants()
--> RoundConstants<KoalaBear, 16, HALF_FULL_ROUNDS_16, PARTIAL_ROUNDS_16> {
-    RoundConstants {
+-> RoundConstants16<KoalaBear, 16, HALF_FULL_ROUNDS_16, PARTIAL_ROUNDS_16> {
+    RoundConstants16 {
         beginning_full_round_constants: KOALABEAR_RC16_EXTERNAL_INITIAL,
         partial_round_constants: KOALABEAR_RC16_INTERNAL,
         ending_full_round_constants: KOALABEAR_RC16_EXTERNAL_FINAL,
@@ -112,8 +115,8 @@ fn build_poseidon16_constants()
 }
 
 fn build_poseidon24_constants()
--> RoundConstants<KoalaBear, 24, HALF_FULL_ROUNDS_24, PARTIAL_ROUNDS_24> {
-    RoundConstants {
+-> RoundConstants24<KoalaBear, 24, HALF_FULL_ROUNDS_24, PARTIAL_ROUNDS_24> {
+    RoundConstants24 {
         beginning_full_round_constants: KOALABEAR_RC24_EXTERNAL_INITIAL,
         partial_round_constants: KOALABEAR_RC24_INTERNAL,
         ending_full_round_constants: KOALABEAR_RC24_EXTERNAL_FINAL,
@@ -121,9 +124,9 @@ fn build_poseidon24_constants()
 }
 
 fn build_poseidon16_constants_packed()
--> RoundConstants<PFPacking<KoalaBear>, 16, HALF_FULL_ROUNDS_16, PARTIAL_ROUNDS_16> {
+-> RoundConstants16<PFPacking<KoalaBear>, 16, HALF_FULL_ROUNDS_16, PARTIAL_ROUNDS_16> {
     let normal_constants = build_poseidon16_constants();
-    RoundConstants {
+    RoundConstants16 {
         beginning_full_round_constants: normal_constants
             .beginning_full_round_constants
             .map(|arr| arr.map(Into::into)),
@@ -135,9 +138,9 @@ fn build_poseidon16_constants_packed()
 }
 
 fn build_poseidon24_constants_packed()
--> RoundConstants<PFPacking<KoalaBear>, 24, HALF_FULL_ROUNDS_24, PARTIAL_ROUNDS_24> {
+-> RoundConstants24<PFPacking<KoalaBear>, 24, HALF_FULL_ROUNDS_24, PARTIAL_ROUNDS_24> {
     let normal_constants = build_poseidon24_constants();
-    RoundConstants {
+    RoundConstants24 {
         beginning_full_round_constants: normal_constants
             .beginning_full_round_constants
             .map(|arr| arr.map(Into::into)),
@@ -148,8 +151,12 @@ fn build_poseidon24_constants_packed()
     }
 }
 
-pub fn generate_trace_poseidon_16(inputs: Vec<[KoalaBear; 16]>) -> RowMajorMatrix<KoalaBear> {
-    generate_trace_rows::<
+pub fn generate_trace_poseidon_16(
+    inputs: &[[KoalaBear; 16]],
+    compress: &[bool],
+    index_res: &[usize],
+) -> RowMajorMatrix<KoalaBear> {
+    generate_trace_rows_16::<
         KoalaBear,
         MyLinearLayers,
         16,
@@ -158,11 +165,17 @@ pub fn generate_trace_poseidon_16(inputs: Vec<[KoalaBear; 16]>) -> RowMajorMatri
         QUARTER_FULL_ROUNDS_16,
         HALF_FULL_ROUNDS_16,
         PARTIAL_ROUNDS_16,
-    >(inputs, &build_poseidon16_constants(), 0)
+    >(
+        inputs,
+        compress,
+        index_res,
+        &build_poseidon16_constants(),
+        0,
+    )
 }
 
-pub fn generate_trace_poseidon_24(inputs: Vec<[KoalaBear; 24]>) -> RowMajorMatrix<KoalaBear> {
-    generate_trace_rows::<
+pub fn generate_trace_poseidon_24(inputs: &[[KoalaBear; 24]]) -> RowMajorMatrix<KoalaBear> {
+    generate_trace_rows_24::<
         KoalaBear,
         MyLinearLayers,
         24,

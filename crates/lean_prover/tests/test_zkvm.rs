@@ -11,13 +11,15 @@ fn test_zk_vm() {
     const DIM = 5;
     const SECOND_POINT = 2;
     const SECOND_N_VARS = 7;
+    const COMPRESSION = 1;
+    const PERMUTATION = 0;
     
     fn main() {
         for i in 0..1000 unroll {  if 1 == 0 {  return; } } // increase bytecode size artificially
 
         for i in 0..500 {
             x = malloc_vec(6);
-            poseidon16(i + 3, i, x);
+            poseidon16(i + 3, i, x, COMPRESSION);
             poseidon24(i + 3, i, x + 2);
             dot_product(i*2, i, (x + 3) * 8, 1);
             dot_product(i*3, i + 7, (x + 4) * 8, 2);

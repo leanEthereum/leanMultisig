@@ -2,8 +2,6 @@
 
 use crate::core::{F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR};
 use p3_field::PrimeCharacteristicRing;
-use p3_symmetric::Permutation;
-use utils::get_poseidon16;
 
 /// Witness data for Poseidon2 over 16 field elements
 #[derive(Debug, Clone)]
@@ -18,8 +16,8 @@ pub struct WitnessPoseidon16 {
     pub addr_output: usize,
     /// Complete 16-element input to the hash function
     pub input: [F; 16],
-    /// Complete 16-element hash output
-    pub output: [F; 16],
+    /// Whether this was a compression (2-to-1) or not (2-to-2)
+    pub is_compression: bool,
 }
 
 impl WitnessPoseidon16 {
@@ -33,16 +31,17 @@ impl WitnessPoseidon16 {
             addr_input_b: ZERO_VEC_PTR,
             addr_output: POSEIDON_16_NULL_HASH_PTR,
             input: [F::ZERO; 16],
-            output: get_poseidon16().permute([F::ZERO; 16]),
+            is_compression: true,
         }
     }
 
     /// Get all memory addresses as field elements
-    pub fn addresses_field_repr(&self) -> [F; 3] {
+    pub fn addresses_field_repr(&self) -> [F; 4] {
         [
             F::from_usize(self.addr_input_a),
             F::from_usize(self.addr_input_b),
             F::from_usize(self.addr_output),
+            F::from_bool(self.is_compression),
         ]
     }
 }

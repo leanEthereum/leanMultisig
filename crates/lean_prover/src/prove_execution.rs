@@ -147,7 +147,11 @@ pub fn prove_execution(
         )
         .unwrap();
     }
-    let p16_indexes = all_poseidon_16_indexes(&poseidons_16);
+    let p16_indexes_input = all_poseidon_16_indexes_input(&poseidons_16);
+    // 0..16: input, 16: compress, 17: res_index_1, 18: res_index_2
+    let p16_compression_col = &p16_columns[16];
+    let p16_index_out_1_col = &p16_columns[17];
+
     let p24_indexes = all_poseidon_24_indexes(&poseidons_24);
 
     let base_dims = get_base_dims(
@@ -173,7 +177,10 @@ pub fn prove_execution(
             full_trace[COL_INDEX_MEM_ADDRESS_B].as_slice(),
             full_trace[COL_INDEX_MEM_ADDRESS_C].as_slice(),
         ],
-        p16_indexes.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+        p16_indexes_input
+            .iter()
+            .map(Vec::as_slice)
+            .collect::<Vec<_>>(),
         p24_indexes.iter().map(Vec::as_slice).collect::<Vec<_>>(),
         p16_columns[16..p16_air.width() - 16]
             .iter()
@@ -320,8 +327,9 @@ pub fn prove_execution(
     let corrected_prod_p16 = grand_product_p16_res
         / (grand_product_challenge_global
             + grand_product_challenge_p16
-            + grand_product_challenge_p16.exp_u64(4) * F::from_usize(POSEIDON_16_NULL_HASH_PTR))
-        .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
+            + grand_product_challenge_p16.exp_u64(4) * F::from_usize(POSEIDON_16_NULL_HASH_PTR)
+            + grand_product_challenge_p16.exp_u64(5) * F::ONE) // compression = 1 by default
+            .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
 
     let corrected_prod_p24 = grand_product_p24_res
         / (grand_product_challenge_global
@@ -348,15 +356,18 @@ pub fn prove_execution(
     );
 
     let p16_grand_product_evals_on_indexes_a =
-        p16_indexes[0].evaluate(&grand_product_p16_statement.point);
+        p16_indexes_input[0].evaluate(&grand_product_p16_statement.point);
     let p16_grand_product_evals_on_indexes_b =
-        p16_indexes[1].evaluate(&grand_product_p16_statement.point);
+        p16_indexes_input[1].evaluate(&grand_product_p16_statement.point);
     let p16_grand_product_evals_on_indexes_res =
-        p16_indexes[2].evaluate(&grand_product_p16_statement.point);
+        p16_index_out_1_col.evaluate(&grand_product_p16_statement.point);
+    let p16_grand_product_evals_on_compression =
+        p16_compression_col.evaluate(&grand_product_p16_statement.point);
     prover_state.add_extension_scalars(&[
         p16_grand_product_evals_on_indexes_a,
         p16_grand_product_evals_on_indexes_b,
         p16_grand_product_evals_on_indexes_res,
+        p16_grand_product_evals_on_compression,
     ]);
 
     let mut p16_indexes_a_statements = vec![Evaluation::new(
@@ -366,10 +377,6 @@ pub fn prove_execution(
     let mut p16_indexes_b_statements = vec![Evaluation::new(
         grand_product_p16_statement.point.clone(),
         p16_grand_product_evals_on_indexes_b,
-    )];
-    let mut p16_indexes_res_statements = vec![Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_res,
     )];
 
     let p24_grand_product_evals_on_indexes_a =
@@ -508,10 +515,27 @@ pub fn prove_execution(
     let p16_columns_ref = p16_columns.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let (p16_air_point, p16_evals_to_prove) = info_span!("Poseidon-16 AIR proof")
         .in_scope(|| p16_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &p16_columns_ref));
+    let mut p16_statements = p16_evals_to_prove[16..p16_air.width() - 16]
+        .iter()
+        .map(|&e| vec![Evaluation::new(p16_air_point.clone(), e)])
+        .collect::<Vec<_>>();
+    p16_statements[0].push(Evaluation::new(
+        grand_product_p16_statement.point.clone(),
+        p16_grand_product_evals_on_compression,
+    ));
+
+    p16_statements[1].push(Evaluation::new(
+        grand_product_p16_statement.point.clone(),
+        p16_grand_product_evals_on_indexes_res,
+    ));
 
     let p24_columns_ref = p24_columns.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let (p24_air_point, p24_evals_to_prove) = info_span!("Poseidon-24 AIR proof")
         .in_scope(|| p24_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &p24_columns_ref));
+    let p24_statements = p24_evals_to_prove[24..p24_air.width() - 24]
+        .iter()
+        .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])
+        .collect();
 
     // Poseidons 16/24 memory addresses lookup
     let poseidon_logup_star_alpha = prover_state.sample();
@@ -804,7 +828,6 @@ pub fn prove_execution(
         &base_memory_poly_eq_point,
         &base_memory_pushforward,
     );
-
     let poseidon_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &MleRef::Extension(&poseidon_folded_memory),
@@ -857,7 +880,7 @@ pub fn prove_execution(
             poseidon_index_evals[0] / correcting_factor_p16,
             poseidon_index_evals[1] / correcting_factor_p16,
             poseidon_index_evals[2] / correcting_factor_p16,
-            // skip 3
+            poseidon_index_evals[3] / correcting_factor_p16,
             poseidon_index_evals[4] / correcting_factor_p24,
             // skip 5
             poseidon_index_evals[6] / correcting_factor_p24,
@@ -865,6 +888,10 @@ pub fn prove_execution(
         ];
 
         prover_state.add_extension_scalars(&inner_values);
+
+        let (left, right) = p16_statements.split_at_mut(18);
+        let p16_statements_res_1 = &mut left[17];
+        let p16_statements_res_2 = &mut right[0];
 
         add_poseidon_lookup_statements_on_indexes(
             log_n_p16,
@@ -874,7 +901,8 @@ pub fn prove_execution(
             [
                 &mut p16_indexes_a_statements,
                 &mut p16_indexes_b_statements,
-                &mut p16_indexes_res_statements,
+                p16_statements_res_1,
+                p16_statements_res_2,
             ],
             [
                 &mut p24_indexes_a_statements,
@@ -1006,19 +1034,12 @@ pub fn prove_execution(
                 ], // exec memory address C
                 p16_indexes_a_statements,
                 p16_indexes_b_statements,
-                p16_indexes_res_statements,
                 p24_indexes_a_statements,
                 p24_indexes_b_statements,
                 p24_indexes_res_statements,
             ],
-            p16_evals_to_prove[16..p16_air.width() - 16]
-                .iter()
-                .map(|&e| vec![Evaluation::new(p16_air_point.clone(), e)])
-                .collect(),
-            p24_evals_to_prove[24..p24_air.width() - 24]
-                .iter()
-                .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])
-                .collect(),
+            p16_statements,
+            p24_statements,
             vec![
                 vec![
                     dot_product_air_statement(0),
@@ -1062,6 +1083,16 @@ pub fn prove_execution(
         ],
         &mut prover_state,
     );
+
+
+    for statement in global_statements_base[0..].iter() {
+        assert_eq!(
+            packed_pcs_witness_base
+                .packed_polynomial
+                .evaluate(&statement.point),
+            statement.value,
+        );
+    }
 
     WhirConfig::new(
         whir_config_builder,

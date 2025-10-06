@@ -33,7 +33,6 @@ pub fn get_base_dims(
             ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_c
             ColDims::padded(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index a
             ColDims::padded(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index b
-            ColDims::padded(n_poseidons_16, F::from_usize(POSEIDON_16_NULL_HASH_PTR)), // poseidon16 index res
             ColDims::padded(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index a
             ColDims::padded(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index b
             ColDims::padded(n_poseidons_24, F::from_usize(POSEIDON_24_NULL_HASH_PTR)), // poseidon24 index res
@@ -139,7 +138,7 @@ pub fn add_memory_statements_for_dot_product_precompile(
 
 pub struct PrecompileFootprint {
     pub global_challenge: EF,
-    pub p16_powers: [EF; 5],
+    pub p16_powers: [EF; 6],
     pub p24_powers: [EF; 5],
     pub dot_product_powers: [EF; 6],
     pub multilinear_eval_powers: [EF; 6],
@@ -164,6 +163,7 @@ impl PrecompileFootprint {
         (nu_a * self.p16_powers[2]
             + nu_b * self.p16_powers[3]
             + nu_c * self.p16_powers[4]
+            + mul_point_f_and_ef(point[COL_INDEX_AUX], self.p16_powers[5])
             + self.p16_powers[1])
             * point[COL_INDEX_POSEIDON_16]
             + (nu_a * self.p24_powers[2]
@@ -383,10 +383,10 @@ pub fn add_poseidon_lookup_statements_on_indexes(
     log_n_p24: usize,
     index_lookup_point: &MultilinearPoint<EF>,
     inner_values: &[EF],
-    p16_indexe_statements: [&mut Vec<Evaluation<EF>>; 3], // a, b, res
+    p16_indexe_statements: [&mut Vec<Evaluation<EF>>; 4], // a, b, res_1, res_2
     p24_indexe_statements: [&mut Vec<Evaluation<EF>>; 3], // a, b, res
 ) {
-    assert_eq!(inner_values.len(), 6);
+    assert_eq!(inner_values.len(), 7);
     let mut idx_point_right_p16 = MultilinearPoint(index_lookup_point[3..].to_vec());
     let mut idx_point_right_p24 =
         MultilinearPoint(index_lookup_point[3 + log_n_p16.abs_diff(log_n_p24)..].to_vec());
@@ -402,7 +402,7 @@ pub fn add_poseidon_lookup_statements_on_indexes(
     for (i, stmt) in p24_indexe_statements.into_iter().enumerate() {
         stmt.push(Evaluation::new(
             idx_point_right_p24.clone(),
-            inner_values[i + 3],
+            inner_values[i + 4],
         ));
     }
 }

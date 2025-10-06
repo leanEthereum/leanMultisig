@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use crate::common::*;
 use crate::*;
 use ::air::table::AirTable;
@@ -157,8 +159,9 @@ pub fn verify_execution(
     let corrected_prod_p16 = grand_product_p16_res
         / (grand_product_challenge_global
             + grand_product_challenge_p16
-            + grand_product_challenge_p16.exp_u64(4) * F::from_usize(POSEIDON_16_NULL_HASH_PTR))
-        .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
+            + grand_product_challenge_p16.exp_u64(4) * F::from_usize(POSEIDON_16_NULL_HASH_PTR)
+            + grand_product_challenge_p16.exp_u64(5) * F::ONE) // compression = 1 by default
+            .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
 
     let corrected_prod_p24 = grand_product_p24_res
         / (grand_product_challenge_global
@@ -189,6 +192,7 @@ pub fn verify_execution(
         p16_grand_product_evals_on_indexes_a,
         p16_grand_product_evals_on_indexes_b,
         p16_grand_product_evals_on_indexes_res,
+        p16_grand_product_evals_on_compression,
     ] = verifier_state.next_extension_scalars_const()?;
     if grand_product_challenge_global
         + finger_print(
@@ -196,6 +200,7 @@ pub fn verify_execution(
                 p16_grand_product_evals_on_indexes_a,
                 p16_grand_product_evals_on_indexes_b,
                 p16_grand_product_evals_on_indexes_res,
+                p16_grand_product_evals_on_compression,
             ],
             grand_product_challenge_p16,
         )
@@ -211,10 +216,6 @@ pub fn verify_execution(
     let mut p16_indexes_b_statements = vec![Evaluation::new(
         grand_product_p16_statement.point.clone(),
         p16_grand_product_evals_on_indexes_b,
-    )];
-    let mut p16_indexes_res_statements = vec![Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_res,
     )];
 
     let [
@@ -341,6 +342,25 @@ pub fn verify_execution(
         p16_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_p16)?;
     let (p24_air_point, p24_evals_to_verify) =
         p24_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_p24)?;
+
+    let mut p16_statements = p16_evals_to_verify[16..p16_air.width() - 16]
+        .iter()
+        .map(|&e| vec![Evaluation::new(p16_air_point.clone(), e)])
+        .collect::<Vec<_>>();
+    p16_statements[0].push(Evaluation::new(
+        grand_product_p16_statement.point.clone(),
+        p16_grand_product_evals_on_compression,
+    ));
+
+    p16_statements[1].push(Evaluation::new(
+        grand_product_p16_statement.point.clone(),
+        p16_grand_product_evals_on_indexes_res,
+    ));
+
+    let p24_statements = p24_evals_to_verify[24..p24_air.width() - 24]
+        .iter()
+        .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])
+        .collect();
 
     let poseidon_logup_star_alpha = verifier_state.sample();
     let memory_folding_challenges = MultilinearPoint(verifier_state.sample_vec(LOG_VECTOR_LEN));
@@ -545,7 +565,11 @@ pub fn verify_execution(
             &poseidon_logup_star_statements.on_indexes.point,
         );
 
-        let mut inner_values = verifier_state.next_extension_scalars_vec(6)?;
+        let mut inner_values = verifier_state.next_extension_scalars_vec(7)?;
+
+        let (left, right) = p16_statements.split_at_mut(18);
+        let p16_statements_res_1 = &mut left[17];
+        let p16_statements_res_2 = &mut right[0];
 
         add_poseidon_lookup_statements_on_indexes(
             log_n_p16,
@@ -555,7 +579,8 @@ pub fn verify_execution(
             [
                 &mut p16_indexes_a_statements,
                 &mut p16_indexes_b_statements,
-                &mut p16_indexes_res_statements,
+                p16_statements_res_1,
+                p16_statements_res_2,
             ],
             [
                 &mut p24_indexes_a_statements,
@@ -564,7 +589,6 @@ pub fn verify_execution(
             ],
         );
 
-        inner_values.insert(3, inner_values[2] + EF::ONE);
         inner_values.insert(5, inner_values[4] + EF::ONE);
 
         for v in &mut inner_values[..4] {
@@ -734,19 +758,12 @@ pub fn verify_execution(
                 ], // exec memory address C
                 p16_indexes_a_statements,
                 p16_indexes_b_statements,
-                p16_indexes_res_statements,
                 p24_indexes_a_statements,
                 p24_indexes_b_statements,
                 p24_indexes_res_statements,
             ],
-            p16_evals_to_verify[16..p16_air.width() - 16]
-                .iter()
-                .map(|&e| vec![Evaluation::new(p16_air_point.clone(), e)])
-                .collect(),
-            p24_evals_to_verify[24..p24_air.width() - 24]
-                .iter()
-                .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])
-                .collect(),
+            p16_statements,
+            p24_statements,
             vec![
                 vec![
                     dot_product_air_statement(0),
@@ -791,6 +808,10 @@ pub fn verify_execution(
         &Default::default(),
     )?;
 
+    dbg!(verifier_state.challenger().state());
+    dbg!(debug_hash(&global_statements_base));
+    dbg!(debug_hash(&global_statements_extension));
+
     WhirConfig::new(whir_config_builder, parsed_commitment_base.num_variables).batch_verify(
         &mut verifier_state,
         &parsed_commitment_base,
@@ -800,4 +821,11 @@ pub fn verify_execution(
     )?;
 
     Ok(())
+}
+
+pub fn debug_hash<H: Hash>(h: &H) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    let mut hasher = DefaultHasher::new();
+    h.hash(&mut hasher);
+    std::hash::Hasher::finish(&hasher)
 }

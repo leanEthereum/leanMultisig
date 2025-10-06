@@ -2,8 +2,6 @@
 
 use crate::core::{F, POSEIDON_24_NULL_HASH_PTR, ZERO_VEC_PTR};
 use p3_field::PrimeCharacteristicRing;
-use p3_symmetric::Permutation;
-use utils::get_poseidon24;
 
 /// Witness data for Poseidon2 over 24 field elements
 #[derive(Debug, Clone)]
@@ -18,8 +16,6 @@ pub struct WitnessPoseidon24 {
     pub addr_output: usize,
     /// Complete 24-element input to the hash function
     pub input: [F; 24],
-    /// Last 8 elements of the hash output
-    pub output: [F; 8],
 }
 
 impl WitnessPoseidon24 {
@@ -30,7 +26,6 @@ impl WitnessPoseidon24 {
         addr_input_b: usize,
         addr_output: usize,
         input: [F; 24],
-        output: [F; 8],
     ) -> Self {
         Self {
             cycle,
@@ -38,7 +33,6 @@ impl WitnessPoseidon24 {
             addr_input_b,
             addr_output,
             input,
-            output,
         }
     }
 
@@ -53,9 +47,6 @@ impl WitnessPoseidon24 {
             addr_input_b: ZERO_VEC_PTR,
             addr_output: POSEIDON_24_NULL_HASH_PTR,
             input: [F::ZERO; 24],
-            output: get_poseidon24().permute([F::ZERO; 24])[16..24]
-                .try_into()
-                .unwrap(),
         }
     }
 

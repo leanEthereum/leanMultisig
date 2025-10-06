@@ -242,12 +242,6 @@ fn vm_precompile_events_capture_expected_data() {
     expected_poseidon16_input[VECTOR_LEN..].copy_from_slice(&poseidon16_input_b);
     assert_eq!(poseidon16_event.input, expected_poseidon16_input);
 
-    let poseidon16_output = execution_result
-        .memory
-        .get_vectorized_slice(poseidon16_event.addr_output, 2)
-        .unwrap();
-    assert_eq!(poseidon16_output, poseidon16_event.output.to_vec());
-
     let poseidon24_event = &execution_result.poseidons_24[0];
     assert_eq!(poseidon24_event.cycle, Some(1));
     assert_eq!(poseidon24_event.addr_input_a, POSEIDON24_ARG_A_PTR);
@@ -268,12 +262,6 @@ fn vm_precompile_events_capture_expected_data() {
     expected_poseidon24_input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&poseidon24_input_a1);
     expected_poseidon24_input[2 * VECTOR_LEN..].copy_from_slice(&poseidon24_input_b);
     assert_eq!(poseidon24_event.input, expected_poseidon24_input);
-
-    let poseidon24_output = execution_result
-        .memory
-        .get_vector(poseidon24_event.addr_output)
-        .unwrap();
-    assert_eq!(poseidon24_output, poseidon24_event.output);
 
     let dot_event = &execution_result.dot_products[0];
     assert_eq!(dot_event.cycle, 2);

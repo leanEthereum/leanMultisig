@@ -103,17 +103,19 @@ fn prepare_poseidon(config: &Poseidon2Config) -> PoseidonSetup {
     let inputs_24: Vec<[F; 24]> = (0..n_poseidons_24)
         .map(|_| std::array::from_fn(|_| rng.random()))
         .collect();
+    let compress = vec![true; n_poseidons_16];
+    let index_res: Vec<usize> = vec![0; n_poseidons_16]; // unused
 
-    let witness_matrix_16 = generate_trace_poseidon_16(inputs_16);
-    let witness_matrix_24 = generate_trace_poseidon_24(inputs_24);
+    let witness_matrix_16 = generate_trace_poseidon_16(&inputs_16, &compress, &index_res);
+    let witness_matrix_24 = generate_trace_poseidon_24(&inputs_24);
 
     assert_eq!(
-        &witness_matrix_16.values[n_columns_16 - 16..n_columns_16],
-        get_poseidon16().permute(witness_matrix_16.values[0..16].try_into().unwrap())
+        &witness_matrix_16.values[n_columns_16 - 16..n_columns_16 - 8],
+        &get_poseidon16().permute(witness_matrix_16.values[0..16].try_into().unwrap())[..8]
     );
     assert_eq!(
-        &witness_matrix_24.values[n_columns_24 - 24..n_columns_24],
-        get_poseidon24().permute(witness_matrix_24.values[0..24].try_into().unwrap())
+        &witness_matrix_24.values[n_columns_24 - 8..n_columns_24],
+        &get_poseidon24().permute(witness_matrix_24.values[0..24].try_into().unwrap())[16..]
     );
 
     let witness_matrix_16_transposed = witness_matrix_16.transpose();

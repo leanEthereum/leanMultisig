@@ -28,6 +28,8 @@
 - opti compute_eval_eq when scalar = ONE
 - Dmitry's range check, bonus: we can spare 2 memory cells if the value being range check is small (using the zeros present by conventio on the public memory)
 - Make everything "padding aware" (including WHIR, logup*, AIR, etc)
+- Opti WHIR: in sumcheck we know more than f(0) + f(1), we know f(0) and f(1)
+- Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306
 
 About "the packed pcs" (similar to SP1 Jagged PCS, slightly less efficient, but simpler (no sumchecks)):
 - The best strategy is probably to pack as much as possible (the cost increasing the density = additional inner evaluations), if we can fit below a power of 2 - epsilon  (epsilon = 20% for instance, tbd), if the sum of the non zero data is just above a power of 2, no packed technique, even the best, can help us, so we should spread aniway (to reduce the pressure of inner evaluations)
