@@ -19,7 +19,7 @@ fn test_zk_vm() {
 
         for i in 0..500 {
             x = malloc_vec(6);
-            poseidon16(i + 3, i, x, COMPRESSION);
+            poseidon16(i + 3, i, x, PERMUTATION);
             poseidon24(i + 3, i, x + 2);
             dot_product(i*2, i, (x + 3) * 8, 1);
             dot_product(i*3, i + 7, (x + 4) * 8, 2);

@@ -893,6 +893,14 @@ pub fn prove_execution(
         let p16_statements_res_1 = &mut left[17];
         let p16_statements_res_2 = &mut right[0];
 
+        assert_eq!(
+            p16_columns[17].evaluate(&MultilinearPoint(
+                poseidon_logup_star_statements.on_indexes.point[3..].to_vec()
+            )),
+            inner_values[2]
+        );
+        dbg!(inner_values[2]);
+
         add_poseidon_lookup_statements_on_indexes(
             log_n_p16,
             log_n_p24,
@@ -997,79 +1005,91 @@ pub fn prove_execution(
     };
 
     // First Opening
+    let all_base_statements = [
+        vec![
+            memory_statements,
+            vec![
+                exec_air_statement(COL_INDEX_PC),
+                bytecode_logup_star_statements.on_indexes.clone(),
+                initial_pc_statement,
+                final_pc_statement,
+            ], // pc
+            vec![exec_air_statement(COL_INDEX_FP), grand_product_fp_statement], // fp
+            vec![
+                exec_air_statement(COL_INDEX_MEM_ADDRESS_A),
+                Evaluation::new(
+                    mem_lookup_eval_indexes_partial_point.clone(),
+                    mem_lookup_eval_indexes_a,
+                ),
+            ], // exec memory address A
+            vec![
+                exec_air_statement(COL_INDEX_MEM_ADDRESS_B),
+                Evaluation::new(
+                    mem_lookup_eval_indexes_partial_point.clone(),
+                    mem_lookup_eval_indexes_b,
+                ),
+            ], // exec memory address B
+            vec![
+                exec_air_statement(COL_INDEX_MEM_ADDRESS_C),
+                Evaluation::new(
+                    mem_lookup_eval_indexes_partial_point,
+                    mem_lookup_eval_indexes_c,
+                ),
+            ], // exec memory address C
+            p16_indexes_a_statements,
+            p16_indexes_b_statements,
+            p24_indexes_a_statements,
+            p24_indexes_b_statements,
+            p24_indexes_res_statements,
+        ],
+        p16_statements,
+        p24_statements,
+        vec![
+            vec![
+                dot_product_air_statement(0),
+                grand_product_dot_product_flag_statement,
+            ], // dot product: (start) flag
+            vec![
+                dot_product_air_statement(1),
+                grand_product_dot_product_len_statement,
+            ], // dot product: length
+            vec![
+                dot_product_air_statement(2),
+                dot_product_logup_star_indexes_statement_a,
+                grand_product_dot_product_table_indexes_statement_index_a,
+            ], // dot product: indexe a
+            vec![
+                dot_product_air_statement(3),
+                dot_product_logup_star_indexes_statement_b,
+                grand_product_dot_product_table_indexes_statement_index_b,
+            ], // dot product: indexe b
+            vec![
+                dot_product_air_statement(4),
+                dot_product_logup_star_indexes_statement_res,
+                grand_product_dot_product_table_indexes_statement_index_res,
+            ], // dot product: indexe res
+        ],
+        dot_product_computation_column_statements,
+    ]
+    .concat();
     let global_statements_base = packed_pcs_global_statements_for_prover(
         &base_pols,
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &[
-            vec![
-                memory_statements,
-                vec![
-                    exec_air_statement(COL_INDEX_PC),
-                    bytecode_logup_star_statements.on_indexes.clone(),
-                    initial_pc_statement,
-                    final_pc_statement,
-                ], // pc
-                vec![exec_air_statement(COL_INDEX_FP), grand_product_fp_statement], // fp
-                vec![
-                    exec_air_statement(COL_INDEX_MEM_ADDRESS_A),
-                    Evaluation::new(
-                        mem_lookup_eval_indexes_partial_point.clone(),
-                        mem_lookup_eval_indexes_a,
-                    ),
-                ], // exec memory address A
-                vec![
-                    exec_air_statement(COL_INDEX_MEM_ADDRESS_B),
-                    Evaluation::new(
-                        mem_lookup_eval_indexes_partial_point.clone(),
-                        mem_lookup_eval_indexes_b,
-                    ),
-                ], // exec memory address B
-                vec![
-                    exec_air_statement(COL_INDEX_MEM_ADDRESS_C),
-                    Evaluation::new(
-                        mem_lookup_eval_indexes_partial_point,
-                        mem_lookup_eval_indexes_c,
-                    ),
-                ], // exec memory address C
-                p16_indexes_a_statements,
-                p16_indexes_b_statements,
-                p24_indexes_a_statements,
-                p24_indexes_b_statements,
-                p24_indexes_res_statements,
-            ],
-            p16_statements,
-            p24_statements,
-            vec![
-                vec![
-                    dot_product_air_statement(0),
-                    grand_product_dot_product_flag_statement,
-                ], // dot product: (start) flag
-                vec![
-                    dot_product_air_statement(1),
-                    grand_product_dot_product_len_statement,
-                ], // dot product: length
-                vec![
-                    dot_product_air_statement(2),
-                    dot_product_logup_star_indexes_statement_a,
-                    grand_product_dot_product_table_indexes_statement_index_a,
-                ], // dot product: indexe a
-                vec![
-                    dot_product_air_statement(3),
-                    dot_product_logup_star_indexes_statement_b,
-                    grand_product_dot_product_table_indexes_statement_index_b,
-                ], // dot product: indexe b
-                vec![
-                    dot_product_air_statement(4),
-                    dot_product_logup_star_indexes_statement_res,
-                    grand_product_dot_product_table_indexes_statement_index_res,
-                ], // dot product: indexe res
-            ],
-            dot_product_computation_column_statements,
-        ]
-        .concat(),
+        &all_base_statements,
         &mut prover_state,
     );
+
+    dbg!(111);
+
+    for (i, (pol, statement)) in base_pols.iter().zip(all_base_statements.iter()).enumerate() {
+        dbg!(i);
+        for (j, stmt) in statement.iter().enumerate() {
+            dbg!(j);
+            assert_eq!(pol.evaluate(&stmt.point), stmt.value, "{}", stmt.value);
+        }
+    }
+    dbg!(333);
 
     // Second Opening
     let global_statements_extension = packed_pcs_global_statements_for_prover(
@@ -1084,6 +1104,7 @@ pub fn prove_execution(
         &mut prover_state,
     );
 
+    dbg!(1111);
 
     for statement in global_statements_base[0..].iter() {
         assert_eq!(
@@ -1093,6 +1114,8 @@ pub fn prove_execution(
             statement.value,
         );
     }
+
+    dbg!(2222);
 
     WhirConfig::new(
         whir_config_builder,

@@ -20,6 +20,8 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
     // Public input:  message_hash | all_public_keys | bitield
     // Private input: signatures = (randomness | chain_tips | merkle_path)
     let mut program_str = r#"
+    const COMPRESSION = 1;
+    const PERMUTATION = 0;
 
     const V = 68;
     const W = 4;
@@ -61,7 +63,7 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
         // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
         compressed = malloc_vec(2);
-        poseidon16(message_hash, randomness, compressed);
+        poseidon16(message_hash, randomness, compressed, PERMUTATION);
         compressed_ptr = compressed * 8;
         decomposed = decompose_custom(compressed_ptr[0], compressed_ptr[1], compressed_ptr[2], compressed_ptr[3], compressed_ptr[4], compressed_ptr[5]);
         
@@ -121,21 +123,21 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
                     var_2 = public_key + 4 * i;
                     var_3 = malloc_vec(2);
                     var_4 = malloc_vec(2);
-                    poseidon16(var_1, pointer_to_zero_vector, var_3);
-                    poseidon16(var_3, pointer_to_zero_vector, var_4);
-                    poseidon16(var_4, pointer_to_zero_vector, var_2);
+                    poseidon16(var_1, pointer_to_zero_vector, var_3, PERMUTATION);
+                    poseidon16(var_3, pointer_to_zero_vector, var_4, PERMUTATION);
+                    poseidon16(var_4, pointer_to_zero_vector, var_2, PERMUTATION);
                 }
                 1 => {
                     var_3 = malloc_vec(2);
                     var_1 = chain_tips + 2 * i;
                     var_2 = public_key + 4 * i;
-                    poseidon16(var_1, pointer_to_zero_vector, var_3);
-                    poseidon16(var_3, pointer_to_zero_vector, var_2);
+                    poseidon16(var_1, pointer_to_zero_vector, var_3, PERMUTATION);
+                    poseidon16(var_3, pointer_to_zero_vector, var_2, PERMUTATION);
                 }
                 2 => {
                     var_1 = chain_tips + 2 * i;
                     var_2 = public_key + 4 * i;
-                    poseidon16(var_1, pointer_to_zero_vector, var_2);
+                    poseidon16(var_1, pointer_to_zero_vector, var_2, PERMUTATION);
                 }
                 3 => {
                     var_1 = chain_tips_ptr + ((2 * i) * 8);
@@ -155,21 +157,21 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
                     var_2 = public_key + (4 * i + 2);
                     var_3 = malloc_vec(2);
                     var_4 = malloc_vec(2);
-                    poseidon16(var_1, pointer_to_zero_vector, var_3);
-                    poseidon16(var_3, pointer_to_zero_vector, var_4);
-                    poseidon16(var_4, pointer_to_zero_vector, var_2);
+                    poseidon16(var_1, pointer_to_zero_vector, var_3, PERMUTATION);
+                    poseidon16(var_3, pointer_to_zero_vector, var_4, PERMUTATION);
+                    poseidon16(var_4, pointer_to_zero_vector, var_2, PERMUTATION);
                 }
                 1 => {
                     var_1 = chain_tips + (2 * i + 1);
                     var_2 = public_key + (4 * i + 2);
                     var_3 = malloc_vec(2);
-                    poseidon16(var_1, pointer_to_zero_vector, var_3);
-                    poseidon16(var_3, pointer_to_zero_vector, var_2);
+                    poseidon16(var_1, pointer_to_zero_vector, var_3, PERMUTATION);
+                    poseidon16(var_3, pointer_to_zero_vector, var_2, PERMUTATION);
                 }
                 2 => {
                     var_1 = chain_tips + (2 * i + 1);
                     var_2 = public_key + (4 * i + 2);
-                    poseidon16(var_1, pointer_to_zero_vector, var_2);
+                    poseidon16(var_1, pointer_to_zero_vector, var_2, PERMUTATION);
                 }
                 3 => {
                     var_1 = chain_tips_ptr + ((2 * i + 1) * 8);
@@ -193,16 +195,16 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
 
         merkle_hashes = malloc_vec(LOG_LIFETIME * 2);
         if merkle_are_left[0] == 1 {
-            poseidon16(wots_pubkey_hashed, merkle_neighbours, merkle_hashes);
+            poseidon16(wots_pubkey_hashed, merkle_neighbours, merkle_hashes, PERMUTATION);
         } else {
-            poseidon16(merkle_neighbours, wots_pubkey_hashed, merkle_hashes);
+            poseidon16(merkle_neighbours, wots_pubkey_hashed, merkle_hashes, PERMUTATION);
         }
 
         for h in 1..LOG_LIFETIME unroll {
             if merkle_are_left[h] == 1 {
-                poseidon16(merkle_hashes + (2 * (h-1)), merkle_neighbours + h, merkle_hashes + 2 * h);
+                poseidon16(merkle_hashes + (2 * (h-1)), merkle_neighbours + h, merkle_hashes + 2 * h, PERMUTATION);
             } else {
-                poseidon16(merkle_neighbours + h, merkle_hashes + (2 * (h-1)), merkle_hashes + 2 * h);
+                poseidon16(merkle_neighbours + h, merkle_hashes + (2 * (h-1)), merkle_hashes + 2 * h, PERMUTATION);
             }
         }
 
