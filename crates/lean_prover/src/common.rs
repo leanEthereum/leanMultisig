@@ -46,9 +46,9 @@ pub fn get_base_dims(
         vec![
             ColDims::padded(n_rows_table_dot_products, F::ONE), // dot product: (start) flag
             ColDims::padded(n_rows_table_dot_products, F::ONE), // dot product: length
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index a
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index b
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index res
+            // ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index a
+            // ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index b
+            // ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index res
         ],
         vec![ColDims::padded(n_rows_table_dot_products, F::ZERO); DIMENSION], // dot product: computation
     ]

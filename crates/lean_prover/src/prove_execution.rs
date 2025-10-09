@@ -97,7 +97,12 @@ pub fn prove_execution(
 
     let (p16_columns, p24_columns) = build_poseidon_columns(&poseidons_16, &poseidons_24);
 
-    let (dot_product_columns, dot_product_padding_len) = build_dot_product_columns(&dot_products);
+    let (
+        dot_product_columns,
+        dot_product_padding_len,
+        dot_product_memory_columns,
+        dot_product_meta_indexes,
+    ) = build_dot_product_columns(&dot_products, &memory);
 
     let dot_product_flags: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[0]).unwrap();
     let dot_product_lengths: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[1]).unwrap();
@@ -164,9 +169,9 @@ pub fn prove_execution(
         n_rows_table_dot_products,
     );
 
-    let dot_product_col_index_a = field_slice_as_base(&dot_product_columns[2]).unwrap();
-    let dot_product_col_index_b = field_slice_as_base(&dot_product_columns[3]).unwrap();
-    let dot_product_col_index_res = field_slice_as_base(&dot_product_columns[4]).unwrap();
+    // let dot_product_col_index_a = field_slice_as_base(&dot_product_columns[2]).unwrap();
+    // let dot_product_col_index_b = field_slice_as_base(&dot_product_columns[3]).unwrap();
+    // let dot_product_col_index_res = field_slice_as_base(&dot_product_columns[4]).unwrap();
 
     let base_pols = [
         vec![
@@ -193,9 +198,9 @@ pub fn prove_execution(
         vec![
             dot_product_flags.as_slice(),
             dot_product_lengths.as_slice(),
-            dot_product_col_index_a.as_slice(),
-            dot_product_col_index_b.as_slice(),
-            dot_product_col_index_res.as_slice(),
+            // dot_product_col_index_a.as_slice(),
+            // dot_product_col_index_b.as_slice(),
+            // dot_product_col_index_res.as_slice(),
         ],
         dot_product_computations_base
             .iter()
