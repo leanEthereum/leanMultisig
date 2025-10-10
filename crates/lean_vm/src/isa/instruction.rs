@@ -301,31 +301,31 @@ impl Instruction {
                 res,
                 size,
             } => {
-                let ptr_arg_0 = arg0.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_arg_1 = arg1.read_value(ctx.memory, *ctx.fp)?.to_usize();
+                let addr_a = arg0.read_value(ctx.memory, *ctx.fp)?.to_usize();
+                let addr_b = arg1.read_value(ctx.memory, *ctx.fp)?.to_usize();
                 let ptr_res = res.read_value(ctx.memory, *ctx.fp)?.to_usize();
 
-                let slice_0 = ctx
+                let slice_a = ctx
                     .memory
-                    .get_continuous_slice_of_ef_elements(ptr_arg_0, *size)?;
-                let slice_1 = ctx
+                    .get_continuous_slice_of_ef_elements(addr_a, *size)?;
+                let slice_b = ctx
                     .memory
-                    .get_continuous_slice_of_ef_elements(ptr_arg_1, *size)?;
+                    .get_continuous_slice_of_ef_elements(addr_b, *size)?;
 
                 let dot_product_result =
-                    dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
+                    dot_product::<EF, _, _>(slice_a.iter().copied(), slice_b.iter().copied());
                 ctx.memory.set_ef_element(ptr_res, dot_product_result)?;
 
                 {
                     let cycle = ctx.pcs.len() - 1;
                     ctx.dot_products.push(WitnessDotProduct {
                         cycle,
-                        addr_0: ptr_arg_0,
-                        addr_1: ptr_arg_1,
+                        addr_a,
+                        addr_b,
                         addr_res: ptr_res,
                         len: *size,
-                        slice_0: slice_0.clone(),
-                        slice_1: slice_1.clone(),
+                        slice_0: slice_a.clone(),
+                        slice_1: slice_b.clone(),
                         res: dot_product_result,
                     });
                 }

@@ -9,9 +9,9 @@ pub struct WitnessDotProduct {
     /// Execution cycle when this operation occurred
     pub cycle: usize,
     /// Memory address of first input vector (normal pointer)
-    pub addr_0: usize,
+    pub addr_a: usize,
     /// Memory address of second input vector (normal pointer)
-    pub addr_1: usize,
+    pub addr_b: usize,
     /// Memory address where result is stored (normal pointer)
     pub addr_res: usize,
     /// Length of the input vectors
@@ -28,8 +28,8 @@ impl WitnessDotProduct {
     /// Get memory addresses and vector length as field elements
     pub fn addresses_and_len_field_repr(&self) -> [F; 4] {
         [
-            F::from_usize(self.addr_0),
-            F::from_usize(self.addr_1),
+            F::from_usize(self.addr_a),
+            F::from_usize(self.addr_b),
             F::from_usize(self.addr_res),
             F::from_usize(self.len),
         ]

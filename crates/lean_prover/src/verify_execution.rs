@@ -409,20 +409,7 @@ pub fn verify_execution(
     if dot_product_with_base(&dot_product_evals_spread) != dot_product_values_mixed {
         return Err(ProofError::InvalidProof);
     }
-    let dot_product_values_batching_scalars = MultilinearPoint(verifier_state.sample_vec(3));
-    let dot_product_values_batched_point = MultilinearPoint(
-        [
-            dot_product_values_batching_scalars.0.clone(),
-            dot_product_values_mixing_challenges.0.clone(),
-            dot_product_air_point.0.clone(),
-        ]
-        .concat(),
-    );
-    let dot_product_values_batched_eval =
-        padd_with_zero_to_next_power_of_two(&dot_product_evals_spread)
-            .evaluate(&dot_product_values_batching_scalars);
-
-    let unused_1 = verifier_state.next_extension_scalar()?;
+   
     let grand_product_mem_values_mixing_challenges = MultilinearPoint(verifier_state.sample_vec(2));
     let base_memory_lookup_statement_1 = Evaluation::new(
         [
@@ -434,12 +421,11 @@ pub fn verify_execution(
             grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_A],
             grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_B],
             grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_C],
-            unused_1,
+            EF::ZERO,
         ]
         .evaluate(&grand_product_mem_values_mixing_challenges),
     );
 
-    let unused_2 = verifier_state.next_extension_scalar()?;
     let exec_air_mem_values_mixing_challenges = MultilinearPoint(verifier_state.sample_vec(2));
     let base_memory_lookup_statement_2 = Evaluation::new(
         [
@@ -451,30 +437,11 @@ pub fn verify_execution(
             exec_evals_to_verify[COL_INDEX_MEM_VALUE_A.index_in_air()],
             exec_evals_to_verify[COL_INDEX_MEM_VALUE_B.index_in_air()],
             exec_evals_to_verify[COL_INDEX_MEM_VALUE_C.index_in_air()],
-            unused_2,
+            EF::ZERO,
         ]
         .evaluate(&exec_air_mem_values_mixing_challenges),
     );
 
-    let [unused_3a, unused_3b, unused_3c] = verifier_state.next_extension_scalars_const()?;
-
-    let dot_product_air_mem_values_mixing_challenges =
-        MultilinearPoint(verifier_state.sample_vec(2));
-    let base_memory_lookup_statement_3 = Evaluation::new(
-        [
-            dot_product_air_mem_values_mixing_challenges.0.clone(),
-            EF::zero_vec(log_n_cycles - dot_product_values_batched_point.len()),
-            dot_product_values_batched_point.0.clone(),
-        ]
-        .concat(),
-        [
-            unused_3a,
-            unused_3b,
-            unused_3c,
-            dot_product_values_batched_eval,
-        ]
-        .evaluate(&dot_product_air_mem_values_mixing_challenges),
-    );
 
     let memory_poly_eq_point_alpha = verifier_state.sample();
 
@@ -506,7 +473,6 @@ pub fn verify_execution(
         &[
             base_memory_lookup_statement_1,
             base_memory_lookup_statement_2,
-            base_memory_lookup_statement_3,
         ],
         memory_poly_eq_point_alpha,
     )

@@ -97,7 +97,8 @@ pub fn prove_execution(
 
     let (p16_columns, p24_columns) = build_poseidon_columns(&poseidons_16, &poseidons_24);
 
-    let (dot_product_columns, dot_product_padding_len) = build_dot_product_columns(&dot_products);
+    let (dot_product_columns, dot_product_padding_len) =
+        build_dot_product_columns(&dot_products, &memory);
 
     let dot_product_flags: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[0]).unwrap();
     let dot_product_lengths: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[1]).unwrap();
@@ -683,23 +684,6 @@ pub fn prove_execution(
     );
     prover_state.add_extension_scalars(&dot_product_evals_spread);
 
-    let dot_product_values_batching_scalars = MultilinearPoint(prover_state.sample_vec(3));
-
-    let dot_product_values_batched_point = MultilinearPoint(
-        [
-            dot_product_values_batching_scalars.0.clone(),
-            dot_product_values_mixing_challenges.0.clone(),
-            dot_product_air_point.0.clone(),
-        ]
-        .concat(),
-    );
-    let dot_product_values_batched_eval =
-        padd_with_zero_to_next_power_of_two(&dot_product_evals_spread)
-            .evaluate(&dot_product_values_batching_scalars);
-
-    let concatenated_dot_product_values_spread =
-        padd_with_zero_to_next_power_of_two(&dot_product_values_spread.concat());
-
     let padded_dot_product_indexes_spread =
         padd_with_zero_to_next_power_of_two(&dot_product_indexes_spread.concat());
 
@@ -707,12 +691,6 @@ pub fn prove_execution(
         padded_dot_product_indexes_spread.len() <= 1 << log_n_cycles,
         "TODO a more general commitment structure"
     );
-
-    let unused_1 = evaluate_as_larger_multilinear_pol(
-        &concatenated_dot_product_values_spread,
-        &grand_product_exec_sumcheck_point,
-    );
-    prover_state.add_extension_scalar(unused_1);
 
     let grand_product_mem_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
     let base_memory_lookup_statement_1 = Evaluation::new(
@@ -725,16 +703,11 @@ pub fn prove_execution(
             grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_A],
             grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_B],
             grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_C],
-            unused_1,
+            EF::ZERO,
         ]
         .evaluate(&grand_product_mem_values_mixing_challenges),
     );
 
-    let unused_2 = evaluate_as_larger_multilinear_pol(
-        &concatenated_dot_product_values_spread,
-        &exec_air_point,
-    );
-    prover_state.add_extension_scalar(unused_2);
     let exec_air_mem_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
     let base_memory_lookup_statement_2 = Evaluation::new(
         [
@@ -746,40 +719,9 @@ pub fn prove_execution(
             exec_evals_to_prove[COL_INDEX_MEM_VALUE_A.index_in_air()],
             exec_evals_to_prove[COL_INDEX_MEM_VALUE_B.index_in_air()],
             exec_evals_to_prove[COL_INDEX_MEM_VALUE_C.index_in_air()],
-            unused_2,
+            EF::ZERO,
         ]
         .evaluate(&exec_air_mem_values_mixing_challenges),
-    );
-
-    let unused_3a = evaluate_as_smaller_multilinear_pol(
-        &full_trace[COL_INDEX_MEM_VALUE_A],
-        &dot_product_values_batched_point,
-    );
-    let unused_3b = evaluate_as_smaller_multilinear_pol(
-        &full_trace[COL_INDEX_MEM_VALUE_B],
-        &dot_product_values_batched_point,
-    );
-    let unused_3c = evaluate_as_smaller_multilinear_pol(
-        &full_trace[COL_INDEX_MEM_VALUE_C],
-        &dot_product_values_batched_point,
-    );
-    prover_state.add_extension_scalars(&[unused_3a, unused_3b, unused_3c]);
-
-    let dot_product_air_mem_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
-    let base_memory_lookup_statement_3 = Evaluation::new(
-        [
-            dot_product_air_mem_values_mixing_challenges.0.clone(),
-            EF::zero_vec(log_n_cycles - dot_product_values_batched_point.len()),
-            dot_product_values_batched_point.0.clone(),
-        ]
-        .concat(),
-        [
-            unused_3a,
-            unused_3b,
-            unused_3c,
-            dot_product_values_batched_eval,
-        ]
-        .evaluate(&dot_product_air_mem_values_mixing_challenges),
     );
 
     // Main memory lookup
@@ -787,11 +729,7 @@ pub fn prove_execution(
         full_trace[COL_INDEX_MEM_ADDRESS_A].clone(),
         full_trace[COL_INDEX_MEM_ADDRESS_B].clone(),
         full_trace[COL_INDEX_MEM_ADDRESS_C].clone(),
-        [
-            padded_dot_product_indexes_spread.clone(),
-            F::zero_vec((1 << log_n_cycles) - padded_dot_product_indexes_spread.len()),
-        ]
-        .concat(),
+        F::zero_vec(n_cycles),
     ]
     .concat();
 
@@ -802,11 +740,6 @@ pub fn prove_execution(
         &base_memory_lookup_statement_2.point,
         &mut base_memory_poly_eq_point,
         memory_poly_eq_point_alpha,
-    );
-    compute_eval_eq::<PF<EF>, EF, true>(
-        &base_memory_lookup_statement_3.point,
-        &mut base_memory_poly_eq_point,
-        memory_poly_eq_point_alpha.square(),
     );
     let base_memory_pushforward = compute_pushforward(
         &base_memory_indexes,
@@ -844,8 +777,7 @@ pub fn prove_execution(
         &MleRef::Base(&memory),
         &base_memory_indexes,
         base_memory_lookup_statement_1.value
-            + memory_poly_eq_point_alpha * base_memory_lookup_statement_2.value
-            + memory_poly_eq_point_alpha.square() * base_memory_lookup_statement_3.value,
+            + memory_poly_eq_point_alpha * base_memory_lookup_statement_2.value,
         &base_memory_poly_eq_point,
         &base_memory_pushforward,
         Some(non_zero_memory_size),

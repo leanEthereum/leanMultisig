@@ -265,8 +265,8 @@ fn vm_precompile_events_capture_expected_data() {
 
     let dot_event = &execution_result.dot_products[0];
     assert_eq!(dot_event.cycle, 2);
-    assert_eq!(dot_event.addr_0, DOT_ARG0_PTR);
-    assert_eq!(dot_event.addr_1, DOT_ARG1_PTR);
+    assert_eq!(dot_event.addr_a, DOT_ARG0_PTR);
+    assert_eq!(dot_event.addr_b, DOT_ARG1_PTR);
 
     let dot_res_ptr = execution_result
         .memory
