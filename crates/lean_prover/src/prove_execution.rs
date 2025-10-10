@@ -102,8 +102,39 @@ pub fn prove_execution(
 
     let dot_product_flags: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[0]).unwrap();
     let dot_product_lengths: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[1]).unwrap();
+    let dot_product_col_index_a = field_slice_as_base(&dot_product_columns[2]).unwrap();
+    let dot_product_col_index_b = field_slice_as_base(&dot_product_columns[3]).unwrap();
+    let dot_product_col_index_res = field_slice_as_base(&dot_product_columns[4]).unwrap();
+    let dot_product_index_vec_a_1: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[9]).unwrap();
+    let dot_product_index_vec_a_2: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[10]).unwrap();
+    let dot_product_offset_a: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[11]).unwrap();
+    let dot_product_index_vec_b_1: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[28]).unwrap();
+    let dot_product_index_vec_b_2: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[29]).unwrap();
+    let dot_product_offset_b: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[30]).unwrap();
+    let dot_product_index_vec_res_1: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[47]).unwrap();
+    let dot_product_index_vec_res_2: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[48]).unwrap();
+    let dot_product_offset_res: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[49]).unwrap();
 
-    let dot_product_computations: &[EF] = &dot_product_columns[8];
+    let dot_prouduct_value_a = &dot_product_columns[5];
+    let dot_prouduct_value_a_base =
+        transpose_slice_to_basis_coefficients::<F, EF>(dot_prouduct_value_a);
+
+    let dot_prouduct_value_b = &dot_product_columns[6];
+    let dot_prouduct_value_b_base =
+        transpose_slice_to_basis_coefficients::<F, EF>(dot_prouduct_value_b);
+
+    let dot_prouduct_value_res = &dot_product_columns[7];
+    let dot_prouduct_value_res_base =
+        transpose_slice_to_basis_coefficients::<F, EF>(dot_prouduct_value_res);
+
+    let dot_product_computations = &dot_product_columns[8];
     let dot_product_computations_base =
         transpose_slice_to_basis_coefficients::<F, EF>(dot_product_computations);
 
@@ -165,10 +196,6 @@ pub fn prove_execution(
         n_rows_table_dot_products,
     );
 
-    let dot_product_col_index_a = field_slice_as_base(&dot_product_columns[2]).unwrap();
-    let dot_product_col_index_b = field_slice_as_base(&dot_product_columns[3]).unwrap();
-    let dot_product_col_index_res = field_slice_as_base(&dot_product_columns[4]).unwrap();
-
     let base_pols = [
         vec![
             memory.as_slice(),
@@ -191,6 +218,7 @@ pub fn prove_execution(
             .iter()
             .map(Vec::as_slice)
             .collect::<Vec<_>>(),
+        // DOT PRODUCT COLUMNS
         vec![
             dot_product_flags.as_slice(),
             dot_product_lengths.as_slice(),
@@ -198,10 +226,30 @@ pub fn prove_execution(
             dot_product_col_index_b.as_slice(),
             dot_product_col_index_res.as_slice(),
         ],
+        dot_prouduct_value_a_base
+            .iter()
+            .map(Vec::as_slice)
+            .collect(),
+        dot_prouduct_value_b_base
+            .iter()
+            .map(Vec::as_slice)
+            .collect(),
+        dot_prouduct_value_res_base
+            .iter()
+            .map(Vec::as_slice)
+            .collect(),
         dot_product_computations_base
             .iter()
             .map(Vec::as_slice)
             .collect(),
+        vec![
+            dot_product_index_vec_a_1.as_slice(),
+            dot_product_offset_a.as_slice(),
+            dot_product_index_vec_b_1.as_slice(),
+            dot_product_offset_b.as_slice(),
+            dot_product_index_vec_res_1.as_slice(),
+            dot_product_offset_res.as_slice(),
+        ],
     ]
     .concat();
 
@@ -534,6 +582,31 @@ pub fn prove_execution(
             dot_product_table.prove_extension(&mut prover_state, 1, &dot_product_columns_ref)
         });
 
+    let mut dot_product_vec_index_a_statements = vec![Evaluation::new(
+        dot_product_air_point.clone(),
+        dot_product_evals_to_prove[9],
+    )];
+    let mut dot_product_vec_index_b_statements = vec![Evaluation::new(
+        dot_product_air_point.clone(),
+        dot_product_evals_to_prove[28],
+    )];
+    let mut dot_product_vec_index_res_statements = vec![Evaluation::new(
+        dot_product_air_point.clone(),
+        dot_product_evals_to_prove[47],
+    )];
+    let dot_product_offset_a_statements = vec![Evaluation::new(
+        dot_product_air_point.clone(),
+        dot_product_evals_to_prove[11],
+    )];
+    let dot_product_offset_b_statements = vec![Evaluation::new(
+        dot_product_air_point.clone(),
+        dot_product_evals_to_prove[30],
+    )];
+    let dot_product_offset_res_statements = vec![Evaluation::new(
+        dot_product_air_point.clone(),
+        dot_product_evals_to_prove[49],
+    )];
+
     let p16_columns_ref = p16_columns.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let (p16_air_point, p16_evals_to_prove) = info_span!("Poseidon-16 AIR proof")
         .in_scope(|| p16_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &p16_columns_ref));
@@ -560,7 +633,7 @@ pub fn prove_execution(
         .collect();
 
     // Poseidons 16/24 memory addresses lookup
-    let poseidon_logup_star_alpha = prover_state.sample();
+    let precompile_logup_star_alpha = prover_state.sample();
     let memory_folding_challenges = MultilinearPoint(prover_state.sample_vec(LOG_VECTOR_LEN));
 
     let poseidon_lookup_statements = get_poseidon_lookup_statements(
@@ -571,23 +644,57 @@ pub fn prove_execution(
         &memory_folding_challenges,
     );
 
-    let all_poseidon_indexes = full_poseidon_indexes_poly(&poseidons_16, &poseidons_24);
+    let all_poseidon_indexes = full_poseidon_indexes(&poseidons_16, &poseidons_24);
 
-    let poseidon_folded_memory = fold_multilinear_chunks(&memory, &memory_folding_challenges);
+    let precompile_folded_memory = fold_multilinear_chunks(&memory, &memory_folding_challenges);
 
     let mut poseidon_poly_eq_point = EF::zero_vec(all_poseidon_indexes.len());
     for (i, statement) in poseidon_lookup_statements.iter().enumerate() {
         compute_sparse_eval_eq::<EF>(
             &statement.point,
             &mut poseidon_poly_eq_point,
-            poseidon_logup_star_alpha.exp_u64(i as u64),
+            precompile_logup_star_alpha.exp_u64(i as u64),
         );
     }
 
     let poseidon_pushforward = compute_pushforward(
         &all_poseidon_indexes,
-        poseidon_folded_memory.len(),
+        precompile_folded_memory.len(),
         &poseidon_poly_eq_point,
+    );
+
+    // Dot product memory addresses lookup
+
+    let dot_product_lookup_statements = get_dot_product_lookup_statements(
+        &dot_product_evals_to_prove,
+        &dot_product_air_point,
+        &memory_folding_challenges,
+    );
+
+    let all_dot_product_vec_indexes = [
+        dot_product_index_vec_a_1.clone(),
+        dot_product_index_vec_a_2.clone(),
+        dot_product_index_vec_b_1.clone(),
+        dot_product_index_vec_b_2.clone(),
+        dot_product_index_vec_res_1.clone(),
+        dot_product_index_vec_res_2.clone(),
+        F::zero_vec(dot_product_index_vec_a_1.len() * 2), // padding
+    ]
+    .concat();
+
+    let mut dot_product_poly_eq_point = EF::zero_vec(all_dot_product_vec_indexes.len());
+    for (i, statement) in dot_product_lookup_statements.iter().enumerate() {
+        compute_sparse_eval_eq::<EF>(
+            &statement.point,
+            &mut dot_product_poly_eq_point,
+            precompile_logup_star_alpha.exp_u64(i as u64),
+        );
+    }
+
+    let dot_product_pushforward = compute_pushforward(
+        &all_dot_product_vec_indexes,
+        precompile_folded_memory.len(),
+        &dot_product_poly_eq_point,
     );
 
     let non_used_precompiles_evals = full_trace
@@ -751,6 +858,7 @@ pub fn prove_execution(
     let extension_pols = vec![
         base_memory_pushforward.as_slice(),
         poseidon_pushforward.as_slice(),
+        dot_product_pushforward.as_slice(),
         bytecode_pushforward.as_slice(),
     ];
 
@@ -784,15 +892,28 @@ pub fn prove_execution(
     );
     let poseidon_logup_star_statements = prove_logup_star(
         &mut prover_state,
-        &MleRef::Extension(&poseidon_folded_memory),
+        &MleRef::Extension(&precompile_folded_memory),
         &all_poseidon_indexes,
         poseidon_lookup_statements
             .iter()
             .enumerate()
-            .map(|(i, s)| s.value * poseidon_logup_star_alpha.exp_u64(i as u64))
+            .map(|(i, s)| s.value * precompile_logup_star_alpha.exp_u64(i as u64))
             .sum(),
         &poseidon_poly_eq_point,
         &poseidon_pushforward,
+        Some(non_zero_memory_size.div_ceil(VECTOR_LEN)),
+    );
+    let dot_product_logup_star_statements = prove_logup_star(
+        &mut prover_state,
+        &MleRef::Extension(&precompile_folded_memory),
+        &all_dot_product_vec_indexes,
+        dot_product_lookup_statements
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s.value * precompile_logup_star_alpha.exp_u64(i as u64))
+            .sum(),
+        &dot_product_poly_eq_point,
+        &dot_product_pushforward,
         Some(non_zero_memory_size.div_ceil(VECTOR_LEN)),
     );
 
@@ -809,7 +930,14 @@ pub fn prove_execution(
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
             poseidon_logup_star_statements.on_table.point.0.clone(),
-            memory_folding_challenges.0,
+            memory_folding_challenges.0.clone(),
+        ]
+        .concat(),
+    );
+    let dot_product_lookup_memory_point = MultilinearPoint(
+        [
+            dot_product_logup_star_statements.on_table.point.0.clone(),
+            memory_folding_challenges.0.clone(),
         ]
         .concat(),
     );
@@ -818,6 +946,10 @@ pub fn prove_execution(
     memory_statements.push(Evaluation::new(
         poseidon_lookup_memory_point.clone(),
         poseidon_logup_star_statements.on_table.value,
+    ));
+    memory_statements.push(Evaluation::new(
+        dot_product_lookup_memory_point.clone(),
+        dot_product_logup_star_statements.on_table.value,
     ));
 
     {
@@ -868,15 +1000,99 @@ pub fn prove_execution(
         );
     }
 
+    {
+        // index opening for dot product lookup
+
+        let folded_dot_product_vec_index_point =
+            MultilinearPoint(dot_product_logup_star_statements.on_indexes.point[3..].to_vec());
+
+        let dot_product_vec_index_evals = fold_multilinear_chunks(
+            &all_dot_product_vec_indexes,
+            &folded_dot_product_vec_index_point,
+        );
+        assert_eq!(
+            dot_product_vec_index_evals[1],
+            dot_product_vec_index_evals[0] + F::ONE
+        );
+        assert_eq!(
+            dot_product_vec_index_evals[3],
+            dot_product_vec_index_evals[2] + F::ONE
+        );
+        assert_eq!(
+            dot_product_vec_index_evals[5],
+            dot_product_vec_index_evals[4] + F::ONE
+        );
+        assert_eq!(dot_product_vec_index_evals[6], EF::ZERO);
+        assert_eq!(dot_product_vec_index_evals[7], EF::ZERO);
+
+        prover_state.add_extension_scalars(&[
+            dot_product_vec_index_evals[0],
+            dot_product_vec_index_evals[2],
+            dot_product_vec_index_evals[4],
+        ]);
+
+        dot_product_vec_index_a_statements.push(Evaluation::new(
+            folded_dot_product_vec_index_point.clone(),
+            dot_product_vec_index_evals[0],
+        ));
+        dot_product_vec_index_b_statements.push(Evaluation::new(
+            folded_dot_product_vec_index_point.clone(),
+            dot_product_vec_index_evals[2],
+        ));
+        dot_product_vec_index_res_statements.push(Evaluation::new(
+            folded_dot_product_vec_index_point.clone(),
+            dot_product_vec_index_evals[4],
+        ));
+    }
+
     let (initial_pc_statement, final_pc_statement) =
         intitial_and_final_pc_conditions(bytecode, log_n_cycles);
 
+    let dot_product_value_a_column_evals = dot_prouduct_value_a_base
+        .par_iter()
+        .map(|slice| slice.evaluate(&dot_product_air_point))
+        .collect::<Vec<_>>();
+    let dot_product_value_b_column_evals = dot_prouduct_value_b_base
+        .par_iter()
+        .map(|slice| slice.evaluate(&dot_product_air_point))
+        .collect::<Vec<_>>();
+    let dot_product_value_res_column_evals = dot_prouduct_value_res_base
+        .par_iter()
+        .map(|slice| slice.evaluate(&dot_product_air_point))
+        .collect::<Vec<_>>();
     let dot_product_computation_column_evals = dot_product_computations_base
         .par_iter()
         .map(|slice| slice.evaluate(&dot_product_air_point))
         .collect::<Vec<_>>();
 
+    prover_state.add_extension_scalars(&dot_product_value_a_column_evals);
+    prover_state.add_extension_scalars(&dot_product_value_b_column_evals);
+    prover_state.add_extension_scalars(&dot_product_value_res_column_evals);
     prover_state.add_extension_scalars(&dot_product_computation_column_evals);
+    let dot_product_value_a_statements = (0..DIMENSION)
+        .map(|i| {
+            vec![Evaluation::new(
+                dot_product_air_point.clone(),
+                dot_product_value_a_column_evals[i],
+            )]
+        })
+        .collect::<Vec<_>>();
+    let dot_product_value_b_statements = (0..DIMENSION)
+        .map(|i| {
+            vec![Evaluation::new(
+                dot_product_air_point.clone(),
+                dot_product_value_b_column_evals[i],
+            )]
+        })
+        .collect::<Vec<_>>();
+    let dot_product_value_res_statements = (0..DIMENSION)
+        .map(|i| {
+            vec![Evaluation::new(
+                dot_product_air_point.clone(),
+                dot_product_value_res_column_evals[i],
+            )]
+        })
+        .collect::<Vec<_>>();
     let dot_product_computation_column_statements = (0..DIMENSION)
         .map(|i| {
             vec![Evaluation::new(
@@ -1017,7 +1233,18 @@ pub fn prove_execution(
                 grand_product_dot_product_table_indexes_statement_index_res,
             ], // dot product: indexe res
         ],
+        dot_product_value_a_statements,
+        dot_product_value_b_statements,
+        dot_product_value_res_statements,
         dot_product_computation_column_statements,
+        vec![
+            dot_product_vec_index_a_statements,
+            dot_product_vec_index_b_statements,
+            dot_product_vec_index_res_statements,
+            dot_product_offset_a_statements,
+            dot_product_offset_b_statements,
+            dot_product_offset_res_statements,
+        ],
     ]
     .concat();
     let global_statements_base = packed_pcs_global_statements_for_prover(
@@ -1036,6 +1263,7 @@ pub fn prove_execution(
         &[
             base_memory_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
+            dot_product_logup_star_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,
         ],
         &mut prover_state,

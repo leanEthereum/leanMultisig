@@ -43,14 +43,29 @@ pub fn get_base_dims(
         (0..p24_air_width - 24 * 2)
             .map(|i| ColDims::padded(n_poseidons_24, default_p24_row[24 + i][0]))
             .collect::<Vec<_>>(), // rest of poseidon24 table
+        /*
+           DOT PRODUCT COLUMNS
+
+           0 (start) flag
+           1 length
+           2 index a
+           3 index b
+           4 index res
+           5..10 value a
+           10..15 value b
+           15..20 value res
+           20..25 computation
+           25 index_vec a
+           26 offset a
+           27 index_vec b
+           28 offset b
+           29 index_vec res
+           30 offset res
+        */
         vec![
-            ColDims::padded(n_rows_table_dot_products, F::ONE), // dot product: (start) flag
-            ColDims::padded(n_rows_table_dot_products, F::ONE), // dot product: length
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index a
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index b
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index res
+            ColDims::padded(n_rows_table_dot_products, F::ONE);
+            2 + DIMENSION + 3 * (3 + DIMENSION)
         ],
-        vec![ColDims::padded(n_rows_table_dot_products, F::ZERO); DIMENSION], // dot product: computation
     ]
     .concat()
 }
@@ -393,6 +408,46 @@ pub fn get_poseidon_lookup_statements(
             ]
             .concat(),
             p24_folded_eval_addr_res,
+        ),
+    ]
+}
+
+pub fn get_dot_product_lookup_statements(
+    air_evals: &[EF],
+    air_point: &MultilinearPoint<EF>,
+    memory_folding_challenges: &MultilinearPoint<EF>,
+) -> Vec<Evaluation<EF>> {
+    let folded_vec_eval_a_1 = (&air_evals[12..20]).evaluate(memory_folding_challenges);
+    let folded_vec_eval_a_2 = (&air_evals[20..28]).evaluate(memory_folding_challenges);
+    let folded_vec_eval_b_1 = (&air_evals[31..39]).evaluate(memory_folding_challenges);
+    let folded_vec_eval_b_2 = (&air_evals[39..47]).evaluate(memory_folding_challenges);
+    let folded_vec_eval_res_1 = (&air_evals[50..58]).evaluate(memory_folding_challenges);
+    let folded_vec_eval_res_2 = (&air_evals[58..66]).evaluate(memory_folding_challenges);
+
+    vec![
+        Evaluation::new(
+            [vec![EF::ZERO; 3], air_point.0.clone()].concat(),
+            folded_vec_eval_a_1,
+        ),
+        Evaluation::new(
+            [vec![EF::ZERO, EF::ZERO, EF::ONE], air_point.0.clone()].concat(),
+            folded_vec_eval_a_2,
+        ),
+        Evaluation::new(
+            [vec![EF::ZERO, EF::ONE, EF::ZERO], air_point.0.clone()].concat(),
+            folded_vec_eval_b_1,
+        ),
+        Evaluation::new(
+            [vec![EF::ZERO, EF::ONE, EF::ONE], air_point.0.clone()].concat(),
+            folded_vec_eval_b_2,
+        ),
+        Evaluation::new(
+            [vec![EF::ONE, EF::ZERO, EF::ZERO], air_point.0.clone()].concat(),
+            folded_vec_eval_res_1,
+        ),
+        Evaluation::new(
+            [vec![EF::ONE, EF::ZERO, EF::ONE], air_point.0.clone()].concat(),
+            folded_vec_eval_res_2,
         ),
     ]
 }
