@@ -63,9 +63,9 @@ pub fn get_base_dims(
            30 offset res
         */
         vec![
-            ColDims::padded(n_rows_table_dot_products, F::ONE);
-            2 + DIMENSION + 3 * (3 + DIMENSION)
+            ColDims::padded(n_rows_table_dot_products, F::ONE); 2 // flag and length
         ],
+        vec![ColDims::padded(n_rows_table_dot_products, F::ZERO); DIMENSION + 3 * (3 + DIMENSION)],
     ]
     .concat()
 }

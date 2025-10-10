@@ -791,14 +791,6 @@ pub fn prove_execution(
     );
     prover_state.add_extension_scalars(&dot_product_evals_spread);
 
-    let padded_dot_product_indexes_spread =
-        padd_with_zero_to_next_power_of_two(&dot_product_indexes_spread.concat());
-
-    assert!(
-        padded_dot_product_indexes_spread.len() <= 1 << log_n_cycles,
-        "TODO a more general commitment structure"
-    );
-
     let grand_product_mem_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
     let base_memory_lookup_statement_1 = Evaluation::new(
         [
@@ -864,8 +856,9 @@ pub fn prove_execution(
 
     let extension_dims = vec![
         ColDims::padded(non_zero_memory_size, EF::ZERO), // memory
-        ColDims::padded(non_zero_memory_size.div_ceil(VECTOR_LEN), EF::ZERO), // memory (folded)
-        ColDims::padded(bytecode.instructions.len(), EF::ZERO), // bytecode
+        ColDims::padded(non_zero_memory_size.div_ceil(VECTOR_LEN), EF::ZERO), // memory (folded) for poseidon
+        ColDims::padded(non_zero_memory_size.div_ceil(VECTOR_LEN), EF::ZERO), // memory (folded) for dot product
+        ColDims::padded(bytecode.instructions.len(), EF::ZERO),               // bytecode
     ];
 
     let packed_pcs_witness_extension = packed_pcs_commit(
@@ -903,6 +896,7 @@ pub fn prove_execution(
         &poseidon_pushforward,
         Some(non_zero_memory_size.div_ceil(VECTOR_LEN)),
     );
+
     let dot_product_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &MleRef::Extension(&precompile_folded_memory),
@@ -1025,6 +1019,13 @@ pub fn prove_execution(
         assert_eq!(dot_product_vec_index_evals[6], EF::ZERO);
         assert_eq!(dot_product_vec_index_evals[7], EF::ZERO);
 
+        assert_eq!(
+            dot_product_vec_index_evals.evaluate(&MultilinearPoint(
+                dot_product_logup_star_statements.on_indexes.point[..3].to_vec()
+            )),
+            dot_product_logup_star_statements.on_indexes.value
+        );
+
         prover_state.add_extension_scalars(&[
             dot_product_vec_index_evals[0],
             dot_product_vec_index_evals[2],
@@ -1111,49 +1112,12 @@ pub fn prove_execution(
     let mem_lookup_eval_indexes_c =
         full_trace[COL_INDEX_MEM_ADDRESS_C].evaluate(&mem_lookup_eval_indexes_partial_point); // validity is proven via PCS
     assert_eq!(mem_lookup_eval_indexes_partial_point.len(), log_n_cycles);
-    assert_eq!(
-        log2_strict_usize(padded_dot_product_indexes_spread.len()),
-        log_n_rows_dot_product_table + 5
-    );
-    let index_diff = log_n_cycles - log2_strict_usize(padded_dot_product_indexes_spread.len());
-    let mem_lookup_eval_spread_indexes_dot_product = padded_dot_product_indexes_spread.evaluate(
-        &MultilinearPoint(mem_lookup_eval_indexes_partial_point[index_diff..].to_vec()),
-    );
 
     prover_state.add_extension_scalars(&[
         mem_lookup_eval_indexes_a,
         mem_lookup_eval_indexes_b,
         mem_lookup_eval_indexes_c,
-        mem_lookup_eval_spread_indexes_dot_product,
     ]);
-
-    let dot_product_logup_star_indexes_inner_point =
-        MultilinearPoint(mem_lookup_eval_indexes_partial_point.0[5 + index_diff..].to_vec());
-    let dot_product_logup_star_indexes_inner_value_a =
-        dot_product_columns[2].evaluate(&dot_product_logup_star_indexes_inner_point);
-    let dot_product_logup_star_indexes_inner_value_b =
-        dot_product_columns[3].evaluate(&dot_product_logup_star_indexes_inner_point);
-    let dot_product_logup_star_indexes_inner_value_res =
-        dot_product_columns[4].evaluate(&dot_product_logup_star_indexes_inner_point);
-
-    prover_state.add_extension_scalars(&[
-        dot_product_logup_star_indexes_inner_value_a,
-        dot_product_logup_star_indexes_inner_value_b,
-        dot_product_logup_star_indexes_inner_value_res,
-    ]);
-
-    let dot_product_logup_star_indexes_statement_a = Evaluation::new(
-        dot_product_logup_star_indexes_inner_point.clone(),
-        dot_product_logup_star_indexes_inner_value_a,
-    );
-    let dot_product_logup_star_indexes_statement_b = Evaluation::new(
-        dot_product_logup_star_indexes_inner_point.clone(),
-        dot_product_logup_star_indexes_inner_value_b,
-    );
-    let dot_product_logup_star_indexes_statement_res = Evaluation::new(
-        dot_product_logup_star_indexes_inner_point.clone(),
-        dot_product_logup_star_indexes_inner_value_res,
-    );
 
     let exec_air_statement = |col_index: usize| {
         Evaluation::new(
@@ -1219,17 +1183,14 @@ pub fn prove_execution(
             ], // dot product: length
             vec![
                 dot_product_air_statement(2),
-                dot_product_logup_star_indexes_statement_a,
                 grand_product_dot_product_table_indexes_statement_index_a,
             ], // dot product: indexe a
             vec![
                 dot_product_air_statement(3),
-                dot_product_logup_star_indexes_statement_b,
                 grand_product_dot_product_table_indexes_statement_index_b,
             ], // dot product: indexe b
             vec![
                 dot_product_air_statement(4),
-                dot_product_logup_star_indexes_statement_res,
                 grand_product_dot_product_table_indexes_statement_index_res,
             ], // dot product: indexe res
         ],
@@ -1239,10 +1200,10 @@ pub fn prove_execution(
         dot_product_computation_column_statements,
         vec![
             dot_product_vec_index_a_statements,
-            dot_product_vec_index_b_statements,
-            dot_product_vec_index_res_statements,
             dot_product_offset_a_statements,
+            dot_product_vec_index_b_statements,
             dot_product_offset_b_statements,
+            dot_product_vec_index_res_statements,
             dot_product_offset_res_statements,
         ],
     ]
@@ -1255,17 +1216,19 @@ pub fn prove_execution(
         &mut prover_state,
     );
 
+    let global_statements_extension = [
+        base_memory_logup_star_statements.on_pushforward,
+        poseidon_logup_star_statements.on_pushforward,
+        dot_product_logup_star_statements.on_pushforward,
+        bytecode_logup_star_statements.on_pushforward,
+    ];
+
     // Second Opening
     let global_statements_extension = packed_pcs_global_statements_for_prover(
         &extension_pols,
         &extension_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &[
-            base_memory_logup_star_statements.on_pushforward,
-            poseidon_logup_star_statements.on_pushforward,
-            dot_product_logup_star_statements.on_pushforward,
-            bytecode_logup_star_statements.on_pushforward,
-        ],
+        &global_statements_extension,
         &mut prover_state,
     );
 

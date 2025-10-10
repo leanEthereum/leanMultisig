@@ -288,6 +288,21 @@ pub fn packed_pcs_global_statements_for_prover<
     // - cache the "eq" poly, and then use dot product
     // - current packing is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
 
+    // assert_eq!(polynomials.len(), dims.len());
+    // for (i, (poly, dim)) in polynomials.iter().zip(dims.iter()).enumerate() {
+    //     assert_eq!(poly.len(), 1 << dim.n_vars);
+    //     poly.iter()
+    //         .enumerate()
+    //         .skip(dim.committed_size + dim.log_public_data_size.map_or(0, |l| 1 << l))
+    //         .for_each(|(j, &x)| {
+    //             assert_eq!(
+    //                 x, dim.default_value,
+    //                 "poly {}, poly[{}] = {} != {}",
+    //                 i, j, x, dim.default_value
+    //             )
+    //         });
+    // }
+
     let (chunks_decomposition, packed_vars) =
         compute_chunks::<F>(dims, log_smallest_decomposition_chunk);
 
