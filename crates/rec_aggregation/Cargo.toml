@@ -26,7 +26,6 @@ packed_pcs.workspace = true
 p3-poseidon2-air.workspace = true
 lookup.workspace = true
 lean_vm.workspace = true
-serde_json.workspace = true
 lean_compiler.workspace = true
 lean_prover.workspace = true
 multilinear-toolkit.workspace = true

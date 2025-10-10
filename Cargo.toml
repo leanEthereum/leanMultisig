@@ -62,7 +62,6 @@ pest = "2.7"
 pest_derive = "2.7"
 colored = "3.0.0"
 tracing = "0.1.26"
-serde_json = "*"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.2.0", features = ["ansi", "smallvec"] }
 p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }

@@ -971,7 +971,6 @@ dependencies = [
  "packed_pcs",
  "rand",
  "rayon",
- "serde_json",
  "tracing",
  "utils",
  "whir-p3",

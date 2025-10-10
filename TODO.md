@@ -86,7 +86,6 @@ But we reduce proof size a lot using instead (TODO):
 - KoalaBear extension of degree 5: the current implem (in a fork of Plonky3) has not been been optimized
 - KoalaBear extension of degree 6: in order to use the (proven) Johnson bound in WHIR
 - current "packed PCS" is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
-- avoid harcoding the proof in a file for recursion test
 - make test_packed_pcs pass again
 
 
