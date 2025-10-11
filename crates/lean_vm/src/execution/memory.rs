@@ -31,7 +31,7 @@ impl Memory {
             .get(index)
             .copied()
             .flatten()
-            .ok_or(RunnerError::UndefinedMemory)
+            .ok_or(RunnerError::UndefinedMemory(index))
     }
 
     /// Sets a value at a memory address

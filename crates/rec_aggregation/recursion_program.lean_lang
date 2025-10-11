@@ -40,7 +40,8 @@ const TWO_ADICITY = 24;
 const ROOT = 1791270792; // of order 2^TWO_ADICITY
 
 fn main() {
-    transcript_start = public_input_start / 8;
+    _private_input_start = private_input_start();
+    transcript_start = _private_input_start / 8;
     fs_state = fs_new(transcript_start);
 
     fs_state_0, root_0, ood_point_0, ood_eval_0 = parse_commitment(fs_state);
@@ -361,6 +362,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
         }
         for i in 0..num_queries {
             res = malloc_vec(1);
+            print(answers[i] * 8);
             multilinear_eval((answers[i] * 8) / 2**FOLDING_FACTOR_0, folding_randomness_alligned, res, FOLDING_FACTOR_0); // TODO batching: use a single call to multilinear eval
             assert_eq_extension(res * 8, folds + i*DIM);
         }

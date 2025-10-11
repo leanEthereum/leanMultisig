@@ -525,6 +525,12 @@ fn compile_lines(
                     vectorized_len: IntermediateValue::from_simple_expr(vectorized_len, compiler),
                 });
             }
+            SimpleLine::HintPrivateInputStart { var } => {
+                declared_vars.insert(var.clone());
+                instructions.push(IntermediateInstruction::PrivateInputStart {
+                    res_offset: compiler.get_offset(&var.clone().into()),
+                });
+            }
             SimpleLine::ConstMalloc { var, size, label } => {
                 let size = size.naive_eval().unwrap().to_usize(); // TODO not very good;
                 handle_const_malloc(declared_vars, &mut instructions, compiler, var, size, label);
@@ -770,6 +776,7 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             }
             SimpleLine::HintMAlloc { var, .. }
             | SimpleLine::ConstMalloc { var, .. }
+            | SimpleLine::HintPrivateInputStart { var }
             | SimpleLine::DecomposeBits { var, .. }
             | SimpleLine::DecomposeCustom { var, .. }
             | SimpleLine::CounterHint { var } => {

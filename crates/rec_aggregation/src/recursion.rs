@@ -20,6 +20,11 @@ use whir_p3::{
 
 const NUM_VARIABLES: usize = 25;
 
+// in practice we will precompute all the possible values
+// (depending on the number of recursions + the number of xmss signatures)
+// (or even better: find a linear relation)
+const NO_VEC_RUNTIME_MEMORY: usize = 257051;
+
 struct RecursionBenchStats {
     proving_time: Duration,
     proof_size: usize,
@@ -107,17 +112,18 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
 
     let witness = recursion_config.commit(&mut prover_state, &polynomial);
 
-    let mut public_input = prover_state.proof_data().to_vec();
-    let commitment_size = public_input.len();
+    let public_input = F::zero_vec(1 << 8); // TODO make it work with empty public input
+    let mut private_input = prover_state.proof_data().to_vec();
+    let commitment_size = private_input.len();
     assert_eq!(commitment_size, 16);
-    public_input.extend(padd_with_zero_to_next_multiple_of(
+    private_input.extend(padd_with_zero_to_next_multiple_of(
         &point
             .iter()
             .flat_map(|x| <EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(x).to_vec())
             .collect::<Vec<F>>(),
         VECTOR_LEN,
     ));
-    public_input.extend(padd_with_zero_to_next_power_of_two(
+    private_input.extend(padd_with_zero_to_next_power_of_two(
         <EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(&eval),
     ));
 
@@ -132,8 +138,9 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
 
     // to align the first merkle leaves (in base field) (required to appropriately call the precompile multilinear_eval)
     let mut proof_data_padding = (1 << first_folding_factor)
-        - ((PUBLIC_INPUT_START
-            + public_input.len()
+        - (((public_memory_size(&public_input) + NO_VEC_RUNTIME_MEMORY)
+            .next_multiple_of(VECTOR_LEN) // private input start
+            + private_input.len()
             + {
                 // sumcheck polys
                 first_folding_factor * 3 * VECTOR_LEN
@@ -165,9 +172,9 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
             &recursion_config_builder.starting_log_inv_rate.to_string(),
         );
 
-    public_input.extend(F::zero_vec(proof_data_padding * 8));
+    private_input.extend(F::zero_vec(proof_data_padding * 8));
 
-    public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
+    private_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
 
     {
         let mut verifier_state = build_verifier_state(&prover_state);
@@ -186,12 +193,9 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
         &bytecode,
         &program_str,
         &function_locations,
-        (&public_input, &[]),
+        (&public_input, &private_input),
         whir_config_builder(),
-        // in practice we will precompute all the possible values
-        // (depending on the number of recursions + the number of xmss signatures)
-        // (or even better: find a linear relation)
-        256355,
+        NO_VEC_RUNTIME_MEMORY,
         false,
     );
     let proving_time = time.elapsed();

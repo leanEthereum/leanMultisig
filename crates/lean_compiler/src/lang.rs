@@ -347,6 +347,7 @@ pub enum Line {
         vectorized: bool,
         vectorized_len: Expression,
     },
+    PrivateInputStart { var: Var },
     DecomposeBits {
         var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
         to_decompose: Vec<Expression>,
@@ -450,6 +451,7 @@ impl Line {
             Self::CounterHint { var } => {
                 format!("{var} = counter_hint({var})")
             }
+            Self::PrivateInputStart { var } => format!("{var} = private_input_start()"),
             Self::ForLoop {
                 iterator,
                 start,

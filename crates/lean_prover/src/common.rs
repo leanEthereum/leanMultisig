@@ -96,7 +96,6 @@ pub fn intitial_and_final_pc_conditions(
 pub fn add_memory_statements_for_dot_product_precompile(
     entry: &RowMultilinearEval,
     log_memory: usize,
-    log_public_memory: usize,
     challenger: &mut impl ChallengeSampler<EF>,
     memory_statements: &mut Vec<Evaluation<EF>>,
 ) -> Result<(), ProofError> {
@@ -139,9 +138,6 @@ pub fn add_memory_statements_for_dot_product_precompile(
         }
         if entry.addr_coeffs >= 1 << (log_memory - entry.n_vars()) {
             return Err(ProofError::InvalidProof);
-        }
-        if entry.n_vars() >= log_public_memory {
-            todo!("vm multilinear eval accross multiple memory chunks")
         }
         let addr_bits = to_big_endian_in_field(entry.addr_coeffs, log_memory - entry.n_vars());
         let statement = Evaluation::new([addr_bits, entry.point.clone()].concat(), entry.res);

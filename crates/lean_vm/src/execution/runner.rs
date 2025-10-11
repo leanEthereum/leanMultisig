@@ -2,8 +2,8 @@
 
 use crate::HintExecutionContext;
 use crate::core::{
-    DIMENSION, F, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
-    PUBLIC_INPUT_START, VECTOR_LEN, ZERO_VEC_PTR,
+    F, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR, PUBLIC_INPUT_START,
+    VECTOR_LEN, ZERO_VEC_PTR,
 };
 use crate::diagnostics::{ExecutionResult, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
@@ -104,6 +104,10 @@ pub fn execute_bytecode(
     })
 }
 
+pub fn public_memory_size(public_input: &[F]) -> usize {
+    (PUBLIC_INPUT_START + public_input.len()).next_power_of_two()
+}
+
 /// Helper function that performs the actual bytecode execution
 #[allow(clippy::too_many_arguments)] // TODO
 fn execute_bytecode_helper(
@@ -119,18 +123,18 @@ fn execute_bytecode_helper(
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
 
-    let public_memory_size = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
+    let public_memory_size = public_memory_size(public_input);
     let mut fp = public_memory_size;
 
+    let private_input_start =
+        (public_memory_size + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN);
     for (i, value) in private_input.iter().enumerate() {
-        memory.set(fp + i, *value)?;
+        memory.set(private_input_start + i, *value)?;
     }
-    fp += private_input.len();
-    fp = fp.next_multiple_of(DIMENSION);
 
     let initial_ap = fp + bytecode.starting_frame_memory;
     let initial_ap_vec =
-        (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
+        (private_input_start + private_input.len()).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
 
     let mut pc = 0;
     let mut ap = initial_ap;
@@ -173,6 +177,7 @@ fn execute_bytecode_helper(
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             let mut hint_ctx = HintExecutionContext {
                 memory: &mut memory,
+                private_input_start,
                 fp,
                 ap: &mut ap,
                 ap_vec: &mut ap_vec,
@@ -210,7 +215,7 @@ fn execute_bytecode_helper(
     pcs.push(pc);
     fps.push(fp);
 
-    let no_vec_runtime_memory = ap - initial_ap;
+    let no_vec_runtime_memory = ap - public_memory_size;
 
     // Ensure event counts match call counts in final execution
     if profiler {

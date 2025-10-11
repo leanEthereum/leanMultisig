@@ -186,6 +186,15 @@ impl FunctionCallParser {
                     vectorized_len,
                 })
             }
+            "private_input_start" => {
+                if !args.is_empty() || return_data.len() != 1 {
+                    return Err(SemanticError::new(
+                        "private_input_start has no args and returns one value",
+                    )
+                    .into());
+                }
+                Ok(Line::PrivateInputStart { var: return_data[0].clone() })
+            }
             "print" => {
                 if !return_data.is_empty() {
                     return Err(

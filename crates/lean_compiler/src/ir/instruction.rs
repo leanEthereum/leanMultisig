@@ -63,6 +63,9 @@ pub enum IntermediateInstruction {
         vectorized: bool, // if true, will be (2^vectorized_len)-alligned, and the returned pointer will be "divied" by 2^vectorized_len
         vectorized_len: IntermediateValue,
     },
+    PrivateInputStart {
+        res_offset: ConstExpression, // m[fp + res_offset] will contain the result
+    },
     DecomposeBits {
         res_offset: usize, // m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)] will contain the decomposed bits
         to_decompose: Vec<IntermediateValue>,
@@ -212,6 +215,9 @@ impl Display for IntermediateInstruction {
                 } else {
                     write!(f, "m[fp + {offset}] = request_memory({size})")
                 }
+            }
+            Self::PrivateInputStart { res_offset } => {
+                write!(f, "m[fp + {res_offset}] = private_input_start()")
             }
             Self::DecomposeBits {
                 res_offset,

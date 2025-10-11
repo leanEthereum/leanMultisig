@@ -138,6 +138,7 @@ pub enum SimpleLine {
         vectorized: bool,
         vectorized_len: SimpleExpr,
     },
+    HintPrivateInputStart { var: Var },
     ConstMalloc {
         // always not vectorized
         var: Var,
@@ -645,6 +646,9 @@ fn simplify_lines(
                     }
                 }
             }
+            Line::PrivateInputStart { var } => {
+                res.push(SimpleLine::HintPrivateInputStart { var: var.clone() });
+            }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
                 let simplified_to_decompose = to_decompose
@@ -850,6 +854,9 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 on_new_expr(size, &internal_vars, &mut external_vars);
                 internal_vars.insert(var.clone());
             }
+            Line::PrivateInputStart { var } => {
+                internal_vars.insert(var.clone());
+            }
             Line::Precompile {
                 precompile: _,
                 args,
@@ -1015,6 +1022,9 @@ pub fn inline_lines(
             }
             Line::MAlloc { var, size, .. } => {
                 inline_expr(size, args, inlining_count);
+                inline_internal_var(var);
+            }
+            Line::PrivateInputStart { var } => {
                 inline_internal_var(var);
             }
             Line::Precompile {
@@ -1514,6 +1524,10 @@ fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
+            Line::PrivateInputStart { var } => {
+                assert!(var != iterator, "Weird");
+                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
+            }
             Line::DecomposeBits { var, to_decompose }
             | Line::DecomposeCustom { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
@@ -1919,6 +1933,7 @@ fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
             | Line::DecomposeCustom { .. }
             | Line::CounterHint { .. }
             | Line::MAlloc { .. }
+            | Line::PrivateInputStart { .. }
             | Line::Panic
             | Line::Break
             | Line::LocationReport { .. } => {}
@@ -2025,6 +2040,9 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(size, map);
             }
+            Line::PrivateInputStart { var } => {
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
+            }
             Line::Panic | Line::Break | Line::LocationReport { .. } => {}
         }
     }
@@ -2112,6 +2130,9 @@ impl SimpleLine {
             }
             Self::CounterHint { var: result } => {
                 format!("{result} = counter_hint()")
+            }
+            Self::HintPrivateInputStart { var } => {
+                format!("{var} = private_input_start()")
             }
             Self::RawAccess { res, index, shift } => {
                 format!("memory[{index} + {shift}] = {res}")

@@ -74,10 +74,10 @@ fn test_zk_vm() {
             - PUBLIC_INPUT_START]
         .iter_mut()
         .for_each(|x| *x = F::ZERO);
+    public_input.extend((0..1 << 13)
+        .map(|i| F::from_usize(i).square()));
 
-    let private_input = (0..1 << 13)
-        .map(|i| F::from_usize(i).square())
-        .collect::<Vec<_>>();
+    let private_input = [];
 
     // utils::init_tracing();
     let (bytecode, function_locations) = compile_program(&program_str);
@@ -87,7 +87,7 @@ fn test_zk_vm() {
         &function_locations,
         (&public_input, &private_input),
         whir_config_builder(),
-        1 << 20,
+        1 << 18,
         false,
     )
     .0;

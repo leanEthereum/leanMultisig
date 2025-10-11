@@ -8,6 +8,7 @@ impl IntermediateInstruction {
     const fn is_hint(&self) -> bool {
         match self {
             Self::RequestMemory { .. }
+            | Self::PrivateInputStart { .. }
             | Self::Print { .. }
             | Self::DecomposeBits { .. }
             | Self::DecomposeCustom { .. }
@@ -359,6 +360,12 @@ fn compile_block(
                     vectorized,
                     size,
                     vectorized_len,
+                };
+                hints.entry(pc).or_default().push(hint);
+            }
+            IntermediateInstruction::PrivateInputStart { res_offset } => {
+                let hint = Hint::PrivateInputStart {
+                    res_offset: eval_const_expression_usize(&res_offset, compiler),
                 };
                 hints.entry(pc).or_default().push(hint);
             }

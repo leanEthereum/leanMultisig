@@ -173,7 +173,6 @@ pub fn prove_execution(
         add_memory_statements_for_dot_product_precompile(
             entry,
             log_memory,
-            log_public_memory,
             &mut prover_state,
             &mut memory_statements,
         )

@@ -32,11 +32,11 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
 
     fn main() {
         public_input_start_ = public_input_start;
-        private_input_start = public_input_start_[0];
-        message_hash = public_input_start / 8 + 1;
+        private_input_start_ = private_input_start();
+        message_hash = public_input_start / 8;
         all_public_keys = message_hash + 1;
         bitield = public_input_start + (2 + N_PUBLIC_KEYS) * 8;
-        signatures_start = private_input_start / 8;
+        signatures_start = private_input_start_ / 8;
         for i in 0..N_PUBLIC_KEYS {
             if bitield[i] == 1 {
                 xmss_public_key = all_public_keys + i;
@@ -226,11 +226,6 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
     for bit in bitfield {
         public_input.push(F::from_bool(bit));
     }
-    public_input.insert(
-        0,
-        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
-    );
-    public_input.splice(1..1, F::zero_vec(7));
 
     let mut private_input = vec![];
     for signature in all_signatures {
@@ -263,8 +258,8 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
     let no_vec_runtime_memory = match (n_public_keys, INV_BITFIELD_DENSITY, LOG_LIFETIME) {
-        (100, 1, 32) => 148229,
-        (500, 1, 32) => 741029,
+        (100, 1, 32) => 136615,
+        (500, 1, 32) => 729415,
         _ => unimplemented!(),
     };
     let (proof_data, proof_size) = prove_execution(

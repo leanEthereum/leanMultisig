@@ -28,6 +28,10 @@ pub enum Hint {
         /// Length for vectorized memory allocation
         vectorized_len: usize,
     },
+    PrivateInputStart {
+        /// Memory offset where result will be stored: m[fp + res_offset]
+        res_offset: usize,
+    },
     /// Decompose values into their bit representations
     DecomposeBits {
         /// Memory offset for results: m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)]
@@ -71,6 +75,7 @@ pub enum Hint {
 #[derive(Debug)]
 pub struct HintExecutionContext<'a> {
     pub memory: &'a mut Memory,
+    pub private_input_start: usize,
     pub fp: usize,
     pub ap: &'a mut usize,
     pub ap_vec: &'a mut usize,
@@ -112,6 +117,10 @@ impl Hint {
                     ctx.memory.set(ctx.fp + *offset, F::from_usize(*ctx.ap))?;
                     *ctx.ap += size;
                 }
+            }
+            Self::PrivateInputStart { res_offset } => {
+                ctx.memory
+                    .set(ctx.fp + *res_offset, F::from_usize(ctx.private_input_start))?;
             }
             Self::DecomposeBits {
                 res_offset,
@@ -214,6 +223,9 @@ impl Display for Hint {
                 } else {
                     write!(f, "m[fp + {offset}] = request_memory({size})")
                 }
+            }
+            Self::PrivateInputStart { res_offset } => {
+                write!(f, "m[fp + {res_offset}] = private_input_start()")
             }
             Self::DecomposeBits {
                 res_offset,
