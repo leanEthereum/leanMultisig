@@ -23,7 +23,7 @@ const NUM_VARIABLES: usize = 25;
 // in practice we will precompute all the possible values
 // (depending on the number of recursions + the number of xmss signatures)
 // (or even better: find a linear relation)
-const NO_VEC_RUNTIME_MEMORY: usize = 257051;
+const NO_VEC_RUNTIME_MEMORY: usize = 257578;
 
 struct RecursionBenchStats {
     proving_time: Duration,

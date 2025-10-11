@@ -666,7 +666,7 @@ fn fs_new(transcript) -> 1 {
     return fs_state;
 }
 
-    fn fs_grinding(fs_state, bits) -> 1 {
+fn fs_grinding(fs_state, bits) -> 1 {
     // WARNING: should not be called 2 times in a row without duplexing in between
 
     if bits == 0 {
@@ -676,23 +676,26 @@ fn fs_new(transcript) -> 1 {
     transcript_ptr = fs_state[0] * 8;
     l_ptr = fs_state[1] * 8;
     
-    new_l = malloc_vec(1);
-    new_l_ptr = new_l * 8;
-    new_l_ptr[0] = transcript_ptr[0];
-    for i in 1..8 unroll {
-        new_l_ptr[i] = l_ptr[i];
-    }
+    new_l = malloc(8);
+    new_l[0] = transcript_ptr[0];
+    dot_product(l_ptr + 1, pointer_to_one_vector * 8, new_l + 1, 1);
+    dot_product(l_ptr + 3, pointer_to_one_vector * 8, new_l + 3, 1);
+
+    new_l_vec = malloc_vec(1);
+    dot_product(new_l, pointer_to_one_vector * 8, new_l_vec * 8, 1);
+    dot_product(new_l + 3, pointer_to_one_vector * 8, new_l_vec * 8 + 3, 1);
 
     l_r_updated = malloc_vec(2);
-    poseidon16(new_l, fs_state[2], l_r_updated, PERMUTATION);
+    poseidon16(new_l_vec, fs_state[2], l_r_updated, PERMUTATION);
     new_fs_state = malloc(4);
     new_fs_state[0] = fs_state[0] + 1; // read one 1 chunk of 8 field elements (7 are useless)
     new_fs_state[1] = l_r_updated;
     new_fs_state[2] = l_r_updated + 1;
     new_fs_state[3] = 7; // output_buffer_size
 
-    l_updated_ptr = l_r_updated* 8;
-    sampled = l_updated_ptr[7];
+    l_updated_copy = malloc(DIM);
+    dot_product(l_r_updated * 8 + 3, pointer_to_one_vector * 8, l_updated_copy, 1);
+    sampled = l_updated_copy[4];
     sampled_bits = checked_decompose_bits(sampled);
     for i in 0..bits {
         assert sampled_bits[i] == 0;
@@ -722,11 +725,15 @@ fn fs_sample_helper(fs_state, n, res) -> 1 {
     output_buffer_size = fs_state[3];
     output_buffer_ptr = fs_state[1] * 8;
 
+    output_buffer_copy = malloc(8);
+    dot_product(output_buffer_ptr, pointer_to_one_vector * 8, output_buffer_copy, 1);
+    dot_product(output_buffer_ptr + 3, pointer_to_one_vector * 8, output_buffer_copy + 3, 1);
+
     for i in 0..n {
         if output_buffer_size - i == 0 {
             break;
         }
-        res[i] = output_buffer_ptr[output_buffer_size - 1 - i];
+        res[i] = output_buffer_copy[output_buffer_size - 1 - i];
     }
 
     finished = less_than_8(output_buffer_size - n);
