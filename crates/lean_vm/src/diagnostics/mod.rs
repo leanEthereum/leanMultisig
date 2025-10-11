@@ -1,9 +1,9 @@
 #![allow(unused_imports)]
 
-pub mod error;
+pub mod result;
 pub mod profiler;
 pub mod stack_trace;
 
-pub use error::*;
+pub use result::*;
 pub use profiler::*;
 pub use stack_trace::*;
