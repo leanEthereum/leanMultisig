@@ -182,7 +182,7 @@ fn test_structured_air() {
     );
     table.check_trace_validity(&columns_ref).unwrap();
     let (point_prover, evaluations_remaining_to_prove) =
-        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
+        table.prove(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
     let mut verifier_state = build_verifier_state(&prover_state);
     let (point_verifier, evaluations_remaining_to_verify) = table
         .verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_rows)
@@ -216,7 +216,7 @@ fn test_unstructured_air() {
     );
     table.check_trace_validity(&columns_ref).unwrap();
     let (point_prover, evaluations_remaining_to_prove) =
-        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
+        table.prove(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
     let mut verifier_state = build_verifier_state(&prover_state);
     let (point_verifier, evaluations_remaining_to_verify) = table
         .verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_rows)

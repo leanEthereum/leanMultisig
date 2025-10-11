@@ -9,7 +9,6 @@ use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use packed_pcs::*;
-use utils::dot_product_with_base;
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use utils::{build_challenger, padd_with_zero_to_next_power_of_two};
 use vm_air::*;
@@ -339,31 +338,37 @@ pub fn verify_execution(
         exec_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_cycles)?;
 
     let (dot_product_air_point, dot_product_evals_to_verify) =
-        dot_product_table.verify(&mut verifier_state, 1, table_dot_products_log_n_rows)?;
+        dot_product_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, table_dot_products_log_n_rows)?;
 
     let mut dot_product_vec_index_a_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[9],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_A_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_INDEX_VEC_1],
     )];
     let mut dot_product_vec_index_b_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[28],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_B_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_INDEX_VEC_1],
     )];
     let mut dot_product_vec_index_res_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[47],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_RES_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_INDEX_VEC_1],
     )];
     let dot_product_offset_a_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[11],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_A_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_OFFSET],
     )];
     let dot_product_offset_b_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[30],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_B_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_OFFSET],
     )];
     let dot_product_offset_res_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[49],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_RES_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_OFFSET],
     )];
 
     let (p16_air_point, p16_evals_to_verify) =
@@ -424,22 +429,6 @@ pub fn verify_execution(
             .evaluate(&bytecode_compression_challenges),
     );
     let alpha_bytecode_lookup = verifier_state.sample();
-
-    let dot_product_values_mixing_challenges = MultilinearPoint(verifier_state.sample_vec(2));
-
-    let dot_product_evals_spread = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-
-    let dot_product_values_mixed = [
-        dot_product_evals_to_verify[5],
-        dot_product_evals_to_verify[6],
-        dot_product_evals_to_verify[7],
-        EF::ZERO,
-    ]
-    .evaluate(&dot_product_values_mixing_challenges);
-
-    if dot_product_with_base(&dot_product_evals_spread) != dot_product_values_mixed {
-        return Err(ProofError::InvalidProof);
-    }
 
     let grand_product_mem_values_mixing_challenges = MultilinearPoint(verifier_state.sample_vec(2));
     let base_memory_lookup_statement_1 = Evaluation::new(
@@ -667,67 +656,6 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         intitial_and_final_pc_conditions(bytecode, log_n_cycles);
 
-    let dot_product_value_a_column_evals =
-        verifier_state.next_extension_scalars_const::<DIMENSION>()?;
-    let dot_product_value_b_column_evals =
-        verifier_state.next_extension_scalars_const::<DIMENSION>()?;
-    let dot_product_value_res_column_evals =
-        verifier_state.next_extension_scalars_const::<DIMENSION>()?;
-    let dot_product_computation_column_evals =
-        verifier_state.next_extension_scalars_const::<DIMENSION>()?;
-    if dot_product_with_base(&dot_product_value_a_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_COL_VALUE_A]
-    {
-        return Err(ProofError::InvalidProof);
-    }
-    if dot_product_with_base(&dot_product_value_b_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_COL_VALUE_B]
-    {
-        return Err(ProofError::InvalidProof);
-    }
-    if dot_product_with_base(&dot_product_value_res_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_COL_RES]
-    {
-        return Err(ProofError::InvalidProof);
-    }
-    if dot_product_with_base(&dot_product_computation_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_COL_COMPUTATION]
-    {
-        return Err(ProofError::InvalidProof);
-    }
-    let dot_product_value_a_statements = (0..DIMENSION)
-        .map(|i| {
-            vec![Evaluation::new(
-                dot_product_air_point.clone(),
-                dot_product_value_a_column_evals[i],
-            )]
-        })
-        .collect::<Vec<_>>();
-    let dot_product_value_b_statements = (0..DIMENSION)
-        .map(|i| {
-            vec![Evaluation::new(
-                dot_product_air_point.clone(),
-                dot_product_value_b_column_evals[i],
-            )]
-        })
-        .collect::<Vec<_>>();
-    let dot_product_value_res_statements = (0..DIMENSION)
-        .map(|i| {
-            vec![Evaluation::new(
-                dot_product_air_point.clone(),
-                dot_product_value_res_column_evals[i],
-            )]
-        })
-        .collect::<Vec<_>>();
-    let dot_product_computation_column_statements = (0..DIMENSION)
-        .map(|i| {
-            vec![Evaluation::new(
-                dot_product_air_point.clone(),
-                dot_product_computation_column_evals[i],
-            )]
-        })
-        .collect::<Vec<_>>();
-
     let mem_lookup_eval_indexes_partial_point =
         MultilinearPoint(base_memory_logup_star_statements.on_indexes.point[2..].to_vec());
     let [
@@ -806,30 +734,42 @@ pub fn verify_execution(
             p24_statements,
             vec![
                 vec![
-                    dot_product_air_statement(0),
+                    dot_product_air_statement(DOT_PRODUCT_COL_START_FLAG),
                     grand_product_dot_product_flag_statement,
                 ], // dot product: (start) flag
                 vec![
-                    dot_product_air_statement(1),
+                    dot_product_air_statement(DOT_PRODUCT_COL_LEN),
                     grand_product_dot_product_len_statement,
                 ], // dot product: length
                 vec![
-                    dot_product_air_statement(2),
+                    dot_product_air_statement(DOT_PRODUCT_COL_INDEX_A),
                     grand_product_dot_product_table_indexes_statement_index_a,
                 ], // dot product: indexe a
                 vec![
-                    dot_product_air_statement(3),
+                    dot_product_air_statement(DOT_PRODUCT_COL_INDEX_B),
                     grand_product_dot_product_table_indexes_statement_index_b,
                 ], // dot product: indexe b
                 vec![
-                    dot_product_air_statement(4),
+                    dot_product_air_statement(DOT_PRODUCT_COL_INDEX_RES),
                     grand_product_dot_product_table_indexes_statement_index_res,
                 ], // dot product: indexe res
             ],
-            dot_product_value_a_statements,
-            dot_product_value_b_statements,
-            dot_product_value_res_statements,
-            dot_product_computation_column_statements,
+            (0..DIMENSION)
+                .map(|i| vec![dot_product_air_statement(DOT_PRODUCT_COL_VALUE_A_START + i)])
+                .collect(), // dot product: value a
+            (0..DIMENSION)
+                .map(|i| vec![dot_product_air_statement(DOT_PRODUCT_COL_VALUE_B_START + i)])
+                .collect(), // dot product: value b
+            (0..DIMENSION)
+                .map(|i| vec![dot_product_air_statement(DOT_PRODUCT_COL_RES_START + i)])
+                .collect(), // dot product: value res
+            (0..DIMENSION)
+                .map(|i| {
+                    vec![dot_product_air_statement(
+                        DOT_PRODUCT_COL_COMPUTATION_START + i,
+                    )]
+                })
+                .collect(), // dot product: computation
             vec![
                 dot_product_vec_index_a_statements,
                 dot_product_offset_a_statements,

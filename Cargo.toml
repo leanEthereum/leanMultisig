@@ -99,17 +99,17 @@ packed_pcs.workspace = true
 p3-air.workspace = true
 multilinear-toolkit.workspace = true
 
-# [patch."https://github.com/TomWambsgans/Plonky3.git"]
-# p3-koala-bear = { path = "../zk/Plonky3/koala-bear" }
-# p3-field = { path = "../zk/Plonky3/field" }
-# p3-poseidon2 = { path = "../zk/Plonky3/poseidon2" }
-# p3-matrix = { path = "../zk/Plonky3/matrix" }
-# p3-symmetric = { path = "../zk/Plonky3/symmetric" }
-# p3-air = { path = "../zk/Plonky3/air" }
-# p3-uni-stark = { path = "../zk/Plonky3/uni-stark" }
-# p3-poseidon2-air = { path = "../zk/Plonky3/poseidon2-air" }
-# p3-dft = { path = "../zk/Plonky3/dft" }
-# p3-challenger = { path = "../zk/Plonky3/challenger" }
+[patch."https://github.com/TomWambsgans/Plonky3.git"]
+p3-koala-bear = { path = "../zk/Plonky3/koala-bear" }
+p3-field = { path = "../zk/Plonky3/field" }
+p3-poseidon2 = { path = "../zk/Plonky3/poseidon2" }
+p3-matrix = { path = "../zk/Plonky3/matrix" }
+p3-symmetric = { path = "../zk/Plonky3/symmetric" }
+p3-air = { path = "../zk/Plonky3/air" }
+p3-uni-stark = { path = "../zk/Plonky3/uni-stark" }
+p3-poseidon2-air = { path = "../zk/Plonky3/poseidon2-air" }
+p3-dft = { path = "../zk/Plonky3/dft" }
+p3-challenger = { path = "../zk/Plonky3/challenger" }
 
 # [patch."https://github.com/TomWambsgans/whir-p3.git"]
 # whir-p3 = { path = "../zk/whir/fork-whir-p3" }

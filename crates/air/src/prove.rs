@@ -113,23 +113,13 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF> + 'static, AP: PackedAir<EF>>
     AirTable<EF, A, AP>
 {
     #[instrument(name = "air: prove in base", skip_all)]
-    pub fn prove_base(
+    pub fn prove(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
         witness: &[&[PF<EF>]],
     ) -> (MultilinearPoint<EF>, Vec<EF>) {
         prove_air::<PF<EF>, EF, A, AP>(prover_state, univariate_skips, self, witness)
-    }
-
-    #[instrument(name = "air: prove in extension", skip_all)]
-    pub fn prove_extension(
-        &self,
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        univariate_skips: usize,
-        witness: &[&[EF]],
-    ) -> (MultilinearPoint<EF>, Vec<EF>) {
-        prove_air::<EF, EF, A, AP>(prover_state, univariate_skips, self, witness)
     }
 }
 

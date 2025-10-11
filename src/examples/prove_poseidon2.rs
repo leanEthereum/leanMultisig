@@ -194,11 +194,11 @@ fn run_prover_phase(
     let (p16_point, evaluations_remaining_to_prove_16) =
         setup
             .table_16
-            .prove_base(prover_state, config.univariate_skips, witness_16);
+            .prove(prover_state, config.univariate_skips, witness_16);
     let (p24_point, evaluations_remaining_to_prove_24) =
         setup
             .table_24
-            .prove_base(prover_state, config.univariate_skips, witness_24);
+            .prove(prover_state, config.univariate_skips, witness_24);
 
     let global_statements_to_prove = packed_pcs_global_statements_for_prover(
         &commited_slices,

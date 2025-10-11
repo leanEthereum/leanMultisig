@@ -1,7 +1,5 @@
-use p3_field::{BasedVectorSpace, ExtensionField, Field, dot_product};
+use p3_field::{ExtensionField, Field, dot_product};
 use rayon::prelude::*;
-
-use multilinear_toolkit::prelude::*;
 
 pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
     let new_len = std::mem::size_of_val(slice) / std::mem::size_of::<After>();
@@ -30,10 +28,6 @@ pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     &slice[slice.len() - n..]
 }
 
-pub fn field_slice_as_base<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Option<Vec<F>> {
-    slice.par_iter().map(|x| x.as_base()).collect()
-}
-
 pub fn transpose_slice_to_basis_coefficients<F: Field, EF: ExtensionField<F>>(
     slice: &[EF],
 ) -> Vec<Vec<F>> {
@@ -48,13 +42,6 @@ pub fn transpose_slice_to_basis_coefficients<F: Field, EF: ExtensionField<F>>(
         }
     });
     res
-}
-
-pub fn dot_product_with_base<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> EF {
-    assert_eq!(slice.len(), <EF as BasedVectorSpace<PF<EF>>>::DIMENSION);
-    (0..EF::DIMENSION)
-        .map(|i| slice[i] * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap())
-        .sum::<EF>()
 }
 
 pub fn to_big_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
