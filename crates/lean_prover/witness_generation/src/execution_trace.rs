@@ -7,7 +7,6 @@ use crate::{
 use lean_vm::*;
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
-use rayon::prelude::*;
 use utils::ToUsize;
 
 #[derive(Debug)]
@@ -54,13 +53,13 @@ pub fn get_execution_trace(
             // flag_a == 0
             addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
         }
-        let value_a = memory.0[addr_a.to_usize()].unwrap();
+        let value_a = memory.get(addr_a.to_usize()).unwrap();
         let mut addr_b = F::ZERO;
         if field_repr[4].is_zero() {
             // flag_b == 0
             addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
         }
-        let value_b = memory.0[addr_b.to_usize()].unwrap();
+        let value_b = memory.get(addr_b.to_usize()).unwrap();
 
         let mut addr_c = F::ZERO;
         if field_repr[5].is_zero() {
@@ -71,7 +70,7 @@ pub fn get_execution_trace(
             assert_eq!(field_repr[2], operand_c); // debug purpose
             addr_c = value_a + operand_c;
         }
-        let value_c = memory.0[addr_c.to_usize()].unwrap();
+        let value_c = memory.get(addr_c.to_usize()).unwrap();
 
         trace[COL_INDEX_MEM_VALUE_A][cycle] = value_a;
         trace[COL_INDEX_MEM_VALUE_B][cycle] = value_b;
@@ -94,12 +93,8 @@ pub fn get_execution_trace(
         }
     }
 
-    let mut memory_padded = memory
-        .0
-        .par_iter()
-        .map(|&v| v.unwrap_or(F::ZERO))
-        .collect::<Vec<F>>();
-    memory_padded.resize(memory.0.len().next_power_of_two(), F::ZERO);
+    let mut memory_padded = memory.as_vec();
+    memory_padded.resize(memory_padded.len().next_power_of_two(), F::ZERO);
 
     let n_poseidons_16 = execution_result.poseidons_16.len();
     let n_poseidons_24 = execution_result.poseidons_24.len();
@@ -130,7 +125,7 @@ pub fn get_execution_trace(
         dot_products,
         multilinear_evals,
         public_memory_size: execution_result.public_memory_size,
-        non_zero_memory_size: memory.0.len(),
+        non_zero_memory_size: memory.size(),
         memory: memory_padded,
     }
 }

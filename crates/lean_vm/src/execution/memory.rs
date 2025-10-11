@@ -10,12 +10,23 @@ pub const MAX_LOG_MEMORY_SIZE: usize = 29;
 
 /// VM memory implementation with sparse allocation
 #[derive(Debug, Clone, Default)]
-pub struct Memory(pub Vec<Option<F>>);
+pub struct Memory {
+    pub(crate) data: Vec<Option<F>>,
+}
 
 impl Memory {
     /// Creates a new memory instance, initializing it with public data
     pub fn new(public_memory: Vec<F>) -> Self {
-        Self(public_memory.into_par_iter().map(Some).collect())
+        Self {
+            data: public_memory.into_par_iter().map(Some).collect(),
+        }
+    }
+
+    pub fn as_vec(&self) -> Vec<F> {
+        self.data
+            .par_iter()
+            .map(|x| x.unwrap_or(F::ZERO))
+            .collect::<Vec<F>>()
     }
 
     /// Creates an empty memory instance
@@ -27,7 +38,7 @@ impl Memory {
     ///
     /// Returns an error if the address is uninitialized
     pub fn get(&self, index: usize) -> Result<F, RunnerError> {
-        self.0
+        self.data
             .get(index)
             .copied()
             .flatten()
@@ -39,25 +50,25 @@ impl Memory {
     /// Returns an error if the address is already set to a different value
     /// or if we exceed memory limits
     pub fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
-        if index >= self.0.len() {
+        if index >= self.data.len() {
             if index >= MAX_RUNNER_MEMORY_SIZE {
                 return Err(RunnerError::OutOfMemory);
             }
-            self.0.resize(index + 1, None);
+            self.data.resize(index + 1, None);
         }
-        if let Some(existing) = &mut self.0[index] {
+        if let Some(existing) = &mut self.data[index] {
             if *existing != value {
                 return Err(RunnerError::MemoryAlreadySet);
             }
         } else {
-            self.0[index] = Some(value);
+            self.data[index] = Some(value);
         }
         Ok(())
     }
 
     /// Gets the current size of allocated memory
     pub const fn size(&self) -> usize {
-        self.0.len()
+        self.data.len()
     }
 
     /// Get a vector from vectorized memory

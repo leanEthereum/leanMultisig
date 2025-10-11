@@ -235,10 +235,10 @@ fn execute_bytecode_helper(
     println!("╚═════════════════════════════════════════════════════════════════════════╝\n");
 
     println!("CYCLES: {}", pretty_integer(cpu_cycles));
-    println!("MEMORY: {}", pretty_integer(memory.0.len()));
+    println!("MEMORY: {}", pretty_integer(memory.size()));
     println!();
 
-    let runtime_memory_size = memory.0.len() - (PUBLIC_INPUT_START + public_input.len());
+    let runtime_memory_size = memory.size() - (PUBLIC_INPUT_START + public_input.len());
     println!(
         "Bytecode size: {}",
         pretty_integer(bytecode.instructions.len())
@@ -255,7 +255,7 @@ fn execute_bytecode_helper(
         no_vec_runtime_memory
     );
     let used_memory_cells = memory
-        .0
+        .data
         .iter()
         .skip(PUBLIC_INPUT_START + public_input.len())
         .filter(|&&x| x.is_some())
