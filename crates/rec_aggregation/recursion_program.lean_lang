@@ -126,13 +126,16 @@ fn main() {
 
     for i in 0..N_ROUNDS {
         ood_expanded_from_univariate = expand_from_univariate(ood_points[i + 1], N_VARS - ffs_sums[i+1]);
-        s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i+1]);
+        s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
+        if i == 0 {
+            print_ef(s5);
+        } 
         s6s = malloc((num_queries[i] + 1) * DIM);
         assert_eq_extension(s5, s6s);
         circle_value_i = circle_values[i];
         for j in 0..num_queries[i] {
             expanded_from_univariate = expand_from_univariate_dynamic(circle_value_i[j], N_VARS - ffs_sums[i+1]);
-            temp = eq_mle_extension_base_dynamic(expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i+1]);
+            temp = eq_mle_extension_base_dynamic(expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
             assert_eq_extension(temp, s6s + (j + 1) * DIM);
         }
         s7 = malloc(DIM);
@@ -140,7 +143,7 @@ fn main() {
         wsum = add_extension_ret(weight_sums[i], s7);
         weight_sums[i+1] = wsum;
     }
-    evaluation_of_weights = weight_sums[N_ROUNDS];
+    evaluation_of_weights = weight_sums[N_ROUNDS]; // not good
     poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, 2**FINAL_VARS);
     final_value = malloc(DIM);
     dot_product(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS);
@@ -887,6 +890,13 @@ fn set_to_one(a) inline {
 
 fn print_vec(a) {
     print_many_vec(a, 1);
+    return;
+}
+
+fn print_ef(a) {
+    for i in 0..DIM unroll {
+        print(a[i]);
+    }
     return;
 }
 

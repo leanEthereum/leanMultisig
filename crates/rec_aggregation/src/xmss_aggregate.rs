@@ -263,8 +263,8 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
     let no_vec_runtime_memory = match (n_public_keys, INV_BITFIELD_DENSITY, LOG_LIFETIME) {
-        (100, 1, 32) => 148329,
-        (500, 1, 32) => 741529,
+        (100, 1, 32) => 148229,
+        (500, 1, 32) => 741029,
         _ => unimplemented!(),
     };
     let (proof_data, proof_size) = prove_execution(

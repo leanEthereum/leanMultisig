@@ -191,7 +191,7 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
         // in practice we will precompute all the possible values
         // (depending on the number of recursions + the number of xmss signatures)
         // (or even better: find a linear relation)
-        256255,
+        256355,
         false,
     );
     let proving_time = time.elapsed();
