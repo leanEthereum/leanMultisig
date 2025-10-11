@@ -20,6 +20,7 @@ pub struct ExecutionTrace {
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
+    pub max_non_vec_memory_access: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
@@ -34,6 +35,7 @@ pub fn get_execution_trace(
     let mut trace = (0..N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS)
         .map(|_| F::zero_vec(1 << log_n_cycles_rounded_up))
         .collect::<Vec<Vec<F>>>();
+    let mut max_non_vec_memory_access = 0;
 
     for (cycle, (&pc, &fp)) in execution_result
         .pcs
@@ -51,24 +53,31 @@ pub fn get_execution_trace(
         let mut addr_a = F::ZERO;
         if field_repr[3].is_zero() {
             // flag_a == 0
-            addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
+            let addr_a_usize = fp + field_repr[0].to_usize(); // fp + operand_a
+            max_non_vec_memory_access = max_non_vec_memory_access.max(addr_a_usize);
+            addr_a = F::from_usize(addr_a_usize);
         }
         let value_a = memory.get(addr_a.to_usize()).unwrap();
         let mut addr_b = F::ZERO;
         if field_repr[4].is_zero() {
             // flag_b == 0
-            addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
+            let addr_b_usize = fp + field_repr[1].to_usize(); // fp + operand_b
+            max_non_vec_memory_access = max_non_vec_memory_access.max(addr_b_usize);
+            addr_b = F::from_usize(addr_b_usize);
         }
         let value_b = memory.get(addr_b.to_usize()).unwrap();
 
         let mut addr_c = F::ZERO;
         if field_repr[5].is_zero() {
             // flag_c == 0
-            addr_c = F::from_usize(fp) + field_repr[2]; // fp + operand_c
+            let addr_c_usize = fp + field_repr[2].to_usize(); // fp + operand_c
+            max_non_vec_memory_access = max_non_vec_memory_access.max(addr_c_usize);
+            addr_c = F::from_usize(addr_c_usize);
         } else if let Instruction::Deref { shift_1, .. } = instruction {
             let operand_c = F::from_usize(*shift_1);
             assert_eq!(field_repr[2], operand_c); // debug purpose
             addr_c = value_a + operand_c;
+            max_non_vec_memory_access = max_non_vec_memory_access.max(addr_c.to_usize());
         }
         let value_c = memory.get(addr_c.to_usize()).unwrap();
 
@@ -116,6 +125,8 @@ pub fn get_execution_trace(
         n_poseidons_24.next_power_of_two() - n_poseidons_24
     ]);
 
+    max_non_vec_memory_access += 1;
+
     ExecutionTrace {
         full_trace: trace,
         n_poseidons_16,
@@ -126,6 +137,7 @@ pub fn get_execution_trace(
         multilinear_evals,
         public_memory_size: execution_result.public_memory_size,
         non_zero_memory_size: memory.size(),
+        max_non_vec_memory_access,
         memory: memory_padded,
     }
 }

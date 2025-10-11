@@ -41,9 +41,10 @@ pub fn verify_execution(
         n_dot_products,
         n_rows_table_dot_products,
         private_memory_len,
+        max_non_vec_memory_access,
         n_vm_multilinear_evals,
     ] = verifier_state
-        .next_base_scalars_const::<7>()?
+        .next_base_scalars_const::<8>()?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>()
@@ -56,6 +57,7 @@ pub fn verify_execution(
         || n_dot_products > 1 << 32
         || n_rows_table_dot_products > 1 << 32
         || private_memory_len > 1 << 32
+        || max_non_vec_memory_access > public_memory_size(public_input) + private_memory_len
         || n_vm_multilinear_evals > 1 << 10
     {
         // To avoid "DOS" attack
@@ -473,18 +475,12 @@ pub fn verify_execution(
 
     let memory_poly_eq_point_alpha = verifier_state.sample();
 
-    let extension_dims = vec![
-        ColDims::padded(public_memory.len() + private_memory_len, EF::ZERO), // pushforward memory
-        ColDims::padded(
-            (public_memory.len() + private_memory_len).div_ceil(VECTOR_LEN),
-            EF::ZERO,
-        ), // pushforward memory folded (poseidons)
-        ColDims::padded(
-            (public_memory.len() + private_memory_len).div_ceil(VECTOR_LEN),
-            EF::ZERO,
-        ), // pushforward memory folded (dot product)
-        ColDims::padded(bytecode.instructions.len(), EF::ZERO),              // pushforward bytecode
-    ];
+    let non_zero_memory_size = public_memory.len() + private_memory_len;
+    let extension_dims = get_extension_dims(
+        non_zero_memory_size,
+        max_non_vec_memory_access,
+        bytecode.instructions.len(),
+    );
 
     let parsed_commitment_extension = packed_pcs_parse_commitment(
         &second_batched_whir_config_builder(
@@ -862,7 +858,6 @@ pub fn verify_execution(
         &mut verifier_state,
         &Default::default(),
     )?;
-
 
     WhirConfig::new(whir_config_builder, parsed_commitment_base.num_variables).batch_verify(
         &mut verifier_state,

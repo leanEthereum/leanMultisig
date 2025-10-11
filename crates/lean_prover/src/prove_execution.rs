@@ -44,6 +44,7 @@ pub fn prove_execution(
         multilinear_evals: vm_multilinear_evals,
         public_memory_size,
         non_zero_memory_size,
+        max_non_vec_memory_access,
         memory, // padded with zeros to next power of two
     } = info_span!("Witness generation").in_scope(|| {
         let execution_result = execute_bytecode(
@@ -150,6 +151,7 @@ pub fn prove_execution(
             dot_products.len(),
             n_rows_table_dot_products,
             private_memory.len(),
+            max_non_vec_memory_access,
             vm_multilinear_evals.len(),
         ]
         .into_iter()
@@ -853,12 +855,11 @@ pub fn prove_execution(
         bytecode_pushforward.as_slice(),
     ];
 
-    let extension_dims = vec![
-        ColDims::padded(non_zero_memory_size, EF::ZERO), // memory
-        ColDims::padded(non_zero_memory_size.div_ceil(VECTOR_LEN), EF::ZERO), // memory (folded) for poseidon
-        ColDims::padded(non_zero_memory_size.div_ceil(VECTOR_LEN), EF::ZERO), // memory (folded) for dot product
-        ColDims::padded(bytecode.instructions.len(), EF::ZERO),               // bytecode
-    ];
+    let extension_dims = get_extension_dims(
+        non_zero_memory_size,
+        max_non_vec_memory_access,
+        bytecode.instructions.len(),
+    );
 
     let packed_pcs_witness_extension = packed_pcs_commit(
         &second_batched_whir_config_builder(
@@ -1243,6 +1244,12 @@ pub fn prove_execution(
         global_statements_extension,
         packed_pcs_witness_extension.inner_witness,
         &packed_pcs_witness_extension.packed_polynomial.by_ref(),
+    );
+
+    tracing::info!(
+        "max_non_vec_memory_access = {} ({:.1}% of memory)",
+        max_non_vec_memory_access,
+        max_non_vec_memory_access as f64 * 100. / non_zero_memory_size as f64
     );
 
     (

@@ -128,9 +128,6 @@ fn main() {
     for i in 0..N_ROUNDS {
         ood_expanded_from_univariate = expand_from_univariate(ood_points[i + 1], N_VARS - ffs_sums[i+1]);
         s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
-        if i == 0 {
-            print_ef(s5);
-        } 
         s6s = malloc((num_queries[i] + 1) * DIM);
         assert_eq_extension(s5, s6s);
         circle_value_i = circle_values[i];
@@ -362,7 +359,6 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
         }
         for i in 0..num_queries {
             res = malloc_vec(1);
-            print(answers[i] * 8);
             multilinear_eval((answers[i] * 8) / 2**FOLDING_FACTOR_0, folding_randomness_alligned, res, FOLDING_FACTOR_0); // TODO batching: use a single call to multilinear eval
             assert_eq_extension(res * 8, folds + i*DIM);
         }

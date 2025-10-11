@@ -25,12 +25,12 @@ pub fn get_base_dims(
 
     [
         vec![
-            ColDims::padded_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
-            ColDims::padded(n_cycles, F::from_usize(bytecode_ending_pc)), // pc
-            ColDims::padded(n_cycles, F::ZERO),                           // fp
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_a
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_b
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_c
+            ColDims::custom(Some(log_public_memory), private_memory_len, F::ZERO, None), //  memory
+            ColDims::padded(n_cycles, F::from_usize(bytecode_ending_pc)),                // pc
+            ColDims::padded(n_cycles, F::ZERO),                                          // fp
+            ColDims::padded(n_cycles, F::ZERO), // mem_addr_a
+            ColDims::padded(n_cycles, F::ZERO), // mem_addr_b
+            ColDims::padded(n_cycles, F::ZERO), // mem_addr_c
             ColDims::padded(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index a
             ColDims::padded(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index b
             ColDims::padded(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index a
@@ -68,6 +68,24 @@ pub fn get_base_dims(
         vec![ColDims::padded(n_rows_table_dot_products, F::ZERO); DIMENSION + 3 * (3 + DIMENSION)],
     ]
     .concat()
+}
+
+pub fn get_extension_dims(
+    non_zero_memory_size: usize,
+    max_non_vec_memory_access: usize,
+    bytecode_len: usize,
+) -> Vec<ColDims<EF>> {
+    vec![
+        ColDims::custom(
+            None,
+            max_non_vec_memory_access,
+            EF::ZERO,
+            Some(log2_ceil_usize(non_zero_memory_size)),
+        ), // memory
+        ColDims::padded(non_zero_memory_size.div_ceil(VECTOR_LEN), EF::ZERO), // memory (folded) for poseidon
+        ColDims::padded(non_zero_memory_size.div_ceil(VECTOR_LEN), EF::ZERO), // memory (folded) for dot product
+        ColDims::padded(bytecode_len, EF::ZERO),                              // bytecode
+    ]
 }
 
 pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {

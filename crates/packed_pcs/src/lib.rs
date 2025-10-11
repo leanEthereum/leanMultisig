@@ -70,16 +70,17 @@ impl<F: Field> ColDims<F> {
     }
 
     pub fn padded(committed_size: usize, default_value: F) -> Self {
-        Self::padded_with_public_data(None, committed_size, default_value)
+        Self::custom(None, committed_size, default_value, None)
     }
 
-    pub fn padded_with_public_data(
+    pub fn custom(
         log_public_data_size: Option<usize>,
         committed_size: usize,
         default_value: F,
+        n_vars: Option<usize>,
     ) -> Self {
         let public_data_size = log_public_data_size.map_or(0, |l| 1 << l);
-        let n_vars = log2_ceil_usize(public_data_size + committed_size);
+        let n_vars = n_vars.unwrap_or_else(|| log2_ceil_usize(public_data_size + committed_size));
         Self {
             n_vars,
             log_public_data_size,
