@@ -62,10 +62,13 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
 
         // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
-        compressed = malloc_vec(1);
-        poseidon16(message_hash, randomness, compressed, COMPRESSION);
-        compressed_ptr = compressed * 8;
-        decomposed = decompose_custom(compressed_ptr[0], compressed_ptr[1], compressed_ptr[2], compressed_ptr[3], compressed_ptr[4], compressed_ptr[5]);
+        compressed_vec = malloc_vec(1);
+        poseidon16(message_hash, randomness, compressed_vec, COMPRESSION);
+        compressed_ptr = compressed_vec * 8;
+        compressed = malloc(6);
+        dot_product(compressed_ptr, pointer_to_one_vector * 8, compressed, 1);
+        dot_product(compressed_ptr + 1, pointer_to_one_vector * 8, compressed + 1, 1);
+        decomposed = decompose_custom(compressed[0], compressed[1], compressed[2], compressed[3], compressed[4], compressed[5]);
         
         // check that the decomposition is correct
         for i in 0..6 unroll {
@@ -93,7 +96,7 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
             for j in 1..12 unroll {
                 partial_sums[j] = partial_sums[j - 1] + (decomposed[i * 13 + j]) * 4**j;
             }
-            assert partial_sums[11] + (decomposed[i * 13 + 12]) * 4**12 == compressed_ptr[i];
+            assert partial_sums[11] + (decomposed[i * 13 + 12]) * 4**12 == compressed[i];
         }
         
         encoding = malloc(12 * 6);
@@ -258,8 +261,8 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
     let no_vec_runtime_memory = match (n_public_keys, INV_BITFIELD_DENSITY, LOG_LIFETIME) {
-        (100, 1, 32) => 136615,
-        (500, 1, 32) => 729415,
+        (100, 1, 32) => 136891,
+        (500, 1, 32) => 730891,
         _ => unimplemented!(),
     };
     let (proof_data, proof_size) = prove_execution(
