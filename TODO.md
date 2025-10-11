@@ -34,6 +34,7 @@
 - batch the vectorized logup* into memory (only 1, for all the precompiles)
 - arrange the private input so that the "non vectorized" access are at its start
 - allow some vectors to be stored alongside the "non vectorized" memory to avoid some duplications (typically for fiat shamir in recursion etc)
+- use `assert_zeros` instead of `assert_zero` in AIR and implem the appropriate packing of the batching scalars 
   
 About "the packed pcs" (similar to SP1 Jagged PCS, slightly less efficient, but simpler (no sumchecks)):
 - The best strategy is probably to pack as much as possible (the cost increasing the density = additional inner evaluations), if we can fit below a power of 2 - epsilon  (epsilon = 20% for instance, tbd), if the sum of the non zero data is just above a power of 2, no packed technique, even the best, can help us, so we should spread aniway (to reduce the pressure of inner evaluations)
