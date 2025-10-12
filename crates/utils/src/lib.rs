@@ -18,5 +18,8 @@ pub use logs::*;
 mod constraints_checker;
 pub use constraints_checker::*;
 
+mod constraints_counter;
+pub use constraints_counter::*;
+
 mod poseidon2;
 pub use poseidon2::*;

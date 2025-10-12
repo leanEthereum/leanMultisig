@@ -178,6 +178,7 @@ where
         let (mut sc_point, inner_evals, _) = sumcheck_prove::<EF, _, _, _>(
             1,
             MleGroupRef::Extension(vec![u0_folded, u1_folded, u2_folded, u3_folded]),
+            None,
             &GKRQuotientComputation { u4_const, u5_const },
             &GKRQuotientComputation { u4_const, u5_const },
             &[EF::ONE],
@@ -320,6 +321,7 @@ where
             u2_folded_packed,
             u3_folded_packed,
         ]),
+        None,
         &GKRQuotientComputation { u4_const, u5_const },
         &GKRQuotientComputation { u4_const, u5_const },
         &[],
@@ -439,7 +441,7 @@ pub struct GKRQuotientComputation<EF> {
 impl<IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>> SumcheckComputation<IF, EF>
     for GKRQuotientComputation<EF>
 {
-    fn eval(&self, point: &[IF], _: &[EF]) -> EF {
+    fn eval(&self, (point, _): (&[IF], &[EF]), _: &[EF]) -> EF {
         // U4.U2.U3 + U5.[U0.U3 + U1.U2]
         self.u4_const * point[2] * point[3]
             + self.u5_const * (point[0] * point[3] + point[1] * point[2])
@@ -450,10 +452,10 @@ impl<IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>> SumcheckComputation<IF,
 }
 
 impl<EF: ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for GKRQuotientComputation<EF> {
-    fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_base(&self, _: (&[PFPacking<EF>], &[EFPacking<EF>]), _: &[EF]) -> EFPacking<EF> {
         todo!()
     }
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_extension(&self, (point, _): (&[EFPacking<EF>], &[EFPacking<EF>]), _: &[EF]) -> EFPacking<EF> {
         point[2] * point[3] * self.u4_const
             + (point[0] * point[3] + point[1] * point[2]) * self.u5_const
     }

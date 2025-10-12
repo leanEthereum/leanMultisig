@@ -28,7 +28,6 @@ packed_pcs.workspace = true
 p3-poseidon2-air.workspace = true
 lookup.workspace = true
 lean_vm.workspace = true
-p3-uni-stark.workspace = true
 lean_compiler.workspace = true
 witness_generation.workspace = true
 multilinear-toolkit.workspace = true

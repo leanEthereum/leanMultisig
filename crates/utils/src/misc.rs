@@ -30,10 +30,6 @@ pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     &slice[slice.len() - n..]
 }
 
-pub fn field_slice_as_base<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Option<Vec<F>> {
-    slice.par_iter().map(|x| x.as_base()).collect()
-}
-
 pub fn transpose_slice_to_basis_coefficients<F: Field, EF: ExtensionField<F>>(
     slice: &[EF],
 ) -> Vec<Vec<F>> {

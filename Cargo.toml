@@ -8,7 +8,11 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["crates/*", "crates/lean_prover/vm_air", "crates/lean_prover/witness_generation"]
+members = [
+    "crates/*",
+    "crates/lean_prover/vm_air",
+    "crates/lean_prover/witness_generation",
+]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -72,7 +76,6 @@ p3-matrix = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lea
 p3-blake3 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-uni-stark = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-poseidon2-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
@@ -92,30 +95,33 @@ p3-matrix.workspace = true
 p3-challenger.workspace = true
 p3-symmetric.workspace = true
 whir-p3.workspace = true
-p3-uni-stark.workspace = true
 utils.workspace = true
 p3-util.workspace = true
 packed_pcs.workspace = true
 p3-air.workspace = true
 multilinear-toolkit.workspace = true
 
-# [patch."https://github.com/TomWambsgans/Plonky3.git"]
-# p3-koala-bear = { path = "../zk/Plonky3/koala-bear" }
-# p3-field = { path = "../zk/Plonky3/field" }
-# p3-poseidon2 = { path = "../zk/Plonky3/poseidon2" }
-# p3-matrix = { path = "../zk/Plonky3/matrix" }
-# p3-symmetric = { path = "../zk/Plonky3/symmetric" }
-# p3-air = { path = "../zk/Plonky3/air" }
-# p3-uni-stark = { path = "../zk/Plonky3/uni-stark" }
-# p3-poseidon2-air = { path = "../zk/Plonky3/poseidon2-air" }
-# p3-dft = { path = "../zk/Plonky3/dft" }
-# p3-challenger = { path = "../zk/Plonky3/challenger" }
+[patch."https://github.com/TomWambsgans/Plonky3.git"]
+p3-koala-bear = { path = "../zk/Plonky3/koala-bear" }
+p3-field = { path = "../zk/Plonky3/field" }
+p3-poseidon2 = { path = "../zk/Plonky3/poseidon2" }
+p3-matrix = { path = "../zk/Plonky3/matrix" }
+p3-symmetric = { path = "../zk/Plonky3/symmetric" }
+p3-air = { path = "../zk/Plonky3/air" }
+p3-poseidon2-air = { path = "../zk/Plonky3/poseidon2-air" }
+p3-dft = { path = "../zk/Plonky3/dft" }
+p3-challenger = { path = "../zk/Plonky3/challenger" }
 
-# [patch."https://github.com/TomWambsgans/whir-p3.git"]
-# whir-p3 = { path = "../zk/whir/fork-whir-p3" }
+[patch."https://github.com/TomWambsgans/whir-p3.git"]
+whir-p3 = { path = "../zk/whir/fork-whir-p3" }
+
+[patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
+multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
 
 [dev-dependencies]
-criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.7", default-features = false, features = [
+    "cargo_bench_support",
+] }
 rec_aggregation.workspace = true
 
 [[bench]]

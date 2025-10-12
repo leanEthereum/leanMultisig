@@ -111,7 +111,7 @@ pub fn verify_execution(
         private_memory_len,
         bytecode.ending_pc,
         (n_poseidons_16, n_poseidons_24),
-        (p16_air.width(), p24_air.width()),
+        (p16_air.width_f(), p24_air.width_f()),
         n_rows_table_dot_products,
     );
 
@@ -266,7 +266,7 @@ pub fn verify_execution(
                     global_challenge: grand_product_challenge_global,
                     dot_product_challenge: powers_const(grand_product_challenge_dot_product),
                 }
-                .eval(&grand_product_dot_product_sumcheck_inner_evals, &[])
+                .eval((&grand_product_dot_product_sumcheck_inner_evals, &[]), &[])
             }
     {
         return Err(ProofError::InvalidProof);
@@ -320,8 +320,11 @@ pub fn verify_execution(
                     ),
                 }
                 .eval(
-                    &reorder_full_trace_for_precomp_foot_print(
-                        grand_product_exec_sumcheck_inner_evals.clone(),
+                    (
+                        &reorder_full_trace_for_precomp_foot_print(
+                            grand_product_exec_sumcheck_inner_evals.clone(),
+                        ),
+                        &[],
                     ),
                     &[],
                 )
@@ -343,27 +346,33 @@ pub fn verify_execution(
 
     let mut dot_product_vec_index_a_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[9],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_A_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_INDEX_VEC_1],
     )];
     let mut dot_product_vec_index_b_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[28],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_B_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_INDEX_VEC_1],
     )];
     let mut dot_product_vec_index_res_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[47],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_RES_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_INDEX_VEC_1],
     )];
     let dot_product_offset_a_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[11],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_A_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_OFFSET],
     )];
     let dot_product_offset_b_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[30],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_B_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_OFFSET],
     )];
     let dot_product_offset_res_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),
-        dot_product_evals_to_verify[49],
+        dot_product_evals_to_verify
+            [DOT_PRODUCT_COL_RES_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_OFFSET],
     )];
 
     let (p16_air_point, p16_evals_to_verify) =
@@ -371,7 +380,7 @@ pub fn verify_execution(
     let (p24_air_point, p24_evals_to_verify) =
         p24_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_p24)?;
 
-    let mut p16_statements = p16_evals_to_verify[16..p16_air.width() - 16]
+    let mut p16_statements = p16_evals_to_verify[16..p16_air.width_f() - 16]
         .iter()
         .map(|&e| vec![Evaluation::new(p16_air_point.clone(), e)])
         .collect::<Vec<_>>();
@@ -385,7 +394,7 @@ pub fn verify_execution(
         p16_grand_product_evals_on_indexes_res,
     ));
 
-    let p24_statements = p24_evals_to_verify[24..p24_air.width() - 24]
+    let p24_statements = p24_evals_to_verify[24..p24_air.width_f() - 24]
         .iter()
         .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])
         .collect();
@@ -424,22 +433,6 @@ pub fn verify_execution(
             .evaluate(&bytecode_compression_challenges),
     );
     let alpha_bytecode_lookup = verifier_state.sample();
-
-    let dot_product_values_mixing_challenges = MultilinearPoint(verifier_state.sample_vec(2));
-
-    let dot_product_evals_spread = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-
-    let dot_product_values_mixed = [
-        dot_product_evals_to_verify[5],
-        dot_product_evals_to_verify[6],
-        dot_product_evals_to_verify[7],
-        EF::ZERO,
-    ]
-    .evaluate(&dot_product_values_mixing_challenges);
-
-    if dot_product_with_base(&dot_product_evals_spread) != dot_product_values_mixed {
-        return Err(ProofError::InvalidProof);
-    }
 
     let grand_product_mem_values_mixing_challenges = MultilinearPoint(verifier_state.sample_vec(2));
     let base_memory_lookup_statement_1 = Evaluation::new(
@@ -507,7 +500,7 @@ pub fn verify_execution(
     .unwrap();
 
     let poseidon_lookup_statements = get_poseidon_lookup_statements(
-        (p16_air.width(), p24_air.width()),
+        (p16_air.width_f(), p24_air.width_f()),
         (log_n_p16, log_n_p24),
         (&p16_evals_to_verify, &p24_evals_to_verify),
         (&p16_air_point, &p24_air_point),
@@ -676,22 +669,30 @@ pub fn verify_execution(
     let dot_product_computation_column_evals =
         verifier_state.next_extension_scalars_const::<DIMENSION>()?;
     if dot_product_with_base(&dot_product_value_a_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_COL_VALUE_A]
+        != dot_product_evals_to_verify[dot_product_evals_to_verify.len()
+            - DOT_PRODUCT_AIR_N_COLUMNS_EF
+            + DOT_PRODUCT_EF_COL_VALUE_A]
     {
         return Err(ProofError::InvalidProof);
     }
     if dot_product_with_base(&dot_product_value_b_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_COL_VALUE_B]
+        != dot_product_evals_to_verify[dot_product_evals_to_verify.len()
+            - DOT_PRODUCT_AIR_N_COLUMNS_EF
+            + DOT_PRODUCT_EF_COL_VALUE_B]
     {
         return Err(ProofError::InvalidProof);
     }
     if dot_product_with_base(&dot_product_value_res_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_COL_RES]
+        != dot_product_evals_to_verify[dot_product_evals_to_verify.len()
+            - DOT_PRODUCT_AIR_N_COLUMNS_EF
+            + DOT_PRODUCT_EF_COL_RES]
     {
         return Err(ProofError::InvalidProof);
     }
     if dot_product_with_base(&dot_product_computation_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_COL_COMPUTATION]
+        != dot_product_evals_to_verify[dot_product_evals_to_verify.len()
+            - DOT_PRODUCT_AIR_N_COLUMNS_EF
+            + DOT_PRODUCT_EF_COL_COMPUTATION]
     {
         return Err(ProofError::InvalidProof);
     }
@@ -806,23 +807,23 @@ pub fn verify_execution(
             p24_statements,
             vec![
                 vec![
-                    dot_product_air_statement(0),
+                    dot_product_air_statement(DOT_PRODUCT_COL_START_FLAG),
                     grand_product_dot_product_flag_statement,
                 ], // dot product: (start) flag
                 vec![
-                    dot_product_air_statement(1),
+                    dot_product_air_statement(DOT_PRODUCT_COL_LEN),
                     grand_product_dot_product_len_statement,
                 ], // dot product: length
                 vec![
-                    dot_product_air_statement(2),
+                    dot_product_air_statement(DOT_PRODUCT_COL_INDEX_A),
                     grand_product_dot_product_table_indexes_statement_index_a,
                 ], // dot product: indexe a
                 vec![
-                    dot_product_air_statement(3),
+                    dot_product_air_statement(DOT_PRODUCT_COL_INDEX_B),
                     grand_product_dot_product_table_indexes_statement_index_b,
                 ], // dot product: indexe b
                 vec![
-                    dot_product_air_statement(4),
+                    dot_product_air_statement(DOT_PRODUCT_COL_INDEX_RES),
                     grand_product_dot_product_table_indexes_statement_index_res,
                 ], // dot product: indexe res
             ],

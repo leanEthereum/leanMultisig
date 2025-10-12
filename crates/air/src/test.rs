@@ -20,8 +20,11 @@ struct ExampleStructuredAir<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS
 impl<F, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize> BaseAir<F>
     for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS>
 {
-    fn width(&self) -> usize {
+    fn width_f(&self) -> usize {
         N_COLUMNS
+    }
+    fn width_ef(&self) -> usize {
+        0
     }
     fn structured(&self) -> bool {
         true
@@ -36,7 +39,7 @@ impl<AB: AirBuilder, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize
 {
     #[inline]
     fn eval(&self, builder: &mut AB) {
-        let main = builder.main();
+        let (main, _) = builder.main();
         let up = main.row_slice(0).expect("The matrix is empty?");
         let up: &[AB::Var] = (*up).borrow();
         assert_eq!(up.len(), N_COLUMNS);
@@ -62,8 +65,11 @@ struct ExampleUnstructuredAir<const N_COLUMNS: usize, const N_PREPROCESSED_COLUM
 impl<F, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize> BaseAir<F>
     for ExampleUnstructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS>
 {
-    fn width(&self) -> usize {
+    fn width_f(&self) -> usize {
         N_COLUMNS
+    }
+    fn width_ef(&self) -> usize {
+        0
     }
     fn structured(&self) -> bool {
         false
@@ -78,7 +84,7 @@ impl<AB: AirBuilder, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize
 {
     #[inline]
     fn eval(&self, builder: &mut AB) {
-        let main = builder.main();
+        let (main, _) = builder.main();
         let up = main.row_slice(0).expect("The matrix is empty?");
         let up: &[AB::Var] = (*up).borrow();
         assert_eq!(up.len(), N_COLUMNS);
@@ -180,9 +186,9 @@ fn test_structured_air() {
         ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>,
         ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>,
     );
-    table.check_trace_validity(&columns_ref).unwrap();
+    table.check_trace_validity(&columns_ref, &[]).unwrap();
     let (point_prover, evaluations_remaining_to_prove) =
-        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
+        table.prove(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
     let mut verifier_state = build_verifier_state(&prover_state);
     let (point_verifier, evaluations_remaining_to_verify) = table
         .verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_rows)
@@ -214,9 +220,9 @@ fn test_unstructured_air() {
         ExampleUnstructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>,
         ExampleUnstructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>,
     );
-    table.check_trace_validity(&columns_ref).unwrap();
+    table.check_trace_validity(&columns_ref, &[]).unwrap();
     let (point_prover, evaluations_remaining_to_prove) =
-        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
+        table.prove(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
     let mut verifier_state = build_verifier_state(&prover_state);
     let (point_verifier, evaluations_remaining_to_verify) = table
         .verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_rows)

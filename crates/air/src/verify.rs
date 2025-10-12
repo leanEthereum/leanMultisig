@@ -14,6 +14,10 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
     univariate_skips: usize,
     log_n_rows: usize,
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
+    let structured_air = <A as BaseAir<PF<EF>>>::structured(&table.air);
+    let width_f = <A as BaseAir<PF<EF>>>::width_f(&table.air);
+    let width_ef = <A as BaseAir<PF<EF>>>::width_ef(&table.air);
+
     let constraints_batching_scalar = verifier_state.sample();
 
     let n_zerocheck_challenges = log_n_rows + 1 - univariate_skips;
@@ -34,13 +38,11 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
         .map(|s| s.evaluate(outer_statement.point[0]))
         .collect::<Vec<_>>();
 
-    let inner_sums = verifier_state.next_extension_scalars_vec(
-        if <A as BaseAir<PF<EF>>>::structured(&table.air) {
-            2 * table.n_columns()
-        } else {
-            table.n_columns()
-        },
-    )?;
+    let inner_sums = verifier_state.next_extension_scalars_vec(if structured_air {
+        2 * table.n_columns()
+    } else {
+        table.n_columns()
+    })?;
 
     let zerocheck_selector_evals = univariate_selectors::<PF<EF>>(univariate_skips)
         .iter()
@@ -49,7 +51,11 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
 
     let constraint_evals = SumcheckComputation::eval(
         &table.air,
-        &inner_sums,
+        if structured_air {
+            (&inner_sums[..width_f * 2], &inner_sums[width_f * 2..])
+        } else {
+            (&inner_sums[..width_f], &inner_sums[width_f..])
+        },
         &cyclic_subgroup_known_order(constraints_batching_scalar, table.n_constraints)
             .collect::<Vec<_>>(),
     );
@@ -67,12 +73,12 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
     {
         return Err(ProofError::InvalidProof);
     }
-    let structured_air = <A as BaseAir<PF<EF>>>::structured(&table.air);
 
     if structured_air {
         verify_structured_columns(
             verifier_state,
-            table.n_columns(),
+            width_f,
+            width_ef,
             univariate_skips,
             &inner_sums,
             &Evaluation::new(
@@ -154,20 +160,30 @@ fn verify_unstructured_columns<EF: ExtensionField<PF<EF>>>(
 #[allow(clippy::too_many_arguments)] // TODO
 fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    n_columns: usize,
+    n_columns_f: usize,
+    n_columns_ef: usize,
     univariate_skips: usize,
     all_inner_sums: &[EF],
     outer_sumcheck_challenge: &Evaluation<EF>,
     outer_selector_evals: &[EF],
     log_n_rows: usize,
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
+    let n_columns = n_columns_f + n_columns_ef;
     let columns_batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns));
     let alpha = verifier_state.sample();
 
     let poly_eq_batching_scalars = eval_eq(&columns_batching_scalars);
 
-    let all_witness_up = &all_inner_sums[..n_columns];
-    let all_witness_down = &all_inner_sums[n_columns..];
+    let all_witness_up = [
+        all_inner_sums[..n_columns_f].to_vec(),
+        all_inner_sums[2 * n_columns_f..2 * n_columns_f + n_columns_ef].to_vec(),
+    ]
+    .concat();
+    let all_witness_down = [
+        all_inner_sums[n_columns_f..2 * n_columns_f].to_vec(),
+        all_inner_sums[2 * n_columns_f + n_columns_ef..].to_vec(),
+    ]
+    .concat();
 
     let sub_evals = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
 

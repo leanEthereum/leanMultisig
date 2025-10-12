@@ -95,8 +95,8 @@ fn prepare_poseidon(config: &Poseidon2Config) -> PoseidonSetup {
     let poseidon_air_24 = build_poseidon_24_air();
     let poseidon_air_24_packed = build_poseidon_24_air_packed();
 
-    let n_columns_16 = poseidon_air_16.width();
-    let n_columns_24 = poseidon_air_24.width();
+    let n_columns_16 = poseidon_air_16.width_f();
+    let n_columns_24 = poseidon_air_24.width_f();
 
     let mut rng = StdRng::seed_from_u64(0);
     let inputs_16: Vec<[F; 16]> = (0..n_poseidons_16).map(|_| Default::default()).collect();
@@ -194,11 +194,11 @@ fn run_prover_phase(
     let (p16_point, evaluations_remaining_to_prove_16) =
         setup
             .table_16
-            .prove_base(prover_state, config.univariate_skips, witness_16);
+            .prove(prover_state, config.univariate_skips, witness_16);
     let (p24_point, evaluations_remaining_to_prove_24) =
         setup
             .table_24
-            .prove_base(prover_state, config.univariate_skips, witness_24);
+            .prove(prover_state, config.univariate_skips, witness_24);
 
     let global_statements_to_prove = packed_pcs_global_statements_for_prover(
         &commited_slices,

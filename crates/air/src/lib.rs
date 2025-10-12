@@ -1,10 +1,9 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use ::utils::ConstraintChecker;
+use ::utils::{ConstraintChecker, ConstraintCounter};
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use p3_field::ExtensionField;
-use p3_uni_stark::SymbolicAirBuilder;
 
 mod prove;
 pub mod table;
@@ -16,11 +15,11 @@ mod verify;
 mod test;
 
 pub trait NormalAir<EF: ExtensionField<PF<EF>>>:
-    Air<SymbolicAirBuilder<PF<EF>>>
-    + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
+    for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
     + for<'a> Air<ConstraintFolder<'a, EF, EF>>
     + for<'a> Air<ConstraintChecker<'a, PF<EF>, EF>>
     + for<'a> Air<ConstraintChecker<'a, EF, EF>>
+    + for<'a> Air<ConstraintCounter<EF>>
 {
 }
 
@@ -33,11 +32,11 @@ pub trait PackedAir<EF: ExtensionField<PF<EF>>>:
 impl<EF, A> NormalAir<EF> for A
 where
     EF: ExtensionField<PF<EF>>,
-    A: Air<SymbolicAirBuilder<PF<EF>>>
-        + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
+    A: for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
         + for<'a> Air<ConstraintFolder<'a, EF, EF>>
         + for<'a> Air<ConstraintChecker<'a, PF<EF>, EF>>
-        + for<'a> Air<ConstraintChecker<'a, EF, EF>>,
+        + for<'a> Air<ConstraintChecker<'a, EF, EF>>
+        + for<'a> Air<ConstraintCounter<EF>>,
 {
 }
 

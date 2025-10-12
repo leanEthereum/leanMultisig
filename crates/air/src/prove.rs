@@ -34,10 +34,12 @@ fn prove_air<
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
     table: &AirTable<EF, A, AP>,
-    witness: &[&'a [WF]],
+    witness_f: &[&'a [WF]],
+    witness_ef: &[&'a [EF]],
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
-    let n_rows = witness[0].len();
-    assert!(witness.iter().all(|col| col.len() == n_rows));
+    let n_rows = witness_f[0].len();
+    assert!(witness_f.iter().all(|col| col.len() == n_rows));
+    assert!(witness_ef.iter().all(|col| col.len() == n_rows));
     let log_n_rows = log2_strict_usize(n_rows);
     assert!(
         univariate_skips < log_n_rows,
@@ -56,8 +58,9 @@ fn prove_air<
 
     let zerocheck_challenges = prover_state.sample_vec(n_sc_rounds);
 
-    let columns_for_zero_check: MleGroup<'_, EF> = if TypeId::of::<WF>() == TypeId::of::<PF<EF>>() {
-        let columns = unsafe { std::mem::transmute::<&[&[WF]], &[&[PF<EF>]]>(witness) };
+    let columns_for_zero_check_f: MleGroup<'_, EF> = if TypeId::of::<WF>() == TypeId::of::<PF<EF>>()
+    {
+        let columns = unsafe { std::mem::transmute::<&[&[WF]], &[&[PF<EF>]]>(witness_f) };
         if structured_air {
             MleGroupOwned::Base(columns_up_and_down(columns)).into()
         } else {
@@ -65,7 +68,7 @@ fn prove_air<
         }
     } else {
         assert!(TypeId::of::<WF>() == TypeId::of::<EF>());
-        let columns = unsafe { std::mem::transmute::<&[&'a [WF]], &[&'a [EF]]>(witness) };
+        let columns = unsafe { std::mem::transmute::<&[&'a [WF]], &[&'a [EF]]>(witness_f) };
         if structured_air {
             MleGroupOwned::Extension(columns_up_and_down(columns)).into()
         } else {
@@ -73,12 +76,22 @@ fn prove_air<
         }
     };
 
-    let columns_for_zero_check_packed = columns_for_zero_check.by_ref().pack();
+    let columns_for_zero_check_ef: MleGroup<'_, EF> = if witness_ef.is_empty() {
+        MleGroupRef::Extension(vec![]).into()
+    } else if structured_air {
+        MleGroupOwned::Extension(columns_up_and_down(witness_ef)).into()
+    } else {
+        MleGroupRef::Extension(witness_ef.to_vec()).into()
+    };
+
+    let columns_for_zero_check_packed_f = columns_for_zero_check_f.by_ref().pack();
+    let columns_for_zero_check_packed_ef = columns_for_zero_check_ef.by_ref().pack();
 
     let (outer_sumcheck_challenge, inner_sums, _) = info_span!("zerocheck").in_scope(|| {
         sumcheck_prove::<_, _, _, _>(
             univariate_skips,
-            columns_for_zero_check_packed,
+            columns_for_zero_check_packed_f,
+            Some(columns_for_zero_check_packed_ef),
             &table.air,
             &table.air_packed,
             &constraints_batching_scalars,
@@ -96,14 +109,16 @@ fn prove_air<
         open_structured_columns(
             prover_state,
             univariate_skips,
-            witness,
+            witness_f,
+            witness_ef,
             &outer_sumcheck_challenge,
         )
     } else {
         open_unstructured_columns(
             prover_state,
             univariate_skips,
-            witness,
+            witness_f,
+            witness_ef,
             &outer_sumcheck_challenge,
         )
     }
@@ -113,23 +128,24 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF> + 'static, AP: PackedAir<EF>>
     AirTable<EF, A, AP>
 {
     #[instrument(name = "air: prove in base", skip_all)]
-    pub fn prove_base(
+    pub fn prove(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
         witness: &[&[PF<EF>]],
     ) -> (MultilinearPoint<EF>, Vec<EF>) {
-        prove_air::<PF<EF>, EF, A, AP>(prover_state, univariate_skips, self, witness)
+        prove_air::<PF<EF>, EF, A, AP>(prover_state, univariate_skips, self, witness, &[])
     }
 
     #[instrument(name = "air: prove in extension", skip_all)]
-    pub fn prove_extension(
+    pub fn prove_2(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
-        witness: &[&[EF]],
+        witness_f: &[&[PF<EF>]],
+        witness_ef: &[&[EF]],
     ) -> (MultilinearPoint<EF>, Vec<EF>) {
-        prove_air::<EF, EF, A, AP>(prover_state, univariate_skips, self, witness)
+        prove_air::<PF<EF>, EF, A, AP>(prover_state, univariate_skips, self, witness_f, witness_ef)
     }
 }
 
@@ -140,17 +156,26 @@ fn open_unstructured_columns<
 >(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
-    witness: &[&[WF]],
+    witness_f: &[&[WF]],
+    witness_ef: &[&[EF]],
     outer_sumcheck_challenge: &[EF],
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
-    let log_n_rows = log2_strict_usize(witness[0].len());
+    let log_n_rows = log2_strict_usize(witness_f[0].len());
 
-    let columns_batching_scalars = prover_state.sample_vec(log2_ceil_usize(witness.len()));
+    let columns_batching_scalars =
+        prover_state.sample_vec(log2_ceil_usize(witness_f.len() + witness_ef.len()));
 
-    let batched_column = multilinears_linear_combination(
-        witness,
-        &eval_eq(&columns_batching_scalars)[..witness.len()],
+    let mut batched_column = multilinears_linear_combination(
+        witness_f,
+        &eval_eq(&columns_batching_scalars)[..witness_f.len()],
     );
+    if !witness_ef.is_empty() {
+        let batched_column_ef = multilinears_linear_combination(
+            witness_ef,
+            &eval_eq(&columns_batching_scalars)[witness_f.len()..][..witness_ef.len()],
+        );
+        add_multilinears_inplace(&mut batched_column, &batched_column_ef);
+    }
 
     // TODO opti
     let sub_evals = fold_multilinear_chunks(
@@ -169,9 +194,10 @@ fn open_unstructured_columns<
         .concat(),
     );
 
-    let evaluations_remaining_to_prove = witness
+    let evaluations_remaining_to_prove = witness_f
         .iter()
         .map(|col| col.evaluate(&common_point))
+        .chain(witness_ef.iter().map(|col| col.evaluate(&common_point)))
         .collect::<Vec<_>>();
     prover_state.add_extension_scalars(&evaluations_remaining_to_prove);
 
@@ -182,19 +208,27 @@ fn open_unstructured_columns<
 fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
-    witness: &[&[IF]],
+    witness_f: &[&[IF]],
+    witness_ef: &[&[EF]],
     outer_sumcheck_challenge: &[EF],
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
-    let n_columns = witness.len();
-    let n_rows = witness[0].len();
+    let n_columns = witness_f.len() + witness_ef.len();
+    let n_rows = witness_f[0].len();
     let log_n_rows = log2_strict_usize(n_rows);
     let batching_scalars = prover_state.sample_vec(log2_ceil_usize(n_columns));
     let alpha = prover_state.sample();
 
     let poly_eq_batching_scalars = eval_eq(&batching_scalars);
 
-    let batched_column =
-        multilinears_linear_combination(witness, &poly_eq_batching_scalars[..n_columns]);
+    let mut batched_column =
+        multilinears_linear_combination(witness_f, &poly_eq_batching_scalars[..witness_f.len()]);
+    if !witness_ef.is_empty() {
+        let batched_column_ef = multilinears_linear_combination(
+            witness_ef,
+            &poly_eq_batching_scalars[witness_f.len()..][..witness_ef.len()],
+        );
+        add_multilinears_inplace(&mut batched_column, &batched_column_ef);
+    }
 
     let batched_column_mixed = info_span!("mixing up / down").in_scope(|| {
         let mut batched_column_mixed = column_down(&batched_column);
@@ -241,6 +275,7 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
         sumcheck_prove::<EF, _, _, _>(
             1,
             inner_mle,
+            None,
             &ProductComputation,
             &ProductComputation,
             &[],
@@ -253,9 +288,10 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
     });
 
     let evaluations_remaining_to_prove = info_span!("final evals").in_scope(|| {
-        witness
+        witness_f
             .iter()
             .map(|col| col.evaluate(&inner_challenges))
+            .chain(witness_ef.iter().map(|col| col.evaluate(&inner_challenges)))
             .collect::<Vec<_>>()
     });
     prover_state.add_extension_scalars(&evaluations_remaining_to_prove);

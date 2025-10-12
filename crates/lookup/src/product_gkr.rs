@@ -122,6 +122,7 @@ where
     let (sc_point, inner_evals, _) = sumcheck_prove::<EF, _, _, _>(
         1,
         up_layer,
+        None,
         &ProductComputation,
         &ProductComputation,
         &[],

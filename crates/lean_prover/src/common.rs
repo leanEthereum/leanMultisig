@@ -3,6 +3,7 @@ use p3_field::{Algebra, BasedVectorSpace};
 use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use p3_util::log2_ceil_usize;
 use packed_pcs::ColDims;
+use vm_air::*;
 
 use crate::*;
 use lean_vm::*;
@@ -258,7 +259,7 @@ where
     fn degree(&self) -> usize {
         3
     }
-    fn eval(&self, point: &[N], _: &[EF]) -> EF {
+    fn eval(&self, (point, _): (&[N], &[EF]), _: &[EF]) -> EF {
         self.air_eval(point, |p, c| c * p)
     }
 }
@@ -268,11 +269,19 @@ impl SumcheckComputationPacked<EF> for PrecompileFootprint {
         3
     }
 
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_extension(
+        &self,
+        (point, _): (&[EFPacking<EF>], &[EFPacking<EF>]),
+        _: &[EF],
+    ) -> EFPacking<EF> {
         self.air_eval(point, |p, c| p * c)
     }
 
-    fn eval_packed_base(&self, point: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_base(
+        &self,
+        (point, _): (&[PFPacking<EF>], &[EFPacking<EF>]),
+        _: &[EF],
+    ) -> EFPacking<EF> {
         self.air_eval(point, |p, c| EFPacking::<EF>::from(p) * c)
     }
 }
@@ -309,7 +318,7 @@ where
         2
     }
 
-    fn eval(&self, point: &[N], _: &[EF]) -> EF {
+    fn eval(&self, (point, _): (&[N], &[EF]), _: &[EF]) -> EF {
         self.air_eval(point, |p, c| c * p)
     }
 }
@@ -319,10 +328,10 @@ impl SumcheckComputationPacked<EF> for DotProductFootprint {
         2
     }
 
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_extension(&self, (point, _): (&[EFPacking<EF>], &[EFPacking<EF>]), _: &[EF]) -> EFPacking<EF> {
         self.air_eval(point, |p, c| p * c)
     }
-    fn eval_packed_base(&self, point: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_base(&self, (point, _): (&[PFPacking<EF>], &[EFPacking<EF>]), _: &[EF]) -> EFPacking<EF> {
         self.air_eval(point, |p, c| EFPacking::<EF>::from(p) * c)
     }
 }
@@ -431,12 +440,30 @@ pub fn get_dot_product_lookup_statements(
     air_point: &MultilinearPoint<EF>,
     memory_folding_challenges: &MultilinearPoint<EF>,
 ) -> Vec<Evaluation<EF>> {
-    let folded_vec_eval_a_1 = (&air_evals[12..20]).evaluate(memory_folding_challenges);
-    let folded_vec_eval_a_2 = (&air_evals[20..28]).evaluate(memory_folding_challenges);
-    let folded_vec_eval_b_1 = (&air_evals[31..39]).evaluate(memory_folding_challenges);
-    let folded_vec_eval_b_2 = (&air_evals[39..47]).evaluate(memory_folding_challenges);
-    let folded_vec_eval_res_1 = (&air_evals[50..58]).evaluate(memory_folding_challenges);
-    let folded_vec_eval_res_2 = (&air_evals[58..66]).evaluate(memory_folding_challenges);
+    let folded_vec_eval_a_1 = (&air_evals
+        [DOT_PRODUCT_COL_A_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_VALUE_VEC_1_START..]
+        [..VECTOR_LEN])
+        .evaluate(memory_folding_challenges);
+    let folded_vec_eval_a_2 = (&air_evals
+        [DOT_PRODUCT_COL_A_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_VALUE_VEC_2_START..]
+        [..VECTOR_LEN])
+        .evaluate(memory_folding_challenges);
+    let folded_vec_eval_b_1 = (&air_evals
+        [DOT_PRODUCT_COL_B_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_VALUE_VEC_1_START..]
+        [..VECTOR_LEN])
+        .evaluate(memory_folding_challenges);
+    let folded_vec_eval_b_2 = (&air_evals
+        [DOT_PRODUCT_COL_B_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_VALUE_VEC_2_START..]
+        [..VECTOR_LEN])
+        .evaluate(memory_folding_challenges);
+    let folded_vec_eval_res_1 = (&air_evals
+        [DOT_PRODUCT_COL_RES_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_VALUE_VEC_1_START..]
+        [..VECTOR_LEN])
+        .evaluate(memory_folding_challenges);
+    let folded_vec_eval_res_2 = (&air_evals
+        [DOT_PRODUCT_COL_RES_JUSTIFICATION_START + DOT_PRODUCT_SUBCOL_VALUE_VEC_2_START..]
+        [..VECTOR_LEN])
+        .evaluate(memory_folding_challenges);
 
     vec![
         Evaluation::new(

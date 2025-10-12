@@ -12,7 +12,7 @@ Debug purpose
 
 #[derive(Debug)]
 pub struct ConstraintChecker<'a, IF, EF> {
-    pub main: RowMajorMatrixView<'a, IF>,
+    pub main: (RowMajorMatrixView<'a, IF>, RowMajorMatrixView<'a, EF>),
     pub constraint_index: usize,
     pub errors: Vec<usize>,
     pub field: PhantomData<EF>,
@@ -24,31 +24,25 @@ impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<
     type F = PF<EF>;
     type Expr = IF;
     type Var = IF;
-    type M = RowMajorMatrixView<'a, IF>;
+    type Var2 = EF;
+    type M1 = RowMajorMatrixView<'a, IF>;
+    type M2 = RowMajorMatrixView<'a, EF>;
 
     #[inline]
-    fn main(&self) -> Self::M {
+    fn main(&self) -> (Self::M1, Self::M2) {
         self.main
-    }
-
-    #[inline]
-    fn is_first_row(&self) -> Self::Expr {
-        unreachable!()
-    }
-
-    #[inline]
-    fn is_last_row(&self) -> Self::Expr {
-        unreachable!()
-    }
-
-    #[inline]
-    fn is_transition_window(&self, _: usize) -> Self::Expr {
-        unreachable!()
     }
 
     #[inline]
     fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {
         let x: IF = x.into();
+        if !x.is_zero() {
+            self.errors.push(self.constraint_index);
+        }
+        self.constraint_index += 1;
+    }
+
+    fn assert_zero_2(&mut self, x: Self::Var2) {
         if !x.is_zero() {
             self.errors.push(self.constraint_index);
         }

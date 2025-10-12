@@ -38,8 +38,11 @@ Execution columns:
 pub struct VMAir;
 
 impl<F> BaseAir<F> for VMAir {
-    fn width(&self) -> usize {
+    fn width_f(&self) -> usize {
         N_EXEC_AIR_COLUMNS
+    }
+    fn width_ef(&self) -> usize {
+        0
     }
     fn structured(&self) -> bool {
         true
@@ -52,7 +55,7 @@ impl<F> BaseAir<F> for VMAir {
 impl<AB: AirBuilder> Air<AB> for VMAir {
     #[inline]
     fn eval(&self, builder: &mut AB) {
-        let main = builder.main();
+        let main = builder.main().0;
         let up = main.row_slice(0).unwrap();
         let up: &[AB::Var] = (*up).borrow();
         assert_eq!(up.len(), N_EXEC_AIR_COLUMNS);
