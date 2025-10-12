@@ -342,7 +342,7 @@ pub fn verify_execution(
         exec_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_cycles)?;
 
     let (dot_product_air_point, dot_product_evals_to_verify) =
-        dot_product_table.verify(&mut verifier_state, 1, table_dot_products_log_n_rows)?;
+        dot_product_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, table_dot_products_log_n_rows)?;
 
     let mut dot_product_vec_index_a_statements = vec![Evaluation::new(
         dot_product_air_point.clone(),

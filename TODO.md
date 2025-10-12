@@ -14,7 +14,6 @@
 - incremental merkle paths in whir-p3
 - Experiment to increase degree, and reduce commitments, in Poseidon arithmetization. 
   Result: degree 9 is better than 3. TODO: degree 5, or 6 ? Also, the current degre 9 implem may not be perfectly optimal?
-- Avoid embedding overhead on the flag, len, and index columns in the AIR table for dot products
 - Batched logup*: when computing the eq() factor we can opti if the points contain boolean factor
 - Lev's trick to skip some low-level modular reduction
 - Sumcheck, case z = 0, no need to fold, only keep first half of the values (done in PR 33 by Lambda) (and also in WHIR?)

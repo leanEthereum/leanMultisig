@@ -1,5 +1,5 @@
 use lean_vm::{DIMENSION, EF, F, VECTOR_LEN, WitnessDotProduct};
-use multilinear_toolkit::prelude::EFPacking;
+use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder, BaseAir};
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use p3_matrix::Matrix;
@@ -111,6 +111,7 @@ impl<F> BaseAir<F> for DotProductAir {
 
 impl<AB: AirBuilder> Air<AB> for DotProductAir
 where
+    AB::Var: 'static,
     AB::Var2: 'static,
 {
     #[inline]
@@ -208,27 +209,56 @@ where
                 1717670682,
             ];
 
+            let offset_diff_1 = offset.clone() - AB::F::ONE;
+            let offset_diff_2 = offset.clone() - AB::F::TWO;
+            let offset_diff_3 = offset.clone() - AB::F::from_usize(3);
+            let offset_diff_4 = offset.clone() - AB::F::from_usize(4);
+            let offset_diff_5 = offset.clone() - AB::F::from_usize(5);
+            let offset_diff_6 = offset.clone() - AB::F::from_usize(6);
+            let offset_diff_7 = offset.clone() - AB::F::from_usize(7);
+
+            let offset_0_1 = offset.clone() * offset_diff_1.clone();
+            let offset_2_3 = offset_diff_2.clone() * offset_diff_3.clone();
+            let offset_4_5 = offset_diff_4.clone() * offset_diff_5.clone();
+            let offset_6_7 = offset_diff_6.clone() * offset_diff_7.clone();
+            let offset_0_1_2_3 = offset_0_1.clone() * offset_2_3.clone();
+            let offset_4_5_6_7 = offset_4_5.clone() * offset_6_7.clone();
+            let offset_2_3_4_5_6_7 = offset_2_3.clone() * offset_4_5_6_7.clone();
+            let offset_0_1_4_5_6_7 = offset_0_1.clone() * offset_4_5_6_7.clone();
+            let offset_0_1_2_3_6_7 = offset_0_1_2_3.clone() * offset_6_7.clone();
+            let offset_0_1_2_3_4_5 = offset_0_1_2_3.clone() * offset_4_5.clone();
+
+            let mut selectors = vec![AB::Expr::ZERO; VECTOR_LEN];
+            selectors[0] = offset_diff_1.clone()
+                * offset_2_3_4_5_6_7.clone()
+                * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[0]);
+            selectors[1] = offset.clone()
+                * offset_2_3_4_5_6_7.clone()
+                * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[1]);
+            selectors[2] = offset_diff_3.clone()
+                * offset_0_1_4_5_6_7.clone()
+                * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[2]);
+            selectors[3] = offset_diff_2.clone()
+                * offset_0_1_4_5_6_7.clone()
+                * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[3]);
+            selectors[4] = offset_diff_5.clone()
+                * offset_0_1_2_3_6_7.clone()
+                * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[4]);
+            selectors[5] = offset_diff_4.clone()
+                * offset_0_1_2_3_6_7.clone()
+                * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[5]);
+            selectors[6] = offset_diff_7.clone()
+                * offset_0_1_2_3_4_5.clone()
+                * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[6]);
+            selectors[7] = offset_diff_6.clone()
+                * offset_0_1_2_3_4_5.clone()
+                * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[7]);
+
             let expected_value = (0..VECTOR_LEN)
                 .map(|i| {
-                    (0..DIMENSION)
+                    let factors = (0..DIMENSION)
                         .map(|k| {
-                            // TODO multiplication by some basis element (in the sense of vector space) can be performed more efficiently
-                            let basis = unsafe {
-                                if TypeId::of::<AB::Var2>() == TypeId::of::<EF>() {
-                                    std::mem::transmute_copy::<_, AB::Var2>(
-                                        &<EF as BasedVectorSpace<F>>::ith_basis_element(k).unwrap(),
-                                    )
-                                } else {
-                                    assert_eq!(
-                                        TypeId::of::<AB::Var2>(),
-                                        TypeId::of::<EFPacking<EF>>()
-                                    );
-                                    std::mem::transmute_copy::<_, AB::Var2>(&EFPacking::<EF>::from(
-                                        <EF as BasedVectorSpace<F>>::ith_basis_element(k).unwrap(),
-                                    ))
-                                }
-                            };
-                            let factor = if i + k < VECTOR_LEN {
+                            if i + k < VECTOR_LEN {
                                 up_f[justification_col_start
                                     + DOT_PRODUCT_SUBCOL_VALUE_VEC_1_START
                                     + i
@@ -241,15 +271,45 @@ where
                                     + k
                                     - VECTOR_LEN]
                                     .clone()
-                            };
-                            basis * factor
+                            }
                         })
-                        .sum::<AB::Var2>()
-                        * ((0..VECTOR_LEN)
-                            .filter(|j| *j != i)
-                            .map(|j| offset.clone() - AB::F::from_usize(j))
-                            .product::<AB::Expr>()
-                            * AB::F::from_usize(LAGRANGE_MULTIPLICATORS[i]))
+                        .collect::<Vec<AB::Var>>();
+
+                    let r: AB::Var2 = if TypeId::of::<AB::Var>() == TypeId::of::<PFPacking<EF>>() {
+                        assert_eq!(TypeId::of::<AB::Var2>(), TypeId::of::<EFPacking<EF>>());
+                        let factors: [AB::Var; DIMENSION] = factors.try_into().ok().unwrap();
+                        unsafe { std::mem::transmute_copy::<_, AB::Var2>(&factors) }
+                    } else if TypeId::of::<AB::Var>() == TypeId::of::<PF<EF>>() {
+                        unimplemented!()
+                    } else {
+                        (0..DIMENSION)
+                            .map(|k| {
+                                // TODO multiplication by some basis element (in the sense of vector space) can be performed more efficiently
+                                let basis = unsafe {
+                                    if TypeId::of::<AB::Var2>() == TypeId::of::<EF>() {
+                                        std::mem::transmute_copy::<_, AB::Var2>(
+                                            &<EF as BasedVectorSpace<F>>::ith_basis_element(k)
+                                                .unwrap(),
+                                        )
+                                    } else {
+                                        assert_eq!(
+                                            TypeId::of::<AB::Var2>(),
+                                            TypeId::of::<EFPacking<EF>>()
+                                        );
+                                        std::mem::transmute_copy::<_, AB::Var2>(
+                                            &EFPacking::<EF>::from(
+                                                <EF as BasedVectorSpace<F>>::ith_basis_element(k)
+                                                    .unwrap(),
+                                            ),
+                                        )
+                                    }
+                                };
+                                basis * factors[k].clone()
+                            })
+                            .sum::<AB::Var2>()
+                    };
+
+                    r * selectors[i].clone()
                 })
                 .sum::<AB::Var2>();
             builder.assert_eq_2(expected_value, value_ef);

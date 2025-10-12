@@ -582,7 +582,7 @@ pub fn prove_execution(
         .in_scope(|| {
             dot_product_table.prove_2(
                 &mut prover_state,
-                1,
+                UNIVARIATE_SKIPS,
                 &dot_product_columns_f_ref,
                 &dot_product_columns_ef_ref,
             )

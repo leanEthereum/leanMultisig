@@ -21,7 +21,7 @@ pub struct AirTable<EF: Field, A, AP> {
 
 impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<EF, A, AP> {
     pub fn new(air: A, air_packed: AP) -> Self {
-        tracing::warn!("TODO Double-check that the number of constraints is correct, again");
+        tracing::warn!("TODO Double-check the AIR constraints degree");
         let n_constraints = Self::count_num_constraints(&air);
         Self {
             air,
