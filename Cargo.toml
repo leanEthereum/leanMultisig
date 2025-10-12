@@ -122,6 +122,9 @@ multilinear-toolkit.workspace = true
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 rec_aggregation.workspace = true
 
+[profile.release]
+lto = "thin"
+
 [[bench]]
 name = "poseidon2"
 harness = false
