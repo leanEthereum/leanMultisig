@@ -117,25 +117,17 @@ where
 
     let eq_poly = eval_eq(&claim.point.0[1..]);
 
-    let mut sums_x = EF::zero_vec(up_layer.len() / 4);
-    let mut sums_one_minus_x = EF::zero_vec(up_layer.len() / 4);
-
-    sums_x
-        .par_iter_mut()
-        .zip(sums_one_minus_x.par_iter_mut())
-        .enumerate()
-        .for_each(|(i, (x, one_minus_x))| {
+    let sum_x = (0..up_layer.len() / 4)
+        .into_par_iter()
+        .map(|i| {
             let eq_eval = eq_poly[i];
-            let u0 = up_layer[i];
-            let u1 = up_layer[quarter_len + i];
             let u2 = up_layer[mid_len + i];
             let u3 = up_layer[mid_len + quarter_len + i];
-            *x = eq_eval * u2 * u3;
-            *one_minus_x = eq_eval * (u0 * u3 + u1 * u2);
-        });
+            eq_eval * u2 * u3
+        })
+        .sum::<EF>();
 
-    let sum_x = sums_x.into_par_iter().sum::<EF>();
-    let sum_one_minus_x = sums_one_minus_x.into_par_iter().sum::<EF>();
+    let sum_one_minus_x = (claim.value - sum_x * claim.point[0]) / (EF::ONE - claim.point[0]);
 
     let mid_len = up_layer.len() / 2;
     let quarter_len = mid_len / 2;
@@ -245,40 +237,28 @@ where
 
     let mut eq_poly_packed = pack_extension(&eq_poly);
 
-    let (sum_x_packed, sum_one_minus_x_packed): (EFPacking<EF>, EFPacking<EF>) = (0
-        ..n_non_zeros_numerator - quarter_len_packed)
+    let sum_x_packed: EFPacking<EF> = (0..n_non_zeros_numerator - quarter_len_packed)
         .into_par_iter()
         .map(|i| {
             let eq_eval = eq_poly_packed[i];
-            let u0 = up_layer_packed[i];
-            let u1 = up_layer_packed[quarter_len_packed + i];
             let u2 = up_layer_packed[mid_len_packed + i];
             let u3 = up_layer_packed[three_quarter_len_packed + i];
-            let x = eq_eval * u2 * u3;
-            let one_minus_x = eq_eval * (u0 * u3 + u1 * u2);
-            (x, one_minus_x)
+            eq_eval * u2 * u3
         })
         .chain(
             (n_non_zeros_numerator - quarter_len_packed..quarter_len_packed)
                 .into_par_iter()
                 .map(|i| {
                     let eq_eval = eq_poly_packed[i];
-                    let u0 = up_layer_packed[i];
                     let u2 = up_layer_packed[mid_len_packed + i];
                     let u3 = up_layer_packed[three_quarter_len_packed + i];
-                    let eq_eval_times_u3 = eq_eval * u3;
-                    let x = eq_eval_times_u3 * u2;
-                    let one_minus_x = eq_eval_times_u3 * u0;
-                    (x, one_minus_x)
+                    eq_eval * u3 * u2
                 }),
         )
-        .reduce(
-            || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
-            |(acc_x, acc_one_minus_x), (x, one_minus_x)| (acc_x + x, acc_one_minus_x + one_minus_x),
-        );
+        .sum();
 
     let sum_x = EFPacking::<EF>::to_ext_iter([sum_x_packed]).sum::<EF>();
-    let sum_one_minus_x = EFPacking::<EF>::to_ext_iter([sum_one_minus_x_packed]).sum::<EF>();
+    let sum_one_minus_x = (claim.value - sum_x * claim.point[0]) / (EF::ONE - claim.point[0]);
 
     let first_sumcheck_polynomial =
         &DensePolynomial::new(vec![
