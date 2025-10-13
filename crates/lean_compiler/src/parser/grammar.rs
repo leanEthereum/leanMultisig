@@ -24,7 +24,7 @@ pub fn next_inner<'i>(
     expected: &str,
 ) -> Option<ParsePair<'i>> {
     pairs.next().or_else(|| {
-        eprintln!("Warning: Expected {} but found nothing", expected);
+        eprintln!("Warning: Expected {expected} but found nothing");
         None
     })
 }

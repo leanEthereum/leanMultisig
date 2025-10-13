@@ -187,7 +187,7 @@ impl Hint {
             Self::LocationReport { location } => {
                 ctx.instruction_history.lines.push(*location);
                 ctx.instruction_history
-                    .cycles
+                    .lines_cycles
                     .push(*ctx.cpu_cycles_before_new_line);
                 *ctx.cpu_cycles_before_new_line = 0;
             }

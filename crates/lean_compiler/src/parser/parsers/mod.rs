@@ -31,7 +31,7 @@ impl ParseContext {
     pub fn add_constant(&mut self, name: String, value: usize) -> Result<(), SemanticError> {
         if self.constants.insert(name.clone(), value).is_some() {
             Err(SemanticError::with_context(
-                format!("Multiply defined constant: {}", name),
+                format!("Multiply defined constant: {name}"),
                 "constant declaration",
             ))
         } else {

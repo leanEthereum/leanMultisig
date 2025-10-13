@@ -21,7 +21,7 @@ pub(crate) fn profiling_report(
     let mut call_stack: Vec<String> = Vec::new();
     let mut prev_function_name = String::new();
 
-    for (&line_num, &cycle_count) in instructions.lines.iter().zip(&instructions.cycles) {
+    for (&line_num, &cycle_count) in instructions.lines.iter().zip(&instructions.lines_cycles) {
         let (_, current_function_name) = find_function_for_line(line_num, function_locations);
 
         if prev_function_name != current_function_name {

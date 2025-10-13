@@ -60,7 +60,7 @@ impl Display for SemanticError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)?;
         if let Some(context) = &self.context {
-            write!(f, " (in {})", context)?;
+            write!(f, " (in {context})")?;
         }
         Ok(())
     }

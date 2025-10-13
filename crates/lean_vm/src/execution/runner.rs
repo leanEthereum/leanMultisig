@@ -1,6 +1,5 @@
 //! VM execution runner
 
-use crate::HintExecutionContext;
 use crate::core::{
     DIMENSION, F, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
     PUBLIC_INPUT_START, VECTOR_LEN, ZERO_VEC_PTR,
@@ -12,6 +11,7 @@ use crate::isa::instruction::InstructionContext;
 use crate::witness::{
     WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
+use crate::{CodeAddress, HintExecutionContext, SourceLineNumber};
 use p3_field::PrimeCharacteristicRing;
 use p3_symmetric::Permutation;
 use std::collections::BTreeMap;
@@ -72,7 +72,7 @@ pub fn execute_bytecode(
 ) -> ExecutionResult {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
-    execute_bytecode_helper(
+    let result = execute_bytecode_helper(
         bytecode,
         public_input,
         private_input,
@@ -101,7 +101,49 @@ pub fn execute_bytecode(
             print!("{std_out}");
         }
         panic!("Error during bytecode execution: {err}");
-    })
+    });
+    if profiler {
+        print_line_cycle_counts(instruction_history);
+        print_instruction_cycle_counts(bytecode, result.pcs.clone());
+    }
+    result
+}
+
+fn print_line_cycle_counts(history: ExecutionHistory) {
+    println!("Line by line cycle counts");
+    println!("=========================\n");
+
+    let mut gross_cycle_counts: BTreeMap<SourceLineNumber, usize> = BTreeMap::new();
+    for (line, cycle_count) in history.lines.iter().zip(history.lines_cycles.iter()) {
+        let prev_count = gross_cycle_counts.get(line).unwrap_or(&0);
+        gross_cycle_counts.insert(*line, *prev_count + cycle_count);
+    }
+    for (line, cycle_count) in gross_cycle_counts.iter() {
+        println!("line {line}: {cycle_count} cycles");
+    }
+    println!();
+}
+
+fn print_instruction_cycle_counts(bytecode: &Bytecode, pcs: Vec<CodeAddress>) {
+    println!("Instruction level cycle counts");
+    println!("==============================");
+
+    let mut gross_cycle_counts: BTreeMap<CodeAddress, usize> = BTreeMap::new();
+    for pc in pcs.iter() {
+        let prev_count = gross_cycle_counts.get(pc).unwrap_or(&0);
+        gross_cycle_counts.insert(*pc, *prev_count + 1);
+    }
+    for (pc, cycle_count) in gross_cycle_counts.iter() {
+        let instruction = &bytecode.instructions[*pc];
+        let hints = bytecode.hints.get(pc);
+        if let Some(hints) = hints {
+            for hint in hints {
+                println!("hint: {hint}");
+            }
+        }
+        println!("pc {pc}: {cycle_count} cycles: {instruction}");
+    }
+    println!();
 }
 
 /// Helper function that performs the actual bytecode execution
