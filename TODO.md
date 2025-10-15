@@ -87,6 +87,8 @@ But we reduce proof size a lot using instead (TODO):
 - current "packed PCS" is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
 - avoid harcoding the proof in a file for recursion test
 - make test_packed_pcs pass again
+- Poseidon AIR: handle properly the compression mode ? (where output = poseidon(input) + input) (both in WHIR / XMSS)
+- XMSS: implem the hash tweak (almost no performance impact as long as we use 1 tweak / XMSS, but this requires further security analysis)
 
 
 # Random ideas
