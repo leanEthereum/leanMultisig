@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Default)]
 pub struct ExecutionHistory {
     pub lines: Vec<SourceLineNumber>,
-    pub cycles: Vec<usize>, // for each line, how many cycles it took
+    pub lines_cycles: Vec<usize>, // for each line, how many cycles it took
 }
 
 impl ExecutionHistory {
@@ -14,11 +14,11 @@ impl ExecutionHistory {
 
     pub fn add_line(&mut self, location: SourceLineNumber, cycles: usize) {
         self.lines.push(location);
-        self.cycles.push(cycles);
+        self.lines_cycles.push(cycles);
     }
 
     pub fn total_cycles(&self) -> usize {
-        self.cycles.iter().sum()
+        self.lines_cycles.iter().sum()
     }
 
     pub const fn len(&self) -> usize {

@@ -37,7 +37,7 @@ impl Parse<(Program, BTreeMap<usize, String>)> for ProgramParser {
 
                     if functions.insert(name.clone(), function).is_some() {
                         return Err(SemanticError::with_context(
-                            format!("Multiply defined function: {}", name),
+                            format!("Multiply defined function: {name}"),
                             "function definition",
                         )
                         .into());

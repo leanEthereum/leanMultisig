@@ -36,7 +36,7 @@ impl Parse<(String, usize)> for ConstantDeclarationParser {
             )
             .ok_or_else(|| {
                 SemanticError::with_context(
-                    format!("Failed to evaluate constant: {}", name),
+                    format!("Failed to evaluate constant: {name}"),
                     "constant declaration",
                 )
             })?
@@ -123,7 +123,7 @@ impl Parse<usize> for ConstExprParser {
                             Ok(value)
                         } else {
                             Err(SemanticError::with_context(
-                                format!("Invalid constant expression in match pattern: {}", text),
+                                format!("Invalid constant expression in match pattern: {text}"),
                                 "match pattern",
                             )
                             .into())
