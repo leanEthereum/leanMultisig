@@ -239,7 +239,7 @@ where
     // TODO for the top layer, the denomiators have a structured form: constant - index.
     // We can skip one EE multilication in the sumcheck computation.
 
-    let sum_x_packed: EFPacking<EF> = (0..n_non_zeros_numerator - quarter_len_packed)
+    let sum_x_packed: EFPacking<EF> = (0..quarter_len_packed)
         .into_par_iter()
         .map(|i| {
             let eq_eval = eq_poly_packed[i];
@@ -247,16 +247,6 @@ where
             let u3 = up_layer_packed[three_quarter_len_packed + i];
             eq_eval * u2 * u3
         })
-        .chain(
-            (n_non_zeros_numerator - quarter_len_packed..quarter_len_packed)
-                .into_par_iter()
-                .map(|i| {
-                    let eq_eval = eq_poly_packed[i];
-                    let u2 = up_layer_packed[mid_len_packed + i];
-                    let u3 = up_layer_packed[three_quarter_len_packed + i];
-                    eq_eval * u3 * u2
-                }),
-        )
         .sum();
 
     let sum_x = EFPacking::<EF>::to_ext_iter([sum_x_packed]).sum::<EF>();
@@ -414,30 +404,52 @@ where
     Ok(Evaluation::new(next_point, next_claim))
 }
 
-fn sum_quotients_2_by_2<EF: PrimeCharacteristicRing + Sync + Send + Copy>(
-    layer: &[EF],
+fn sum_quotients_2_by_2<F: PrimeCharacteristicRing + Sync + Send + Copy>(
+    layer: &[F],
     n_non_zeros_numerator: Option<usize>,
-) -> Vec<EF> {
+) -> Vec<F> {
     let n = layer.len();
-    let n_non_zeros_numerator = n_non_zeros_numerator.unwrap_or(n / 2);
-    assert!(n_non_zeros_numerator >= n / 4);
+    let denominators = &layer[n / 2..];
+    sum_quotients_2_by_2_num_and_den(&layer[..n / 2], |i| denominators[i], n_non_zeros_numerator)
+}
+
+fn sum_quotients_2_by_2_num_and_den<F: PrimeCharacteristicRing + Sync + Send + Copy>(
+    numerators: &[F],
+    denominators: impl Fn(usize) -> F + Sync + Send,
+    n_non_zeros_numerator: Option<usize>,
+) -> Vec<F> {
+    let n = numerators.len();
+    let mut res = unsafe { uninitialized_vec(n) };
+    let n_non_zeros_numerator = n_non_zeros_numerator.unwrap_or(n);
+    assert!(n_non_zeros_numerator >= n / 2);
     let n_over_2 = n / 2;
-    let n_over_4 = n_over_2 / 2;
-    let n_times_3_over_4 = n_over_2 + n_over_4;
-    (0..n_non_zeros_numerator - n / 4)
-        .into_par_iter()
-        .map(|i| layer[i] * layer[n_times_3_over_4 + i] + layer[n_over_4 + i] * layer[n_over_2 + i])
-        .chain(
-            (n_non_zeros_numerator - n / 4..n / 4)
-                .into_par_iter()
-                .map(|i| layer[i] * layer[n_times_3_over_4 + i]),
-        )
-        .chain(
-            (n / 4..n / 2)
-                .into_par_iter()
-                .map(|i| layer[n_over_4 + i] * layer[n_over_2 + i]),
-        )
-        .collect()
+
+    let (new_numerators, new_denominators) = res.split_at_mut(n / 2);
+    new_numerators[..n_non_zeros_numerator - n / 2]
+        .par_iter_mut()
+        .zip(new_denominators[..n_non_zeros_numerator - n / 2].par_iter_mut())
+        .enumerate()
+        .for_each(|(i, (num, den))| {
+            let prev_num_1 = numerators[i];
+            let prev_num_2 = numerators[n_over_2 + i];
+            let prev_den_1 = denominators(i);
+            let prev_den_2 = denominators(n_over_2 + i);
+            *num = prev_num_1 * prev_den_2 + prev_num_2 * prev_den_1;
+            *den = prev_den_1 * prev_den_2;
+        });
+    new_numerators[n_non_zeros_numerator - n / 2..]
+        .par_iter_mut()
+        .zip(new_denominators[n_non_zeros_numerator - n / 2..].par_iter_mut())
+        .enumerate()
+        .for_each(|(i, (num, den))| {
+            let idx = i + n_non_zeros_numerator - n / 2;
+            let prev_num_1 = numerators[idx];
+            let prev_den_1 = denominators(idx);
+            let prev_den_2 = denominators(n_over_2 + idx);
+            *num = prev_num_1 * prev_den_2;
+            *den = prev_den_1 * prev_den_2;
+        });
+    res
 }
 
 #[cfg(test)]
