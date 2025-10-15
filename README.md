@@ -60,7 +60,7 @@ RUSTFLAGS='-C target-cpu=native' NUM_XMSS_AGGREGATED='500' cargo test --release 
 
 ### Proof size
 
-With conjecture "up to capacity", current proofs with rate = 1/2 are about about ≈ 400 - 500 KiB, in which ≈ 300 KiB comes from WHIR.
+With conjecture "up to capacity", current proofs with rate = 1/2 are about ≈ 400 - 500 KiB, of which ≈ 300 KiB comes from WHIR.
 
 - The remaining 100 - 200 KiB will be significantly reduced in the future (this part has not been optimized at all).
 - WHIR proof size will also be reduced, thanks to merkle pruning (TODO).
