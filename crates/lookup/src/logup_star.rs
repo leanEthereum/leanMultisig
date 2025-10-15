@@ -43,8 +43,8 @@ where
         .next_multiple_of(packing_width::<EF>());
     let max_index_packed = max_index / packing_width::<EF>();
 
-    let (poly_eq_point_packed, pushforward_packed, mut table_packed) = info_span!("packing")
-        .in_scope(|| {
+    let (poly_eq_point_packed, pushforward_packed, table_packed) =
+        info_span!("packing").in_scope(|| {
             (
                 pack_extension(poly_eq_point),
                 pack_extension(pushforward),
@@ -54,22 +54,16 @@ where
 
     let (sc_point, inner_evals, prod) =
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
-            let mut pushforward_packed_to_fold =
-                Mle::Ref(MleRef::ExtensionPacked(&pushforward_packed));
-            let (sc_point, prod) = run_product_sumcheck(
-                &mut table_packed,
-                &mut pushforward_packed_to_fold,
+            let (sc_point, prod, table_folded, pushforward_folded) = run_product_sumcheck(
+                &table_packed.by_ref(),
+                &MleRef::ExtensionPacked(&pushforward_packed),
                 prover_state,
                 claimed_value,
                 table.n_vars(),
             );
             let inner_evals = vec![
-                table_packed.as_owned().unwrap().as_extension().unwrap()[0],
-                pushforward_packed_to_fold
-                    .as_owned()
-                    .unwrap()
-                    .as_extension()
-                    .unwrap()[0],
+                table_folded.as_extension().unwrap()[0],
+                pushforward_folded.as_extension().unwrap()[0],
             ];
             (sc_point, inner_evals, prod)
         });
