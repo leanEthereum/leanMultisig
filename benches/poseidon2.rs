@@ -2,7 +2,7 @@ use std::{hint::black_box, time::Duration};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use whir_p3::{FoldingFactor, SecurityAssumption};
-use whirlaway::examples::prove_poseidon2::{Poseidon2Config, prove_poseidon2};
+use lean_multisig::examples::prove_poseidon2::{Poseidon2Config, prove_poseidon2};
 
 fn bench_poseidon2(c: &mut Criterion) {
     const L16: usize = 17;
