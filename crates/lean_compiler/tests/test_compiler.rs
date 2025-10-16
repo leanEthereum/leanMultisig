@@ -450,7 +450,7 @@ fn inline_bug_mre() {
         if a == 0 {
             return 0;
         }
-        retur3n 1;
+        return 1;
     }
    "#;
 
