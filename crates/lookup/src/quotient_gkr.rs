@@ -232,10 +232,7 @@ where
 
     assert!(n_non_zeros_numerator >= quarter_len_packed);
 
-    let eq_poly = eval_eq(&claim.point.0[1..]);
-
-    let mut eq_poly_packed = pack_extension(&eq_poly);
-
+    let mut eq_poly_packed = eval_eq_packed(&claim.point.0[1..]);
     // TODO for the top layer, the denomiators have a structured form: constant - index.
     // We can skip one EE multilication in the sumcheck computation.
 
