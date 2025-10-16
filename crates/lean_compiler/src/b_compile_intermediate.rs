@@ -597,6 +597,12 @@ fn compile_lines(
                     location: *location,
                 });
             }
+            SimpleLine::RangeCheck { value, max } => {
+                instructions.push(IntermediateInstruction::RangeCheck {
+                    value: IntermediateValue::from_simple_expr(value, compiler),
+                    max: max.clone(),
+                });
+            }
         }
     }
 
@@ -795,7 +801,8 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             | SimpleLine::Print { .. }
             | SimpleLine::FunctionRet { .. }
             | SimpleLine::Precompile { .. }
-            | SimpleLine::LocationReport { .. } => {}
+            | SimpleLine::LocationReport { .. }
+            | SimpleLine::RangeCheck { .. } => {}
         }
     }
     internal_vars

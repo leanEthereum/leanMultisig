@@ -13,7 +13,8 @@ impl IntermediateInstruction {
             | Self::DecomposeCustom { .. }
             | Self::CounterHint { .. }
             | Self::Inverse { .. }
-            | Self::LocationReport { .. } => true,
+            | Self::LocationReport { .. }
+            | Self::RangeCheck { .. } => true,
             Self::Computation { .. }
             | Self::Panic
             | Self::Deref { .. }
@@ -306,6 +307,14 @@ fn compile_block(
                     res: res.try_into_mem_or_fp(compiler).unwrap(),
                     n_vars: eval_const_expression_usize(&n_vars, compiler),
                 });
+            }
+            IntermediateInstruction::RangeCheck { value, max } => {
+                let hint = Hint::RangeCheck {
+                    value: value.try_into_mem_or_fp(compiler).unwrap(),
+                    // TODO: support max being an IntermediateValue
+                    max: MemOrConstant::Constant(eval_const_expression(&max, compiler)),
+                };
+                hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::DecomposeBits {
                 res_offset,

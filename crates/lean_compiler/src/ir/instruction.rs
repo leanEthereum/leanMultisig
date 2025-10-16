@@ -86,6 +86,10 @@ pub enum IntermediateInstruction {
     LocationReport {
         location: SourceLineNumber,
     },
+    RangeCheck {
+        value: IntermediateValue,
+        max: ConstExpression,
+    },
 }
 
 impl IntermediateInstruction {
@@ -253,6 +257,9 @@ impl Display for IntermediateInstruction {
                 Ok(())
             }
             Self::LocationReport { .. } => Ok(()),
+            Self::RangeCheck { value, max } => {
+                write!(f, "range_check({value}, {max})")
+            }
         }
     }
 }

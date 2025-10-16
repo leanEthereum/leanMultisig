@@ -29,3 +29,6 @@ p3-poseidon2-air.workspace = true
 lookup.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true
+
+[dev-dependencies]
+rand_chacha = "0.9.0"

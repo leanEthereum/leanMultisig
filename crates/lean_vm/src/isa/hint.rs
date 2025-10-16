@@ -63,6 +63,13 @@ pub enum Hint {
         /// Source code location
         location: SourceLineNumber,
     },
+    /// Range check validation hint
+    RangeCheck {
+        /// Value to be range checked
+        value: crate::isa::operands::MemOrFp,
+        /// Maximum allowed value
+        max: MemOrConstant,
+    },
     /// Jump destination label (for debugging purposes)
     Label { label: Label },
 }
@@ -191,6 +198,10 @@ impl Hint {
                     .push(*ctx.cpu_cycles_before_new_line);
                 *ctx.cpu_cycles_before_new_line = 0;
             }
+            Self::RangeCheck { .. } => {
+                // Range checks are compiled to actual instructions by d_compile_range_checks.rs
+                // This hint is processed during compilation phase, not execution
+            }
             Self::Label { .. } => {}
         }
         Ok(())
@@ -261,6 +272,9 @@ impl Display for Hint {
                 location: line_number,
             } => {
                 write!(f, "source line number: {line_number}")
+            }
+            Self::RangeCheck { value, max } => {
+                write!(f, "range_check({value}, {max})")
             }
             Self::Label { label } => {
                 write!(f, "label: {label}")

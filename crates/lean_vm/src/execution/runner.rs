@@ -148,7 +148,7 @@ fn print_instruction_cycle_counts(bytecode: &Bytecode, pcs: Vec<CodeAddress>) {
 
 /// Helper function that performs the actual bytecode execution
 #[allow(clippy::too_many_arguments)] // TODO
-fn execute_bytecode_helper(
+pub fn execute_bytecode_helper(
     bytecode: &Bytecode,
     public_input: &[F],
     private_input: &[F],

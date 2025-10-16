@@ -3,7 +3,7 @@ use super::function::{FunctionCallParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
-    lang::{Boolean, Line},
+    lang::{Boolean, ConstExpression, Line},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -27,6 +27,7 @@ impl Parse<Line> for StatementParser {
             Rule::function_call => FunctionCallParser::parse(inner, ctx),
             Rule::assert_eq_statement => AssertEqParser::parse(inner, ctx),
             Rule::assert_not_eq_statement => AssertNotEqParser::parse(inner, ctx),
+            Rule::range_check_statement => RangeCheckParser::parse(inner, ctx),
             Rule::break_statement => Ok(Line::Break),
             Rule::continue_statement => {
                 Err(SemanticError::new("Continue statement not implemented yet").into())
@@ -293,5 +294,24 @@ impl Parse<Line> for AssertNotEqParser {
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
         Ok(Line::Assert(Boolean::Different { left, right }))
+    }
+}
+
+/// Parser for range check statements.
+pub struct RangeCheckParser;
+
+impl Parse<Line> for RangeCheckParser {
+    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let mut inner = pair.into_inner();
+        let value =
+            ExpressionParser::parse(next_inner_pair(&mut inner, "range check value")?, ctx)?;
+        let max_expr =
+            ExpressionParser::parse(next_inner_pair(&mut inner, "range check max")?, ctx)?;
+
+        // Convert the max expression to a const expression
+        let max = ConstExpression::try_from(max_expr)
+            .map_err(|_| SemanticError::new("Range check maximum must be a constant expression"))?;
+
+        Ok(Line::RangeCheck { value, max })
     }
 }

@@ -256,7 +256,7 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
         );
         private_input.extend(F::zero_vec(LOG_LIFETIME.next_multiple_of(8) - LOG_LIFETIME));
     }
-    let (bytecode, function_locations) = compile_program(&program_str);
+    let (bytecode, function_locations) = compile_program(&program_str, &public_input, &private_input);
     let time = Instant::now();
 
     // in practice we will precompute all the possible values

@@ -181,13 +181,14 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
     // std::fs::write("public_input.txt", build_public_memory(&public_input).chunks_exact(8).enumerate().map(|(i, chunk)| { format!("{} - {}: {}\n", i, i * 8, chunk.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) }).collect::<String>(),).unwrap();
 
     utils::init_tracing();
-    let (bytecode, function_locations) = compile_program(&program_str);
+    let private_input = &[];
+    let (bytecode, function_locations) = compile_program(&program_str, &public_input, private_input);
     let time = Instant::now();
     let (proof_data, proof_size) = prove_execution(
         &bytecode,
         &program_str,
         &function_locations,
-        (&public_input, &[]),
+        (&public_input, private_input),
         whir_config_builder(),
         // in practice we will precompute all the possible values
         // (depending on the number of recursions + the number of xmss signatures)
