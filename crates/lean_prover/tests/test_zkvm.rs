@@ -5,6 +5,8 @@ use lean_prover::{
 use lean_vm::*;
 use p3_field::PrimeCharacteristicRing;
 
+const NO_VEC_RUNTIME_MEMORY: usize = 1 << 20;
+
 #[test]
 fn test_zk_vm() {
     let program_str = r#"
@@ -87,7 +89,7 @@ fn test_zk_vm() {
         &function_locations,
         (&public_input, &private_input),
         whir_config_builder(),
-        1 << 20,
+        NO_VEC_RUNTIME_MEMORY,
         false,
     )
     .0;

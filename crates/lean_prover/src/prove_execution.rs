@@ -53,7 +53,7 @@ pub fn prove_execution(
             source_code,
             function_locations,
             no_vec_runtime_memory,
-            vm_profiler,
+            (vm_profiler, false),
         );
         get_execution_trace(bytecode, execution_result)
     });

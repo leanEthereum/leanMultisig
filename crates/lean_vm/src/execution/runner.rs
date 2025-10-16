@@ -68,7 +68,7 @@ pub fn execute_bytecode(
     source_code: &str,
     function_locations: &BTreeMap<usize, String>,
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
-    profiler: bool,
+    (profiler, display_std_out_and_stats): (bool, bool),
 ) -> ExecutionResult {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
@@ -76,11 +76,12 @@ pub fn execute_bytecode(
         bytecode,
         public_input,
         private_input,
-        no_vec_runtime_memory,
         &mut std_out,
         &mut instruction_history,
-        profiler,
         function_locations,
+        no_vec_runtime_memory,
+        profiler,
+        display_std_out_and_stats,
     )
     .unwrap_or_else(|err| {
         let lines_history = &instruction_history.lines;
@@ -152,11 +153,12 @@ fn execute_bytecode_helper(
     bytecode: &Bytecode,
     public_input: &[F],
     private_input: &[F],
-    no_vec_runtime_memory: usize,
     std_out: &mut String,
     instruction_history: &mut ExecutionHistory,
-    profiler: bool,
     function_locations: &BTreeMap<usize, String>,
+    no_vec_runtime_memory: usize,
+    profiler: bool,
+    display_std_out_and_stats: bool,
 ) -> Result<ExecutionResult, RunnerError> {
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
@@ -254,87 +256,90 @@ fn execute_bytecode_helper(
 
     let no_vec_runtime_memory = ap - initial_ap;
 
-    // Ensure event counts match call counts in final execution
     if profiler {
         let report = crate::diagnostics::profiling_report(instruction_history, function_locations);
         println!("\n{report}");
     }
-    if !std_out.is_empty() {
+    if display_std_out_and_stats {
+        if !std_out.is_empty() {
+            println!("╔═════════════════════════════════════════════════════════════════════════╗");
+            println!("║                                STD-OUT                                  ║");
+            println!("╚═════════════════════════════════════════════════════════════════════════╝");
+            print!("\n{std_out}");
+            println!(
+                "──────────────────────────────────────────────────────────────────────────\n"
+            );
+        }
+
         println!("╔═════════════════════════════════════════════════════════════════════════╗");
-        println!("║                                STD-OUT                                  ║");
-        println!("╚═════════════════════════════════════════════════════════════════════════╝");
-        print!("\n{std_out}");
+        println!("║                                 STATS                                   ║");
+        println!("╚═════════════════════════════════════════════════════════════════════════╝\n");
+
+        println!("CYCLES: {}", pretty_integer(cpu_cycles));
+        println!("MEMORY: {}", pretty_integer(memory.0.len()));
+        println!();
+
+        let runtime_memory_size = memory.0.len() - (PUBLIC_INPUT_START + public_input.len());
+        println!(
+            "Bytecode size: {}",
+            pretty_integer(bytecode.instructions.len())
+        );
+        println!("Public input size: {}", pretty_integer(public_input.len()));
+        println!(
+            "Private input size: {}",
+            pretty_integer(private_input.len())
+        );
+        println!(
+            "Runtime memory: {} ({:.2}% vec) (no vec mem: {})",
+            pretty_integer(runtime_memory_size),
+            (VECTOR_LEN * (ap_vec - initial_ap_vec)) as f64 / runtime_memory_size as f64 * 100.0,
+            no_vec_runtime_memory
+        );
+        let used_memory_cells = memory
+            .0
+            .iter()
+            .skip(PUBLIC_INPUT_START + public_input.len())
+            .filter(|&&x| x.is_some())
+            .count();
+        println!(
+            "Memory usage: {:.1}%",
+            used_memory_cells as f64 / runtime_memory_size as f64 * 100.0
+        );
+
+        println!();
+
+        if poseidons_16.len() + poseidons_24.len() > 0 {
+            println!(
+                "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
+                pretty_integer(poseidons_16.len()),
+                pretty_integer(poseidons_24.len()),
+                cpu_cycles / (poseidons_16.len() + poseidons_24.len())
+            );
+        }
+        if !dot_products.is_empty() {
+            println!("DotProduct calls: {}", pretty_integer(dot_products.len()));
+        }
+        if !multilinear_evals.is_empty() {
+            println!(
+                "MultilinearEval calls: {}",
+                pretty_integer(multilinear_evals.len())
+            );
+        }
+
+        if false {
+            println!("Low level instruction counts:");
+            println!(
+                "COMPUTE: {} ({} ADD, {} MUL)",
+                add_counts + mul_counts,
+                add_counts,
+                mul_counts
+            );
+            println!("DEREF: {deref_counts}");
+            println!("JUMP: {jump_counts}");
+        }
+
         println!("──────────────────────────────────────────────────────────────────────────\n");
     }
-
-    println!("╔═════════════════════════════════════════════════════════════════════════╗");
-    println!("║                                 STATS                                   ║");
-    println!("╚═════════════════════════════════════════════════════════════════════════╝\n");
-
-    println!("CYCLES: {}", pretty_integer(cpu_cycles));
-    println!("MEMORY: {}", pretty_integer(memory.0.len()));
-    println!();
-
-    let runtime_memory_size = memory.0.len() - (PUBLIC_INPUT_START + public_input.len());
-    println!(
-        "Bytecode size: {}",
-        pretty_integer(bytecode.instructions.len())
-    );
-    println!("Public input size: {}", pretty_integer(public_input.len()));
-    println!(
-        "Private input size: {}",
-        pretty_integer(private_input.len())
-    );
-    println!(
-        "Runtime memory: {} ({:.2}% vec) (no vec mem: {})",
-        pretty_integer(runtime_memory_size),
-        (VECTOR_LEN * (ap_vec - initial_ap_vec)) as f64 / runtime_memory_size as f64 * 100.0,
-        no_vec_runtime_memory
-    );
-    let used_memory_cells = memory
-        .0
-        .iter()
-        .skip(PUBLIC_INPUT_START + public_input.len())
-        .filter(|&&x| x.is_some())
-        .count();
-    println!(
-        "Memory usage: {:.1}%",
-        used_memory_cells as f64 / runtime_memory_size as f64 * 100.0
-    );
-
-    println!();
-
-    if poseidons_16.len() + poseidons_24.len() > 0 {
-        println!(
-            "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
-            pretty_integer(poseidons_16.len()),
-            pretty_integer(poseidons_24.len()),
-            cpu_cycles / (poseidons_16.len() + poseidons_24.len())
-        );
-    }
-    if !dot_products.is_empty() {
-        println!("DotProduct calls: {}", pretty_integer(dot_products.len()));
-    }
-    if !multilinear_evals.is_empty() {
-        println!(
-            "MultilinearEval calls: {}",
-            pretty_integer(multilinear_evals.len())
-        );
-    }
-
-    if false {
-        println!("Low level instruction counts:");
-        println!(
-            "COMPUTE: {} ({} ADD, {} MUL)",
-            add_counts + mul_counts,
-            add_counts,
-            mul_counts
-        );
-        println!("DEREF: {deref_counts}");
-        println!("JUMP: {jump_counts}");
-    }
-
-    println!("──────────────────────────────────────────────────────────────────────────\n");
 
     Ok(ExecutionResult {
         no_vec_runtime_memory,

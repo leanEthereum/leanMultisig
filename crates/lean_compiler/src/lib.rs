@@ -47,7 +47,7 @@ pub fn compile_and_run(
         program,
         &function_locations,
         no_vec_runtime_memory,
-        profiler,
+        (profiler, true),
     );
 }
 

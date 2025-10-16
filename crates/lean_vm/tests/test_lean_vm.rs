@@ -209,7 +209,7 @@ fn run_program() -> (Bytecode, ExecutionResult) {
         "",
         &BTreeMap::new(),
         1 << 20,
-        false,
+        (false, true),
     );
     (bytecode, result)
 }

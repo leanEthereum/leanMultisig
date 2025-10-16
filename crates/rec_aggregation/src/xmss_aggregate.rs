@@ -257,16 +257,23 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
         private_input.extend(F::zero_vec(LOG_LIFETIME.next_multiple_of(8) - LOG_LIFETIME));
     }
     let (bytecode, function_locations) = compile_program(&program_str);
-    let time = Instant::now();
 
     // in practice we will precompute all the possible values
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
-    let no_vec_runtime_memory = match (n_public_keys, INV_BITFIELD_DENSITY, LOG_LIFETIME) {
-        (100, 1, 32) => 148329,
-        (500, 1, 32) => 741529,
-        _ => unimplemented!(),
-    };
+    let no_vec_runtime_memory = execute_bytecode(
+        &bytecode,
+        &public_input,
+        &private_input,
+        &program_str,
+        &function_locations,
+        1 << 20,
+        (false, true),
+    )
+    .no_vec_runtime_memory;
+
+    let time = Instant::now();
+
     let (proof_data, proof_size) = prove_execution(
         &bytecode,
         &program_str,
