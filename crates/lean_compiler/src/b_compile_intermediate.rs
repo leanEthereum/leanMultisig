@@ -604,13 +604,9 @@ fn compile_lines(
                     updated_fp: None,
                 });
 
-                let remaining = compile_lines(
-                    &lines[i + 1..],
-                    compiler,
-                    final_jump,
-                    declared_vars
-                )?;
-		compiler.bytecode.insert(goto_label, remaining);
+                let remaining =
+                    compile_lines(&lines[i + 1..], compiler, final_jump, declared_vars)?;
+                compiler.bytecode.insert(goto_label, remaining);
                 return Ok(instructions);
             }
         }

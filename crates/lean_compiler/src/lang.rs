@@ -367,7 +367,7 @@ pub enum Line {
         location: SourceLineNumber,
     },
     Goto {
-	label: String,
+        label: String,
     },
 }
 impl Display for Expression {
@@ -564,9 +564,9 @@ impl Line {
             }
             Self::Break => "break".to_string(),
             Self::Panic => "panic".to_string(),
-	    Self::Goto { label } => {
-		format!("goto_{}", label)
-	    }
+            Self::Goto { label } => {
+                format!("goto_{}", label)
+            }
         };
         format!("{spaces}{line_str}")
     }

@@ -2249,9 +2249,9 @@ impl SimpleLine {
             }
             Self::Panic => "panic".to_string(),
             Self::LocationReport { .. } => Default::default(),
-	    Self::Goto { label } => {
-		format!("goto_{}", label)
-	    }
+            Self::Goto { label } => {
+                format!("goto_{}", label)
+            }
         };
         format!("{spaces}{line_str}")
     }

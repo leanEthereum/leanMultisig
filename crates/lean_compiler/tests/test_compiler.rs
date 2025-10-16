@@ -453,7 +453,7 @@ fn inline_bug_mre() {
         retur3n 1;
     }
    "#;
-    
+
     compile_and_run(program, &[], &[], DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
 }
 
