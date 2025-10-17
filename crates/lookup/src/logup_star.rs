@@ -41,7 +41,7 @@ where
     let max_index = max_index
         .unwrap_or(table_length)
         .next_multiple_of(packing_width::<EF>());
-    let max_index_packed = max_index / packing_width::<EF>();
+    let max_index_packed = max_index.div_ceil(packing_width::<EF>());
 
     let (poly_eq_point_packed, pushforward_packed, table_packed) =
         info_span!("packing").in_scope(|| {
@@ -81,53 +81,24 @@ where
     // sanity check
     assert_eq!(prod, table_eval * pushforwardt_eval);
 
-    // "c" in the paper
-    let random_challenge = prover_state.sample();
-
-    let gkr_layer_left = info_span!("building left").in_scope(|| {
-        let mut layer = unsafe {
-            uninitialized_vec::<EFPacking<EF>>(indexes_length * 2 / packing_width::<EF>())
-        };
-        let half_len_packed = layer.len() / 2;
-        let challenge_minus_indexes = pack_extension(
-            &indexes
-                .par_iter()
-                .map(|&x| random_challenge - x)
-                .collect::<Vec<_>>(),
-        );
-        parallel_clone(&poly_eq_point_packed, &mut layer[..half_len_packed]);
-        parallel_clone(&challenge_minus_indexes, &mut layer[half_len_packed..]);
-        layer
-    });
+    let c = prover_state.sample();
 
     let (claim_left, _, eval_c_minux_indexes) =
-        prove_gkr_quotient(prover_state, gkr_layer_left, None);
+        prove_gkr_quotient(prover_state, &poly_eq_point_packed, (c, indexes), None);
 
-    let gkr_layer_right = info_span!("building right").in_scope(|| {
-        let mut layer =
-            unsafe { uninitialized_vec::<EFPacking<EF>>(table_length * 2 / packing_width::<EF>()) };
-        let half_len_packed = layer.len() / 2;
-        let challenge_minus_increment = pack_extension(
-            &(0..table.unpacked_len())
-                .into_par_iter()
-                .map(|i| random_challenge - PF::<EF>::from_usize(i))
-                .collect::<Vec<_>>(),
-        );
-        parallel_clone(
-            &pushforward_packed[..max_index_packed],
-            &mut layer[..max_index_packed],
-        );
-        layer[max_index_packed..half_len_packed]
-            .par_iter_mut()
-            .for_each(|x| *x = EFPacking::<EF>::ZERO);
-        parallel_clone(&challenge_minus_increment, &mut layer[half_len_packed..]);
-        layer
-    });
-    let (claim_right, pushforward_final_eval, _) =
-        prove_gkr_quotient(prover_state, gkr_layer_right, Some(max_index_packed));
+    let increments = (0..table.unpacked_len())
+        .into_par_iter()
+        .map(|i| PF::<EF>::from_usize(i))
+        .collect::<Vec<_>>();
+    let (claim_right, pushforward_final_eval, _) = prove_gkr_quotient(
+        prover_state,
+        &pushforward_packed,
+        (c, &increments),
+        Some(max_index_packed),
+    );
 
     let final_point_left = claim_left.point[1..].to_vec();
-    let indexes_final_eval = random_challenge - eval_c_minux_indexes;
+    let indexes_final_eval = c - eval_c_minux_indexes;
     prover_state.add_extension_scalar(indexes_final_eval);
     let on_indexes = Evaluation::new(final_point_left, indexes_final_eval);
 

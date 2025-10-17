@@ -38,33 +38,33 @@ with: U0 = AB(0 0 --- )
 #[instrument(skip_all)]
 pub fn prove_gkr_quotient<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    final_layer: Vec<EFPacking<EF>>,
+    numerators: &[EFPacking<EF>],
+    (c, denominator_indexes): (EF, &[PF<EF>]),
     n_non_zeros_numerator: Option<usize>, // final_layer[n_non_zeros_numerator..n / 2] are zeros
 ) -> (Evaluation<EF>, EF, EF)
 where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    let n = (final_layer.len() * packing_width::<EF>()).ilog2() as usize;
-    let n_non_zeros_numerator = n_non_zeros_numerator.unwrap_or(final_layer.len() / 2);
+    let n = (2 * numerators.len() * packing_width::<EF>()).ilog2() as usize;
+    let n_non_zeros_numerator = n_non_zeros_numerator.unwrap_or(numerators.len());
     let mut layers_packed = Vec::new();
     let mut layers_not_packed = Vec::new();
     let last_packed = n
         .checked_sub(6 + packing_log_width::<EF>())
         .expect("TODO small GKR, no packing");
-    layers_packed.push(final_layer);
-    for i in 0..last_packed {
-        layers_packed.push(sum_quotients_2_by_2(
-            &layers_packed[i],
-            if i == 0 {
-                Some(n_non_zeros_numerator)
-            } else {
-                None
-            },
-        ));
+    let denominator_indexes_packed = PFPacking::<EF>::pack_slice(&denominator_indexes);
+    let c_packed = EFPacking::<EF>::from(c);
+    layers_packed.push(sum_quotients_2_by_2_num_and_den(
+        &numerators,
+        |i| c_packed - denominator_indexes_packed[i],
+        Some(n_non_zeros_numerator),
+    ));
+    for i in 0..last_packed - 1 {
+        layers_packed.push(sum_quotients_2_by_2(&layers_packed[i], None));
     }
     layers_not_packed.push(sum_quotients_2_by_2(
-        &unpack_extension(&layers_packed[last_packed]),
+        &unpack_extension(&layers_packed[last_packed - 1]),
         None,
     ));
     for i in 0..n - last_packed - 2 {
@@ -80,23 +80,20 @@ where
         layers_not_packed[n - last_packed - 2].evaluate(&point),
     );
 
-    let (mut up_layer_eval_left, mut up_layer_eval_right) = (EF::ZERO, EF::ZERO);
     for layer in layers_not_packed.iter().rev().skip(1) {
-        (claim, up_layer_eval_left, up_layer_eval_right) =
-            prove_gkr_quotient_step(prover_state, layer, &claim);
+        (claim, _, _) = prove_gkr_quotient_step(prover_state, layer, &claim);
     }
-    for (i, layer) in layers_packed.iter().enumerate().rev() {
-        (claim, up_layer_eval_left, up_layer_eval_right) = prove_gkr_quotient_step_packed(
-            prover_state,
-            layer,
-            &claim,
-            if i == 0 {
-                Some(n_non_zeros_numerator)
-            } else {
-                None
-            },
-        );
+    for layer in layers_packed.iter().rev() {
+        (claim, _, _) = prove_gkr_quotient_step_packed(prover_state, layer, &claim);
     }
+    let (up_layer_eval_left, up_layer_eval_right);
+    (claim, up_layer_eval_left, up_layer_eval_right) = prove_gkr_quotient_step_packed_first_round(
+        prover_state,
+        numerators,
+        (c_packed, denominator_indexes_packed),
+        &claim,
+        Some(n_non_zeros_numerator),
+    );
 
     (claim, up_layer_eval_left, up_layer_eval_right)
 }
@@ -209,11 +206,260 @@ where
     )
 }
 
+fn prove_gkr_quotient_step_packed_first_round<EF>(
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    numerators: &[EFPacking<EF>],
+    (c_packed, denominator_indexes): (EFPacking<EF>, &[PFPacking<EF>]),
+    claim: &Evaluation<EF>,
+    _n_non_zeros_numerator: Option<usize>, // TODO
+) -> (Evaluation<EF>, EF, EF)
+where
+    EF: ExtensionField<PF<EF>>,
+    PF<EF>: PrimeField64,
+{
+    assert_eq!(
+        numerators.len() * packing_width::<EF>(),
+        1 << claim.point.0.len()
+    );
+    assert_eq!(denominator_indexes.len(), numerators.len());
+
+    let mid_len_packed = numerators.len();
+    let quarter_len_packed = mid_len_packed / 2;
+
+    let mut eq_poly_packed = eval_eq_packed(&claim.point.0[1..]);
+
+    let numerators_quarters = split_at_many(
+        &numerators,
+        &(1..4).map(|i| i * numerators.len() / 4).collect::<Vec<_>>(),
+    );
+    let denominators_quarters = split_at_many(
+        &denominator_indexes,
+        &(1..4)
+            .map(|i| i * denominator_indexes.len() / 4)
+            .collect::<Vec<_>>(),
+    );
+
+    let (eq_mle_left, eq_mle_right) = eq_poly_packed.split_at(eq_poly_packed.len() / 2);
+
+    let minus_c_packed = -c_packed;
+    let c_packed_square = c_packed.square();
+
+    let (sum_x_packed, c0_term_single, c2_term_single, c0_term_double, c2_term_double) =
+        numerators_quarters[0]
+            .par_iter()
+            .zip(numerators_quarters[1].par_iter())
+            .zip(numerators_quarters[2].par_iter())
+            .zip(numerators_quarters[3].par_iter())
+            .zip(denominators_quarters[0].par_iter())
+            .zip(denominators_quarters[1].par_iter())
+            .zip(denominators_quarters[2].par_iter())
+            .zip(denominators_quarters[3].par_iter())
+            .zip(eq_mle_left.par_iter())
+            .zip(eq_mle_right.par_iter())
+            .map(
+                |(
+                    (
+                        (
+                            (
+                                (
+                                    ((((&u0_left, &u0_right), &u1_left), &u1_right), &u2_left),
+                                    &u2_right,
+                                ),
+                                &u3_left,
+                            ),
+                            &u3_right,
+                        ),
+                        &eq_val_left,
+                    ),
+                    &eq_val_right,
+                )| {
+                    // let x_sum_left = eq_val_left * u2_left * u3_left;
+                    let x_sum_left = eq_val_left
+                        * (c_packed_square
+                            + minus_c_packed * (u2_left + u3_left)
+                            + u2_left * u3_left);
+                    let x_sum_right = eq_val_right
+                        * (c_packed_square
+                            + minus_c_packed * (u2_right + u3_right)
+                            + u2_right * u3_right);
+                    let x_sum = x_sum_left + x_sum_right;
+
+                    // anticipation for the next sumcheck polynomial
+                    let c0_term_single = x_sum_left;
+                    let c2_term_single = eq_val_left * (u3_right - u3_left) * (u2_right - u2_left);
+
+                    let c0_term_double_a = u0_left * (c_packed - u3_left);
+                    let c2_term_double_a = (u0_right - u0_left) * (u3_left - u3_right);
+                    let c0_term_double_b = (c_packed - u2_left) * u1_left;
+                    let c2_term_double_b = (u1_right - u1_left) * (u2_left - u2_right);
+                    let mut c0_term_double = c0_term_double_a + c0_term_double_b;
+                    let mut c2_term_double = c2_term_double_a + c2_term_double_b;
+                    c0_term_double *= eq_val_left;
+                    c2_term_double *= eq_val_left;
+
+                    (
+                        x_sum,
+                        c0_term_single,
+                        c2_term_single,
+                        c0_term_double,
+                        c2_term_double,
+                    )
+                },
+            )
+            .reduce(
+                || {
+                    (
+                        EFPacking::<EF>::ZERO,
+                        EFPacking::<EF>::ZERO,
+                        EFPacking::<EF>::ZERO,
+                        EFPacking::<EF>::ZERO,
+                        EFPacking::<EF>::ZERO,
+                    )
+                },
+                |(x, a0, a1, a2, a3), (y, b0, b1, b2, b3)| {
+                    (x + y, a0 + b0, a1 + b1, a2 + b2, a3 + b3)
+                },
+            );
+
+    let sum_x = EFPacking::<EF>::to_ext_iter([sum_x_packed]).sum::<EF>();
+    let sum_one_minus_x = (claim.value - sum_x * claim.point[0]) / (EF::ONE - claim.point[0]);
+
+    let sumcheck_polynomial_1 =
+        &DensePolynomial::new(vec![
+            EF::ONE - claim.point[0],
+            claim.point[0].double() - EF::ONE,
+        ]) * &DensePolynomial::new(vec![sum_one_minus_x, sum_x - sum_one_minus_x]);
+
+    // sanity check
+    assert_eq!(
+        sumcheck_polynomial_1.evaluate(EF::ZERO) + sumcheck_polynomial_1.evaluate(EF::ONE),
+        claim.value
+    );
+
+    prover_state.add_extension_scalars(&sumcheck_polynomial_1.coeffs);
+    let sumcheck_challenge_1 = prover_state.sample();
+    let sum_1 = sumcheck_polynomial_1.evaluate(sumcheck_challenge_1);
+
+    let u4_const = sumcheck_challenge_1;
+    let u5_const = EF::ONE - sumcheck_challenge_1;
+    let mut missing_mul_factor = (sumcheck_challenge_1 * claim.point[0]
+        + (EF::ONE - sumcheck_challenge_1) * (EF::ONE - claim.point[0]))
+        / (EF::ONE - claim.point[1]);
+
+    let c0 = c0_term_single * u4_const + c0_term_double * u5_const;
+    let c2 = c2_term_single * u4_const + c2_term_double * u5_const;
+
+    let c0 = EFPacking::<EF>::to_ext_iter([c0]).into_iter().sum::<EF>();
+    let c2 = EFPacking::<EF>::to_ext_iter([c2]).into_iter().sum::<EF>();
+
+    let first_eq_factor = claim.point[1];
+    let c1 = ((sum_1 / missing_mul_factor) - c2 * first_eq_factor - c0) / first_eq_factor;
+
+    let mut sumcheck_polynomial_2 = DensePolynomial::new(vec![
+        c0 * missing_mul_factor,
+        c1 * missing_mul_factor,
+        c2 * missing_mul_factor,
+    ]);
+
+    sumcheck_polynomial_2 *= &DensePolynomial::lagrange_interpolation(&[
+        (PF::<EF>::ZERO, EF::ONE - first_eq_factor),
+        (PF::<EF>::ONE, first_eq_factor),
+    ])
+    .unwrap();
+
+    prover_state.add_extension_scalars(&sumcheck_polynomial_2.coeffs);
+    let sumcheck_challenge_2 = prover_state.sample();
+    let sum_2 = sumcheck_polynomial_2.evaluate(sumcheck_challenge_2);
+
+    eq_poly_packed.resize(eq_poly_packed.len() / 4, Default::default());
+    missing_mul_factor *= ((EF::ONE - claim.point[1]) * (EF::ONE - sumcheck_challenge_2)
+        + claim.point[1] * sumcheck_challenge_2)
+        / (EF::ONE - claim.point.get(2).copied().unwrap_or_default());
+
+    let batching_scalars = [EF::ONE - sumcheck_challenge_2, sumcheck_challenge_2];
+    let (u0_folded_packed, u1_folded_packed) = rayon::join(
+        || {
+            fold_multilinear(
+                &numerators[..quarter_len_packed],
+                &batching_scalars,
+                &|e, f| e * f,
+            )
+        },
+        || {
+            fold_multilinear(
+                &numerators[quarter_len_packed..],
+                &batching_scalars,
+                &|e, f| e * f,
+            )
+        },
+    );
+
+    let sumcheck_challenge_2_packed = EFPacking::<EF>::from(sumcheck_challenge_2);
+
+    let u2_folded_packed = denominator_indexes[..quarter_len_packed / 2]
+        .par_iter()
+        .zip(denominator_indexes[quarter_len_packed / 2..quarter_len_packed].par_iter())
+        .map(|(&l, &r)| c_packed - l + sumcheck_challenge_2_packed * (l - r))
+        .collect();
+    let u3_folded_packed = denominator_indexes[quarter_len_packed..quarter_len_packed * 3 / 2]
+        .par_iter()
+        .zip(denominator_indexes[quarter_len_packed * 3 / 2..].par_iter())
+        .map(|(&l, &r)| c_packed - l + sumcheck_challenge_2_packed * (l - r))
+        .collect();
+
+    let (mut sc_point, quarter_evals, _) = sumcheck_fold_and_prove::<EF, _, _, _>(
+        1,
+        MleGroupOwned::ExtensionPacked(vec![
+            u0_folded_packed,
+            u1_folded_packed,
+            u2_folded_packed,
+            u3_folded_packed,
+        ]),
+        None,
+        &GKRQuotientComputation { u4_const, u5_const },
+        &GKRQuotientComputation { u4_const, u5_const },
+        &[],
+        Some((
+            claim.point.0[2..].to_vec(),
+            Some(MleOwned::ExtensionPacked(eq_poly_packed)),
+        )),
+        false,
+        prover_state,
+        sum_2,
+        Some(missing_mul_factor),
+    );
+    sc_point.splice(0..0, [sumcheck_challenge_1, sumcheck_challenge_2]);
+
+    prover_state.add_extension_scalars(&quarter_evals);
+
+    let mixing_challenge_a = prover_state.sample();
+    let mixing_challenge_b = prover_state.sample();
+
+    let mut next_point = sc_point.clone();
+    next_point.0.insert(0, mixing_challenge_a);
+    next_point.0[1] = mixing_challenge_b;
+
+    let up_layer_eval_left =
+        quarter_evals[0] * (EF::ONE - mixing_challenge_b) + quarter_evals[1] * mixing_challenge_b;
+    let up_layer_eval_right =
+        quarter_evals[2] * (EF::ONE - mixing_challenge_b) + quarter_evals[3] * mixing_challenge_b;
+
+    let next_claim = quarter_evals.evaluate(&MultilinearPoint(vec![
+        mixing_challenge_a,
+        mixing_challenge_b,
+    ]));
+
+    (
+        Evaluation::new(next_point, next_claim),
+        up_layer_eval_left,
+        up_layer_eval_right,
+    )
+}
+
 fn prove_gkr_quotient_step_packed<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer_packed: &[EFPacking<EF>],
     claim: &Evaluation<EF>,
-    _n_non_zeros_numerator: Option<usize>, // TODO
 ) -> (Evaluation<EF>, EF, EF)
 where
     EF: ExtensionField<PF<EF>>,
@@ -229,8 +475,6 @@ where
     let quarter_len_packed = mid_len_packed / 2;
 
     let mut eq_poly_packed = eval_eq_packed(&claim.point.0[1..]);
-    // TODO for the top layer, the denomiators have a structured form: constant - index.
-    // We can skip one EE multilication in the sumcheck computation.
 
     let up_layer_octics = split_at_many(
         &up_layer_packed,
@@ -506,6 +750,7 @@ fn sum_quotients_2_by_2<F: PrimeCharacteristicRing + Sync + Send + Copy>(
 fn sum_quotients_2_by_2_num_and_den<F: PrimeCharacteristicRing + Sync + Send + Copy>(
     numerators: &[F],
     denominators: impl Fn(usize) -> F + Sync + Send,
+    // TODO OPTI: add a mul den x den closure
     n_non_zeros_numerator: Option<usize>,
 ) -> Vec<F> {
     let n = numerators.len();
@@ -552,11 +797,8 @@ mod tests {
 
     type EF = QuinticExtensionFieldKB;
 
-    fn sum_all_quotients(layer: &[EF]) -> EF {
-        (0..layer.num_evals() / 2)
-            .into_par_iter()
-            .map(|i| layer[i] / layer[layer.num_evals() / 2 + i])
-            .sum()
+    fn sum_all_quotients(nums: &[EF], den: &[EF]) -> EF {
+        nums.iter().zip(den.iter()).map(|(&n, &d)| n / d).sum()
     }
 
     #[test]
@@ -582,8 +824,7 @@ mod tests {
 
         let time = Instant::now();
         let claim = Evaluation { point, value: eval };
-        let _ =
-            prove_gkr_quotient_step_packed(&mut prover_state, &pack_extension(&big), &claim, None);
+        let _ = prove_gkr_quotient_step_packed(&mut prover_state, &pack_extension(&big), &claim);
         dbg!(time.elapsed());
 
         let mut verifier_state = build_verifier_state(&prover_state);
@@ -599,17 +840,30 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let layer = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
-        let real_quotient = sum_all_quotients(&layer);
-
+        let numerators = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
+        let c: EF = rng.random();
+        let denominators_indexes = (0..n)
+            .map(|_| PF::<EF>::from_usize(rng.random_range(..n)))
+            .collect::<Vec<_>>();
+        let denominators = denominators_indexes
+            .iter()
+            .map(|&i| c - i)
+            .collect::<Vec<EF>>();
+        let layer = [numerators.clone(), denominators.clone()].concat();
+        let real_quotient = sum_all_quotients(&numerators, &denominators);
         let mut prover_state = build_prover_state();
 
-        let _ = prove_gkr_quotient(&mut prover_state, pack_extension(&layer), None);
+        let _ = prove_gkr_quotient(
+            &mut prover_state,
+            &pack_extension(&numerators),
+            (c, &denominators_indexes),
+            None,
+        );
 
         let mut verifier_state = build_verifier_state(&prover_state);
 
         let (retrieved_quotient, postponed) =
-            verify_gkr_quotient::<EF>(&mut verifier_state, log_n).unwrap();
+            verify_gkr_quotient::<EF>(&mut verifier_state, 1 + log_n).unwrap();
         assert_eq!(layer.evaluate(&postponed.point), postponed.value);
         assert_eq!(retrieved_quotient, real_quotient);
     }
