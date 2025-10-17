@@ -277,8 +277,9 @@ mod tests {
 
         let mut indexes = vec![];
         let mut values = vec![];
+        let max_index = table_length * 3 / 4;
         for _ in 0..indexes_len {
-            let index = rng.random_range(0..table_length);
+            let index = rng.random_range(0..max_index);
             indexes.push(F::from_usize(index));
             values.push(table[index]);
         }
@@ -311,7 +312,7 @@ mod tests {
             claim.value,
             &poly_eq_point,
             &pushforward,
-            None,
+            Some(max_index),
         );
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 

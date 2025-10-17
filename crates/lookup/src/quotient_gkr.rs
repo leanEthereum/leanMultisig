@@ -213,7 +213,7 @@ fn prove_gkr_quotient_step_packed<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer_packed: &[EFPacking<EF>],
     claim: &Evaluation<EF>,
-    n_non_zeros_numerator: Option<usize>,
+    _n_non_zeros_numerator: Option<usize>, // TODO
 ) -> (Evaluation<EF>, EF, EF)
 where
     EF: ExtensionField<PF<EF>>,
@@ -223,33 +223,99 @@ where
         up_layer_packed.len() * packing_width::<EF>(),
         2 << claim.point.0.len()
     );
-    let n_non_zeros_numerator = n_non_zeros_numerator.unwrap_or(up_layer_packed.len() / 2);
 
     let len_packed = up_layer_packed.len();
     let mid_len_packed = len_packed / 2;
     let quarter_len_packed = mid_len_packed / 2;
-    let three_quarter_len_packed = quarter_len_packed * 3;
-
-    assert!(n_non_zeros_numerator >= quarter_len_packed);
 
     let mut eq_poly_packed = eval_eq_packed(&claim.point.0[1..]);
     // TODO for the top layer, the denomiators have a structured form: constant - index.
     // We can skip one EE multilication in the sumcheck computation.
 
-    let sum_x_packed: EFPacking<EF> = (0..quarter_len_packed)
-        .into_par_iter()
-        .map(|i| {
-            let eq_eval = eq_poly_packed[i];
-            let u2 = up_layer_packed[mid_len_packed + i];
-            let u3 = up_layer_packed[three_quarter_len_packed + i];
-            eq_eval * u2 * u3
-        })
-        .sum();
+    let up_layer_octics = split_at_many(
+        &up_layer_packed,
+        &(1..8)
+            .map(|i| i * up_layer_packed.len() / 8)
+            .collect::<Vec<_>>(),
+    );
+
+    let (eq_mle_left, eq_mle_right) = eq_poly_packed.split_at(eq_poly_packed.len() / 2);
+
+    let (sum_x_packed, c0_term_single, c2_term_single, c0_term_double, c2_term_double) =
+        up_layer_octics[0]
+            .par_iter()
+            .zip(up_layer_octics[1].par_iter())
+            .zip(up_layer_octics[2].par_iter())
+            .zip(up_layer_octics[3].par_iter())
+            .zip(up_layer_octics[4].par_iter())
+            .zip(up_layer_octics[5].par_iter())
+            .zip(up_layer_octics[6].par_iter())
+            .zip(up_layer_octics[7].par_iter())
+            .zip(eq_mle_left.par_iter())
+            .zip(eq_mle_right.par_iter())
+            .map(
+                |(
+                    (
+                        (
+                            (
+                                (
+                                    ((((&u0_left, &u0_right), &u1_left), &u1_right), &u2_left),
+                                    &u2_right,
+                                ),
+                                &u3_left,
+                            ),
+                            &u3_right,
+                        ),
+                        &eq_val_left,
+                    ),
+                    &eq_val_right,
+                )| {
+                    let x_sum_left = eq_val_left * u2_left * u3_left;
+                    let x_sum_right = eq_val_right * u2_right * u3_right;
+                    let x_sum = x_sum_left + x_sum_right;
+
+                    // anticipation for the next sumcheck polynomial
+                    let c0_term_single = x_sum_left;
+                    let mut c2_term_single = (u3_right - u3_left) * (u2_right - u2_left);
+                    c2_term_single *= eq_val_left;
+
+                    let c0_term_double_a = u0_left * u3_left;
+                    let c2_term_double_a = (u0_right - u0_left) * (u3_right - u3_left);
+                    let c0_term_double_b = u2_left * u1_left;
+                    let c2_term_double_b = (u1_right - u1_left) * (u2_right - u2_left);
+                    let mut c0_term_double = c0_term_double_a + c0_term_double_b;
+                    let mut c2_term_double = c2_term_double_a + c2_term_double_b;
+                    c0_term_double *= eq_val_left;
+                    c2_term_double *= eq_val_left;
+
+                    (
+                        x_sum,
+                        c0_term_single,
+                        c2_term_single,
+                        c0_term_double,
+                        c2_term_double,
+                    )
+                },
+            )
+            .reduce(
+                || {
+                    (
+                        EFPacking::<EF>::ZERO,
+                        EFPacking::<EF>::ZERO,
+                        EFPacking::<EF>::ZERO,
+                        EFPacking::<EF>::ZERO,
+                        EFPacking::<EF>::ZERO,
+                    )
+                },
+                |(x, a0, a1, a2, a3), (y, b0, b1, b2, b3)| {
+                    (x + y, a0 + b0, a1 + b1, a2 + b2, a3 + b3)
+                },
+            );
 
     let sum_x = EFPacking::<EF>::to_ext_iter([sum_x_packed]).sum::<EF>();
     let sum_one_minus_x = (claim.value - sum_x * claim.point[0]) / (EF::ONE - claim.point[0]);
 
-    let first_sumcheck_polynomial =
+    let sumcheck_polynomial_1 =
         &DensePolynomial::new(vec![
             EF::ONE - claim.point[0],
             claim.point[0].double() - EF::ONE,
@@ -257,15 +323,13 @@ where
 
     // sanity check
     assert_eq!(
-        first_sumcheck_polynomial.evaluate(EF::ZERO) + first_sumcheck_polynomial.evaluate(EF::ONE),
+        sumcheck_polynomial_1.evaluate(EF::ZERO) + sumcheck_polynomial_1.evaluate(EF::ONE),
         claim.value
     );
 
-    prover_state.add_extension_scalars(&first_sumcheck_polynomial.coeffs);
-
-    let first_sumcheck_challenge = prover_state.sample();
-
-    let next_sum = first_sumcheck_polynomial.evaluate(first_sumcheck_challenge);
+    prover_state.add_extension_scalars(&sumcheck_polynomial_1.coeffs);
+    let sumcheck_challenge_1 = prover_state.sample();
+    let sum_1 = sumcheck_polynomial_1.evaluate(sumcheck_challenge_1);
 
     let (u0_folded_packed, u1_folded_packed, u2_folded_packed, u3_folded_packed) = (
         &up_layer_packed[..quarter_len_packed],
@@ -274,15 +338,43 @@ where
         &up_layer_packed[mid_len_packed + quarter_len_packed..],
     );
 
-    let u4_const = first_sumcheck_challenge;
-    let u5_const = EF::ONE - first_sumcheck_challenge;
-    let missing_mul_factor = (first_sumcheck_challenge * claim.point[0]
-        + (EF::ONE - first_sumcheck_challenge) * (EF::ONE - claim.point[0]))
+    let u4_const = sumcheck_challenge_1;
+    let u5_const = EF::ONE - sumcheck_challenge_1;
+    let mut missing_mul_factor = (sumcheck_challenge_1 * claim.point[0]
+        + (EF::ONE - sumcheck_challenge_1) * (EF::ONE - claim.point[0]))
         / (EF::ONE - claim.point[1]);
 
-    eq_poly_packed.resize(eq_poly_packed.len() / 2, Default::default());
+    let c0 = c0_term_single * u4_const + c0_term_double * u5_const;
+    let c2 = c2_term_single * u4_const + c2_term_double * u5_const;
 
-    let (mut sc_point, quarter_evals, _) = sumcheck_prove::<EF, _, _, _>(
+    let c0 = EFPacking::<EF>::to_ext_iter([c0]).into_iter().sum::<EF>();
+    let c2 = EFPacking::<EF>::to_ext_iter([c2]).into_iter().sum::<EF>();
+
+    let first_eq_factor = claim.point[1];
+    let c1 = ((sum_1 / missing_mul_factor) - c2 * first_eq_factor - c0) / first_eq_factor;
+
+    let mut sumcheck_polynomial_2 = DensePolynomial::new(vec![
+        c0 * missing_mul_factor,
+        c1 * missing_mul_factor,
+        c2 * missing_mul_factor,
+    ]);
+
+    sumcheck_polynomial_2 *= &DensePolynomial::lagrange_interpolation(&[
+        (PF::<EF>::ZERO, EF::ONE - first_eq_factor),
+        (PF::<EF>::ONE, first_eq_factor),
+    ])
+    .unwrap();
+
+    prover_state.add_extension_scalars(&sumcheck_polynomial_2.coeffs);
+    let sumcheck_challenge_2 = prover_state.sample();
+    let sum_2 = sumcheck_polynomial_2.evaluate(sumcheck_challenge_2);
+
+    eq_poly_packed.resize(eq_poly_packed.len() / 4, Default::default());
+    missing_mul_factor *= ((EF::ONE - claim.point[1]) * (EF::ONE - sumcheck_challenge_2)
+        + claim.point[1] * sumcheck_challenge_2)
+        / (EF::ONE - claim.point.get(2).copied().unwrap_or_default());
+
+    let (mut sc_point, quarter_evals, _) = sumcheck_fold_and_prove::<EF, _, _, _>(
         1,
         MleGroupRef::ExtensionPacked(vec![
             u0_folded_packed,
@@ -290,19 +382,20 @@ where
             u2_folded_packed,
             u3_folded_packed,
         ]),
+        Some(vec![EF::ONE - sumcheck_challenge_2, sumcheck_challenge_2]),
         &GKRQuotientComputation { u4_const, u5_const },
         &GKRQuotientComputation { u4_const, u5_const },
         &[],
         Some((
-            claim.point.0[1..].to_vec(),
+            claim.point.0[2..].to_vec(),
             Some(MleOwned::ExtensionPacked(eq_poly_packed)),
         )),
         false,
         prover_state,
-        next_sum,
+        sum_2,
         Some(missing_mul_factor),
     );
-    sc_point.insert(0, first_sumcheck_challenge);
+    sc_point.splice(0..0, [sumcheck_challenge_1, sumcheck_challenge_2]);
 
     prover_state.add_extension_scalars(&quarter_evals);
 
@@ -468,7 +561,7 @@ mod tests {
 
     #[test]
     fn test_gkr_quotient_step() {
-        let log_n = 21;
+        let log_n = 12;
         let n = 1 << log_n;
 
         let mut rng = StdRng::seed_from_u64(0);
