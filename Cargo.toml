@@ -79,8 +79,8 @@ p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 
-whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "sumcheck-fold-and-compute-together" }
-multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "sumcheck-fold-and-compute-together" }
+whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3" }
+multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
 
 [dependencies]
 air.workspace = true
