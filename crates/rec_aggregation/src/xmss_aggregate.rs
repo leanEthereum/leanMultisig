@@ -267,7 +267,7 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
         &private_input,
         &program_str,
         &function_locations,
-        1 << 20,
+        1 << 21,
         (false, true),
     )
     .no_vec_runtime_memory;
