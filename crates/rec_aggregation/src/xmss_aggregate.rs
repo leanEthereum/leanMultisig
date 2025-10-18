@@ -306,8 +306,9 @@ fn test_xmss_aggregate() {
         stats.verified_signatures, 32
     );
     println!(
-        "Proving time: {:?}, proof size: {} KiB (not optimized)",
+        "Proving time: {:?} ({:.1} XMSS/s), proof size: {} KiB (not optimized)",
         stats.proving_time,
+        stats.verified_signatures as f64 / stats.proving_time.as_secs_f64(),
         stats.proof_size * F::bits() / (8 * 1024)
     );
 }
