@@ -79,8 +79,8 @@ p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 
-whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "lean-multisig" }
-multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
+whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "sumcheck-fold-and-compute-together" }
+multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "sumcheck-fold-and-compute-together" }
 
 [dependencies]
 air.workspace = true
@@ -112,11 +112,11 @@ multilinear-toolkit.workspace = true
 # p3-dft = { path = "../zk/Plonky3/dft" }
 # p3-challenger = { path = "../zk/Plonky3/challenger" }
 
-[patch."https://github.com/TomWambsgans/whir-p3.git"]
-whir-p3 = { path = "../zk/whir/fork-whir-p3" }
+# [patch."https://github.com/TomWambsgans/whir-p3.git"]
+# whir-p3 = { path = "../zk/whir/fork-whir-p3" }
 
-[patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
-multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
+# [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
+# multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
 
 [dev-dependencies]
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
