@@ -88,7 +88,7 @@ where
 
     let increments = (0..table.unpacked_len())
         .into_par_iter()
-        .map(|i| PF::<EF>::from_usize(i))
+        .map(PF::<EF>::from_usize)
         .collect::<Vec<_>>();
     let (claim_right, pushforward_final_eval, _) = prove_gkr_quotient(
         prover_state,

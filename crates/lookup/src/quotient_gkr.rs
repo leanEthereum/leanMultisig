@@ -53,10 +53,10 @@ where
     let last_packed = n
         .checked_sub(6 + packing_log_width::<EF>())
         .expect("TODO small GKR, no packing");
-    let denominator_indexes_packed = PFPacking::<EF>::pack_slice(&denominator_indexes);
+    let denominator_indexes_packed = PFPacking::<EF>::pack_slice(denominator_indexes);
     let c_packed = EFPacking::<EF>::from(c);
     layers_packed.push(sum_quotients_2_by_2_num_and_den(
-        &numerators,
+        numerators,
         |i| c_packed - denominator_indexes_packed[i],
         Some(n_non_zeros_numerator),
     ));
@@ -229,11 +229,11 @@ where
     let mut eq_poly_packed = eval_eq_packed(&claim.point.0[1..]);
 
     let numerators_quarters = split_at_many(
-        &numerators,
+        numerators,
         &(1..4).map(|i| i * numerators.len() / 4).collect::<Vec<_>>(),
     );
     let denominators_quarters = split_at_many(
-        &denominator_indexes,
+        denominator_indexes,
         &(1..4)
             .map(|i| i * denominator_indexes.len() / 4)
             .collect::<Vec<_>>(),
@@ -349,8 +349,8 @@ where
     let c0 = c0_term_single * u4_const + c0_term_double * u5_const;
     let c2 = c2_term_single * u4_const + c2_term_double * u5_const;
 
-    let c0 = EFPacking::<EF>::to_ext_iter([c0]).into_iter().sum::<EF>();
-    let c2 = EFPacking::<EF>::to_ext_iter([c2]).into_iter().sum::<EF>();
+    let c0 = EFPacking::<EF>::to_ext_iter([c0]).sum::<EF>();
+    let c2 = EFPacking::<EF>::to_ext_iter([c2]).sum::<EF>();
 
     let first_eq_factor = claim.point[1];
     let c1 = ((sum_1 / missing_mul_factor) - c2 * first_eq_factor - c0) / first_eq_factor;
@@ -477,7 +477,7 @@ where
     let mut eq_poly_packed = eval_eq_packed(&claim.point.0[1..]);
 
     let up_layer_octics = split_at_many(
-        &up_layer_packed,
+        up_layer_packed,
         &(1..8)
             .map(|i| i * up_layer_packed.len() / 8)
             .collect::<Vec<_>>(),
@@ -591,8 +591,8 @@ where
     let c0 = c0_term_single * u4_const + c0_term_double * u5_const;
     let c2 = c2_term_single * u4_const + c2_term_double * u5_const;
 
-    let c0 = EFPacking::<EF>::to_ext_iter([c0]).into_iter().sum::<EF>();
-    let c2 = EFPacking::<EF>::to_ext_iter([c2]).into_iter().sum::<EF>();
+    let c0 = EFPacking::<EF>::to_ext_iter([c0]).sum::<EF>();
+    let c2 = EFPacking::<EF>::to_ext_iter([c2]).sum::<EF>();
 
     let first_eq_factor = claim.point[1];
     let c1 = ((sum_1 / missing_mul_factor) - c2 * first_eq_factor - c0) / first_eq_factor;
