@@ -597,6 +597,18 @@ fn compile_lines(
                     location: *location,
                 });
             }
+            SimpleLine::Goto { label } => {
+                let goto_label = Label::Custom(label.clone());
+                instructions.push(IntermediateInstruction::Jump {
+                    dest: IntermediateValue::label(goto_label.clone()),
+                    updated_fp: None,
+                });
+
+                let remaining =
+                    compile_lines(&lines[i + 1..], compiler, final_jump, declared_vars)?;
+                compiler.bytecode.insert(goto_label, remaining);
+                return Ok(instructions);
+            }
         }
     }
 
@@ -795,7 +807,8 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             | SimpleLine::Print { .. }
             | SimpleLine::FunctionRet { .. }
             | SimpleLine::Precompile { .. }
-            | SimpleLine::LocationReport { .. } => {}
+            | SimpleLine::LocationReport { .. }
+            | SimpleLine::Goto { .. } => {}
         }
     }
     internal_vars

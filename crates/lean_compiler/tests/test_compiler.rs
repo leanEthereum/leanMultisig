@@ -438,23 +438,24 @@ fn test_match() {
     compile_and_run(program, &[], &[], DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
 }
 
-// #[test]
-// fn inline_bug_mre() {
-//     let program = r#"
-//     fn main() {
-//         boolean(0);
-//         return;
-//     }
+#[test]
+fn inline_bug_mre() {
+    let program = r#"
+    fn main() {
+        x = boolean(0);
+        return;
+    }
 
-//     fn boolean(a) inline -> 1 {
-//         if a == 0 {
-//             return 0;
-//         }
-//         return 1;
-//     }
-//    "#;
-//     compile_and_run(program, &[], &[]);
-// }
+    fn boolean(a) inline -> 1 {
+        if a == 0 {
+            return 0;
+        }
+        return 1;
+    }
+   "#;
+
+    compile_and_run(program, &[], &[], DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
 
 #[test]
 fn test_const_functions_calling_const_functions() {
