@@ -15,6 +15,12 @@ p3-uni-stark.workspace = true
 p3-matrix.workspace = true
 p3-util.workspace = true
 multilinear-toolkit.workspace = true
+p3-symmetric.workspace = true
+p3-koala-bear.workspace = true
+rand.workspace = true
+whir-p3.workspace = true
+packed_pcs.workspace = true
+
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

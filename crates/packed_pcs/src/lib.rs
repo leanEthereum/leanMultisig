@@ -97,7 +97,13 @@ fn split_in_chunks<F: Field>(
     let mut offset_in_original = 0;
     let mut res = Vec::new();
     if let Some(log_public) = dims.log_public_data_size {
-        assert!(log_public >= log_smallest_decomposition_chunk);
+        assert!(
+            log_public >= log_smallest_decomposition_chunk,
+            "poly {}: {} < {}",
+            poly_index,
+            log_public,
+            log_smallest_decomposition_chunk
+        );
         res.push(Chunk {
             original_poly_index: poly_index,
             original_n_vars: dims.n_vars,

@@ -71,7 +71,7 @@ impl WotsPublicKey {
     }
 }
 
-fn iterate_hash(a: &Digest, n: usize) -> Digest {
+pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
     (0..n).fold(*a, |acc, _| poseidon16_compress(&acc, &Default::default()))
 }
 

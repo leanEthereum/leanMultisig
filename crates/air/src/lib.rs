@@ -12,8 +12,7 @@ mod uni_skip_utils;
 mod utils;
 mod verify;
 
-#[cfg(test)]
-mod test;
+pub mod examples;
 
 pub trait NormalAir<EF: ExtensionField<PF<EF>>>:
     Air<SymbolicAirBuilder<PF<EF>>>

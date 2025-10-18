@@ -32,3 +32,6 @@ lean_compiler.workspace = true
 witness_generation.workspace = true
 vm_air.workspace = true
 multilinear-toolkit.workspace = true
+
+[dev-dependencies]
+xmss.workspace = true

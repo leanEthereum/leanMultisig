@@ -20,11 +20,14 @@ dependencies = [
  "p3-field",
  "p3-koala-bear",
  "p3-matrix",
+ "p3-symmetric",
  "p3-uni-stark",
  "p3-util",
+ "packed_pcs",
  "rand",
  "tracing",
  "utils",
+ "whir-p3",
 ]
 
 [[package]]
@@ -376,7 +379,6 @@ dependencies = [
  "p3-matrix",
  "p3-poseidon2",
  "p3-poseidon2-air",
- "p3-symmetric",
  "p3-uni-stark",
  "p3-util",
  "packed_pcs",

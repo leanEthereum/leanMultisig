@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
-use lean_multisig::examples::prove_poseidon2::{Poseidon2Config, prove_poseidon2};
+use air::examples::prove_poseidon2::{Poseidon2Config, prove_poseidon2};
 use whir_p3::{FoldingFactor, SecurityAssumption};
 
 fn main() {
