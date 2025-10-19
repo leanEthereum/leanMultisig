@@ -610,7 +610,7 @@ pub fn verify_execution(
     }
 
     let (initial_pc_statement, final_pc_statement) =
-        intitial_and_final_pc_conditions(bytecode, log_n_cycles);
+        initial_and_final_pc_conditions(bytecode, log_n_cycles);
 
     let dot_product_computation_column_evals =
         verifier_state.next_extension_scalars_const::<DIMENSION>()?;
@@ -780,17 +780,17 @@ pub fn verify_execution(
                     dot_product_air_statement(2),
                     dot_product_logup_star_indexes_statement_a,
                     grand_product_dot_product_table_indexes_statement_index_a,
-                ], // dot product: indexe a
+                ], // dot product: index a
                 vec![
                     dot_product_air_statement(3),
                     dot_product_logup_star_indexes_statement_b,
                     grand_product_dot_product_table_indexes_statement_index_b,
-                ], // dot product: indexe b
+                ], // dot product: index b
                 vec![
                     dot_product_air_statement(4),
                     dot_product_logup_star_indexes_statement_res,
                     grand_product_dot_product_table_indexes_statement_index_res,
-                ], // dot product: indexe res
+                ], // dot product: index res
             ],
             dot_product_computation_column_statements,
         ]

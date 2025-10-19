@@ -66,7 +66,7 @@ pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<
     fold_multilinear_chunks(&encoded_bytecode, folding_challenges)
 }
 
-pub fn intitial_and_final_pc_conditions(
+pub fn initial_and_final_pc_conditions(
     bytecode: &Bytecode,
     log_n_cycles: usize,
 ) -> (Evaluation<EF>, Evaluation<EF>) {
@@ -126,7 +126,7 @@ pub fn add_memory_statements_for_dot_product_precompile(
             return Err(ProofError::InvalidProof);
         }
         if entry.n_vars() >= log_public_memory {
-            todo!("vm multilinear eval accross multiple memory chunks")
+            todo!("vm multilinear eval across multiple memory chunks")
         }
         let addr_bits = to_big_endian_in_field(entry.addr_coeffs, log_memory - entry.n_vars());
         let statement = Evaluation::new([addr_bits, entry.point.clone()].concat(), entry.res);
@@ -418,8 +418,8 @@ pub fn add_poseidon_lookup_statements_on_indexes(
     log_n_p24: usize,
     index_lookup_point: &MultilinearPoint<EF>,
     inner_values: &[EF],
-    p16_indexe_statements: [&mut Vec<Evaluation<EF>>; 4], // a, b, res_1, res_2
-    p24_indexe_statements: [&mut Vec<Evaluation<EF>>; 3], // a, b, res
+    p16_index_statements: [&mut Vec<Evaluation<EF>>; 4], // a, b, res_1, res_2
+    p24_index_statements: [&mut Vec<Evaluation<EF>>; 3], // a, b, res
 ) {
     assert_eq!(inner_values.len(), 7);
     let mut idx_point_right_p16 = MultilinearPoint(index_lookup_point[3..].to_vec());
@@ -428,13 +428,13 @@ pub fn add_poseidon_lookup_statements_on_indexes(
     if log_n_p16 < log_n_p24 {
         std::mem::swap(&mut idx_point_right_p16, &mut idx_point_right_p24);
     }
-    for (i, stmt) in p16_indexe_statements.into_iter().enumerate() {
+    for (i, stmt) in p16_index_statements.into_iter().enumerate() {
         stmt.push(Evaluation::new(
             idx_point_right_p16.clone(),
             inner_values[i],
         ));
     }
-    for (i, stmt) in p24_indexe_statements.into_iter().enumerate() {
+    for (i, stmt) in p24_index_statements.into_iter().enumerate() {
         stmt.push(Evaluation::new(
             idx_point_right_p24.clone(),
             inner_values[i + 4],

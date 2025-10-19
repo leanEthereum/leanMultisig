@@ -19,7 +19,7 @@
 - Lev's trick to skip some low-level modular reduction
 - Sumcheck, case z = 0, no need to fold, only keep first half of the values (done in PR 33 by Lambda) (and also in WHIR?)
 - Custom AVX2 / AVX512 / Neon implem in Plonky3 for all of the finite field operations (done for degree 4 extension, but not degree 5)
-- Many times, we evaluate different multilinear polynomials (diferent columns of the same table etc) at a common point. OPTI = compute the eq(.) once, and then dot_product with everything
+- Many times, we evaluate different multilinear polynomials (different columns of the same table etc) at a common point. OPTI = compute the eq(.) once, and then dot_product with everything
 - To commit to multiple AIR table using 1 single pcs, the most general form our "packed pcs" api should accept is:
  a list of n (n not a power of 2) columns, each ending with m repeated values (in this manner we can reduce proof size when they are a lot of columns (poseidons ...))
 - in the runner of leanISA program, if we call 2 times the same function with the same arguments, we can reuse the same memory frame
@@ -95,7 +95,7 @@ But we reduce proof size a lot using instead (TODO):
 - About range checks, that can currently be done in 3 cycles (see 2.5.3 of the zkVM pdf), in the instruction encoding of DEREF, if we replaced (1 - AUX) by a dedicated column,
   we could allow DEREFS that 'does not do anything with the resulting value', which is exactly what we want for range check: we only want to ensure that m[m[fp + x]] (resp m[(t-1) - m[fp + x]])
   is a valid memory access (i.e. the index is < M the memory size), but currently the DEREF instruction forces us to 'store' the result, in m[fp + i] (resp m[fp + k]).
-  TLDR: adding a new encoding field for DEREF would save 2 memory cells / range check. If this can also increase perf in alternative scenario (other instructions for isntance),
+  TLDR: adding a new encoding field for DEREF would save 2 memory cells / range check. If this can also increase perf in alternative scenario (other instructions for instance),
   potentially we should consider it.
 
 ## Known leanISA compiler bugs:
