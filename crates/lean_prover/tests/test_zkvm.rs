@@ -91,7 +91,6 @@ fn test_zk_vm() {
         whir_config_builder(),
         NO_VEC_RUNTIME_MEMORY,
         false,
-        (1 << 15, 1 << 15)
     )
     .0;
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();

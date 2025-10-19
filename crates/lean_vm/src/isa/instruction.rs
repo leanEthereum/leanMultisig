@@ -11,15 +11,10 @@ use crate::witness::{
 };
 use multilinear_toolkit::prelude::*;
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, dot_product};
-use p3_poseidon2_air::{p16, p24};
+use p3_symmetric::Permutation;
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
-use std::mem::{MaybeUninit, transmute};
-use utils::{
-    HALF_FULL_ROUNDS_16, HALF_FULL_ROUNDS_24, MyLinearLayers, MyRoundConstants16,
-    MyRoundConstants24, PARTIAL_ROUNDS_16, PARTIAL_ROUNDS_24, Poseidon16Cols, Poseidon24Cols,
-    QUARTER_FULL_ROUNDS_16, QUARTER_FULL_ROUNDS_24, SBOX_DEGREE, SBOX_REGISTERS, ToUsize,
-};
+use utils::{ToUsize, get_poseidon16, get_poseidon24};
 
 /// Complete set of VM instruction types with comprehensive operation support
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -106,6 +101,7 @@ pub enum Instruction {
 }
 
 /// Execution context for instruction processing
+#[derive(Debug)]
 pub struct InstructionContext<'a> {
     pub memory: &'a mut Memory,
     pub fp: &'a mut usize,
@@ -113,10 +109,6 @@ pub struct InstructionContext<'a> {
     pub pcs: &'a Vec<usize>,
     pub poseidons_16: &'a mut Vec<WitnessPoseidon16>,
     pub poseidons_24: &'a mut Vec<WitnessPoseidon24>,
-    pub poseidons_16_cols: &'a mut Vec<Poseidon16Cols<F>>,
-    pub poseidons_24_cols: &'a mut Vec<Poseidon24Cols<F>>,
-    pub p16_constants: &'a MyRoundConstants16,
-    pub p24_constants: &'a MyRoundConstants24,
     pub dot_products: &'a mut Vec<WitnessDotProduct>,
     pub multilinear_evals: &'a mut Vec<WitnessMultilinearEval>,
     pub add_counts: &'a mut usize,
@@ -219,6 +211,8 @@ impl Instruction {
                 res,
                 is_compression,
             } => {
+                let poseidon_16 = get_poseidon16();
+
                 let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
                 let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
                 let res_value = res.read_value(ctx.memory, *ctx.fp)?;
@@ -230,31 +224,12 @@ impl Instruction {
                 input[..VECTOR_LEN].copy_from_slice(&arg0);
                 input[VECTOR_LEN..].copy_from_slice(&arg1);
 
-                let mut cols: Poseidon16Cols<MaybeUninit<F>> =
-                    unsafe { MaybeUninit::uninit().assume_init() };
-                p16::generate_trace_rows_for_perm::<
-                    F,
-                    MyLinearLayers,
-                    16,
-                    SBOX_DEGREE,
-                    SBOX_REGISTERS,
-                    QUARTER_FULL_ROUNDS_16,
-                    HALF_FULL_ROUNDS_16,
-                    PARTIAL_ROUNDS_16,
-                >(
-                    &mut cols,
-                    input,
-                    *is_compression,
-                    res_value.to_usize(),
-                    ctx.p16_constants,
-                );
-                let cols: Poseidon16Cols<F> =
-                    unsafe { transmute::<Poseidon16Cols<MaybeUninit<F>>, Poseidon16Cols<F>>(cols) };
-                let output = cols.ending_full_rounds.last().unwrap().post;
-                ctx.poseidons_16_cols.push(cols);
+                // Keep a copy of the input before permutation for event recording
+                let input_before = input;
+                poseidon_16.permute_mut(&mut input);
 
-                let res0: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
-                let res1: [F; VECTOR_LEN] = output[VECTOR_LEN..].try_into().unwrap();
+                let res0: [F; VECTOR_LEN] = input[..VECTOR_LEN].try_into().unwrap();
+                let res1: [F; VECTOR_LEN] = input[VECTOR_LEN..].try_into().unwrap();
 
                 ctx.memory.set_vector(res_value.to_usize(), res0)?;
                 if !is_compression {
@@ -271,6 +246,7 @@ impl Instruction {
                         addr_input_a,
                         addr_input_b,
                         addr_output,
+                        input: input_before,
                         is_compression: *is_compression,
                     });
                 }
@@ -279,6 +255,8 @@ impl Instruction {
                 Ok(())
             }
             Self::Poseidon2_24 { arg_a, arg_b, res } => {
+                let poseidon_24 = get_poseidon24();
+
                 let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
                 let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
                 let res_value = res.read_value(ctx.memory, *ctx.fp)?;
@@ -292,22 +270,11 @@ impl Instruction {
                 input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&arg1);
                 input[2 * VECTOR_LEN..].copy_from_slice(&arg2);
 
-                let mut cols: Poseidon24Cols<MaybeUninit<F>> =
-                    unsafe { MaybeUninit::uninit().assume_init() };
-                p24::generate_trace_rows_for_perm::<
-                    F,
-                    MyLinearLayers,
-                    24,
-                    SBOX_DEGREE,
-                    SBOX_REGISTERS,
-                    QUARTER_FULL_ROUNDS_24,
-                    HALF_FULL_ROUNDS_24,
-                    PARTIAL_ROUNDS_24,
-                >(&mut cols, input, ctx.p24_constants);
-                let cols: Poseidon24Cols<F> =
-                    unsafe { transmute::<Poseidon24Cols<MaybeUninit<F>>, Poseidon24Cols<F>>(cols) };
-                let res = cols.last_full_round_2.post;
-                ctx.poseidons_24_cols.push(cols);
+                // Keep a copy of the input before permutation for event recording
+                let input_before = input;
+                poseidon_24.permute_mut(&mut input);
+
+                let res: [F; VECTOR_LEN] = input[2 * VECTOR_LEN..].try_into().unwrap();
 
                 ctx.memory.set_vector(res_value.to_usize(), res)?;
 
@@ -321,6 +288,7 @@ impl Instruction {
                         addr_input_a,
                         addr_input_b,
                         addr_output,
+                        input: input_before,
                     });
                 }
 

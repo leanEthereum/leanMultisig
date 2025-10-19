@@ -14,6 +14,8 @@ pub struct WitnessPoseidon24 {
     pub addr_input_b: usize,
     /// Memory address where hash output is stored (vectorized pointer, size 1)
     pub addr_output: usize,
+    /// Complete 24-element input to the hash function
+    pub input: [F; 24],
 }
 
 impl WitnessPoseidon24 {
@@ -23,12 +25,14 @@ impl WitnessPoseidon24 {
         addr_input_a: usize,
         addr_input_b: usize,
         addr_output: usize,
+        input: [F; 24],
     ) -> Self {
         Self {
             cycle,
             addr_input_a,
             addr_input_b,
             addr_output,
+            input,
         }
     }
 
@@ -42,6 +46,7 @@ impl WitnessPoseidon24 {
             addr_input_a: ZERO_VEC_PTR,
             addr_input_b: ZERO_VEC_PTR,
             addr_output: POSEIDON_24_NULL_HASH_PTR,
+            input: [F::ZERO; 24],
         }
     }
 

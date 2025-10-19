@@ -34,7 +34,6 @@ pub enum RunnerError {
 
 pub type VMResult<T> = Result<T, RunnerError>;
 
-/// nothing is padded here
 #[derive(Debug)]
 pub struct ExecutionResult {
     pub no_vec_runtime_memory: usize,
@@ -44,8 +43,6 @@ pub struct ExecutionResult {
     pub fps: Vec<usize>,
     pub poseidons_16: Vec<WitnessPoseidon16>,
     pub poseidons_24: Vec<WitnessPoseidon24>,
-    pub poseidon_16_cols: Vec<Vec<F>>,
-    pub poseidon_24_cols: Vec<Vec<F>>,
     pub dot_products: Vec<WitnessDotProduct>,
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
 }
