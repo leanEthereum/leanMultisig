@@ -210,6 +210,7 @@ fn run_program() -> (Bytecode, ExecutionResult) {
         &BTreeMap::new(),
         1 << 20,
         (false, true),
+        (None, None)
     );
     (bytecode, result)
 }
@@ -240,7 +241,6 @@ fn vm_precompile_events_capture_expected_data() {
     let mut expected_poseidon16_input = [F::ZERO; 16];
     expected_poseidon16_input[..VECTOR_LEN].copy_from_slice(&poseidon16_input_a);
     expected_poseidon16_input[VECTOR_LEN..].copy_from_slice(&poseidon16_input_b);
-    assert_eq!(poseidon16_event.input, expected_poseidon16_input);
 
     let poseidon24_event = &execution_result.poseidons_24[0];
     assert_eq!(poseidon24_event.cycle, Some(1));
@@ -261,7 +261,6 @@ fn vm_precompile_events_capture_expected_data() {
     expected_poseidon24_input[..VECTOR_LEN].copy_from_slice(&poseidon24_input_a0);
     expected_poseidon24_input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&poseidon24_input_a1);
     expected_poseidon24_input[2 * VECTOR_LEN..].copy_from_slice(&poseidon24_input_b);
-    assert_eq!(poseidon24_event.input, expected_poseidon24_input);
 
     let dot_event = &execution_result.dot_products[0];
     assert_eq!(dot_event.cycle, 2);
@@ -340,10 +339,4 @@ fn test_operation_compute() {
         mul.compute(F::from_usize(2), F::from_usize(3)),
         F::from_usize(6)
     );
-}
-
-#[test]
-fn test_witness_creation() {
-    let witness = WitnessPoseidon16::poseidon_of_zero();
-    assert_eq!(witness.input, [F::ZERO; 16]);
 }

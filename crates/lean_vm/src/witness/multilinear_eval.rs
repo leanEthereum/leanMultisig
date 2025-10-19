@@ -3,7 +3,7 @@
 use crate::core::{EF, F};
 use p3_field::PrimeCharacteristicRing;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct RowMultilinearEval {
     /// Memory address of polynomial coefficients
     pub addr_coeffs: usize,
@@ -34,7 +34,7 @@ impl RowMultilinearEval {
 }
 
 /// Witness for the multilinear_evaluation precompile
-#[derive(Debug, Clone, derive_more::Deref)]
+#[derive(Debug, Clone, Hash, derive_more::Deref)]
 pub struct WitnessMultilinearEval {
     /// Execution cycle when this evaluation occurred
     pub cycle: usize,

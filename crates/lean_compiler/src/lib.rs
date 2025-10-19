@@ -48,6 +48,7 @@ pub fn compile_and_run(
         &function_locations,
         no_vec_runtime_memory,
         (profiler, true),
+        (None, None),
     );
 }
 

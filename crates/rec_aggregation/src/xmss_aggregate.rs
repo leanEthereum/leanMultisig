@@ -190,6 +190,8 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
     const INV_BITFIELD_DENSITY: usize = 1; // (1 / INV_BITFIELD_DENSITY) of the bits are 1 in the bitfield
     const LOG_LIFETIME: usize = 32;
 
+    let verified_signatures = n_public_keys / INV_BITFIELD_DENSITY;
+
     let xmss_signature_size_padded = (V + 1 + LOG_LIFETIME) + LOG_LIFETIME.div_ceil(8);
     program_str = program_str
         .replace("LOG_LIFETIME_PLACE_HOLDER", &LOG_LIFETIME.to_string())
@@ -269,6 +271,7 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
         &function_locations,
         1 << 21,
         (false, true),
+        (None, None),
     )
     .no_vec_runtime_memory;
 
@@ -282,6 +285,7 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
+        (verified_signatures * 150, verified_signatures * 50),
     );
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();

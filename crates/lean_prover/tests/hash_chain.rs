@@ -73,6 +73,7 @@ fn benchmark_poseidon_chain() {
         &function_locations,
         1 << (3 + LOG_CHAIN_LENGTH),
         (false, true),
+        (None, None),
     )
     .no_vec_runtime_memory;
 
@@ -85,6 +86,7 @@ fn benchmark_poseidon_chain() {
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
+        (CHAIN_LENGTH + 1, 512),
     )
     .0;
     let vm_time = time.elapsed();

@@ -14,11 +14,11 @@ pub struct WitnessPoseidon16 {
     pub addr_input_b: usize,
     /// Memory address where hash output is stored (vectorized pointer, size 2)
     pub addr_output: usize,
-    /// Complete 16-element input to the hash function
-    pub input: [F; 16],
     /// Whether this was a compression (2-to-1) or not (2-to-2)
     pub is_compression: bool,
 }
+
+pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 
 impl WitnessPoseidon16 {
     /// Create a precomputed Poseidon16 witness for all-zero input
@@ -30,8 +30,7 @@ impl WitnessPoseidon16 {
             addr_input_a: ZERO_VEC_PTR,
             addr_input_b: ZERO_VEC_PTR,
             addr_output: POSEIDON_16_NULL_HASH_PTR,
-            input: [F::ZERO; 16],
-            is_compression: true,
+            is_compression: POSEIDON_16_DEFAULT_COMPRESSION,
         }
     }
 

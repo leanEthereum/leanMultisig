@@ -4,7 +4,7 @@ use crate::core::{EF, F};
 use p3_field::PrimeCharacteristicRing;
 
 /// Witness data for dot the product precompile
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct WitnessDotProduct {
     /// Execution cycle when this operation occurred
     pub cycle: usize,

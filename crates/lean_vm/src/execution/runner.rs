@@ -14,8 +14,14 @@ use crate::witness::{
 use crate::{CodeAddress, HintExecutionContext, SourceLineNumber};
 use p3_field::PrimeCharacteristicRing;
 use p3_symmetric::Permutation;
+use rayon::prelude::*;
 use std::collections::BTreeMap;
-use utils::{get_poseidon16, get_poseidon24, pretty_integer};
+use std::mem::transmute;
+use tracing::{info_span, instrument};
+use utils::{
+    POSEIDON16_AIR_N_COLS, POSEIDON24_AIR_N_COLS, build_poseidon16_constants,
+    build_poseidon24_constants, get_poseidon16, get_poseidon24, pretty_integer,
+};
 
 /// Number of instructions to show in stack trace
 const STACK_TRACE_INSTRUCTIONS: usize = 5000;
@@ -61,6 +67,7 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
 ///
 /// This is the main VM execution entry point that processes bytecode instructions
 /// and generates execution traces with witness data.
+#[instrument(skip_all)]
 pub fn execute_bytecode(
     bytecode: &Bytecode,
     public_input: &[F],
@@ -69,6 +76,7 @@ pub fn execute_bytecode(
     function_locations: &BTreeMap<usize, String>,
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     (profiler, display_std_out_and_stats): (bool, bool),
+    (expected_num_poseidons_16, expected_num_poseidons_24): (Option<usize>, Option<usize>),
 ) -> ExecutionResult {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
@@ -82,6 +90,7 @@ pub fn execute_bytecode(
         no_vec_runtime_memory,
         profiler,
         display_std_out_and_stats,
+        (expected_num_poseidons_16, expected_num_poseidons_24),
     )
     .unwrap_or_else(|err| {
         let lines_history = &instruction_history.lines;
@@ -159,6 +168,7 @@ fn execute_bytecode_helper(
     no_vec_runtime_memory: usize,
     profiler: bool,
     display_std_out_and_stats: bool,
+    (expected_num_poseidons_16, expected_num_poseidons_24): (Option<usize>, Option<usize>),
 ) -> Result<ExecutionResult, RunnerError> {
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
@@ -194,6 +204,8 @@ fn execute_bytecode_helper(
     let mut poseidons_24: Vec<WitnessPoseidon24> = Vec::new();
     let mut dot_products: Vec<WitnessDotProduct> = Vec::new();
     let mut multilinear_evals: Vec<WitnessMultilinearEval> = Vec::new();
+    let mut poseidons_16_cols = Vec::with_capacity(expected_num_poseidons_16.unwrap_or(0));
+    let mut poseidons_24_cols = Vec::with_capacity(expected_num_poseidons_24.unwrap_or(0));
 
     let mut add_counts = 0;
     let mut mul_counts = 0;
@@ -240,6 +252,10 @@ fn execute_bytecode_helper(
             pcs: &pcs,
             poseidons_16: &mut poseidons_16,
             poseidons_24: &mut poseidons_24,
+            poseidons_16_cols: &mut poseidons_16_cols,
+            poseidons_24_cols: &mut poseidons_24_cols,
+            p16_constants: &build_poseidon16_constants(),
+            p24_constants: &build_poseidon24_constants(),
             dot_products: &mut dot_products,
             multilinear_evals: &mut multilinear_evals,
             add_counts: &mut add_counts,
@@ -341,6 +357,71 @@ fn execute_bytecode_helper(
         println!("──────────────────────────────────────────────────────────────────────────\n");
     }
 
+    if poseidons_16.len() > expected_num_poseidons_16.unwrap_or(usize::MAX) {
+        tracing::warn!(
+            "Expected at most {} Poseidon2_16 calls, but got {}",
+            expected_num_poseidons_16.unwrap(),
+            poseidons_16.len()
+        );
+    }
+    if poseidons_24.len() > expected_num_poseidons_24.unwrap_or(usize::MAX) {
+        tracing::warn!(
+            "Expected at most {} Poseidon2_24 calls, but got {}",
+            expected_num_poseidons_24.unwrap(),
+            poseidons_24.len()
+        );
+    }
+
+
+    let poseidons_16_cols_transposed = vec![
+        {
+            let mut vec = Vec::<F>::with_capacity(poseidons_16.len().next_power_of_two());
+            unsafe {
+                vec.set_len(poseidons_16.len());
+            }
+            vec
+        };
+        POSEIDON16_AIR_N_COLS
+    ];
+
+    poseidons_16_cols
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(row, perm_cols)| {
+            let perm_cols = unsafe { transmute::<_, [F; POSEIDON16_AIR_N_COLS]>(perm_cols) };
+            for (col_idx, &value) in perm_cols.iter().enumerate() {
+                let col = &poseidons_16_cols_transposed[col_idx];
+                unsafe {
+                    let ptr = col.as_ptr() as *const F as *mut F;
+                    ptr.add(row).write(value);
+                }
+            }
+        });
+
+    let poseidons_24_cols_transposed = vec![
+        {
+            let mut vec = Vec::<F>::with_capacity(poseidons_24.len().next_power_of_two());
+            unsafe {
+                vec.set_len(poseidons_24.len());
+            }
+            vec
+        };
+        POSEIDON24_AIR_N_COLS
+    ];
+    poseidons_24_cols
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(row, perm_cols)| {
+            let perm_cols = unsafe { transmute::<_, [F; POSEIDON24_AIR_N_COLS]>(perm_cols) };
+            for (col_idx, &value) in perm_cols.iter().enumerate() {
+                let col = &poseidons_24_cols_transposed[col_idx];
+                unsafe {
+                    let ptr = col.as_ptr() as *const F as *mut F;
+                    ptr.add(row).write(value);
+                }
+            }
+        });
+
     Ok(ExecutionResult {
         no_vec_runtime_memory,
         public_memory_size,
@@ -349,6 +430,8 @@ fn execute_bytecode_helper(
         fps,
         poseidons_16,
         poseidons_24,
+        poseidon_16_cols: poseidons_16_cols_transposed,
+        poseidon_24_cols: poseidons_24_cols_transposed,
         dot_products,
         multilinear_evals,
     })

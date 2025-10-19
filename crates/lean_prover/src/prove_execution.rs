@@ -33,13 +33,16 @@ pub fn prove_execution(
     whir_config_builder: WhirConfigBuilder,
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
+    (expected_num_poseidons_16, expected_num_poseidons_24): (usize, usize),
 ) -> (Vec<PF<EF>>, usize) {
     let ExecutionTrace {
         full_trace,
         n_poseidons_16,
         n_poseidons_24,
-        poseidons_16, // padded with empty poseidons
-        poseidons_24, // padded with empty poseidons
+        poseidons_16,     // padded with empty poseidons
+        poseidons_24,     // padded with empty poseidons
+        poseidon_16_cols, // padded with empty poseidons
+        poseidon_24_cols, // padded with empty poseidons
         dot_products,
         multilinear_evals: vm_multilinear_evals,
         public_memory_size,
@@ -54,6 +57,10 @@ pub fn prove_execution(
             function_locations,
             no_vec_runtime_memory,
             (vm_profiler, false),
+            (
+                Some(expected_num_poseidons_16),
+                Some(expected_num_poseidons_24),
+            ),
         );
         get_execution_trace(bytecode, execution_result)
     });
@@ -94,8 +101,6 @@ pub fn prove_execution(
     let p24_table = AirTable::<EF, _, _>::new(p24_air.clone(), p24_air_packed);
 
     let dot_product_table = AirTable::<EF, _, _>::new(DotProductAir, DotProductAir);
-
-    let (p16_columns, p24_columns) = build_poseidon_columns(&poseidons_16, &poseidons_24);
 
     let (dot_product_columns, dot_product_padding_len) = build_dot_product_columns(&dot_products);
 
@@ -149,8 +154,8 @@ pub fn prove_execution(
     }
     let p16_indexes_input = all_poseidon_16_indexes_input(&poseidons_16);
     // 0..16: input, 16: compress, 17: res_index_1, 18: res_index_2
-    let p16_compression_col = &p16_columns[16];
-    let p16_index_out_1_col = &p16_columns[17];
+    let p16_compression_col = &poseidon_16_cols[16];
+    let p16_index_out_1_col = &poseidon_16_cols[17];
 
     let p24_indexes = all_poseidon_24_indexes(&poseidons_24);
 
@@ -182,11 +187,11 @@ pub fn prove_execution(
             .map(Vec::as_slice)
             .collect::<Vec<_>>(),
         p24_indexes.iter().map(Vec::as_slice).collect::<Vec<_>>(),
-        p16_columns[16..p16_air.width() - 16]
+        poseidon_16_cols[16..p16_air.width() - 16]
             .iter()
             .map(Vec::as_slice)
             .collect::<Vec<_>>(),
-        p24_columns[24..p24_air.width() - 24]
+        poseidon_24_cols[24..p24_air.width() - 24]
             .iter()
             .map(Vec::as_slice)
             .collect::<Vec<_>>(),
@@ -533,9 +538,13 @@ pub fn prove_execution(
             dot_product_table.prove_extension(&mut prover_state, 1, &dot_product_columns_ref)
         });
 
-    let p16_columns_ref = p16_columns.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    let (p16_air_point, p16_evals_to_prove) = info_span!("Poseidon-16 AIR proof")
-        .in_scope(|| p16_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &p16_columns_ref));
+    let poseidon_16_cols_ref = poseidon_16_cols
+        .iter()
+        .map(Vec::as_slice)
+        .collect::<Vec<_>>();
+    let (p16_air_point, p16_evals_to_prove) = info_span!("Poseidon-16 AIR proof").in_scope(|| {
+        p16_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &poseidon_16_cols_ref)
+    });
     let mut p16_statements = p16_evals_to_prove[16..p16_air.width() - 16]
         .iter()
         .map(|&e| vec![Evaluation::new(p16_air_point.clone(), e)])
@@ -550,9 +559,13 @@ pub fn prove_execution(
         p16_grand_product_evals_on_indexes_res,
     ));
 
-    let p24_columns_ref = p24_columns.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    let (p24_air_point, p24_evals_to_prove) = info_span!("Poseidon-24 AIR proof")
-        .in_scope(|| p24_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &p24_columns_ref));
+    let poseidon_24_cols_ref = poseidon_24_cols
+        .iter()
+        .map(Vec::as_slice)
+        .collect::<Vec<_>>();
+    let (p24_air_point, p24_evals_to_prove) = info_span!("Poseidon-24 AIR proof").in_scope(|| {
+        p24_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &poseidon_24_cols_ref)
+    });
     let p24_statements = p24_evals_to_prove[24..p24_air.width() - 24]
         .iter()
         .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])

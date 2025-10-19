@@ -8,7 +8,8 @@ use lean_vm::*;
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use rayon::prelude::*;
-use utils::ToUsize;
+use tracing::{info_span, instrument};
+use utils::{ToUsize, generate_trace_poseidon_16, generate_trace_poseidon_24};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
@@ -17,6 +18,8 @@ pub struct ExecutionTrace {
     pub n_poseidons_24: usize,
     pub poseidons_16: Vec<WitnessPoseidon16>, // padded with empty poseidons
     pub poseidons_24: Vec<WitnessPoseidon24>, // padded with empty poseidons
+    pub poseidon_16_cols: Vec<Vec<F>>,        // padded with empty poseidons
+    pub poseidon_24_cols: Vec<Vec<F>>,        // padded with empty poseidons
     pub dot_products: Vec<WitnessDotProduct>,
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
@@ -24,6 +27,7 @@ pub struct ExecutionTrace {
     pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
+#[instrument(skip_all)]
 pub fn get_execution_trace(
     bytecode: &Bytecode,
     execution_result: ExecutionResult,
@@ -121,12 +125,49 @@ pub fn get_execution_trace(
         n_poseidons_24.next_power_of_two() - n_poseidons_24
     ]);
 
+    let mut poseidon_16_cols = execution_result.poseidon_16_cols;
+    let mut poseidon_24_cols = execution_result.poseidon_24_cols;
+
+    let default_p16_row = generate_trace_poseidon_16(
+        &[Default::default()],
+        &[POSEIDON_16_DEFAULT_COMPRESSION],
+        &[POSEIDON_16_NULL_HASH_PTR],
+    )
+    .values;
+    let default_p24_row = generate_trace_poseidon_24(&[Default::default()]).values;
+
+    poseidon_16_cols
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, col)| {
+            let default_value = default_p16_row[i];
+            col.par_extend(
+                (0..col.len().next_power_of_two() - n_poseidons_16)
+                    .into_par_iter()
+                    .map(|_| default_value),
+            );
+        });
+
+    poseidon_24_cols
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, col)| {
+            let default_value = default_p24_row[i];
+            col.par_extend(
+                (0..col.len().next_power_of_two() - n_poseidons_24)
+                    .into_par_iter()
+                    .map(|_| default_value),
+            );
+        });
+
     ExecutionTrace {
         full_trace: trace,
         n_poseidons_16,
         n_poseidons_24,
         poseidons_16,
         poseidons_24,
+        poseidon_16_cols,
+        poseidon_24_cols,
         dot_products,
         multilinear_evals,
         public_memory_size: execution_result.public_memory_size,

@@ -193,6 +193,7 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
         &function_locations,
         1 << 20,
         (false, true),
+        (None, None)
     )
     .no_vec_runtime_memory;
 
@@ -205,6 +206,7 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
+        (1 << 13, 1 << 12)
     );
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();

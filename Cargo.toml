@@ -11,7 +11,7 @@ edition = "2024"
 members = ["crates/*", "crates/lean_prover/vm_air", "crates/lean_prover/witness_generation"]
 
 [workspace.lints]
-rust.missing_debug_implementations = "warn"
+# rust.missing_debug_implementations = "warn"
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rust.dead_code = "allow"
 rustdoc.all = "warn"
@@ -61,6 +61,7 @@ derive_more = { version = "2.0.1", features = ["full"] }
 pest = "2.7"
 pest_derive = "2.7"
 colored = "3.0.0"
+transpose =  "0.2.3"
 tracing = "0.1.26"
 serde_json = "*"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }

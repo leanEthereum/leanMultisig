@@ -18,6 +18,7 @@ use p3_poseidon2_air::p16::generate_trace_rows_16;
 use p3_poseidon2_air::p24::Poseidon2Air24;
 use p3_poseidon2_air::p24::RoundConstants24;
 use p3_poseidon2_air::p24::generate_trace_rows_24;
+use p3_poseidon2_air::{p16, p24};
 
 pub type Poseidon16 = Poseidon2KoalaBear<16>;
 pub type Poseidon24 = Poseidon2KoalaBear<24>;
@@ -32,6 +33,24 @@ pub const PARTIAL_ROUNDS_24: usize = 23;
 
 pub const SBOX_DEGREE: u64 = 3;
 pub const SBOX_REGISTERS: usize = 0;
+
+pub const POSEIDON16_AIR_N_COLS: usize = p16::num_cols::<
+    16,
+    SBOX_DEGREE,
+    SBOX_REGISTERS,
+    QUARTER_FULL_ROUNDS_16,
+    HALF_FULL_ROUNDS_16,
+    PARTIAL_ROUNDS_16,
+>();
+
+pub const POSEIDON24_AIR_N_COLS: usize = p24::num_cols::<
+    24,
+    SBOX_DEGREE,
+    SBOX_REGISTERS,
+    QUARTER_FULL_ROUNDS_24,
+    HALF_FULL_ROUNDS_24,
+    PARTIAL_ROUNDS_24,
+>();
 
 pub type MyLinearLayers = GenericPoseidon2LinearLayersKoalaBear;
 
@@ -56,6 +75,31 @@ pub type Poseidon24Air<F> = Poseidon2Air24<
     HALF_FULL_ROUNDS_24,
     PARTIAL_ROUNDS_24,
 >;
+
+pub type Poseidon16Cols<F> = p16::Poseidon2Cols<
+    F,
+    16,
+    SBOX_DEGREE,
+    SBOX_REGISTERS,
+    QUARTER_FULL_ROUNDS_16,
+    HALF_FULL_ROUNDS_16,
+    PARTIAL_ROUNDS_16,
+>;
+
+pub type Poseidon24Cols<F> = p24::Poseidon2Cols<
+    F,
+    24,
+    SBOX_DEGREE,
+    SBOX_REGISTERS,
+    QUARTER_FULL_ROUNDS_24,
+    HALF_FULL_ROUNDS_24,
+    PARTIAL_ROUNDS_24,
+>;
+
+pub type MyRoundConstants16 =
+    RoundConstants16<KoalaBear, 16, HALF_FULL_ROUNDS_16, PARTIAL_ROUNDS_16>;
+pub type MyRoundConstants24 =
+    RoundConstants24<KoalaBear, 24, HALF_FULL_ROUNDS_24, PARTIAL_ROUNDS_24>;
 
 static POSEIDON16_INSTANCE: OnceLock<Poseidon16> = OnceLock::new();
 
@@ -105,7 +149,7 @@ pub fn build_poseidon_24_air_packed() -> Poseidon24Air<PFPacking<KoalaBear>> {
     Poseidon24Air::new(build_poseidon24_constants_packed())
 }
 
-fn build_poseidon16_constants()
+pub fn build_poseidon16_constants()
 -> RoundConstants16<KoalaBear, 16, HALF_FULL_ROUNDS_16, PARTIAL_ROUNDS_16> {
     RoundConstants16 {
         beginning_full_round_constants: KOALABEAR_RC16_EXTERNAL_INITIAL,
@@ -114,7 +158,7 @@ fn build_poseidon16_constants()
     }
 }
 
-fn build_poseidon24_constants()
+pub fn build_poseidon24_constants()
 -> RoundConstants24<KoalaBear, 24, HALF_FULL_ROUNDS_24, PARTIAL_ROUNDS_24> {
     RoundConstants24 {
         beginning_full_round_constants: KOALABEAR_RC24_EXTERNAL_INITIAL,
