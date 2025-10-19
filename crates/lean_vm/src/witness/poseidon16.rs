@@ -3,6 +3,8 @@
 use crate::core::{F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR};
 use p3_field::PrimeCharacteristicRing;
 
+pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
+
 /// Witness data for Poseidon2 over 16 field elements
 #[derive(Debug, Clone)]
 pub struct WitnessPoseidon16 {
@@ -31,7 +33,7 @@ impl WitnessPoseidon16 {
             addr_input_b: ZERO_VEC_PTR,
             addr_output: POSEIDON_16_NULL_HASH_PTR,
             input: [F::ZERO; 16],
-            is_compression: true,
+            is_compression: POSEIDON_16_DEFAULT_COMPRESSION,
         }
     }
 
