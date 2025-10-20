@@ -366,6 +366,9 @@ pub enum Line {
     LocationReport {
         location: SourceLineNumber,
     },
+    Goto {
+        label: String,
+    },
 }
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -561,6 +564,9 @@ impl Line {
             }
             Self::Break => "break".to_string(),
             Self::Panic => "panic".to_string(),
+            Self::Goto { label } => {
+                format!("goto_{}", label)
+            }
         };
         format!("{spaces}{line_str}")
     }
