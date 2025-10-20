@@ -70,25 +70,46 @@ impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
 }
 
 impl<const LOG_LIFETIME: usize> XmssPublicKey<LOG_LIFETIME> {
-    pub fn verify(&self, message_hash: &Digest, signature: &XmssSignature) -> bool {
-        let Some(wots_public_key) = signature
+    pub fn verify(&self, message_hash: &Digest, signature: &XmssSignature) -> Option<()> {
+        self.verify_with_poseidon_trace(message_hash, signature)
+            .map(|_| ())
+    }
+
+    pub fn verify_with_poseidon_trace(
+        &self,
+        message_hash: &Digest,
+        signature: &XmssSignature,
+    ) -> Option<(Poseidon16History, Poseidon24History)> {
+        let mut poseidon_16_trace = Vec::new();
+        let mut poseidon_24_trace = Vec::new();
+        let wots_public_key = signature
             .wots_signature
-            .recover_public_key(message_hash, &signature.wots_signature)
-        else {
-            return false;
-        };
+            .recover_public_key_with_poseidon_trace(
+                message_hash,
+                &signature.wots_signature,
+                &mut poseidon_16_trace,
+            )?;
         // merkle root verification
-        let mut current_hash = wots_public_key.hash();
+        let mut current_hash = wots_public_key.hash_with_poseidon_trace(&mut poseidon_24_trace);
         if signature.merkle_proof.len() != LOG_LIFETIME {
-            return false;
+            return None;
         }
         for (is_left, neighbour) in &signature.merkle_proof {
             if *is_left {
-                current_hash = poseidon16_compress(&current_hash, neighbour)
+                current_hash =
+                    poseidon16_compress_with_trace(&current_hash, neighbour, &mut poseidon_16_trace)
             } else {
-                current_hash = poseidon16_compress(neighbour, &current_hash);
+                current_hash = poseidon16_compress_with_trace(
+                    neighbour,
+                    &current_hash,
+                    &mut poseidon_16_trace,
+                );
             }
         }
-        current_hash == self.0
+        if current_hash == self.0 {
+            Some((poseidon_16_trace, poseidon_24_trace))
+        } else {
+            None
+        }
     }
 }

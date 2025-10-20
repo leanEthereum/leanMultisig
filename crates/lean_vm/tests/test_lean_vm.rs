@@ -195,6 +195,8 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
         hints,
         starting_frame_memory: 512,
         ending_pc: 4,
+        program: Default::default(),
+        function_locations: Default::default(),
     };
 
     (bytecode, public_input)
@@ -204,12 +206,10 @@ fn run_program() -> (Bytecode, ExecutionResult) {
     let (bytecode, public_input) = build_test_case();
     let result = execute_bytecode(
         &bytecode,
-        &public_input,
-        &[],
-        "",
-        &BTreeMap::new(),
+        (&public_input, &[]),
         1 << 20,
         (false, true),
+        (&vec![], &vec![]),
     );
     (bytecode, result)
 }

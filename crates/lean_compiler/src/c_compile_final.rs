@@ -36,6 +36,8 @@ struct Compiler {
 
 pub fn compile_to_low_level_bytecode(
     mut intermediate_bytecode: IntermediateBytecode,
+    program: String,
+    function_locations: BTreeMap<usize, String>,
 ) -> Result<Bytecode, String> {
     intermediate_bytecode.bytecode.insert(
         Label::EndProgram,
@@ -121,6 +123,8 @@ pub fn compile_to_low_level_bytecode(
         hints,
         starting_frame_memory,
         ending_pc,
+        program,
+        function_locations,
     })
 }
 

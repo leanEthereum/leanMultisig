@@ -116,10 +116,15 @@ pub struct InstructionContext<'a> {
     pub mul_counts: &'a mut usize,
     pub deref_counts: &'a mut usize,
     pub jump_counts: &'a mut usize,
+    pub poseidon16_precomputed: &'a [([F; 16], [F; 16])],
+    pub poseidon24_precomputed: &'a [([F; 24], [F; 8])],
+    pub n_poseidon16_precomputed_used: &'a mut usize,
+    pub n_poseidon24_precomputed_used: &'a mut usize,
 }
 
 impl Instruction {
     /// Execute this instruction within the given execution context
+    #[inline(always)]
     pub fn execute_instruction(&self, ctx: &mut InstructionContext<'_>) -> Result<(), RunnerError> {
         match self {
             Self::Computation {
@@ -212,8 +217,6 @@ impl Instruction {
                 res,
                 is_compression,
             } => {
-                let poseidon_16 = get_poseidon16();
-
                 let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
                 let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
                 let res_value = res.read_value(ctx.memory, *ctx.fp)?;
@@ -225,12 +228,23 @@ impl Instruction {
                 input[..VECTOR_LEN].copy_from_slice(&arg0);
                 input[VECTOR_LEN..].copy_from_slice(&arg1);
 
-                // Keep a copy of the input before permutation for event recording
-                let input_before = input;
-                poseidon_16.permute_mut(&mut input);
+                let output = match ctx
+                    .poseidon16_precomputed
+                    .get(*ctx.n_poseidon16_precomputed_used)
+                {
+                    Some(precomputed) if precomputed.0 == input => {
+                        *ctx.n_poseidon16_precomputed_used += 1;
+                        precomputed.1
+                    }
+                    _ => {
+                        let mut output = input;
+                        get_poseidon16().permute_mut(&mut output);
+                        output
+                    }
+                };
 
-                let res0: [F; VECTOR_LEN] = input[..VECTOR_LEN].try_into().unwrap();
-                let res1: [F; VECTOR_LEN] = input[VECTOR_LEN..].try_into().unwrap();
+                let res0: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
+                let res1: [F; VECTOR_LEN] = output[VECTOR_LEN..].try_into().unwrap();
 
                 ctx.memory.set_vector(res_value.to_usize(), res0)?;
                 if !is_compression {
@@ -247,7 +261,7 @@ impl Instruction {
                         addr_input_a,
                         addr_input_b,
                         addr_output,
-                        input: input_before,
+                        input,
                         is_compression: *is_compression,
                     });
                 }
@@ -256,8 +270,6 @@ impl Instruction {
                 Ok(())
             }
             Self::Poseidon2_24 { arg_a, arg_b, res } => {
-                let poseidon_24 = get_poseidon24();
-
                 let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
                 let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
                 let res_value = res.read_value(ctx.memory, *ctx.fp)?;
@@ -271,13 +283,22 @@ impl Instruction {
                 input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&arg1);
                 input[2 * VECTOR_LEN..].copy_from_slice(&arg2);
 
-                // Keep a copy of the input before permutation for event recording
-                let input_before = input;
-                poseidon_24.permute_mut(&mut input);
+                let output = match ctx
+                    .poseidon24_precomputed
+                    .get(*ctx.n_poseidon24_precomputed_used)
+                {
+                    Some(precomputed) if precomputed.0 == input => {
+                        *ctx.n_poseidon24_precomputed_used += 1;
+                        precomputed.1
+                    }
+                    _ => {
+                        let mut output = input;
+                        get_poseidon24().permute_mut(&mut output);
+                        output[2 * VECTOR_LEN..].try_into().unwrap()
+                    }
+                };
 
-                let res: [F; VECTOR_LEN] = input[2 * VECTOR_LEN..].try_into().unwrap();
-
-                ctx.memory.set_vector(res_value.to_usize(), res)?;
+                ctx.memory.set_vector(res_value.to_usize(), output)?;
 
                 {
                     let cycle = ctx.pcs.len() - 1;
@@ -289,7 +310,7 @@ impl Instruction {
                         addr_input_a,
                         addr_input_b,
                         addr_output,
-                        input: input_before,
+                        input,
                     });
                 }
 

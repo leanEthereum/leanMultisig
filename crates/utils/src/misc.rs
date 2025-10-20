@@ -113,6 +113,7 @@ pub fn transpose<F: Copy + Send + Sync>(
     let res = vec![
         {
             let mut vec = Vec::<F>::with_capacity(height + column_extra_capacity);
+            #[allow(clippy::uninit_vec)]
             unsafe {
                 vec.set_len(height);
             }
@@ -124,8 +125,9 @@ pub fn transpose<F: Copy + Send + Sync>(
         .par_chunks_exact(width)
         .enumerate()
         .for_each(|(row, chunk)| {
-            for (&value, col) in chunk.iter().zip(&res) { unsafe {
-                    let ptr = col.as_ptr() as *const F as *mut F;
+            for (&value, col) in chunk.iter().zip(&res) {
+                unsafe {
+                    let ptr = col.as_ptr() as *mut F;
                     ptr.add(row).write(value);
                 }
             }

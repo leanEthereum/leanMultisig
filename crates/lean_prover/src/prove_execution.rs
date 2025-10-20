@@ -11,7 +11,6 @@ use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use packed_pcs::*;
-use std::collections::BTreeMap;
 use tracing::info_span;
 use utils::ToUsize;
 use utils::dot_product_with_base;
@@ -24,15 +23,15 @@ use vm_air::*;
 use whir_p3::{
     WhirConfig, WhirConfigBuilder, precompute_dft_twiddles, second_batched_whir_config_builder,
 };
+use xmss::{Poseidon16History, Poseidon24History};
 
 pub fn prove_execution(
     bytecode: &Bytecode,
-    source_code: &str,                            // debug purpose
-    function_locations: &BTreeMap<usize, String>, // debug purpose
     (public_input, private_input): (&[F], &[F]),
     whir_config_builder: WhirConfigBuilder,
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
+    (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
 ) -> (Vec<PF<EF>>, usize) {
     let ExecutionTrace {
         full_trace,
@@ -49,17 +48,14 @@ pub fn prove_execution(
         let execution_result = info_span!("Executing bytecode").in_scope(|| {
             execute_bytecode(
                 bytecode,
-                public_input,
-                private_input,
-                source_code,
-                function_locations,
+                (public_input, private_input),
                 no_vec_runtime_memory,
                 (vm_profiler, false),
+                (poseidons_16_precomputed, poseidons_24_precomputed),
             )
         });
-        info_span!("Building execution trace").in_scope(|| {
-            get_execution_trace(bytecode, execution_result)
-        })
+        info_span!("Building execution trace")
+            .in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
     let public_memory = &memory[..public_memory_size];

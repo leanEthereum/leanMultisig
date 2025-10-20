@@ -86,6 +86,7 @@ pub struct HintExecutionContext<'a> {
 
 impl Hint {
     /// Execute this hint within the given execution context
+    #[inline(always)]
     pub fn execute_hint(&self, ctx: &mut HintExecutionContext<'_>) -> Result<(), RunnerError> {
         match self {
             Self::RequestMemory {
