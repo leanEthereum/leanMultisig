@@ -31,6 +31,7 @@
 - Opti WHIR: in sumcheck we know more than f(0) + f(1), we know f(0) and f(1)
 - Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306
 - Avoid committing to extra columns / adding some constraints in poseidon16 AIR, for "compression", and use instead sumcheck
+- Avoid committing to the 3 index columns, and replace it by a sumcheck? Using this idea, we would only commit to PC and FP for the execution table. Idea by Georg (Powdr). Do we even need to commit to FP then?
 
 About "the packed pcs" (similar to SP1 Jagged PCS, slightly less efficient, but simpler (no sumchecks)):
 - The best strategy is probably to pack as much as possible (the cost increasing the density = additional inner evaluations), if we can fit below a power of 2 - epsilon  (epsilon = 20% for instance, tbd), if the sum of the non zero data is just above a power of 2, no packed technique, even the best, can help us, so we should spread aniway (to reduce the pressure of inner evaluations)
