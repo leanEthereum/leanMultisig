@@ -167,7 +167,6 @@ pub fn prove_execution(
         private_memory.len(),
         bytecode.ending_pc,
         (n_poseidons_16, n_poseidons_24),
-        (p16_air.width(), p24_air.width()),
         n_rows_table_dot_products,
     );
 
@@ -193,7 +192,7 @@ pub fn prove_execution(
             .iter()
             .map(Vec::as_slice)
             .collect::<Vec<_>>(),
-        p24_columns[24..p24_air.width() - 24]
+        p24_columns[24..p24_air.width() - 8]
             .iter()
             .map(Vec::as_slice)
             .collect::<Vec<_>>(),
@@ -560,7 +559,7 @@ pub fn prove_execution(
     let p24_columns_ref = p24_columns.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let (p24_air_point, p24_evals_to_prove) = info_span!("Poseidon-24 AIR proof")
         .in_scope(|| p24_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &p24_columns_ref));
-    let p24_statements = p24_evals_to_prove[24..p24_air.width() - 24]
+    let p24_statements = p24_evals_to_prove[24..p24_air.width() - 8]
         .iter()
         .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])
         .collect();

@@ -13,11 +13,9 @@ pub fn get_base_dims(
     private_memory_len: usize,
     bytecode_ending_pc: usize,
     poseidon_counts: (usize, usize),
-    poseidon_widths: (usize, usize),
     n_rows_table_dot_products: usize,
 ) -> Vec<ColDims<F>> {
     let (n_poseidons_16, n_poseidons_24) = poseidon_counts;
-    let (p16_air_width, p24_air_width) = poseidon_widths;
     let default_p16_row =
         default_poseidon16_air_row(POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR);
     let default_p24_row = default_poseidon24_air_row();
@@ -36,10 +34,10 @@ pub fn get_base_dims(
             ColDims::padded(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index b
             ColDims::padded(n_poseidons_24, F::from_usize(POSEIDON_24_NULL_HASH_PTR)), // poseidon24 index res
         ],
-        (0..p16_air_width - 16 * 2)
+        (0..POSEIDON16_AIR_N_COLS - 16 * 2)
             .map(|i| ColDims::padded(n_poseidons_16, default_p16_row[16 + i]))
             .collect::<Vec<_>>(), // rest of poseidon16 table
-        (0..p24_air_width - 24 * 2)
+        (0..POSEIDON24_AIR_N_COLS - 24 - 8)
             .map(|i| ColDims::padded(n_poseidons_24, default_p24_row[24 + i]))
             .collect::<Vec<_>>(), // rest of poseidon24 table
         vec![

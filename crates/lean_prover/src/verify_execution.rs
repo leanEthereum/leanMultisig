@@ -111,7 +111,6 @@ pub fn verify_execution(
         private_memory_len,
         bytecode.ending_pc,
         (n_poseidons_16, n_poseidons_24),
-        (p16_air.width(), p24_air.width()),
         n_rows_table_dot_products,
     );
 
@@ -360,7 +359,7 @@ pub fn verify_execution(
         p16_grand_product_evals_on_indexes_res,
     ));
 
-    let p24_statements = p24_evals_to_verify[24..p24_air.width() - 24]
+    let p24_statements = p24_evals_to_verify[24..p24_air.width() - 8]
         .iter()
         .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])
         .collect();
