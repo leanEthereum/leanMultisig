@@ -2,6 +2,7 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
+use crate::ONE_VEC_PTR;
 use crate::core::{DIMENSION, EF, F, Label, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
@@ -308,12 +309,21 @@ impl Instruction {
                 let slice_0 = ctx
                     .memory
                     .get_continuous_slice_of_ef_elements(ptr_arg_0, *size)?;
-                let slice_1 = ctx
-                    .memory
-                    .get_continuous_slice_of_ef_elements(ptr_arg_1, *size)?;
 
-                let dot_product_result =
-                    dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
+                let (slice_1, dot_product_result) = if ptr_arg_1 == ONE_VEC_PTR * VECTOR_LEN {
+                    if *size != 1 {
+                        unimplemented!("weird use case");
+                    }
+                    (vec![EF::ONE], slice_0[0])
+                } else {
+                    let slice_1 = ctx
+                        .memory
+                        .get_continuous_slice_of_ef_elements(ptr_arg_1, *size)?;
+                    let dot_product_result =
+                        dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
+                    (slice_1, dot_product_result)
+                };
+
                 ctx.memory.set_ef_element(ptr_res, dot_product_result)?;
 
                 {
