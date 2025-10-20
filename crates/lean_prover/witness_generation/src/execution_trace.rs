@@ -1,3 +1,5 @@
+use std::mem::transmute;
+
 use crate::instruction_encoder::field_representation;
 use crate::{
     COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C,
@@ -8,7 +10,7 @@ use lean_vm::*;
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use rayon::prelude::*;
-use utils::ToUsize;
+use utils::{SyncUnsafeCell, ToUsize};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
@@ -32,67 +34,67 @@ pub fn get_execution_trace(
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
     let log_n_cycles_rounded_up = n_cycles.next_power_of_two().ilog2() as usize;
-    let mut trace = (0..N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS)
-        .map(|_| F::zero_vec(1 << log_n_cycles_rounded_up))
-        .collect::<Vec<Vec<F>>>();
+    let trace = (0..N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS)
+        .map(|_| unsafe { transmute(F::zero_vec(1 << log_n_cycles_rounded_up)) })
+        .collect::<Vec<Vec<SyncUnsafeCell<F>>>>();
 
-    for (cycle, (&pc, &fp)) in execution_result
+    execution_result
         .pcs
-        .iter()
-        .zip(&execution_result.fps)
+        .par_iter()
+        .zip(execution_result.fps.par_iter())
         .enumerate()
-    {
-        let instruction = &bytecode.instructions[pc];
-        let field_repr = field_representation(instruction);
+        .for_each(|(cycle, (&pc, &fp))| {
+            let instruction = &bytecode.instructions[pc];
+            let field_repr = field_representation(instruction);
 
-        for (j, field) in field_repr.iter().enumerate() {
-            trace[j][cycle] = *field;
-        }
+            let mut addr_a = F::ZERO;
+            if field_repr[3].is_zero() {
+                // flag_a == 0
+                addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
+            }
+            let value_a = memory.0[addr_a.to_usize()].unwrap();
+            let mut addr_b = F::ZERO;
+            if field_repr[4].is_zero() {
+                // flag_b == 0
+                addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
+            }
+            let value_b = memory.0[addr_b.to_usize()].unwrap();
 
-        let mut addr_a = F::ZERO;
-        if field_repr[3].is_zero() {
-            // flag_a == 0
-            addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
-        }
-        let value_a = memory.0[addr_a.to_usize()].unwrap();
-        let mut addr_b = F::ZERO;
-        if field_repr[4].is_zero() {
-            // flag_b == 0
-            addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
-        }
-        let value_b = memory.0[addr_b.to_usize()].unwrap();
+            let mut addr_c = F::ZERO;
+            if field_repr[5].is_zero() {
+                // flag_c == 0
+                addr_c = F::from_usize(fp) + field_repr[2]; // fp + operand_c
+            } else if let Instruction::Deref { shift_1, .. } = instruction {
+                let operand_c = F::from_usize(*shift_1);
+                assert_eq!(field_repr[2], operand_c); // debug purpose
+                addr_c = value_a + operand_c;
+            }
+            let value_c = memory.0[addr_c.to_usize()].unwrap();
 
-        let mut addr_c = F::ZERO;
-        if field_repr[5].is_zero() {
-            // flag_c == 0
-            addr_c = F::from_usize(fp) + field_repr[2]; // fp + operand_c
-        } else if let Instruction::Deref { shift_1, .. } = instruction {
-            let operand_c = F::from_usize(*shift_1);
-            assert_eq!(field_repr[2], operand_c); // debug purpose
-            addr_c = value_a + operand_c;
-        }
-        let value_c = memory.0[addr_c.to_usize()].unwrap();
+            unsafe {
+                for (j, field) in field_repr.iter().enumerate() {
+                    *trace[j][cycle].get() = *field;
+                }
+                *trace[COL_INDEX_MEM_VALUE_A][cycle].get() = value_a;
+                *trace[COL_INDEX_MEM_VALUE_B][cycle].get() = value_b;
+                *trace[COL_INDEX_MEM_VALUE_C][cycle].get() = value_c;
+                *trace[COL_INDEX_PC][cycle].get() = F::from_usize(pc);
+                *trace[COL_INDEX_FP][cycle].get() = F::from_usize(fp);
+                *trace[COL_INDEX_MEM_ADDRESS_A][cycle].get() = addr_a;
+                *trace[COL_INDEX_MEM_ADDRESS_B][cycle].get() = addr_b;
+                *trace[COL_INDEX_MEM_ADDRESS_C][cycle].get() = addr_c;
+            }
+        });
 
-        trace[COL_INDEX_MEM_VALUE_A][cycle] = value_a;
-        trace[COL_INDEX_MEM_VALUE_B][cycle] = value_b;
-        trace[COL_INDEX_MEM_VALUE_C][cycle] = value_c;
-        trace[COL_INDEX_PC][cycle] = F::from_usize(pc);
-        trace[COL_INDEX_FP][cycle] = F::from_usize(fp);
-        trace[COL_INDEX_MEM_ADDRESS_A][cycle] = addr_a;
-        trace[COL_INDEX_MEM_ADDRESS_B][cycle] = addr_b;
-        trace[COL_INDEX_MEM_ADDRESS_C][cycle] = addr_c;
-    }
+    let mut trace: Vec<Vec<F>> = unsafe { transmute(trace) };
 
     // repeat the last row to get to a power of two
-    for column in trace
-        .iter_mut()
-        .take(N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS)
-    {
+    trace.par_iter_mut().for_each(|column| {
         let last_value = column[n_cycles - 1];
-        for cell in column.iter_mut().skip(n_cycles) {
+        for cell in &mut column[n_cycles..] {
             *cell = last_value;
         }
-    }
+    });
 
     let mut memory_padded = memory
         .0

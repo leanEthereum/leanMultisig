@@ -180,31 +180,29 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
     }
 
     utils::init_tracing();
-    let (bytecode, function_locations) = compile_program(&program_str);
+    let bytecode = compile_program(program_str);
 
     // in practice we will precompute all the possible values
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
     let no_vec_runtime_memory = execute_bytecode(
         &bytecode,
-        &public_input,
-        &[],
-        &program_str,
-        &function_locations,
+        (&public_input, &[]),
         1 << 20,
         (false, true),
+        (&vec![], &vec![]),
     )
     .no_vec_runtime_memory;
 
     let time = Instant::now();
+
     let (proof_data, proof_size) = prove_execution(
         &bytecode,
-        &program_str,
-        &function_locations,
         (&public_input, &[]),
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
+        (&vec![], &vec![]), // TODO precompute poseidons
     );
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();

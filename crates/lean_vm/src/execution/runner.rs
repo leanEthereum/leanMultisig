@@ -16,6 +16,7 @@ use p3_field::PrimeCharacteristicRing;
 use p3_symmetric::Permutation;
 use std::collections::BTreeMap;
 use utils::{get_poseidon16, get_poseidon24, pretty_integer};
+use xmss::{Poseidon16History, Poseidon24History};
 
 /// Number of instructions to show in stack trace
 const STACK_TRACE_INSTRUCTIONS: usize = 5000;
@@ -63,25 +64,21 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
 /// and generates execution traces with witness data.
 pub fn execute_bytecode(
     bytecode: &Bytecode,
-    public_input: &[F],
-    private_input: &[F],
-    source_code: &str,
-    function_locations: &BTreeMap<usize, String>,
+    (public_input, private_input): (&[F], &[F]),
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     (profiler, display_std_out_and_stats): (bool, bool),
+    (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
 ) -> ExecutionResult {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
     let result = execute_bytecode_helper(
         bytecode,
-        public_input,
-        private_input,
+        (public_input, private_input),
         &mut std_out,
         &mut instruction_history,
-        function_locations,
         no_vec_runtime_memory,
-        profiler,
-        display_std_out_and_stats,
+        (profiler, display_std_out_and_stats),
+        (poseidons_16_precomputed, poseidons_24_precomputed),
     )
     .unwrap_or_else(|err| {
         let lines_history = &instruction_history.lines;
@@ -90,9 +87,9 @@ pub fn execute_bytecode(
         println!(
             "\n{}",
             crate::diagnostics::pretty_stack_trace(
-                source_code,
+                &bytecode.program,
                 latest_instructions,
-                function_locations
+                &bytecode.function_locations
             )
         );
         if !std_out.is_empty() {
@@ -151,14 +148,12 @@ fn print_instruction_cycle_counts(bytecode: &Bytecode, pcs: Vec<CodeAddress>) {
 #[allow(clippy::too_many_arguments)] // TODO
 fn execute_bytecode_helper(
     bytecode: &Bytecode,
-    public_input: &[F],
-    private_input: &[F],
+    (public_input, private_input): (&[F], &[F]),
     std_out: &mut String,
     instruction_history: &mut ExecutionHistory,
-    function_locations: &BTreeMap<usize, String>,
     no_vec_runtime_memory: usize,
-    profiler: bool,
-    display_std_out_and_stats: bool,
+    (profiler, display_std_out_and_stats): (bool, bool),
+    (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
 ) -> Result<ExecutionResult, RunnerError> {
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
@@ -188,6 +183,9 @@ fn execute_bytecode_helper(
 
     let mut pcs = Vec::new();
     let mut fps = Vec::new();
+
+    let mut n_poseidon16_precomputed_used = 0;
+    let mut n_poseidon24_precomputed_used = 0;
 
     // Events collected only in final execution
     let mut poseidons_16: Vec<WitnessPoseidon16> = Vec::new();
@@ -246,9 +244,40 @@ fn execute_bytecode_helper(
             mul_counts: &mut mul_counts,
             deref_counts: &mut deref_counts,
             jump_counts: &mut jump_counts,
+            poseidon16_precomputed: poseidons_16_precomputed,
+            poseidon24_precomputed: poseidons_24_precomputed,
+            n_poseidon16_precomputed_used: &mut n_poseidon16_precomputed_used,
+            n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
         instruction.execute_instruction(&mut instruction_ctx)?;
     }
+
+    assert_eq!(
+        n_poseidon16_precomputed_used,
+        poseidons_16_precomputed.len(),
+        "Warning: not all precomputed Poseidon16 were used"
+    );
+    assert_eq!(
+        n_poseidon24_precomputed_used,
+        poseidons_24_precomputed.len(),
+        "Warning: not all precomputed Poseidon24 were used"
+    );
+    tracing::info!(
+        "{}% of Poseidon16 precomputed",
+        if poseidons_16_precomputed.is_empty() {
+            0.
+        } else {
+            (n_poseidon16_precomputed_used as f64 / poseidons_16_precomputed.len() as f64) * 100.0
+        }
+    );
+    tracing::info!(
+        "{}% of Poseidon24 precomputed",
+        if poseidons_24_precomputed.is_empty() {
+            0.
+        } else {
+            (n_poseidon24_precomputed_used as f64 / poseidons_24_precomputed.len() as f64) * 100.0
+        }
+    );
 
     assert_eq!(pc, bytecode.ending_pc);
     pcs.push(pc);
@@ -257,7 +286,8 @@ fn execute_bytecode_helper(
     let no_vec_runtime_memory = ap - initial_ap;
 
     if profiler {
-        let report = crate::diagnostics::profiling_report(instruction_history, function_locations);
+        let report =
+            crate::diagnostics::profiling_report(instruction_history, &bytecode.function_locations);
         println!("\n{report}");
     }
     if display_std_out_and_stats {
@@ -310,7 +340,7 @@ fn execute_bytecode_helper(
 
         if poseidons_16.len() + poseidons_24.len() > 0 {
             println!(
-                "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
+                "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)",
                 pretty_integer(poseidons_16.len()),
                 pretty_integer(poseidons_24.len()),
                 cpu_cycles / (poseidons_16.len() + poseidons_24.len())

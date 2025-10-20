@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use lean_vm::*;
 
 use crate::{
@@ -16,38 +14,35 @@ mod parser;
 mod precompiles;
 pub use precompiles::PRECOMPILES;
 
-pub fn compile_program(program: &str) -> (Bytecode, BTreeMap<usize, String>) {
-    let (parsed_program, function_locations) = parse_program(program).unwrap();
+pub fn compile_program(program: String) -> Bytecode {
+    let (parsed_program, function_locations) = parse_program(&program).unwrap();
     // println!("Parsed program: {}", parsed_program.to_string());
     let simple_program = simplify_program(parsed_program);
     // println!("Simplified program: {}", simple_program.to_string());
     let intermediate_bytecode = compile_to_intermediate_bytecode(simple_program).unwrap();
     // println!("Intermediate Bytecode:\n\n{}", intermediate_bytecode.to_string());
-    let compiled = compile_to_low_level_bytecode(intermediate_bytecode).unwrap();
+
     // println!("Function Locations: \n");
     // for (loc, name) in function_locations.iter() {
     //     println!("{name}: {loc}");
     // }
     // println!("\n\nCompiled Program:\n\n{compiled}");
-    (compiled, function_locations)
+    compile_to_low_level_bytecode(intermediate_bytecode, program, function_locations).unwrap()
 }
 
 pub fn compile_and_run(
-    program: &str,
-    public_input: &[F],
-    private_input: &[F],
+    program: String,
+    (public_input, private_input): (&[F], &[F]),
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     profiler: bool,
 ) {
-    let (bytecode, function_locations) = compile_program(program);
+    let bytecode = compile_program(program);
     execute_bytecode(
         &bytecode,
-        public_input,
-        private_input,
-        program,
-        &function_locations,
+        (public_input, private_input),
         no_vec_runtime_memory,
         (profiler, true),
+        (&vec![], &vec![]),
     );
 }
 

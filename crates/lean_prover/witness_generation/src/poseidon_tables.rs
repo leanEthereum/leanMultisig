@@ -1,35 +1,60 @@
-use lean_vm::{F, WitnessPoseidon16, WitnessPoseidon24};
+use lean_vm::{
+    F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, WitnessPoseidon16,
+    WitnessPoseidon24,
+};
 use p3_field::PrimeCharacteristicRing;
 use rayon::prelude::*;
+use tracing::instrument;
 use utils::{
-    generate_trace_poseidon_16, generate_trace_poseidon_24, padd_with_zero_to_next_power_of_two,
+    POSEIDON16_AIR_N_COLS, POSEIDON24_AIR_N_COLS, default_poseidon16_air_row,
+    default_poseidon24_air_row, generate_trace_poseidon_16, generate_trace_poseidon_24,
+    padd_with_zero_to_next_power_of_two,
 };
 
-pub fn build_poseidon_columns(
-    poseidons_16: &[WitnessPoseidon16],
+#[instrument(skip_all)]
+pub fn build_poseidon_24_columns(
     poseidons_24: &[WitnessPoseidon24],
-) -> (Vec<Vec<F>>, Vec<Vec<F>>) {
-    let poseidon_16_data = poseidons_16.par_iter().map(|w| w.input).collect::<Vec<_>>();
-    let poseidon_16_compress = poseidons_16
+    padding: usize,
+) -> Vec<Vec<F>> {
+    let inputs = poseidons_24.par_iter().map(|w| w.input).collect::<Vec<_>>();
+    let matrix = generate_trace_poseidon_24(&inputs);
+    let mut res = utils::transpose(&matrix.values, POSEIDON24_AIR_N_COLS, padding);
+    let default_p24_row = default_poseidon24_air_row();
+    assert_eq!(default_p24_row.len(), res.len());
+    res.par_iter_mut()
+        .zip(default_p24_row.par_iter())
+        .for_each(|(col, default_value)| {
+            col.resize(col.len() + padding, *default_value);
+        });
+    res
+}
+
+#[instrument(skip_all)]
+pub fn build_poseidon_16_columns(
+    poseidons_16: &[WitnessPoseidon16],
+    padding: usize,
+) -> Vec<Vec<F>> {
+    let inputs = poseidons_16.par_iter().map(|w| w.input).collect::<Vec<_>>();
+    let compresses = poseidons_16
         .par_iter()
         .map(|w| w.is_compression)
         .collect::<Vec<_>>();
-    let poseidon_16_index_res = poseidons_16
+    let index_res = poseidons_16
         .par_iter()
         .map(|w| w.addr_output)
         .collect::<Vec<_>>();
-    let witness_matrix_poseidon_16 = generate_trace_poseidon_16(
-        &poseidon_16_data,
-        &poseidon_16_compress,
-        &poseidon_16_index_res,
-    );
-    let poseidon_24_data = poseidons_24.par_iter().map(|w| w.input).collect::<Vec<_>>();
-    let witness_matrix_poseidon_24 = generate_trace_poseidon_24(&poseidon_24_data);
-    let transposed_16 = witness_matrix_poseidon_16.transpose();
-    let cols_16 = transposed_16.row_slices().map(<[F]>::to_vec).collect();
-    let transposed_24 = witness_matrix_poseidon_24.transpose();
-    let cols_24 = transposed_24.row_slices().map(<[F]>::to_vec).collect();
-    (cols_16, cols_24)
+    let matrix = generate_trace_poseidon_16(&inputs, &compresses, &index_res);
+    let mut res = utils::transpose(&matrix.values, POSEIDON16_AIR_N_COLS, padding);
+
+    let default_p16_row =
+        default_poseidon16_air_row(POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR);
+    assert_eq!(default_p16_row.len(), res.len());
+    res.par_iter_mut()
+        .zip(default_p16_row.par_iter())
+        .for_each(|(col, default_value)| {
+            col.resize(col.len() + padding, *default_value);
+        });
+    res
 }
 
 pub fn all_poseidon_16_indexes_input(poseidons_16: &[WitnessPoseidon16]) -> [Vec<F>; 2] {

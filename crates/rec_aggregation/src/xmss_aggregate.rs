@@ -7,16 +7,21 @@ use lean_vm::*;
 use p3_field::PrimeCharacteristicRing;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
-use xmss::{PhonyXmssSecretKey, V, XmssSignature};
+use tracing::instrument;
+use xmss::{
+    PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature,
+};
+
+const LOG_LIFETIME: usize = 32;
 
 #[derive(Default, Debug)]
 pub struct XmssBenchStats {
     pub proving_time: Duration,
     pub proof_size: usize,
-    pub verified_signatures: usize,
+    pub n_xmss: usize,
 }
 
-pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
+pub fn run_xmss_benchmark(n_xmss: usize) -> XmssBenchStats {
     // Public input:  message_hash | all_public_keys | bitield
     // Private input: signatures = (randomness | chain_tips | merkle_path)
     let mut program_str = r#"
@@ -187,24 +192,21 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
     }
    "#.to_string();
 
-    const INV_BITFIELD_DENSITY: usize = 1; // (1 / INV_BITFIELD_DENSITY) of the bits are 1 in the bitfield
-    const LOG_LIFETIME: usize = 32;
-
     let xmss_signature_size_padded = (V + 1 + LOG_LIFETIME) + LOG_LIFETIME.div_ceil(8);
     program_str = program_str
         .replace("LOG_LIFETIME_PLACE_HOLDER", &LOG_LIFETIME.to_string())
-        .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &n_public_keys.to_string())
+        .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &n_xmss.to_string())
         .replace(
             "XMSS_SIG_SIZE_PLACE_HOLDER",
             &xmss_signature_size_padded.to_string(),
         );
 
-    let bitfield = vec![true; n_public_keys];
+    let bitfield = vec![true; n_xmss]; // for now we use a dense bitfield
 
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
 
-    let (all_public_keys, all_signatures): (Vec<_>, Vec<_>) = (0..n_public_keys)
+    let (all_public_keys, all_signatures): (Vec<_>, Vec<_>) = (0..n_xmss)
         .into_par_iter()
         .map(|i| {
             let mut rng = StdRng::seed_from_u64(i as u64);
@@ -213,16 +215,16 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
                 let xmss_secret_key =
                     PhonyXmssSecretKey::<LOG_LIFETIME>::random(&mut rng, signature_index);
                 let signature = xmss_secret_key.sign(&message_hash, &mut rng);
-                (xmss_secret_key.public_key.0, Some(signature))
+                (xmss_secret_key.public_key, Some(signature))
             } else {
-                (rng.random(), None) // random pub key
+                (XmssPublicKey(rng.random()), None) // random pub key
             }
         })
         .unzip();
     let all_signatures: Vec<XmssSignature> = all_signatures.into_iter().flatten().collect();
 
     let mut public_input = message_hash.to_vec();
-    public_input.extend(all_public_keys.into_iter().flatten());
+    public_input.extend(all_public_keys.iter().flat_map(|pk| pk.0));
     for bit in bitfield {
         public_input.push(F::from_bool(bit));
     }
@@ -233,7 +235,7 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
     public_input.splice(1..1, F::zero_vec(7));
 
     let mut private_input = vec![];
-    for signature in all_signatures {
+    for signature in &all_signatures {
         private_input.extend(signature.wots_signature.randomness.to_vec());
         private_input.extend(
             signature
@@ -256,45 +258,67 @@ pub fn run_xmss_benchmark(n_public_keys: usize) -> XmssBenchStats {
         );
         private_input.extend(F::zero_vec(LOG_LIFETIME.next_multiple_of(8) - LOG_LIFETIME));
     }
-    let (bytecode, function_locations) = compile_program(&program_str);
+    let bytecode = compile_program(program_str);
 
     // in practice we will precompute all the possible values
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
     let no_vec_runtime_memory = execute_bytecode(
         &bytecode,
-        &public_input,
-        &private_input,
-        &program_str,
-        &function_locations,
+        (&public_input, &private_input),
         1 << 21,
         (false, true),
+        (&vec![], &vec![]),
     )
     .no_vec_runtime_memory;
 
+    utils::init_tracing();
     let time = Instant::now();
+
+    let (poseidons_16_precomputed, poseidons_24_precomputed) =
+        precompute_poseidons(&all_public_keys, &all_signatures, &message_hash);
 
     let (proof_data, proof_size) = prove_execution(
         &bytecode,
-        &program_str,
-        &function_locations,
         (&public_input, &private_input),
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
+        (&poseidons_16_precomputed, &poseidons_24_precomputed),
     );
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
     XmssBenchStats {
         proving_time,
         proof_size,
-        verified_signatures: n_public_keys / INV_BITFIELD_DENSITY,
+        n_xmss,
     }
+}
+
+#[instrument(skip_all)]
+fn precompute_poseidons(
+    xmss_pub_keys: &[XmssPublicKey<LOG_LIFETIME>],
+    all_signatures: &[XmssSignature],
+    message_hash: &[F; 8],
+) -> (Poseidon16History, Poseidon24History) {
+    assert_eq!(xmss_pub_keys.len(), all_signatures.len());
+    let (poseidon_16_traces, poseidon_24_traces): (Vec<_>, Vec<_>) = xmss_pub_keys
+        .par_iter()
+        .zip(all_signatures.par_iter())
+        .map(|(pub_key, sig)| {
+            pub_key
+                .verify_with_poseidon_trace(message_hash, sig)
+                .unwrap()
+        })
+        .unzip();
+    (
+        poseidon_16_traces.into_par_iter().flatten().collect(),
+        poseidon_24_traces.into_par_iter().flatten().collect(),
+    )
 }
 
 #[test]
 fn test_xmss_aggregate() {
-    utils::init_tracing();
     use p3_field::Field;
     let n_public_keys: usize = std::env::var("NUM_XMSS_AGGREGATED")
         .unwrap_or("100".to_string())
@@ -303,12 +327,12 @@ fn test_xmss_aggregate() {
     let stats = run_xmss_benchmark(n_public_keys);
     println!(
         "\nXMSS aggregation (n_signatures = {}, lifetime = 2^{})",
-        stats.verified_signatures, 32
+        stats.n_xmss, 32
     );
     println!(
         "Proving time: {:?} ({:.1} XMSS/s), proof size: {} KiB (not optimized)",
         stats.proving_time,
-        stats.verified_signatures as f64 / stats.proving_time.as_secs_f64(),
+        stats.n_xmss as f64 / stats.proving_time.as_secs_f64(),
         stats.proof_size * F::bits() / (8 * 1024)
     );
 }

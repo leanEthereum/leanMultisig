@@ -19,7 +19,7 @@ fn test_zk_vm() {
     fn main() {
         for i in 0..1000 unroll {  if 1 == 0 {  return; } } // increase bytecode size artificially
 
-        for i in 0..500 {
+        for i in 10..500 {
             x = malloc_vec(6);
             poseidon16(i + 3, i, x, PERMUTATION);
             poseidon24(i + 3, i, x + 2);
@@ -82,15 +82,14 @@ fn test_zk_vm() {
         .collect::<Vec<_>>();
 
     // utils::init_tracing();
-    let (bytecode, function_locations) = compile_program(&program_str);
+    let bytecode = compile_program(program_str);
     let proof_data = prove_execution(
         &bytecode,
-        &program_str,
-        &function_locations,
         (&public_input, &private_input),
         whir_config_builder(),
         NO_VEC_RUNTIME_MEMORY,
         false,
+        (&vec![], &vec![]),
     )
     .0;
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();

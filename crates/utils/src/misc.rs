@@ -1,7 +1,10 @@
+use std::cell::UnsafeCell;
+
 use p3_field::{BasedVectorSpace, ExtensionField, Field, dot_product};
 use rayon::prelude::*;
 
 use multilinear_toolkit::prelude::*;
+use tracing::instrument;
 
 pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
     let new_len = std::mem::size_of_val(slice) / std::mem::size_of::<After>();
@@ -97,4 +100,52 @@ pub fn finger_print<F: Field, EF: ExtensionField<F>>(data: &[F], challenge: EF) 
 
 pub fn powers_const<F: Field, const N: usize>(base: F) -> [F; N] {
     base.powers().collect_n(N).try_into().unwrap()
+}
+
+#[instrument(skip_all)]
+pub fn transpose<F: Copy + Send + Sync>(
+    matrix: &[F],
+    width: usize,
+    column_extra_capacity: usize,
+) -> Vec<Vec<F>> {
+    assert!((matrix.len().is_multiple_of(width)));
+    let height = matrix.len() / width;
+    let res = vec![
+        {
+            let mut vec = Vec::<F>::with_capacity(height + column_extra_capacity);
+            #[allow(clippy::uninit_vec)]
+            unsafe {
+                vec.set_len(height);
+            }
+            vec
+        };
+        width
+    ];
+    matrix
+        .par_chunks_exact(width)
+        .enumerate()
+        .for_each(|(row, chunk)| {
+            for (&value, col) in chunk.iter().zip(&res) {
+                unsafe {
+                    let ptr = col.as_ptr() as *mut F;
+                    ptr.add(row).write(value);
+                }
+            }
+        });
+    res
+}
+
+#[derive(Debug)]
+pub struct SyncUnsafeCell<T>(UnsafeCell<T>);
+
+unsafe impl<T> Sync for SyncUnsafeCell<T> {}
+
+impl<T> SyncUnsafeCell<T> {
+    pub fn new(value: T) -> Self {
+        Self(UnsafeCell::new(value))
+    }
+
+    pub fn get(&self) -> *mut T {
+        self.0.get()
+    }
 }

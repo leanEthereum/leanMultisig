@@ -28,7 +28,7 @@ fn test_xmss_signature() {
     let index = rng.random_range(0..(1 << LOG_LIFETIME));
     let signature = sk.sign(&message_hash, index, &mut rng);
     let public_key = sk.public_key();
-    assert!(public_key.verify(&message_hash, &signature,));
+    assert!(public_key.verify(&message_hash, &signature).is_some());
 }
 
 #[test]
@@ -37,5 +37,5 @@ fn test_phony_xmss_signature() {
     let sk = PhonyXmssSecretKey::<LOG_LIFETIME>::random(&mut rng, 6);
     let message_hash: [F; 8] = rng.random();
     let signature = sk.sign(&message_hash, &mut rng);
-    assert!(sk.public_key.verify(&message_hash, &signature));
+    assert!(sk.public_key.verify(&message_hash, &signature).is_some());
 }

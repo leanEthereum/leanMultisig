@@ -64,27 +64,24 @@ fn benchmark_poseidon_chain() {
     let private_input = vec![];
 
     utils::init_tracing();
-    let (bytecode, function_locations) = compile_program(&program_str);
+    let bytecode = compile_program(program_str);
     let no_vec_runtime_memory = execute_bytecode(
         &bytecode,
-        &public_input,
-        &private_input,
-        &program_str,
-        &function_locations,
+        (&public_input, &private_input),
         1 << (3 + LOG_CHAIN_LENGTH),
         (false, true),
+        (&vec![], &vec![]),
     )
     .no_vec_runtime_memory;
 
     let time = Instant::now();
     let proof_data = prove_execution(
         &bytecode,
-        &program_str,
-        &function_locations,
         (&public_input, &private_input),
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
+        (&vec![], &vec![]), // TODO poseidons precomputed
     )
     .0;
     let vm_time = time.elapsed();
