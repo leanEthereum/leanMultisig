@@ -1,9 +1,8 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 use p3_koala_bear::KoalaBear;
-use p3_symmetric::Permutation;
-use utils::{get_poseidon16, get_poseidon24};
 
 mod wots;
+use utils::{poseidon16_permute, poseidon24_permute};
 pub use wots::*;
 mod xmss;
 pub use xmss::*;
@@ -24,7 +23,7 @@ pub type Poseidon16History = Vec<([F; 16], [F; 16])>;
 pub type Poseidon24History = Vec<([F; 24], [F; 8])>;
 
 fn poseidon16_compress(a: &Digest, b: &Digest) -> Digest {
-    get_poseidon16().permute([*a, *b].concat().try_into().unwrap())[0..8]
+    poseidon16_permute([*a, *b].concat().try_into().unwrap())[0..8]
         .try_into()
         .unwrap()
 }
@@ -35,13 +34,13 @@ fn poseidon16_compress_with_trace(
     poseidon_16_trace: &mut Vec<([F; 16], [F; 16])>,
 ) -> Digest {
     let input: [F; 16] = [*a, *b].concat().try_into().unwrap();
-    let output = get_poseidon16().permute(input);
+    let output = poseidon16_permute(input);
     poseidon_16_trace.push((input, output));
     output[0..8].try_into().unwrap()
 }
 
 fn poseidon24_compress(a: &Digest, b: &Digest, c: &Digest) -> Digest {
-    get_poseidon24().permute([*a, *b, *c].concat().try_into().unwrap())[16..24]
+    poseidon24_permute([*a, *b, *c].concat().try_into().unwrap())[16..24]
         .try_into()
         .unwrap()
 }
@@ -53,7 +52,7 @@ fn poseidon24_compress_with_trace(
     poseidon_24_trace: &mut Vec<([F; 24], [F; 8])>,
 ) -> Digest {
     let input: [F; 24] = [*a, *b, *c].concat().try_into().unwrap();
-    let output = get_poseidon24().permute(input)[16..24].try_into().unwrap();
+    let output = poseidon24_permute(input)[16..24].try_into().unwrap();
     poseidon_24_trace.push((input, output));
     output
 }

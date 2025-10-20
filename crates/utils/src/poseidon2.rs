@@ -19,6 +19,7 @@ use p3_poseidon2_air::p24::Poseidon2Air24;
 use p3_poseidon2_air::p24::RoundConstants24;
 use p3_poseidon2_air::p24::generate_trace_rows_24;
 use p3_poseidon2_air::{p16, p24};
+use p3_symmetric::Permutation;
 
 pub type Poseidon16 = Poseidon2KoalaBear<16>;
 pub type Poseidon24 = Poseidon2KoalaBear<24>;
@@ -81,7 +82,8 @@ pub type MyRoundConstants24<F> = RoundConstants24<F, 24, HALF_FULL_ROUNDS_24, PA
 
 static POSEIDON16_INSTANCE: OnceLock<Poseidon16> = OnceLock::new();
 
-pub fn get_poseidon16() -> &'static Poseidon16 {
+#[inline(always)]
+pub(crate) fn get_poseidon16() -> &'static Poseidon16 {
     POSEIDON16_INSTANCE.get_or_init(|| {
         let round_constants = build_poseidon16_constants();
         let external_constants = ExternalLayerConstants::new(
@@ -95,9 +97,15 @@ pub fn get_poseidon16() -> &'static Poseidon16 {
     })
 }
 
+#[inline(always)]
+pub fn poseidon16_permute(input: [KoalaBear; 16]) -> [KoalaBear; 16] {
+    get_poseidon16().permute(input)
+}
+
 static POSEIDON24_INSTANCE: OnceLock<Poseidon24> = OnceLock::new();
 
-pub fn get_poseidon24() -> &'static Poseidon24 {
+#[inline(always)]
+pub(crate) fn get_poseidon24() -> &'static Poseidon24 {
     POSEIDON24_INSTANCE.get_or_init(|| {
         let round_constants = build_poseidon24_constants();
         let external_constants = ExternalLayerConstants::new(
@@ -109,6 +117,11 @@ pub fn get_poseidon24() -> &'static Poseidon24 {
             round_constants.partial_round_constants.to_vec(),
         )
     })
+}
+
+#[inline(always)]
+pub fn poseidon24_permute(input: [KoalaBear; 24]) -> [KoalaBear; 24] {
+    get_poseidon24().permute(input)
 }
 
 pub fn build_poseidon_16_air() -> Poseidon16Air<KoalaBear> {

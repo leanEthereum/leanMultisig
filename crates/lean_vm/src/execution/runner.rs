@@ -13,9 +13,8 @@ use crate::witness::{
 };
 use crate::{CodeAddress, HintExecutionContext, SourceLineNumber};
 use p3_field::PrimeCharacteristicRing;
-use p3_symmetric::Permutation;
 use std::collections::BTreeMap;
-use utils::{get_poseidon16, get_poseidon24, pretty_integer};
+use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
 use xmss::{Poseidon16History, Poseidon24History};
 
 /// Number of instructions to show in stack trace
@@ -51,10 +50,10 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
 
     public_memory
         [POSEIDON_16_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_16_NULL_HASH_PTR + 2) * VECTOR_LEN]
-        .copy_from_slice(&get_poseidon16().permute([F::ZERO; 16]));
+        .copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
     public_memory
         [POSEIDON_24_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_24_NULL_HASH_PTR + 1) * VECTOR_LEN]
-        .copy_from_slice(&get_poseidon24().permute([F::ZERO; 24])[16..]);
+        .copy_from_slice(&poseidon24_permute([F::ZERO; 24])[16..]);
     public_memory
 }
 

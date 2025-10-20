@@ -12,10 +12,9 @@ use crate::witness::{
 };
 use multilinear_toolkit::prelude::*;
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, dot_product};
-use p3_symmetric::Permutation;
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
-use utils::{ToUsize, get_poseidon16, get_poseidon24};
+use utils::{ToUsize, poseidon16_permute, poseidon24_permute};
 
 /// Complete set of VM instruction types with comprehensive operation support
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -236,11 +235,7 @@ impl Instruction {
                         *ctx.n_poseidon16_precomputed_used += 1;
                         precomputed.1
                     }
-                    _ => {
-                        let mut output = input;
-                        get_poseidon16().permute_mut(&mut output);
-                        output
-                    }
+                    _ => poseidon16_permute(input),
                 };
 
                 let res0: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
@@ -292,8 +287,7 @@ impl Instruction {
                         precomputed.1
                     }
                     _ => {
-                        let mut output = input;
-                        get_poseidon24().permute_mut(&mut output);
+                        let output = poseidon24_permute(input);
                         output[2 * VECTOR_LEN..].try_into().unwrap()
                     }
                 };

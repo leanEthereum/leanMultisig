@@ -21,7 +21,7 @@ Details on how to prove AIR constraints in the multilinear settings are describe
 
 ## Benchmarks
 
-cpu: cpu: i9-12900H, ram: 32 gb
+cpu: i9-12900H, ram: 32 gb
 
 > TLDR: Slow, **but there is hope** (cf [TODO](TODO.md))
 

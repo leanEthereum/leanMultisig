@@ -1,7 +1,6 @@
 use lean_compiler::*;
 use lean_vm::*;
-use p3_symmetric::Permutation;
-use utils::{get_poseidon16, get_poseidon24};
+use utils::{poseidon16_permute, poseidon24_permute};
 
 const DEFAULT_NO_VEC_RUNTIME_MEMORY: usize = 1 << 15;
 
@@ -327,7 +326,7 @@ fn test_mini_program_3() {
         return;
     }
    "#;
-    let mut public_input: [F; 16] = (0..16).map(F::new).collect::<Vec<F>>().try_into().unwrap();
+    let public_input: [F; 16] = (0..16).map(F::new).collect::<Vec<F>>().try_into().unwrap();
     compile_and_run(
         program.to_string(),
         (&public_input, &[]),
@@ -335,8 +334,7 @@ fn test_mini_program_3() {
         false,
     );
 
-    get_poseidon16().permute_mut(&mut public_input);
-    let _ = public_input;
+    let _ = dbg!(poseidon16_permute(public_input));
 }
 
 #[test]
@@ -355,7 +353,7 @@ fn test_mini_program_4() {
         return;
     }
    "#;
-    let mut public_input: [F; 24] = (0..24).map(F::new).collect::<Vec<F>>().try_into().unwrap();
+    let public_input: [F; 24] = (0..24).map(F::new).collect::<Vec<F>>().try_into().unwrap();
     compile_and_run(
         program.to_string(),
         (&public_input, &[]),
@@ -363,8 +361,7 @@ fn test_mini_program_4() {
         false,
     );
 
-    get_poseidon24().permute_mut(&mut public_input);
-    dbg!(&public_input[16..]);
+    dbg!(&poseidon24_permute(public_input)[16..]);
 }
 
 #[test]

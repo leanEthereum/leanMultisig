@@ -3,7 +3,6 @@ use multilinear_toolkit::prelude::*;
 use p3_air::BaseAir;
 use p3_field::PrimeField64;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
-use p3_symmetric::Permutation;
 use packed_pcs::{
     ColDims, packed_pcs_commit, packed_pcs_global_statements_for_prover,
     packed_pcs_global_statements_for_verifier, packed_pcs_parse_commitment,
@@ -16,7 +15,7 @@ use utils::{
     MyChallenger, Poseidon16Air, Poseidon24Air, build_poseidon_16_air,
     build_poseidon_16_air_packed, build_poseidon_24_air, build_poseidon_24_air_packed,
     build_prover_state, build_verifier_state, generate_trace_poseidon_16,
-    generate_trace_poseidon_24, get_poseidon16, get_poseidon24, init_tracing,
+    generate_trace_poseidon_24, init_tracing, poseidon16_permute, poseidon24_permute,
 };
 use whir_p3::{
     FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles,
@@ -111,11 +110,11 @@ fn prepare_poseidon(config: &Poseidon2Config) -> PoseidonSetup {
 
     assert_eq!(
         &witness_matrix_16.values[n_columns_16 - 16..n_columns_16 - 8],
-        &get_poseidon16().permute(witness_matrix_16.values[0..16].try_into().unwrap())[..8]
+        &poseidon16_permute(witness_matrix_16.values[0..16].try_into().unwrap())[..8]
     );
     assert_eq!(
         &witness_matrix_24.values[n_columns_24 - 8..n_columns_24],
-        &get_poseidon24().permute(witness_matrix_24.values[0..24].try_into().unwrap())[16..]
+        &poseidon24_permute(witness_matrix_24.values[0..24].try_into().unwrap())[16..]
     );
 
     let witness_matrix_16_transposed = witness_matrix_16.transpose();

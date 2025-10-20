@@ -11,5 +11,4 @@ p3-koala-bear.workspace = true
 p3-field.workspace = true
 rand.workspace = true
 utils.workspace = true
-p3-symmetric.workspace = true
 p3-util.workspace = true
