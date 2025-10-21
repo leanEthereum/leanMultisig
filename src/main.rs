@@ -17,9 +17,9 @@ const UNIVARIATE_SKIPS: usize = 3;
 
 fn main() {
     init_tracing();
-    
+
     let mut rng = StdRng::seed_from_u64(0);
-    let log_n_poseidons = 17;
+    let log_n_poseidons = 19;
     let n_poseidons = 1 << log_n_poseidons;
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
@@ -54,7 +54,9 @@ fn main() {
     {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
-        let mut all_layers = vec![input_layers.clone()];
+        let input_layers_packed: [_; 16] =
+            array::from_fn(|i| PFPacking::<EF>::pack_slice(&input_layers[i]).to_vec());
+        let mut all_layers = vec![input_layers_packed];
         for round in &initial_full_rounds {
             all_layers.push(apply_full_round(all_layers.last().unwrap(), round));
         }
@@ -64,63 +66,55 @@ fn main() {
         for round in &final_full_rounds {
             all_layers.push(apply_full_round(all_layers.last().unwrap(), round));
         }
-        let initial_full_layers = &all_layers[..n_initial_full_rounds + 1];
+        let initial_full_layers = &all_layers[..n_initial_full_rounds];
         let mid_partial_layers =
-            &all_layers[n_initial_full_rounds..n_initial_full_rounds + n_mid_partial_rounds + 1];
-        let final_full_layers = &all_layers[all_layers.len() - n_final_full_rounds - 1..];
+            &all_layers[n_initial_full_rounds..n_initial_full_rounds + n_mid_partial_rounds];
+        let final_full_layers = &all_layers[n_initial_full_rounds + n_mid_partial_rounds
+            ..n_initial_full_rounds + n_mid_partial_rounds + n_final_full_rounds];
 
         let mut output_claims = all_layers
             .last()
             .unwrap()
             .par_iter()
-            .map(|output_layer| multilvariate_eval(output_layer, &output_claim_point))
+            .map(|output_layer| {
+                multilvariate_eval(
+                    PFPacking::<EF>::unpack_slice(&output_layer),
+                    &output_claim_point,
+                )
+            })
             .collect::<Vec<EF>>();
 
         prover_state.add_extension_scalars(&output_claims);
 
         let mut claim_point = output_claim_point.clone();
-        for (input_and_output_layers, full_round) in
-            final_full_layers.windows(2).zip(&final_full_rounds).rev()
-        {
-            let (input_layers, output_layers) =
-                (&input_and_output_layers[0], &input_and_output_layers[1]);
+        for (input_layers, full_round) in final_full_layers.iter().zip(&final_full_rounds).rev() {
             (claim_point, output_claims) = prove_gkr_round(
                 &mut prover_state,
                 full_round,
                 input_layers,
-                output_layers,
                 &claim_point,
                 &output_claims,
             );
         }
 
-        for (input_and_output_layers, partial_round) in
-            mid_partial_layers.windows(2).zip(&mid_partial_rounds).rev()
+        for (input_layers, partial_round) in
+            mid_partial_layers.iter().zip(&mid_partial_rounds).rev()
         {
-            let (input_layers, output_layers) =
-                (&input_and_output_layers[0], &input_and_output_layers[1]);
             (claim_point, output_claims) = prove_gkr_round(
                 &mut prover_state,
                 partial_round,
                 input_layers,
-                output_layers,
                 &claim_point,
                 &output_claims,
             );
         }
 
-        for (input_and_output_layers, full_round) in initial_full_layers
-            .windows(2)
-            .zip(&initial_full_rounds)
-            .rev()
+        for (input_layers, full_round) in initial_full_layers.iter().zip(&initial_full_rounds).rev()
         {
-            let (input_layers, output_layers) =
-                (&input_and_output_layers[0], &input_and_output_layers[1]);
             (claim_point, output_claims) = prove_gkr_round(
                 &mut prover_state,
                 full_round,
                 input_layers,
-                output_layers,
                 &claim_point,
                 &output_claims,
             );
@@ -186,12 +180,16 @@ fn main() {
 }
 
 #[instrument(skip_all)]
-fn apply_full_round(input_layers: &[Vec<F>], ful_round: &FullRoundComputation) -> [Vec<F>; 16] {
-    let mut output_layers: [_; 16] = array::from_fn(|_| F::zero_vec(input_layers[0].len()));
+fn apply_full_round(
+    input_layers: &[Vec<PFPacking<EF>>],
+    ful_round: &FullRoundComputation,
+) -> [Vec<PFPacking<EF>>; 16] {
+    let mut output_layers: [_; 16] =
+        array::from_fn(|_| PFPacking::<EF>::zero_vec(input_layers[0].len()));
     transposed_par_iter_mut(&mut output_layers)
         .enumerate()
         .for_each(|(row_index, output_row)| {
-            let mut intermediate: [F; 16] =
+            let mut intermediate: [PFPacking<EF>; 16] =
                 array::from_fn(|j| (input_layers[j][row_index] + ful_round.constants[j]).cube());
             GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
             for j in 0..16 {
@@ -203,15 +201,16 @@ fn apply_full_round(input_layers: &[Vec<F>], ful_round: &FullRoundComputation) -
 
 #[instrument(skip_all)]
 fn apply_partial_round(
-    input_layers: &[Vec<F>],
+    input_layers: &[Vec<PFPacking<EF>>],
     partial_round: &PartialRoundComputation,
-) -> [Vec<F>; 16] {
-    let mut output_layers: [_; 16] = array::from_fn(|_| F::zero_vec(input_layers[0].len()));
+) -> [Vec<PFPacking<EF>>; 16] {
+    let mut output_layers: [_; 16] =
+        array::from_fn(|_| PFPacking::<EF>::zero_vec(input_layers[0].len()));
     transposed_par_iter_mut(&mut output_layers)
         .enumerate()
         .for_each(|(row_index, output_row)| {
             let first_cubed = (input_layers[0][row_index] + partial_round.constant).cube();
-            let mut intermediate = [F::ZERO; 16];
+            let mut intermediate = [PFPacking::<EF>::ZERO; 16];
             intermediate[0] = first_cubed;
             for j in 1..16 {
                 intermediate[j] = input_layers[j][row_index];
@@ -232,24 +231,17 @@ fn prove_gkr_round<
 >(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     computation: &SC,
-    input_layers: &[Vec<F>],
-    output_layers: &[Vec<F>],
+    input_layers: &[Vec<PFPacking<EF>>],
     claim_point: &[EF],
     output_claims: &[EF],
 ) -> (Vec<EF>, Vec<EF>) {
     let batching_scalar = prover_state.sample();
     let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
     let batching_scalars_powers = batching_scalar.powers().collect_n(16);
-    let batched_output_layer = batch_layer(output_layers, &batching_scalars_powers);
-
-    debug_assert_eq!(
-        batched_claim,
-        multilvariate_eval(&batched_output_layer, &claim_point)
-    );
 
     let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
         UNIVARIATE_SKIPS,
-        MleGroupRef::Base(input_layers.iter().map(Vec::as_slice).collect()),
+        MleGroupRef::BasePacked(input_layers.iter().map(Vec::as_slice).collect()),
         computation,
         computation,
         &batching_scalars_powers,
@@ -312,20 +304,6 @@ fn multilvariate_eval<F: Field, EF: ExtensionField<F>>(poly: &[F], point: &[EF])
             selector.evaluate(point[0]) * chunk.evaluate(&MultilinearPoint(point[1..].to_vec()))
         })
         .sum()
-}
-
-fn batch_layer(layers: &[Vec<F>], batching_scalars_powers: &[EF]) -> Vec<EF> {
-    let n_layers = layers.len();
-    let height = layers[0].len();
-    (0..height)
-        .into_par_iter()
-        .map(|i| {
-            dot_product(
-                batching_scalars_powers.iter().copied(),
-                (0..n_layers).map(|j| layers[j][i]),
-            )
-        })
-        .collect::<Vec<EF>>()
 }
 
 pub struct FullRoundComputation {
