@@ -18,6 +18,8 @@ type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 const UNIVARIATE_SKIPS: usize = 3;
 
+const SANITY_CHECK: bool = false;
+
 fn main() {
     init_tracing();
 
@@ -27,16 +29,16 @@ fn main() {
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
         .collect::<Vec<[F; 16]>>();
-    let perm_outputs = perm_inputs
-        .par_iter()
-        .map(|input| poseidon16_permute(*input))
-        .collect::<Vec<_>>();
     let input_layers: [_; 16] =
         array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
 
     let initial_full_rounds = KOALABEAR_RC16_EXTERNAL_INITIAL
         .into_iter()
-        .map(|constants| FullRoundComputation { constants })
+        .enumerate()
+        .map(|(i, constants)| FullRoundComputation {
+            constants,
+            first_full_round: i == 0,
+        })
         .collect::<Vec<_>>();
     let mid_partial_rounds = KOALABEAR_RC16_INTERNAL
         .into_iter()
@@ -44,7 +46,10 @@ fn main() {
         .collect::<Vec<_>>();
     let final_full_rounds = KOALABEAR_RC16_EXTERNAL_FINAL
         .into_iter()
-        .map(|constants| FullRoundComputation { constants })
+        .map(|constants| FullRoundComputation {
+            constants,
+            first_full_round: false,
+        })
         .collect::<Vec<_>>();
 
     let n_initial_full_rounds = initial_full_rounds.len();
@@ -61,18 +66,17 @@ fn main() {
     {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
-
         let input_layers_packed: [_; 16] =
             array::from_fn(|i| PFPacking::<EF>::pack_slice(&input_layers[i]).to_vec());
         let mut all_layers = vec![input_layers_packed];
-        for round in &initial_full_rounds {
-            all_layers.push(apply_full_round(all_layers.last().unwrap(), round));
+        for (i, round) in initial_full_rounds.iter().enumerate() {
+            all_layers.push(apply_full_round(all_layers.last().unwrap(), round, i == 0));
         }
         for round in &mid_partial_rounds {
             all_layers.push(apply_partial_round(all_layers.last().unwrap(), round));
         }
         for round in &final_full_rounds {
-            all_layers.push(apply_full_round(all_layers.last().unwrap(), round));
+            all_layers.push(apply_full_round(all_layers.last().unwrap(), round, false));
         }
         let initial_full_layers = &all_layers[..n_initial_full_rounds];
         let mid_partial_layers =
@@ -80,15 +84,18 @@ fn main() {
         let final_full_layers = &all_layers[n_initial_full_rounds + n_mid_partial_rounds
             ..n_initial_full_rounds + n_mid_partial_rounds + n_final_full_rounds];
 
-        {
-            // sanity check
-            // let last_layers: [_; 16] =
-            //     array::from_fn(|i| PFPacking::<EF>::unpack_slice(&all_layers.last().unwrap()[i]));
-            // (0..n_poseidons).into_par_iter().for_each(|row| {
-            //     for i in 0..16 {
-            //         assert_eq!(perm_outputs[row][i], last_layers[i][row]);
-            //     }
-            // });
+        if SANITY_CHECK {
+            let perm_outputs = perm_inputs
+                .par_iter()
+                .map(|input| poseidon16_permute(*input))
+                .collect::<Vec<_>>();
+            let last_layers: [_; 16] =
+                array::from_fn(|i| PFPacking::<EF>::unpack_slice(&all_layers.last().unwrap()[i]));
+            (0..n_poseidons).into_par_iter().for_each(|row| {
+                for i in 0..16 {
+                    assert_eq!(perm_outputs[row][i], last_layers[i][row]);
+                }
+            });
         }
 
         let mut output_claims = all_layers
@@ -202,6 +209,7 @@ fn main() {
 fn apply_full_round(
     input_layers: &[Vec<PFPacking<EF>>],
     ful_round: &FullRoundComputation,
+    first_full_round: bool,
 ) -> [Vec<PFPacking<EF>>; 16] {
     let mut output_layers: [_; 16] =
         array::from_fn(|_| PFPacking::<EF>::zero_vec(input_layers[0].len()));
@@ -209,7 +217,16 @@ fn apply_full_round(
         .enumerate()
         .for_each(|(row_index, output_row)| {
             let mut intermediate: [PFPacking<EF>; 16] =
-                array::from_fn(|j| (input_layers[j][row_index] + ful_round.constants[j]).cube());
+                array::from_fn(|j| input_layers[j][row_index]);
+            if first_full_round {
+                GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+            }
+            intermediate
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(j, val)| {
+                    *val = (*val + ful_round.constants[j]).cube();
+                });
             GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
             for j in 0..16 {
                 *output_row[j] = intermediate[j];
@@ -327,6 +344,7 @@ fn multilvariate_eval<F: Field, EF: ExtensionField<F>>(poly: &[F], point: &[EF])
 
 pub struct FullRoundComputation {
     pub constants: [F; 16],
+    pub first_full_round: bool,
 }
 
 impl<NF: ExtensionField<F>, EF: ExtensionField<NF>> SumcheckComputation<NF, EF>
@@ -338,7 +356,13 @@ impl<NF: ExtensionField<F>, EF: ExtensionField<NF>> SumcheckComputation<NF, EF>
 
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
         debug_assert_eq!(point.len(), 16);
-        let mut intermediate: [NF; 16] = array::from_fn(|j| (point[j] + self.constants[j]).cube());
+        let mut intermediate: [NF; 16] = array::from_fn(|j| point[j]);
+        if self.first_full_round {
+            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        }
+        intermediate.iter_mut().enumerate().for_each(|(j, val)| {
+            *val = (*val + self.constants[j]).cube();
+        });
         GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
         let mut res = EF::ZERO;
         for i in 0..16 {
@@ -355,8 +379,13 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
 
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), 16);
-        let mut intermediate: [PFPacking<EF>; 16] =
-            array::from_fn(|j| (point[j] + self.constants[j]).cube());
+        let mut intermediate: [PFPacking<EF>; 16] = array::from_fn(|j| point[j]);
+        if self.first_full_round {
+            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        }
+        intermediate.iter_mut().enumerate().for_each(|(j, val)| {
+            *val = (*val + self.constants[j]).cube();
+        });
         GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
@@ -367,8 +396,13 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
 
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), 16);
-        let mut intermediate: [EFPacking<EF>; 16] =
-            array::from_fn(|j| (point[j] + PFPacking::<EF>::from(self.constants[j])).cube());
+        let mut intermediate: [EFPacking<EF>; 16] = array::from_fn(|j| point[j]);
+        if self.first_full_round {
+            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        }
+        intermediate.iter_mut().enumerate().for_each(|(j, val)| {
+            *val = (*val + PFPacking::<EF>::from(self.constants[j])).cube();
+        });
         GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
