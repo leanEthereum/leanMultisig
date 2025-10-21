@@ -42,11 +42,6 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
         },
     )?;
 
-    let zerocheck_selector_evals = univariate_selectors::<PF<EF>>(univariate_skips)
-        .iter()
-        .map(|s| s.evaluate(global_zerocheck_challenges[0]))
-        .collect::<Vec<_>>();
-
     let constraint_evals = SumcheckComputation::eval(
         &table.air,
         &inner_sums,
@@ -54,15 +49,11 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
             .collect::<Vec<_>>(),
     );
 
-    if dot_product::<EF, _, _>(
-        zerocheck_selector_evals.clone().into_iter(),
-        outer_selector_evals.iter().copied(),
-    ) * MultilinearPoint(
-        global_zerocheck_challenges[1..log_n_rows + 1 - univariate_skips].to_vec(),
-    )
-    .eq_poly_outside(&MultilinearPoint(
-        outer_statement.point[1..log_n_rows - univariate_skips + 1].to_vec(),
-    )) * constraint_evals
+    if eq_poly_with_skip(
+        &global_zerocheck_challenges,
+        &outer_statement.point,
+        univariate_skips,
+    ) * constraint_evals
         != outer_statement.value
     {
         return Err(ProofError::InvalidProof);
