@@ -10,6 +10,168 @@ type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 const UNIVARIATE_SKIPS: usize = 3;
 
+const HALF_FULL_ROUNDS: usize = 2;
+
+fn main() {
+    let mut rng = StdRng::seed_from_u64(0);
+    let log_n_poseidons = 11;
+    let n_poseidons = 1 << log_n_poseidons;
+    let perm_inputs = (0..n_poseidons)
+        .map(|_| rng.random())
+        .collect::<Vec<[F; 16]>>();
+
+    let input_layers: [_; 16] =
+        array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
+
+    let ful_round = FullRoundComputation {
+        constants: rng.random(),
+        matrix: rng.random(),
+    };
+
+    let mut output_layers: [_; 16] = array::from_fn(|_| F::zero_vec(n_poseidons));
+    transposed_par_iter_mut(&mut output_layers)
+        .enumerate()
+        .for_each(|(row_index, output_row)| {
+            let intermediate: [F; 16] =
+                array::from_fn(|j| input_layers[j][row_index].cube() + ful_round.constants[j]);
+            output_row.into_iter().enumerate().for_each(|(j, output)| {
+                let mut res = F::ZERO;
+                for k in 0..16 {
+                    res += ful_round.matrix[j][k] * intermediate[k];
+                }
+                *output = res;
+            });
+        });
+
+    let claim_point = MultilinearPoint(
+        (0..(log_n_poseidons + 1 - UNIVARIATE_SKIPS))
+            .map(|_| rng.random())
+            .collect::<Vec<EF>>(),
+    );
+
+    let output_claims = output_layers
+        .par_iter()
+        .map(|output_layer| multilvariate_eval(output_layer, &claim_point))
+        .collect::<Vec<EF>>();
+
+    let mut prover_state = build_prover_state::<EF>();
+    prover_state.add_extension_scalars(&output_claims);
+
+    prove_full_round(
+        &mut prover_state,
+        &ful_round,
+        n_poseidons,
+        &input_layers,
+        &output_layers,
+        &claim_point,
+        &output_claims,
+    );
+
+    // ---------------------------------------------------- VERIFIER ----------------------------------------------------
+
+    let mut verifier_state = build_verifier_state(&prover_state);
+
+    let output_claims = verifier_state.next_extension_scalars_vec(16).unwrap();
+
+    let (sumcheck_point, sumcheck_inner_evals) = verify_full_round(
+        &mut verifier_state,
+        &ful_round,
+        log_n_poseidons,
+        &claim_point,
+        &output_claims,
+    );
+
+    for i in 0..16 {
+        assert_eq!(
+            sumcheck_inner_evals[i],
+            multilvariate_eval(&input_layers[i], &sumcheck_point)
+        );
+    }
+}
+
+fn prove_full_round(
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    ful_round: &FullRoundComputation,
+    n_poseidons: usize,
+    input_layers: &[Vec<F>],
+    output_layers: &[Vec<F>],
+    claim_point: &[EF],
+    output_claims: &[EF],
+) -> (Vec<EF>, Vec<EF>) {
+    let batching_scalar = prover_state.sample();
+    let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
+    let batching_scalars_powers = batching_scalar.powers().collect_n(16);
+    let batched_output_layer = (0..n_poseidons)
+        .into_par_iter()
+        .map(|i| {
+            dot_product(
+                batching_scalars_powers.iter().copied(),
+                (0..16).map(|j| output_layers[j][i]),
+            )
+        })
+        .collect::<Vec<EF>>();
+
+    assert_eq!(
+        batched_claim,
+        multilvariate_eval(&batched_output_layer, &claim_point)
+    );
+
+    let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
+        UNIVARIATE_SKIPS,
+        MleGroupRef::Base(input_layers.iter().map(Vec::as_slice).collect()),
+        ful_round,
+        ful_round,
+        &batching_scalars_powers,
+        Some((claim_point.to_vec(), None)),
+        false,
+        prover_state,
+        batched_claim,
+        None,
+    );
+
+    // sanity check
+    assert_eq!(
+        ful_round.eval(&sumcheck_inner_evals, &batching_scalars_powers)
+            * eq_poly_with_skip(&sumcheck_point, &claim_point, UNIVARIATE_SKIPS),
+        sumcheck_final_sum
+    );
+
+    prover_state.add_extension_scalars(&sumcheck_inner_evals);
+
+    (sumcheck_point.0, sumcheck_inner_evals)
+}
+
+fn verify_full_round(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    ful_round: &FullRoundComputation,
+    log_n_poseidons: usize,
+    claim_point: &[EF],
+    output_claims: &[EF],
+) -> (Vec<EF>, Vec<EF>) {
+    let batching_scalar = verifier_state.sample();
+    let batching_scalars_powers = batching_scalar.powers().collect_n(16);
+    let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
+
+    let (retrieved_batched_claim, sumcheck_postponed_claim) =
+        sumcheck_verify_with_univariate_skip(verifier_state, 4, log_n_poseidons, UNIVARIATE_SKIPS)
+            .unwrap();
+
+    assert_eq!(retrieved_batched_claim, batched_claim);
+
+    let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(16).unwrap();
+    assert_eq!(
+        ful_round.eval(&sumcheck_inner_evals, &batching_scalars_powers)
+            * eq_poly_with_skip(
+                &sumcheck_postponed_claim.point,
+                &claim_point,
+                UNIVARIATE_SKIPS
+            ),
+        sumcheck_postponed_claim.value
+    );
+
+    (sumcheck_postponed_claim.point.0, sumcheck_inner_evals)
+}
+
 fn multilvariate_eval<F: Field, EF: ExtensionField<F>>(poly: &[F], point: &[EF]) -> EF {
     assert_eq!(poly.len(), 1 << (point.len() + UNIVARIATE_SKIPS - 1));
     univariate_selectors::<F>(UNIVARIATE_SKIPS)
@@ -81,125 +243,5 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
             res += temp * alpha_powers[j];
         }
         res
-    }
-}
-
-fn main() {
-    let mut rng = StdRng::seed_from_u64(0);
-    let log_n_poseidons = 11;
-    let n_poseidons = 1 << log_n_poseidons;
-    let perm_inputs = (0..n_poseidons)
-        .map(|_| rng.random())
-        .collect::<Vec<[F; 16]>>();
-
-    let input_layers: [_; 16] =
-        array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
-
-    let constants: [F; 16] = rng.random();
-    let matrix: [[F; 16]; 16] = rng.random();
-
-    let mut output_layers: [_; 16] = array::from_fn(|_| F::zero_vec(n_poseidons));
-    transposed_par_iter_mut(&mut output_layers)
-        .enumerate()
-        .for_each(|(row_index, output_row)| {
-            let intermediate: [F; 16] =
-                array::from_fn(|j| input_layers[j][row_index].cube() + constants[j]);
-            output_row.into_iter().enumerate().for_each(|(j, output)| {
-                let mut res = F::ZERO;
-                for k in 0..16 {
-                    res += matrix[j][k] * intermediate[k];
-                }
-                *output = res;
-            });
-        });
-
-    let claim_point = MultilinearPoint(
-        (0..(log_n_poseidons + 1 - UNIVARIATE_SKIPS))
-            .map(|_| rng.random())
-            .collect::<Vec<EF>>(),
-    );
-
-    let output_claims = output_layers
-        .par_iter()
-        .map(|output_layer| multilvariate_eval(output_layer, &claim_point))
-        .collect::<Vec<EF>>();
-
-    let mut prover_state = build_prover_state::<EF>();
-    prover_state.add_extension_scalars(&output_claims);
-    let batching_scalar = prover_state.sample();
-    let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
-    let batching_scalars_powers = batching_scalar.powers().collect_n(16);
-    let batched_output_layer = (0..n_poseidons)
-        .into_par_iter()
-        .map(|i| {
-            dot_product(
-                batching_scalars_powers.iter().copied(),
-                (0..16).map(|j| output_layers[j][i]),
-            )
-        })
-        .collect::<Vec<EF>>();
-
-    assert_eq!(
-        batched_claim,
-        multilvariate_eval(&batched_output_layer, &claim_point)
-    );
-
-    let sc_computation = FullRoundComputation { constants, matrix };
-    let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
-        UNIVARIATE_SKIPS,
-        MleGroupRef::Base(input_layers.iter().map(Vec::as_slice).collect()),
-        &sc_computation,
-        &sc_computation,
-        &batching_scalars_powers,
-        Some((claim_point.0.clone(), None)),
-        false,
-        &mut prover_state,
-        batched_claim,
-        None,
-    );
-    assert_eq!(
-        sc_computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
-            * eq_poly_with_skip(&sumcheck_point, &claim_point, UNIVARIATE_SKIPS),
-        sumcheck_final_sum
-    );
-
-    prover_state.add_extension_scalars(&sumcheck_inner_evals);
-
-    // ---------------------------------------------------- VERIFIER ----------------------------------------------------
-
-    let mut verifier_state = build_verifier_state(&prover_state);
-
-    let output_claims = verifier_state.next_extension_scalars_vec(16).unwrap();
-    let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
-
-    let batching_scalar = verifier_state.sample();
-    let batching_scalars_powers = batching_scalar.powers().collect_n(16);
-
-    let (retrieved_batched_claim, sumcheck_postponed_claim) = sumcheck_verify_with_univariate_skip(
-        &mut verifier_state,
-        4,
-        log_n_poseidons,
-        UNIVARIATE_SKIPS,
-    )
-    .unwrap();
-
-    assert_eq!(retrieved_batched_claim, batched_claim);
-
-    let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(16).unwrap();
-    assert_eq!(
-        sc_computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
-            * eq_poly_with_skip(
-                &sumcheck_postponed_claim.point,
-                &claim_point,
-                UNIVARIATE_SKIPS
-            ),
-        sumcheck_postponed_claim.value
-    );
-
-    for i in 0..16 {
-        assert_eq!(
-            sumcheck_inner_evals[i],
-            multilvariate_eval(&input_layers[i], &sumcheck_point)
-        );
     }
 }
