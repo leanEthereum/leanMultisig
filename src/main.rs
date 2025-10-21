@@ -10,8 +10,6 @@ type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 const UNIVARIATE_SKIPS: usize = 3;
 
-const HALF_FULL_ROUNDS: usize = 2;
-
 fn main() {
     let mut rng = StdRng::seed_from_u64(0);
     let log_n_poseidons = 11;
@@ -19,21 +17,88 @@ fn main() {
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
         .collect::<Vec<[F; 16]>>();
-
     let input_layers: [_; 16] =
         array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
 
-    let ful_round = FullRoundComputation {
+    let ful_round_1 = FullRoundComputation {
+        constants: rng.random(),
+        matrix: rng.random(),
+    };
+    let ful_round_2 = FullRoundComputation {
         constants: rng.random(),
         matrix: rng.random(),
     };
 
-    let mut output_layers: [_; 16] = array::from_fn(|_| F::zero_vec(n_poseidons));
+    let output_claim_point = (0..(log_n_poseidons + 1 - UNIVARIATE_SKIPS))
+        .map(|_| rng.random())
+        .collect::<Vec<EF>>();
+
+    let mut prover_state = build_prover_state::<EF>();
+
+    {
+        // ---------------------------------------------------- PROVER ----------------------------------------------------
+
+        let output_layers_1 = apply_full_round(&input_layers, &ful_round_1);
+        let output_layers_2 = apply_full_round(&output_layers_1, &ful_round_2);
+
+        let mut output_claims = output_layers_2
+            .par_iter()
+            .map(|output_layer| multilvariate_eval(output_layer, &output_claim_point))
+            .collect::<Vec<EF>>();
+
+        prover_state.add_extension_scalars(&output_claims);
+
+        let mut claim_point = output_claim_point.clone();
+        for (input_layers, output_layers, full_round) in [
+            (&output_layers_1, &output_layers_2, &ful_round_2),
+            (&input_layers, &output_layers_1, &ful_round_1),
+        ] {
+            (claim_point, output_claims) = prove_full_round(
+                &mut prover_state,
+                full_round,
+                n_poseidons,
+                input_layers,
+                output_layers,
+                &claim_point,
+                &output_claims,
+            );
+        }
+    }
+
+    {
+        // ---------------------------------------------------- VERIFIER ----------------------------------------------------
+
+        let mut verifier_state = build_verifier_state(&prover_state);
+
+        let mut output_claims = verifier_state.next_extension_scalars_vec(16).unwrap();
+
+        let mut claim_point = output_claim_point.clone();
+        for full_round in [&ful_round_2, &ful_round_1] {
+            (claim_point, output_claims) = verify_full_round(
+                &mut verifier_state,
+                full_round,
+                log_n_poseidons,
+                &claim_point,
+                &output_claims,
+            );
+        }
+
+        for i in 0..16 {
+            assert_eq!(
+                output_claims[i],
+                multilvariate_eval(&input_layers[i], &claim_point)
+            );
+        }
+    }
+}
+
+fn apply_full_round(input_layers: &[Vec<F>], ful_round: &FullRoundComputation) -> [Vec<F>; 16] {
+    let mut output_layers: [_; 16] = array::from_fn(|_| F::zero_vec(input_layers[0].len()));
     transposed_par_iter_mut(&mut output_layers)
         .enumerate()
         .for_each(|(row_index, output_row)| {
             let intermediate: [F; 16] =
-                array::from_fn(|j| input_layers[j][row_index].cube() + ful_round.constants[j]);
+                array::from_fn(|j| (input_layers[j][row_index] + ful_round.constants[j]).cube());
             output_row.into_iter().enumerate().for_each(|(j, output)| {
                 let mut res = F::ZERO;
                 for k in 0..16 {
@@ -42,51 +107,7 @@ fn main() {
                 *output = res;
             });
         });
-
-    let claim_point = MultilinearPoint(
-        (0..(log_n_poseidons + 1 - UNIVARIATE_SKIPS))
-            .map(|_| rng.random())
-            .collect::<Vec<EF>>(),
-    );
-
-    let output_claims = output_layers
-        .par_iter()
-        .map(|output_layer| multilvariate_eval(output_layer, &claim_point))
-        .collect::<Vec<EF>>();
-
-    let mut prover_state = build_prover_state::<EF>();
-    prover_state.add_extension_scalars(&output_claims);
-
-    prove_full_round(
-        &mut prover_state,
-        &ful_round,
-        n_poseidons,
-        &input_layers,
-        &output_layers,
-        &claim_point,
-        &output_claims,
-    );
-
-    // ---------------------------------------------------- VERIFIER ----------------------------------------------------
-
-    let mut verifier_state = build_verifier_state(&prover_state);
-
-    let output_claims = verifier_state.next_extension_scalars_vec(16).unwrap();
-
-    let (sumcheck_point, sumcheck_inner_evals) = verify_full_round(
-        &mut verifier_state,
-        &ful_round,
-        log_n_poseidons,
-        &claim_point,
-        &output_claims,
-    );
-
-    for i in 0..16 {
-        assert_eq!(
-            sumcheck_inner_evals[i],
-            multilvariate_eval(&input_layers[i], &sumcheck_point)
-        );
-    }
+    output_layers
 }
 
 fn prove_full_round(
@@ -197,7 +218,7 @@ impl<NF: ExtensionField<F>, EF: ExtensionField<NF>> SumcheckComputation<NF, EF>
 
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
         assert_eq!(point.len(), 16);
-        let intermediate: [NF; 16] = array::from_fn(|j| point[j].cube() + self.constants[j]);
+        let intermediate: [NF; 16] = array::from_fn(|j| (point[j] + self.constants[j]).cube());
         let mut res = EF::ZERO;
         for j in 0..16 {
             let mut temp = NF::ZERO;
@@ -218,7 +239,7 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         assert_eq!(point.len(), 16);
         let intermediate: [PFPacking<EF>; 16] =
-            array::from_fn(|j| point[j].cube() + self.constants[j]);
+            array::from_fn(|j| (point[j] + self.constants[j]).cube());
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
             let mut temp = PFPacking::<EF>::ZERO;
@@ -233,7 +254,7 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         assert_eq!(point.len(), 16);
         let intermediate: [EFPacking<EF>; 16] =
-            array::from_fn(|j| point[j].cube() + self.constants[j]);
+            array::from_fn(|j| (point[j] + self.constants[j]).cube());
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
             let mut temp = EFPacking::<EF>::ZERO;
