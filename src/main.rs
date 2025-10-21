@@ -4,7 +4,7 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::array;
-use utils::{build_prover_state, transposed_par_iter_mut};
+use utils::{build_prover_state, build_verifier_state, transposed_par_iter_mut};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -48,12 +48,7 @@ impl<NF: ExtensionField<F>, EF: ExtensionField<NF>> SumcheckComputation<NF, EF>
     }
 }
 
-pub struct FullRoundComputationPacked {
-    pub constants: [F; 16],
-    pub matrix: [[F; 16]; 16],
-}
-
-impl SumcheckComputationPacked<EF> for FullRoundComputationPacked {
+impl SumcheckComputationPacked<EF> for FullRoundComputation {
     fn degree(&self) -> usize {
         3
     }
@@ -91,7 +86,7 @@ impl SumcheckComputationPacked<EF> for FullRoundComputationPacked {
 
 fn main() {
     let mut rng = StdRng::seed_from_u64(0);
-    let log_n_poseidons = 13;
+    let log_n_poseidons = 11;
     let n_poseidons = 1 << log_n_poseidons;
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
@@ -149,17 +144,56 @@ fn main() {
         multilvariate_eval(&batched_output_layer, &claim_point)
     );
 
+    let sc_computation = FullRoundComputation { constants, matrix };
     let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
         UNIVARIATE_SKIPS,
         MleGroupRef::Base(input_layers.iter().map(Vec::as_slice).collect()),
-        &FullRoundComputation { constants, matrix },
-        &FullRoundComputationPacked { constants, matrix },
+        &sc_computation,
+        &sc_computation,
         &batching_scalars_powers,
         Some((claim_point.0.clone(), None)),
         false,
         &mut prover_state,
         batched_claim,
         None,
+    );
+    assert_eq!(
+        sc_computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
+            * eq_poly_with_skip(&sumcheck_point, &claim_point, UNIVARIATE_SKIPS),
+        sumcheck_final_sum
+    );
+
+    prover_state.add_extension_scalars(&sumcheck_inner_evals);
+
+    // ---------------------------------------------------- VERIFIER ----------------------------------------------------
+
+    let mut verifier_state = build_verifier_state(&prover_state);
+
+    let output_claims = verifier_state.next_extension_scalars_vec(16).unwrap();
+    let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
+
+    let batching_scalar = verifier_state.sample();
+    let batching_scalars_powers = batching_scalar.powers().collect_n(16);
+
+    let (retrieved_batched_claim, sumcheck_postponed_claim) = sumcheck_verify_with_univariate_skip(
+        &mut verifier_state,
+        4,
+        log_n_poseidons,
+        UNIVARIATE_SKIPS,
+    )
+    .unwrap();
+
+    assert_eq!(retrieved_batched_claim, batched_claim);
+
+    let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(16).unwrap();
+    assert_eq!(
+        sc_computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
+            * eq_poly_with_skip(
+                &sumcheck_postponed_claim.point,
+                &claim_point,
+                UNIVARIATE_SKIPS
+            ),
+        sumcheck_postponed_claim.value
     );
 
     for i in 0..16 {
