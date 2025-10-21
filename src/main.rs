@@ -1,7 +1,10 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, QuinticExtensionFieldKB};
+use p3_koala_bear::{
+    GenericPoseidon2LinearLayersKoalaBear, KOALABEAR_RC16_EXTERNAL_FINAL,
+    KOALABEAR_RC16_EXTERNAL_INITIAL, KOALABEAR_RC16_INTERNAL, KoalaBear, QuinticExtensionFieldKB,
+};
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::array;
@@ -21,15 +24,22 @@ fn main() {
     let input_layers: [_; 16] =
         array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
 
-    let partial_round_1 = PartialRoundComputation {
-        constant: rng.random(),
-    };
-    let ful_round_1 = FullRoundComputation {
-        constants: rng.random(),
-    };
-    let ful_round_2 = FullRoundComputation {
-        constants: rng.random(),
-    };
+    let initial_full_rounds = KOALABEAR_RC16_EXTERNAL_INITIAL
+        .into_iter()
+        .map(|constants| FullRoundComputation { constants })
+        .collect::<Vec<_>>();
+    let mid_partial_rounds = KOALABEAR_RC16_INTERNAL
+        .into_iter()
+        .map(|constant| PartialRoundComputation { constant })
+        .collect::<Vec<_>>();
+    let final_full_rounds = KOALABEAR_RC16_EXTERNAL_FINAL
+        .into_iter()
+        .map(|constants| FullRoundComputation { constants })
+        .collect::<Vec<_>>();
+
+    let n_initial_full_rounds = initial_full_rounds.len();
+    let n_mid_partial_rounds = mid_partial_rounds.len();
+    let n_final_full_rounds = final_full_rounds.len();
 
     let output_claim_point = (0..(log_n_poseidons + 1 - UNIVARIATE_SKIPS))
         .map(|_| rng.random())
@@ -40,11 +50,24 @@ fn main() {
     {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
-        let partial_output_layer_1 = apply_partial_round(&input_layers, &partial_round_1);
-        let full_output_layers_1 = apply_full_round(&partial_output_layer_1, &ful_round_1);
-        let full_output_layers_2 = apply_full_round(&full_output_layers_1, &ful_round_2);
+        let mut all_layers = vec![input_layers.clone()];
+        for round in &initial_full_rounds {
+            all_layers.push(apply_full_round(all_layers.last().unwrap(), round));
+        }
+        for round in &mid_partial_rounds {
+            all_layers.push(apply_partial_round(all_layers.last().unwrap(), round));
+        }
+        for round in &final_full_rounds {
+            all_layers.push(apply_full_round(all_layers.last().unwrap(), round));
+        }
+        let initial_full_layers = &all_layers[..n_initial_full_rounds + 1];
+        let mid_partial_layers =
+            &all_layers[n_initial_full_rounds..n_initial_full_rounds + n_mid_partial_rounds + 1];
+        let final_full_layers = &all_layers[all_layers.len() - n_final_full_rounds - 1..];
 
-        let mut output_claims = full_output_layers_2
+        let mut output_claims = all_layers
+            .last()
+            .unwrap()
             .par_iter()
             .map(|output_layer| multilvariate_eval(output_layer, &output_claim_point))
             .collect::<Vec<EF>>();
@@ -52,10 +75,11 @@ fn main() {
         prover_state.add_extension_scalars(&output_claims);
 
         let mut claim_point = output_claim_point.clone();
-        for (input_layers, output_layers, full_round) in [
-            (&full_output_layers_1, &full_output_layers_2, &ful_round_2),
-            (&partial_output_layer_1, &full_output_layers_1, &ful_round_1),
-        ] {
+        for (input_and_output_layers, full_round) in
+            final_full_layers.windows(2).zip(&final_full_rounds).rev()
+        {
+            let (input_layers, output_layers) =
+                (&input_and_output_layers[0], &input_and_output_layers[1]);
             (claim_point, output_claims) = prove_gkr_round(
                 &mut prover_state,
                 full_round,
@@ -66,14 +90,37 @@ fn main() {
             );
         }
 
-        prove_gkr_round(
-            &mut prover_state,
-            &partial_round_1,
-            &input_layers,
-            &partial_output_layer_1,
-            &claim_point,
-            &output_claims,
-        );
+        for (input_and_output_layers, partial_round) in
+            mid_partial_layers.windows(2).zip(&mid_partial_rounds).rev()
+        {
+            let (input_layers, output_layers) =
+                (&input_and_output_layers[0], &input_and_output_layers[1]);
+            (claim_point, output_claims) = prove_gkr_round(
+                &mut prover_state,
+                partial_round,
+                input_layers,
+                output_layers,
+                &claim_point,
+                &output_claims,
+            );
+        }
+
+        for (input_and_output_layers, full_round) in initial_full_layers
+            .windows(2)
+            .zip(&initial_full_rounds)
+            .rev()
+        {
+            let (input_layers, output_layers) =
+                (&input_and_output_layers[0], &input_and_output_layers[1]);
+            (claim_point, output_claims) = prove_gkr_round(
+                &mut prover_state,
+                full_round,
+                input_layers,
+                output_layers,
+                &claim_point,
+                &output_claims,
+            );
+        }
     }
 
     {
@@ -84,7 +131,7 @@ fn main() {
         let mut output_claims = verifier_state.next_extension_scalars_vec(16).unwrap();
 
         let mut claim_point = output_claim_point.clone();
-        for full_round in [&ful_round_2, &ful_round_1] {
+        for full_round in final_full_rounds.iter().rev() {
             (claim_point, output_claims) = verify_gkr_round(
                 &mut verifier_state,
                 full_round,
@@ -94,13 +141,25 @@ fn main() {
             );
         }
 
-        (claim_point, output_claims) = verify_gkr_round(
-            &mut verifier_state,
-            &partial_round_1,
-            log_n_poseidons,
-            &claim_point,
-            &output_claims,
-        );
+        for partial_round in mid_partial_rounds.iter().rev() {
+            (claim_point, output_claims) = verify_gkr_round(
+                &mut verifier_state,
+                partial_round,
+                log_n_poseidons,
+                &claim_point,
+                &output_claims,
+            );
+        }
+
+        for full_round in initial_full_rounds.iter().rev() {
+            (claim_point, output_claims) = verify_gkr_round(
+                &mut verifier_state,
+                full_round,
+                log_n_poseidons,
+                &claim_point,
+                &output_claims,
+            );
+        }
 
         for i in 0..16 {
             assert_eq!(
