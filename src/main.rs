@@ -7,16 +7,19 @@ use p3_koala_bear::{
 };
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use std::array;
-use utils::{build_prover_state, build_verifier_state, transposed_par_iter_mut};
+use std::{array, time::Instant};
+use tracing::instrument;
+use utils::{build_prover_state, build_verifier_state, init_tracing, transposed_par_iter_mut};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 const UNIVARIATE_SKIPS: usize = 3;
 
 fn main() {
+    init_tracing();
+    
     let mut rng = StdRng::seed_from_u64(0);
-    let log_n_poseidons = 11;
+    let log_n_poseidons = 17;
     let n_poseidons = 1 << log_n_poseidons;
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
@@ -47,6 +50,7 @@ fn main() {
 
     let mut prover_state = build_prover_state::<EF>();
 
+    let prover_time = Instant::now();
     {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
@@ -122,7 +126,9 @@ fn main() {
             );
         }
     }
+    let prover_duration = prover_time.elapsed();
 
+    let verifier_time = Instant::now();
     {
         // ---------------------------------------------------- VERIFIER ----------------------------------------------------
 
@@ -168,10 +174,18 @@ fn main() {
             );
         }
     }
+    let verifier_duration = verifier_time.elapsed();
 
-    println!("GKR proof for Poseidon2 permutation successful!");
+    println!("GKR proof for {} Poseidon2:", n_poseidons);
+    println!(
+        "Prover time: {:?} ({:.1} Poseidons / s)",
+        prover_duration,
+        n_poseidons as f64 / prover_duration.as_secs_f64()
+    );
+    println!("Verifier time: {:?}", verifier_duration);
 }
 
+#[instrument(skip_all)]
 fn apply_full_round(input_layers: &[Vec<F>], ful_round: &FullRoundComputation) -> [Vec<F>; 16] {
     let mut output_layers: [_; 16] = array::from_fn(|_| F::zero_vec(input_layers[0].len()));
     transposed_par_iter_mut(&mut output_layers)
@@ -187,6 +201,7 @@ fn apply_full_round(input_layers: &[Vec<F>], ful_round: &FullRoundComputation) -
     output_layers
 }
 
+#[instrument(skip_all)]
 fn apply_partial_round(
     input_layers: &[Vec<F>],
     partial_round: &PartialRoundComputation,
@@ -356,7 +371,7 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), 16);
         let mut intermediate: [EFPacking<EF>; 16] =
-            array::from_fn(|j| (point[j] + self.constants[j]).cube());
+            array::from_fn(|j| (point[j] + PFPacking::<EF>::from(self.constants[j])).cube());
         GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
@@ -417,7 +432,7 @@ impl SumcheckComputationPacked<EF> for PartialRoundComputation {
 
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), 16);
-        let first_cubed = (point[0] + self.constant).cube();
+        let first_cubed = (point[0] + PFPacking::<EF>::from(self.constant)).cube();
         let mut intermediate = [EFPacking::<EF>::ZERO; 16];
         intermediate[0] = first_cubed;
         for j in 1..16 {

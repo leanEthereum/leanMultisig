@@ -383,6 +383,7 @@ dependencies = [
  "packed_pcs",
  "rand",
  "rec_aggregation",
+ "tracing",
  "utils",
  "whir-p3",
 ]

@@ -96,6 +96,7 @@ p3-uni-stark.workspace = true
 utils.workspace = true
 p3-util.workspace = true
 packed_pcs.workspace = true
+tracing.workspace = true
 p3-air.workspace = true
 multilinear-toolkit.workspace = true
 
