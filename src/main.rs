@@ -9,7 +9,10 @@ use p3_poseidon2::GenericPoseidon2LinearLayers;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{array, time::Instant};
 use tracing::instrument;
-use utils::{build_prover_state, build_verifier_state, init_tracing, transposed_par_iter_mut};
+use utils::{
+    build_prover_state, build_verifier_state, init_tracing, poseidon16_permute,
+    transposed_par_iter_mut,
+};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -24,6 +27,10 @@ fn main() {
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
         .collect::<Vec<[F; 16]>>();
+    let perm_outputs = perm_inputs
+        .par_iter()
+        .map(|input| poseidon16_permute(*input))
+        .collect::<Vec<_>>();
     let input_layers: [_; 16] =
         array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
 
@@ -54,6 +61,7 @@ fn main() {
     {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
+
         let input_layers_packed: [_; 16] =
             array::from_fn(|i| PFPacking::<EF>::pack_slice(&input_layers[i]).to_vec());
         let mut all_layers = vec![input_layers_packed];
@@ -71,6 +79,17 @@ fn main() {
             &all_layers[n_initial_full_rounds..n_initial_full_rounds + n_mid_partial_rounds];
         let final_full_layers = &all_layers[n_initial_full_rounds + n_mid_partial_rounds
             ..n_initial_full_rounds + n_mid_partial_rounds + n_final_full_rounds];
+
+        {
+            // sanity check
+            // let last_layers: [_; 16] =
+            //     array::from_fn(|i| PFPacking::<EF>::unpack_slice(&all_layers.last().unwrap()[i]));
+            // (0..n_poseidons).into_par_iter().for_each(|row| {
+            //     for i in 0..16 {
+            //         assert_eq!(perm_outputs[row][i], last_layers[i][row]);
+            //     }
+            // });
+        }
 
         let mut output_claims = all_layers
             .last()
@@ -191,7 +210,7 @@ fn apply_full_round(
         .for_each(|(row_index, output_row)| {
             let mut intermediate: [PFPacking<EF>; 16] =
                 array::from_fn(|j| (input_layers[j][row_index] + ful_round.constants[j]).cube());
-            GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
+            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
             for j in 0..16 {
                 *output_row[j] = intermediate[j];
             }
@@ -215,7 +234,7 @@ fn apply_partial_round(
             for j in 1..16 {
                 intermediate[j] = input_layers[j][row_index];
             }
-            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+            GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
             for j in 0..16 {
                 *output_row[j] = intermediate[j];
             }
@@ -320,7 +339,7 @@ impl<NF: ExtensionField<F>, EF: ExtensionField<NF>> SumcheckComputation<NF, EF>
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
         debug_assert_eq!(point.len(), 16);
         let mut intermediate: [NF; 16] = array::from_fn(|j| (point[j] + self.constants[j]).cube());
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
         let mut res = EF::ZERO;
         for i in 0..16 {
             res += alpha_powers[i] * intermediate[i];
@@ -338,7 +357,7 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
         debug_assert_eq!(point.len(), 16);
         let mut intermediate: [PFPacking<EF>; 16] =
             array::from_fn(|j| (point[j] + self.constants[j]).cube());
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
             res += EFPacking::<EF>::from(alpha_powers[j]) * intermediate[j];
@@ -350,7 +369,7 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
         debug_assert_eq!(point.len(), 16);
         let mut intermediate: [EFPacking<EF>; 16] =
             array::from_fn(|j| (point[j] + PFPacking::<EF>::from(self.constants[j])).cube());
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
             res += intermediate[j] * alpha_powers[j];
@@ -378,7 +397,7 @@ impl<NF: ExtensionField<F>, EF: ExtensionField<NF>> SumcheckComputation<NF, EF>
         for j in 1..16 {
             intermediate[j] = point[j];
         }
-        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
         let mut res = EF::ZERO;
         for i in 0..16 {
             res += alpha_powers[i] * intermediate[i];
@@ -400,7 +419,7 @@ impl SumcheckComputationPacked<EF> for PartialRoundComputation {
         for j in 1..16 {
             intermediate[j] = point[j];
         }
-        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
             res += EFPacking::<EF>::from(alpha_powers[j]) * intermediate[j];
@@ -416,7 +435,7 @@ impl SumcheckComputationPacked<EF> for PartialRoundComputation {
         for j in 1..16 {
             intermediate[j] = point[j];
         }
-        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
             res += intermediate[j] * alpha_powers[j];
