@@ -29,6 +29,7 @@ fn main() {
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
         .collect::<Vec<[F; 16]>>();
+    let selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
     let input_layers: [_; 16] =
         array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
 
@@ -108,6 +109,7 @@ fn main() {
                     multivariate_eval::<_, _, false>(
                         PFPacking::<EF>::unpack_slice(&output_layer),
                         &output_claim_point,
+                        &selectors,
                     )
                 })
                 .collect::<Vec<EF>>()
@@ -193,7 +195,7 @@ fn main() {
         for i in 0..16 {
             assert_eq!(
                 output_claims[i],
-                multivariate_eval::<_, _, true>(&input_layers[i], &claim_point)
+                multivariate_eval::<_, _, true>(&input_layers[i], &claim_point, &selectors),
             );
         }
     }
@@ -334,9 +336,10 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
 fn multivariate_eval<F: Field, EF: ExtensionField<F>, const PARALLEL: bool>(
     poly: &[F],
     point: &[EF],
+    selectors: &[DensePolynomial<F>],
 ) -> EF {
     assert_eq!(poly.len(), 1 << (point.len() + UNIVARIATE_SKIPS - 1));
-    univariate_selectors::<F>(UNIVARIATE_SKIPS)
+    selectors
         .iter()
         .zip(poly.chunks_exact(1 << (point.len() - 1)))
         .map(|(selector, chunk)| {
