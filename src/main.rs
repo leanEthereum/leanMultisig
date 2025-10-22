@@ -24,7 +24,7 @@ fn main() {
     init_tracing();
 
     let mut rng = StdRng::seed_from_u64(0);
-    let log_n_poseidons = 19;
+    let log_n_poseidons = 20;
     let n_poseidons = 1 << log_n_poseidons;
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
@@ -221,17 +221,16 @@ fn apply_full_round(
     transposed_par_iter_mut(&mut output_layers)
         .enumerate()
         .for_each(|(row_index, output_row)| {
-            let mut intermediate: [PFPacking<EF>; 16] =
-                array::from_fn(|j| input_layers[j][row_index]);
+            let mut buff: [PFPacking<EF>; 16] = array::from_fn(|j| input_layers[j][row_index]);
             if first_full_round {
-                GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+                GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
             }
-            intermediate.iter_mut().enumerate().for_each(|(j, val)| {
+            buff.iter_mut().enumerate().for_each(|(j, val)| {
                 *val = (*val + ful_round.constants[j]).cube();
             });
-            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
             for j in 0..16 {
-                *output_row[j] = intermediate[j];
+                *output_row[j] = buff[j];
             }
         });
     output_layers
@@ -248,19 +247,20 @@ fn apply_partial_round(
         .enumerate()
         .for_each(|(row_index, output_row)| {
             let first_cubed = (input_layers[0][row_index] + partial_round.constant).cube();
-            let mut intermediate = [PFPacking::<EF>::ZERO; 16];
-            intermediate[0] = first_cubed;
+            let mut buff = [PFPacking::<EF>::ZERO; 16];
+            buff[0] = first_cubed;
             for j in 1..16 {
-                intermediate[j] = input_layers[j][row_index];
+                buff[j] = input_layers[j][row_index];
             }
-            GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
+            GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
             for j in 0..16 {
-                *output_row[j] = intermediate[j];
+                *output_row[j] = buff[j];
             }
         });
     output_layers
 }
 
+#[instrument(skip_all)]
 fn prove_gkr_round<
     SC: SumcheckComputation<F, EF>
         + SumcheckComputation<EF, EF>
@@ -313,9 +313,13 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
     let batching_scalars_powers = batching_scalar.powers().collect_n(16);
     let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
 
-    let (retrieved_batched_claim, sumcheck_postponed_claim) =
-        sumcheck_verify_with_univariate_skip(verifier_state, 4, log_n_poseidons, UNIVARIATE_SKIPS)
-            .unwrap();
+    let (retrieved_batched_claim, sumcheck_postponed_claim) = sumcheck_verify_with_univariate_skip(
+        verifier_state,
+        computation.degree() + 1,
+        log_n_poseidons,
+        UNIVARIATE_SKIPS,
+    )
+    .unwrap();
 
     assert_eq!(retrieved_batched_claim, batched_claim);
 
@@ -367,17 +371,17 @@ impl<NF: ExtensionField<F>, EF: ExtensionField<NF>> SumcheckComputation<NF, EF>
 
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
         debug_assert_eq!(point.len(), 16);
-        let mut intermediate: [NF; 16] = array::from_fn(|j| point[j]);
+        let mut buff: [NF; 16] = array::from_fn(|j| point[j]);
         if self.first_full_round {
-            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
         }
-        intermediate.iter_mut().enumerate().for_each(|(j, val)| {
+        buff.iter_mut().enumerate().for_each(|(j, val)| {
             *val = (*val + self.constants[j]).cube();
         });
-        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
         let mut res = EF::ZERO;
         for i in 0..16 {
-            res += alpha_powers[i] * intermediate[i];
+            res += alpha_powers[i] * buff[i];
         }
         res
     }
@@ -390,34 +394,34 @@ impl SumcheckComputationPacked<EF> for FullRoundComputation {
 
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), 16);
-        let mut intermediate: [PFPacking<EF>; 16] = array::from_fn(|j| point[j]);
+        let mut buff: [PFPacking<EF>; 16] = array::from_fn(|j| point[j]);
         if self.first_full_round {
-            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
         }
-        intermediate.iter_mut().enumerate().for_each(|(j, val)| {
+        buff.iter_mut().enumerate().for_each(|(j, val)| {
             *val = (*val + self.constants[j]).cube();
         });
-        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
-            res += EFPacking::<EF>::from(alpha_powers[j]) * intermediate[j];
+            res += EFPacking::<EF>::from(alpha_powers[j]) * buff[j];
         }
         res
     }
 
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), 16);
-        let mut intermediate: [EFPacking<EF>; 16] = array::from_fn(|j| point[j]);
+        let mut buff: [EFPacking<EF>; 16] = array::from_fn(|j| point[j]);
         if self.first_full_round {
-            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
         }
-        intermediate.iter_mut().enumerate().for_each(|(j, val)| {
+        buff.iter_mut().enumerate().for_each(|(j, val)| {
             *val = (*val + PFPacking::<EF>::from(self.constants[j])).cube();
         });
-        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
-            res += intermediate[j] * alpha_powers[j];
+            res += buff[j] * alpha_powers[j];
         }
         res
     }
@@ -437,15 +441,15 @@ impl<NF: ExtensionField<F>, EF: ExtensionField<NF>> SumcheckComputation<NF, EF>
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
         debug_assert_eq!(point.len(), 16);
         let first_cubed = (point[0] + self.constant).cube();
-        let mut intermediate = [NF::ZERO; 16];
-        intermediate[0] = first_cubed;
+        let mut buff = [NF::ZERO; 16];
+        buff[0] = first_cubed;
         for j in 1..16 {
-            intermediate[j] = point[j];
+            buff[j] = point[j];
         }
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
         let mut res = EF::ZERO;
         for i in 0..16 {
-            res += alpha_powers[i] * intermediate[i];
+            res += alpha_powers[i] * buff[i];
         }
         res
     }
@@ -459,15 +463,15 @@ impl SumcheckComputationPacked<EF> for PartialRoundComputation {
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), 16);
         let first_cubed = (point[0] + self.constant).cube();
-        let mut intermediate = [PFPacking::<EF>::ZERO; 16];
-        intermediate[0] = first_cubed;
+        let mut buff = [PFPacking::<EF>::ZERO; 16];
+        buff[0] = first_cubed;
         for j in 1..16 {
-            intermediate[j] = point[j];
+            buff[j] = point[j];
         }
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
-            res += EFPacking::<EF>::from(alpha_powers[j]) * intermediate[j];
+            res += EFPacking::<EF>::from(alpha_powers[j]) * buff[j];
         }
         res
     }
@@ -475,15 +479,15 @@ impl SumcheckComputationPacked<EF> for PartialRoundComputation {
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), 16);
         let first_cubed = (point[0] + PFPacking::<EF>::from(self.constant)).cube();
-        let mut intermediate = [EFPacking::<EF>::ZERO; 16];
-        intermediate[0] = first_cubed;
+        let mut buff = [EFPacking::<EF>::ZERO; 16];
+        buff[0] = first_cubed;
         for j in 1..16 {
-            intermediate[j] = point[j];
+            buff[j] = point[j];
         }
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut intermediate);
+        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..16 {
-            res += intermediate[j] * alpha_powers[j];
+            res += buff[j] * alpha_powers[j];
         }
         res
     }
