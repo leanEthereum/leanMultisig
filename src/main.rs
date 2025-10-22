@@ -8,7 +8,7 @@ use p3_koala_bear::{
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{array, time::Instant};
-use tracing::instrument;
+use tracing::{info_span, instrument};
 use utils::{
     build_prover_state, build_verifier_state, init_tracing, poseidon16_permute,
     transposed_par_iter_mut,
@@ -78,6 +78,7 @@ fn main() {
         for round in &final_full_rounds {
             all_layers.push(apply_full_round(all_layers.last().unwrap(), round, false));
         }
+
         let initial_full_layers = &all_layers[..n_initial_full_rounds];
         let mid_partial_layers =
             &all_layers[n_initial_full_rounds..n_initial_full_rounds + n_mid_partial_rounds];
@@ -98,17 +99,19 @@ fn main() {
             });
         }
 
-        let mut output_claims = all_layers
-            .last()
-            .unwrap()
-            .par_iter()
-            .map(|output_layer| {
-                multilvariate_eval(
-                    PFPacking::<EF>::unpack_slice(&output_layer),
-                    &output_claim_point,
-                )
-            })
-            .collect::<Vec<EF>>();
+        let mut output_claims = info_span!("computing output claims").in_scope(|| {
+            all_layers
+                .last()
+                .unwrap()
+                .par_iter()
+                .map(|output_layer| {
+                    multivariate_eval::<_, _, false>(
+                        PFPacking::<EF>::unpack_slice(&output_layer),
+                        &output_claim_point,
+                    )
+                })
+                .collect::<Vec<EF>>()
+        });
 
         prover_state.add_extension_scalars(&output_claims);
 
@@ -190,7 +193,7 @@ fn main() {
         for i in 0..16 {
             assert_eq!(
                 output_claims[i],
-                multilvariate_eval(&input_layers[i], &claim_point)
+                multivariate_eval::<_, _, true>(&input_layers[i], &claim_point)
             );
         }
     }
@@ -331,13 +334,21 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
     (sumcheck_postponed_claim.point.0, sumcheck_inner_evals)
 }
 
-fn multilvariate_eval<F: Field, EF: ExtensionField<F>>(poly: &[F], point: &[EF]) -> EF {
+fn multivariate_eval<F: Field, EF: ExtensionField<F>, const PARALLEL: bool>(
+    poly: &[F],
+    point: &[EF],
+) -> EF {
     assert_eq!(poly.len(), 1 << (point.len() + UNIVARIATE_SKIPS - 1));
     univariate_selectors::<F>(UNIVARIATE_SKIPS)
         .iter()
         .zip(poly.chunks_exact(1 << (point.len() - 1)))
         .map(|(selector, chunk)| {
-            selector.evaluate(point[0]) * chunk.evaluate(&MultilinearPoint(point[1..].to_vec()))
+            selector.evaluate(point[0])
+                * if PARALLEL {
+                    chunk.evaluate(&MultilinearPoint(point[1..].to_vec()))
+                } else {
+                    chunk.evaluate_sequential(&MultilinearPoint(point[1..].to_vec()))
+                }
         })
         .sum()
 }
