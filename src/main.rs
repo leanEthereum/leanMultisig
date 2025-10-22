@@ -224,12 +224,9 @@ fn apply_full_round(
             if first_full_round {
                 GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
             }
-            intermediate
-                .par_iter_mut()
-                .enumerate()
-                .for_each(|(j, val)| {
-                    *val = (*val + ful_round.constants[j]).cube();
-                });
+            intermediate.iter_mut().enumerate().for_each(|(j, val)| {
+                *val = (*val + ful_round.constants[j]).cube();
+            });
             GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut intermediate);
             for j in 0..16 {
                 *output_row[j] = intermediate[j];
