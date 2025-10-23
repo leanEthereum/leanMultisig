@@ -11,7 +11,7 @@ use std::{array, time::Instant};
 use tracing::{info_span, instrument};
 use utils::{
     build_prover_state, build_verifier_state, init_tracing, poseidon16_permute,
-    transposed_par_iter_mut,
+    poseidon16_permute_mut, transposed_par_iter_mut,
 };
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder};
 
@@ -52,6 +52,8 @@ fn main() {
     let selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
     let input_layers: [_; 16] =
         array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
+    let input_layers_packed: [_; 16] =
+        array::from_fn(|i| PFPacking::<EF>::pack_slice(&input_layers[i]).to_vec());
 
     let initial_full_rounds = KOALABEAR_RC16_EXTERNAL_INITIAL
         .into_iter()
@@ -82,12 +84,10 @@ fn main() {
 
     let prover_time = Instant::now();
 
-    let mut verifier_state = {
+    let (mut verifier_state, proof_size) = {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
-        let initial_full_layer_inputs: [_; 16] =
-            array::from_fn(|i| PFPacking::<EF>::pack_slice(&input_layers[i]).to_vec());
-        let mut all_initial_full_layers = vec![initial_full_layer_inputs];
+        let mut all_initial_full_layers = vec![input_layers_packed];
         for (i, round) in initial_full_rounds.iter().enumerate() {
             all_initial_full_layers.push(apply_full_round(
                 all_initial_full_layers.last().unwrap(),
@@ -336,7 +336,10 @@ fn main() {
             &global_poly_commited.by_ref(),
         );
 
-        build_verifier_state(&prover_state)
+        (
+            build_verifier_state(&prover_state),
+            prover_state.proof_size(),
+        )
     };
 
     let prover_duration = prover_time.elapsed();
@@ -477,11 +480,32 @@ fn main() {
     }
     let verifier_duration = verifier_time.elapsed();
 
-    println!("GKR proof for {} Poseidon2:", n_poseidons);
+    let mut data_to_hash = input_layers.clone();
+    let plaintext_time = Instant::now();
+    transposed_par_iter_mut(&mut data_to_hash).for_each(|row| {
+        let mut buff = array::from_fn(|j| *row[j]);
+        poseidon16_permute_mut(&mut buff);
+        for j in 0..16 {
+            *row[j] = buff[j];
+        }
+    });
+    let plaintext_duration = plaintext_time.elapsed();
+
+    println!("{} Poseidon2", n_poseidons);
     println!(
-        "Prover time: {:?} ({:.1} Poseidons / s)",
+        "Plaintext (no proof) time: {:?} ({:.1} Poseidons / s)",
+        plaintext_duration,
+        n_poseidons as f64 / plaintext_duration.as_secs_f64()
+    );
+    println!(
+        "Prover time: {:?} ({:.1} Poseidons / s, {:.1}x slower than plaintext)",
         prover_duration,
-        n_poseidons as f64 / prover_duration.as_secs_f64()
+        n_poseidons as f64 / prover_duration.as_secs_f64(),
+        prover_duration.as_secs_f64() / plaintext_duration.as_secs_f64()
+    );
+    println!(
+        "Proof size: {} KiB",
+        (proof_size * F::bits()) as f64 / (8.0 * 1024.0)
     );
     println!("Verifier time: {:?}", verifier_duration);
 }

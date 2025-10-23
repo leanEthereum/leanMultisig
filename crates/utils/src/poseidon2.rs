@@ -102,6 +102,11 @@ pub fn poseidon16_permute(input: [KoalaBear; 16]) -> [KoalaBear; 16] {
     get_poseidon16().permute(input)
 }
 
+#[inline(always)]
+pub fn poseidon16_permute_mut(input: &mut [KoalaBear; 16]) {
+    get_poseidon16().permute_mut(input);
+}
+
 static POSEIDON24_INSTANCE: OnceLock<Poseidon24> = OnceLock::new();
 
 #[inline(always)]
