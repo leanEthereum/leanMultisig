@@ -3,7 +3,8 @@ use super::function::{FunctionCallParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
-    lang::{Boolean, Line},
+    ir::HighLevelOperation,
+    lang::{AssumeBoolean, Boolean, Condition, Expression, Line},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -120,6 +121,47 @@ impl IfStatementParser {
         lines.push(line);
 
         Ok(())
+    }
+}
+
+/// Parser for conditions.
+pub struct ConditionParser;
+
+impl Parse<Condition> for ConditionParser {
+    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
+        let inner_pair = next_inner_pair(&mut pair.into_inner(), "inner expression")?;
+        if inner_pair.as_rule() == Rule::assumed_bool_expr {
+            ExpressionParser::parse(
+                next_inner_pair(&mut inner_pair.into_inner(), "inner expression")?,
+                ctx,
+            )
+            .map(|e| Condition::Expression(e, AssumeBoolean::AssumeBoolean))
+        } else {
+            let expr_result = ExpressionParser::parse(inner_pair, ctx);
+            match expr_result {
+                Err(e) => Err(e),
+                Ok(Expression::Binary {
+                    left,
+                    operation: HighLevelOperation::Equal,
+                    right,
+                }) => Ok(Condition::Comparison(Boolean::Equal {
+                    left: *left,
+                    right: *right,
+                })),
+                Ok(Expression::Binary {
+                    left,
+                    operation: HighLevelOperation::NotEqual,
+                    right,
+                }) => Ok(Condition::Comparison(Boolean::Different {
+                    left: *left,
+                    right: *right,
+                })),
+                Ok(expr) => Ok(Condition::Expression(
+                    expr,
+                    AssumeBoolean::DoNotAssumeBoolean,
+                )),
+            }
+        }
     }
 }
 
@@ -248,25 +290,6 @@ impl Parse<Line> for ReturnStatementParser {
         }
 
         Ok(Line::FunctionRet { return_data })
-    }
-}
-
-/// Parser for boolean conditions used in if statements and assertions.
-pub struct ConditionParser;
-
-impl Parse<Boolean> for ConditionParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Boolean> {
-        let inner = next_inner_pair(&mut pair.into_inner(), "condition")?;
-        let mut parts = inner.clone().into_inner();
-
-        let left = ExpressionParser::parse(next_inner_pair(&mut parts, "left side")?, ctx)?;
-        let right = ExpressionParser::parse(next_inner_pair(&mut parts, "right side")?, ctx)?;
-
-        match inner.as_rule() {
-            Rule::condition_eq => Ok(Boolean::Equal { left, right }),
-            Rule::condition_diff => Ok(Boolean::Different { left, right }),
-            _ => Err(SemanticError::new("Invalid condition type").into()),
-        }
     }
 }
 

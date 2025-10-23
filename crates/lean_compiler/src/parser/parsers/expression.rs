@@ -4,7 +4,7 @@ use crate::{
     ir::HighLevelOperation,
     lang::Expression,
     parser::{
-        error::{ParseResult, SemanticError},
+        error::{ParseError, ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
     },
 };
@@ -18,6 +18,12 @@ impl Parse<Expression> for ExpressionParser {
             Rule::expression => {
                 let inner = next_inner_pair(&mut pair.into_inner(), "expression body")?;
                 Self::parse(inner, ctx)
+            }
+            Rule::neq_expr => {
+                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::NotEqual)
+            }
+            Rule::eq_expr => {
+                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Equal)
             }
             Rule::add_expr => {
                 BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Add)
@@ -38,7 +44,9 @@ impl Parse<Expression> for ExpressionParser {
                 BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Exp)
             }
             Rule::primary => PrimaryExpressionParser::parse(pair, ctx),
-            _ => Err(SemanticError::new("Invalid expression").into()),
+            other_rule => Err(ParseError::SemanticError(SemanticError::new(format!(
+                "ExpressionParser: Unexpected rule {other_rule:?}"
+            )))),
         }
     }
 }

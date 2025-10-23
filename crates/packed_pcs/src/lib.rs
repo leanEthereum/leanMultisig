@@ -99,10 +99,7 @@ fn split_in_chunks<F: Field>(
     if let Some(log_public) = dims.log_public_data_size {
         assert!(
             log_public >= log_smallest_decomposition_chunk,
-            "poly {}: {} < {}",
-            poly_index,
-            log_public,
-            log_smallest_decomposition_chunk
+            "poly {poly_index}: {log_public} < {log_smallest_decomposition_chunk}"
         );
         res.push(Chunk {
             original_poly_index: poly_index,
