@@ -10,8 +10,8 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{array, time::Instant};
 use tracing::{info_span, instrument};
 use utils::{
-    build_prover_state, build_verifier_state, init_tracing, poseidon16_permute,
-    poseidon16_permute_mut, transposed_par_iter_mut,
+    build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut,
+    transposed_par_iter_mut,
 };
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder};
 
@@ -19,7 +19,6 @@ type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 const UNIVARIATE_SKIPS: usize = 3;
 
-const SANITY_CHECK: bool = false;
 const N_COMMITED_CUBES: usize = 16; // power of 2 to increase PCS efficiency
 
 // const N_INITIAL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len();
@@ -82,11 +81,10 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    let prover_time = Instant::now();
-
-    let (mut verifier_state, proof_size) = {
+    let (mut verifier_state, proof_size, output_layers, prover_duration) = {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
+        let prover_time = Instant::now();
         let mut all_initial_full_layers = vec![input_layers_packed];
         for (i, round) in initial_full_rounds.iter().enumerate() {
             all_initial_full_layers.push(apply_full_round(
@@ -147,21 +145,6 @@ fn main() {
         let pcs_witness = whir_config.commit(&mut prover_state, &global_poly_commited);
         let global_poly_commited_packed =
             PFPacking::<EF>::pack_slice(global_poly_commited.as_base().unwrap());
-
-        if SANITY_CHECK {
-            let perm_outputs = perm_inputs
-                .par_iter()
-                .map(|input| poseidon16_permute(*input))
-                .collect::<Vec<_>>();
-            let last_layers: [_; 16] = array::from_fn(|i| {
-                PFPacking::<EF>::unpack_slice(&all_final_full_layers.last().unwrap()[i])
-            });
-            (0..n_poseidons).into_par_iter().for_each(|row| {
-                for i in 0..16 {
-                    assert_eq!(perm_outputs[row][i], last_layers[i][row]);
-                }
-            });
-        }
 
         let output_claim_point = prover_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
 
@@ -336,13 +319,15 @@ fn main() {
             &global_poly_commited.by_ref(),
         );
 
+        let prover_duration = prover_time.elapsed();
+
         (
             build_verifier_state(&prover_state),
             prover_state.proof_size(),
+            all_final_full_layers.last().unwrap().clone(),
+            prover_duration,
         )
     };
-
-    let prover_duration = prover_time.elapsed();
 
     let verifier_time = Instant::now();
     {
@@ -491,23 +476,28 @@ fn main() {
     });
     let plaintext_duration = plaintext_time.elapsed();
 
-    println!("{} Poseidon2", n_poseidons);
+    // sanity check: ensure the plaintext poseidons matches the last GKR layer:
+    output_layers.iter().enumerate().for_each(|(i, layer)| {
+        assert_eq!(PFPacking::<EF>::unpack_slice(&layer), data_to_hash[i]);
+    });
+
+    println!("2^{} Poseidon2", log_n_poseidons);
     println!(
-        "Plaintext (no proof) time: {:?} ({:.1} Poseidons / s)",
-        plaintext_duration,
-        n_poseidons as f64 / plaintext_duration.as_secs_f64()
+        "Plaintext (no proof) time: {:.3}s ({:.2}M Poseidons / s)",
+        plaintext_duration.as_secs_f64(),
+        n_poseidons as f64 / (plaintext_duration.as_secs_f64() * 1e6)
     );
     println!(
-        "Prover time: {:?} ({:.1} Poseidons / s, {:.1}x slower than plaintext)",
-        prover_duration,
-        n_poseidons as f64 / prover_duration.as_secs_f64(),
+        "Prover time: {:.3}s ({:.2}M Poseidons / s, {:.1}x slower than plaintext)",
+        prover_duration.as_secs_f64(),
+        n_poseidons as f64 / (prover_duration.as_secs_f64() * 1e6),
         prover_duration.as_secs_f64() / plaintext_duration.as_secs_f64()
     );
     println!(
-        "Proof size: {} KiB",
+        "Proof size: {:.1} KiB (without merkle pruning)",
         (proof_size * F::bits()) as f64 / (8.0 * 1024.0)
     );
-    println!("Verifier time: {:?}", verifier_duration);
+    println!("Verifier time: {}ms", verifier_duration.as_millis());
 }
 
 #[instrument(skip_all)]
