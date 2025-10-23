@@ -184,6 +184,21 @@ fn compile_lines(
                 }
             }
 
+            SimpleLine::TestZero {
+                operation,
+                arg0,
+                arg1,
+            } => {
+                instructions.push(IntermediateInstruction::computation(
+                    *operation,
+                    IntermediateValue::from_simple_expr(arg0, compiler),
+                    IntermediateValue::from_simple_expr(arg1, compiler),
+                    IntermediateValue::Constant(0.into()),
+                ));
+
+                mark_vars_as_declared(&[arg0, arg1], declared_vars);
+            }
+
             SimpleLine::Match { value, arms } => {
                 let match_index = compiler.match_blocks.len();
                 let end_label = Label::match_end(match_index);
@@ -768,6 +783,7 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
                     internal_vars.insert(var.clone());
                 }
             }
+            SimpleLine::TestZero { .. } => {}
             SimpleLine::HintMAlloc { var, .. }
             | SimpleLine::ConstMalloc { var, .. }
             | SimpleLine::DecomposeBits { var, .. }

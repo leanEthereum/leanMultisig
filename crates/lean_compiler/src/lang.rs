@@ -222,6 +222,30 @@ impl From<ConstantValue> for ConstExpression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AssumeBoolean {
+    AssumeBoolean,
+    DoNotAssumeBoolean,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Condition {
+    Expression(Expression, AssumeBoolean),
+    Comparison(Boolean),
+}
+
+impl Display for Condition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Expression(expr, AssumeBoolean::AssumeBoolean) => {
+                write!(f, "!assume_bool({expr})")
+            }
+            Self::Expression(expr, AssumeBoolean::DoNotAssumeBoolean) => write!(f, "{expr}"),
+            Self::Comparison(cmp) => write!(f, "{cmp}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {
     Value(SimpleExpr),
     ArrayAccess {
@@ -310,7 +334,7 @@ pub enum Line {
     },
     Assert(Boolean),
     IfCondition {
-        condition: Boolean,
+        condition: Condition,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
     },
