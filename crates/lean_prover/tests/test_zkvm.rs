@@ -17,7 +17,7 @@ fn test_zk_vm() {
     const PERMUTATION = 0;
     
     fn main() {
-        for i in 0..1000 unroll {  if 1 == 0 {  return; } } // increase bytecode size artificially
+        for i in 0..1000 {  if 1 == 0 { } }
 
         for i in 10..500 {
             x = malloc_vec(6);
