@@ -13,7 +13,10 @@ pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     mut claim_point: Vec<EF>,
     univariate_skips: usize,
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
-) -> (Vec<EF>, Vec<EF>)
+) -> (
+    Vec<Vec<Evaluation<EF>>>,
+    Vec<Vec<Evaluation<EF>>>,
+)
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
@@ -104,7 +107,20 @@ where
     );
     let pcs_point_for_inputs = claim_point.clone();
 
-    (pcs_point_for_inputs, pcs_point_for_cubes)
+    let input_pcs_statements = inner_evals_on_commited_columns(
+        prover_state,
+        &pcs_point_for_inputs,
+        univariate_skips,
+        &witness.input_layer,
+    );
+    let cubes_pcs_statements = inner_evals_on_commited_columns(
+        prover_state,
+        &pcs_point_for_cubes,
+        univariate_skips,
+        &witness.committed_cubes,
+    );
+
+    (input_pcs_statements, cubes_pcs_statements)
 }
 
 #[instrument(skip_all)]
@@ -221,7 +237,7 @@ where
     (sumcheck_point.0, sumcheck_inner_evals)
 }
 
-pub(crate) fn inner_evals_on_commited_columns(
+fn inner_evals_on_commited_columns(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     point: &[EF],
     univariate_skips: usize,
@@ -250,11 +266,7 @@ pub(crate) fn inner_evals_on_commited_columns(
     for col_inner_evals in inner_evals.chunks_exact(1 << univariate_skips) {
         pcs_statements.push(vec![Evaluation {
             point: MultilinearPoint(
-                [
-                    pcs_batching_scalars_inputs.clone(),
-                    point[1..].to_vec(),
-                ]
-                .concat(),
+                [pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat(),
             ),
             value: col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())),
         }]);

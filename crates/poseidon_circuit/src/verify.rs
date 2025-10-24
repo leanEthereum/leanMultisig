@@ -2,7 +2,7 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 
-use crate::{gkr_layers::PoseidonGKRLayers, EF, F};
+use crate::{EF, F, gkr_layers::PoseidonGKRLayers};
 
 pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
@@ -10,7 +10,7 @@ pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     output_claim_point: &[EF],
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
     univariate_skips: usize,
-) -> ((Vec<EF>, Vec<EF>), (Vec<EF>, Vec<EF>))
+) -> (Vec<Vec<Evaluation<EF>>>, Vec<Vec<Evaluation<EF>>>)
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
@@ -78,10 +78,22 @@ where
     let pcs_point_for_inputs = claim_point.clone();
     let pcs_evals_for_inputs = output_claims.to_vec();
 
-    (
-        (pcs_point_for_inputs, pcs_evals_for_inputs),
-        (pcs_point_for_cubes, pcs_evals_for_cubes),
-    )
+    let selectors = univariate_selectors::<F>(univariate_skips);
+    let input_pcs_statements = verify_inner_evals_on_commited_columns(
+        verifier_state,
+        &pcs_point_for_inputs,
+        &pcs_evals_for_inputs,
+        &selectors,
+    );
+
+    let cubes_pcs_statements = verify_inner_evals_on_commited_columns(
+        verifier_state,
+        &pcs_point_for_cubes,
+        &pcs_evals_for_cubes,
+        &selectors,
+    );
+
+    (input_pcs_statements, cubes_pcs_statements)
 }
 
 fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
@@ -122,7 +134,7 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
     (sumcheck_postponed_claim.point.0, sumcheck_inner_evals)
 }
 
-pub(crate) fn verify_inner_evals_on_commited_columns(
+fn verify_inner_evals_on_commited_columns(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     point: &[EF],
     claimed_evals: &[EF],
@@ -149,11 +161,7 @@ pub(crate) fn verify_inner_evals_on_commited_columns(
         );
         pcs_statements.push(vec![Evaluation {
             point: MultilinearPoint(
-                [
-                    pcs_batching_scalars_inputs.clone(),
-                    point[1..].to_vec(),
-                ]
-                .concat(),
+                [pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat(),
             ),
             value: col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())),
         }]);

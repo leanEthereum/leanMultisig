@@ -18,15 +18,14 @@ use whir_p3::{
 
 use crate::{
     default_cube_layers, generate_poseidon_witness, gkr_layers::PoseidonGKRLayers,
-    inner_evals_on_commited_columns, prove_poseidon_gkr, verify_inner_evals_on_commited_columns,
-    verify_poseidon_gkr,
+    prove_poseidon_gkr, verify_poseidon_gkr,
 };
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
-const UNIVARIATE_SKIPS: usize = 3;
 
 const WIDTH: usize = 16;
+const UNIVARIATE_SKIPS: usize = 3;
 const N_COMMITED_CUBES: usize = 16;
 
 #[test]
@@ -53,11 +52,10 @@ fn test_prove_poseidons() {
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
         .collect::<Vec<[F; WIDTH]>>();
-    let selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
-    let input_layers: [_; WIDTH] =
+    let input: [_; WIDTH] =
         array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
-    let input_layers_packed: [_; WIDTH] =
-        array::from_fn(|i| PFPacking::<EF>::pack_slice(&input_layers[i]).to_vec());
+    let input_packed: [_; WIDTH] =
+        array::from_fn(|i| PFPacking::<EF>::pack_slice(&input[i]).to_vec());
 
     let layers = PoseidonGKRLayers::<WIDTH, N_COMMITED_CUBES>::build();
 
@@ -69,7 +67,7 @@ fn test_prove_poseidons() {
         .collect::<Vec<_>>();
     let committed_col_dims = [input_col_dims, cubes_col_dims].concat();
 
-    let log_smallest_decomposition_chunk = 10; // unused because everything is a power of 2
+    let log_smallest_decomposition_chunk = 0; // unused because everything is a power of 2
 
     let (mut verifier_state, proof_size, output_layer, prover_duration) = {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
@@ -77,7 +75,7 @@ fn test_prove_poseidons() {
         let prover_time = Instant::now();
 
         let witness = generate_poseidon_witness::<FPacking<F>, WIDTH, N_COMMITED_CUBES>(
-            input_layers_packed,
+            input_packed,
             &layers,
         );
 
@@ -100,7 +98,7 @@ fn test_prove_poseidons() {
 
         let claim_point = prover_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
 
-        let (pcs_point_for_inputs, pcs_point_for_cubes) = prove_poseidon_gkr(
+        let (input_pcs_statements, cubes_pcs_statements) = prove_poseidon_gkr(
             &mut prover_state,
             &witness,
             claim_point,
@@ -110,18 +108,6 @@ fn test_prove_poseidons() {
 
         // PCS opening
 
-        let input_pcs_statements = inner_evals_on_commited_columns(
-            &mut prover_state,
-            &pcs_point_for_inputs,
-            UNIVARIATE_SKIPS,
-            &witness.input_layer,
-        );
-        let cubes_pcs_statements = inner_evals_on_commited_columns(
-            &mut prover_state,
-            &pcs_point_for_cubes,
-            UNIVARIATE_SKIPS,
-            &witness.committed_cubes,
-        );
         let global_statements = packed_pcs_global_statements_for_prover(
             &committed_polys,
             &committed_col_dims,
@@ -160,10 +146,7 @@ fn test_prove_poseidons() {
 
         let output_claim_point = verifier_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
 
-        let (
-            (pcs_point_for_inputs, pcs_evals_for_inputs),
-            (pcs_point_for_cubes, pcs_evals_for_cubes),
-        ) = verify_poseidon_gkr(
+        let (input_pcs_statements, cubes_pcs_statements) = verify_poseidon_gkr(
             &mut verifier_state,
             log_n_poseidons,
             &output_claim_point,
@@ -172,20 +155,6 @@ fn test_prove_poseidons() {
         );
 
         // PCS verification
-
-        let input_pcs_statements = verify_inner_evals_on_commited_columns(
-            &mut verifier_state,
-            &pcs_point_for_inputs,
-            &pcs_evals_for_inputs,
-            &selectors,
-        );
-
-        let cubes_pcs_statements = verify_inner_evals_on_commited_columns(
-            &mut verifier_state,
-            &pcs_point_for_cubes,
-            &pcs_evals_for_cubes,
-            &selectors,
-        );
 
         let global_statements = packed_pcs_global_statements_for_verifier(
             &committed_col_dims,
@@ -206,7 +175,7 @@ fn test_prove_poseidons() {
     }
     let verifier_duration = verifier_time.elapsed();
 
-    let mut data_to_hash = input_layers.clone();
+    let mut data_to_hash = input.clone();
     let plaintext_time = Instant::now();
     transposed_par_iter_mut(&mut data_to_hash).for_each(|row| {
         if WIDTH == 16 {

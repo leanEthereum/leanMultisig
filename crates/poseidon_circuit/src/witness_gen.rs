@@ -26,7 +26,7 @@ pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize>
 }
 
 pub fn generate_poseidon_witness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize>(
-    input_layer: [Vec<A>; WIDTH],
+    input: [Vec<A>; WIDTH],
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
 ) -> PoseidonWitness<A, WIDTH, N_COMMITED_CUBES>
 where
@@ -34,7 +34,7 @@ where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
     let mut remaining_initial_full_layers = vec![apply_full_round::<_, _, true>(
-        &input_layer,
+        &input,
         &layers.initial_full_round,
     )];
     for round in &layers.initial_full_rounds_remaining {
@@ -67,7 +67,7 @@ where
     let output_layer = final_full_layer_inputs.pop().unwrap();
 
     PoseidonWitness {
-        input_layer,
+        input_layer: input,
         remaining_initial_full_round_inputs: remaining_initial_full_layers,
         batch_partial_round_input: batch_partial_round_layer,
         committed_cubes,
