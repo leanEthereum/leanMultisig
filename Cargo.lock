@@ -22,11 +22,9 @@ dependencies = [
  "p3-matrix",
  "p3-uni-stark",
  "p3-util",
- "packed_pcs",
  "rand",
  "tracing",
  "utils",
- "whir-p3",
 ]
 
 [[package]]
@@ -381,6 +379,7 @@ dependencies = [
  "p3-uni-stark",
  "p3-util",
  "packed_pcs",
+ "poseidon_circuit",
  "rand",
  "rec_aggregation",
  "tracing",
@@ -892,6 +891,23 @@ name = "pin-project-lite"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
+
+[[package]]
+name = "poseidon_circuit"
+version = "0.1.0"
+dependencies = [
+ "multilinear-toolkit",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-matrix",
+ "p3-monty-31",
+ "p3-poseidon2",
+ "p3-util",
+ "rand",
+ "tracing",
+ "utils",
+ "whir-p3",
+]
 
 [[package]]
 name = "ppv-lite86"

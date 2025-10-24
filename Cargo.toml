@@ -51,6 +51,7 @@ lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
 witness_generation = { path = "crates/lean_prover/witness_generation" }
 vm_air = { path = "crates/lean_prover/vm_air" }
+poseidon_circuit = { path = "crates/poseidon_circuit" }
 
 # External
 thiserror = "2.0"
@@ -78,12 +79,14 @@ p3-poseidon2-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch
 p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
+p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 
 whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "lean-multisig" }
 multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
 
 [dependencies]
 air.workspace = true
+poseidon_circuit.workspace = true
 p3-field.workspace = true
 p3-koala-bear.workspace = true
 p3-poseidon2.workspace = true
@@ -111,6 +114,7 @@ multilinear-toolkit.workspace = true
 # p3-poseidon2-air = { path = "../zk/Plonky3/poseidon2-air" }
 # p3-dft = { path = "../zk/Plonky3/dft" }
 # p3-challenger = { path = "../zk/Plonky3/challenger" }
+# p3-monty-31 = { path = "../zk/Plonky3/monty-31" }
 
 # [patch."https://github.com/TomWambsgans/whir-p3.git"]
 # whir-p3 = { path = "../zk/whir/fork-whir-p3" }
@@ -124,10 +128,6 @@ rec_aggregation.workspace = true
 
 [profile.release]
 lto = "thin"
-
-[[bench]]
-name = "poseidon2"
-harness = false
 
 [[bench]]
 name = "recursion"

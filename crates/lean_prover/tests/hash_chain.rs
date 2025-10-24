@@ -1,13 +1,11 @@
 use std::time::Instant;
 
-use air::examples::prove_poseidon2::{Poseidon2Config, prove_poseidon2};
 use lean_compiler::*;
 use lean_prover::{
     prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder,
 };
 use lean_vm::{F, execute_bytecode};
 use p3_field::PrimeCharacteristicRing;
-use whir_p3::{FoldingFactor, SecurityAssumption};
 use xmss::iterate_hash;
 
 #[test]
@@ -87,25 +85,5 @@ fn benchmark_poseidon_chain() {
     let vm_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 
-    let raw_proof = prove_poseidon2(&Poseidon2Config {
-        log_n_poseidons_16: LOG_CHAIN_LENGTH,
-        log_n_poseidons_24: 10, // (almost invisible cost)
-        univariate_skips: 4,
-        folding_factor: FoldingFactor::new(7, 4),
-        log_inv_rate: 1,
-        soundness_type: SecurityAssumption::CapacityBound,
-        pow_bits: 16,
-        security_level: 128,
-        rs_domain_initial_reduction_factor: 5,
-        max_num_variables_to_send_coeffs: 7,
-        display_logs: true,
-    });
-
     println!("VM proof time: {vm_time:?}");
-    println!("Raw Poseidon proof time: {:?}", raw_proof.prover_time);
-
-    println!(
-        "VM overhead: {:.2}x",
-        vm_time.as_secs_f64() / raw_proof.prover_time.as_secs_f64()
-    );
 }
