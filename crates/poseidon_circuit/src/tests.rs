@@ -4,7 +4,6 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{array, time::Instant};
-use tracing::{info_span, instrument};
 use utils::{
     build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut,
     transposed_par_iter_mut,
@@ -13,7 +12,10 @@ use whir_p3::{
     FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles,
 };
 
-use crate::{generate_poseidon_witness, gkr_layers::{BatchPartialRounds, PoseidonGKRLayers}};
+use crate::{
+    generate_poseidon_witness, gkr_layers::PoseidonGKRLayers, prove_poseidon_gkr,
+    verify_poseidon_gkr,
+};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -89,89 +91,15 @@ fn test_prove_poseidons() {
         let global_poly_commited_packed =
             PFPacking::<EF>::pack_slice(global_poly_commited.as_base().unwrap());
 
-        let mut claim_point = prover_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
+        let claim_point = prover_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
 
-        let mut output_claims = info_span!("computing output claims").in_scope(|| {
-            batch_evaluate_univariate_multilinear(
-                &witness
-                    .output_layer
-                    .iter()
-                    .map(|l| PFPacking::<EF>::unpack_slice(l))
-                    .collect::<Vec<_>>(),
-                &claim_point,
-                &selectors,
-            )
-        });
-
-        prover_state.add_extension_scalars(&output_claims);
-
-        for (input_layers, full_round) in witness
-            .final_full_round_inputs
-            .iter()
-            .zip(&layers.final_full_rounds)
-            .rev()
-        {
-            (claim_point, output_claims) = prove_gkr_round(
-                &mut prover_state,
-                full_round,
-                input_layers,
-                &claim_point,
-                &output_claims,
-            );
-        }
-
-        for (input_layers, partial_round) in witness
-            .remaining_partial_round_inputs
-            .iter()
-            .zip(&layers.partial_rounds_remaining)
-            .rev()
-        {
-            (claim_point, output_claims) = prove_gkr_round(
-                &mut prover_state,
-                partial_round,
-                input_layers,
-                &claim_point,
-                &output_claims,
-            );
-        }
-
-        (claim_point, output_claims) = prove_batch_internal_rounds(
+        let (pcs_point_for_inputs, pcs_point_for_cubes) = prove_poseidon_gkr(
             &mut prover_state,
-            &witness.batch_partial_round_input,
-            &witness.committed_cubes,
-            &layers.batch_partial_rounds,
-            &claim_point,
-            &output_claims,
-            &selectors,
+            &witness,
+            claim_point,
+            UNIVARIATE_SKIPS,
+            &layers,
         );
-
-        let pcs_point_for_cubes = claim_point.clone();
-
-        output_claims = output_claims[..WIDTH].to_vec();
-
-        for (input_layers, full_round) in witness
-            .remaining_initial_full_round_inputs
-            .iter()
-            .zip(&layers.initial_full_rounds_remaining)
-            .rev()
-        {
-            (claim_point, output_claims) = prove_gkr_round(
-                &mut prover_state,
-                full_round,
-                input_layers,
-                &claim_point,
-                &output_claims,
-            );
-        }
-        (claim_point, _) = prove_gkr_round(
-            &mut prover_state,
-            &layers.initial_full_round,
-            &witness.input_layer,
-            &claim_point,
-            &output_claims,
-        );
-
-        let pcs_point_for_inputs = claim_point.clone();
 
         // PCS opening
         let mut pcs_statements = vec![];
@@ -256,64 +184,16 @@ fn test_prove_poseidons() {
 
         let output_claim_point = verifier_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
 
-        let mut output_claims = verifier_state.next_extension_scalars_vec(WIDTH).unwrap();
-
-        let mut claim_point = output_claim_point.clone();
-        for full_round in layers.final_full_rounds.iter().rev() {
-            (claim_point, output_claims) = verify_gkr_round(
-                &mut verifier_state,
-                full_round,
-                log_n_poseidons,
-                &claim_point,
-                &output_claims,
-            );
-        }
-
-        for partial_round in layers.partial_rounds_remaining.iter().rev() {
-            (claim_point, output_claims) = verify_gkr_round(
-                &mut verifier_state,
-                partial_round,
-                log_n_poseidons,
-                &claim_point,
-                &output_claims,
-            );
-        }
-        let claimed_cubes_evals = verifier_state
-            .next_extension_scalars_vec(N_COMMITED_CUBES)
-            .unwrap();
-
-        (claim_point, output_claims) = verify_gkr_round(
+        let (
+            (pcs_point_for_inputs, pcs_evals_for_inputs),
+            (pcs_point_for_cubes, pcs_evals_for_cubes),
+        ) = verify_poseidon_gkr(
             &mut verifier_state,
-            &layers.batch_partial_rounds,
             log_n_poseidons,
-            &claim_point,
-            &[output_claims, claimed_cubes_evals.clone()].concat(),
+            &output_claim_point,
+            &layers,
+            UNIVARIATE_SKIPS,
         );
-
-        let pcs_point_for_cubes = claim_point.clone();
-        let pcs_evals_for_cubes = output_claims[WIDTH..].to_vec();
-
-        output_claims = output_claims[..WIDTH].to_vec();
-
-        for full_round in layers.initial_full_rounds_remaining.iter().rev() {
-            (claim_point, output_claims) = verify_gkr_round(
-                &mut verifier_state,
-                full_round,
-                log_n_poseidons,
-                &claim_point,
-                &output_claims,
-            );
-        }
-        (claim_point, output_claims) = verify_gkr_round(
-            &mut verifier_state,
-            &layers.initial_full_round,
-            log_n_poseidons,
-            &claim_point,
-            &output_claims,
-        );
-
-        let pcs_point_for_inputs = claim_point.clone();
-        let pcs_evals_for_inputs = output_claims.to_vec();
 
         // PCS verification
 
@@ -423,147 +303,4 @@ fn test_prove_poseidons() {
         (proof_size * F::bits()) as f64 / (8.0 * 1024.0)
     );
     println!("Verifier time: {}ms", verifier_duration.as_millis());
-}
-
-#[instrument(skip_all)]
-fn prove_gkr_round<
-    SC: SumcheckComputation<F, EF>
-        + SumcheckComputation<EF, EF>
-        + SumcheckComputationPacked<EF>
-        + 'static,
->(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    computation: &SC,
-    input_layers: &[impl AsRef<Vec<PFPacking<EF>>>],
-    claim_point: &[EF],
-    output_claims: &[EF],
-) -> (Vec<EF>, Vec<EF>) {
-    let batching_scalar = prover_state.sample();
-    let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
-    let batching_scalars_powers = batching_scalar.powers().collect_n(WIDTH);
-
-    let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
-        UNIVARIATE_SKIPS,
-        MleGroupRef::BasePacked(input_layers.iter().map(|l| l.as_ref().as_slice()).collect()),
-        computation,
-        computation,
-        &batching_scalars_powers,
-        Some((claim_point.to_vec(), None)),
-        false,
-        prover_state,
-        batched_claim,
-        None,
-    );
-
-    // sanity check
-    debug_assert_eq!(
-        computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
-            * eq_poly_with_skip(&sumcheck_point, &claim_point, UNIVARIATE_SKIPS),
-        sumcheck_final_sum
-    );
-
-    prover_state.add_extension_scalars(&sumcheck_inner_evals);
-
-    (sumcheck_point.0, sumcheck_inner_evals)
-}
-
-#[instrument(skip_all)]
-fn prove_batch_internal_rounds(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    input_layers: &[Vec<PFPacking<EF>>],
-    committed_cubes: &[Vec<PFPacking<EF>>],
-    computation: &BatchPartialRounds<WIDTH, N_COMMITED_CUBES>,
-    claim_point: &[EF],
-    output_claims: &[EF],
-    selectors: &[DensePolynomial<F>],
-) -> (Vec<EF>, Vec<EF>) {
-    assert_eq!(input_layers.len(), WIDTH);
-    assert_eq!(committed_cubes.len(), N_COMMITED_CUBES);
-
-    let cubes_evals = info_span!("computing cube evals").in_scope(|| {
-        batch_evaluate_univariate_multilinear(
-            &committed_cubes
-                .iter()
-                .map(|l| PFPacking::<EF>::unpack_slice(l))
-                .collect::<Vec<_>>(),
-            &claim_point,
-            selectors,
-        )
-    });
-
-    prover_state.add_extension_scalars(&cubes_evals);
-
-    let batching_scalar = prover_state.sample();
-    let batched_claim: EF = dot_product(
-        output_claims.iter().chain(&cubes_evals).copied(),
-        batching_scalar.powers(),
-    );
-    let batching_scalars_powers = batching_scalar.powers().collect_n(WIDTH + N_COMMITED_CUBES);
-
-    let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
-        UNIVARIATE_SKIPS,
-        MleGroupRef::BasePacked(
-            input_layers
-                .iter()
-                .chain(committed_cubes.iter())
-                .map(Vec::as_slice)
-                .collect(),
-        ),
-        computation,
-        computation,
-        &batching_scalars_powers,
-        Some((claim_point.to_vec(), None)),
-        false,
-        prover_state,
-        batched_claim,
-        None,
-    );
-
-    // sanity check
-    debug_assert_eq!(
-        computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
-            * eq_poly_with_skip(&sumcheck_point, &claim_point, UNIVARIATE_SKIPS),
-        sumcheck_final_sum
-    );
-
-    prover_state.add_extension_scalars(&sumcheck_inner_evals);
-
-    (sumcheck_point.0, sumcheck_inner_evals)
-}
-
-fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    computation: &SC,
-    log_n_poseidons: usize,
-    claim_point: &[EF],
-    output_claims: &[EF],
-) -> (Vec<EF>, Vec<EF>) {
-    let batching_scalar = verifier_state.sample();
-    let batching_scalars_powers = batching_scalar.powers().collect_n(output_claims.len());
-    let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
-
-    let (retrieved_batched_claim, sumcheck_postponed_claim) = sumcheck_verify_with_univariate_skip(
-        verifier_state,
-        computation.degree() + 1,
-        log_n_poseidons,
-        UNIVARIATE_SKIPS,
-    )
-    .unwrap();
-
-    assert_eq!(retrieved_batched_claim, batched_claim);
-
-    let sumcheck_inner_evals = verifier_state
-        .next_extension_scalars_vec(output_claims.len())
-        .unwrap();
-    assert_eq!(
-        computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
-            * eq_poly_with_skip(
-                &sumcheck_postponed_claim.point,
-                &claim_point,
-                UNIVARIATE_SKIPS
-            ),
-        sumcheck_postponed_claim.value
-    );
-
-    (sumcheck_postponed_claim.point.0, sumcheck_inner_evals)
 }

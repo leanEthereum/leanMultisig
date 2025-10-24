@@ -30,7 +30,7 @@ target ≈ 128 bits of security, currently using conjecture: 4.12 of [WHIR](http
 ### Poseidon2
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release
+RUSTFLAGS='-C target-cpu=native' cargo test --release --package poseidon_circuit --lib -- tests::test_prove_poseidons --nocapture
 ```
 
 50 % over 16 field elements, 50 % over 24 field elements. rate = 1/2
