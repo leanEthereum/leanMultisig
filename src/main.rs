@@ -13,7 +13,9 @@ use utils::{
     build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut,
     transposed_par_iter_mut,
 };
-use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder};
+use whir_p3::{
+    FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles,
+};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -28,6 +30,7 @@ const N_INTERNAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
 fn main() {
     assert!(N_COMMITED_CUBES <= N_INTERNAL_ROUNDS);
     init_tracing();
+    precompute_dft_twiddles::<F>(1 << 24);
 
     let log_n_poseidons = 20;
 
@@ -149,18 +152,16 @@ fn main() {
         let output_claim_point = prover_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
 
         let mut output_claims = info_span!("computing output claims").in_scope(|| {
-            all_final_full_layers
-                .last()
-                .unwrap()
-                .par_iter()
-                .map(|output_layer| {
-                    multivariate_eval::<_, _, _, false>(
-                        PFPacking::<EF>::unpack_slice(&output_layer),
-                        &output_claim_point,
-                        &selectors,
-                    )
-                })
-                .collect::<Vec<EF>>()
+            batch_evaluate_univariate_multilinear(
+                &all_final_full_layers
+                    .last()
+                    .unwrap()
+                    .iter()
+                    .map(|l| PFPacking::<EF>::unpack_slice(l))
+                    .collect::<Vec<_>>(),
+                &output_claim_point,
+                &selectors,
+            )
         });
 
         prover_state.add_extension_scalars(&output_claims);
@@ -203,7 +204,6 @@ fn main() {
         );
 
         let pcs_point_for_cubes = claim_point.clone();
-        let pcs_evals_for_cubes = output_claims[16..].to_vec();
 
         output_claims = output_claims[..16].to_vec();
 
@@ -222,7 +222,6 @@ fn main() {
         }
 
         let pcs_point_for_inputs = claim_point.clone();
-        let pcs_evals_for_inputs = output_claims.to_vec();
 
         // PCS opening
         let mut pcs_statements = vec![];
@@ -252,22 +251,6 @@ fn main() {
             ),
             value: inner_evals_inputs.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs)),
         });
-        {
-            // sanity check
-            for (&eval, inner_evals) in pcs_evals_for_inputs
-                .iter()
-                .zip(inner_evals_inputs.chunks_exact(1 << UNIVARIATE_SKIPS))
-            {
-                assert_eq!(
-                    eval,
-                    multivariate_eval::<_, _, _, false>(
-                        inner_evals,
-                        &pcs_point_for_inputs[..1],
-                        &selectors
-                    )
-                );
-            }
-        }
 
         let eq_mle_cubes = eval_eq_packed(&pcs_point_for_cubes[1..]);
         let inner_evals_cubes = global_poly_commited_packed
@@ -295,22 +278,6 @@ fn main() {
             ),
             value: inner_evals_cubes.evaluate(&MultilinearPoint(pcs_batching_scalars_cubes)),
         });
-        {
-            // sanity check
-            for (&eval, inner_evals) in pcs_evals_for_cubes
-                .iter()
-                .zip(inner_evals_cubes.chunks_exact(1 << UNIVARIATE_SKIPS))
-            {
-                assert_eq!(
-                    eval,
-                    multivariate_eval::<_, _, _, false>(
-                        inner_evals,
-                        &pcs_point_for_cubes[..1],
-                        &selectors
-                    )
-                );
-            }
-        }
 
         whir_config.prove(
             &mut prover_state,
@@ -417,10 +384,11 @@ fn main() {
             {
                 assert_eq!(
                     eval,
-                    multivariate_eval::<_, _, _, false>(
+                    evaluate_univariate_multilinear::<_, _, _, false>(
                         inner_evals,
                         &pcs_point_for_inputs[..1],
-                        &selectors
+                        &selectors,
+                        None
                     )
                 );
             }
@@ -443,17 +411,17 @@ fn main() {
             value: inner_evals_cubes.evaluate(&MultilinearPoint(pcs_batching_scalars_cubes)),
         });
         {
-            // sanity check
             for (&eval, inner_evals) in pcs_evals_for_cubes
                 .iter()
                 .zip(inner_evals_cubes.chunks_exact(1 << UNIVARIATE_SKIPS))
             {
                 assert_eq!(
                     eval,
-                    multivariate_eval::<_, _, _, false>(
+                    evaluate_univariate_multilinear::<_, _, _, false>(
                         inner_evals,
                         &pcs_point_for_cubes[..1],
-                        &selectors
+                        &selectors,
+                        None
                     )
                 );
             }
@@ -637,16 +605,14 @@ fn prove_internal_rounds_with_committed_cube(
     assert_eq!(committed_cubes.len(), N_COMMITED_CUBES);
 
     let cubes_evals = info_span!("computing cube evals").in_scope(|| {
-        committed_cubes
-            .par_iter()
-            .map(|layer| {
-                multivariate_eval::<_, _, _, false>(
-                    PFPacking::<EF>::unpack_slice(&layer),
-                    &claim_point,
-                    selectors,
-                )
-            })
-            .collect::<Vec<EF>>()
+        batch_evaluate_univariate_multilinear(
+            &committed_cubes
+                .iter()
+                .map(|l| PFPacking::<EF>::unpack_slice(l))
+                .collect::<Vec<_>>(),
+            &claim_point,
+            selectors,
+        )
     });
 
     prover_state.add_extension_scalars(&cubes_evals);
@@ -724,31 +690,6 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
     );
 
     (sumcheck_postponed_claim.point.0, sumcheck_inner_evals)
-}
-
-fn multivariate_eval<
-    F: Field,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<F> + ExtensionField<NF>,
-    const PARALLEL: bool,
->(
-    poly: &[NF],
-    point: &[EF],
-    selectors: &[DensePolynomial<F>],
-) -> EF {
-    assert_eq!(poly.len(), 1 << (point.len() + UNIVARIATE_SKIPS - 1));
-    selectors
-        .iter()
-        .zip(poly.chunks_exact(1 << (point.len() - 1)))
-        .map(|(selector, chunk)| {
-            selector.evaluate(point[0])
-                * if PARALLEL {
-                    chunk.evaluate(&MultilinearPoint(point[1..].to_vec()))
-                } else {
-                    chunk.evaluate_sequential(&MultilinearPoint(point[1..].to_vec()))
-                }
-        })
-        .sum()
 }
 
 pub struct FullRoundComputation {

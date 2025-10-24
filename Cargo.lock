@@ -59,7 +59,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#1d5b5259518a3d74a4cb7d13a9caf65316893a6a"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#abff289607aa2ff52f3b989468a25cc952127030"
 dependencies = [
  "fiat-shamir",
  "itertools 0.14.0",
@@ -155,7 +155,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#1d5b5259518a3d74a4cb7d13a9caf65316893a6a"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#abff289607aa2ff52f3b989468a25cc952127030"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -294,7 +294,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "fiat-shamir"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/fiat-shamir.git#40d6492b109af9e22a9370a6e674df6f7e4db84e"
+source = "git+https://github.com/leanEthereum/fiat-shamir.git#211b12c35c9742c3d2ec0477381954208f97986c"
 dependencies = [
  "p3-challenger",
  "p3-field",
@@ -523,7 +523,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#1d5b5259518a3d74a4cb7d13a9caf65316893a6a"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#abff289607aa2ff52f3b989468a25cc952127030"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1126,7 +1126,7 @@ checksum = "fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82"
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#1d5b5259518a3d74a4cb7d13a9caf65316893a6a"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#abff289607aa2ff52f3b989468a25cc952127030"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1387,7 +1387,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#b2812e409a6465491129db457e3693b0c0127800"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#61c58fc683faa20bf3e4ac6d5611705f9db3806d"
 dependencies = [
  "itertools 0.14.0",
  "multilinear-toolkit",
