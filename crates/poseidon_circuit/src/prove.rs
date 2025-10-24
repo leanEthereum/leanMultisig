@@ -220,3 +220,44 @@ where
 
     (sumcheck_point.0, sumcheck_inner_evals)
 }
+
+pub(crate) fn inner_evals_on_commited_columns(
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    point: &[EF],
+    univariate_skips: usize,
+    columns: &[Vec<PFPacking<EF>>],
+) -> Vec<Vec<Evaluation<EF>>> {
+    let eq_mle = eval_eq_packed(&point[1..]);
+    let inner_evals = columns
+        .par_iter()
+        .map(|col| {
+            col.chunks_exact(eq_mle.len())
+                .map(|chunk| {
+                    let ef_sum = dot_product::<EFPacking<EF>, _, _>(
+                        eq_mle.iter().copied(),
+                        chunk.iter().copied(),
+                    );
+                    <EFPacking<EF> as PackedFieldExtension<F, EF>>::to_ext_iter([ef_sum])
+                        .sum::<EF>()
+                })
+                .collect::<Vec<_>>()
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+    prover_state.add_extension_scalars(&inner_evals);
+    let mut pcs_statements = vec![];
+    let pcs_batching_scalars_inputs = prover_state.sample_vec(univariate_skips);
+    for col_inner_evals in inner_evals.chunks_exact(1 << univariate_skips) {
+        pcs_statements.push(vec![Evaluation {
+            point: MultilinearPoint(
+                [
+                    pcs_batching_scalars_inputs.clone(),
+                    point[1..].to_vec(),
+                ]
+                .concat(),
+            ),
+            value: col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())),
+        }]);
+    }
+    pcs_statements
+}

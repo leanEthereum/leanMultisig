@@ -10,7 +10,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{array, time::Instant};
 use utils::{
     build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut,
-    transposed_par_iter_mut,
+    poseidon24_permute_mut, transposed_par_iter_mut,
 };
 use whir_p3::{
     FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles,
@@ -18,7 +18,8 @@ use whir_p3::{
 
 use crate::{
     default_cube_layers, generate_poseidon_witness, gkr_layers::PoseidonGKRLayers,
-    prove_poseidon_gkr, verify_poseidon_gkr,
+    inner_evals_on_commited_columns, prove_poseidon_gkr, verify_inner_evals_on_commited_columns,
+    verify_poseidon_gkr,
 };
 
 type F = KoalaBear;
@@ -26,7 +27,7 @@ type EF = QuinticExtensionFieldKB;
 const UNIVARIATE_SKIPS: usize = 3;
 
 const WIDTH: usize = 16;
-const N_COMMITED_CUBES: usize = 16; // power of 2 to increase PCS efficiency
+const N_COMMITED_CUBES: usize = 16;
 
 #[test]
 fn test_prove_poseidons() {
@@ -44,7 +45,7 @@ fn test_prove_poseidons() {
         security_level: 128,
         starting_log_inv_rate: 1,
     };
-    let whir_n_vars = log_n_poseidons + log2_strict_usize(WIDTH + N_COMMITED_CUBES);
+    let whir_n_vars = log_n_poseidons + log2_ceil_usize(WIDTH + N_COMMITED_CUBES);
     let whir_config = WhirConfig::new(whir_config_builder.clone(), whir_n_vars);
 
     let mut rng = StdRng::seed_from_u64(0);
@@ -109,85 +110,18 @@ fn test_prove_poseidons() {
 
         // PCS opening
 
-        let eq_mle_inputs = eval_eq_packed(&pcs_point_for_inputs[1..]);
-        let inner_evals_inputs = witness
-            .input_layer
-            .par_iter()
-            .map(|col| {
-                col.chunks_exact(eq_mle_inputs.len())
-                    .map(|chunk| {
-                        let ef_sum = dot_product::<EFPacking<EF>, _, _>(
-                            eq_mle_inputs.iter().copied(),
-                            chunk.iter().copied(),
-                        );
-                        <EFPacking<EF> as PackedFieldExtension<F, EF>>::to_ext_iter([ef_sum])
-                            .sum::<EF>()
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-        assert_eq!(inner_evals_inputs.len(), WIDTH << UNIVARIATE_SKIPS);
-        prover_state.add_extension_scalars(&inner_evals_inputs);
-        let mut input_pcs_statements = vec![];
-        let pcs_batching_scalars_inputs = prover_state.sample_vec(UNIVARIATE_SKIPS); // 4 = log2(WIDTH)
-        for col_inner_evals in inner_evals_inputs.chunks_exact(1 << UNIVARIATE_SKIPS) {
-            input_pcs_statements.push(vec![Evaluation {
-                point: MultilinearPoint(
-                    [
-                        pcs_batching_scalars_inputs.clone(),
-                        pcs_point_for_inputs[1..].to_vec(),
-                    ]
-                    .concat(),
-                ),
-                value: col_inner_evals
-                    .evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())),
-            }]);
-        }
-
-        let eq_mle_cubes = eval_eq_packed(&pcs_point_for_cubes[1..]);
-        let inner_evals_cubes = witness
-            .committed_cubes
-            .par_iter()
-            .map(|col| {
-                col.chunks_exact(eq_mle_cubes.len())
-                    .map(|chunk| {
-                        let ef_sum = dot_product::<EFPacking<EF>, _, _>(
-                            eq_mle_cubes.iter().copied(),
-                            chunk.iter().copied(),
-                        );
-                        <EFPacking<EF> as PackedFieldExtension<F, EF>>::to_ext_iter([ef_sum])
-                            .sum::<EF>()
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect::<Vec<_>>();
-        assert_eq!(
-            inner_evals_cubes.len(),
-            N_COMMITED_CUBES << UNIVARIATE_SKIPS
+        let input_pcs_statements = inner_evals_on_commited_columns(
+            &mut prover_state,
+            &pcs_point_for_inputs,
+            UNIVARIATE_SKIPS,
+            &witness.input_layer,
         );
-        prover_state.add_extension_scalars(&inner_evals_cubes);
-        let mut cubes_pcs_statements = vec![];
-        let pcs_batching_scalars_cubes = prover_state.sample_vec(UNIVARIATE_SKIPS);
-        for col_inner_evals in inner_evals_cubes.chunks_exact(1 << UNIVARIATE_SKIPS) {
-            cubes_pcs_statements.push(vec![Evaluation {
-                point: MultilinearPoint(
-                    [
-                        pcs_batching_scalars_cubes.clone(),
-                        pcs_point_for_cubes[1..].to_vec(),
-                    ]
-                    .concat(),
-                ),
-                value: col_inner_evals
-                    .evaluate(&MultilinearPoint(pcs_batching_scalars_cubes.clone())),
-            }]);
-        }
-
-        assert_eq!(committed_polys.len(), WIDTH + N_COMMITED_CUBES);
-        assert_eq!(input_pcs_statements.len(), WIDTH);
-        assert_eq!(cubes_pcs_statements.len(), N_COMMITED_CUBES);
-
+        let cubes_pcs_statements = inner_evals_on_commited_columns(
+            &mut prover_state,
+            &pcs_point_for_cubes,
+            UNIVARIATE_SKIPS,
+            &witness.committed_cubes,
+        );
         let global_statements = packed_pcs_global_statements_for_prover(
             &committed_polys,
             &committed_col_dims,
@@ -239,67 +173,19 @@ fn test_prove_poseidons() {
 
         // PCS verification
 
-        let inner_evals_inputs = verifier_state
-            .next_extension_scalars_vec(WIDTH << UNIVARIATE_SKIPS)
-            .unwrap();
-        let pcs_batching_scalars_inputs = verifier_state.sample_vec(UNIVARIATE_SKIPS);
-        let mut input_pcs_statements = vec![];
-        for (&eval, col_inner_evals) in pcs_evals_for_inputs
-            .iter()
-            .zip(inner_evals_inputs.chunks_exact(1 << UNIVARIATE_SKIPS))
-        {
-            assert_eq!(
-                eval,
-                evaluate_univariate_multilinear::<_, _, _, false>(
-                    col_inner_evals,
-                    &pcs_point_for_inputs[..1],
-                    &selectors,
-                    None
-                )
-            );
-            input_pcs_statements.push(vec![Evaluation {
-                point: MultilinearPoint(
-                    [
-                        pcs_batching_scalars_inputs.clone(),
-                        pcs_point_for_inputs[1..].to_vec(),
-                    ]
-                    .concat(),
-                ),
-                value: col_inner_evals
-                    .evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())),
-            }]);
-        }
+        let input_pcs_statements = verify_inner_evals_on_commited_columns(
+            &mut verifier_state,
+            &pcs_point_for_inputs,
+            &pcs_evals_for_inputs,
+            &selectors,
+        );
 
-        let inner_evals_cubes = verifier_state
-            .next_extension_scalars_vec(N_COMMITED_CUBES << UNIVARIATE_SKIPS)
-            .unwrap();
-        let pcs_batching_scalars_cubes = verifier_state.sample_vec(UNIVARIATE_SKIPS);
-        let mut cubes_pcs_statements = vec![];
-        for (&eval, col_inner_evals) in pcs_evals_for_cubes
-            .iter()
-            .zip(inner_evals_cubes.chunks_exact(1 << UNIVARIATE_SKIPS))
-        {
-            assert_eq!(
-                eval,
-                evaluate_univariate_multilinear::<_, _, _, false>(
-                    col_inner_evals,
-                    &pcs_point_for_cubes[..1],
-                    &selectors,
-                    None
-                )
-            );
-            cubes_pcs_statements.push(vec![Evaluation {
-                point: MultilinearPoint(
-                    [
-                        pcs_batching_scalars_cubes.clone(),
-                        pcs_point_for_cubes[1..].to_vec(),
-                    ]
-                    .concat(),
-                ),
-                value: col_inner_evals
-                    .evaluate(&MultilinearPoint(pcs_batching_scalars_cubes.clone())),
-            }]);
-        }
+        let cubes_pcs_statements = verify_inner_evals_on_commited_columns(
+            &mut verifier_state,
+            &pcs_point_for_cubes,
+            &pcs_evals_for_cubes,
+            &selectors,
+        );
 
         let global_statements = packed_pcs_global_statements_for_verifier(
             &committed_col_dims,
@@ -323,10 +209,20 @@ fn test_prove_poseidons() {
     let mut data_to_hash = input_layers.clone();
     let plaintext_time = Instant::now();
     transposed_par_iter_mut(&mut data_to_hash).for_each(|row| {
-        let mut buff = array::from_fn(|j| *row[j]);
-        poseidon16_permute_mut(&mut buff);
-        for j in 0..WIDTH {
-            *row[j] = buff[j];
+        if WIDTH == 16 {
+            let mut buff = array::from_fn(|j| *row[j]);
+            poseidon16_permute_mut(&mut buff);
+            for j in 0..WIDTH {
+                *row[j] = buff[j];
+            }
+        } else if WIDTH == 24 {
+            let mut buff = array::from_fn(|j| *row[j]);
+            poseidon24_permute_mut(&mut buff);
+            for j in 0..WIDTH {
+                *row[j] = buff[j];
+            }
+        } else {
+            panic!("Unsupported WIDTH");
         }
     });
     let plaintext_duration = plaintext_time.elapsed();

@@ -107,6 +107,16 @@ pub fn poseidon16_permute_mut(input: &mut [KoalaBear; 16]) {
     get_poseidon16().permute_mut(input);
 }
 
+#[inline(always)]
+pub fn poseidon24_permute(input: [KoalaBear; 24]) -> [KoalaBear; 24] {
+    get_poseidon24().permute(input)
+}
+
+#[inline(always)]
+pub fn poseidon24_permute_mut(input: &mut [KoalaBear; 24]) {
+    get_poseidon24().permute_mut(input);
+}
+
 static POSEIDON24_INSTANCE: OnceLock<Poseidon24> = OnceLock::new();
 
 #[inline(always)]
@@ -122,11 +132,6 @@ pub(crate) fn get_poseidon24() -> &'static Poseidon24 {
             round_constants.partial_round_constants.to_vec(),
         )
     })
-}
-
-#[inline(always)]
-pub fn poseidon24_permute(input: [KoalaBear; 24]) -> [KoalaBear; 24] {
-    get_poseidon24().permute(input)
 }
 
 pub fn build_poseidon_16_air() -> Poseidon16Air<KoalaBear> {

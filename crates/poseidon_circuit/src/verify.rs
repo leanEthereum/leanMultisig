@@ -2,7 +2,7 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 
-use crate::{EF, gkr_layers::PoseidonGKRLayers};
+use crate::{gkr_layers::PoseidonGKRLayers, EF, F};
 
 pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
@@ -120,4 +120,43 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
     );
 
     (sumcheck_postponed_claim.point.0, sumcheck_inner_evals)
+}
+
+pub(crate) fn verify_inner_evals_on_commited_columns(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    point: &[EF],
+    claimed_evals: &[EF],
+    selectors: &[DensePolynomial<F>],
+) -> Vec<Vec<Evaluation<EF>>> {
+    let univariate_skips = log2_strict_usize(selectors.len());
+    let inner_evals_inputs = verifier_state
+        .next_extension_scalars_vec(claimed_evals.len() << univariate_skips)
+        .unwrap();
+    let pcs_batching_scalars_inputs = verifier_state.sample_vec(univariate_skips);
+    let mut pcs_statements = vec![];
+    for (&eval, col_inner_evals) in claimed_evals
+        .iter()
+        .zip(inner_evals_inputs.chunks_exact(1 << univariate_skips))
+    {
+        assert_eq!(
+            eval,
+            evaluate_univariate_multilinear::<_, _, _, false>(
+                col_inner_evals,
+                &point[..1],
+                &selectors,
+                None
+            )
+        );
+        pcs_statements.push(vec![Evaluation {
+            point: MultilinearPoint(
+                [
+                    pcs_batching_scalars_inputs.clone(),
+                    point[1..].to_vec(),
+                ]
+                .concat(),
+            ),
+            value: col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())),
+        }]);
+    }
+    pcs_statements
 }
