@@ -278,7 +278,7 @@ fn test_mini_program_2() {
             for j in i..10 {
                 for k in j..10 {
                     sum, prod = compute_sum_and_product(i, j, k);
-                    if sum == 10 {
+                    if (sum == 10) {
                         print(i, j, k, prod);
                     }
                 }

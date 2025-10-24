@@ -101,7 +101,7 @@ fn benchmark_poseidon_chain() {
         display_logs: true,
     });
 
-    println!("VM proof time: {:?}", vm_time);
+    println!("VM proof time: {vm_time:?}");
     println!("Raw Poseidon proof time: {:?}", raw_proof.prover_time);
 
     println!(

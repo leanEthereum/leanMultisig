@@ -120,7 +120,10 @@ impl IntermediateInstruction {
                 arg_c,
                 res: arg_a,
             },
-            HighLevelOperation::Exp | HighLevelOperation::Mod => unreachable!(),
+            HighLevelOperation::Exp
+            | HighLevelOperation::Mod
+            | HighLevelOperation::Equal
+            | HighLevelOperation::NotEqual => unreachable!(),
         }
     }
 

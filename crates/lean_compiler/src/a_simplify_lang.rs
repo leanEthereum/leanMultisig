@@ -2,8 +2,8 @@ use crate::{
     Counter, F,
     ir::HighLevelOperation,
     lang::{
-        Boolean, ConstExpression, ConstMallocLabel, Expression, Function, Line, Program,
-        SimpleExpr, Var,
+        AssumeBoolean, Boolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue,
+        Expression, Function, Line, Program, SimpleExpr, Var,
     },
     precompiles::Precompile,
 };
@@ -96,6 +96,12 @@ pub enum SimpleLine {
         condition: SimpleExpr,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
+    },
+    TestZero {
+        // Test that the result of the given operation is zero
+        operation: HighLevelOperation,
+        arg0: SimpleExpr,
+        arg1: SimpleExpr,
     },
     FunctionCall {
         function_name: String,
@@ -353,26 +359,68 @@ fn simplify_lines(
                 then_branch,
                 else_branch,
             } => {
-                // Transform if a == b then X else Y into if a != b then Y else X
+                let (condition_simplified, then_branch, else_branch) = match condition {
+                    Condition::Comparison(condition) => {
+                        // Transform if a == b then X else Y into if a != b then Y else X
 
-                let (left, right, then_branch, else_branch) = match condition {
-                    Boolean::Equal { left, right } => (left, right, else_branch, then_branch), // switched
-                    Boolean::Different { left, right } => (left, right, then_branch, else_branch),
+                        let (left, right, then_branch, else_branch) = match condition {
+                            Boolean::Equal { left, right } => {
+                                (left, right, else_branch, then_branch)
+                            } // switched
+                            Boolean::Different { left, right } => {
+                                (left, right, then_branch, else_branch)
+                            }
+                        };
+
+                        let left_simplified =
+                            simplify_expr(left, &mut res, counters, array_manager, const_malloc);
+                        let right_simplified =
+                            simplify_expr(right, &mut res, counters, array_manager, const_malloc);
+
+                        let diff_var = format!("@diff_{}", counters.aux_vars);
+                        counters.aux_vars += 1;
+                        res.push(SimpleLine::Assignment {
+                            var: diff_var.clone().into(),
+                            operation: HighLevelOperation::Sub,
+                            arg0: left_simplified,
+                            arg1: right_simplified,
+                        });
+                        (diff_var.into(), then_branch, else_branch)
+                    }
+                    Condition::Expression(condition, assume_boolean) => {
+                        let condition_simplified = simplify_expr(
+                            condition,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                        );
+
+                        match assume_boolean {
+                            AssumeBoolean::AssumeBoolean => {}
+                            AssumeBoolean::DoNotAssumeBoolean => {
+                                // Check condition_simplified is boolean
+                                let one_minus_condition_var = format!("@aux_{}", counters.aux_vars);
+                                counters.aux_vars += 1;
+                                res.push(SimpleLine::Assignment {
+                                    var: one_minus_condition_var.clone().into(),
+                                    operation: HighLevelOperation::Sub,
+                                    arg0: SimpleExpr::Constant(ConstExpression::Value(
+                                        ConstantValue::Scalar(1),
+                                    )),
+                                    arg1: condition_simplified.clone(),
+                                });
+                                res.push(SimpleLine::TestZero {
+                                    operation: HighLevelOperation::Mul,
+                                    arg0: condition_simplified.clone(),
+                                    arg1: one_minus_condition_var.into(),
+                                });
+                            }
+                        }
+
+                        (condition_simplified, then_branch, else_branch)
+                    }
                 };
-
-                let left_simplified =
-                    simplify_expr(left, &mut res, counters, array_manager, const_malloc);
-                let right_simplified =
-                    simplify_expr(right, &mut res, counters, array_manager, const_malloc);
-
-                let diff_var = format!("@diff_{}", counters.aux_vars);
-                counters.aux_vars += 1;
-                res.push(SimpleLine::Assignment {
-                    var: diff_var.clone().into(),
-                    operation: HighLevelOperation::Sub,
-                    arg0: left_simplified,
-                    arg1: right_simplified,
-                });
 
                 let forbidden_vars_before = const_malloc.forbidden_vars.clone();
 
@@ -417,7 +465,7 @@ fn simplify_lines(
                     .collect();
 
                 res.push(SimpleLine::IfNotZero {
-                    condition: diff_var.into(),
+                    condition: condition_simplified,
                     then_branch: then_branch_simplified,
                     else_branch: else_branch_simplified,
                 });
@@ -787,12 +835,20 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
             }
         };
 
-    let on_new_condition =
-        |condition: &Boolean, internal_vars: &BTreeSet<Var>, external_vars: &mut BTreeSet<Var>| {
-            let (Boolean::Equal { left, right } | Boolean::Different { left, right }) = condition;
-            on_new_expr(left, internal_vars, external_vars);
-            on_new_expr(right, internal_vars, external_vars);
-        };
+    let on_new_condition = |condition: &Condition,
+                            internal_vars: &BTreeSet<Var>,
+                            external_vars: &mut BTreeSet<Var>| {
+        match condition {
+            Condition::Comparison(Boolean::Equal { left, right })
+            | Condition::Comparison(Boolean::Different { left, right }) => {
+                on_new_expr(left, internal_vars, external_vars);
+                on_new_expr(right, internal_vars, external_vars);
+            }
+            Condition::Expression(expr, _assume_boolean) => {
+                on_new_expr(expr, internal_vars, external_vars);
+            }
+        }
+    };
 
     for line in lines {
         match line {
@@ -839,7 +895,11 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 internal_vars.extend(return_data.iter().cloned());
             }
             Line::Assert(condition) => {
-                on_new_condition(condition, &internal_vars, &mut external_vars);
+                on_new_condition(
+                    &Condition::Comparison(condition.clone()),
+                    &internal_vars,
+                    &mut external_vars,
+                );
             }
             Line::FunctionRet { return_data } => {
                 for ret in return_data {
@@ -944,10 +1004,15 @@ pub fn inline_lines(
     res: &[Var],
     inlining_count: usize,
 ) {
-    let inline_condition = |condition: &mut Boolean| {
-        let (Boolean::Equal { left, right } | Boolean::Different { left, right }) = condition;
+    let inline_comparison = |comparison: &mut Boolean| {
+        let (Boolean::Equal { left, right } | Boolean::Different { left, right }) = comparison;
         inline_expr(left, args, inlining_count);
         inline_expr(right, args, inlining_count);
+    };
+
+    let inline_condition = |condition: &mut Condition| match condition {
+        Condition::Comparison(comparison) => inline_comparison(comparison),
+        Condition::Expression(expr, _assume_boolean) => inline_expr(expr, args, inlining_count),
     };
 
     let inline_internal_var = |var: &mut Var| {
@@ -994,7 +1059,7 @@ pub fn inline_lines(
                 }
             }
             Line::Assert(condition) => {
-                inline_condition(condition);
+                inline_comparison(condition);
             }
             Line::FunctionRet { return_data } => {
                 assert_eq!(return_data.len(), res.len());
@@ -1368,24 +1433,40 @@ fn replace_vars_for_unroll(
                 );
             }
             Line::IfCondition {
-                condition: Boolean::Equal { left, right } | Boolean::Different { left, right },
+                condition,
                 then_branch,
                 else_branch,
             } => {
-                replace_vars_for_unroll_in_expr(
-                    left,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll_in_expr(
-                    right,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
+                match condition {
+                    Condition::Comparison(
+                        Boolean::Equal { left, right } | Boolean::Different { left, right },
+                    ) => {
+                        replace_vars_for_unroll_in_expr(
+                            left,
+                            iterator,
+                            unroll_index,
+                            iterator_value,
+                            internal_vars,
+                        );
+                        replace_vars_for_unroll_in_expr(
+                            right,
+                            iterator,
+                            unroll_index,
+                            iterator_value,
+                            internal_vars,
+                        );
+                    }
+                    Condition::Expression(expr, _assume_bool) => {
+                        replace_vars_for_unroll_in_expr(
+                            expr,
+                            iterator,
+                            unroll_index,
+                            iterator_value,
+                            internal_vars,
+                        );
+                    }
+                }
+
                 replace_vars_for_unroll(
                     then_branch,
                     iterator,
@@ -1972,9 +2053,13 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 else_branch,
             } => {
                 match condition {
-                    Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+                    Condition::Comparison(Boolean::Equal { left, right })
+                    | Condition::Comparison(Boolean::Different { left, right }) => {
                         replace_vars_by_const_in_expr(left, map);
                         replace_vars_by_const_in_expr(right, map);
+                    }
+                    Condition::Expression(expr, _assume_boolean) => {
+                        replace_vars_by_const_in_expr(expr, map);
                     }
                 }
                 replace_vars_by_const_in_lines(then_branch, map);
@@ -2115,6 +2200,13 @@ impl SimpleLine {
             }
             Self::RawAccess { res, index, shift } => {
                 format!("memory[{index} + {shift}] = {res}")
+            }
+            Self::TestZero {
+                operation,
+                arg0,
+                arg1,
+            } => {
+                format!("0 = {arg0} {operation} {arg1}")
             }
             Self::IfNotZero {
                 condition,

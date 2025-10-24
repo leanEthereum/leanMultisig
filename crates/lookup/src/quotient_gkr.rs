@@ -46,13 +46,15 @@ where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    let n = (2 * numerators.len() * packing_width::<EF>()).ilog2() as usize;
+    let n = log2_strict_usize(numerators.len()) + packing_log_width::<EF>() + 1;
     let n_non_zeros_numerator = n_non_zeros_numerator.unwrap_or(numerators.len());
     let mut layers_packed = Vec::new();
+    assert!(
+        n >= 5 + packing_log_width::<EF>(),
+        "TODO small GKR, no packing"
+    );
     let mut layers_not_packed = Vec::new();
-    let last_packed = n
-        .checked_sub(6 + packing_log_width::<EF>())
-        .expect("TODO small GKR, no packing");
+    let last_packed = n - (4 + packing_log_width::<EF>());
     let denominator_indexes_packed = PFPacking::<EF>::pack_slice(denominator_indexes);
     let c_packed = EFPacking::<EF>::from(c);
     layers_packed.push(sum_quotients_2_by_2_num_and_den(

@@ -23,11 +23,29 @@ pub enum HighLevelOperation {
     Exp,
     /// Modulo operation (only for constant expressions).
     Mod,
+    /// Equality comparison
+    Equal,
+    /// Non-equality comparison
+    NotEqual,
 }
 
 impl HighLevelOperation {
     pub fn eval(&self, a: F, b: F) -> F {
         match self {
+            Self::Equal => {
+                if a == b {
+                    F::ONE
+                } else {
+                    F::ZERO
+                }
+            }
+            Self::NotEqual => {
+                if a != b {
+                    F::ONE
+                } else {
+                    F::ZERO
+                }
+            }
             Self::Add => a + b,
             Self::Mul => a * b,
             Self::Sub => a - b,
@@ -41,6 +59,8 @@ impl HighLevelOperation {
 impl Display for HighLevelOperation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Equal => write!(f, "=="),
+            Self::NotEqual => write!(f, "!="),
             Self::Add => write!(f, "+"),
             Self::Mul => write!(f, "*"),
             Self::Sub => write!(f, "-"),

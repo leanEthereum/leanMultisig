@@ -43,7 +43,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) -> XmssBenchStats {
         bitield = public_input_start + (2 + N_PUBLIC_KEYS) * 8;
         signatures_start = private_input_start / 8;
         for i in 0..N_PUBLIC_KEYS {
-            if bitield[i] == 1 {
+            if !!assume_bool(bitield[i]) {
                 xmss_public_key = all_public_keys + i;
 
                 sig_index = counter_hint();

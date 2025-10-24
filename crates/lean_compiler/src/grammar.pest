@@ -40,9 +40,9 @@ array_assign = { identifier ~ "[" ~ expression ~ "]" ~ "=" ~ expression ~ ";" }
 
 if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_clause? }
 
-condition = {condition_eq | condition_diff}
-condition_eq = { expression ~ "==" ~ expression }
-condition_diff = { expression ~ "!=" ~ expression }
+condition = { expression | assumed_bool_expr }
+
+assumed_bool_expr = { "!!assume_bool" ~ "(" ~ expression ~ ")" }
 
 else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 
@@ -58,12 +58,14 @@ function_call = { function_res? ~ identifier ~ "(" ~ tuple_expression? ~ ")" ~ "
 function_res = { var_list ~ "=" }
 var_list = { identifier ~ ("," ~ identifier)* }
 
-assert_eq_statement = { "assert" ~ expression ~ "==" ~ expression ~ ";" }
-assert_not_eq_statement = { "assert" ~ expression ~ "!=" ~ expression ~ ";" }
+assert_eq_statement = { "assert" ~ add_expr ~ "==" ~ add_expr ~ ";" }
+assert_not_eq_statement = { "assert" ~ add_expr ~ "!=" ~ add_expr ~ ";" }
 
 // Expressions
 tuple_expression = { expression ~ ("," ~ expression)* }
-expression = { add_expr }
+expression = { neq_expr }
+neq_expr = { eq_expr ~ ("!=" ~ eq_expr)* }
+eq_expr = { add_expr ~ ("==" ~ add_expr)* }
 add_expr = { sub_expr ~ ("+" ~ sub_expr)* }
 sub_expr = { mul_expr ~ ("-" ~ mul_expr)* }
 mul_expr = { mod_expr ~ ("*" ~ mod_expr)* }
