@@ -9,7 +9,7 @@ use tracing::{info_span, instrument};
 
 pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    witness: &PoseidonWitness<WIDTH, N_COMMITED_CUBES>,
+    witness: &PoseidonWitness<FPacking<F>, WIDTH, N_COMMITED_CUBES>,
     mut claim_point: Vec<EF>,
     univariate_skips: usize,
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
