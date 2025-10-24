@@ -10,31 +10,37 @@ pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     output_claim_point: &[EF],
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
     univariate_skips: usize,
-) -> (Vec<Vec<Evaluation<EF>>>, Vec<Vec<Evaluation<EF>>>)
+) -> (
+    [EF; WIDTH],
+    Vec<Vec<Evaluation<EF>>>,
+    Vec<Vec<Evaluation<EF>>>,
+)
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
-    let mut output_claims = verifier_state.next_extension_scalars_vec(WIDTH).unwrap();
+    let output_claims = verifier_state.next_extension_scalars_vec(WIDTH).unwrap();
+
+    let mut claims = output_claims.clone();
 
     let mut claim_point = output_claim_point.to_vec();
     for full_round in layers.final_full_rounds.iter().rev() {
-        (claim_point, output_claims) = verify_gkr_round(
+        (claim_point, claims) = verify_gkr_round(
             verifier_state,
             full_round,
             log_n_poseidons,
             &claim_point,
-            &output_claims,
+            &claims,
             univariate_skips,
         );
     }
 
     for partial_round in layers.partial_rounds_remaining.iter().rev() {
-        (claim_point, output_claims) = verify_gkr_round(
+        (claim_point, claims) = verify_gkr_round(
             verifier_state,
             partial_round,
             log_n_poseidons,
             &claim_point,
-            &output_claims,
+            &claims,
             univariate_skips,
         );
     }
@@ -42,41 +48,41 @@ where
         .next_extension_scalars_vec(N_COMMITED_CUBES)
         .unwrap();
 
-    (claim_point, output_claims) = verify_gkr_round(
+    (claim_point, claims) = verify_gkr_round(
         verifier_state,
         &layers.batch_partial_rounds,
         log_n_poseidons,
         &claim_point,
-        &[output_claims, claimed_cubes_evals.clone()].concat(),
+        &[claims, claimed_cubes_evals.clone()].concat(),
         univariate_skips,
     );
 
     let pcs_point_for_cubes = claim_point.clone();
-    let pcs_evals_for_cubes = output_claims[WIDTH..].to_vec();
+    let pcs_evals_for_cubes = claims[WIDTH..].to_vec();
 
-    output_claims = output_claims[..WIDTH].to_vec();
+    claims = claims[..WIDTH].to_vec();
 
     for full_round in layers.initial_full_rounds_remaining.iter().rev() {
-        (claim_point, output_claims) = verify_gkr_round(
+        (claim_point, claims) = verify_gkr_round(
             verifier_state,
             full_round,
             log_n_poseidons,
             &claim_point,
-            &output_claims,
+            &claims,
             univariate_skips,
         );
     }
-    (claim_point, output_claims) = verify_gkr_round(
+    (claim_point, claims) = verify_gkr_round(
         verifier_state,
         &layers.initial_full_round,
         log_n_poseidons,
         &claim_point,
-        &output_claims,
+        &claims,
         univariate_skips,
     );
 
     let pcs_point_for_inputs = claim_point.clone();
-    let pcs_evals_for_inputs = output_claims.to_vec();
+    let pcs_evals_for_inputs = claims.to_vec();
 
     let selectors = univariate_selectors::<F>(univariate_skips);
     let input_pcs_statements = verify_inner_evals_on_commited_columns(
@@ -93,7 +99,11 @@ where
         &selectors,
     );
 
-    (input_pcs_statements, cubes_pcs_statements)
+    (
+        output_claims.try_into().unwrap(),
+        input_pcs_statements,
+        cubes_pcs_statements,
+    )
 }
 
 fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(

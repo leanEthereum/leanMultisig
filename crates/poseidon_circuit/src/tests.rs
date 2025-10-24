@@ -24,7 +24,8 @@ use crate::{
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 
-const WIDTH: usize = 16;
+const WIDTH: usize = 16; 
+
 const UNIVARIATE_SKIPS: usize = 3;
 const N_COMMITED_CUBES: usize = 16;
 
@@ -38,7 +39,7 @@ fn test_prove_poseidons() {
     let whir_config_builder = WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 4),
         soundness_type: SecurityAssumption::CapacityBound,
-        pow_bits: WIDTH,
+        pow_bits: 16,
         max_num_variables_to_send_coeffs: 6,
         rs_domain_initial_reduction_factor: 5,
         security_level: 128,
@@ -98,7 +99,7 @@ fn test_prove_poseidons() {
 
         let claim_point = prover_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
 
-        let (input_pcs_statements, cubes_pcs_statements) = prove_poseidon_gkr(
+        let (_output_values, input_pcs_statements, cubes_pcs_statements) = prove_poseidon_gkr(
             &mut prover_state,
             &witness,
             claim_point,
@@ -146,7 +147,7 @@ fn test_prove_poseidons() {
 
         let output_claim_point = verifier_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
 
-        let (input_pcs_statements, cubes_pcs_statements) = verify_poseidon_gkr(
+        let (_output_values, input_pcs_statements, cubes_pcs_statements) = verify_poseidon_gkr(
             &mut verifier_state,
             log_n_poseidons,
             &output_claim_point,

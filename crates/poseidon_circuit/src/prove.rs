@@ -14,6 +14,7 @@ pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     univariate_skips: usize,
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
 ) -> (
+    [EF; WIDTH],
     Vec<Vec<Evaluation<EF>>>,
     Vec<Vec<Evaluation<EF>>>,
 )
@@ -22,7 +23,7 @@ where
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
 
-    let mut output_claims = info_span!("computing output claims").in_scope(|| {
+    let output_claims = info_span!("computing output claims").in_scope(|| {
         batch_evaluate_univariate_multilinear(
             &witness
                 .output_layer
@@ -36,18 +37,20 @@ where
 
     prover_state.add_extension_scalars(&output_claims);
 
+    let mut claims = output_claims.to_vec();
+
     for (input_layers, full_round) in witness
         .final_full_round_inputs
         .iter()
         .zip(&layers.final_full_rounds)
         .rev()
     {
-        (claim_point, output_claims) = prove_gkr_round(
+        (claim_point, claims) = prove_gkr_round(
             prover_state,
             full_round,
             input_layers,
             &claim_point,
-            &output_claims,
+            &claims,
             univariate_skips,
         );
     }
@@ -58,29 +61,29 @@ where
         .zip(&layers.partial_rounds_remaining)
         .rev()
     {
-        (claim_point, output_claims) = prove_gkr_round(
+        (claim_point, claims) = prove_gkr_round(
             prover_state,
             partial_round,
             input_layers,
             &claim_point,
-            &output_claims,
+            &claims,
             univariate_skips,
         );
     }
 
-    (claim_point, output_claims) = prove_batch_internal_round(
+    (claim_point, claims) = prove_batch_internal_round(
         prover_state,
         &witness.batch_partial_round_input,
         &witness.committed_cubes,
         &layers.batch_partial_rounds,
         &claim_point,
-        &output_claims,
+        &claims,
         &selectors,
     );
 
     let pcs_point_for_cubes = claim_point.clone();
 
-    output_claims = output_claims[..WIDTH].to_vec();
+    claims = claims[..WIDTH].to_vec();
 
     for (input_layers, full_round) in witness
         .remaining_initial_full_round_inputs
@@ -88,12 +91,12 @@ where
         .zip(&layers.initial_full_rounds_remaining)
         .rev()
     {
-        (claim_point, output_claims) = prove_gkr_round(
+        (claim_point, claims) = prove_gkr_round(
             prover_state,
             full_round,
             input_layers,
             &claim_point,
-            &output_claims,
+            &claims,
             univariate_skips,
         );
     }
@@ -102,7 +105,7 @@ where
         &layers.initial_full_round,
         &witness.input_layer,
         &claim_point,
-        &output_claims,
+        &claims,
         univariate_skips,
     );
     let pcs_point_for_inputs = claim_point.clone();
@@ -120,7 +123,11 @@ where
         &witness.committed_cubes,
     );
 
-    (input_pcs_statements, cubes_pcs_statements)
+    (
+        output_claims.try_into().unwrap(),
+        input_pcs_statements,
+        cubes_pcs_statements,
+    )
 }
 
 #[instrument(skip_all)]
