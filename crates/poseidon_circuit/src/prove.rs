@@ -35,24 +35,39 @@ where
         )
     });
 
+    if let Some((n_compressions, _)) = &witness.compression {
+        prover_state.add_base_scalars(&[F::from_usize(*n_compressions)]);
+    }
+
     prover_state.add_extension_scalars(&output_claims);
 
     let mut claims = output_claims.to_vec();
 
-    for (input_layers, full_round) in witness
+    for (i, (input_layers, full_round)) in witness
         .final_full_round_inputs
         .iter()
         .zip(&layers.final_full_rounds)
         .rev()
+        .enumerate()
     {
+        let mut input_layers = input_layers.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        if i == 0
+            && let Some((_, compression_indicator)) = &witness.compression
+        {
+            input_layers.push(compression_indicator);
+        }
         (claim_point, claims) = prove_gkr_round(
             prover_state,
             full_round,
-            input_layers,
+            &input_layers,
             &claim_point,
             &claims,
             univariate_skips,
         );
+
+        if i == 0 && witness.compression.is_some() {
+            let _ = claims.pop().unwrap(); // the claim on the compression indicator columns can be evaluated by the verifier directly
+        }
     }
 
     for (input_layers, partial_round) in witness
@@ -139,7 +154,7 @@ fn prove_gkr_round<
 >(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     computation: &SC,
-    input_layers: &[impl AsRef<Vec<PFPacking<EF>>>],
+    input_layers: &[impl AsRef<[PFPacking<EF>]>],
     claim_point: &[EF],
     output_claims: &[EF],
     univariate_skips: usize,
@@ -153,7 +168,7 @@ fn prove_gkr_round<
 
     let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
         univariate_skips,
-        MleGroupRef::BasePacked(input_layers.iter().map(|l| l.as_ref().as_slice()).collect()),
+        MleGroupRef::BasePacked(input_layers.iter().map(|l| l.as_ref()).collect()),
         computation,
         computation,
         &batching_scalars_powers,

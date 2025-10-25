@@ -10,14 +10,14 @@ workspace = true
 p3-field.workspace = true
 tracing.workspace = true
 utils.workspace = true
-p3-util.workspace = true
+# p3-util.workspace = true
 multilinear-toolkit.workspace = true
 p3-koala-bear.workspace = true
 p3-poseidon2.workspace = true
-packed_pcs.workspace = true
 p3-monty-31.workspace = true
 
 [dev-dependencies]
 p3-matrix.workspace = true
 rand.workspace = true
 whir-p3.workspace = true
+packed_pcs.workspace = true
