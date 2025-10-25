@@ -6,6 +6,7 @@ use lookup::prove_gkr_product;
 use lookup::{compute_pushforward, prove_logup_star};
 use multilinear_toolkit::prelude::*;
 use p3_air::BaseAir;
+use p3_field::dot_product;
 use p3_field::ExtensionField;
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
@@ -496,7 +497,7 @@ pub fn prove_execution(
             )
         });
 
-    // TODO compute eq polynomial 1 time and then inner product with each column
+    let grand_product_exec_eq_weights = eval_eq(&grand_product_exec_sumcheck_point);
     for col in [
         COL_INDEX_OPERAND_C,
         COL_INDEX_ADD,
@@ -510,7 +511,13 @@ pub fn prove_execution(
     ] {
         grand_product_exec_sumcheck_inner_evals.insert(
             col,
-            full_trace[col].evaluate(&grand_product_exec_sumcheck_point),
+            dot_product::<EF, _, _>(
+                grand_product_exec_eq_weights.iter().copied(),
+                full_trace[col]
+                    .iter()
+                    .copied()
+                    .map(EF::from),
+            ),
         );
     }
     assert_eq!(
