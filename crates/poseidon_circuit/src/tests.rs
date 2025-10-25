@@ -129,12 +129,21 @@ fn test_prove_poseidons() {
         );
 
         // PCS opening
+        let mut pcs_statements = vec![];
+        for (point_to_prove, evals_to_prove) in [input_pcs_statements, cubes_pcs_statements] {
+            for v in evals_to_prove {
+                pcs_statements.push(vec![Evaluation {
+                    point: point_to_prove.clone(),
+                    value: v,
+                }]);
+            }
+        }
 
         let global_statements = packed_pcs_global_statements_for_prover(
             &committed_polys,
             &committed_col_dims,
             log_smallest_decomposition_chunk,
-            &[input_pcs_statements, cubes_pcs_statements].concat(),
+            &pcs_statements,
             &mut prover_state,
         );
         whir_config.prove(
@@ -174,15 +183,28 @@ fn test_prove_poseidons() {
             &output_claim_point,
             &layers,
             UNIVARIATE_SKIPS,
-            COMPRESS,
+            if COMPRESS {
+                Some(n_compressions)
+            } else {
+                None
+            },
         );
 
         // PCS verification
+        let mut pcs_statements = vec![];
+        for (point_to_verif, evals_to_verif) in [input_pcs_statements, cubes_pcs_statements] {
+            for v in evals_to_verif {
+                pcs_statements.push(vec![Evaluation {
+                    point: point_to_verif.clone(),
+                    value: v,
+                }]);
+            }
+        }
 
         let global_statements = packed_pcs_global_statements_for_verifier(
             &committed_col_dims,
             log_smallest_decomposition_chunk,
-            &[input_pcs_statements, cubes_pcs_statements].concat(),
+            &pcs_statements,
             &mut verifier_state,
             &Default::default(),
         )

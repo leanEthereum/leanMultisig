@@ -1,6 +1,6 @@
 //! Poseidon2 hash witness for 16-element input
 
-use crate::core::{F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR};
+use crate::{core::{F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR}, PoseidonWitnessTrait};
 use p3_field::PrimeCharacteristicRing;
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
@@ -20,6 +20,13 @@ pub struct WitnessPoseidon16 {
     pub input: [F; 16],
     /// Whether this was a compression (2-to-1) or not (2-to-2)
     pub is_compression: bool,
+}
+
+impl PoseidonWitnessTrait<16> for WitnessPoseidon16 {
+    #[inline(always)]
+    fn inputs(&self) -> &[F; 16] {
+        &self.input
+    }
 }
 
 impl WitnessPoseidon16 {

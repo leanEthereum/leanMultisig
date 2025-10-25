@@ -14,7 +14,8 @@ pub use witness_gen::*;
 #[cfg(test)]
 mod tests;
 
-pub(crate) mod gkr_layers;
+pub mod gkr_layers;
+pub use gkr_layers::*;
 
 pub(crate) type F = KoalaBear;
 pub(crate) type EF = QuinticExtensionFieldKB;

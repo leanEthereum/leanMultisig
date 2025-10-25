@@ -1,7 +1,6 @@
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
-use utils::ToUsize;
 
 use crate::{EF, F, gkr_layers::PoseidonGKRLayers};
 
@@ -11,19 +10,16 @@ pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     output_claim_point: &[EF],
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
     univariate_skips: usize,
-    has_compressions: bool,
+    n_compressions: Option<usize>,
 ) -> (
     [EF; WIDTH],
-    Vec<Vec<Evaluation<EF>>>,
-    Vec<Vec<Evaluation<EF>>>,
+    (MultilinearPoint<EF>, Vec<EF>),
+    (MultilinearPoint<EF>, Vec<EF>),
 )
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
-
-    let n_compressions =
-        has_compressions.then(|| verifier_state.next_base_scalars_const::<1>().unwrap()[0]);
 
     let output_claims = verifier_state.next_extension_scalars_vec(WIDTH).unwrap();
 
@@ -32,7 +28,7 @@ where
     let mut claim_point = output_claim_point.to_vec();
     for (i, full_round) in layers.final_full_rounds.iter().rev().enumerate() {
         let n_inputs = if i == 0
-            && let Some(_) = n_compressions
+            && n_compressions.is_some()
         {
             WIDTH + 1
         } else {
@@ -50,7 +46,6 @@ where
         if i == 0
             && let Some(n_compressions) = n_compressions
         {
-            let n_compressions = n_compressions.to_usize();
             assert!(n_compressions <= 1 << log_n_poseidons);
             let compression_eval = claims.pop().unwrap();
             assert_eq!(
@@ -181,13 +176,15 @@ fn verify_inner_evals_on_commited_columns(
     point: &[EF],
     claimed_evals: &[EF],
     selectors: &[DensePolynomial<F>],
-) -> Vec<Vec<Evaluation<EF>>> {
+) -> (MultilinearPoint<EF>, Vec<EF>) {
     let univariate_skips = log2_strict_usize(selectors.len());
     let inner_evals_inputs = verifier_state
         .next_extension_scalars_vec(claimed_evals.len() << univariate_skips)
         .unwrap();
     let pcs_batching_scalars_inputs = verifier_state.sample_vec(univariate_skips);
-    let mut pcs_statements = vec![];
+    let mut values_to_verif = vec![];
+    let point_to_verif =
+        MultilinearPoint([pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat());
     for (&eval, col_inner_evals) in claimed_evals
         .iter()
         .zip(inner_evals_inputs.chunks_exact(1 << univariate_skips))
@@ -201,12 +198,8 @@ fn verify_inner_evals_on_commited_columns(
                 None
             )
         );
-        pcs_statements.push(vec![Evaluation {
-            point: MultilinearPoint(
-                [pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat(),
-            ),
-            value: col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())),
-        }]);
+        values_to_verif
+            .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
-    pcs_statements
+    (point_to_verif, values_to_verif)
 }

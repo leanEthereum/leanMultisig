@@ -15,8 +15,8 @@ pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
 ) -> (
     [EF; WIDTH],
-    Vec<Vec<Evaluation<EF>>>,
-    Vec<Vec<Evaluation<EF>>>,
+    (MultilinearPoint<EF>, Vec<EF>),
+    (MultilinearPoint<EF>, Vec<EF>),
 )
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
@@ -34,10 +34,6 @@ where
             &selectors,
         )
     });
-
-    if let Some((n_compressions, _)) = &witness.compression {
-        prover_state.add_base_scalars(&[F::from_usize(*n_compressions)]);
-    }
 
     prover_state.add_extension_scalars(&output_claims);
 
@@ -264,7 +260,7 @@ fn inner_evals_on_commited_columns(
     point: &[EF],
     univariate_skips: usize,
     columns: &[Vec<PFPacking<EF>>],
-) -> Vec<Vec<Evaluation<EF>>> {
+) -> (MultilinearPoint<EF>, Vec<EF>) {
     let eq_mle = eval_eq_packed(&point[1..]);
     let inner_evals = columns
         .par_iter()
@@ -283,15 +279,13 @@ fn inner_evals_on_commited_columns(
         .flatten()
         .collect::<Vec<_>>();
     prover_state.add_extension_scalars(&inner_evals);
-    let mut pcs_statements = vec![];
+    let mut values_to_prove = vec![];
     let pcs_batching_scalars_inputs = prover_state.sample_vec(univariate_skips);
+    let point_to_prove =
+        MultilinearPoint([pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat());
     for col_inner_evals in inner_evals.chunks_exact(1 << univariate_skips) {
-        pcs_statements.push(vec![Evaluation {
-            point: MultilinearPoint(
-                [pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat(),
-            ),
-            value: col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())),
-        }]);
+        values_to_prove
+            .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
-    pcs_statements
+    (point_to_prove, values_to_prove)
 }

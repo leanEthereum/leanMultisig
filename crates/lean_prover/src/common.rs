@@ -1,11 +1,16 @@
 use multilinear_toolkit::prelude::*;
 use p3_field::{Algebra, BasedVectorSpace};
 use p3_field::{ExtensionField, PrimeCharacteristicRing};
+use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
 use p3_util::log2_ceil_usize;
 use packed_pcs::ColDims;
+use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};
 
 use crate::*;
 use lean_vm::*;
+
+pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 1;
+pub(crate) const N_COMMITED_CUBES_P24: usize = KOALABEAR_RC24_INTERNAL.len() - 1;
 
 pub fn get_base_dims(
     n_cycles: usize,
@@ -14,11 +19,12 @@ pub fn get_base_dims(
     bytecode_ending_pc: usize,
     poseidon_counts: (usize, usize),
     n_rows_table_dot_products: usize,
+    p16_gkr_layers: &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
+    p24_gkr_layers: &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
 ) -> Vec<ColDims<F>> {
     let (n_poseidons_16, n_poseidons_24) = poseidon_counts;
-    let default_p16_row =
-        default_poseidon16_air_row(POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR);
-    let default_p24_row = default_poseidon24_air_row();
+    let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(&p16_gkr_layers);
+    let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(&p24_gkr_layers);
 
     [
         vec![
@@ -30,16 +36,19 @@ pub fn get_base_dims(
             ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_c
             ColDims::padded(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index a
             ColDims::padded(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index b
+            ColDims::padded(n_poseidons_16, F::from_usize(POSEIDON_16_NULL_HASH_PTR)), // poseidon16 index res
             ColDims::padded(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index a
             ColDims::padded(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index b
             ColDims::padded(n_poseidons_24, F::from_usize(POSEIDON_24_NULL_HASH_PTR)), // poseidon24 index res
         ],
-        (0..POSEIDON16_AIR_N_COLS - 16 * 2)
-            .map(|i| ColDims::padded(n_poseidons_16, default_p16_row[16 + i]))
-            .collect::<Vec<_>>(), // rest of poseidon16 table
-        (0..POSEIDON24_AIR_N_COLS - 24 - 8)
-            .map(|i| ColDims::padded(n_poseidons_24, default_p24_row[24 + i]))
-            .collect::<Vec<_>>(), // rest of poseidon24 table
+        p16_default_cubes
+            .iter()
+            .map(|&c| ColDims::padded(n_poseidons_16, c))
+            .collect::<Vec<_>>(), // commited cubes for poseidon16
+        p24_default_cubes
+            .iter()
+            .map(|&c| ColDims::padded(n_poseidons_24, c))
+            .collect::<Vec<_>>(), // commited cubes for poseidon24
         vec![
             ColDims::padded(n_rows_table_dot_products, F::ONE), // dot product: (start) flag
             ColDims::padded(n_rows_table_dot_products, F::ONE), // dot product: length
@@ -296,24 +305,22 @@ impl SumcheckComputationPacked<EF> for DotProductFootprint {
 }
 
 pub fn get_poseidon_lookup_statements(
-    (p16_air_width, p24_air_width): (usize, usize),
     (log_n_p16, log_n_p24): (usize, usize),
-    (p16_evals, p24_evals): (&[EF], &[EF]),
-    (p16_air_point, p24_air_point): (&MultilinearPoint<EF>, &MultilinearPoint<EF>),
+    (p16_input_point, p16_input_evals): &(MultilinearPoint<EF>, Vec<EF>),
+    (p16_output_point, p16_output_evals): &(MultilinearPoint<EF>, Vec<EF>),
+    (p24_input_point, p24_input_evals): &(MultilinearPoint<EF>, Vec<EF>),
+    (p24_output_point, p24_output_evals): &(MultilinearPoint<EF>, Vec<EF>),
     memory_folding_challenges: &MultilinearPoint<EF>,
 ) -> Vec<Evaluation<EF>> {
-    let p16_folded_eval_addr_a = (&p16_evals[..8]).evaluate(memory_folding_challenges);
-    let p16_folded_eval_addr_b = (&p16_evals[8..16]).evaluate(memory_folding_challenges);
-    let p16_folded_eval_addr_res_a =
-        (&p16_evals[p16_air_width - 16..p16_air_width - 8]).evaluate(memory_folding_challenges);
-    let p16_folded_eval_addr_res_b =
-        (&p16_evals[p16_air_width - 8..]).evaluate(memory_folding_challenges);
+    let p16_folded_eval_addr_a = (&p16_input_evals[..8]).evaluate(memory_folding_challenges);
+    let p16_folded_eval_addr_b = (&p16_input_evals[8..16]).evaluate(memory_folding_challenges);
+    let p16_folded_eval_addr_res_a = (&p16_output_evals[..8]).evaluate(memory_folding_challenges);
+    let p16_folded_eval_addr_res_b = (&p16_output_evals[8..16]).evaluate(memory_folding_challenges);
 
-    let p24_folded_eval_addr_a = (&p24_evals[..8]).evaluate(memory_folding_challenges);
-    let p24_folded_eval_addr_b = (&p24_evals[8..16]).evaluate(memory_folding_challenges);
-    let p24_folded_eval_addr_c = (&p24_evals[16..24]).evaluate(memory_folding_challenges);
-    let p24_folded_eval_addr_res =
-        (&p24_evals[p24_air_width - 8..]).evaluate(memory_folding_challenges);
+    let p24_folded_eval_addr_a = (&p24_input_evals[..8]).evaluate(memory_folding_challenges);
+    let p24_folded_eval_addr_b = (&p24_input_evals[8..16]).evaluate(memory_folding_challenges);
+    let p24_folded_eval_addr_c = (&p24_input_evals[16..24]).evaluate(memory_folding_challenges);
+    let p24_folded_eval_addr_res = p24_output_evals.evaluate(memory_folding_challenges);
 
     let padding_p16 = EF::zero_vec(log_n_p16.max(log_n_p24) - log_n_p16);
     let padding_p24 = EF::zero_vec(log_n_p16.max(log_n_p24) - log_n_p24);
@@ -323,7 +330,7 @@ pub fn get_poseidon_lookup_statements(
             [
                 vec![EF::ZERO; 3],
                 padding_p16.clone(),
-                p16_air_point.0.clone(),
+                p16_input_point.0.clone(),
             ]
             .concat(),
             p16_folded_eval_addr_a,
@@ -332,7 +339,7 @@ pub fn get_poseidon_lookup_statements(
             [
                 vec![EF::ZERO, EF::ZERO, EF::ONE],
                 padding_p16.clone(),
-                p16_air_point.0.clone(),
+                p16_input_point.0.clone(),
             ]
             .concat(),
             p16_folded_eval_addr_b,
@@ -341,7 +348,7 @@ pub fn get_poseidon_lookup_statements(
             [
                 vec![EF::ZERO, EF::ONE, EF::ZERO],
                 padding_p16.clone(),
-                p16_air_point.0.clone(),
+                p16_output_point.0.clone(),
             ]
             .concat(),
             p16_folded_eval_addr_res_a,
@@ -350,7 +357,7 @@ pub fn get_poseidon_lookup_statements(
             [
                 vec![EF::ZERO, EF::ONE, EF::ONE],
                 padding_p16.clone(),
-                p16_air_point.0.clone(),
+                p16_output_point.0.clone(),
             ]
             .concat(),
             p16_folded_eval_addr_res_b,
@@ -359,7 +366,7 @@ pub fn get_poseidon_lookup_statements(
             [
                 vec![EF::ONE, EF::ZERO, EF::ZERO],
                 padding_p24.clone(),
-                p24_air_point.0.clone(),
+                p24_input_point.0.clone(),
             ]
             .concat(),
             p24_folded_eval_addr_a,
@@ -368,7 +375,7 @@ pub fn get_poseidon_lookup_statements(
             [
                 vec![EF::ONE, EF::ZERO, EF::ONE],
                 padding_p24.clone(),
-                p24_air_point.0.clone(),
+                p24_input_point.0.clone(),
             ]
             .concat(),
             p24_folded_eval_addr_b,
@@ -377,7 +384,7 @@ pub fn get_poseidon_lookup_statements(
             [
                 vec![EF::ONE, EF::ONE, EF::ZERO],
                 padding_p24.clone(),
-                p24_air_point.0.clone(),
+                p24_input_point.0.clone(),
             ]
             .concat(),
             p24_folded_eval_addr_c,
@@ -386,7 +393,7 @@ pub fn get_poseidon_lookup_statements(
             [
                 vec![EF::ONE, EF::ONE, EF::ONE],
                 padding_p24.clone(),
-                p24_air_point.0.clone(),
+                p24_output_point.0.clone(),
             ]
             .concat(),
             p24_folded_eval_addr_res,
@@ -415,10 +422,10 @@ pub fn add_poseidon_lookup_statements_on_indexes(
     log_n_p24: usize,
     index_lookup_point: &MultilinearPoint<EF>,
     inner_values: &[EF],
-    p16_index_statements: [&mut Vec<Evaluation<EF>>; 4], // a, b, res_1, res_2
-    p24_index_statements: [&mut Vec<Evaluation<EF>>; 3], // a, b, res
+    p16_index_statements: [&mut Vec<Evaluation<EF>>; 3], // input_a, input_b, res_a
+    p24_index_statements: [&mut Vec<Evaluation<EF>>; 3], // input_a, input_b, res
 ) {
-    assert_eq!(inner_values.len(), 7);
+    assert_eq!(inner_values.len(), 6);
     let mut idx_point_right_p16 = MultilinearPoint(index_lookup_point[3..].to_vec());
     let mut idx_point_right_p24 =
         MultilinearPoint(index_lookup_point[3 + log_n_p16.abs_diff(log_n_p24)..].to_vec());
@@ -434,7 +441,7 @@ pub fn add_poseidon_lookup_statements_on_indexes(
     for (i, stmt) in p24_index_statements.into_iter().enumerate() {
         stmt.push(Evaluation::new(
             idx_point_right_p24.clone(),
-            inner_values[i + 4],
+            inner_values[i + 3],
         ));
     }
 }
