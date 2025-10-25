@@ -28,6 +28,7 @@ const WIDTH: usize = 16;
 
 const UNIVARIATE_SKIPS: usize = 3;
 const N_COMMITED_CUBES: usize = 16;
+const COMPRESS: bool = false;
 const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 
 #[test]
@@ -51,7 +52,7 @@ fn test_prove_poseidons() {
 
     let mut rng = StdRng::seed_from_u64(0);
     let n_poseidons = 1 << log_n_poseidons;
-    let n_compressions = n_poseidons / 10;
+    let n_compressions = if COMPRESS { n_poseidons / 3 } else { 0 };
 
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
@@ -61,8 +62,9 @@ fn test_prove_poseidons() {
     let input_packed: [_; WIDTH] =
         array::from_fn(|i| PFPacking::<EF>::pack_slice(&input[i]).to_vec());
 
-    let layers =
-        PoseidonGKRLayers::<WIDTH, N_COMMITED_CUBES>::build(Some(COMPRESSION_OUTPUT_WIDTH));
+    let layers = PoseidonGKRLayers::<WIDTH, N_COMMITED_CUBES>::build(
+        COMPRESS.then(|| COMPRESSION_OUTPUT_WIDTH),
+    );
 
     let default_cubes = default_cube_layers::<F, WIDTH, N_COMMITED_CUBES>(&layers);
     let input_col_dims = vec![ColDims::padded(n_poseidons, F::ZERO); WIDTH];
@@ -78,19 +80,25 @@ fn test_prove_poseidons() {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
         let prover_time = Instant::now();
-        let compression_indicator = [
-            vec![F::ZERO; n_poseidons - n_compressions],
-            vec![F::ONE; n_compressions],
-        ]
-        .concat();
 
         let witness = generate_poseidon_witness::<FPacking<F>, WIDTH, N_COMMITED_CUBES>(
             input_packed,
             &layers,
-            Some((
-                n_compressions,
-                PFPacking::<F>::pack_slice(&compression_indicator).to_vec(), // TODO avoid cloning
-            )),
+            if COMPRESS {
+                Some((
+                    n_compressions,
+                    PFPacking::<F>::pack_slice(
+                        &[
+                            vec![F::ZERO; n_poseidons - n_compressions],
+                            vec![F::ONE; n_compressions],
+                        ]
+                        .concat(),
+                    )
+                    .to_vec(),
+                ))
+            } else {
+                None
+            },
         );
 
         let mut prover_state = build_prover_state::<EF>();
@@ -166,7 +174,7 @@ fn test_prove_poseidons() {
             &output_claim_point,
             &layers,
             UNIVARIATE_SKIPS,
-            true,
+            COMPRESS,
         );
 
         // PCS verification
@@ -212,28 +220,34 @@ fn test_prove_poseidons() {
     let plaintext_duration = plaintext_time.elapsed();
 
     // sanity check: ensure the plaintext poseidons matches the last GKR layer:
-    output_layer
-        .iter()
-        .enumerate()
-        .take(COMPRESSION_OUTPUT_WIDTH)
-        .for_each(|(i, layer)| {
+    if COMPRESS {
+        output_layer
+            .iter()
+            .enumerate()
+            .take(COMPRESSION_OUTPUT_WIDTH)
+            .for_each(|(i, layer)| {
+                assert_eq!(PFPacking::<EF>::unpack_slice(&layer), data_to_hash[i]);
+            });
+        output_layer
+            .iter()
+            .enumerate()
+            .skip(COMPRESSION_OUTPUT_WIDTH)
+            .for_each(|(i, layer)| {
+                assert_eq!(
+                    &PFPacking::<EF>::unpack_slice(&layer)[..n_poseidons - n_compressions],
+                    &data_to_hash[i][..n_poseidons - n_compressions]
+                );
+                assert!(
+                    PFPacking::<EF>::unpack_slice(&layer)[n_poseidons - n_compressions..]
+                        .iter()
+                        .all(|&x| x.is_zero())
+                );
+            });
+    } else {
+        output_layer.iter().enumerate().for_each(|(i, layer)| {
             assert_eq!(PFPacking::<EF>::unpack_slice(&layer), data_to_hash[i]);
         });
-    output_layer
-        .iter()
-        .enumerate()
-        .skip(COMPRESSION_OUTPUT_WIDTH)
-        .for_each(|(i, layer)| {
-            assert_eq!(
-                &PFPacking::<EF>::unpack_slice(&layer)[..n_poseidons - n_compressions],
-                &data_to_hash[i][..n_poseidons - n_compressions]
-            );
-            assert!(
-                PFPacking::<EF>::unpack_slice(&layer)[n_poseidons - n_compressions..]
-                    .iter()
-                    .all(|&x| x.is_zero())
-            );
-        });
+    }
 
     println!("2^{} Poseidon2", log_n_poseidons);
     println!(
