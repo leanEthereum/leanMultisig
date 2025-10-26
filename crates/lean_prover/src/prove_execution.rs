@@ -50,7 +50,7 @@ pub fn prove_execution(
                 bytecode,
                 (public_input, private_input),
                 no_vec_runtime_memory,
-                (vm_profiler, false),
+                (vm_profiler, true),
                 (poseidons_16_precomputed, poseidons_24_precomputed),
             )
         });
