@@ -596,23 +596,6 @@ pub fn verify_execution(
 
         let mut inner_values = verifier_state.next_extension_scalars_vec(6)?;
 
-        add_poseidon_lookup_statements_on_indexes(
-            log_n_p16,
-            log_n_p24,
-            &poseidon_logup_star_statements.on_indexes.point,
-            &inner_values,
-            [
-                &mut p16_indexes_a_statements,
-                &mut p16_indexes_b_statements,
-                &mut p16_indexes_res_statements,
-            ],
-            [
-                &mut p24_indexes_a_statements,
-                &mut p24_indexes_b_statements,
-                &mut p24_indexes_res_statements,
-            ],
-        );
-
         let (p16_value_index_res_b, sc_eval) = sumcheck_verify_with_univariate_skip(
             &mut verifier_state,
             3,
@@ -635,6 +618,23 @@ pub fn verify_execution(
         {
             return Err(ProofError::InvalidProof);
         }
+
+        add_poseidon_lookup_statements_on_indexes(
+            log_n_p16,
+            log_n_p24,
+            &poseidon_logup_star_statements.on_indexes.point,
+            &inner_values,
+            [
+                &mut p16_indexes_a_statements,
+                &mut p16_indexes_b_statements,
+                &mut p16_indexes_res_statements,
+            ],
+            [
+                &mut p24_indexes_a_statements,
+                &mut p24_indexes_b_statements,
+                &mut p24_indexes_res_statements,
+            ],
+        );
 
         inner_values.insert(3, p16_value_index_res_b);
         inner_values.insert(5, inner_values[4] + EF::ONE);
