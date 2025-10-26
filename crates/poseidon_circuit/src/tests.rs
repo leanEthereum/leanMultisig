@@ -118,7 +118,7 @@ fn test_prove_poseidons() {
             log_smallest_decomposition_chunk,
         );
 
-        let claim_point = prover_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
+        let claim_point = prover_state.sample_vec(log_n_poseidons);
 
         let (_output_values, input_pcs_statements, cubes_pcs_statements) = prove_poseidon_gkr(
             &mut prover_state,
@@ -175,7 +175,7 @@ fn test_prove_poseidons() {
         )
         .unwrap();
 
-        let output_claim_point = verifier_state.sample_vec(log_n_poseidons + 1 - UNIVARIATE_SKIPS);
+        let output_claim_point = verifier_state.sample_vec(log_n_poseidons);
 
         let (_output_values, input_pcs_statements, cubes_pcs_statements) = verify_poseidon_gkr(
             &mut verifier_state,

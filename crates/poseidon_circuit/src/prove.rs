@@ -23,21 +23,42 @@ where
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
 
-    let output_claims = info_span!("computing output claims").in_scope(|| {
-        batch_evaluate_univariate_multilinear(
-            &witness
-                .output_layer
-                .iter()
-                .map(|l| PFPacking::<EF>::unpack_slice(l))
-                .collect::<Vec<_>>(),
-            &claim_point,
-            &selectors,
-        )
+    assert_eq!(claim_point.len(), log2_strict_usize(witness.n_poseidons()));
+
+    let (output_claims, mut claims) = info_span!("computing output claims").in_scope(|| {
+        let eq_poly = eval_eq(&claim_point[univariate_skips..]);
+        let inner_evals = witness
+            .output_layer
+            .par_iter()
+            .map(|poly| {
+                FPacking::<F>::unpack_slice(poly)
+                    .chunks_exact(eq_poly.len())
+                    .map(|chunk| dot_product(eq_poly.iter().copied(), chunk.iter().copied()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        for evals in &inner_evals {
+            prover_state.add_extension_scalars(evals);
+        }
+        let alpha = prover_state.sample();
+        claim_point = [vec![alpha], claim_point[univariate_skips..].to_vec()].concat();
+        let selectors_at_alpha = selectors
+            .iter()
+            .map(|selector| selector.evaluate(alpha))
+            .collect::<Vec<_>>();
+
+        let mut output_claims = vec![];
+        let mut claims = vec![];
+        for evals in inner_evals {
+            output_claims
+                .push(evals.evaluate(&MultilinearPoint(claim_point[..univariate_skips].to_vec())));
+            claims.push(dot_product(
+                selectors_at_alpha.iter().copied(),
+                evals.into_iter(),
+            ))
+        }
+        (output_claims, claims)
     });
-
-    prover_state.add_extension_scalars(&output_claims);
-
-    let mut claims = output_claims.to_vec();
 
     for (i, (input_layers, full_round)) in witness
         .final_full_round_inputs

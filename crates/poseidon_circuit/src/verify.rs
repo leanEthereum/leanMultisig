@@ -21,15 +21,36 @@ where
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
 
-    let output_claims = verifier_state.next_extension_scalars_vec(WIDTH).unwrap();
+    let mut output_claims = vec![];
+    let mut claims = vec![];
 
-    let mut claims = output_claims.clone();
+    let mut claim_point = {
+        let inner_evals = (0..WIDTH)
+            .map(|_| {
+                verifier_state
+                    .next_extension_scalars_vec(1 << univariate_skips)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let alpha = verifier_state.sample();
+        let selectors_at_alpha = selectors
+            .iter()
+            .map(|selector| selector.evaluate(alpha))
+            .collect::<Vec<_>>();
+        for evals in inner_evals {
+            output_claims.push(evals.evaluate(&MultilinearPoint(
+                output_claim_point[..univariate_skips].to_vec(),
+            )));
+            claims.push(dot_product(
+                selectors_at_alpha.iter().copied(),
+                evals.into_iter(),
+            ))
+        }
+        [vec![alpha], output_claim_point[univariate_skips..].to_vec()].concat()
+    };
 
-    let mut claim_point = output_claim_point.to_vec();
     for (i, full_round) in layers.final_full_rounds.iter().rev().enumerate() {
-        let n_inputs = if i == 0
-            && n_compressions.is_some()
-        {
+        let n_inputs = if i == 0 && n_compressions.is_some() {
             WIDTH + 1
         } else {
             WIDTH
