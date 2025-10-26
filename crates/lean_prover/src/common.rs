@@ -320,7 +320,7 @@ pub fn get_poseidon_lookup_statements(
     let p24_folded_eval_addr_a = (&p24_input_evals[..8]).evaluate(memory_folding_challenges);
     let p24_folded_eval_addr_b = (&p24_input_evals[8..16]).evaluate(memory_folding_challenges);
     let p24_folded_eval_addr_c = (&p24_input_evals[16..24]).evaluate(memory_folding_challenges);
-    let p24_folded_eval_addr_res = p24_output_evals.evaluate(memory_folding_challenges);
+    let p24_folded_eval_addr_res = (&p24_output_evals[16..24]).evaluate(memory_folding_challenges);
 
     let padding_p16 = EF::zero_vec(log_n_p16.max(log_n_p24) - log_n_p16);
     let padding_p24 = EF::zero_vec(log_n_p16.max(log_n_p24) - log_n_p24);
