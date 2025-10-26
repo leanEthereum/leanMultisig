@@ -33,9 +33,6 @@ pub fn get_base_dims(
             ColDims::padded_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
             ColDims::padded(n_cycles, F::from_usize(bytecode_ending_pc)), // pc
             ColDims::padded(n_cycles, F::ZERO),                           // fp
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_a
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_b
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_c
             ColDims::padded(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index a
             ColDims::padded(n_poseidons_16, F::from_usize(ZERO_VEC_PTR)), // poseidon16 index b
             ColDims::padded(n_poseidons_16, F::from_usize(POSEIDON_16_NULL_HASH_PTR)), // poseidon16 index res

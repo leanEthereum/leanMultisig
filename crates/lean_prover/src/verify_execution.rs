@@ -14,7 +14,7 @@ use poseidon_circuit::verify_poseidon_gkr;
 use utils::ToUsize;
 use utils::dot_product_with_base;
 use utils::{build_challenger, padd_with_zero_to_next_power_of_two};
-use vm_air::*;
+use vm_circuits::*;
 use whir_p3::WhirConfig;
 use whir_p3::WhirConfigBuilder;
 use whir_p3::second_batched_whir_config_builder;
@@ -784,27 +784,6 @@ pub fn verify_execution(
                     final_pc_statement,
                 ], // pc
                 vec![exec_air_statement(COL_INDEX_FP), grand_product_fp_statement], // fp
-                vec![
-                    exec_air_statement(COL_INDEX_MEM_ADDRESS_A),
-                    Evaluation::new(
-                        mem_lookup_eval_indexes_partial_point.clone(),
-                        mem_lookup_eval_indexes_a,
-                    ),
-                ], // exec memory address A
-                vec![
-                    exec_air_statement(COL_INDEX_MEM_ADDRESS_B),
-                    Evaluation::new(
-                        mem_lookup_eval_indexes_partial_point.clone(),
-                        mem_lookup_eval_indexes_b,
-                    ),
-                ], // exec memory address B
-                vec![
-                    exec_air_statement(COL_INDEX_MEM_ADDRESS_C),
-                    Evaluation::new(
-                        mem_lookup_eval_indexes_partial_point,
-                        mem_lookup_eval_indexes_c,
-                    ),
-                ], // exec memory address C
                 p16_indexes_a_statements,
                 p16_indexes_b_statements,
                 p16_indexes_res_statements,

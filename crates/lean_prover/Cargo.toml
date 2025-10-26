@@ -30,7 +30,7 @@ lookup.workspace = true
 lean_vm.workspace = true
 lean_compiler.workspace = true
 witness_generation.workspace = true
-vm_air.workspace = true
+vm_circuits.workspace = true
 multilinear-toolkit.workspace = true
 poseidon_circuit.workspace = true
 

@@ -5,3 +5,6 @@ pub use execution_air::*;
 
 mod dot_product_air;
 pub use dot_product_air::*;
+
+mod memory_address_sumchecks;
+pub use memory_address_sumchecks::*;

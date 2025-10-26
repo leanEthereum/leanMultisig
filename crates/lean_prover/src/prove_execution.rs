@@ -16,7 +16,7 @@ use utils::ToUsize;
 use utils::dot_product_with_base;
 use utils::field_slice_as_base;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
-use vm_air::*;
+use vm_circuits::*;
 use whir_p3::{
     WhirConfig, WhirConfigBuilder, precompute_dft_twiddles, second_batched_whir_config_builder,
 };
@@ -166,9 +166,6 @@ pub fn prove_execution(
             memory.as_slice(),
             full_trace[COL_INDEX_PC].as_slice(),
             full_trace[COL_INDEX_FP].as_slice(),
-            full_trace[COL_INDEX_MEM_ADDRESS_A].as_slice(),
-            full_trace[COL_INDEX_MEM_ADDRESS_B].as_slice(),
-            full_trace[COL_INDEX_MEM_ADDRESS_C].as_slice(),
         ],
         p16_indexes.iter().map(Vec::as_slice).collect::<Vec<_>>(),
         p24_indexes.iter().map(Vec::as_slice).collect::<Vec<_>>(),
@@ -596,6 +593,82 @@ pub fn prove_execution(
         poseidon_folded_memory.len(),
         &poseidon_poly_eq_point,
     );
+
+
+
+
+    let statements_mem_addr_a = vec![
+        exec_air_statement(COL_INDEX_MEM_ADDRESS_A),
+        Evaluation::new(
+            mem_lookup_eval_indexes_partial_point.clone(),
+            mem_lookup_eval_indexes_a,
+        ),
+    ];
+    let statements_mem_addr_b = vec![
+        exec_air_statement(COL_INDEX_MEM_ADDRESS_B),
+        Evaluation::new(
+            mem_lookup_eval_indexes_partial_point.clone(),
+            mem_lookup_eval_indexes_b,
+        ),
+    ];
+    let statements_mem_addr_c = vec![
+        exec_air_statement(COL_INDEX_MEM_ADDRESS_C),
+        Evaluation::new(
+            mem_lookup_eval_indexes_partial_point,
+            mem_lookup_eval_indexes_c,
+        ),
+    ];
+
+    // prove statements_mem_addr_c
+    {
+        let _span = info_span!("Sumchecks for MEM_ADDRESS_C").entered();
+        let alpha = prover_state.sample();
+        let sum: EF = dot_product(
+            statements_mem_addr_c.iter().map(|e| e.value),
+            alpha.powers(),
+        );
+        let mut weights =
+            EFPacking::<EF>::zero_vec(1 << (log_n_cycles - packing_log_width::<EF>()));
+        for (statement, alpha_power) in statements_mem_addr_c.iter().zip(alpha.powers()) {
+            compute_sparse_eval_eq_packed::<EF>(&statement.point, &mut weights, alpha_power);
+        }
+
+        // TODO: those 2 sumchecks can be batched together
+
+        // 1) reduce multiple claims to a single one
+        let (sc_point, _, value_col, _) = run_product_sumcheck(
+            &MleRef::BasePacked(FPacking::<F>::pack_slice(
+                &full_trace[COL_INDEX_MEM_ADDRESS_C],
+            )),
+            &MleRef::ExtensionPacked(&weights),
+            &mut prover_state,
+            sum,
+            log_n_cycles,
+        );
+        let value_col = value_col.as_extension().unwrap().as_constant();
+
+        let (sc_point, inner_evals, _) = sumcheck_prove(
+            1,
+            MleGroupRef::Base(vec![
+                &full_trace[COL_INDEX_FLAG_C],
+                &full_trace[COL_INDEX_FP],
+                &full_trace[COL_INDEX_OPERAND_C],
+                &full_trace[COL_INDEX_DEREF],
+                &full_trace[COL_INDEX_MEM_VALUE_A],
+            ])
+            .pack()
+            .by_ref(),
+            &SumcheckMemAddressC {},
+            &[],
+            Some((sc_point.0, None)),
+            false,
+            &mut prover_state,
+            value_col,
+            None,
+        );
+        
+    }
+
 
     let non_used_precompiles_evals = full_trace
         [N_INSTRUCTION_COLUMNS_IN_AIR..N_INSTRUCTION_COLUMNS]
@@ -1067,27 +1140,6 @@ pub fn prove_execution(
                 final_pc_statement,
             ], // pc
             vec![exec_air_statement(COL_INDEX_FP), grand_product_fp_statement], // fp
-            vec![
-                exec_air_statement(COL_INDEX_MEM_ADDRESS_A),
-                Evaluation::new(
-                    mem_lookup_eval_indexes_partial_point.clone(),
-                    mem_lookup_eval_indexes_a,
-                ),
-            ], // exec memory address A
-            vec![
-                exec_air_statement(COL_INDEX_MEM_ADDRESS_B),
-                Evaluation::new(
-                    mem_lookup_eval_indexes_partial_point.clone(),
-                    mem_lookup_eval_indexes_b,
-                ),
-            ], // exec memory address B
-            vec![
-                exec_air_statement(COL_INDEX_MEM_ADDRESS_C),
-                Evaluation::new(
-                    mem_lookup_eval_indexes_partial_point,
-                    mem_lookup_eval_indexes_c,
-                ),
-            ], // exec memory address C
             p16_indexes_a_statements,
             p16_indexes_b_statements,
             p16_indexes_res_statements,
