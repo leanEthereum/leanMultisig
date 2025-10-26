@@ -41,7 +41,6 @@ where
             prover_state.add_extension_scalars(evals);
         }
         let alpha = prover_state.sample();
-        claim_point = [vec![alpha], claim_point[univariate_skips..].to_vec()].concat();
         let selectors_at_alpha = selectors
             .iter()
             .map(|selector| selector.evaluate(alpha))
@@ -57,6 +56,7 @@ where
                 evals.into_iter(),
             ))
         }
+        claim_point = [vec![alpha], claim_point[univariate_skips..].to_vec()].concat();
         (output_claims, claims)
     });
 

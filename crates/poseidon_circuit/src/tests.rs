@@ -76,7 +76,14 @@ fn test_prove_poseidons() {
 
     let log_smallest_decomposition_chunk = 0; // unused because everything is a power of 2
 
-    let (mut verifier_state, proof_size, output_layer, prover_duration) = {
+    let (
+        mut verifier_state,
+        proof_size,
+        output_layer,
+        prover_duration,
+        output_values_prover,
+        claim_point,
+    ) = {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
         let prover_time = Instant::now();
@@ -120,10 +127,10 @@ fn test_prove_poseidons() {
 
         let claim_point = prover_state.sample_vec(log_n_poseidons);
 
-        let (_output_values, input_pcs_statements, cubes_pcs_statements) = prove_poseidon_gkr(
+        let (output_values, input_pcs_statements, cubes_pcs_statements) = prove_poseidon_gkr(
             &mut prover_state,
             &witness,
-            claim_point,
+            claim_point.clone(),
             UNIVARIATE_SKIPS,
             &layers,
         );
@@ -160,11 +167,14 @@ fn test_prove_poseidons() {
             prover_state.proof_size(),
             witness.output_layer,
             prover_duration,
+            output_values,
+            claim_point,
         )
     };
 
     let verifier_time = Instant::now();
-    {
+
+    let output_values_verifier = {
         // ---------------------------------------------------- VERIFIER ----------------------------------------------------
 
         let parsed_pcs_commitment = packed_pcs_parse_commitment(
@@ -177,17 +187,13 @@ fn test_prove_poseidons() {
 
         let output_claim_point = verifier_state.sample_vec(log_n_poseidons);
 
-        let (_output_values, input_pcs_statements, cubes_pcs_statements) = verify_poseidon_gkr(
+        let (output_values, input_pcs_statements, cubes_pcs_statements) = verify_poseidon_gkr(
             &mut verifier_state,
             log_n_poseidons,
             &output_claim_point,
             &layers,
             UNIVARIATE_SKIPS,
-            if COMPRESS {
-                Some(n_compressions)
-            } else {
-                None
-            },
+            if COMPRESS { Some(n_compressions) } else { None },
         );
 
         // PCS verification
@@ -217,7 +223,8 @@ fn test_prove_poseidons() {
                 global_statements,
             )
             .unwrap();
-    }
+        output_values
+    };
     let verifier_duration = verifier_time.elapsed();
 
     let mut data_to_hash = input.clone();
@@ -270,6 +277,15 @@ fn test_prove_poseidons() {
             assert_eq!(PFPacking::<EF>::unpack_slice(&layer), data_to_hash[i]);
         });
     }
+    assert_eq!(output_values_verifier, output_values_prover);
+    assert_eq!(
+        output_values_verifier.as_slice(),
+        &output_layer
+            .iter()
+            .map(|layer| PFPacking::<EF>::unpack_slice(&layer)
+                .evaluate(&MultilinearPoint(claim_point.clone())))
+            .collect::<Vec<_>>()
+    );
 
     println!("2^{} Poseidon2", log_n_poseidons);
     println!(
