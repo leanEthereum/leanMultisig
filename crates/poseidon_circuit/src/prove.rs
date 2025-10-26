@@ -7,6 +7,7 @@ use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 use tracing::{info_span, instrument};
 
+#[instrument(skip_all)]
 pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     witness: &PoseidonWitness<FPacking<F>, WIDTH, N_COMMITED_CUBES>,
@@ -162,7 +163,7 @@ where
     )
 }
 
-#[instrument(skip_all)]
+// #[instrument(skip_all)]
 fn prove_gkr_round<
     SC: SumcheckComputation<F, EF>
         + SumcheckComputation<EF, EF>
@@ -208,7 +209,7 @@ fn prove_gkr_round<
     (sumcheck_point.0, sumcheck_inner_evals)
 }
 
-#[instrument(skip_all)]
+// #[instrument(skip_all)]
 fn prove_batch_internal_round<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     input_layers: &[Vec<PFPacking<EF>>],

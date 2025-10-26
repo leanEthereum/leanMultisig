@@ -60,7 +60,7 @@ version = "0.3.0"
 source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#61c0491b6fe52a55ba93d643aa92c9f0b2cf52ae"
 dependencies = [
  "fiat-shamir",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "p3-field",
  "p3-util",
  "rand",

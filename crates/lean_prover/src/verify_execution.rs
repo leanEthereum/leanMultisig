@@ -615,11 +615,13 @@ pub fn verify_execution(
             &mut verifier_state,
             3,
             log_n_p16,
-            UNIVARIATE_SKIPS,
+            1, // TODO univariate skip
         )?;
         let sc_res_index_value = verifier_state.next_extension_scalar()?;
-        p16_indexes_res_statements
-            .push(Evaluation::new(sc_eval.point.clone(), sc_res_index_value - EF::ONE));
+        p16_indexes_res_statements.push(Evaluation::new(
+            sc_eval.point.clone(),
+            sc_res_index_value - EF::ONE,
+        ));
 
         if sc_res_index_value
             * (EF::ONE

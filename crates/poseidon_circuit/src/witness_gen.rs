@@ -6,7 +6,6 @@ use p3_koala_bear::KoalaBearInternalLayerParameters;
 use p3_koala_bear::KoalaBearParameters;
 use p3_monty_31::InternalLayerBaseParameters;
 use p3_poseidon2::GenericPoseidon2LinearLayers;
-use tracing::instrument;
 use utils::transposed_par_iter_mut;
 
 use crate::gkr_layers::BatchPartialRounds;
@@ -95,7 +94,7 @@ where
     }
 }
 
-#[instrument(skip_all)]
+// #[instrument(skip_all)]
 fn apply_full_round<A, const WIDTH: usize, const FIRST: bool>(
     input_layers: &[Vec<A>; WIDTH],
     full_round: &FullRoundComputation<WIDTH, FIRST>,
@@ -134,7 +133,7 @@ where
     output_layers
 }
 
-#[instrument(skip_all)]
+// #[instrument(skip_all)]
 fn apply_partial_round<A, const WIDTH: usize>(
     input_layers: &[Vec<A>],
     partial_round: &PartialRoundComputation<WIDTH>,
@@ -161,7 +160,7 @@ where
     output_layers
 }
 
-#[instrument(skip_all)]
+// #[instrument(skip_all)]
 fn apply_batch_partial_rounds<A, const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     input_layers: &[Vec<A>],
     rounds: &BatchPartialRounds<WIDTH, N_COMMITED_CUBES>,

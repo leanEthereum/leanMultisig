@@ -937,8 +937,9 @@ pub fn prove_execution(
             .map(|c| *c + F::ONE)
             .collect::<Vec<_>>();
 
+        // TODO there is a big inneficiency in impl SumcheckComputationPacked for ProductComputation
         let (sc_point, sc_values, _) = sumcheck_prove(
-            UNIVARIATE_SKIPS,
+            1, // TODO univariate skip
             MleGroupRef::BasePacked(vec![&p16_one_minus_compression, &p16_index_res_a_plus_one]),
             &ProductComputation,
             &ProductComputation,
