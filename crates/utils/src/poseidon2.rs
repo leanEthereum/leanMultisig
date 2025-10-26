@@ -96,4 +96,3 @@ pub fn build_poseidon24_constants() -> MyRoundConstants24<KoalaBear> {
         ending_full_round_constants: KOALABEAR_RC24_EXTERNAL_FINAL,
     }
 }
-

@@ -1,6 +1,9 @@
 //! Poseidon2 hash witness for 16-element input
 
-use crate::{core::{F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR}, PoseidonWitnessTrait};
+use crate::{
+    PoseidonWitnessTrait,
+    core::{F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR},
+};
 use p3_field::PrimeCharacteristicRing;
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;

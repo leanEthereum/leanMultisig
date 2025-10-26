@@ -2,7 +2,7 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 
-use crate::{EF, F, gkr_layers::PoseidonGKRLayers};
+use crate::{EF, F, GKRPoseidonResult, gkr_layers::PoseidonGKRLayers};
 
 pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
@@ -11,11 +11,7 @@ pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
     univariate_skips: usize,
     n_compressions: Option<usize>,
-) -> (
-    [EF; WIDTH],
-    (MultilinearPoint<EF>, Vec<EF>),
-    (MultilinearPoint<EF>, Vec<EF>),
-)
+) -> GKRPoseidonResult<WIDTH, N_COMMITED_CUBES>
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
@@ -106,7 +102,7 @@ where
     );
 
     let pcs_point_for_cubes = claim_point.clone();
-    let pcs_evals_for_cubes = claims[WIDTH..].to_vec();
+    let pcs_evals_for_cubes = claims[WIDTH..].try_into().unwrap();
 
     claims = claims[..WIDTH].to_vec();
 
@@ -132,27 +128,27 @@ where
     );
 
     let pcs_point_for_inputs = claim_point.clone();
-    let pcs_evals_for_inputs = claims.to_vec();
+    let pcs_evals_for_inputs = claims.try_into().unwrap();
 
-    let input_pcs_statements = verify_inner_evals_on_commited_columns(
+    let input_statements = verify_inner_evals_on_commited_columns(
         verifier_state,
         &pcs_point_for_inputs,
         &pcs_evals_for_inputs,
         &selectors,
     );
 
-    let cubes_pcs_statements = verify_inner_evals_on_commited_columns(
+    let cubes_statements = verify_inner_evals_on_commited_columns(
         verifier_state,
         &pcs_point_for_cubes,
         &pcs_evals_for_cubes,
         &selectors,
     );
 
-    (
-        output_claims.try_into().unwrap(),
-        input_pcs_statements,
-        cubes_pcs_statements,
-    )
+    GKRPoseidonResult {
+        output_values: output_claims.try_into().unwrap(),
+        input_statements,
+        cubes_statements,
+    }
 }
 
 fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
@@ -183,7 +179,7 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
         computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
             * eq_poly_with_skip(
                 &sumcheck_postponed_claim.point,
-                &claim_point,
+                claim_point,
                 univariate_skips
             ),
         sumcheck_postponed_claim.value
@@ -192,12 +188,12 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
     (sumcheck_postponed_claim.point.0, sumcheck_inner_evals)
 }
 
-fn verify_inner_evals_on_commited_columns(
+fn verify_inner_evals_on_commited_columns<const N: usize>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     point: &[EF],
-    claimed_evals: &[EF],
+    claimed_evals: &[EF; N],
     selectors: &[DensePolynomial<F>],
-) -> (MultilinearPoint<EF>, Vec<EF>) {
+) -> (MultilinearPoint<EF>, [EF; N]) {
     let univariate_skips = log2_strict_usize(selectors.len());
     let inner_evals_inputs = verifier_state
         .next_extension_scalars_vec(claimed_evals.len() << univariate_skips)
@@ -215,12 +211,12 @@ fn verify_inner_evals_on_commited_columns(
             evaluate_univariate_multilinear::<_, _, _, false>(
                 col_inner_evals,
                 &point[..1],
-                &selectors,
+                selectors,
                 None
             )
         );
         values_to_verif
             .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
-    (point_to_verif, values_to_verif)
+    (point_to_verif, values_to_verif.try_into().unwrap())
 }

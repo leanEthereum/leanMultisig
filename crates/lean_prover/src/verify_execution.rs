@@ -27,11 +27,11 @@ pub fn verify_execution(
 ) -> Result<(), ProofError> {
     let mut verifier_state = VerifierState::new(proof_data, build_challenger());
 
-    let exec_table = AirTable::<EF, _, _>::new(VMAir, VMAir);
+    let exec_table = AirTable::<EF, _>::new(VMAir);
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
-    let dot_product_table = AirTable::<EF, _, _>::new(DotProductAir, DotProductAir);
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
 
     let [
         log_n_cycles,
@@ -112,8 +112,7 @@ pub fn verify_execution(
         bytecode.ending_pc,
         (n_poseidons_16, n_poseidons_24),
         n_rows_table_dot_products,
-        &p16_gkr_layers,
-        &p24_gkr_layers,
+        (&p16_gkr_layers, &p24_gkr_layers),
     );
 
     let parsed_commitment_base = packed_pcs_parse_commitment(
@@ -351,7 +350,7 @@ pub fn verify_execution(
         dot_product_table.verify(&mut verifier_state, 1, table_dot_products_log_n_rows)?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
-    let (p16_output_values, p16_input_statements, p16_cubes_statements) = verify_poseidon_gkr(
+    let gkr_16 = verify_poseidon_gkr(
         &mut verifier_state,
         log_n_p16,
         &random_point_p16,
@@ -359,19 +358,20 @@ pub fn verify_execution(
         UNIVARIATE_SKIPS,
         Some(n_compressions_16),
     );
-    let p16_cubes_statements = p16_cubes_statements
+    let p16_cubes_statements = gkr_16
+        .cubes_statements
         .1
         .iter()
         .map(|&e| {
             vec![Evaluation {
-                point: p16_cubes_statements.0.clone(),
+                point: gkr_16.cubes_statements.0.clone(),
                 value: e,
             }]
         })
         .collect::<Vec<_>>();
 
     let random_point_p24 = MultilinearPoint(verifier_state.sample_vec(log_n_p24));
-    let (p24_output_values, p24_input_statements, p24_cubes_statements) = verify_poseidon_gkr(
+    let gkr_24 = verify_poseidon_gkr(
         &mut verifier_state,
         log_n_p24,
         &random_point_p24,
@@ -379,12 +379,13 @@ pub fn verify_execution(
         UNIVARIATE_SKIPS,
         None,
     );
-    let p24_cubes_statements = p24_cubes_statements
+    let p24_cubes_statements = gkr_24
+        .cubes_statements
         .1
         .iter()
         .map(|&e| {
             vec![Evaluation {
-                point: p24_cubes_statements.0.clone(),
+                point: gkr_24.cubes_statements.0.clone(),
                 value: e,
             }]
         })
@@ -539,10 +540,10 @@ pub fn verify_execution(
 
     let poseidon_lookup_statements = get_poseidon_lookup_statements(
         (log_n_p16, log_n_p24),
-        &p16_input_statements,
-        &(random_point_p16.clone(), p16_output_values.to_vec()),
-        &p24_input_statements,
-        &(random_point_p24.clone(), p24_output_values.to_vec()),
+        &gkr_16.input_statements,
+        &(random_point_p16.clone(), gkr_16.output_values),
+        &gkr_24.input_statements,
+        &(random_point_p24.clone(), gkr_24.output_values),
         &memory_folding_challenges,
     );
 

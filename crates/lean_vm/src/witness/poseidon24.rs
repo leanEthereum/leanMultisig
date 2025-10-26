@@ -1,6 +1,9 @@
 //! Poseidon2 hash witness for 24-element input
 
-use crate::{core::{F, POSEIDON_24_NULL_HASH_PTR, ZERO_VEC_PTR}, PoseidonWitnessTrait};
+use crate::{
+    PoseidonWitnessTrait,
+    core::{F, POSEIDON_24_NULL_HASH_PTR, ZERO_VEC_PTR},
+};
 use p3_field::PrimeCharacteristicRing;
 
 /// Witness data for Poseidon2 over 24 field elements

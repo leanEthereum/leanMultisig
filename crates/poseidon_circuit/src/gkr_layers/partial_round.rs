@@ -28,9 +28,7 @@ where
         let first_cubed = (point[0] + self.constant).cube();
         let mut buff = [NF::ZERO; WIDTH];
         buff[0] = first_cubed;
-        for j in 1..WIDTH {
-            buff[j] = point[j];
-        }
+        buff[1..WIDTH].copy_from_slice(&point[1..WIDTH]);
         GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
         let mut res = EF::ZERO;
         for i in 0..WIDTH {
@@ -53,9 +51,7 @@ where
         let first_cubed = (point[0] + self.constant).cube();
         let mut buff = [PFPacking::<EF>::ZERO; WIDTH];
         buff[0] = first_cubed;
-        for j in 1..WIDTH {
-            buff[j] = point[j];
-        }
+        buff[1..WIDTH].copy_from_slice(&point[1..WIDTH]);
         GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..WIDTH {
@@ -69,9 +65,7 @@ where
         let first_cubed = (point[0] + PFPacking::<EF>::from(self.constant)).cube();
         let mut buff = [EFPacking::<EF>::ZERO; WIDTH];
         buff[0] = first_cubed;
-        for j in 1..WIDTH {
-            buff[j] = point[j];
-        }
+        buff[1..WIDTH].copy_from_slice(&point[1..WIDTH]);
         GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
         let mut res = EFPacking::<EF>::ZERO;
         for j in 0..WIDTH {

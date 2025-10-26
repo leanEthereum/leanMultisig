@@ -111,7 +111,7 @@ where
         array::from_fn(|i| PFPacking::<F>::pack_slice(&inputs_transposed[i]).to_vec()); // TODO avoid cloning
     generate_poseidon_witness::<FPacking<F>, WIDTH, N_COMMITED_CUBES>(
         inputs_transposed_packed,
-        &layers,
+        layers,
         n_compressions.map(|n_compressions| {
             (
                 n_compressions,

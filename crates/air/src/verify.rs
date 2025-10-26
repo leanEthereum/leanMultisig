@@ -3,14 +3,16 @@ use p3_air::BaseAir;
 use p3_field::{ExtensionField, cyclic_subgroup_known_order, dot_product};
 use p3_util::log2_ceil_usize;
 
-use crate::utils::{matrix_down_lde, matrix_up_lde};
-use crate::{NormalAir, PackedAir};
+use crate::{
+    MyAir,
+    utils::{matrix_down_lde, matrix_up_lde},
+};
 
 use super::table::AirTable;
 
-fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
+fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    table: &AirTable<EF, A, AP>,
+    table: &AirTable<EF, A>,
     univariate_skips: usize,
     log_n_rows: usize,
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
@@ -85,14 +87,14 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>>(
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<EF, A, AP> {
+impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     pub fn verify(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
         log_n_rows: usize,
     ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
-        verify_air::<EF, A, AP>(verifier_state, self, univariate_skips, log_n_rows)
+        verify_air::<EF, A>(verifier_state, self, univariate_skips, log_n_rows)
     }
 }
 

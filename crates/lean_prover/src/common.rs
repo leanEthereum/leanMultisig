@@ -19,12 +19,14 @@ pub fn get_base_dims(
     bytecode_ending_pc: usize,
     poseidon_counts: (usize, usize),
     n_rows_table_dot_products: usize,
-    p16_gkr_layers: &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
-    p24_gkr_layers: &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
+    (p16_gkr_layers, p24_gkr_layers): (
+        &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
+        &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
+    ),
 ) -> Vec<ColDims<F>> {
     let (n_poseidons_16, n_poseidons_24) = poseidon_counts;
-    let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(&p16_gkr_layers);
-    let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(&p24_gkr_layers);
+    let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(p16_gkr_layers);
+    let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(p24_gkr_layers);
 
     [
         vec![
@@ -306,10 +308,10 @@ impl SumcheckComputationPacked<EF> for DotProductFootprint {
 
 pub fn get_poseidon_lookup_statements(
     (log_n_p16, log_n_p24): (usize, usize),
-    (p16_input_point, p16_input_evals): &(MultilinearPoint<EF>, Vec<EF>),
-    (p16_output_point, p16_output_evals): &(MultilinearPoint<EF>, Vec<EF>),
-    (p24_input_point, p24_input_evals): &(MultilinearPoint<EF>, Vec<EF>),
-    (p24_output_point, p24_output_evals): &(MultilinearPoint<EF>, Vec<EF>),
+    (p16_input_point, p16_input_evals): &(MultilinearPoint<EF>, [EF; 16]),
+    (p16_output_point, p16_output_evals): &(MultilinearPoint<EF>, [EF; 16]),
+    (p24_input_point, p24_input_evals): &(MultilinearPoint<EF>, [EF; 24]),
+    (p24_output_point, p24_output_evals): &(MultilinearPoint<EF>, [EF; 24]),
     memory_folding_challenges: &MultilinearPoint<EF>,
 ) -> Vec<Evaluation<EF>> {
     let p16_folded_eval_addr_a = (&p16_input_evals[..8]).evaluate(memory_folding_challenges);

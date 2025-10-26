@@ -1,3 +1,4 @@
+use crate::GKRPoseidonResult;
 use crate::{
     EF, F, PoseidonWitness,
     gkr_layers::{BatchPartialRounds, PoseidonGKRLayers},
@@ -14,11 +15,7 @@ pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     mut claim_point: Vec<EF>,
     univariate_skips: usize,
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
-) -> (
-    [EF; WIDTH],
-    (MultilinearPoint<EF>, Vec<EF>),
-    (MultilinearPoint<EF>, Vec<EF>),
-)
+) -> GKRPoseidonResult<WIDTH, N_COMMITED_CUBES>
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
@@ -143,24 +140,24 @@ where
     );
     let pcs_point_for_inputs = claim_point.clone();
 
-    let input_pcs_statements = inner_evals_on_commited_columns(
+    let input_statements = inner_evals_on_commited_columns(
         prover_state,
         &pcs_point_for_inputs,
         univariate_skips,
         &witness.input_layer,
     );
-    let cubes_pcs_statements = inner_evals_on_commited_columns(
+    let cubes_statements = inner_evals_on_commited_columns(
         prover_state,
         &pcs_point_for_cubes,
         univariate_skips,
         &witness.committed_cubes,
     );
 
-    (
-        output_claims.try_into().unwrap(),
-        input_pcs_statements,
-        cubes_pcs_statements,
-    )
+    GKRPoseidonResult {
+        output_values: output_claims.try_into().unwrap(),
+        input_statements,
+        cubes_statements,
+    }
 }
 
 // #[instrument(skip_all)]
@@ -188,7 +185,6 @@ fn prove_gkr_round<
         univariate_skips,
         MleGroupRef::BasePacked(input_layers.iter().map(|l| l.as_ref()).collect()),
         computation,
-        computation,
         &batching_scalars_powers,
         Some((claim_point.to_vec(), None)),
         false,
@@ -200,7 +196,7 @@ fn prove_gkr_round<
     // sanity check
     debug_assert_eq!(
         computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
-            * eq_poly_with_skip(&sumcheck_point, &claim_point, univariate_skips),
+            * eq_poly_with_skip(&sumcheck_point, claim_point, univariate_skips),
         sumcheck_final_sum
     );
 
@@ -232,7 +228,7 @@ where
                 .iter()
                 .map(|l| PFPacking::<EF>::unpack_slice(l))
                 .collect::<Vec<_>>(),
-            &claim_point,
+            claim_point,
             selectors,
         )
     });
@@ -256,7 +252,6 @@ where
                 .collect(),
         ),
         computation,
-        computation,
         &batching_scalars_powers,
         Some((claim_point.to_vec(), None)),
         false,
@@ -268,7 +263,7 @@ where
     // sanity check
     debug_assert_eq!(
         computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
-            * eq_poly_with_skip(&sumcheck_point, &claim_point, univariate_skips),
+            * eq_poly_with_skip(&sumcheck_point, claim_point, univariate_skips),
         sumcheck_final_sum
     );
 
@@ -277,12 +272,12 @@ where
     (sumcheck_point.0, sumcheck_inner_evals)
 }
 
-fn inner_evals_on_commited_columns(
+fn inner_evals_on_commited_columns<const N: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     point: &[EF],
     univariate_skips: usize,
-    columns: &[Vec<PFPacking<EF>>],
-) -> (MultilinearPoint<EF>, Vec<EF>) {
+    columns: &[Vec<PFPacking<EF>>; N],
+) -> (MultilinearPoint<EF>, [EF; N]) {
     let eq_mle = eval_eq_packed(&point[1..]);
     let inner_evals = columns
         .par_iter()
@@ -309,5 +304,5 @@ fn inner_evals_on_commited_columns(
         values_to_prove
             .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
-    (point_to_prove, values_to_prove)
+    (point_to_prove, values_to_prove.try_into().unwrap())
 }

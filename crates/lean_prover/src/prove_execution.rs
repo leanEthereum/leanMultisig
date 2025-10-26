@@ -80,7 +80,7 @@ pub fn prove_execution(
             .map(Vec::as_slice)
             .collect::<Vec<_>>(),
     );
-    let exec_table = AirTable::<EF, _, _>::new(VMAir, VMAir);
+    let exec_table = AirTable::<EF, _>::new(VMAir);
 
     let _validity_proof_span = info_span!("Validity proof generation").entered();
 
@@ -91,7 +91,7 @@ pub fn prove_execution(
         generate_poseidon_witness_helper(&p16_gkr_layers, &poseidons_16, Some(n_compressions_16));
     let p24_witness = generate_poseidon_witness_helper(&p24_gkr_layers, &poseidons_24, None);
 
-    let dot_product_table = AirTable::<EF, _, _>::new(DotProductAir, DotProductAir);
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
 
     let (dot_product_columns, dot_product_padding_len) = build_dot_product_columns(&dot_products);
 
@@ -154,8 +154,7 @@ pub fn prove_execution(
         bytecode.ending_pc,
         (n_poseidons_16, n_poseidons_24),
         n_rows_table_dot_products,
-        &p16_gkr_layers,
-        &p24_gkr_layers,
+        (&p16_gkr_layers, &p24_gkr_layers),
     );
 
     let dot_product_col_index_a = field_slice_as_base(&dot_product_columns[2]).unwrap();
@@ -418,7 +417,6 @@ pub fn prove_execution(
                     .collect::<Vec<_>>(),
             ), // we do not use packing here because it's slower in practice (this sumcheck is small)
             &dot_product_footprint_computation,
-            &dot_product_footprint_computation,
             &[],
             Some((grand_product_dot_product_statement.point.0.clone(), None)),
             false,
@@ -475,7 +473,6 @@ pub fn prove_execution(
                 )
                 .pack(),
                 &precompile_foot_print_computation,
-                &precompile_foot_print_computation,
                 &[],
                 Some((grand_product_exec_statement.point.0.clone(), None)),
                 false,
@@ -529,38 +526,40 @@ pub fn prove_execution(
         });
 
     let random_point_p16 = MultilinearPoint(prover_state.sample_vec(log_n_p16));
-    let (p16_output_values, p16_input_statements, p16_cubes_statements) = prove_poseidon_gkr(
+    let p16_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p16_witness,
         random_point_p16.0.clone(),
         UNIVARIATE_SKIPS,
         &p16_gkr_layers,
     );
-    let p16_cubes_statements = p16_cubes_statements
+    let p16_cubes_statements = p16_gkr
+        .cubes_statements
         .1
         .iter()
         .map(|&e| {
             vec![Evaluation {
-                point: p16_cubes_statements.0.clone(),
+                point: p16_gkr.cubes_statements.0.clone(),
                 value: e,
             }]
         })
         .collect::<Vec<_>>();
 
     let random_point_p24 = MultilinearPoint(prover_state.sample_vec(log_n_p24));
-    let (p24_output_values, p24_input_statements, p24_cubes_statements) = prove_poseidon_gkr(
+    let p24_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p24_witness,
         random_point_p24.0.clone(),
         UNIVARIATE_SKIPS,
         &p24_gkr_layers,
     );
-    let p24_cubes_statements = p24_cubes_statements
+    let p24_cubes_statements = p24_gkr
+        .cubes_statements
         .1
         .iter()
         .map(|&e| {
             vec![Evaluation {
-                point: p24_cubes_statements.0.clone(),
+                point: p24_gkr.cubes_statements.0.clone(),
                 value: e,
             }]
         })
@@ -572,10 +571,10 @@ pub fn prove_execution(
 
     let poseidon_lookup_statements = get_poseidon_lookup_statements(
         (log_n_p16, log_n_p24),
-        &p16_input_statements,
-        &(random_point_p16.clone(), p16_output_values.to_vec()),
-        &p24_input_statements,
-        &(random_point_p24.clone(), p24_output_values.to_vec()),
+        &p16_gkr.input_statements,
+        &(random_point_p16.clone(), p16_gkr.output_values),
+        &p24_gkr.input_statements,
+        &(random_point_p24.clone(), p24_gkr.output_values),
         &memory_folding_challenges,
     );
 
@@ -941,7 +940,6 @@ pub fn prove_execution(
         let (sc_point, sc_values, _) = sumcheck_prove(
             1, // TODO univariate skip
             MleGroupRef::BasePacked(vec![&p16_one_minus_compression, &p16_index_res_a_plus_one]),
-            &ProductComputation,
             &ProductComputation,
             &[],
             Some((

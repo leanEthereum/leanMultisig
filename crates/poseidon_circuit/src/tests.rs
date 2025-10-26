@@ -17,8 +17,8 @@ use whir_p3::{
 };
 
 use crate::{
-    default_cube_layers, generate_poseidon_witness, gkr_layers::PoseidonGKRLayers,
-    prove_poseidon_gkr, verify_poseidon_gkr,
+    GKRPoseidonResult, default_cube_layers, generate_poseidon_witness,
+    gkr_layers::PoseidonGKRLayers, prove_poseidon_gkr, verify_poseidon_gkr,
 };
 
 type F = KoalaBear;
@@ -63,7 +63,7 @@ fn test_prove_poseidons() {
         array::from_fn(|i| PFPacking::<EF>::pack_slice(&input[i]).to_vec());
 
     let layers = PoseidonGKRLayers::<WIDTH, N_COMMITED_CUBES>::build(
-        COMPRESS.then(|| COMPRESSION_OUTPUT_WIDTH),
+        COMPRESS.then_some(COMPRESSION_OUTPUT_WIDTH),
     );
 
     let default_cubes = default_cube_layers::<F, WIDTH, N_COMMITED_CUBES>(&layers);
@@ -127,7 +127,11 @@ fn test_prove_poseidons() {
 
         let claim_point = prover_state.sample_vec(log_n_poseidons);
 
-        let (output_values, input_pcs_statements, cubes_pcs_statements) = prove_poseidon_gkr(
+        let GKRPoseidonResult {
+            output_values,
+            input_statements,
+            cubes_statements,
+        } = prove_poseidon_gkr(
             &mut prover_state,
             &witness,
             claim_point.clone(),
@@ -137,7 +141,7 @@ fn test_prove_poseidons() {
 
         // PCS opening
         let mut pcs_statements = vec![];
-        for (point_to_prove, evals_to_prove) in [input_pcs_statements, cubes_pcs_statements] {
+        for (point_to_prove, evals_to_prove) in [input_statements, cubes_statements] {
             for v in evals_to_prove {
                 pcs_statements.push(vec![Evaluation {
                     point: point_to_prove.clone(),
@@ -187,7 +191,11 @@ fn test_prove_poseidons() {
 
         let output_claim_point = verifier_state.sample_vec(log_n_poseidons);
 
-        let (output_values, input_pcs_statements, cubes_pcs_statements) = verify_poseidon_gkr(
+        let GKRPoseidonResult {
+            output_values,
+            input_statements,
+            cubes_statements,
+        } = verify_poseidon_gkr(
             &mut verifier_state,
             log_n_poseidons,
             &output_claim_point,
@@ -198,7 +206,7 @@ fn test_prove_poseidons() {
 
         // PCS verification
         let mut pcs_statements = vec![];
-        for (point_to_verif, evals_to_verif) in [input_pcs_statements, cubes_pcs_statements] {
+        for (point_to_verif, evals_to_verif) in [input_statements, cubes_statements] {
             for v in evals_to_verif {
                 pcs_statements.push(vec![Evaluation {
                     point: point_to_verif.clone(),
@@ -255,7 +263,7 @@ fn test_prove_poseidons() {
             .enumerate()
             .take(COMPRESSION_OUTPUT_WIDTH)
             .for_each(|(i, layer)| {
-                assert_eq!(PFPacking::<EF>::unpack_slice(&layer), data_to_hash[i]);
+                assert_eq!(PFPacking::<EF>::unpack_slice(layer), data_to_hash[i]);
             });
         output_layer
             .iter()
@@ -263,18 +271,18 @@ fn test_prove_poseidons() {
             .skip(COMPRESSION_OUTPUT_WIDTH)
             .for_each(|(i, layer)| {
                 assert_eq!(
-                    &PFPacking::<EF>::unpack_slice(&layer)[..n_poseidons - n_compressions],
+                    &PFPacking::<EF>::unpack_slice(layer)[..n_poseidons - n_compressions],
                     &data_to_hash[i][..n_poseidons - n_compressions]
                 );
                 assert!(
-                    PFPacking::<EF>::unpack_slice(&layer)[n_poseidons - n_compressions..]
+                    PFPacking::<EF>::unpack_slice(layer)[n_poseidons - n_compressions..]
                         .iter()
                         .all(|&x| x.is_zero())
                 );
             });
     } else {
         output_layer.iter().enumerate().for_each(|(i, layer)| {
-            assert_eq!(PFPacking::<EF>::unpack_slice(&layer), data_to_hash[i]);
+            assert_eq!(PFPacking::<EF>::unpack_slice(layer), data_to_hash[i]);
         });
     }
     assert_eq!(output_values_verifier, output_values_prover);
@@ -282,7 +290,7 @@ fn test_prove_poseidons() {
         output_values_verifier.as_slice(),
         &output_layer
             .iter()
-            .map(|layer| PFPacking::<EF>::unpack_slice(&layer)
+            .map(|layer| PFPacking::<EF>::unpack_slice(layer)
                 .evaluate(&MultilinearPoint(claim_point.clone())))
             .collect::<Vec<_>>()
     );
