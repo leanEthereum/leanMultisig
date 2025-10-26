@@ -52,7 +52,7 @@ pub fn verify_execution(
 
     if log_n_cycles > 32
         || n_poseidons_16 > 1 << 32
-        || n_compressions_16 > n_poseidons_16
+        || n_compressions_16 > n_poseidons_16.next_power_of_two()
         || n_poseidons_24 > 1 << 32
         || n_dot_products > 1 << 32
         || n_rows_table_dot_products > 1 << 32
@@ -191,9 +191,11 @@ pub fn verify_execution(
         p16_grand_product_evals_on_indexes_a,
         p16_grand_product_evals_on_indexes_b,
         p16_grand_product_evals_on_indexes_res,
-    ] = verifier_state.next_extension_scalars_const()?;
-    let p16_grand_product_evals_on_compression =
-        mle_of_zeros_then_ones(n_compressions_16, &grand_product_p16_statement.point);
+    ] = verifier_state.next_extension_scalars_const().unwrap();
+    let p16_grand_product_evals_on_compression = mle_of_zeros_then_ones(
+        n_poseidons_16.next_power_of_two() - n_compressions_16,
+        &grand_product_p16_statement.point,
+    );
 
     if grand_product_challenge_global
         + finger_print(
