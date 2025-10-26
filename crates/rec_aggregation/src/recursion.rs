@@ -189,7 +189,7 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
         &bytecode,
         (&public_input, &[]),
         1 << 20,
-        (false, true),
+        (false, false),
         (&vec![], &vec![]),
     )
     .no_vec_runtime_memory;

@@ -67,7 +67,7 @@ fn benchmark_poseidon_chain() {
         &bytecode,
         (&public_input, &private_input),
         1 << (3 + LOG_CHAIN_LENGTH),
-        (false, true),
+        (false, false),
         (&vec![], &vec![]),
     )
     .no_vec_runtime_memory;
