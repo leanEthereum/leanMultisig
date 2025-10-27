@@ -1404,7 +1404,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#61c58fc683faa20bf3e4ac6d5611705f9db3806d"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#57c8d12015260a6aca706a021364225e5ebdd636"
 dependencies = [
  "itertools 0.14.0",
  "multilinear-toolkit",
