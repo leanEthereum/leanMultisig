@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from matplotlib.ticker import ScalarFormatter, LogLocator
 from datetime import datetime, timedelta
 
 # uv run python main.py
@@ -16,7 +17,7 @@ plt.rcParams.update({
 })
 
 
-def create_duration_graph(data, target=None, target_label=None, title="", y_legend="", file="", label1="Series 1", label2=None):
+def create_duration_graph(data, target=None, target_label=None, title="", y_legend="", file="", label1="Series 1", label2=None, log_scale=False):
     dates = []
     values1 = []
     values2 = []
@@ -77,15 +78,32 @@ def create_duration_graph(data, target=None, target_label=None, title="", y_lege
 
     ax.set_ylabel(y_legend, fontsize=12)
     ax.set_title(title, fontsize=16, pad=15)
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.3, which='both')  # Grid for both major and minor ticks
     ax.legend()
 
-    # Adjust y-limit to accommodate both curves
-    if all_values:
-        max_value = max(all_values)
-        if target is not None:
-            max_value = max(max_value, target)
-        ax.set_ylim(0, max_value * 1.1)
+    # Set log scale if requested
+    if log_scale:
+        ax.set_yscale('log')
+        
+        # Set locators for major and minor ticks
+        ax.yaxis.set_major_locator(LogLocator(base=10.0, numticks=15))
+        ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=range(1, 10), numticks=100))
+        
+        # Format labels
+        ax.yaxis.set_major_formatter(ScalarFormatter())
+        ax.yaxis.set_minor_formatter(ScalarFormatter())
+        ax.yaxis.get_major_formatter().set_scientific(False)
+        ax.yaxis.get_minor_formatter().set_scientific(False)
+        
+        # Show minor tick labels
+        ax.tick_params(axis='y', which='minor', labelsize=10)
+    else:
+        # Adjust y-limit to accommodate both curves (only for linear scale)
+        if all_values:
+            max_value = max(all_values)
+            if target is not None:
+                max_value = max(max_value, target)
+            ax.set_ylim(0, max_value * 1.1)
 
     plt.tight_layout()
     plt.savefig(f'graphs/{file}.svg', format='svg', bbox_inches='tight')
@@ -112,7 +130,8 @@ if __name__ == "__main__":
         y_legend="Poseidons proven / s",
         file="raw_poseidons",
         label1="i9-12900H",
-        label2="mac m4 max"
+        label2="mac m4 max",
+        log_scale=False
     )
 
     create_duration_graph(
@@ -132,11 +151,12 @@ if __name__ == "__main__":
         ],
         target=0.1,
         target_label="Target (0.1 s)",
-        title="Recursive WHIR opening",
+        title="Recursive WHIR opening (log scale)",
         y_legend="Proving time (s)",
         file="recursive_whir_opening",
         label1="i9-12900H",
-        label2="mac m4 max"
+        label2="mac m4 max",
+        log_scale=True
     )
 
     create_duration_graph(
