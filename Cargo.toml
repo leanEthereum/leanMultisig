@@ -55,6 +55,7 @@ poseidon_circuit = { path = "crates/poseidon_circuit" }
 
 # External
 thiserror = "2.0"
+clap = { version = "4.3.10", features = ["derive"] }
 rand = "0.9.2"
 sha3 = "0.10.8"
 rayon = "1.5.1"
@@ -85,23 +86,9 @@ whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "lean-mult
 multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
 
 [dependencies]
-air.workspace = true
+clap.workspace = true
+rec_aggregation.workspace = true
 poseidon_circuit.workspace = true
-p3-field.workspace = true
-p3-koala-bear.workspace = true
-p3-poseidon2.workspace = true
-rand.workspace = true
-p3-poseidon2-air.workspace = true
-p3-matrix.workspace = true
-p3-challenger.workspace = true
-whir-p3.workspace = true
-p3-uni-stark.workspace = true
-utils.workspace = true
-p3-util.workspace = true
-packed_pcs.workspace = true
-tracing.workspace = true
-p3-air.workspace = true
-multilinear-toolkit.workspace = true
 
 # [patch."https://github.com/TomWambsgans/Plonky3.git"]
 # p3-koala-bear = { path = "../zk/Plonky3/koala-bear" }
@@ -122,17 +109,5 @@ multilinear-toolkit.workspace = true
 # [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
 # multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
 
-[dev-dependencies]
-criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
-rec_aggregation.workspace = true
-
 [profile.release]
 lto = "thin"
-
-[[bench]]
-name = "recursion"
-harness = false
-
-[[bench]]
-name = "xmss"
-harness = false

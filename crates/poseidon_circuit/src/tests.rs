@@ -1,5 +1,3 @@
-#![cfg_attr(not(test), allow(unused_crate_dependencies))]
-
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use packed_pcs::{
@@ -28,15 +26,17 @@ const WIDTH: usize = 16;
 
 const UNIVARIATE_SKIPS: usize = 3;
 const N_COMMITED_CUBES: usize = 16;
-const COMPRESS: bool = false;
 const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 
 #[test]
-fn test_prove_poseidons() {
+fn test_poseidon_benchmark() {
+    run_poseidon_benchmark(15, true);
+    run_poseidon_benchmark(15, false);
+}
+
+pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
     init_tracing();
     precompute_dft_twiddles::<F>(1 << 24);
-
-    let log_n_poseidons = 20;
 
     let whir_config_builder = WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 4),
@@ -52,7 +52,7 @@ fn test_prove_poseidons() {
 
     let mut rng = StdRng::seed_from_u64(0);
     let n_poseidons = 1 << log_n_poseidons;
-    let n_compressions = if COMPRESS { n_poseidons / 3 } else { 0 };
+    let n_compressions = if compress { n_poseidons / 3 } else { 0 };
 
     let perm_inputs = (0..n_poseidons)
         .map(|_| rng.random())
@@ -63,7 +63,7 @@ fn test_prove_poseidons() {
         array::from_fn(|i| PFPacking::<EF>::pack_slice(&input[i]).to_vec());
 
     let layers = PoseidonGKRLayers::<WIDTH, N_COMMITED_CUBES>::build(
-        COMPRESS.then_some(COMPRESSION_OUTPUT_WIDTH),
+        compress.then_some(COMPRESSION_OUTPUT_WIDTH),
     );
 
     let default_cubes = default_cube_layers::<F, WIDTH, N_COMMITED_CUBES>(&layers);
@@ -91,7 +91,7 @@ fn test_prove_poseidons() {
         let witness = generate_poseidon_witness::<FPacking<F>, WIDTH, N_COMMITED_CUBES>(
             input_packed,
             &layers,
-            if COMPRESS {
+            if compress {
                 Some((
                     n_compressions,
                     PFPacking::<F>::pack_slice(
@@ -201,7 +201,7 @@ fn test_prove_poseidons() {
             &output_claim_point,
             &layers,
             UNIVARIATE_SKIPS,
-            if COMPRESS { Some(n_compressions) } else { None },
+            if compress { Some(n_compressions) } else { None },
         );
 
         // PCS verification
@@ -257,7 +257,7 @@ fn test_prove_poseidons() {
     let plaintext_duration = plaintext_time.elapsed();
 
     // sanity check: ensure the plaintext poseidons matches the last GKR layer:
-    if COMPRESS {
+    if compress {
         output_layer
             .iter()
             .enumerate()

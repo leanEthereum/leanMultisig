@@ -15,7 +15,7 @@ pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     mut claim_point: Vec<EF>,
     univariate_skips: usize,
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
-) -> GKRPoseidonResult<WIDTH, N_COMMITED_CUBES>
+) -> GKRPoseidonResult
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
@@ -154,13 +154,13 @@ where
     );
 
     GKRPoseidonResult {
-        output_values: output_claims.try_into().unwrap(),
+        output_values: output_claims,
         input_statements,
         cubes_statements,
     }
 }
 
-// #[instrument(skip_all)]
+#[instrument(skip_all)]
 fn prove_gkr_round<
     SC: SumcheckComputation<F, EF>
         + SumcheckComputation<EF, EF>
@@ -205,7 +205,7 @@ fn prove_gkr_round<
     (sumcheck_point.0, sumcheck_inner_evals)
 }
 
-// #[instrument(skip_all)]
+#[instrument(skip_all)]
 fn prove_batch_internal_round<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     input_layers: &[Vec<PFPacking<EF>>],
@@ -272,12 +272,12 @@ where
     (sumcheck_point.0, sumcheck_inner_evals)
 }
 
-fn inner_evals_on_commited_columns<const N: usize>(
+fn inner_evals_on_commited_columns(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     point: &[EF],
     univariate_skips: usize,
-    columns: &[Vec<PFPacking<EF>>; N],
-) -> (MultilinearPoint<EF>, [EF; N]) {
+    columns: &[Vec<PFPacking<EF>>],
+) -> (MultilinearPoint<EF>, Vec<EF>) {
     let eq_mle = eval_eq_packed(&point[1..]);
     let inner_evals = columns
         .par_iter()
@@ -304,5 +304,5 @@ fn inner_evals_on_commited_columns<const N: usize>(
         values_to_prove
             .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
-    (point_to_prove, values_to_prove.try_into().unwrap())
+    (point_to_prove, values_to_prove)
 }

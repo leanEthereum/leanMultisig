@@ -308,10 +308,10 @@ impl SumcheckComputationPacked<EF> for DotProductFootprint {
 
 pub fn get_poseidon_lookup_statements(
     (log_n_p16, log_n_p24): (usize, usize),
-    (p16_input_point, p16_input_evals): &(MultilinearPoint<EF>, [EF; 16]),
-    (p16_output_point, p16_output_evals): &(MultilinearPoint<EF>, [EF; 16]),
-    (p24_input_point, p24_input_evals): &(MultilinearPoint<EF>, [EF; 24]),
-    (p24_output_point, p24_output_evals): &(MultilinearPoint<EF>, [EF; 24]),
+    (p16_input_point, p16_input_evals): &(MultilinearPoint<EF>, Vec<EF>),
+    (p16_output_point, p16_output_evals): &(MultilinearPoint<EF>, Vec<EF>),
+    (p24_input_point, p24_input_evals): &(MultilinearPoint<EF>, Vec<EF>),
+    (p24_output_point, p24_output_evals): &(MultilinearPoint<EF>, Vec<EF>),
     memory_folding_challenges: &MultilinearPoint<EF>,
 ) -> Vec<Evaluation<EF>> {
     let p16_folded_eval_addr_a = (&p16_input_evals[..8]).evaluate(memory_folding_challenges);

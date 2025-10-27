@@ -45,4 +45,5 @@ pub struct ExecutionResult {
     pub poseidons_24: Vec<WitnessPoseidon24>,
     pub dot_products: Vec<WitnessDotProduct>,
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
+    pub summary: String,
 }

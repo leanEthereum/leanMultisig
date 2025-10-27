@@ -4,21 +4,51 @@ from datetime import datetime, timedelta
 
 # uv run python main.py
 
-N_DAYS_SHOWN = 60
+N_DAYS_SHOWN = 30
 
-def create_duration_graph(data, target, target_label, title, y_legend, file):
+plt.rcParams.update({
+    'font.size': 12,           # Base font size
+    'axes.titlesize': 16,      # Title font size
+    'axes.labelsize': 12,      # X and Y label font size
+    'xtick.labelsize': 12,     # X tick label font size
+    'ytick.labelsize': 12,     # Y tick label font size
+    'legend.fontsize': 12,     # Legend font size
+})
+
+
+def create_duration_graph(data, target=None, target_label=None, title="", y_legend="", file="", label1="Series 1", label2=None):
     dates = []
-    values = []
+    values1 = []
+    values2 = []
 
-    for day, duration in data:
-        dates.append(datetime.strptime(day, '%Y-%m-%d'))
-        values.append(duration)
+    # Check if data contains triplets or pairs
+    has_second_curve = len(data[0]) == 3 if data else False
+
+    for item in data:
+        if has_second_curve:
+            day, perf1, perf2 = item
+            dates.append(datetime.strptime(day, '%Y-%m-%d'))
+            values1.append(perf1)
+            values2.append(perf2)
+        else:
+            day, perf1 = item
+            dates.append(datetime.strptime(day, '%Y-%m-%d'))
+            values1.append(perf1)
 
     color = '#2E86AB'
+    color2 = '#A23B72'  # Different color for second curve
 
-    _, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(dates, values, marker='o', linewidth=2,
-            markersize=7, color=color)
+    _, ax = plt.subplots(figsize=(8, 4.8))
+    ax.plot(dates, values1, marker='o', linewidth=2,
+            markersize=7, color=color, label=label1)
+
+    # Plot second curve if it exists
+    if has_second_curve and label2 is not None:
+        ax.plot(dates, values2, marker='s', linewidth=2,
+                markersize=7, color=color2, label=label2)
+        all_values = values1 + values2
+    else:
+        all_values = values1
 
     min_date = min(dates)
     max_date = max(dates)
@@ -32,15 +62,20 @@ def create_duration_graph(data, target, target_label, title, y_legend, file):
 
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=50, ha='right')
 
-    ax.axhline(y=target, color=color, linestyle='--',
-               linewidth=2, label=target_label)
+    if target is not None and target_label is not None:
+        ax.axhline(y=target, color=color, linestyle='--',
+                   linewidth=2, label=target_label)
 
-    ax.set_ylabel(y_legend, fontsize=12)
-    ax.set_title(title, fontsize=16, pad=15)
+    ax.set_ylabel(y_legend)
+    ax.set_title(title, pad=15)
     ax.grid(True, alpha=0.3)
     ax.legend()
 
-    ax.set_ylim(0, max(max(values), target) * 1.1)
+    # Adjust y-limit to accommodate both curves
+    max_value = max(all_values)
+    if target is not None:
+        max_value = max(max_value, target)
+    ax.set_ylim(0, max_value * 1.1)
 
     plt.tight_layout()
     plt.savefig(f'graphs/{file}.svg', format='svg', bbox_inches='tight')
@@ -48,60 +83,44 @@ def create_duration_graph(data, target, target_label, title, y_legend, file):
 
 if __name__ == "__main__":
 
-    create_duration_graph(data=[
-        ('2025-08-27', 85000),
-        ('2025-08-30', 95000),
-        ('2025-09-09', 108000),
-        ('2025-09-14', 108000),
-        ('2025-09-28', 125000),
-        ('2025-10-01', 185000),
-        ('2025-10-12', 195000),
-        ('2025-10-13', 205000),
-        ('2025-10-18', 210000),
-    ], target=300_000, target_label="Target (300.000 Poseidon2 / s)", title="Raw Poseidon2", y_legend="Poseidons proven / s", file="raw_poseidons")
+    create_duration_graph(
+        data=[
+            ('2025-10-26', 230_000, 620_000),
+            ('2025-10-27', 610_000, 1_250_000),
+        ],
+        target=1_500_000,
+        target_label="Target (1.5M Poseidon2 / s)",
+        title="Raw Poseidon2",
+        y_legend="Poseidons proven / s",
+        file="raw_poseidons",
+        label1="i9-12900H",
+        label2="mac m4 max"
+    )
 
-    create_duration_graph(data=[
-        ('2025-08-27', 2.7),
-        ('2025-09-07', 1.4),
-        ('2025-09-09', 1.32),
-        ('2025-09-10', 0.970),
-        ('2025-09-14', 0.825),
-        ('2025-09-28', 0.725),
-        ('2025-10-01', 0.685),
-        ('2025-10-03', 0.647),
-        ('2025-10-12', 0.569),
-        ('2025-10-13', 0.521),
-        ('2025-10-18', 0.411),
-    ], target=0.125, target_label="Target (0.125 s)", title="Recursive WHIR opening", y_legend="Proving time (s)", file="recursive_whir_opening")
+    create_duration_graph(
+        data=[
+            ('2025-10-26', 0.411, 0.320),
+            ('2025-10-27', 0.425, 0.330),
+        ],
+        target=0.1,
+        target_label="Target (0.1 s)",
+        title="Recursive WHIR opening",
+        y_legend="Proving time (s)",
+        file="recursive_whir_opening",
+        label1="i9-12900H",
+        label2="mac m4 max"
+    )
 
-    create_duration_graph(data=[
-        ('2025-08-27', 14.2),
-        ('2025-09-02', 13.5),
-        ('2025-09-03', 9.4),
-        ('2025-09-09', 8.02),
-        ('2025-09-10', 6.53),
-        ('2025-09-14', 4.65),
-        ('2025-09-28', 3.63),
-        ('2025-10-01', 2.9),
-        ('2025-10-03', 2.81),
-        ('2025-10-07', 2.59),
-        ('2025-10-12', 2.33),
-        ('2025-10-13', 2.13),
-        ('2025-10-18', 1.96),
-    ], target=0.5, target_label="Target (0.5 s)", title="500 XMSS aggregated: proving time", y_legend="Proving time (s)", file="xmss_aggregated_time")
-
-    create_duration_graph(data=[
-        ('2025-08-27', 14.2 / 0.92),
-        ('2025-09-02', 13.5 / 0.82),
-        ('2025-09-03', 9.4 / 0.82),
-        ('2025-09-09', 8.02 / 0.72),
-        ('2025-09-10', 6.53 / 0.72),
-        ('2025-09-14', 4.65 / 0.72),
-        ('2025-09-28', 3.63 / 0.63),
-        ('2025-10-01', 2.9 / 0.42),
-        ('2025-10-03', 2.81 / 0.42),
-        ('2025-10-07', 2.59 / 0.42),
-        ('2025-10-12', 2.33 / 0.40),
-        ('2025-10-13', 2.13 / 0.38),
-        ('2025-10-18', 1.96 / 0.37),
-    ], target=2.0, target_label="Target (2x)", title="500 XMSS aggregated: zkVM overhead vs raw Poseidons", y_legend="", file="xmss_aggregated_overhead")
+    create_duration_graph(
+        data=[
+            ('2025-10-26', 255, 465),
+            ('2025-10-27', 314, 555),
+        ],
+        target=1000,
+        target_label="Target (1000 XMSS/s)",
+        title="number of XMSS aggregated / s",
+        y_legend="",
+        file="xmss_aggregated",
+        label1="i9-12900H",
+        label2="mac m4 max"
+    )

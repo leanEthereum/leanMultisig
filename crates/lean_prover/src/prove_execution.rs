@@ -29,7 +29,8 @@ pub fn prove_execution(
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
-) -> (Vec<PF<EF>>, usize) {
+) -> (Vec<PF<EF>>, usize, String) {
+    let mut exec_summary = String::new();
     let ExecutionTrace {
         full_trace,
         n_poseidons_16,
@@ -43,15 +44,16 @@ pub fn prove_execution(
         non_zero_memory_size,
         memory, // padded with zeros to next power of two
     } = info_span!("Witness generation").in_scope(|| {
-        let execution_result = info_span!("Executing bytecode").in_scope(|| {
+        let mut execution_result = info_span!("Executing bytecode").in_scope(|| {
             execute_bytecode(
                 bytecode,
                 (public_input, private_input),
                 no_vec_runtime_memory,
-                (vm_profiler, true),
+                vm_profiler,
                 (poseidons_16_precomputed, poseidons_24_precomputed),
             )
         });
+        exec_summary = std::mem::take(&mut execution_result.summary);
         info_span!("Building execution trace")
             .in_scope(|| get_execution_trace(bytecode, execution_result))
     });
@@ -1163,5 +1165,6 @@ pub fn prove_execution(
     (
         prover_state.proof_data().to_vec(),
         prover_state.proof_size(),
+        exec_summary,
     )
 }

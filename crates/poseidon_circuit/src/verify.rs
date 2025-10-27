@@ -11,7 +11,7 @@ pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
     univariate_skips: usize,
     n_compressions: Option<usize>,
-) -> GKRPoseidonResult<WIDTH, N_COMMITED_CUBES>
+) -> GKRPoseidonResult
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
@@ -102,7 +102,7 @@ where
     );
 
     let pcs_point_for_cubes = claim_point.clone();
-    let pcs_evals_for_cubes = claims[WIDTH..].try_into().unwrap();
+    let pcs_evals_for_cubes = claims[WIDTH..].to_vec();
 
     claims = claims[..WIDTH].to_vec();
 
@@ -128,7 +128,7 @@ where
     );
 
     let pcs_point_for_inputs = claim_point.clone();
-    let pcs_evals_for_inputs = claims.try_into().unwrap();
+    let pcs_evals_for_inputs = claims;
 
     let input_statements = verify_inner_evals_on_commited_columns(
         verifier_state,
@@ -145,7 +145,7 @@ where
     );
 
     GKRPoseidonResult {
-        output_values: output_claims.try_into().unwrap(),
+        output_values: output_claims,
         input_statements,
         cubes_statements,
     }
@@ -188,12 +188,12 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
     (sumcheck_postponed_claim.point.0, sumcheck_inner_evals)
 }
 
-fn verify_inner_evals_on_commited_columns<const N: usize>(
+fn verify_inner_evals_on_commited_columns(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     point: &[EF],
-    claimed_evals: &[EF; N],
+    claimed_evals: &[EF],
     selectors: &[DensePolynomial<F>],
-) -> (MultilinearPoint<EF>, [EF; N]) {
+) -> (MultilinearPoint<EF>, Vec<EF>) {
     let univariate_skips = log2_strict_usize(selectors.len());
     let inner_evals_inputs = verifier_state
         .next_extension_scalars_vec(claimed_evals.len() << univariate_skips)
@@ -218,5 +218,5 @@ fn verify_inner_evals_on_commited_columns<const N: usize>(
         values_to_verif
             .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
-    (point_to_verif, values_to_verif.try_into().unwrap())
+    (point_to_verif, values_to_verif)
 }
