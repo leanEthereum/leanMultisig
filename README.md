@@ -51,9 +51,10 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 800
 
 [Trivial encoding](docs/XMSS_trivial_encoding.pdf) (for now).
 
-Overhead versus raw Poseidons: ≈ 10x
 
 ![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated.svg)
+
+![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated_overhead.svg)
 
 ### Proof size
 
