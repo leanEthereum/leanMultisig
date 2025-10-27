@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use lean_compiler::compile_program;
 use lean_prover::prove_execution::prove_execution;
@@ -20,12 +20,7 @@ use whir_p3::{
 
 const NUM_VARIABLES: usize = 25;
 
-struct RecursionBenchStats {
-    proving_time: Duration,
-    proof_size: usize,
-}
-
-fn run_recursion_benchmark() -> RecursionBenchStats {
+pub fn run_whir_recursion_benchmark() {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("recursion_program.lean_lang");
     let mut program_str = std::fs::read_to_string(src_file).unwrap();
     let recursion_config_builder = WhirConfigBuilder {
@@ -189,14 +184,14 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
         &bytecode,
         (&public_input, &[]),
         1 << 20,
-        (false, false),
+        false,
         (&vec![], &vec![]),
     )
     .no_vec_runtime_memory;
 
     let time = Instant::now();
 
-    let (proof_data, proof_size) = prove_execution(
+    let (proof_data, proof_size, summary) = prove_execution(
         &bytecode,
         (&public_input, &[]),
         whir_config_builder(),
@@ -206,23 +201,16 @@ fn run_recursion_benchmark() -> RecursionBenchStats {
     );
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
-    RecursionBenchStats {
-        proving_time,
-        proof_size,
-    }
-}
 
-pub fn bench_recursion() -> Duration {
-    run_recursion_benchmark().proving_time
+    println!("{}", summary);
+    println!(
+        "WHIR recursion, proving time: {} ms, proof size: {} KiB (not optimized)",
+        proving_time.as_millis(),
+        proof_size * F::bits() / (8 * 1024)
+    );
 }
 
 #[test]
 fn test_whir_recursion() {
-    use p3_field::Field;
-    let stats = run_recursion_benchmark();
-    println!(
-        "\nWHIR recursion, proving time: {:?}, proof size: {} KiB (not optimized)",
-        stats.proving_time,
-        stats.proof_size * F::bits() / (8 * 1024)
-    );
+    run_whir_recursion_benchmark();
 }

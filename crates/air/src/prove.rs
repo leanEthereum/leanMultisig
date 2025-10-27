@@ -9,7 +9,7 @@ use utils::{
     FSProver, add_multilinears_inplace, fold_multilinear_chunks, multilinears_linear_combination,
 };
 
-use crate::{NormalAir, PackedAir};
+use crate::MyAir;
 use crate::{
     uni_skip_utils::{matrix_down_folded, matrix_up_folded},
     utils::{column_down, column_up, columns_up_and_down},
@@ -28,12 +28,11 @@ fn prove_air<
     'a,
     WF: ExtensionField<PF<EF>>, // witness field
     EF: ExtensionField<PF<EF>> + ExtensionField<WF>,
-    A: NormalAir<EF> + 'static,
-    AP: PackedAir<EF>,
+    A: MyAir<EF> + 'static,
 >(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
-    table: &AirTable<EF, A, AP>,
+    table: &AirTable<EF, A>,
     witness: &[&'a [WF]],
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
     let n_rows = witness[0].len();
@@ -76,11 +75,10 @@ fn prove_air<
     let columns_for_zero_check_packed = columns_for_zero_check.by_ref().pack();
 
     let (outer_sumcheck_challenge, inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-        sumcheck_prove::<_, _, _, _>(
+        sumcheck_prove(
             univariate_skips,
             columns_for_zero_check_packed,
             &table.air,
-            &table.air_packed,
             &constraints_batching_scalars,
             Some((zerocheck_challenges, None)),
             true,
@@ -100,18 +98,11 @@ fn prove_air<
             &outer_sumcheck_challenge,
         )
     } else {
-        open_unstructured_columns(
-            prover_state,
-            univariate_skips,
-            witness,
-            &outer_sumcheck_challenge,
-        )
+        unreachable!()
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF> + 'static, AP: PackedAir<EF>>
-    AirTable<EF, A, AP>
-{
+impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF> + 'static> AirTable<EF, A> {
     #[instrument(name = "air: prove in base", skip_all)]
     pub fn prove_base(
         &self,
@@ -119,7 +110,7 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF> + 'static, AP: PackedAir<EF>>
         univariate_skips: usize,
         witness: &[&[PF<EF>]],
     ) -> (MultilinearPoint<EF>, Vec<EF>) {
-        prove_air::<PF<EF>, EF, A, AP>(prover_state, univariate_skips, self, witness)
+        prove_air::<PF<EF>, EF, A>(prover_state, univariate_skips, self, witness)
     }
 
     #[instrument(name = "air: prove in extension", skip_all)]
@@ -129,53 +120,8 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF> + 'static, AP: PackedAir<EF>>
         univariate_skips: usize,
         witness: &[&[EF]],
     ) -> (MultilinearPoint<EF>, Vec<EF>) {
-        prove_air::<EF, EF, A, AP>(prover_state, univariate_skips, self, witness)
+        prove_air::<EF, EF, A>(prover_state, univariate_skips, self, witness)
     }
-}
-
-#[instrument(skip_all)]
-fn open_unstructured_columns<
-    WF: ExtensionField<PF<EF>>,
-    EF: ExtensionField<PF<EF>> + ExtensionField<WF>,
->(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    univariate_skips: usize,
-    witness: &[&[WF]],
-    outer_sumcheck_challenge: &[EF],
-) -> (MultilinearPoint<EF>, Vec<EF>) {
-    let log_n_rows = log2_strict_usize(witness[0].len());
-
-    let columns_batching_scalars = prover_state.sample_vec(log2_ceil_usize(witness.len()));
-
-    let batched_column = multilinears_linear_combination(
-        witness,
-        &eval_eq(&columns_batching_scalars)[..witness.len()],
-    );
-
-    // TODO opti
-    let sub_evals = fold_multilinear_chunks(
-        &batched_column,
-        &MultilinearPoint(outer_sumcheck_challenge[1..log_n_rows - univariate_skips + 1].to_vec()),
-    );
-
-    prover_state.add_extension_scalars(&sub_evals);
-
-    let epsilons = MultilinearPoint(prover_state.sample_vec(univariate_skips));
-    let common_point = MultilinearPoint(
-        [
-            epsilons.0.clone(),
-            outer_sumcheck_challenge[1..log_n_rows - univariate_skips + 1].to_vec(),
-        ]
-        .concat(),
-    );
-
-    let evaluations_remaining_to_prove = witness
-        .iter()
-        .map(|col| col.evaluate(&common_point))
-        .collect::<Vec<_>>();
-    prover_state.add_extension_scalars(&evaluations_remaining_to_prove);
-
-    (common_point, evaluations_remaining_to_prove)
 }
 
 #[instrument(skip_all)]
@@ -238,10 +184,9 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
     });
 
     let (inner_challenges, _, _) = info_span!("structured columns sumcheck").in_scope(|| {
-        sumcheck_prove::<EF, _, _, _>(
+        sumcheck_prove::<EF, _, _>(
             1,
             inner_mle,
-            &ProductComputation,
             &ProductComputation,
             &[],
             None,

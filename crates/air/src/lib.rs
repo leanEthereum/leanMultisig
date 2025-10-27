@@ -12,38 +12,29 @@ mod uni_skip_utils;
 mod utils;
 mod verify;
 
-pub mod examples;
+#[cfg(test)]
+pub mod tests;
 
-pub trait NormalAir<EF: ExtensionField<PF<EF>>>:
+pub trait MyAir<EF: ExtensionField<PF<EF>>>:
     Air<SymbolicAirBuilder<PF<EF>>>
     + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
     + for<'a> Air<ConstraintFolder<'a, EF, EF>>
     + for<'a> Air<ConstraintChecker<'a, PF<EF>, EF>>
     + for<'a> Air<ConstraintChecker<'a, EF, EF>>
-{
-}
-
-pub trait PackedAir<EF: ExtensionField<PF<EF>>>:
-    for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
+    + for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
     + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>
 {
 }
 
-impl<EF, A> NormalAir<EF> for A
+impl<EF, A> MyAir<EF> for A
 where
     EF: ExtensionField<PF<EF>>,
     A: Air<SymbolicAirBuilder<PF<EF>>>
         + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
         + for<'a> Air<ConstraintFolder<'a, EF, EF>>
         + for<'a> Air<ConstraintChecker<'a, PF<EF>, EF>>
-        + for<'a> Air<ConstraintChecker<'a, EF, EF>>,
-{
-}
-
-impl<EF, A> PackedAir<EF> for A
-where
-    EF: ExtensionField<PF<EF>>,
-    A: for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
+        + for<'a> Air<ConstraintChecker<'a, EF, EF>>
+        + for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
         + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
 {
 }

@@ -1,22 +1,41 @@
-#![cfg_attr(not(test), allow(unused_crate_dependencies))]
+use clap::Parser;
+use poseidon_circuit::tests::run_poseidon_benchmark;
+use rec_aggregation::{
+    recursion::run_whir_recursion_benchmark, xmss_aggregate::run_xmss_benchmark,
+};
 
-use air::examples::prove_poseidon2::{Poseidon2Config, prove_poseidon2};
-use whir_p3::{FoldingFactor, SecurityAssumption};
+#[derive(Parser)]
+enum Cli {
+    #[command(about = "Aggregate XMSS signature")]
+    Xmss {
+        #[arg(long)]
+        n_signatures: usize,
+    },
+    #[command(about = "Run 1 WHIR recursive proof")]
+    Recursion,
+    #[command(about = "Prove validity of Poseidon2 permutations over 16 field elements")]
+    Poseidon {
+        #[arg(long, help = "log2(number of Poseidons)")]
+        log_n_perms: usize,
+    },
+}
 
 fn main() {
-    let config = Poseidon2Config {
-        log_n_poseidons_16: 17,
-        log_n_poseidons_24: 17,
-        univariate_skips: 4,
-        folding_factor: FoldingFactor::new(7, 4),
-        log_inv_rate: 1,
-        soundness_type: SecurityAssumption::CapacityBound,
-        pow_bits: 16,
-        security_level: 128,
-        rs_domain_initial_reduction_factor: 5,
-        max_num_variables_to_send_coeffs: 7,
-        display_logs: true,
-    };
-    let benchmark = prove_poseidon2(&config);
-    println!("\n{benchmark}");
+    let cli = Cli::parse();
+
+    match cli {
+        Cli::Xmss {
+            n_signatures: count,
+        } => {
+            run_xmss_benchmark(count);
+        }
+        Cli::Recursion => {
+            run_whir_recursion_benchmark();
+        }
+        Cli::Poseidon {
+            log_n_perms: log_count,
+        } => {
+            run_poseidon_benchmark(log_count, false);
+        }
+    }
 }

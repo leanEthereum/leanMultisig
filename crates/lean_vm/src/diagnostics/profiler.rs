@@ -57,8 +57,9 @@ pub(crate) fn profiling_report(
 
     let mut report = String::new();
 
-    report
-        .push_str("╔═════════════════════════════════════════════════════════════════════════╗\n");
+    report.push_str(
+        "\n╔═════════════════════════════════════════════════════════════════════════╗\n",
+    );
     report
         .push_str("║                              PROFILING REPORT                           ║\n");
     report.push_str(

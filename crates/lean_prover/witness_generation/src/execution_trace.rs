@@ -17,6 +17,7 @@ pub struct ExecutionTrace {
     pub full_trace: [Vec<F>; N_TOTAL_COLUMNS],
     pub n_poseidons_16: usize,
     pub n_poseidons_24: usize,
+    pub n_compressions_16: usize,
     pub poseidons_16: Vec<WitnessPoseidon16>, // padded with empty poseidons
     pub poseidons_24: Vec<WitnessPoseidon24>, // padded with empty poseidons
     pub dot_products: Vec<WitnessDotProduct>,
@@ -116,10 +117,14 @@ pub fn get_execution_trace(
         n_poseidons_24.next_power_of_two() - n_poseidons_24
     ]);
 
+    let n_compressions_16;
+    (poseidons_16, n_compressions_16) = put_poseidon16_compressions_at_the_end(&poseidons_16); // TODO avoid reallocation
+
     ExecutionTrace {
         full_trace: trace,
         n_poseidons_16,
         n_poseidons_24,
+        n_compressions_16,
         poseidons_16,
         poseidons_24,
         dot_products,
@@ -128,4 +133,21 @@ pub fn get_execution_trace(
         non_zero_memory_size: memory.0.len(),
         memory: memory_padded,
     }
+}
+
+fn put_poseidon16_compressions_at_the_end(
+    poseidons_16: &[WitnessPoseidon16],
+) -> (Vec<WitnessPoseidon16>, usize) {
+    let no_compression = poseidons_16
+        .par_iter()
+        .filter(|p| !p.is_compression)
+        .cloned()
+        .collect::<Vec<_>>();
+    let compression = poseidons_16
+        .par_iter()
+        .filter(|p| p.is_compression)
+        .cloned()
+        .collect::<Vec<_>>();
+    let n_compressions = compression.len();
+    ([no_compression, compression].concat(), n_compressions)
 }

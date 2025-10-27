@@ -9,19 +9,18 @@ use p3_uni_stark::get_symbolic_constraints;
 use tracing::instrument;
 use utils::ConstraintChecker;
 
-use crate::{NormalAir, PackedAir};
+use crate::MyAir;
 
 #[derive(Debug)]
-pub struct AirTable<EF: Field, A, AP> {
+pub struct AirTable<EF: Field, A> {
     pub air: A,
-    pub air_packed: AP,
     pub n_constraints: usize,
 
     _phantom: std::marker::PhantomData<EF>,
 }
 
-impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<EF, A, AP> {
-    pub fn new(air: A, air_packed: AP) -> Self {
+impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
+    pub fn new(air: A) -> Self {
         let symbolic_constraints = get_symbolic_constraints(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
         let constraint_degree =
@@ -29,7 +28,6 @@ impl<EF: ExtensionField<PF<EF>>, A: NormalAir<EF>, AP: PackedAir<EF>> AirTable<E
         assert_eq!(constraint_degree, <A as BaseAir<PF<EF>>>::degree(&air));
         Self {
             air,
-            air_packed,
             n_constraints,
             _phantom: std::marker::PhantomData,
         }
