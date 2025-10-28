@@ -166,10 +166,9 @@ where
             vec![u0_folded[0], u1_folded[0], u2_folded[0], u3_folded[0]],
         )
     } else {
-        let (mut sc_point, inner_evals, _) = sumcheck_prove::<EF, _, _, _>(
+        let (mut sc_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
             1,
             MleGroupRef::Extension(vec![u0_folded, u1_folded, u2_folded, u3_folded]),
-            &GKRQuotientComputation { u4_const, u5_const },
             &GKRQuotientComputation { u4_const, u5_const },
             &[],
             Some((claim.point.0[1..].to_vec(), None)),
@@ -409,7 +408,7 @@ where
         .map(|(&l, &r)| c_packed - l + sumcheck_challenge_2_packed * (l - r))
         .collect();
 
-    let (mut sc_point, quarter_evals, _) = sumcheck_fold_and_prove::<EF, _, _, _>(
+    let (mut sc_point, quarter_evals, _) = sumcheck_fold_and_prove::<EF, _, _>(
         1,
         MleGroupOwned::ExtensionPacked(vec![
             u0_folded_packed,
@@ -418,7 +417,6 @@ where
             u3_folded_packed,
         ]),
         None,
-        &GKRQuotientComputation { u4_const, u5_const },
         &GKRQuotientComputation { u4_const, u5_const },
         &[],
         Some((
@@ -620,7 +618,7 @@ where
         + claim.point[1] * sumcheck_challenge_2)
         / (EF::ONE - claim.point.get(2).copied().unwrap_or_default());
 
-    let (mut sc_point, quarter_evals, _) = sumcheck_fold_and_prove::<EF, _, _, _>(
+    let (mut sc_point, quarter_evals, _) = sumcheck_fold_and_prove::<EF, _, _>(
         1,
         MleGroupRef::ExtensionPacked(vec![
             u0_folded_packed,
@@ -629,7 +627,6 @@ where
             u3_folded_packed,
         ]),
         Some(vec![EF::ONE - sumcheck_challenge_2, sumcheck_challenge_2]),
-        &GKRQuotientComputation { u4_const, u5_const },
         &GKRQuotientComputation { u4_const, u5_const },
         &[],
         Some((

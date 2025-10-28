@@ -1,6 +1,9 @@
 //! Poseidon2 hash witness for 24-element input
 
-use crate::core::{F, POSEIDON_24_NULL_HASH_PTR, ZERO_VEC_PTR};
+use crate::{
+    PoseidonWitnessTrait,
+    core::{F, POSEIDON_24_NULL_HASH_PTR, ZERO_VEC_PTR},
+};
 use p3_field::PrimeCharacteristicRing;
 
 /// Witness data for Poseidon2 over 24 field elements
@@ -16,6 +19,13 @@ pub struct WitnessPoseidon24 {
     pub addr_output: usize,
     /// Complete 24-element input to the hash function
     pub input: [F; 24],
+}
+
+impl PoseidonWitnessTrait<24> for WitnessPoseidon24 {
+    #[inline(always)]
+    fn inputs(&self) -> &[F; 24] {
+        &self.input
+    }
 }
 
 impl WitnessPoseidon24 {

@@ -208,9 +208,10 @@ fn run_program() -> (Bytecode, ExecutionResult) {
         &bytecode,
         (&public_input, &[]),
         1 << 20,
-        (false, true),
+        false,
         (&vec![], &vec![]),
     );
+    println!("{}", result.summary);
     (bytecode, result)
 }
 

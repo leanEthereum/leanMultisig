@@ -119,10 +119,9 @@ where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    let (sc_point, inner_evals, _) = sumcheck_prove::<EF, _, _, _>(
+    let (sc_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
         1,
         up_layer,
-        &ProductComputation,
         &ProductComputation,
         &[],
         Some((claim.point.0.clone(), None)),

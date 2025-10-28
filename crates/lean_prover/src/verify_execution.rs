@@ -5,13 +5,14 @@ use lean_vm::*;
 use lookup::verify_gkr_product;
 use lookup::verify_logup_star;
 use multilinear_toolkit::prelude::*;
-use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use packed_pcs::*;
+use poseidon_circuit::PoseidonGKRLayers;
+use poseidon_circuit::verify_poseidon_gkr;
+use utils::ToUsize;
 use utils::dot_product_with_base;
-use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use utils::{build_challenger, padd_with_zero_to_next_power_of_two};
 use vm_air::*;
 use whir_p3::WhirConfig;
@@ -26,25 +27,23 @@ pub fn verify_execution(
 ) -> Result<(), ProofError> {
     let mut verifier_state = VerifierState::new(proof_data, build_challenger());
 
-    let exec_table = AirTable::<EF, _, _>::new(VMAir, VMAir);
-    let p16_air = build_poseidon_16_air();
-    let p24_air = build_poseidon_24_air();
-    let p16_air_packed = build_poseidon_16_air_packed();
-    let p24_air_packed = build_poseidon_24_air_packed();
-    let p16_table = AirTable::<EF, _, _>::new(p16_air.clone(), p16_air_packed);
-    let p24_table = AirTable::<EF, _, _>::new(p24_air.clone(), p24_air_packed);
-    let dot_product_table = AirTable::<EF, _, _>::new(DotProductAir, DotProductAir);
+    let exec_table = AirTable::<EF, _>::new(VMAir);
+    let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
+    let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
+
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
 
     let [
         log_n_cycles,
         n_poseidons_16,
+        n_compressions_16,
         n_poseidons_24,
         n_dot_products,
         n_rows_table_dot_products,
         private_memory_len,
         n_vm_multilinear_evals,
     ] = verifier_state
-        .next_base_scalars_const::<7>()?
+        .next_base_scalars_const::<8>()?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>()
@@ -53,6 +52,7 @@ pub fn verify_execution(
 
     if log_n_cycles > 32
         || n_poseidons_16 > 1 << 32
+        || n_compressions_16 > n_poseidons_16.next_power_of_two()
         || n_poseidons_24 > 1 << 32
         || n_dot_products > 1 << 32
         || n_rows_table_dot_products > 1 << 32
@@ -112,6 +112,7 @@ pub fn verify_execution(
         bytecode.ending_pc,
         (n_poseidons_16, n_poseidons_24),
         n_rows_table_dot_products,
+        (&p16_gkr_layers, &p24_gkr_layers),
     );
 
     let parsed_commitment_base = packed_pcs_parse_commitment(
@@ -189,8 +190,12 @@ pub fn verify_execution(
         p16_grand_product_evals_on_indexes_a,
         p16_grand_product_evals_on_indexes_b,
         p16_grand_product_evals_on_indexes_res,
-        p16_grand_product_evals_on_compression,
-    ] = verifier_state.next_extension_scalars_const()?;
+    ] = verifier_state.next_extension_scalars_const().unwrap();
+    let p16_grand_product_evals_on_compression = mle_of_zeros_then_ones(
+        n_poseidons_16.next_power_of_two() - n_compressions_16,
+        &grand_product_p16_statement.point,
+    );
+
     if grand_product_challenge_global
         + finger_print(
             &[
@@ -213,6 +218,10 @@ pub fn verify_execution(
     let mut p16_indexes_b_statements = vec![Evaluation::new(
         grand_product_p16_statement.point.clone(),
         p16_grand_product_evals_on_indexes_b,
+    )];
+    let mut p16_indexes_res_statements = vec![Evaluation::new(
+        grand_product_p16_statement.point.clone(),
+        p16_grand_product_evals_on_indexes_res,
     )];
 
     let [
@@ -340,29 +349,47 @@ pub fn verify_execution(
     let (dot_product_air_point, dot_product_evals_to_verify) =
         dot_product_table.verify(&mut verifier_state, 1, table_dot_products_log_n_rows)?;
 
-    let (p16_air_point, p16_evals_to_verify) =
-        p16_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_p16)?;
-    let (p24_air_point, p24_evals_to_verify) =
-        p24_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_p24)?;
-
-    let mut p16_statements = p16_evals_to_verify[16..p16_air.width() - 16]
+    let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
+    let gkr_16 = verify_poseidon_gkr(
+        &mut verifier_state,
+        log_n_p16,
+        &random_point_p16,
+        &p16_gkr_layers,
+        UNIVARIATE_SKIPS,
+        Some(n_compressions_16),
+    );
+    let p16_cubes_statements = gkr_16
+        .cubes_statements
+        .1
         .iter()
-        .map(|&e| vec![Evaluation::new(p16_air_point.clone(), e)])
+        .map(|&e| {
+            vec![Evaluation {
+                point: gkr_16.cubes_statements.0.clone(),
+                value: e,
+            }]
+        })
         .collect::<Vec<_>>();
-    p16_statements[0].push(Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_compression,
-    ));
 
-    p16_statements[1].push(Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_res,
-    ));
-
-    let p24_statements = p24_evals_to_verify[24..p24_air.width() - 8]
+    let random_point_p24 = MultilinearPoint(verifier_state.sample_vec(log_n_p24));
+    let gkr_24 = verify_poseidon_gkr(
+        &mut verifier_state,
+        log_n_p24,
+        &random_point_p24,
+        &p24_gkr_layers,
+        UNIVARIATE_SKIPS,
+        None,
+    );
+    let p24_cubes_statements = gkr_24
+        .cubes_statements
+        .1
         .iter()
-        .map(|&e| vec![Evaluation::new(p24_air_point.clone(), e)])
-        .collect();
+        .map(|&e| {
+            vec![Evaluation {
+                point: gkr_24.cubes_statements.0.clone(),
+                value: e,
+            }]
+        })
+        .collect::<Vec<_>>();
 
     let poseidon_logup_star_alpha = verifier_state.sample();
     let memory_folding_challenges = MultilinearPoint(verifier_state.sample_vec(LOG_VECTOR_LEN));
@@ -512,10 +539,11 @@ pub fn verify_execution(
     .unwrap();
 
     let poseidon_lookup_statements = get_poseidon_lookup_statements(
-        (p16_air.width(), p24_air.width()),
         (log_n_p16, log_n_p24),
-        (&p16_evals_to_verify, &p24_evals_to_verify),
-        (&p16_air_point, &p24_air_point),
+        &gkr_16.input_statements,
+        &(random_point_p16.clone(), gkr_16.output_values),
+        &gkr_24.input_statements,
+        &(random_point_p24.clone(), gkr_24.output_values),
         &memory_folding_challenges,
     );
 
@@ -567,11 +595,30 @@ pub fn verify_execution(
             &poseidon_logup_star_statements.on_indexes.point,
         );
 
-        let mut inner_values = verifier_state.next_extension_scalars_vec(7)?;
+        let mut inner_values = verifier_state.next_extension_scalars_vec(6)?;
 
-        let (left, right) = p16_statements.split_at_mut(2);
-        let p16_statements_res_1 = &mut left[1];
-        let p16_statements_res_2 = &mut right[0];
+        let (p16_value_index_res_b, sc_eval) = sumcheck_verify_with_univariate_skip(
+            &mut verifier_state,
+            3,
+            log_n_p16,
+            1, // TODO univariate skip
+        )?;
+        let sc_res_index_value = verifier_state.next_extension_scalar()?;
+        p16_indexes_res_statements.push(Evaluation::new(
+            sc_eval.point.clone(),
+            sc_res_index_value - EF::ONE,
+        ));
+
+        if sc_res_index_value
+            * (EF::ONE
+                - mle_of_zeros_then_ones((1 << log_n_p16) - n_compressions_16, &sc_eval.point))
+            * sc_eval.point.eq_poly_outside(&MultilinearPoint(
+                poseidon_logup_star_statements.on_indexes.point[3..].to_vec(),
+            ))
+            != sc_eval.value
+        {
+            return Err(ProofError::InvalidProof);
+        }
 
         add_poseidon_lookup_statements_on_indexes(
             log_n_p16,
@@ -581,8 +628,7 @@ pub fn verify_execution(
             [
                 &mut p16_indexes_a_statements,
                 &mut p16_indexes_b_statements,
-                p16_statements_res_1,
-                p16_statements_res_2,
+                &mut p16_indexes_res_statements,
             ],
             [
                 &mut p24_indexes_a_statements,
@@ -591,6 +637,7 @@ pub fn verify_execution(
             ],
         );
 
+        inner_values.insert(3, p16_value_index_res_b);
         inner_values.insert(5, inner_values[4] + EF::ONE);
 
         for v in &mut inner_values[..4] {
@@ -760,12 +807,13 @@ pub fn verify_execution(
                 ], // exec memory address C
                 p16_indexes_a_statements,
                 p16_indexes_b_statements,
+                p16_indexes_res_statements,
                 p24_indexes_a_statements,
                 p24_indexes_b_statements,
                 p24_indexes_res_statements,
             ],
-            p16_statements,
-            p24_statements,
+            p16_cubes_statements,
+            p24_cubes_statements,
             vec![
                 vec![
                     dot_product_air_statement(0),

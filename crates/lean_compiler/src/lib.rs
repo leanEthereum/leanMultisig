@@ -37,13 +37,15 @@ pub fn compile_and_run(
     profiler: bool,
 ) {
     let bytecode = compile_program(program);
-    execute_bytecode(
+    let summary = execute_bytecode(
         &bytecode,
         (public_input, private_input),
         no_vec_runtime_memory,
-        (profiler, true),
+        profiler,
         (&vec![], &vec![]),
-    );
+    )
+    .summary;
+    println!("{summary}");
 }
 
 #[derive(Debug, Clone, Default)]

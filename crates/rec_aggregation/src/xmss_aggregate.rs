@@ -1,9 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use lean_compiler::*;
 use lean_prover::whir_config_builder;
 use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
+use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
@@ -14,14 +15,7 @@ use xmss::{
 
 const LOG_LIFETIME: usize = 32;
 
-#[derive(Default, Debug)]
-pub struct XmssBenchStats {
-    pub proving_time: Duration,
-    pub proof_size: usize,
-    pub n_xmss: usize,
-}
-
-pub fn run_xmss_benchmark(n_xmss: usize) -> XmssBenchStats {
+pub fn run_xmss_benchmark(n_xmss: usize) {
     // Public input:  message_hash | all_public_keys | bitield
     // Private input: signatures = (randomness | chain_tips | merkle_path)
     let mut program_str = r#"
@@ -267,7 +261,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) -> XmssBenchStats {
         &bytecode,
         (&public_input, &private_input),
         1 << 21,
-        (false, true),
+        false,
         (&vec![], &vec![]),
     )
     .no_vec_runtime_memory;
@@ -278,7 +272,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) -> XmssBenchStats {
     let (poseidons_16_precomputed, poseidons_24_precomputed) =
         precompute_poseidons(&all_public_keys, &all_signatures, &message_hash);
 
-    let (proof_data, proof_size) = prove_execution(
+    let (proof_data, proof_size, summary) = prove_execution(
         &bytecode,
         (&public_input, &private_input),
         whir_config_builder(),
@@ -288,11 +282,14 @@ pub fn run_xmss_benchmark(n_xmss: usize) -> XmssBenchStats {
     );
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
-    XmssBenchStats {
-        proving_time,
-        proof_size,
-        n_xmss,
-    }
+
+    println!("{}", summary);
+    println!(
+        "XMSS aggregation, proving time: {:.3} s ({:.1} XMSS/s), proof size: {} KiB (not optimized)",
+        proving_time.as_secs_f64(),
+        n_xmss as f64 / proving_time.as_secs_f64(),
+        proof_size * F::bits() / (8 * 1024)
+    );
 }
 
 #[instrument(skip_all)]
@@ -319,20 +316,9 @@ fn precompute_poseidons(
 
 #[test]
 fn test_xmss_aggregate() {
-    use p3_field::Field;
-    let n_public_keys: usize = std::env::var("NUM_XMSS_AGGREGATED")
+    let n_xmss: usize = std::env::var("NUM_XMSS_AGGREGATED")
         .unwrap_or("100".to_string())
         .parse()
         .unwrap();
-    let stats = run_xmss_benchmark(n_public_keys);
-    println!(
-        "\nXMSS aggregation (n_signatures = {}, lifetime = 2^{})",
-        stats.n_xmss, 32
-    );
-    println!(
-        "Proving time: {:?} ({:.1} XMSS/s), proof size: {} KiB (not optimized)",
-        stats.proving_time,
-        stats.n_xmss as f64 / stats.proving_time.as_secs_f64(),
-        stats.proof_size * F::bits() / (8 * 1024)
-    );
+    run_xmss_benchmark(n_xmss);
 }
