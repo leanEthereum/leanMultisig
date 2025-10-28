@@ -500,10 +500,7 @@ pub fn prove_execution(
             col,
             dot_product::<EF, _, _>(
                 grand_product_exec_eq_weights.iter().copied(),
-                full_trace[col]
-                    .iter()
-                    .copied()
-                    .map(EF::from),
+                full_trace[col].iter().copied().map(EF::from),
             ),
         );
     }
