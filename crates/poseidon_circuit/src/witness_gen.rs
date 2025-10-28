@@ -47,22 +47,35 @@ where
     output_layers
 }
 
-pub fn apply_cubes<A, const WIDTH: usize>(
+pub fn apply_constants<A, const WIDTH: usize>(
     input_layers: &[Vec<A>; WIDTH],
     constants: &[F; WIDTH],
 ) -> [Vec<A>; WIDTH]
 where
     A: Algebra<F> + Copy + Send + Sync,
 {
-    array::from_fn(|j| cube(&input_layers[j], constants[j]))
+    // TODO parallelize
+    array::from_fn(|j| add_constant(&input_layers[j], constants[j]))
 }
 
-pub fn cube<A>(input_layers: &Vec<A>, constant: F) -> Vec<A>
+pub fn add_constant<A>(input_layers: &Vec<A>, constant: F) -> Vec<A>
 where
     A: Algebra<F> + Copy + Send + Sync,
 {
-    input_layers
-        .par_iter()
-        .map(|&x| (x + constant).cube())
-        .collect()
+    input_layers.par_iter().map(|&x| x + constant).collect()
+}
+
+pub fn apply_cubes<A, const WIDTH: usize>(input_layers: &[Vec<A>; WIDTH]) -> [Vec<A>; WIDTH]
+where
+    A: Algebra<F> + Copy + Send + Sync,
+{
+    // TODO parallelize
+    array::from_fn(|j| cube(&input_layers[j]))
+}
+
+pub fn cube<A>(input_layers: &Vec<A>) -> Vec<A>
+where
+    A: Algebra<F> + Copy + Send + Sync,
+{
+    input_layers.par_iter().map(|&x| x.cube()).collect()
 }

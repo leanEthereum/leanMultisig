@@ -1,10 +1,7 @@
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, QuinticExtensionFieldKB};
 use p3_poseidon2::GenericPoseidon2LinearLayers;
-use packed_pcs::{
-    ColDims, packed_pcs_commit, packed_pcs_global_statements_for_prover,
-    packed_pcs_global_statements_for_verifier, packed_pcs_parse_commitment,
-};
+
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{array, time::Instant};
 use tracing::info_span;
@@ -12,16 +9,15 @@ use utils::{
     build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut,
     poseidon24_permute_mut, transposed_par_iter_mut,
 };
-use whir_p3::{
-    FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles,
-};
+use whir_p3::precompute_dft_twiddles;
 
 use p3_koala_bear::{
     KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL, KOALABEAR_RC16_INTERNAL,
 };
 
 use crate::{
-    GKRPoseidonResult, RoundConstants, apply_cubes, apply_light_matrix, apply_mds_matrix, cube,
+    RoundConstants, add_constant, apply_constants, apply_cubes, apply_light_matrix,
+    apply_mds_matrix, cube,
 };
 
 type F = KoalaBear;
@@ -207,59 +203,62 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
 
         let mut prover_state = build_prover_state::<EF>();
 
-        let mut initial_cubes = vec![];
-        initial_cubes.push(apply_cubes(
+        let mut initial_layers = vec![];
+        initial_layers.push(apply_constants(
             &apply_mds_matrix(&input_packed),
             &constants.initial_full_rounds[0],
         ));
         for constants in &constants.initial_full_rounds[1..] {
-            initial_cubes.push(apply_cubes(
-                &apply_mds_matrix(&initial_cubes.last().unwrap()),
+            initial_layers.push(apply_constants(
+                &apply_mds_matrix(&apply_cubes(&&initial_layers.last().unwrap())),
                 constants,
             ));
         }
 
-        let mut buff = apply_mds_matrix(&initial_cubes.last().unwrap());
+        let mut buff = apply_mds_matrix(&apply_cubes(&initial_layers.last().unwrap()));
 
-        let mut partial_cubes = vec![];
+        let mut partial_layers = vec![];
 
         for constant in constants.partial_rounds {
-            let cubed = cube(&buff[0], constant);
-            partial_cubes.push(cubed.clone());
-            buff[0] = cubed;
+            buff[0] = add_constant(&buff[0], constant);
+            partial_layers.push(buff[0].clone());
+            buff[0] = cube(&buff[0]);
             buff = apply_light_matrix(&buff);
         }
 
-        let mut final_cubes = vec![apply_cubes(&buff, &constants.final_full_rounds[0])];
+        let mut final_layers = vec![apply_constants(&buff, &constants.final_full_rounds[0])];
         for constants in &constants.final_full_rounds[1..] {
-            final_cubes.push(apply_cubes(
-                &apply_mds_matrix(&final_cubes.last().unwrap()),
+            final_layers.push(apply_constants(
+                &apply_mds_matrix(&apply_cubes(final_layers.last().unwrap())),
                 constants,
             ));
         }
 
-        let claim_point = MultilinearPoint(prover_state.sample_vec(log_n_poseidons));
+        let output = apply_mds_matrix(&apply_cubes(final_layers.last().unwrap()));
 
-        // TODO remove
-        let final_output_claims = {
-            let output = apply_mds_matrix(&final_cubes.last().unwrap());
-            output.iter().enumerate().for_each(|(i, layer)| {
-                assert_eq!(PFPacking::<EF>::unpack_slice(layer), expected_output[i]);
-            });
-            let final_output_claims = output
-                .par_iter()
-                .map(|poly| FPacking::<F>::unpack_slice(poly).evaluate(&claim_point))
-                .collect::<Vec<_>>();
-            final_output_claims
-        };
+        for i in 0..WIDTH {
+            // TODO remove
+            assert_eq!(
+                PFPacking::<EF>::unpack_slice(&output[i]),
+                expected_output[i]
+            );
+        }
 
+        let claim_point = prover_state.sample_vec(log_n_poseidons + 1 - univariate_skips);
+
+        let eq_poly = eval_eq(&claim_point[1..]);
         let output_claims: [_; 16] = info_span!("computing output claims")
             .in_scope(|| {
-                final_cubes
-                    .last()
-                    .unwrap()
+                output
                     .par_iter()
-                    .map(|poly| FPacking::<F>::unpack_slice(poly).evaluate(&claim_point))
+                    .map(|poly| {
+                        evaluate_univariate_multilinear::<_, _, _, false>(
+                            FPacking::<F>::unpack_slice(poly),
+                            &claim_point,
+                            &selectors,
+                            Some(&eq_poly),
+                        )
+                    })
                     .collect::<Vec<_>>()
             })
             .try_into()
@@ -267,16 +266,46 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
 
         prover_state.add_extension_scalars(&output_claims);
 
-        assert_eq!(
-            final_output_claims,
-            apply_matrix(&mds_matrix, &output_claims)
+        let mut buff = output_claims;
+        buff = apply_matrix(&inv_mds_matrix, &buff);
+
+        let (prover_point, buff) = prove_parallel_cubic_sumcheck(
+            univariate_skips,
+            final_layers
+                .last()
+                .unwrap()
+                .iter()
+                .map(Vec::as_slice)
+                .collect::<Vec<_>>(),
+            claim_point.clone(),
+            &mut prover_state,
+            buff.to_vec(),
         );
+        let mut buff: [EF; WIDTH] = buff.try_into().unwrap();
 
-        let alpha = prover_state.sample_vec(log2_strict_usize(WIDTH) + 1 - univariate_skips);
+        for (i, &v) in buff.iter().enumerate() {
+            assert_eq!(
+                v,
+                evaluate_univariate_multilinear::<_, _, _, true>(
+                    &PFPacking::<EF>::unpack_slice(&final_layers.last().unwrap()[i]),
+                    &prover_point,
+                    &selectors,
+                    None
+                )
+            );
+        }
 
-        let new_point = [alpha.clone(), claim_point.0].concat();
+        for (i, c) in constants
+            .final_full_rounds
+            .last()
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            buff[i] -= *c;
+        }
 
-        let concatenated_cubes = final_cubes.last().unwrap().concat();
+        let buff = apply_matrix(&inv_mds_matrix, &buff);
 
         // let (sc_point, inner_evals, _) = sumcheck_prove(
         //     univariate_skips,
@@ -478,14 +507,14 @@ mod tests {
     #[test]
     fn test_cube_sumcheck() {
         let univariate_skips = 3;
-        let n_polys = 1;
+        let n_polys = 16;
         let n_vars = 13;
         let selectors = univariate_selectors::<F>(univariate_skips);
 
         let mut rng = StdRng::seed_from_u64(0);
 
         let polys = (0..n_polys)
-            .map(|_| F::zero_vec(1 << n_vars))
+            .map(|_| (0..1 << n_vars).map(|_| rng.random()).collect::<Vec<F>>())
             .collect::<Vec<_>>();
 
         let cubes = polys
@@ -513,7 +542,7 @@ mod tests {
 
         let (prover_point, prover_inner_values) = prove_parallel_cubic_sumcheck(
             univariate_skips,
-            cubes
+            polys
                 .iter()
                 .map(|poly| FPacking::<F>::pack_slice(poly))
                 .collect(),
@@ -537,13 +566,13 @@ mod tests {
 
         for i in 0..n_polys {
             assert_eq!(
-                 evaluate_univariate_multilinear::<_, _, _, true>(
+                evaluate_univariate_multilinear::<_, _, _, true>(
                     &polys[i],
                     &prover_point,
                     &selectors,
                     None,
                 ),
-                prover_inner_values[i].cube()
+                prover_inner_values[i]
             );
         }
     }
