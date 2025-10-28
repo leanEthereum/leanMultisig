@@ -3,13 +3,15 @@ use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, QuinticExt
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use std::{array, time::Instant};
+use std::{array, hash::Hash, time::Instant};
 use tracing::info_span;
 use utils::{
     build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut,
     poseidon24_permute_mut, transposed_par_iter_mut,
 };
-use whir_p3::precompute_dft_twiddles;
+use whir_p3::{
+    FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles,
+};
 
 use p3_koala_bear::{
     KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL, KOALABEAR_RC16_INTERNAL,
@@ -26,17 +28,11 @@ type EF = QuinticExtensionFieldKB;
 const WIDTH: usize = 16;
 
 const UNIVARIATE_SKIPS: usize = 3;
-const N_COMMITED_CUBES: usize = 16;
 const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 
 #[test]
 fn test_poseidon_benchmark() {
-    run_poseidon_benchmark(8, false);
-}
-
-#[test]
-fn test_poseidon_compress_benchmark() {
-    run_poseidon_benchmark(15, true);
+    run_poseidon_benchmark(12);
 }
 
 fn apply_matrix<const WIDTH: usize, F: Field, EF: ExtensionField<F>>(
@@ -126,16 +122,26 @@ fn inverse_matrix<const WIDTH: usize, F: Field>(
     inverse
 }
 
-pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
+pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
     init_tracing();
     precompute_dft_twiddles::<F>(1 << 24);
 
     let mut rng = StdRng::seed_from_u64(0);
     let n_poseidons = 1 << log_n_poseidons;
-    let n_compressions = if compress { n_poseidons / 3 } else { 0 };
     let univariate_skips = UNIVARIATE_SKIPS;
     assert!(univariate_skips <= 4);
     let selectors = univariate_selectors::<F>(univariate_skips);
+    let whir_config_builder = WhirConfigBuilder {
+        folding_factor: FoldingFactor::new(7, 4),
+        soundness_type: SecurityAssumption::CapacityBound,
+        pow_bits: WIDTH,
+        max_num_variables_to_send_coeffs: 6,
+        rs_domain_initial_reduction_factor: 5,
+        security_level: 128,
+        starting_log_inv_rate: 1,
+    };
+    let whir_n_vars = log_n_poseidons + log2_strict_usize(WIDTH);
+    let whir_config = WhirConfig::new(whir_config_builder, whir_n_vars);
 
     let mut mds_matrix: [[F; WIDTH]; WIDTH] = Default::default();
     for i in 0..WIDTH {
@@ -204,6 +210,27 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
 
         let mut prover_state = build_prover_state::<EF>();
 
+        // PCS commitment
+        let mut global_poly_commited: Vec<F> = unsafe { uninitialized_vec(1 << whir_n_vars) };
+        let mut chunks = split_at_mut_many(
+            &mut global_poly_commited,
+            (0..WIDTH)
+                .map(|i| (i + 1) << log_n_poseidons)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
+        chunks[..WIDTH]
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                chunk.copy_from_slice(&input[i]);
+            });
+
+        let global_poly_commited = MleOwned::Base(global_poly_commited);
+        let pcs_witness = whir_config.commit(&mut prover_state, &global_poly_commited);
+        let global_poly_commited_packed =
+            PFPacking::<EF>::pack_slice(global_poly_commited.as_base().unwrap());
+
         let mut initial_layers = vec![];
         initial_layers.push(apply_constants(
             &apply_mds_matrix(&input_packed),
@@ -216,18 +243,21 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
             ));
         }
 
-        let mut buff = apply_mds_matrix(&apply_cubes(&initial_layers.last().unwrap()));
+        let mut buff_layer = apply_mds_matrix(&apply_cubes(&initial_layers.last().unwrap()));
 
         let mut partial_layers = vec![];
 
-        for constant in constants.partial_rounds {
-            buff[0] = add_constant(&buff[0], constant);
-            partial_layers.push(buff[0].clone());
-            buff[0] = cube(&buff[0]);
-            buff = apply_light_matrix(&buff);
+        for constant in &constants.partial_rounds {
+            buff_layer[0] = add_constant(&buff_layer[0], *constant);
+            partial_layers.push(buff_layer[0].clone());
+            buff_layer[0] = cube(&buff_layer[0]);
+            buff_layer = apply_light_matrix(&buff_layer);
         }
 
-        let mut final_layers = vec![apply_constants(&buff, &constants.final_full_rounds[0])];
+        let mut final_layers = vec![apply_constants(
+            &buff_layer,
+            &constants.final_full_rounds[0],
+        )];
         for constants in &constants.final_full_rounds[1..] {
             final_layers.push(apply_constants(
                 &apply_mds_matrix(&apply_cubes(final_layers.last().unwrap())),
@@ -236,14 +266,6 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
         }
 
         let output = apply_mds_matrix(&apply_cubes(final_layers.last().unwrap()));
-
-        for i in 0..WIDTH {
-            // TODO remove
-            assert_eq!(
-                PFPacking::<EF>::unpack_slice(&output[i]),
-                expected_output[i]
-            );
-        }
 
         let mut point = prover_state.sample_vec(log_n_poseidons + 1 - univariate_skips);
 
@@ -282,63 +304,83 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
             }
         }
 
-        buff = apply_matrix(&inv_light_matrix, &buff);
+        dbg!(prover_state.challenger().state());
 
-        let buff0;
-        (point, buff0) = prove_parallel_cubic_sumcheck(
-            univariate_skips,
-            vec![&partial_layers.last().unwrap()],
-            point.clone(),
-            &mut prover_state,
-            vec![buff[0]],
-        );
-        buff[0] = buff0[0];
+        for (constant, layer) in constants.partial_rounds.iter().zip(&partial_layers).rev() {
+            buff = apply_matrix(&inv_light_matrix, &buff);
+            let buff0;
 
-        assert_eq!(
-            evaluate_univariate_multilinear::<_, _, _, false>(
-                FPacking::<F>::unpack_slice(partial_layers.last().unwrap()),
-                &point,
-                &selectors,
-                None
+            (point, buff0) = prove_parallel_cubic_sumcheck(
+                univariate_skips,
+                vec![layer],
+                point.clone(),
+                &mut prover_state,
+                vec![buff[0]],
+            );
+            buff[0] = buff0[0] - *constant;
+        }
+
+        for (constants, layer) in constants
+            .initial_full_rounds
+            .iter()
+            .zip(&initial_layers)
+            .rev()
+        {
+            buff = apply_matrix(&inv_mds_matrix, &buff);
+
+            (point, buff) = prove_parallel_cubic_sumcheck(
+                univariate_skips,
+                layer.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+                point.clone(),
+                &mut prover_state,
+                buff.to_vec(),
+            );
+
+            for (i, c) in constants.iter().enumerate() {
+                buff[i] -= *c;
+            }
+        }
+
+        buff = apply_matrix(&inv_mds_matrix, &buff);
+
+        for i in 0..WIDTH {
+            assert_eq!(
+                evaluate_univariate_multilinear::<_, _, _, false>(
+                    &input[i], &point, &selectors, None
+                ),
+                buff[i]
+            );
+        }
+
+        // PCS opening
+
+        let eq_mle_inputs = eval_eq_packed(&point[1..]);
+        let inner_evals_inputs = global_poly_commited_packed
+            .par_chunks_exact(eq_mle_inputs.len())
+            .map(|chunk| {
+                let ef_sum = dot_product::<EFPacking<EF>, _, _>(
+                    eq_mle_inputs.iter().copied(),
+                    chunk.iter().copied(),
+                );
+                <EFPacking<EF> as PackedFieldExtension<F, EF>>::to_ext_iter([ef_sum]).sum::<EF>()
+            })
+            .collect::<Vec<_>>();
+        prover_state.add_extension_scalars(&inner_evals_inputs);
+        let pcs_batching_scalars_inputs =
+            prover_state.sample_vec(log2_strict_usize(WIDTH) + UNIVARIATE_SKIPS);
+        let pcs_statements = vec![Evaluation {
+            point: MultilinearPoint(
+                [pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat(),
             ),
-            buff[0]
+            value: inner_evals_inputs.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs)),
+        }];
+
+        whir_config.prove(
+            &mut prover_state,
+            pcs_statements,
+            pcs_witness,
+            &global_poly_commited.by_ref(),
         );
-
-        // // PCS opening
-        // let mut pcs_statements = vec![];
-        // for (point_to_prove, evals_to_prove) in [input_statements, cubes_statements] {
-        //     for v in evals_to_prove {
-        //         pcs_statements.push(vec![Evaluation {
-        //             point: point_to_prove.clone(),
-        //             value: v,
-        //         }]);
-        //     }
-        // }
-
-        // let global_statements = packed_pcs_global_statements_for_prover(
-        //     &committed_polys,
-        //     &committed_col_dims,
-        //     log_smallest_decomposition_chunk,
-        //     &pcs_statements,
-        //     &mut prover_state,
-        // );
-        // whir_config.prove(
-        //     &mut prover_state,
-        //     global_statements,
-        //     pcs_commitment_witness.inner_witness,
-        //     &pcs_commitment_witness.packed_polynomial.by_ref(),
-        // );
-
-        // let prover_duration = prover_time.elapsed();
-
-        // (
-        //     build_verifier_state(&prover_state),
-        //     prover_state.proof_size(),
-        //     witness.output_layer,
-        //     prover_duration,
-        //     output_values,
-        //     claim_point,
-        // )
 
         build_verifier_state(&prover_state)
     };
@@ -349,49 +391,69 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
     {
         // ---------------------------------------------------- VERIFIER ----------------------------------------------------
 
-        let output_claim_point = verifier_state.sample_vec(log_n_poseidons);
+        let parsed_pcs_commitment = whir_config
+            .parse_commitment::<F>(&mut verifier_state)
+            .unwrap();
 
-        //     let GKRPoseidonResult {
-        //         output_values,
-        //         input_statements,
-        //         cubes_statements,
-        //     } = verify_poseidon_gkr(
-        //         &mut verifier_state,
-        //         log_n_poseidons,
-        //         &output_claim_point,
-        //         &layers,
-        //         UNIVARIATE_SKIPS,
-        //         if compress { Some(n_compressions) } else { None },
-        //     );
+        let mut point = verifier_state.sample_vec(log_n_poseidons + 1 - univariate_skips);
+        let mut buff = verifier_state.next_extension_scalars_vec(WIDTH).unwrap();
 
-        //     // PCS verification
-        //     let mut pcs_statements = vec![];
-        //     for (point_to_verif, evals_to_verif) in [input_statements, cubes_statements] {
-        //         for v in evals_to_verif {
-        //             pcs_statements.push(vec![Evaluation {
-        //                 point: point_to_verif.clone(),
-        //                 value: v,
-        //             }]);
-        //         }
-        //     }
+        for constants in constants.final_full_rounds.iter().rev() {
+            buff = apply_matrix(&inv_mds_matrix, &buff);
 
-        //     let global_statements = packed_pcs_global_statements_for_verifier(
-        //         &committed_col_dims,
-        //         log_smallest_decomposition_chunk,
-        //         &pcs_statements,
-        //         &mut verifier_state,
-        //         &Default::default(),
-        //     )
-        //     .unwrap();
+            (point, buff) = verify_parallel_cubic_sumcheck(
+                &mut verifier_state,
+                univariate_skips,
+                &point,
+                buff.clone(),
+            )
+            .unwrap();
 
-        //     whir_config
-        //         .verify::<F>(
-        //             &mut verifier_state,
-        //             &parsed_pcs_commitment,
-        //             global_statements,
-        //         )
-        //         .unwrap();
-        //     output_values
+            for (i, c) in constants.iter().enumerate() {
+                buff[i] -= *c;
+            }
+        }
+
+        for constant in constants.partial_rounds.iter().rev() {
+            buff = apply_matrix(&inv_light_matrix, &buff);
+            let buff0;
+
+            (point, buff0) = verify_parallel_cubic_sumcheck(
+                &mut verifier_state,
+                univariate_skips,
+                &point,
+                vec![buff[0]],
+            )
+            .unwrap();
+            buff[0] = buff0[0] - *constant;
+        }
+
+        for constants in constants.initial_full_rounds.iter().rev() {
+            buff = apply_matrix(&inv_mds_matrix, &buff);
+
+            (point, buff) = verify_parallel_cubic_sumcheck(
+                &mut verifier_state,
+                univariate_skips,
+                &point,
+                buff.clone(),
+            )
+            .unwrap();
+
+            for (i, c) in constants.iter().enumerate() {
+                buff[i] -= *c;
+            }
+        }
+
+        buff = apply_matrix(&inv_mds_matrix, &buff);
+
+        for i in 0..WIDTH {
+            assert_eq!(
+                evaluate_univariate_multilinear::<_, _, _, false>(
+                    &input[i], &point, &selectors, None
+                ),
+                buff[i]
+            );
+        }
     };
     // let verifier_duration = verifier_time.elapsed();
 
@@ -544,4 +606,14 @@ mod tests {
             );
         }
     }
+}
+
+fn debug_hash<A: Hash>(value: &A) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    let hash = hasher.finish();
+    hash
 }
