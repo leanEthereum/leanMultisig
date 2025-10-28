@@ -1,8 +1,5 @@
 use crate::GKRPoseidonResult;
-use crate::{
-    EF, F, PoseidonWitness,
-    gkr_layers::{BatchPartialRounds, PoseidonGKRLayers},
-};
+use crate::{EF, F, PoseidonWitness};
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;

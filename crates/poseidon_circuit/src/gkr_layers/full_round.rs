@@ -11,13 +11,12 @@ use p3_poseidon2::GenericPoseidon2LinearLayers;
 use crate::{EF, F};
 
 #[derive(Debug)]
-pub struct FullRoundComputation<const WIDTH: usize, const FIRST: bool> {
-    pub constants: [F; WIDTH],
-    pub compressed_output: Option<usize>,
+pub struct FullRoundComputation<const WIDTH: usize> {
+    pub ,
 }
 
-impl<NF: ExtensionField<F>, const WIDTH: usize, const FIRST: bool> SumcheckComputation<NF, EF>
-    for FullRoundComputation<WIDTH, FIRST>
+impl<NF: ExtensionField<F>, const WIDTH: usize> SumcheckComputation<NF, EF>
+    for FullRoundComputation<WIDTH>
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
     EF: ExtensionField<NF>,
