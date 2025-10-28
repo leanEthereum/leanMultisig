@@ -249,7 +249,7 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
 
         for constant in &constants.partial_rounds {
             buff_layer[0] = add_constant(&buff_layer[0], *constant);
-            partial_layers.push(buff_layer[0].clone());
+            partial_layers.push(buff_layer.clone());
             buff_layer[0] = cube(&buff_layer[0]);
             buff_layer = apply_light_matrix(&buff_layer);
         }
@@ -291,12 +291,13 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
         for (constants, layer) in constants.final_full_rounds.iter().zip(&final_layers).rev() {
             buff = apply_matrix(&inv_mds_matrix, &buff);
 
-            (point, buff) = prove_parallel_cubic_sumcheck(
+            (point, buff) = prove_poseidon_gkr_sumcheck(
                 univariate_skips,
                 layer.iter().map(Vec::as_slice).collect::<Vec<_>>(),
                 point.clone(),
                 &mut prover_state,
-                buff.to_vec(),
+                &buff,
+                WIDTH,
             );
 
             for (i, c) in constants.iter().enumerate() {
@@ -304,20 +305,19 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
             }
         }
 
-        dbg!(prover_state.challenger().state());
-
         for (constant, layer) in constants.partial_rounds.iter().zip(&partial_layers).rev() {
             buff = apply_matrix(&inv_light_matrix, &buff);
-            let buff0;
 
-            (point, buff0) = prove_parallel_cubic_sumcheck(
+            (point, buff) = prove_poseidon_gkr_sumcheck(
                 univariate_skips,
-                vec![layer],
+                layer.iter().map(Vec::as_slice).collect::<Vec<_>>(),
                 point.clone(),
                 &mut prover_state,
-                vec![buff[0]],
+                &buff,
+                1,
             );
-            buff[0] = buff0[0] - *constant;
+
+            buff[0] -= *constant;
         }
 
         for (constants, layer) in constants
@@ -328,12 +328,13 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
         {
             buff = apply_matrix(&inv_mds_matrix, &buff);
 
-            (point, buff) = prove_parallel_cubic_sumcheck(
+            (point, buff) = prove_poseidon_gkr_sumcheck(
                 univariate_skips,
                 layer.iter().map(Vec::as_slice).collect::<Vec<_>>(),
                 point.clone(),
                 &mut prover_state,
-                buff.to_vec(),
+                &buff,
+                WIDTH,
             );
 
             for (i, c) in constants.iter().enumerate() {
@@ -387,8 +388,7 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
 
     let verifier_time = Instant::now();
 
-    // let output_values_verifier =
-    {
+    let output_values_verifier = {
         // ---------------------------------------------------- VERIFIER ----------------------------------------------------
 
         let parsed_pcs_commitment = whir_config
@@ -401,11 +401,13 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
         for constants in constants.final_full_rounds.iter().rev() {
             buff = apply_matrix(&inv_mds_matrix, &buff);
 
-            (point, buff) = verify_parallel_cubic_sumcheck(
+            (point, buff) = verify_poseidon_gkr_sumcheck(
                 &mut verifier_state,
                 univariate_skips,
                 &point,
-                buff.clone(),
+                &buff,
+                WIDTH,
+                0,
             )
             .unwrap();
 
@@ -416,26 +418,29 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
 
         for constant in constants.partial_rounds.iter().rev() {
             buff = apply_matrix(&inv_light_matrix, &buff);
-            let buff0;
 
-            (point, buff0) = verify_parallel_cubic_sumcheck(
+            (point, buff) = verify_poseidon_gkr_sumcheck(
                 &mut verifier_state,
                 univariate_skips,
                 &point,
-                vec![buff[0]],
+                &buff,
+                1,
+                WIDTH - 1,
             )
             .unwrap();
-            buff[0] = buff0[0] - *constant;
+            buff[0] -= *constant;
         }
 
         for constants in constants.initial_full_rounds.iter().rev() {
             buff = apply_matrix(&inv_mds_matrix, &buff);
 
-            (point, buff) = verify_parallel_cubic_sumcheck(
+            (point, buff) = verify_poseidon_gkr_sumcheck(
                 &mut verifier_state,
                 univariate_skips,
                 &point,
-                buff.clone(),
+                &buff,
+                WIDTH,
+                0,
             )
             .unwrap();
 
@@ -455,7 +460,7 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
             );
         }
     };
-    // let verifier_duration = verifier_time.elapsed();
+    let verifier_duration = verifier_time.elapsed();
 
     // // sanity check: ensure the plaintext poseidons matches the last GKR layer:
     // if compress {
@@ -537,17 +542,21 @@ mod tests {
     #[test]
     fn test_cube_sumcheck() {
         let univariate_skips = 3;
-        let n_polys = 16;
+        let n_cubes = 3;
+        let n_transparents = 5;
         let n_vars = 13;
         let selectors = univariate_selectors::<F>(univariate_skips);
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let polys = (0..n_polys)
+        let polys_to_cube = (0..n_cubes)
+            .map(|_| (0..1 << n_vars).map(|_| rng.random()).collect::<Vec<F>>())
+            .collect::<Vec<_>>();
+        let transparent_polys = (0..n_transparents)
             .map(|_| (0..1 << n_vars).map(|_| rng.random()).collect::<Vec<F>>())
             .collect::<Vec<_>>();
 
-        let cubes = polys
+        let cubes = polys_to_cube
             .iter()
             .map(|p| p.par_iter().map(|&x| x.cube()).collect::<Vec<_>>())
             .collect::<Vec<_>>();
@@ -570,39 +579,74 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let (prover_point, prover_inner_values) = prove_parallel_cubic_sumcheck(
+        let claimed_transparent_evals = transparent_polys
+            .iter()
+            .map(|p| {
+                evaluate_univariate_multilinear::<_, _, _, true>(
+                    p,
+                    &MultilinearPoint(eq_point.clone()),
+                    &selectors,
+                    None,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let (prover_point, next_evals_prover) = prove_poseidon_gkr_sumcheck(
             univariate_skips,
-            polys
+            polys_to_cube
                 .iter()
+                .chain(transparent_polys.iter())
                 .map(|poly| FPacking::<F>::pack_slice(poly))
                 .collect(),
             eq_point.clone(),
             &mut prover_state,
-            claimed_cube_values.clone(),
+            &[
+                claimed_cube_values.clone(),
+                claimed_transparent_evals.clone(),
+            ]
+            .concat(),
+            n_cubes,
         );
 
         let mut verifier_state = build_verifier_state(&prover_state);
 
-        let (verifier_point, verifier_inner_values) = verify_parallel_cubic_sumcheck(
+        let (verifier_point, next_evals_verifier) = verify_poseidon_gkr_sumcheck(
             &mut verifier_state,
             univariate_skips,
             &eq_point,
-            claimed_cube_values,
+            &[
+                claimed_cube_values.clone(),
+                claimed_transparent_evals.clone(),
+            ]
+            .concat(),
+            n_cubes,
+            n_transparents,
         )
         .unwrap();
 
         assert_eq!(&prover_point, &verifier_point);
-        assert_eq!(prover_inner_values, verifier_inner_values);
+        assert_eq!(&next_evals_prover, &next_evals_verifier);
 
-        for i in 0..n_polys {
+        for i in 0..n_cubes {
             assert_eq!(
                 evaluate_univariate_multilinear::<_, _, _, true>(
-                    &polys[i],
+                    &polys_to_cube[i],
                     &prover_point,
                     &selectors,
                     None,
                 ),
-                prover_inner_values[i]
+                next_evals_prover[i]
+            );
+        }
+        for i in 0..n_transparents {
+            assert_eq!(
+                evaluate_univariate_multilinear::<_, _, _, true>(
+                    &transparent_polys[i],
+                    &prover_point,
+                    &selectors,
+                    None,
+                ),
+                next_evals_prover[i + n_cubes]
             );
         }
     }
