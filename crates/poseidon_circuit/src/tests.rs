@@ -3,7 +3,7 @@ use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, QuinticExt
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use std::{array, hash::Hash, time::Instant};
+use std::{array, time::Instant};
 use tracing::info_span;
 use utils::{
     build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut,
@@ -32,7 +32,7 @@ const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 
 #[test]
 fn test_poseidon_benchmark() {
-    run_poseidon_benchmark(12);
+    run_poseidon_benchmark(20);
 }
 
 fn apply_matrix<const WIDTH: usize, F: Field, EF: ExtensionField<F>>(
@@ -203,10 +203,10 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
     //     claim_point,
     // ) =
 
-    let mut verifier_state = {
-        // ---------------------------------------------------- PROVER ----------------------------------------------------
+    let prover_time = Instant::now();
 
-        let prover_time = Instant::now();
+    let (mut verifier_state, output, proof_size) = {
+        // ---------------------------------------------------- PROVER ----------------------------------------------------
 
         let mut prover_state = build_prover_state::<EF>();
 
@@ -367,13 +367,10 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
             })
             .collect::<Vec<_>>();
         prover_state.add_extension_scalars(&inner_evals_inputs);
-        let pcs_batching_scalars_inputs =
-            prover_state.sample_vec(log2_strict_usize(WIDTH) + UNIVARIATE_SKIPS);
+        let inner_evals = prover_state.sample_vec(log2_strict_usize(WIDTH) + UNIVARIATE_SKIPS);
         let pcs_statements = vec![Evaluation {
-            point: MultilinearPoint(
-                [pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat(),
-            ),
-            value: inner_evals_inputs.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs)),
+            point: MultilinearPoint([inner_evals.clone(), point[1..].to_vec()].concat()),
+            value: inner_evals_inputs.evaluate(&MultilinearPoint(inner_evals)),
         }];
 
         whir_config.prove(
@@ -383,12 +380,17 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
             &global_poly_commited.by_ref(),
         );
 
-        build_verifier_state(&prover_state)
+        (
+            build_verifier_state(&prover_state),
+            output,
+            prover_state.proof_size(),
+        )
     };
+    let prover_duration = prover_time.elapsed();
 
     let verifier_time = Instant::now();
 
-    let output_values_verifier = {
+    {
         // ---------------------------------------------------- VERIFIER ----------------------------------------------------
 
         let parsed_pcs_commitment = whir_config
@@ -451,73 +453,63 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize) {
 
         buff = apply_matrix(&inv_mds_matrix, &buff);
 
-        for i in 0..WIDTH {
-            assert_eq!(
-                evaluate_univariate_multilinear::<_, _, _, false>(
-                    &input[i], &point, &selectors, None
-                ),
-                buff[i]
-            );
+        let inner_evals_inputs = verifier_state
+            .next_extension_scalars_vec(WIDTH << UNIVARIATE_SKIPS)
+            .unwrap();
+        let inner_evals = verifier_state.sample_vec(log2_strict_usize(WIDTH) + UNIVARIATE_SKIPS);
+        let pcs_statements = vec![Evaluation {
+            point: MultilinearPoint([inner_evals.clone(), point[1..].to_vec()].concat()),
+            value: inner_evals_inputs.evaluate(&MultilinearPoint(inner_evals)),
+        }];
+        {
+            for (&eval, inner_evals) in buff
+                .iter()
+                .zip(inner_evals_inputs.chunks_exact(1 << UNIVARIATE_SKIPS))
+            {
+                assert_eq!(
+                    eval,
+                    evaluate_univariate_multilinear::<_, _, _, false>(
+                        inner_evals,
+                        &point[..1],
+                        &selectors,
+                        None
+                    )
+                );
+            }
         }
-    };
+
+        whir_config
+            .verify(&mut verifier_state, &parsed_pcs_commitment, pcs_statements)
+            .unwrap();
+    }
     let verifier_duration = verifier_time.elapsed();
 
-    // // sanity check: ensure the plaintext poseidons matches the last GKR layer:
-    // if compress {
-    //     output_layer
-    //         .iter()
-    //         .enumerate()
-    //         .take(COMPRESSION_OUTPUT_WIDTH)
-    //         .for_each(|(i, layer)| {
-    //             assert_eq!(PFPacking::<EF>::unpack_slice(layer), data_to_hash[i]);
-    //         });
-    //     output_layer
-    //         .iter()
-    //         .enumerate()
-    //         .skip(COMPRESSION_OUTPUT_WIDTH)
-    //         .for_each(|(i, layer)| {
-    //             assert_eq!(
-    //                 &PFPacking::<EF>::unpack_slice(layer)[..n_poseidons - n_compressions],
-    //                 &data_to_hash[i][..n_poseidons - n_compressions]
-    //             );
-    //             assert!(
-    //                 PFPacking::<EF>::unpack_slice(layer)[n_poseidons - n_compressions..]
-    //                     .iter()
-    //                     .all(|&x| x.is_zero())
-    //             );
-    //         });
-    // } else {
-    //     output_layer.iter().enumerate().for_each(|(i, layer)| {
-    //         assert_eq!(PFPacking::<EF>::unpack_slice(layer), data_to_hash[i]);
-    //     });
-    // }
-    // assert_eq!(output_values_verifier, output_values_prover);
-    // assert_eq!(
-    //     output_values_verifier.as_slice(),
-    //     &output_layer
-    //         .iter()
-    //         .map(|layer| PFPacking::<EF>::unpack_slice(layer)
-    //             .evaluate(&MultilinearPoint(claim_point.clone())))
-    //         .collect::<Vec<_>>()
-    // );
+    // sanity check: ensure the plaintext poseidons matches the last GKR layer:
+    assert_eq!(
+        output
+            .iter()
+            .map(|layer| PFPacking::<EF>::unpack_slice(layer))
+            .collect::<Vec<_>>(),
+        expected_output
+    );
 
-    // println!("2^{} Poseidon2", log_n_poseidons);
-    // println!(
-    //     "Plaintext (no proof) time: {:.3}s ({:.2}M Poseidons / s)",
-    //     plaintext_duration.as_secs_f64(),
-    //     n_poseidons as f64 / (plaintext_duration.as_secs_f64() * 1e6)
-    // );
-    // println!(
-    //     "Prover time: {:.3}s ({:.2}M Poseidons / s, {:.1}x slower than plaintext)",
-    //     prover_duration.as_secs_f64(),
-    //     n_poseidons as f64 / (prover_duration.as_secs_f64() * 1e6),
-    //     prover_duration.as_secs_f64() / plaintext_duration.as_secs_f64()
-    // );
-    // println!(
-    //     "Proof size: {:.1} KiB (without merkle pruning)",
-    //     (proof_size * F::bits()) as f64 / (8.0 * 1024.0)
-    // );
-    // println!("Verifier time: {}ms", verifier_duration.as_millis());
+    println!("2^{} Poseidon2", log_n_poseidons);
+    println!(
+        "Plaintext (no proof) time: {:.3}s ({:.2}M Poseidons / s)",
+        plaintext_duration.as_secs_f64(),
+        n_poseidons as f64 / (plaintext_duration.as_secs_f64() * 1e6)
+    );
+    println!(
+        "Prover time: {:.3}s ({:.2}M Poseidons / s, {:.1}x slower than plaintext)",
+        prover_duration.as_secs_f64(),
+        n_poseidons as f64 / (prover_duration.as_secs_f64() * 1e6),
+        prover_duration.as_secs_f64() / plaintext_duration.as_secs_f64()
+    );
+    println!(
+        "Proof size: {:.1} KiB (without merkle pruning)",
+        (proof_size * F::bits()) as f64 / (8.0 * 1024.0)
+    );
+    println!("Verifier time: {}ms", verifier_duration.as_millis());
 }
 
 #[cfg(test)]
@@ -650,14 +642,4 @@ mod tests {
             );
         }
     }
-}
-
-fn debug_hash<A: Hash>(value: &A) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
-
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    let hash = hasher.finish();
-    hash
 }
