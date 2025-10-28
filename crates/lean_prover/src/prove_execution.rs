@@ -484,7 +484,7 @@ pub fn prove_execution(
             )
         });
 
-    let grand_product_exec_eq_weights = eval_eq(&grand_product_exec_sumcheck_point);
+    let grand_product_exec_eq_weights = eval_eq_packed(&grand_product_exec_sumcheck_point);
     for col in [
         COL_INDEX_OPERAND_C,
         COL_INDEX_ADD,
@@ -498,9 +498,9 @@ pub fn prove_execution(
     ] {
         grand_product_exec_sumcheck_inner_evals.insert(
             col,
-            dot_product::<EF, _, _>(
-                grand_product_exec_eq_weights.iter().copied(),
-                full_trace[col].iter().copied().map(EF::from),
+            dot_product_ef_packed_par(
+                &grand_product_exec_eq_weights,
+                FPacking::<F>::pack_slice(&full_trace[col]),
             ),
         );
     }
