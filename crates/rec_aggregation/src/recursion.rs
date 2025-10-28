@@ -202,7 +202,7 @@ pub fn run_whir_recursion_benchmark() {
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 
-    println!("{}", summary);
+    println!("{summary}");
     println!(
         "WHIR recursion, proving time: {} ms, proof size: {} KiB (not optimized)",
         proving_time.as_millis(),

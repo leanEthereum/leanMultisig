@@ -285,7 +285,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 
-    println!("{}", summary);
+    println!("{summary}");
     println!(
         "XMSS aggregation, proving time: {:.3} s ({:.1} XMSS/s), proof size: {} KiB (not optimized)",
         proving_time.as_secs_f64(),

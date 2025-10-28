@@ -122,6 +122,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     hints.insert(
         0,
         vec![Hint::RequestMemory {
+            function_name: Label::function("main"),
             offset: POSEIDON16_RES_OFFSET,
             size: MemOrConstant::Constant(f(2)),
             vectorized: true,
@@ -131,6 +132,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     hints.insert(
         1,
         vec![Hint::RequestMemory {
+            function_name: Label::function("main"),
             offset: POSEIDON24_RES_OFFSET,
             size: MemOrConstant::Constant(f(1)),
             vectorized: true,
@@ -140,6 +142,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     hints.insert(
         2,
         vec![Hint::RequestMemory {
+            function_name: Label::function("main"),
             offset: DOT_RES_OFFSET,
             size: MemOrConstant::Constant(f(1)),
             vectorized: false,
@@ -149,6 +152,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     hints.insert(
         3,
         vec![Hint::RequestMemory {
+            function_name: Label::function("main"),
             offset: MLE_RES_OFFSET,
             size: MemOrConstant::Constant(f(1)),
             vectorized: true,
