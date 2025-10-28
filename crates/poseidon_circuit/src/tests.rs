@@ -41,9 +41,10 @@ fn test_poseidon_compress_benchmark() {
 
 fn apply_matrix<const WIDTH: usize, F: Field, EF: ExtensionField<F>>(
     matrix: &[[F; WIDTH]; WIDTH],
-    input: &[EF; WIDTH],
-) -> [EF; WIDTH] {
-    let mut output = [EF::ZERO; WIDTH];
+    input: &[EF],
+) -> Vec<EF> {
+    assert_eq!(input.len(), WIDTH);
+    let mut output = EF::zero_vec(WIDTH);
     for i in 0..WIDTH {
         for j in 0..WIDTH {
             output[i] += input[j] * matrix[i][j];
@@ -244,97 +245,64 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
             );
         }
 
-        let claim_point = prover_state.sample_vec(log_n_poseidons + 1 - univariate_skips);
+        let mut point = prover_state.sample_vec(log_n_poseidons + 1 - univariate_skips);
 
-        let eq_poly = eval_eq(&claim_point[1..]);
-        let output_claims: [_; 16] = info_span!("computing output claims")
-            .in_scope(|| {
-                output
-                    .par_iter()
-                    .map(|poly| {
-                        evaluate_univariate_multilinear::<_, _, _, false>(
-                            FPacking::<F>::unpack_slice(poly),
-                            &claim_point,
-                            &selectors,
-                            Some(&eq_poly),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .try_into()
-            .unwrap();
+        let eq_poly = eval_eq(&point[1..]);
+        let output_claims = info_span!("computing output claims").in_scope(|| {
+            output
+                .par_iter()
+                .map(|poly| {
+                    evaluate_univariate_multilinear::<_, _, _, false>(
+                        FPacking::<F>::unpack_slice(poly),
+                        &point,
+                        &selectors,
+                        Some(&eq_poly),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
 
         prover_state.add_extension_scalars(&output_claims);
 
         let mut buff = output_claims;
-        buff = apply_matrix(&inv_mds_matrix, &buff);
 
-        let (prover_point, buff) = prove_parallel_cubic_sumcheck(
-            univariate_skips,
-            final_layers
-                .last()
-                .unwrap()
-                .iter()
-                .map(Vec::as_slice)
-                .collect::<Vec<_>>(),
-            claim_point.clone(),
-            &mut prover_state,
-            buff.to_vec(),
-        );
-        let mut buff: [EF; WIDTH] = buff.try_into().unwrap();
+        for (constants, layer) in constants.final_full_rounds.iter().zip(&final_layers).rev() {
+            buff = apply_matrix(&inv_mds_matrix, &buff);
 
-        for (i, &v) in buff.iter().enumerate() {
-            assert_eq!(
-                v,
-                evaluate_univariate_multilinear::<_, _, _, true>(
-                    &PFPacking::<EF>::unpack_slice(&final_layers.last().unwrap()[i]),
-                    &prover_point,
-                    &selectors,
-                    None
-                )
+            (point, buff) = prove_parallel_cubic_sumcheck(
+                univariate_skips,
+                layer.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+                point.clone(),
+                &mut prover_state,
+                buff.to_vec(),
             );
+
+            for (i, c) in constants.iter().enumerate() {
+                buff[i] -= *c;
+            }
         }
 
-        for (i, c) in constants
-            .final_full_rounds
-            .last()
-            .unwrap()
-            .iter()
-            .enumerate()
-        {
-            buff[i] -= *c;
-        }
+        buff = apply_matrix(&inv_light_matrix, &buff);
 
-        let buff = apply_matrix(&inv_mds_matrix, &buff);
+        let buff0;
+        (point, buff0) = prove_parallel_cubic_sumcheck(
+            univariate_skips,
+            vec![&partial_layers.last().unwrap()],
+            point.clone(),
+            &mut prover_state,
+            vec![buff[0]],
+        );
+        buff[0] = buff0[0];
 
-        // let (sc_point, inner_evals, _) = sumcheck_prove(
-        //     univariate_skips,
-        //     MleGroupRef::BasePacked(vec![&concatenated_cubes]),
-        //     &CubeComputation {},
-        //     &[],
-        //     Some((new_point.clone(), None)),
-        //     false,
-        //     &mut prover_state,
-        //     evaluate_univariate_multilinear::<_, _, _, false>(
-        //         &output_claims,
-        //         &alpha,
-        //         &selectors,
-        //         None,
-        //     ),
-        //     None,
-        // );
-
-        // let GKRPoseidonResult {
-        //     output_values,
-        //     input_statements,
-        //     cubes_statements,
-        // } = prove_poseidon_gkr(
-        //     &mut prover_state,
-        //     &witness,
-        //     claim_point.clone(),
-        //     UNIVARIATE_SKIPS,
-        //     &layers,
-        // );
+        assert_eq!(
+            evaluate_univariate_multilinear::<_, _, _, false>(
+                FPacking::<F>::unpack_slice(partial_layers.last().unwrap()),
+                &point,
+                &selectors,
+                None
+            ),
+            buff[0]
+        );
 
         // // PCS opening
         // let mut pcs_statements = vec![];
@@ -500,7 +468,7 @@ mod tests {
             let vector: [F; WIDTH] = array::from_fn(|_| rng.random());
             let transformed = apply_matrix(&matrix, &vector);
             let recovered = apply_matrix(&inv_matrix, &transformed);
-            assert_eq!(vector, recovered);
+            assert_eq!(vector.to_vec(), recovered);
         }
     }
 
@@ -561,7 +529,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(&prover_point.0, &verifier_point);
+        assert_eq!(&prover_point, &verifier_point);
         assert_eq!(prover_inner_values, verifier_inner_values);
 
         for i in 0..n_polys {
