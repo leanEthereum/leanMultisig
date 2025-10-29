@@ -1,4 +1,3 @@
-
 use multilinear_toolkit::prelude::*;
 use p3_field::ExtensionField;
 
@@ -33,8 +32,7 @@ where
     }
 }
 
-impl<const WIDTH: usize> SumcheckComputationPacked<EF> for CompressionComputation<WIDTH>
-{
+impl<const WIDTH: usize> SumcheckComputationPacked<EF> for CompressionComputation<WIDTH> {
     fn degree(&self) -> usize {
         2
     }

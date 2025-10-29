@@ -4,7 +4,7 @@ use p3_monty_31::InternalLayerBaseParameters;
 
 use crate::{
     CompressionComputation, EF, F, FullRoundComputation, GKRPoseidonResult,
-    PartialRoundComputation, build_poseidon_matrices, gkr_layers::PoseidonGKRLayers,
+    PartialRoundComputation, build_poseidon_inv_matrices, gkr_layers::PoseidonGKRLayers,
 };
 
 pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
@@ -19,8 +19,7 @@ where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
-    let (_mds_matrix, inv_mds_matrix, _light_matrix, inv_light_matrix) =
-        build_poseidon_matrices::<WIDTH>();
+    let (inv_mds_matrix, inv_light_matrix) = build_poseidon_inv_matrices::<WIDTH>();
 
     let mut output_claims = vec![];
     let mut claims = vec![];

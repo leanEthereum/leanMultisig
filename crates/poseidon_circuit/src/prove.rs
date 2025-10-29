@@ -2,7 +2,7 @@ use crate::{
     CompressionComputation, EF, F, FullRoundComputation, PartialRoundComputation, PoseidonWitness,
     gkr_layers::{BatchPartialRounds, PoseidonGKRLayers},
 };
-use crate::{GKRPoseidonResult, build_poseidon_matrices};
+use crate::{GKRPoseidonResult, build_poseidon_inv_matrices};
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
@@ -20,8 +20,7 @@ where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
-    let (_mds_matrix, inv_mds_matrix, _light_matrix, inv_light_matrix) =
-        build_poseidon_matrices::<WIDTH>();
+    let (inv_mds_matrix, inv_light_matrix) = build_poseidon_inv_matrices::<WIDTH>();
 
     assert_eq!(point.len(), log2_strict_usize(witness.n_poseidons()));
 

@@ -61,7 +61,7 @@ where
         (None, layer, vec![].try_into().unwrap())
     } else {
         let (next_layer, committed_cubes) =
-            apply_batch_partial_rounds(&layer, &layers.batch_partial_rounds.as_ref().unwrap());
+            apply_batch_partial_rounds(&layer, layers.batch_partial_rounds.as_ref().unwrap());
         (Some(layer), next_layer, committed_cubes)
     };
 
@@ -146,8 +146,8 @@ where
         .for_each(|(row_index, output_row)| {
             let mut buff: [A; WIDTH] = array::from_fn(|j| input_layers[j][row_index]);
             if CUBE {
-                for j in 0..WIDTH {
-                    buff[j] = buff[j].cube();
+                for v in &mut buff {
+                    *v = v.cube();
                 }
             }
             if MDS {
