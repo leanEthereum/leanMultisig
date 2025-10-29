@@ -24,9 +24,10 @@ statement = {
     return_statement |
     break_statement |
     continue_statement |
-    function_call |
+    range_check_statement |
     assert_eq_statement |
-    assert_not_eq_statement
+    assert_not_eq_statement |
+    function_call // Placed at the end so that it doesn't override other statements like range_check and assert_eq
 }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
@@ -60,6 +61,8 @@ var_list = { identifier ~ ("," ~ identifier)* }
 
 assert_eq_statement = { "assert" ~ add_expr ~ "==" ~ add_expr ~ ";" }
 assert_not_eq_statement = { "assert" ~ add_expr ~ "!=" ~ add_expr ~ ";" }
+
+range_check_statement = { "range_check" ~ "(" ~ expression ~ "," ~ expression ~ ")" ~ ";" }
 
 // Expressions
 tuple_expression = { expression ~ ("," ~ expression)* }

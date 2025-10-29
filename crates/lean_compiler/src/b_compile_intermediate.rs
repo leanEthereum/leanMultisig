@@ -1,6 +1,6 @@
 use crate::{F, a_simplify_lang::*, ir::*, lang::*, precompiles::*};
 use lean_vm::*;
-use p3_field::Field;
+use p3_field::{Field, PrimeCharacteristicRing};
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
@@ -395,6 +395,7 @@ fn compile_lines(
                     shift_0,
                     shift_1: shift.clone(),
                     res: res.to_mem_after_fp_or_constant(compiler),
+                    for_range_check: false,
                 });
             }
 
@@ -432,6 +433,7 @@ fn compile_lines(
                             res: IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                                 offset: compiler.get_offset(&ret_var.clone().into()),
                             },
+                            for_range_check: false,
                         });
                     }
 
@@ -612,6 +614,65 @@ fn compile_lines(
                     location: *location,
                 });
             }
+            SimpleLine::RangeCheck { value, max } => {
+                let x = match IntermediateValue::from_simple_expr(value, compiler) {
+                    IntermediateValue::MemoryAfterFp { offset } => offset.naive_eval().unwrap(),
+                    value::IntermediateValue::Fp => F::ZERO,
+                    value::IntermediateValue::Constant(_) => unimplemented!(),
+                };
+
+                let t = max.naive_eval().unwrap();
+                let aux_i: usize = compiler.stack_size + 0;
+                let aux_j: usize = compiler.stack_size + 1;
+                let aux_k: usize = compiler.stack_size + 2;
+
+                // Step 1: DEREF: m[fp + i] == m[m[fp + x]]
+                //         DEREF: m[fp + i] == m[value]
+
+                let step_1 = IntermediateInstruction::Deref {
+                    shift_0: ConstExpression::scalar(x.to_usize()),
+                    shift_1: ConstExpression::from(0),
+                    res: IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset: aux_i.into() },
+                    for_range_check: true,
+                };
+
+
+                // Step 2: ADD: m[m[fp + x]] + m[fp + j] == (t-1) 
+                //              m[fp + j] == t - 1 - value
+                //
+                //              m[fp + j] == t - 1 - m[fp + x]
+                let q = t - F::ONE;
+                let step_2 = IntermediateInstruction::Computation {
+                    operation: Operation::Add,
+                    arg_a: IntermediateValue::MemoryAfterFp { offset: x.to_usize().into() },
+                    arg_c: IntermediateValue::MemoryAfterFp { offset: aux_j.into() }, // solve
+                    res: IntermediateValue::Constant(q.to_usize().into()),            // t - 1
+                };
+
+                // Step 3: DEREF: m[fp + k] == m[m[fp + j]]
+                let step_3 = IntermediateInstruction::Deref {
+                    shift_0: ConstExpression::scalar(aux_j),
+                    shift_1: ConstExpression::from(0),
+                    res: IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset: aux_k.into() },
+                    for_range_check: true,
+                };
+
+
+                // TODO: handle undefined memory access error
+
+                //println!("aux_i: {}; {:?}", aux_i, step_1);
+                //println!("aux_j: {}; {:?}", aux_j, step_2);
+                //println!("aux_k: {}; {:?}", aux_k, step_3);
+
+                instructions.push(IntermediateInstruction::RangeCheck {
+                    value: IntermediateValue::from_simple_expr(value, compiler),
+                    max: max.clone(),
+                });
+                instructions.push(step_1);
+                instructions.push(step_2);
+                instructions.push(step_3);
+                compiler.stack_size += 3;
+            }
         }
     }
 
@@ -689,11 +750,13 @@ fn setup_function_call(
             res: IntermediaryMemOrFpOrConstant::Constant(ConstExpression::label(
                 return_label.clone(),
             )),
+            for_range_check: false,
         },
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
             shift_1: ConstExpression::one(),
             res: IntermediaryMemOrFpOrConstant::Fp,
+            for_range_check: false,
         },
     ];
 
@@ -703,6 +766,7 @@ fn setup_function_call(
             shift_0: new_fp_pos.into(),
             shift_1: (2 + i).into(),
             res: arg.to_mem_after_fp_or_constant(compiler),
+            for_range_check: false,
         });
     }
 
@@ -811,7 +875,8 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             | SimpleLine::Print { .. }
             | SimpleLine::FunctionRet { .. }
             | SimpleLine::Precompile { .. }
-            | SimpleLine::LocationReport { .. } => {}
+            | SimpleLine::LocationReport { .. } 
+            | SimpleLine::RangeCheck { .. } => {}
         }
     }
     internal_vars

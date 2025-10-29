@@ -39,6 +39,7 @@ pub enum Instruction {
         shift_1: usize,
         /// Result destination (can be memory, frame pointer, or constant)
         res: MemOrFpOrConstant,
+        for_range_check: bool,
     },
 
     /// Conditional jump instruction for control flow
@@ -176,12 +177,23 @@ impl Instruction {
                 shift_0,
                 shift_1,
                 res,
+                for_range_check,
             } => {
                 if res.is_value_unknown(ctx.memory, *ctx.fp) {
                     let memory_address_res = res.memory_address(*ctx.fp)?;
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
-                    let value = ctx.memory.get(ptr.to_usize() + shift_1)?;
-                    ctx.memory.set(memory_address_res, value)?;
+
+                    if *for_range_check {
+                        // if for_range_check, ignore the UndefinedMemory error from get() 
+                        let value = ctx.memory.get(ptr.to_usize() + shift_1);
+                        if value.is_ok() {
+                            ctx.memory.set(memory_address_res, value.unwrap())?;
+                        }
+                    } else {
+                        // else, bubble it up
+                        let value = ctx.memory.get(ptr.to_usize() + shift_1)?;
+                        ctx.memory.set(memory_address_res, value)?;
+                    }
                 } else {
                     let value = res.read_value(ctx.memory, *ctx.fp)?;
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
@@ -424,8 +436,9 @@ impl Display for Instruction {
                 shift_0,
                 shift_1,
                 res,
+                for_range_check,
             } => {
-                write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]")
+                write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}] for_range_check: {for_range_check}")
             }
             Self::DotProductExtensionExtension {
                 arg0,

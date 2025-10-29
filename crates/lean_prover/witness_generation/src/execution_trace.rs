@@ -55,6 +55,7 @@ pub fn get_execution_trace(
         .zip(execution_result.fps.par_iter())
         .for_each(|((trace_row, &pc), &fp)| {
             let instruction = &bytecode.instructions[pc];
+            //println!("instruction: {}", instruction);
             let field_repr = field_representation(instruction);
 
             let mut addr_a = F::ZERO;

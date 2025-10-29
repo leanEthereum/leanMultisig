@@ -36,3 +36,4 @@ poseidon_circuit.workspace = true
 
 [dev-dependencies]
 xmss.workspace = true
+rand_chacha = "0.9.0"

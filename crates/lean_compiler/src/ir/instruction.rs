@@ -17,6 +17,7 @@ pub enum IntermediateInstruction {
         shift_0: ConstExpression,
         shift_1: ConstExpression,
         res: IntermediaryMemOrFpOrConstant,
+        for_range_check: bool,
     }, // res = m[m[fp + shift_0]]
     Panic,
     Jump {
@@ -86,6 +87,10 @@ pub enum IntermediateInstruction {
     LocationReport {
         location: SourceLineNumber,
     },
+    RangeCheck {
+        value: IntermediateValue,
+        max: ConstExpression,
+    },
 }
 
 impl IntermediateInstruction {
@@ -152,7 +157,8 @@ impl Display for IntermediateInstruction {
                 shift_0,
                 shift_1,
                 res,
-            } => write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]"),
+                for_range_check,
+            } => write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}] for_range_check: {for_range_check}"),
             Self::Panic => write!(f, "panic"),
             Self::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {
@@ -256,6 +262,9 @@ impl Display for IntermediateInstruction {
                 Ok(())
             }
             Self::LocationReport { .. } => Ok(()),
+            Self::RangeCheck { value, max } => {
+                write!(f, "range_check({value}, {max})")
+            }
         }
     }
 }

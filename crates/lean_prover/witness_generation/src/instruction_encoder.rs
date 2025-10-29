@@ -29,6 +29,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             shift_0,
             shift_1,
             res,
+            for_range_check: _,
         } => {
             fields[3] = F::ZERO; // flag_A = 0
             fields[0] = F::from_usize(*shift_0);

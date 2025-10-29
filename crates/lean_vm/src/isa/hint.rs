@@ -1,7 +1,7 @@
 use crate::core::{F, LOG_VECTOR_LEN, Label, SourceLineNumber, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
 use crate::execution::{ExecutionHistory, Memory};
-use crate::isa::operands::MemOrConstant;
+use crate::isa::operands::{MemOrConstant, MemOrFp};
 use p3_field::{Field, PrimeCharacteristicRing};
 use std::fmt::{Display, Formatter};
 use utils::{ToUsize, pretty_integer};
@@ -65,6 +65,12 @@ pub enum Hint {
     },
     /// Jump destination label (for debugging purposes)
     Label { label: Label },
+
+    /// Range check
+    RangeCheck {
+        value: MemOrFp,
+        max: MemOrConstant,
+    },
 }
 
 /// Execution state for hint processing
@@ -193,6 +199,7 @@ impl Hint {
                 *ctx.cpu_cycles_before_new_line = 0;
             }
             Self::Label { .. } => {}
+            Self::RangeCheck { .. } => {}
         }
         Ok(())
     }
@@ -265,6 +272,9 @@ impl Display for Hint {
             }
             Self::Label { label } => {
                 write!(f, "label: {label}")
+            }
+            Self::RangeCheck { value, max } => {
+                write!(f, "range_check({value}, {max})")
             }
         }
     }
