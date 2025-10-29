@@ -19,7 +19,7 @@ where
     let mut mds_matrix: [[F; WIDTH]; WIDTH] = array::from_fn(|_| array::from_fn(|_| F::ZERO));
     for (i, row) in mds_matrix.iter_mut().enumerate() {
         row[i] = F::ONE;
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(row);
+        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(row);
     }
     mds_matrix = transpose_matrix(&mds_matrix);
     let inv_mds_matrix = inverse_matrix(&mds_matrix);
