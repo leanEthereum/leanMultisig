@@ -57,6 +57,7 @@ impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH,
         final_constants: &[[F; WIDTH]],
         compressed_output: Option<usize>,
     ) -> Self {
+        assert!(N_COMMITED_CUBES < internal_constants.len() - 1); // TODO we could go up to internal_constants.len() in theory
         let initial_full_rounds = initial_constants.to_vec();
         let (batch_partial_rounds, partial_rounds_remaining) = if N_COMMITED_CUBES == 0 {
             (None, internal_constants.to_vec())

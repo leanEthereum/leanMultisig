@@ -9,8 +9,8 @@ use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};
 use crate::*;
 use lean_vm::*;
 
-pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 1;
-pub(crate) const N_COMMITED_CUBES_P24: usize = KOALABEAR_RC24_INTERNAL.len() - 1;
+pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2;
+pub(crate) const N_COMMITED_CUBES_P24: usize = KOALABEAR_RC24_INTERNAL.len() - 2;
 
 pub fn get_base_dims(
     n_cycles: usize,
