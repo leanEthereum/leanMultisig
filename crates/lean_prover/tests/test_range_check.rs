@@ -157,3 +157,21 @@ fn test_prove_range_check_happy() {
 fn test_prove_range_check_sad_1() {
     do_test_range_check(0, 0);
 }
+
+#[test]
+#[should_panic]
+fn test_prove_range_check_sad_2() {
+    do_test_range_check(1, 0);
+}
+
+#[test]
+#[should_panic]
+fn test_prove_range_check_sad_3() {
+    do_test_range_check(2, 1);
+}
+
+#[test]
+#[should_panic]
+fn test_prove_range_check_sad_4() {
+    do_test_range_check(69, 65);
+}
