@@ -1,5 +1,5 @@
 use crate::{
-    CompressionComputation, EF, F, FullRoundComputation, PoseidonWitness,
+    CompressionComputation, EF, F, FullRoundComputation, PartialRoundComputation, PoseidonWitness,
     gkr_layers::{BatchPartialRounds, PoseidonGKRLayers},
 };
 use crate::{GKRPoseidonResult, build_poseidon_matrices};
@@ -20,7 +20,7 @@ where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
-    let (_mds_matrix, inv_mds_matrix, _light_matrix, _inv_light_matrix) =
+    let (_mds_matrix, inv_mds_matrix, _light_matrix, inv_light_matrix) =
         build_poseidon_matrices::<WIDTH>();
 
     assert_eq!(point.len(), log2_strict_usize(witness.n_poseidons()));
@@ -104,20 +104,23 @@ where
         }
     }
 
-    for (input_layers, partial_round) in witness
-        .remaining_partial_round_inputs
+    for (input_layers, partial_round_constant) in witness
+        .remaining_partial_round_layers
         .iter()
         .zip(&layers.partial_rounds_remaining)
         .rev()
     {
+        claims = apply_matrix(&inv_light_matrix, &claims);
+
         (point, claims) = prove_gkr_round(
             prover_state,
-            partial_round,
+            &PartialRoundComputation::<WIDTH> {},
             input_layers,
             &point,
             &claims,
             univariate_skips,
         );
+        claims[0] -= *partial_round_constant;
     }
 
     (point, claims) = prove_batch_internal_round(

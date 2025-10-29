@@ -10,7 +10,6 @@ use utils::transposed_par_iter_mut;
 
 use crate::F;
 use crate::gkr_layers::BatchPartialRounds;
-use crate::gkr_layers::PartialRoundComputation;
 use crate::gkr_layers::PoseidonGKRLayers;
 
 #[derive(Debug)]
@@ -19,7 +18,7 @@ pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize>
     pub initial_full_layers: Vec<[Vec<A>; WIDTH]>, // just before cubing
     pub batch_partial_round_input: [Vec<A>; WIDTH], // again, the input of the batch (partial) round
     pub committed_cubes: [Vec<A>; N_COMMITED_CUBES], // the cubes commited in the batch (partial) rounds
-    pub remaining_partial_round_inputs: Vec<[Vec<A>; WIDTH]>, // the input of each remaining partial round
+    pub remaining_partial_round_layers: Vec<[Vec<A>; WIDTH]>, // the input of each remaining partial round, just before cubing the first element
     pub final_full_layers: Vec<[Vec<A>; WIDTH]>,              // just before cubing
     pub output_layer: [Vec<A>; WIDTH],                        // output of the permutation
     pub compression: Option<(usize, Vec<A>, [Vec<A>; WIDTH])>, // num compressions, compression indicator column, compressed output
@@ -57,19 +56,23 @@ where
         initial_full_layers.last().unwrap(),
         &[F::ZERO; WIDTH], // unused
     );
-    let (next_layer, committed_cubes) =
+    let (mut next_layer, committed_cubes) =
         apply_batch_partial_rounds(&batch_partial_round_layer, &layers.batch_partial_rounds);
 
-    let mut remaining_partial_inputs = vec![next_layer];
-    for constant in &layers.partial_rounds_remaining {
-        remaining_partial_inputs.push(apply_partial_round(
-            remaining_partial_inputs.last().unwrap(),
-            constant,
+    next_layer[0] = next_layer[0]
+        .par_iter()
+        .map(|&val| val + layers.partial_rounds_remaining[0])
+        .collect();
+    let mut remaining_partial_round_layers = vec![next_layer];
+    for &constant in &layers.partial_rounds_remaining[1..] {
+        remaining_partial_round_layers.push(apply_partial_round(
+            remaining_partial_round_layers.last().unwrap(),
+            Some(constant),
         ));
     }
 
     let mut final_full_layers = vec![apply_full_round::<_, _, false, false, true>(
-        &remaining_partial_inputs.pop().unwrap(), // we remove it
+        &apply_partial_round(remaining_partial_round_layers.last().unwrap(), None),
         &layers.final_full_rounds[0],
     )];
     for constants in &layers.final_full_rounds[1..] {
@@ -109,7 +112,7 @@ where
         initial_full_layers,
         batch_partial_round_input: batch_partial_round_layer,
         committed_cubes,
-        remaining_partial_round_inputs: remaining_partial_inputs,
+        remaining_partial_round_layers,
         final_full_layers,
         output_layer,
         compression,
@@ -159,23 +162,26 @@ where
 // #[instrument(skip_all)]
 fn apply_partial_round<A, const WIDTH: usize>(
     input_layers: &[Vec<A>],
-    partial_round: &PartialRoundComputation<WIDTH>,
+    partial_round_constant: Option<F>,
 ) -> [Vec<A>; WIDTH]
 where
     A: Algebra<F> + Copy + Send + Sync,
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
+    // cube single, light matrix mul, add single constant
     let mut output_layers: [_; WIDTH] = array::from_fn(|_| A::zero_vec(input_layers[0].len()));
     transposed_par_iter_mut(&mut output_layers)
         .enumerate()
         .for_each(|(row_index, output_row)| {
-            let first_cubed = (input_layers[0][row_index] + partial_round.constant).cube();
             let mut buff = [A::ZERO; WIDTH];
-            buff[0] = first_cubed;
+            buff[0] = input_layers[0][row_index].cube();
             for j in 1..WIDTH {
                 buff[j] = input_layers[j][row_index];
             }
             GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
+            if let Some(constant) = partial_round_constant {
+                buff[0] += constant;
+            }
             for j in 0..WIDTH {
                 *output_row[j] = buff[j];
             }
