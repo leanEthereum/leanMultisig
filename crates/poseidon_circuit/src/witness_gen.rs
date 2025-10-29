@@ -8,19 +8,19 @@ use p3_monty_31::InternalLayerBaseParameters;
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 use utils::transposed_par_iter_mut;
 
+use crate::F;
 use crate::gkr_layers::BatchPartialRounds;
 use crate::gkr_layers::PartialRoundComputation;
 use crate::gkr_layers::PoseidonGKRLayers;
-use crate::{F, gkr_layers::FullRoundComputation};
 
 #[derive(Debug)]
 pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize> {
     pub input_layer: [Vec<A>; WIDTH], // input of the permutation
-    pub remaining_initial_full_round_inputs: Vec<[Vec<A>; WIDTH]>, // the remaining input of each initial full round
+    pub initial_full_layers: Vec<[Vec<A>; WIDTH]>, // just before cubing
     pub batch_partial_round_input: [Vec<A>; WIDTH], // again, the input of the batch (partial) round
     pub committed_cubes: [Vec<A>; N_COMMITED_CUBES], // the cubes commited in the batch (partial) rounds
     pub remaining_partial_round_inputs: Vec<[Vec<A>; WIDTH]>, // the input of each remaining partial round
-    pub final_full_round_inputs: Vec<[Vec<A>; WIDTH]>,        // the input of each final full round
+    pub final_full_layers: Vec<[Vec<A>; WIDTH]>,              // just before cubing
     pub output_layer: [Vec<A>; WIDTH],                        // output of the permutation
     pub compression: Option<(usize, Vec<A>)>, // num compressions, compression indicator column
 }
@@ -42,20 +42,21 @@ where
     A: Algebra<F> + Copy + Send + Sync,
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
-    let mut remaining_initial_full_layers = vec![apply_full_round::<_, _, true>(
+    let mut initial_full_layers = vec![apply_full_round::<_, _, false, true, true>(
         &input,
-        &layers.initial_full_round,
-        None,
+        &layers.initial_full_rounds[0],
     )];
-    for round in &layers.initial_full_rounds_remaining {
-        remaining_initial_full_layers.push(apply_full_round::<_, _, false>(
-            remaining_initial_full_layers.last().unwrap(),
-            round,
-            None,
+    for constants in &layers.initial_full_rounds[1..] {
+        initial_full_layers.push(apply_full_round::<_, _, true, true, true>(
+            initial_full_layers.last().unwrap(),
+            constants,
         ));
     }
 
-    let batch_partial_round_layer = remaining_initial_full_layers.pop().unwrap();
+    let batch_partial_round_layer = apply_full_round::<_, _, true, true, false>(
+        initial_full_layers.last().unwrap(),
+        &[F::ZERO; WIDTH], // unused
+    );
     let (next_layer, committed_cubes) =
         apply_batch_partial_rounds(&batch_partial_round_layer, &layers.batch_partial_rounds);
 
@@ -67,38 +68,44 @@ where
         ));
     }
 
-    let mut final_full_layer_inputs = vec![remaining_partial_inputs.pop().unwrap()];
-    for (i, round) in layers.final_full_rounds.iter().enumerate() {
-        final_full_layer_inputs.push(apply_full_round::<_, _, false>(
-            final_full_layer_inputs.last().unwrap(),
-            round,
-            if i == layers.final_full_rounds.len() - 1 {
-                compression.as_ref().map(|(_, v)| v.as_slice())
-            } else {
-                None
-            },
+    let mut final_full_layers = vec![apply_full_round::<_, _, false, false, true>(
+        &remaining_partial_inputs.pop().unwrap(), // we remove it
+        &layers.final_full_rounds[0],
+    )];
+    for constants in &layers.final_full_rounds[1..] {
+        final_full_layers.push(apply_full_round::<_, _, true, true, true>(
+            final_full_layers.last().unwrap(),
+            constants,
         ));
     }
 
-    let output_layer = final_full_layer_inputs.pop().unwrap();
+    let output_layer = apply_full_round::<_, _, true, true, false>(
+        final_full_layers.last().unwrap(),
+        &[F::ZERO; WIDTH], // unused
+    );
 
     PoseidonWitness {
         input_layer: input,
-        remaining_initial_full_round_inputs: remaining_initial_full_layers,
+        initial_full_layers,
         batch_partial_round_input: batch_partial_round_layer,
         committed_cubes,
         remaining_partial_round_inputs: remaining_partial_inputs,
-        final_full_round_inputs: final_full_layer_inputs,
+        final_full_layers,
         output_layer,
         compression,
     }
 }
 
 // #[instrument(skip_all)]
-fn apply_full_round<A, const WIDTH: usize, const FIRST: bool>(
+fn apply_full_round<
+    A,
+    const WIDTH: usize,
+    const CUBE: bool,
+    const MDS: bool,
+    const ADD_CONSTANTS: bool,
+>(
     input_layers: &[Vec<A>; WIDTH],
-    full_round: &FullRoundComputation<WIDTH, FIRST>,
-    compression_indicator: Option<&[A]>,
+    constants: &[F; WIDTH],
 ) -> [Vec<A>; WIDTH]
 where
     A: Algebra<F> + Copy + Send + Sync,
@@ -109,25 +116,21 @@ where
         .enumerate()
         .for_each(|(row_index, output_row)| {
             let mut buff: [A; WIDTH] = array::from_fn(|j| input_layers[j][row_index]);
-            if FIRST {
+            if CUBE {
+                for j in 0..WIDTH {
+                    buff[j] = buff[j].cube();
+                }
+            }
+            if MDS {
                 GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
             }
-            buff.iter_mut().enumerate().for_each(|(j, val)| {
-                *val = (*val + full_round.constants[j]).cube();
-            });
-            GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
-            if let Some(compression_output_width) = full_round.compressed_output {
-                let compressed = compression_indicator.unwrap()[row_index];
-                for i in 0..compression_output_width {
-                    *output_row[i] = buff[i];
-                }
-                for i in compression_output_width..WIDTH {
-                    *output_row[i] = buff[i] * (A::ONE - compressed);
-                }
-            } else {
-                for j in 0..WIDTH {
-                    *output_row[j] = buff[j];
-                }
+            if ADD_CONSTANTS {
+                buff.iter_mut().enumerate().for_each(|(j, val)| {
+                    *val += constants[j];
+                });
+            }
+            for j in 0..WIDTH {
+                *output_row[j] = buff[j];
             }
         });
     output_layers
@@ -200,13 +203,7 @@ where
     generate_poseidon_witness::<A, WIDTH, N_COMMITED_CUBES>(
         array::from_fn(|_| vec![A::ZERO]),
         layers,
-        if layers
-            .final_full_rounds
-            .last()
-            .unwrap()
-            .compressed_output
-            .is_some()
-        {
+        if layers.compressed_output.is_some() {
             Some((0, vec![A::ZERO]))
         } else {
             None

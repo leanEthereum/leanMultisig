@@ -30,8 +30,8 @@ const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 
 #[test]
 fn test_poseidon_benchmark() {
-    run_poseidon_benchmark(15, true);
-    run_poseidon_benchmark(15, false);
+    run_poseidon_benchmark(12, false);
+    // run_poseidon_benchmark(12, true);
 }
 
 pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {

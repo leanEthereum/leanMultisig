@@ -16,11 +16,11 @@ use crate::F;
 
 #[derive(Debug)]
 pub struct PoseidonGKRLayers<const WIDTH: usize, const N_COMMITED_CUBES: usize> {
-    pub initial_full_round: FullRoundComputation<WIDTH, true>,
-    pub initial_full_rounds_remaining: Vec<FullRoundComputation<WIDTH, false>>,
+    pub initial_full_rounds: Vec<[F; WIDTH]>,
     pub batch_partial_rounds: BatchPartialRounds<WIDTH, N_COMMITED_CUBES>,
     pub partial_rounds_remaining: Vec<PartialRoundComputation<WIDTH>>,
-    pub final_full_rounds: Vec<FullRoundComputation<WIDTH, false>>,
+    pub final_full_rounds: Vec<[F; WIDTH]>,
+    pub compressed_output: Option<usize>,
 }
 
 impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES> {
@@ -54,17 +54,7 @@ impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH,
         final_constants: &[[F; WIDTH]],
         compressed_output: Option<usize>,
     ) -> Self {
-        let initial_full_round = FullRoundComputation {
-            constants: initial_constants[0],
-            compressed_output: None,
-        };
-        let initial_full_rounds_remaining = initial_constants[1..]
-            .iter()
-            .map(|&constants| FullRoundComputation {
-                constants,
-                compressed_output: None,
-            })
-            .collect::<Vec<_>>();
+        let initial_full_rounds = initial_constants.to_vec();
         let batch_partial_rounds = BatchPartialRounds {
             constants: internal_constants[..N_COMMITED_CUBES].try_into().unwrap(),
             last_constant: internal_constants[N_COMMITED_CUBES],
@@ -73,24 +63,13 @@ impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH,
             .iter()
             .map(|&constant| PartialRoundComputation { constant })
             .collect::<Vec<_>>();
-        let final_full_rounds = final_constants
-            .iter()
-            .enumerate()
-            .map(|(i, &constants)| FullRoundComputation {
-                constants,
-                compressed_output: if i == final_constants.len() - 1 {
-                    compressed_output
-                } else {
-                    None
-                },
-            })
-            .collect::<Vec<_>>();
+        let final_full_rounds = final_constants.to_vec();
         Self {
-            initial_full_round,
-            initial_full_rounds_remaining,
+            initial_full_rounds,
             batch_partial_rounds,
             partial_rounds_remaining,
             final_full_rounds,
+            compressed_output,
         }
     }
 }

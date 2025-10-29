@@ -106,8 +106,8 @@ poseidon_circuit.workspace = true
 # [patch."https://github.com/TomWambsgans/whir-p3.git"]
 # whir-p3 = { path = "../zk/whir/fork-whir-p3" }
 
-# [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
-# multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
+[patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
+multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
 
 [profile.release]
 lto = "thin"

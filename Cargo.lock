@@ -95,7 +95,6 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#ed923559dcb49da4c83cfd6ccd5e00ffb8119aa8"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -179,7 +178,6 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#ed923559dcb49da4c83cfd6ccd5e00ffb8119aa8"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -488,7 +486,6 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#ed923559dcb49da4c83cfd6ccd5e00ffb8119aa8"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1092,7 +1089,6 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#ed923559dcb49da4c83cfd6ccd5e00ffb8119aa8"
 dependencies = [
  "backend",
  "constraints-folder",

@@ -9,6 +9,9 @@ pub use prove::*;
 mod verify;
 pub use verify::*;
 
+mod utils;
+pub use utils::*;
+
 mod witness_gen;
 pub use witness_gen::*;
 
