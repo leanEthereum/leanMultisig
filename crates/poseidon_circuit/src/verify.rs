@@ -3,8 +3,8 @@ use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 
 use crate::{
-    EF, F, FullRoundComputation, GKRPoseidonResult, build_poseidon_matrices,
-    gkr_layers::PoseidonGKRLayers,
+    CompressionComputation, EF, F, FullRoundComputation, GKRPoseidonResult,
+    build_poseidon_matrices, gkr_layers::PoseidonGKRLayers,
 };
 
 pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
@@ -49,6 +49,31 @@ where
         }
         [vec![alpha], output_claim_point[univariate_skips..].to_vec()].concat()
     };
+
+    if let Some(n_compressions) = n_compressions {
+        (point, claims) = verify_gkr_round(
+            verifier_state,
+            &CompressionComputation::<WIDTH> {
+                compressed_output: layers.compressed_output.unwrap(),
+            },
+            log_n_poseidons,
+            &point,
+            &claims,
+            univariate_skips,
+            WIDTH + 1,
+        );
+
+        assert!(n_compressions <= 1 << log_n_poseidons);
+        let compression_eval = claims.pop().unwrap();
+        assert_eq!(
+            compression_eval,
+            skipped_mle_of_zeros_then_ones(
+                (1 << log_n_poseidons) - n_compressions,
+                &point,
+                &selectors
+            )
+        );
+    }
 
     for full_round_constants in layers.final_full_rounds.iter().rev() {
         claims = apply_matrix(&inv_mds_matrix, &claims);

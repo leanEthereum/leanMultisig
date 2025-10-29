@@ -1,5 +1,5 @@
 use crate::{
-    EF, F, FullRoundComputation, PoseidonWitness,
+    CompressionComputation, EF, F, FullRoundComputation, PoseidonWitness,
     gkr_layers::{BatchPartialRounds, PoseidonGKRLayers},
 };
 use crate::{GKRPoseidonResult, build_poseidon_matrices};
@@ -27,16 +27,18 @@ where
 
     let (output_claims, mut claims) = info_span!("computing output claims").in_scope(|| {
         let eq_poly = eval_eq(&point[univariate_skips..]);
-        let inner_evals = witness
-            .output_layer
-            .par_iter()
-            .map(|poly| {
-                FPacking::<F>::unpack_slice(poly)
-                    .chunks_exact(eq_poly.len())
-                    .map(|chunk| dot_product(eq_poly.iter().copied(), chunk.iter().copied()))
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        let inner_evals = match &witness.compression {
+            Some((_, _, compressed_output)) => compressed_output,
+            None => &witness.output_layer,
+        }
+        .par_iter()
+        .map(|poly| {
+            FPacking::<F>::unpack_slice(poly)
+                .chunks_exact(eq_poly.len())
+                .map(|chunk| dot_product(eq_poly.iter().copied(), chunk.iter().copied()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
         for evals in &inner_evals {
             prover_state.add_extension_scalars(evals);
         }
@@ -59,6 +61,26 @@ where
         point = [vec![alpha], point[univariate_skips..].to_vec()].concat();
         (output_claims, claims)
     });
+
+    if let Some((_, compression_indicator, _)) = &witness.compression {
+        (point, claims) = prove_gkr_round(
+            prover_state,
+            &CompressionComputation::<WIDTH> {
+                compressed_output: layers.compressed_output.unwrap(),
+            },
+            &witness
+                .output_layer
+                .iter()
+                .chain(std::iter::once(compression_indicator))
+                .map(Vec::as_slice)
+                .collect::<Vec<_>>(),
+            &point,
+            &claims,
+            univariate_skips,
+        );
+
+        let _ = claims.pop().unwrap(); // the claim on the compression indicator columns can be evaluated by the verifier directly
+    }
 
     for (layer, full_round_constants) in witness
         .final_full_layers
@@ -135,6 +157,7 @@ where
     }
 
     claims = apply_matrix(&inv_mds_matrix, &claims);
+    let _ = claims;
 
     let pcs_point_for_inputs = point.clone();
 

@@ -7,6 +7,9 @@ pub use partial_round::*;
 mod batch_partial_rounds;
 pub use batch_partial_rounds::*;
 
+mod compression;
+pub use compression::*;
+
 use p3_koala_bear::{
     KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL, KOALABEAR_RC16_INTERNAL,
     KOALABEAR_RC24_EXTERNAL_FINAL, KOALABEAR_RC24_EXTERNAL_INITIAL, KOALABEAR_RC24_INTERNAL,

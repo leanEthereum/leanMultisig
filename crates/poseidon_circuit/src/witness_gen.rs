@@ -22,7 +22,7 @@ pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize>
     pub remaining_partial_round_inputs: Vec<[Vec<A>; WIDTH]>, // the input of each remaining partial round
     pub final_full_layers: Vec<[Vec<A>; WIDTH]>,              // just before cubing
     pub output_layer: [Vec<A>; WIDTH],                        // output of the permutation
-    pub compression: Option<(usize, Vec<A>)>, // num compressions, compression indicator column
+    pub compression: Option<(usize, Vec<A>, [Vec<A>; WIDTH])>, // num compressions, compression indicator column, compressed output
 }
 
 impl<const WIDTH: usize, const N_COMMITED_CUBES: usize>
@@ -83,6 +83,20 @@ where
         final_full_layers.last().unwrap(),
         &[F::ZERO; WIDTH], // unused
     );
+
+    let compression = compression.map(|(n_compressions, indicator)| {
+        let mut compressed_output = output_layer.clone();
+        for _ in 0..n_compressions {
+            compressed_output[layers.compressed_output.unwrap()..]
+                .par_iter_mut()
+                .for_each(|col| {
+                    col.iter_mut().zip(&indicator).for_each(|(out, ind)| {
+                        *out *= A::ONE - *ind;
+                    });
+                });
+        }
+        (n_compressions, indicator, compressed_output)
+    });
 
     PoseidonWitness {
         input_layer: input,

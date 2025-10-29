@@ -31,7 +31,7 @@ const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 #[test]
 fn test_poseidon_benchmark() {
     run_poseidon_benchmark(12, false);
-    // run_poseidon_benchmark(12, true);
+    run_poseidon_benchmark(12, true);
 }
 
 pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
@@ -169,7 +169,10 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
         (
             build_verifier_state(&prover_state),
             prover_state.proof_size(),
-            witness.output_layer,
+            match compress {
+                false => witness.output_layer,
+                true => witness.compression.unwrap().2,
+            },
             prover_duration,
             output_values,
             claim_point,
