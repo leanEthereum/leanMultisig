@@ -85,16 +85,22 @@ where
     );
 
     let compression = compression.map(|(n_compressions, indicator)| {
-        let mut compressed_output = output_layer.clone();
-        for _ in 0..n_compressions {
-            compressed_output[layers.compressed_output.unwrap()..]
-                .par_iter_mut()
-                .for_each(|col| {
-                    col.iter_mut().zip(&indicator).for_each(|(out, ind)| {
-                        *out *= A::ONE - *ind;
-                    });
-                });
-        }
+        let compressed_output = (0..WIDTH)
+            .into_par_iter()
+            .map(|col_idx| {
+                if col_idx < layers.compressed_output.unwrap() {
+                    output_layer[col_idx].clone()
+                } else {
+                    output_layer[col_idx]
+                        .iter()
+                        .zip(&indicator)
+                        .map(|(out, ind)| *out * (A::ONE - *ind))
+                        .collect::<Vec<_>>()
+                }
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
         (n_compressions, indicator, compressed_output)
     });
 
