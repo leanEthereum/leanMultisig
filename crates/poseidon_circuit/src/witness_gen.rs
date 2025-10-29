@@ -16,7 +16,7 @@ use crate::gkr_layers::PoseidonGKRLayers;
 pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize> {
     pub input_layer: [Vec<A>; WIDTH], // input of the permutation
     pub initial_full_layers: Vec<[Vec<A>; WIDTH]>, // just before cubing
-    pub batch_partial_round_input: [Vec<A>; WIDTH], // again, the input of the batch (partial) round
+    pub batch_partial_round_input: Option<[Vec<A>; WIDTH]>, // again, the input of the batch (partial) round
     pub committed_cubes: [Vec<A>; N_COMMITED_CUBES], // the cubes commited in the batch (partial) rounds
     pub remaining_partial_round_layers: Vec<[Vec<A>; WIDTH]>, // the input of each remaining partial round, just before cubing the first element
     pub final_full_layers: Vec<[Vec<A>; WIDTH]>,              // just before cubing
@@ -52,12 +52,18 @@ where
         ));
     }
 
-    let batch_partial_round_layer = apply_full_round::<_, _, true, true, false>(
+    let layer = apply_full_round::<_, _, true, true, false>(
         initial_full_layers.last().unwrap(),
         &[F::ZERO; WIDTH], // unused
     );
-    let (mut next_layer, committed_cubes) =
-        apply_batch_partial_rounds(&batch_partial_round_layer, &layers.batch_partial_rounds);
+
+    let (batch_partial_round_layer, mut next_layer, committed_cubes) = if N_COMMITED_CUBES == 0 {
+        (None, layer, vec![].try_into().unwrap())
+    } else {
+        let (next_layer, committed_cubes) =
+            apply_batch_partial_rounds(&layer, &layers.batch_partial_rounds.as_ref().unwrap());
+        (Some(layer), next_layer, committed_cubes)
+    };
 
     next_layer[0] = next_layer[0]
         .par_iter()
@@ -226,6 +232,10 @@ where
     A: Algebra<F> + Copy + Send + Sync,
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
+    if N_COMMITED_CUBES == 0 {
+        return vec![].try_into().unwrap();
+    }
+
     generate_poseidon_witness::<A, WIDTH, N_COMMITED_CUBES>(
         array::from_fn(|_| vec![A::ZERO]),
         layers,

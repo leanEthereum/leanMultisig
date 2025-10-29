@@ -3,7 +3,8 @@ use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 
 use crate::{
-    CompressionComputation, EF, F, FullRoundComputation, GKRPoseidonResult, PartialRoundComputation, build_poseidon_matrices, gkr_layers::PoseidonGKRLayers
+    CompressionComputation, EF, F, FullRoundComputation, GKRPoseidonResult,
+    PartialRoundComputation, build_poseidon_matrices, gkr_layers::PoseidonGKRLayers,
 };
 
 pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
@@ -107,24 +108,29 @@ where
 
         claims[0] -= *partial_round_constant;
     }
-    let claimed_cubes_evals = verifier_state
-        .next_extension_scalars_vec(N_COMMITED_CUBES)
-        .unwrap();
 
-    (point, claims) = verify_gkr_round(
-        verifier_state,
-        &layers.batch_partial_rounds,
-        log_n_poseidons,
-        &point,
-        &[claims, claimed_cubes_evals.clone()].concat(),
-        univariate_skips,
-        WIDTH + N_COMMITED_CUBES,
-    );
+    let mut pcs_point_for_cubes = vec![];
+    let mut pcs_evals_for_cubes = vec![];
+    if N_COMMITED_CUBES > 0 {
+        let claimed_cubes_evals = verifier_state
+            .next_extension_scalars_vec(N_COMMITED_CUBES)
+            .unwrap();
 
-    let pcs_point_for_cubes = point.clone();
-    let pcs_evals_for_cubes = claims[WIDTH..].to_vec();
+        (point, claims) = verify_gkr_round(
+            verifier_state,
+            layers.batch_partial_rounds.as_ref().unwrap(),
+            log_n_poseidons,
+            &point,
+            &[claims, claimed_cubes_evals.clone()].concat(),
+            univariate_skips,
+            WIDTH + N_COMMITED_CUBES,
+        );
 
-    claims = claims[..WIDTH].to_vec();
+        pcs_point_for_cubes = point.clone();
+        pcs_evals_for_cubes = claims[WIDTH..].to_vec();
+
+        claims = claims[..WIDTH].to_vec();
+    }
 
     for full_round_constants in layers.initial_full_rounds.iter().rev() {
         claims = apply_matrix(&inv_mds_matrix, &claims);
@@ -156,12 +162,16 @@ where
         &selectors,
     );
 
-    let cubes_statements = verify_inner_evals_on_commited_columns(
-        verifier_state,
-        &pcs_point_for_cubes,
-        &pcs_evals_for_cubes,
-        &selectors,
-    );
+    let cubes_statements = if N_COMMITED_CUBES == 0 {
+        Default::default()
+    } else {
+        verify_inner_evals_on_commited_columns(
+            verifier_state,
+            &pcs_point_for_cubes,
+            &pcs_evals_for_cubes,
+            &selectors,
+        )
+    };
 
     GKRPoseidonResult {
         output_values: output_claims,

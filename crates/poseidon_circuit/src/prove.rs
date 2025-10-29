@@ -123,15 +123,17 @@ where
         claims[0] -= *partial_round_constant;
     }
 
-    (point, claims) = prove_batch_internal_round(
-        prover_state,
-        &witness.batch_partial_round_input,
-        &witness.committed_cubes,
-        &layers.batch_partial_rounds,
-        &point,
-        &claims,
-        &selectors,
-    );
+    if let Some(batch_partial_round_input) = &witness.batch_partial_round_input {
+        (point, claims) = prove_batch_internal_round(
+            prover_state,
+            batch_partial_round_input,
+            &witness.committed_cubes,
+            layers.batch_partial_rounds.as_ref().unwrap(),
+            &point,
+            &claims,
+            &selectors,
+        );
+    }
 
     let pcs_point_for_cubes = point.clone();
 
@@ -170,12 +172,16 @@ where
         univariate_skips,
         &witness.input_layer,
     );
-    let cubes_statements = inner_evals_on_commited_columns(
-        prover_state,
-        &pcs_point_for_cubes,
-        univariate_skips,
-        &witness.committed_cubes,
-    );
+    let cubes_statements = if N_COMMITED_CUBES == 0 {
+        Default::default()
+    } else {
+        inner_evals_on_commited_columns(
+            prover_state,
+            &pcs_point_for_cubes,
+            univariate_skips,
+            &witness.committed_cubes,
+        )
+    };
 
     GKRPoseidonResult {
         output_values: output_claims,

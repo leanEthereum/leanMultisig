@@ -1,5 +1,8 @@
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
+use p3_koala_bear::{
+    KoalaBear, KoalaBearInternalLayerParameters, KoalaBearParameters, QuinticExtensionFieldKB,
+};
+use p3_monty_31::InternalLayerBaseParameters;
 use packed_pcs::{
     ColDims, packed_pcs_commit, packed_pcs_global_statements_for_prover,
     packed_pcs_global_statements_for_verifier, packed_pcs_parse_commitment,
@@ -22,19 +25,26 @@ use crate::{
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 
-const WIDTH: usize = 16;
-
-const UNIVARIATE_SKIPS: usize = 3;
-const N_COMMITED_CUBES: usize = 16;
 const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 
 #[test]
 fn test_poseidon_benchmark() {
-    run_poseidon_benchmark(12, false);
-    run_poseidon_benchmark(12, true);
+    run_poseidon_benchmark::<16, 0, 3>(12, false);
+    run_poseidon_benchmark::<16, 0, 3>(12, true);
+    run_poseidon_benchmark::<16, 16, 3>(12, false);
+    run_poseidon_benchmark::<16, 16, 3>(12, true);
 }
 
-pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
+pub fn run_poseidon_benchmark<
+    const WIDTH: usize,
+    const N_COMMITED_CUBES: usize,
+    const UNIVARIATE_SKIPS: usize,
+>(
+    log_n_poseidons: usize,
+    compress: bool,
+) where
+    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
+{
     init_tracing();
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -67,6 +77,7 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
     );
 
     let default_cubes = default_cube_layers::<F, WIDTH, N_COMMITED_CUBES>(&layers);
+
     let input_col_dims = vec![ColDims::padded(n_poseidons, F::ZERO); WIDTH];
     let cubes_col_dims = default_cubes
         .iter()

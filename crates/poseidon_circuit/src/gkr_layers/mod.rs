@@ -20,7 +20,7 @@ use crate::F;
 #[derive(Debug)]
 pub struct PoseidonGKRLayers<const WIDTH: usize, const N_COMMITED_CUBES: usize> {
     pub initial_full_rounds: Vec<[F; WIDTH]>,
-    pub batch_partial_rounds: BatchPartialRounds<WIDTH, N_COMMITED_CUBES>,
+    pub batch_partial_rounds: Option<BatchPartialRounds<WIDTH, N_COMMITED_CUBES>>,
     pub partial_rounds_remaining: Vec<F>,
     pub final_full_rounds: Vec<[F; WIDTH]>,
     pub compressed_output: Option<usize>,
@@ -58,11 +58,17 @@ impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH,
         compressed_output: Option<usize>,
     ) -> Self {
         let initial_full_rounds = initial_constants.to_vec();
-        let batch_partial_rounds = BatchPartialRounds {
-            constants: internal_constants[..N_COMMITED_CUBES].try_into().unwrap(),
-            last_constant: internal_constants[N_COMMITED_CUBES],
+        let (batch_partial_rounds, partial_rounds_remaining) = if N_COMMITED_CUBES == 0 {
+            (None, internal_constants.to_vec())
+        } else {
+            (
+                Some(BatchPartialRounds {
+                    constants: internal_constants[..N_COMMITED_CUBES].try_into().unwrap(),
+                    last_constant: internal_constants[N_COMMITED_CUBES],
+                }),
+                internal_constants[N_COMMITED_CUBES + 1..].to_vec(),
+            )
         };
-        let partial_rounds_remaining = internal_constants[N_COMMITED_CUBES + 1..].to_vec();
         let final_full_rounds = final_constants.to_vec();
         Self {
             initial_full_rounds,
