@@ -78,7 +78,8 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
 
     let (
         mut verifier_state,
-        proof_size,
+        proof_size_pcs,
+        proof_size_gkr,
         output_layer,
         prover_duration,
         output_values_prover,
@@ -150,6 +151,8 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
             }
         }
 
+        let proof_size_gkr = prover_state.proof_size();
+
         let global_statements = packed_pcs_global_statements_for_prover(
             &committed_polys,
             &committed_col_dims,
@@ -166,9 +169,11 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
 
         let prover_duration = prover_time.elapsed();
 
+        let proof_size_pcs = prover_state.proof_size() - proof_size_gkr;
         (
             build_verifier_state(&prover_state),
-            prover_state.proof_size(),
+            proof_size_pcs,
+            proof_size_gkr,
             match compress {
                 false => witness.output_layer,
                 true => witness.compression.unwrap().2,
@@ -311,8 +316,10 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
         prover_duration.as_secs_f64() / plaintext_duration.as_secs_f64()
     );
     println!(
-        "Proof size: {:.1} KiB (without merkle pruning)",
-        (proof_size * F::bits()) as f64 / (8.0 * 1024.0)
+        "Proof size: GKR = {:.1} KiB, PCS = {:.1} KiB . Total = {:.1} KiB (available optimizations: GKR = 40%, PCS = 15%)",
+        (proof_size_gkr * F::bits()) as f64 / (8.0 * 1024.0),
+        (proof_size_pcs * F::bits()) as f64 / (8.0 * 1024.0),
+        ((proof_size_gkr + proof_size_pcs) * F::bits()) as f64 / (8.0 * 1024.0),
     );
     println!("Verifier time: {}ms", verifier_duration.as_millis());
 }
