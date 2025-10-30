@@ -83,6 +83,7 @@ But we reduce proof size a lot using instead (TODO):
 - make test_packed_pcs pass again
 - Poseidon AIR: handle properly the compression mode ? (where output = poseidon(input) + input) (both in WHIR / XMSS)
 - XMSS: implem the hash tweak (almost no performance impact as long as we use 1 tweak / XMSS, but this requires further security analysis)
+- Grinding before GKR (https://eprint.iacr.org/2025/118)
 
 
 # Random ideas
