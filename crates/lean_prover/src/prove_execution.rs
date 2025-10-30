@@ -209,37 +209,44 @@ pub fn prove_execution(
 
     // Grand Product for consistency with precompiles
     let grand_product_challenge_global = prover_state.sample();
-    let grand_product_challenge_p16 = prover_state.sample();
-    let grand_product_challenge_p24 = prover_state.sample();
-    let grand_product_challenge_dot_product = prover_state.sample();
-    let grand_product_challenge_vm_multilinear_eval = prover_state.sample();
+    let fingerprint_challenge = prover_state.sample();
     let mut exec_column_for_grand_product = vec![grand_product_challenge_global; n_cycles];
     for pos_16 in &poseidons_16 {
         let Some(cycle) = pos_16.cycle else {
             break;
         };
         exec_column_for_grand_product[cycle] = grand_product_challenge_global
-            + finger_print(&pos_16.addresses_field_repr(), grand_product_challenge_p16);
+            + finger_print(
+                TABLE_INDEX_POSEIDONS_16,
+                &pos_16.addresses_field_repr(),
+                fingerprint_challenge,
+            );
     }
     for pos_24 in &poseidons_24 {
         let Some(cycle) = pos_24.cycle else {
             break;
         };
         exec_column_for_grand_product[cycle] = grand_product_challenge_global
-            + finger_print(&pos_24.addresses_field_repr(), grand_product_challenge_p24);
+            + finger_print(
+                TABLE_INDEX_POSEIDONS_24,
+                &pos_24.addresses_field_repr(),
+                fingerprint_challenge,
+            );
     }
     for dot_product in &dot_products {
         exec_column_for_grand_product[dot_product.cycle] = grand_product_challenge_global
             + finger_print(
+                TABLE_INDEX_DOT_PRODUCTS,
                 &dot_product.addresses_and_len_field_repr(),
-                grand_product_challenge_dot_product,
+                fingerprint_challenge,
             );
     }
     for multilinear_eval in &vm_multilinear_evals {
         exec_column_for_grand_product[multilinear_eval.cycle] = grand_product_challenge_global
             + finger_print(
+                TABLE_INDEX_MULTILINEAR_EVAL,
                 &multilinear_eval.addresses_and_n_vars_field_repr(),
-                grand_product_challenge_vm_multilinear_eval,
+                fingerprint_challenge,
             );
     }
 
@@ -252,7 +259,11 @@ pub fn prove_execution(
         .par_iter()
         .map(|pos_16| {
             grand_product_challenge_global
-                + finger_print(&pos_16.addresses_field_repr(), grand_product_challenge_p16)
+                + finger_print(
+                    TABLE_INDEX_POSEIDONS_16,
+                    &pos_16.addresses_field_repr(),
+                    fingerprint_challenge,
+                )
         })
         .collect::<Vec<_>>();
 
@@ -265,7 +276,11 @@ pub fn prove_execution(
         .par_iter()
         .map(|pos_24| {
             grand_product_challenge_global
-                + finger_print(&pos_24.addresses_field_repr(), grand_product_challenge_p24)
+                + finger_print(
+                    TABLE_INDEX_POSEIDONS_24,
+                    &pos_24.addresses_field_repr(),
+                    fingerprint_challenge,
+                )
         })
         .collect::<Vec<_>>();
 
@@ -279,16 +294,17 @@ pub fn prove_execution(
         .map(|i| {
             grand_product_challenge_global
                 + if dot_product_columns[0][i].is_zero() {
-                    grand_product_challenge_dot_product
+                    EF::from_usize(TABLE_INDEX_DOT_PRODUCTS)
                 } else {
                     finger_print(
+                        TABLE_INDEX_DOT_PRODUCTS,
                         &[
                             dot_product_columns[2][i],
                             dot_product_columns[3][i],
                             dot_product_columns[4][i],
                             dot_product_columns[1][i],
                         ],
-                        grand_product_challenge_dot_product,
+                        fingerprint_challenge,
                     )
                 }
         })
@@ -299,8 +315,9 @@ pub fn prove_execution(
         .map(|vm_multilinear_eval| {
             grand_product_challenge_global
                 + finger_print(
+                    TABLE_INDEX_MULTILINEAR_EVAL,
                     &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
-                    grand_product_challenge_vm_multilinear_eval,
+                    fingerprint_challenge,
                 )
         })
         .product::<EF>();
@@ -320,23 +337,37 @@ pub fn prove_execution(
         );
     let corrected_prod_p16 = grand_product_p16_res
         / (grand_product_challenge_global
-            + grand_product_challenge_p16
-            + grand_product_challenge_p16.exp_u64(4) * F::from_usize(POSEIDON_16_NULL_HASH_PTR)
-            + grand_product_challenge_p16.exp_u64(5) * F::ONE) // compression = 1 by default
-            .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
+            + finger_print(
+                TABLE_INDEX_POSEIDONS_16,
+                &WitnessPoseidon16::default_addresses_field_repr(POSEIDON_16_NULL_HASH_PTR),
+                fingerprint_challenge,
+            ))
+        .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
 
     let corrected_prod_p24 = grand_product_p24_res
         / (grand_product_challenge_global
-            + grand_product_challenge_p24
-            + grand_product_challenge_p24.exp_u64(4) * F::from_usize(POSEIDON_24_NULL_HASH_PTR))
+            + finger_print(
+                TABLE_INDEX_POSEIDONS_24,
+                &WitnessPoseidon24::default_addresses_field_repr(POSEIDON_24_NULL_HASH_PTR),
+                fingerprint_challenge,
+            ))
         .exp_u64((n_poseidons_24.next_power_of_two() - n_poseidons_24) as u64);
 
     let corrected_dot_product = grand_product_dot_product_res
         / ((grand_product_challenge_global
-            + grand_product_challenge_dot_product
-            + grand_product_challenge_dot_product.exp_u64(5))
+            + finger_print(
+                TABLE_INDEX_DOT_PRODUCTS,
+                &[F::ZERO, F::ZERO, F::ZERO, F::ONE],
+                fingerprint_challenge,
+            ))
         .exp_u64(dot_product_padding_len as u64)
-            * (grand_product_challenge_global + grand_product_challenge_dot_product).exp_u64(
+            * (grand_product_challenge_global
+                + finger_print(
+                    TABLE_INDEX_DOT_PRODUCTS,
+                    &[F::ZERO, F::ZERO, F::ZERO, F::ZERO],
+                    fingerprint_challenge,
+                ))
+            .exp_u64(
                 ((1 << log_n_rows_dot_product_table) - dot_product_padding_len - dot_products.len())
                     as u64,
             ));
@@ -402,7 +433,7 @@ pub fn prove_execution(
 
     let dot_product_footprint_computation = DotProductFootprint {
         global_challenge: grand_product_challenge_global,
-        dot_product_challenge: powers_const(grand_product_challenge_dot_product),
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
     };
 
     let (
@@ -455,10 +486,7 @@ pub fn prove_execution(
 
     let precompile_foot_print_computation = PrecompileFootprint {
         global_challenge: grand_product_challenge_global,
-        p16_powers: powers_const(grand_product_challenge_p16),
-        p24_powers: powers_const(grand_product_challenge_p24),
-        dot_product_powers: powers_const(grand_product_challenge_dot_product),
-        multilinear_eval_powers: powers_const(grand_product_challenge_vm_multilinear_eval),
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
     };
 
     let (grand_product_exec_sumcheck_point, mut grand_product_exec_sumcheck_inner_evals, _) =
@@ -718,7 +746,7 @@ pub fn prove_execution(
 
     assert!(
         padded_dot_product_indexes_spread.len() <= 1 << log_n_cycles,
-        "TODO a more general commitment structure"
+        "Currently the number of dot products must be < num_cycles / 32 (TODO relax this)"
     );
 
     let unused_1 = evaluate_as_larger_multilinear_pol(

@@ -1,5 +1,8 @@
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
+use p3_koala_bear::{
+    KoalaBear, KoalaBearInternalLayerParameters, KoalaBearParameters, QuinticExtensionFieldKB,
+};
+use p3_monty_31::InternalLayerBaseParameters;
 use packed_pcs::{
     ColDims, packed_pcs_commit, packed_pcs_global_statements_for_prover,
     packed_pcs_global_statements_for_verifier, packed_pcs_parse_commitment,
@@ -22,19 +25,26 @@ use crate::{
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 
-const WIDTH: usize = 16;
-
-const UNIVARIATE_SKIPS: usize = 3;
-const N_COMMITED_CUBES: usize = 16;
 const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 
 #[test]
 fn test_poseidon_benchmark() {
-    run_poseidon_benchmark(15, true);
-    run_poseidon_benchmark(15, false);
+    run_poseidon_benchmark::<16, 0, 3>(12, false);
+    run_poseidon_benchmark::<16, 0, 3>(12, true);
+    run_poseidon_benchmark::<16, 16, 3>(12, false);
+    run_poseidon_benchmark::<16, 16, 3>(12, true);
 }
 
-pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
+pub fn run_poseidon_benchmark<
+    const WIDTH: usize,
+    const N_COMMITED_CUBES: usize,
+    const UNIVARIATE_SKIPS: usize,
+>(
+    log_n_poseidons: usize,
+    compress: bool,
+) where
+    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
+{
     init_tracing();
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -67,6 +77,7 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
     );
 
     let default_cubes = default_cube_layers::<F, WIDTH, N_COMMITED_CUBES>(&layers);
+
     let input_col_dims = vec![ColDims::padded(n_poseidons, F::ZERO); WIDTH];
     let cubes_col_dims = default_cubes
         .iter()
@@ -78,7 +89,8 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
 
     let (
         mut verifier_state,
-        proof_size,
+        proof_size_pcs,
+        proof_size_gkr,
         output_layer,
         prover_duration,
         output_values_prover,
@@ -150,6 +162,8 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
             }
         }
 
+        let proof_size_gkr = prover_state.proof_size();
+
         let global_statements = packed_pcs_global_statements_for_prover(
             &committed_polys,
             &committed_col_dims,
@@ -166,10 +180,15 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
 
         let prover_duration = prover_time.elapsed();
 
+        let proof_size_pcs = prover_state.proof_size() - proof_size_gkr;
         (
             build_verifier_state(&prover_state),
-            prover_state.proof_size(),
-            witness.output_layer,
+            proof_size_pcs,
+            proof_size_gkr,
+            match compress {
+                false => witness.output_layer,
+                true => witness.compression.unwrap().2,
+            },
             prover_duration,
             output_values,
             claim_point,
@@ -308,8 +327,10 @@ pub fn run_poseidon_benchmark(log_n_poseidons: usize, compress: bool) {
         prover_duration.as_secs_f64() / plaintext_duration.as_secs_f64()
     );
     println!(
-        "Proof size: {:.1} KiB (without merkle pruning)",
-        (proof_size * F::bits()) as f64 / (8.0 * 1024.0)
+        "Proof size: GKR = {:.1} KiB, PCS = {:.1} KiB . Total = {:.1} KiB (available optimizations: GKR = 40%, PCS = 15%)",
+        (proof_size_gkr * F::bits()) as f64 / (8.0 * 1024.0),
+        (proof_size_pcs * F::bits()) as f64 / (8.0 * 1024.0),
+        ((proof_size_gkr + proof_size_pcs) * F::bits()) as f64 / (8.0 * 1024.0),
     );
     println!("Verifier time: {}ms", verifier_duration.as_millis());
 }

@@ -9,8 +9,8 @@ use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};
 use crate::*;
 use lean_vm::*;
 
-pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 1;
-pub(crate) const N_COMMITED_CUBES_P24: usize = KOALABEAR_RC24_INTERNAL.len() - 1;
+pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2;
+pub(crate) const N_COMMITED_CUBES_P24: usize = KOALABEAR_RC24_INTERNAL.len() - 2;
 
 pub fn get_base_dims(
     n_cycles: usize,
@@ -146,10 +146,7 @@ pub fn add_memory_statements_for_dot_product_precompile(
 
 pub struct PrecompileFootprint {
     pub global_challenge: EF,
-    pub p16_powers: [EF; 6],
-    pub p24_powers: [EF; 5],
-    pub dot_product_powers: [EF; 6],
-    pub multilinear_eval_powers: [EF; 6],
+    pub fingerprint_challenge_powers: [EF; 5],
 }
 
 const PRECOMP_INDEX_OPERAND_A: usize = 0;
@@ -203,28 +200,37 @@ impl PrecompileFootprint {
         let nu_c = (ResultF::ONE - point[PRECOMP_INDEX_FLAG_C]) * point[PRECOMP_INDEX_MEM_VALUE_C]
             + point[PRECOMP_INDEX_FLAG_C] * point[PRECOMP_INDEX_FP];
 
-        (nu_a * self.p16_powers[2]
-            + nu_b * self.p16_powers[3]
-            + nu_c * self.p16_powers[4]
-            + mul_point_f_and_ef(point[PRECOMP_INDEX_AUX], self.p16_powers[5])
-            + self.p16_powers[1])
+        (nu_a * self.fingerprint_challenge_powers[1]
+            + nu_b * self.fingerprint_challenge_powers[2]
+            + nu_c * self.fingerprint_challenge_powers[3]
+            + mul_point_f_and_ef(
+                point[PRECOMP_INDEX_AUX],
+                self.fingerprint_challenge_powers[4],
+            )
+            + ResultF::from_usize(TABLE_INDEX_POSEIDONS_16))
             * point[PRECOMP_INDEX_POSEIDON_16]
-            + (nu_a * self.p24_powers[2]
-                + nu_b * self.p24_powers[3]
-                + nu_c * self.p24_powers[4]
-                + self.p24_powers[1])
+            + (nu_a * self.fingerprint_challenge_powers[1]
+                + nu_b * self.fingerprint_challenge_powers[2]
+                + nu_c * self.fingerprint_challenge_powers[3]
+                + ResultF::from_usize(TABLE_INDEX_POSEIDONS_24))
                 * point[PRECOMP_INDEX_POSEIDON_24]
-            + (nu_a * self.dot_product_powers[2]
-                + nu_b * self.dot_product_powers[3]
-                + nu_c * self.dot_product_powers[4]
-                + mul_point_f_and_ef(point[PRECOMP_INDEX_AUX], self.dot_product_powers[5])
-                + self.dot_product_powers[1])
+            + (nu_a * self.fingerprint_challenge_powers[1]
+                + nu_b * self.fingerprint_challenge_powers[2]
+                + nu_c * self.fingerprint_challenge_powers[3]
+                + mul_point_f_and_ef(
+                    point[PRECOMP_INDEX_AUX],
+                    self.fingerprint_challenge_powers[4],
+                )
+                + ResultF::from_usize(TABLE_INDEX_DOT_PRODUCTS))
                 * point[PRECOMP_INDEX_DOT_PRODUCT]
-            + (nu_a * self.multilinear_eval_powers[2]
-                + nu_b * self.multilinear_eval_powers[3]
-                + nu_c * self.multilinear_eval_powers[4]
-                + mul_point_f_and_ef(point[PRECOMP_INDEX_AUX], self.multilinear_eval_powers[5])
-                + self.multilinear_eval_powers[1])
+            + (nu_a * self.fingerprint_challenge_powers[1]
+                + nu_b * self.fingerprint_challenge_powers[2]
+                + nu_c * self.fingerprint_challenge_powers[3]
+                + mul_point_f_and_ef(
+                    point[PRECOMP_INDEX_AUX],
+                    self.fingerprint_challenge_powers[4],
+                )
+                + ResultF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
                 * point[PRECOMP_INDEX_MULTILINEAR_EVAL]
             + self.global_challenge
     }
@@ -258,7 +264,7 @@ impl SumcheckComputationPacked<EF> for PrecompileFootprint {
 
 pub struct DotProductFootprint {
     pub global_challenge: EF,
-    pub dot_product_challenge: [EF; 6],
+    pub fingerprint_challenge_powers: [EF; 5],
 }
 
 impl DotProductFootprint {
@@ -270,12 +276,12 @@ impl DotProductFootprint {
         point: &[PointF],
         mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
     ) -> ResultF {
-        (mul_point_f_and_ef(point[2], self.dot_product_challenge[2])
-            + mul_point_f_and_ef(point[3], self.dot_product_challenge[3])
-            + mul_point_f_and_ef(point[4], self.dot_product_challenge[4])
-            + mul_point_f_and_ef(point[1], self.dot_product_challenge[5]))
-            * point[0]
-            + self.dot_product_challenge[1]
+        ResultF::from_usize(TABLE_INDEX_DOT_PRODUCTS)
+            + (mul_point_f_and_ef(point[2], self.fingerprint_challenge_powers[1])
+                + mul_point_f_and_ef(point[3], self.fingerprint_challenge_powers[2])
+                + mul_point_f_and_ef(point[4], self.fingerprint_challenge_powers[3])
+                + mul_point_f_and_ef(point[1], self.fingerprint_challenge_powers[4]))
+                * point[0]
             + self.global_challenge
     }
 }

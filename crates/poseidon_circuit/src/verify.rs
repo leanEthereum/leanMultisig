@@ -2,7 +2,10 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 
-use crate::{EF, F, GKRPoseidonResult, gkr_layers::PoseidonGKRLayers};
+use crate::{
+    CompressionComputation, EF, F, FullRoundComputation, GKRPoseidonResult,
+    PartialRoundComputation, build_poseidon_inv_matrices, gkr_layers::PoseidonGKRLayers,
+};
 
 pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
@@ -16,11 +19,12 @@ where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
+    let (inv_mds_matrix, inv_light_matrix) = build_poseidon_inv_matrices::<WIDTH>();
 
     let mut output_claims = vec![];
     let mut claims = vec![];
 
-    let mut claim_point = {
+    let mut point = {
         let inner_evals = (0..WIDTH)
             .map(|_| {
                 verifier_state
@@ -45,89 +49,109 @@ where
         [vec![alpha], output_claim_point[univariate_skips..].to_vec()].concat()
     };
 
-    for (i, full_round) in layers.final_full_rounds.iter().rev().enumerate() {
-        let n_inputs = if i == 0 && n_compressions.is_some() {
-            WIDTH + 1
-        } else {
-            WIDTH
-        };
-        (claim_point, claims) = verify_gkr_round(
+    if let Some(n_compressions) = n_compressions {
+        (point, claims) = verify_gkr_round(
             verifier_state,
-            full_round,
+            &CompressionComputation::<WIDTH> {
+                compressed_output: layers.compressed_output.unwrap(),
+            },
             log_n_poseidons,
-            &claim_point,
+            &point,
             &claims,
             univariate_skips,
-            n_inputs,
+            WIDTH + 1,
         );
-        if i == 0
-            && let Some(n_compressions) = n_compressions
-        {
-            assert!(n_compressions <= 1 << log_n_poseidons);
-            let compression_eval = claims.pop().unwrap();
-            assert_eq!(
-                compression_eval,
-                skipped_mle_of_zeros_then_ones(
-                    (1 << log_n_poseidons) - n_compressions,
-                    &claim_point,
-                    &selectors
-                )
-            );
+
+        assert!(n_compressions <= 1 << log_n_poseidons);
+        let compression_eval = claims.pop().unwrap();
+        assert_eq!(
+            compression_eval,
+            skipped_mle_of_zeros_then_ones(
+                (1 << log_n_poseidons) - n_compressions,
+                &point,
+                &selectors
+            )
+        );
+    }
+
+    for full_round_constants in layers.final_full_rounds.iter().rev() {
+        claims = apply_matrix(&inv_mds_matrix, &claims);
+
+        (point, claims) = verify_gkr_round(
+            verifier_state,
+            &FullRoundComputation {},
+            log_n_poseidons,
+            &point,
+            &claims,
+            univariate_skips,
+            WIDTH,
+        );
+
+        for (claim, c) in claims.iter_mut().zip(full_round_constants) {
+            *claim -= *c;
         }
     }
 
-    for partial_round in layers.partial_rounds_remaining.iter().rev() {
-        (claim_point, claims) = verify_gkr_round(
+    for partial_round_constant in layers.partial_rounds_remaining.iter().rev() {
+        claims = apply_matrix(&inv_light_matrix, &claims);
+
+        (point, claims) = verify_gkr_round(
             verifier_state,
-            partial_round,
+            &PartialRoundComputation::<WIDTH> {},
             log_n_poseidons,
-            &claim_point,
+            &point,
             &claims,
             univariate_skips,
             WIDTH,
         );
+
+        claims[0] -= *partial_round_constant;
     }
-    let claimed_cubes_evals = verifier_state
-        .next_extension_scalars_vec(N_COMMITED_CUBES)
-        .unwrap();
 
-    (claim_point, claims) = verify_gkr_round(
-        verifier_state,
-        &layers.batch_partial_rounds,
-        log_n_poseidons,
-        &claim_point,
-        &[claims, claimed_cubes_evals.clone()].concat(),
-        univariate_skips,
-        WIDTH + N_COMMITED_CUBES,
-    );
+    let mut pcs_point_for_cubes = vec![];
+    let mut pcs_evals_for_cubes = vec![];
+    if N_COMMITED_CUBES > 0 {
+        let claimed_cubes_evals = verifier_state
+            .next_extension_scalars_vec(N_COMMITED_CUBES)
+            .unwrap();
 
-    let pcs_point_for_cubes = claim_point.clone();
-    let pcs_evals_for_cubes = claims[WIDTH..].to_vec();
-
-    claims = claims[..WIDTH].to_vec();
-
-    for full_round in layers.initial_full_rounds_remaining.iter().rev() {
-        (claim_point, claims) = verify_gkr_round(
+        (point, claims) = verify_gkr_round(
             verifier_state,
-            full_round,
+            layers.batch_partial_rounds.as_ref().unwrap(),
             log_n_poseidons,
-            &claim_point,
+            &point,
+            &[claims, claimed_cubes_evals.clone()].concat(),
+            univariate_skips,
+            WIDTH + N_COMMITED_CUBES,
+        );
+
+        pcs_point_for_cubes = point.clone();
+        pcs_evals_for_cubes = claims[WIDTH..].to_vec();
+
+        claims = claims[..WIDTH].to_vec();
+    }
+
+    for full_round_constants in layers.initial_full_rounds.iter().rev() {
+        claims = apply_matrix(&inv_mds_matrix, &claims);
+
+        (point, claims) = verify_gkr_round(
+            verifier_state,
+            &FullRoundComputation {},
+            log_n_poseidons,
+            &point,
             &claims,
             univariate_skips,
             WIDTH,
         );
-    }
-    (claim_point, claims) = verify_gkr_round(
-        verifier_state,
-        &layers.initial_full_round,
-        log_n_poseidons,
-        &claim_point,
-        &claims,
-        univariate_skips,
-        WIDTH,
-    );
 
-    let pcs_point_for_inputs = claim_point.clone();
+        for (claim, c) in claims.iter_mut().zip(full_round_constants) {
+            *claim -= *c;
+        }
+    }
+
+    claims = apply_matrix(&inv_mds_matrix, &claims);
+
+    let pcs_point_for_inputs = point.clone();
     let pcs_evals_for_inputs = claims;
 
     let input_statements = verify_inner_evals_on_commited_columns(
@@ -137,12 +161,16 @@ where
         &selectors,
     );
 
-    let cubes_statements = verify_inner_evals_on_commited_columns(
-        verifier_state,
-        &pcs_point_for_cubes,
-        &pcs_evals_for_cubes,
-        &selectors,
-    );
+    let cubes_statements = if N_COMMITED_CUBES == 0 {
+        Default::default()
+    } else {
+        verify_inner_evals_on_commited_columns(
+            verifier_state,
+            &pcs_point_for_cubes,
+            &pcs_evals_for_cubes,
+            &selectors,
+        )
+    };
 
     GKRPoseidonResult {
         output_values: output_claims,

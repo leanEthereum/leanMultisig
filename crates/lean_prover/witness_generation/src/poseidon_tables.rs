@@ -6,6 +6,7 @@ use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 use poseidon_circuit::{PoseidonGKRLayers, PoseidonWitness, generate_poseidon_witness};
+use tracing::instrument;
 use utils::{padd_with_zero_to_next_power_of_two, transposed_par_iter_mut};
 
 pub fn all_poseidon_16_indexes(poseidons_16: &[WitnessPoseidon16]) -> [Vec<F>; 3] {
@@ -84,6 +85,7 @@ pub fn full_poseidon_indexes_poly(
     all_poseidon_indexes
 }
 
+#[instrument(skip_all)]
 pub fn generate_poseidon_witness_helper<
     const WIDTH: usize,
     const N_COMMITED_CUBES: usize,

@@ -123,10 +123,7 @@ pub fn verify_execution(
     )?;
 
     let grand_product_challenge_global = verifier_state.sample();
-    let grand_product_challenge_p16 = verifier_state.sample();
-    let grand_product_challenge_p24 = verifier_state.sample();
-    let grand_product_challenge_dot_product = verifier_state.sample();
-    let grand_product_challenge_vm_multilinear_eval = verifier_state.sample();
+    let fingerprint_challenge = verifier_state.sample();
     let (grand_product_exec_res, grand_product_exec_statement) =
         verify_gkr_product(&mut verifier_state, log_n_cycles)?;
     let (grand_product_p16_res, grand_product_p16_statement) =
@@ -140,8 +137,9 @@ pub fn verify_execution(
         .map(|vm_multilinear_eval| {
             grand_product_challenge_global
                 + finger_print(
+                    TABLE_INDEX_MULTILINEAR_EVAL,
                     &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
-                    grand_product_challenge_vm_multilinear_eval,
+                    fingerprint_challenge,
                 )
         })
         .product::<EF>();
@@ -156,23 +154,37 @@ pub fn verify_execution(
         );
     let corrected_prod_p16 = grand_product_p16_res
         / (grand_product_challenge_global
-            + grand_product_challenge_p16
-            + grand_product_challenge_p16.exp_u64(4) * F::from_usize(POSEIDON_16_NULL_HASH_PTR)
-            + grand_product_challenge_p16.exp_u64(5) * F::ONE) // compression = 1 by default
-            .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
+            + finger_print(
+                TABLE_INDEX_POSEIDONS_16,
+                &WitnessPoseidon16::default_addresses_field_repr(POSEIDON_16_NULL_HASH_PTR),
+                fingerprint_challenge,
+            ))
+        .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
 
     let corrected_prod_p24 = grand_product_p24_res
         / (grand_product_challenge_global
-            + grand_product_challenge_p24
-            + grand_product_challenge_p24.exp_u64(4) * F::from_usize(POSEIDON_24_NULL_HASH_PTR))
+            + finger_print(
+                TABLE_INDEX_POSEIDONS_24,
+                &WitnessPoseidon24::default_addresses_field_repr(POSEIDON_24_NULL_HASH_PTR),
+                fingerprint_challenge,
+            ))
         .exp_u64((n_poseidons_24.next_power_of_two() - n_poseidons_24) as u64);
 
     let corrected_dot_product = grand_product_dot_product_res
         / ((grand_product_challenge_global
-            + grand_product_challenge_dot_product
-            + grand_product_challenge_dot_product.exp_u64(5))
+            + finger_print(
+                TABLE_INDEX_DOT_PRODUCTS,
+                &[F::ZERO, F::ZERO, F::ZERO, F::ONE],
+                fingerprint_challenge,
+            ))
         .exp_u64(dot_product_padding_len as u64)
-            * (grand_product_challenge_global + grand_product_challenge_dot_product).exp_u64(
+            * (grand_product_challenge_global
+                + finger_print(
+                    TABLE_INDEX_DOT_PRODUCTS,
+                    &[F::ZERO, F::ZERO, F::ZERO, F::ZERO],
+                    fingerprint_challenge,
+                ))
+            .exp_u64(
                 ((1 << table_dot_products_log_n_rows) - dot_product_padding_len - n_dot_products)
                     as u64,
             ));
@@ -198,13 +210,14 @@ pub fn verify_execution(
 
     if grand_product_challenge_global
         + finger_print(
+            TABLE_INDEX_POSEIDONS_16,
             &[
                 p16_grand_product_evals_on_indexes_a,
                 p16_grand_product_evals_on_indexes_b,
                 p16_grand_product_evals_on_indexes_res,
                 p16_grand_product_evals_on_compression,
             ],
-            grand_product_challenge_p16,
+            fingerprint_challenge,
         )
         != grand_product_p16_statement.value
     {
@@ -231,12 +244,13 @@ pub fn verify_execution(
     ] = verifier_state.next_extension_scalars_const()?;
     if grand_product_challenge_global
         + finger_print(
+            TABLE_INDEX_POSEIDONS_24,
             &[
                 p24_grand_product_evals_on_indexes_a,
                 p24_grand_product_evals_on_indexes_b,
                 p24_grand_product_evals_on_indexes_res,
             ],
-            grand_product_challenge_p24,
+            fingerprint_challenge,
         )
         != grand_product_p24_statement.value
     {
@@ -272,7 +286,7 @@ pub fn verify_execution(
             * {
                 DotProductFootprint {
                     global_challenge: grand_product_challenge_global,
-                    dot_product_challenge: powers_const(grand_product_challenge_dot_product),
+                    fingerprint_challenge_powers: powers_const(fingerprint_challenge),
                 }
                 .eval(&grand_product_dot_product_sumcheck_inner_evals, &[])
             }
@@ -320,12 +334,7 @@ pub fn verify_execution(
             * {
                 PrecompileFootprint {
                     global_challenge: grand_product_challenge_global,
-                    p16_powers: powers_const(grand_product_challenge_p16),
-                    p24_powers: powers_const(grand_product_challenge_p24),
-                    dot_product_powers: powers_const(grand_product_challenge_dot_product),
-                    multilinear_eval_powers: powers_const(
-                        grand_product_challenge_vm_multilinear_eval,
-                    ),
+                    fingerprint_challenge_powers: powers_const(fingerprint_challenge),
                 }
                 .eval(
                     &reorder_full_trace_for_precomp_foot_print(

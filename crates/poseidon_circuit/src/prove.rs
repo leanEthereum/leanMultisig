@@ -1,8 +1,8 @@
-use crate::GKRPoseidonResult;
 use crate::{
-    EF, F, PoseidonWitness,
+    CompressionComputation, EF, F, FullRoundComputation, PartialRoundComputation, PoseidonWitness,
     gkr_layers::{BatchPartialRounds, PoseidonGKRLayers},
 };
+use crate::{GKRPoseidonResult, build_poseidon_inv_matrices};
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
@@ -12,7 +12,7 @@ use tracing::{info_span, instrument};
 pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     witness: &PoseidonWitness<FPacking<F>, WIDTH, N_COMMITED_CUBES>,
-    mut claim_point: Vec<EF>,
+    mut point: Vec<EF>,
     univariate_skips: usize,
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
 ) -> GKRPoseidonResult
@@ -20,21 +20,24 @@ where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
     let selectors = univariate_selectors::<F>(univariate_skips);
+    let (inv_mds_matrix, inv_light_matrix) = build_poseidon_inv_matrices::<WIDTH>();
 
-    assert_eq!(claim_point.len(), log2_strict_usize(witness.n_poseidons()));
+    assert_eq!(point.len(), log2_strict_usize(witness.n_poseidons()));
 
     let (output_claims, mut claims) = info_span!("computing output claims").in_scope(|| {
-        let eq_poly = eval_eq(&claim_point[univariate_skips..]);
-        let inner_evals = witness
-            .output_layer
-            .par_iter()
-            .map(|poly| {
-                FPacking::<F>::unpack_slice(poly)
-                    .chunks_exact(eq_poly.len())
-                    .map(|chunk| dot_product(eq_poly.iter().copied(), chunk.iter().copied()))
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        let eq_poly = eval_eq(&point[univariate_skips..]);
+        let inner_evals = match &witness.compression {
+            Some((_, _, compressed_output)) => compressed_output,
+            None => &witness.output_layer,
+        }
+        .par_iter()
+        .map(|poly| {
+            FPacking::<F>::unpack_slice(poly)
+                .chunks_exact(eq_poly.len())
+                .map(|chunk| dot_product(eq_poly.iter().copied(), chunk.iter().copied()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
         for evals in &inner_evals {
             prover_state.add_extension_scalars(evals);
         }
@@ -48,97 +51,119 @@ where
         let mut claims = vec![];
         for evals in inner_evals {
             output_claims
-                .push(evals.evaluate(&MultilinearPoint(claim_point[..univariate_skips].to_vec())));
+                .push(evals.evaluate(&MultilinearPoint(point[..univariate_skips].to_vec())));
             claims.push(dot_product(
                 selectors_at_alpha.iter().copied(),
                 evals.into_iter(),
             ))
         }
-        claim_point = [vec![alpha], claim_point[univariate_skips..].to_vec()].concat();
+        point = [vec![alpha], point[univariate_skips..].to_vec()].concat();
         (output_claims, claims)
     });
 
-    for (i, (input_layers, full_round)) in witness
-        .final_full_round_inputs
-        .iter()
-        .zip(&layers.final_full_rounds)
-        .rev()
-        .enumerate()
-    {
-        let mut input_layers = input_layers.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        if i == 0
-            && let Some((_, compression_indicator)) = &witness.compression
-        {
-            input_layers.push(compression_indicator);
-        }
-        (claim_point, claims) = prove_gkr_round(
+    if let Some((_, compression_indicator, _)) = &witness.compression {
+        (point, claims) = prove_gkr_round(
             prover_state,
-            full_round,
-            &input_layers,
-            &claim_point,
+            &CompressionComputation::<WIDTH> {
+                compressed_output: layers.compressed_output.unwrap(),
+            },
+            &witness
+                .output_layer
+                .iter()
+                .chain(std::iter::once(compression_indicator))
+                .map(Vec::as_slice)
+                .collect::<Vec<_>>(),
+            &point,
             &claims,
             univariate_skips,
         );
 
-        if i == 0 && witness.compression.is_some() {
-            let _ = claims.pop().unwrap(); // the claim on the compression indicator columns can be evaluated by the verifier directly
+        let _ = claims.pop().unwrap(); // the claim on the compression indicator columns can be evaluated by the verifier directly
+    }
+
+    for (layer, full_round_constants) in witness
+        .final_full_layers
+        .iter()
+        .zip(&layers.final_full_rounds)
+        .rev()
+    {
+        claims = apply_matrix(&inv_mds_matrix, &claims);
+
+        (point, claims) = prove_gkr_round(
+            prover_state,
+            &FullRoundComputation {},
+            &layer.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+            &point,
+            &claims,
+            univariate_skips,
+        );
+
+        for (claim, c) in claims.iter_mut().zip(full_round_constants) {
+            *claim -= *c;
         }
     }
 
-    for (input_layers, partial_round) in witness
-        .remaining_partial_round_inputs
+    for (input_layers, partial_round_constant) in witness
+        .remaining_partial_round_layers
         .iter()
         .zip(&layers.partial_rounds_remaining)
         .rev()
     {
-        (claim_point, claims) = prove_gkr_round(
+        claims = apply_matrix(&inv_light_matrix, &claims);
+
+        (point, claims) = prove_gkr_round(
             prover_state,
-            partial_round,
+            &PartialRoundComputation::<WIDTH> {},
             input_layers,
-            &claim_point,
+            &point,
             &claims,
             univariate_skips,
         );
+        claims[0] -= *partial_round_constant;
     }
 
-    (claim_point, claims) = prove_batch_internal_round(
-        prover_state,
-        &witness.batch_partial_round_input,
-        &witness.committed_cubes,
-        &layers.batch_partial_rounds,
-        &claim_point,
-        &claims,
-        &selectors,
-    );
+    if let Some(batch_partial_round_input) = &witness.batch_partial_round_input {
+        (point, claims) = prove_batch_internal_round(
+            prover_state,
+            batch_partial_round_input,
+            &witness.committed_cubes,
+            layers.batch_partial_rounds.as_ref().unwrap(),
+            &point,
+            &claims,
+            &selectors,
+        );
+    }
 
-    let pcs_point_for_cubes = claim_point.clone();
+    let pcs_point_for_cubes = point.clone();
 
     claims = claims[..WIDTH].to_vec();
 
-    for (input_layers, full_round) in witness
-        .remaining_initial_full_round_inputs
+    for (layer, full_round_constants) in witness
+        .initial_full_layers
         .iter()
-        .zip(&layers.initial_full_rounds_remaining)
+        .zip(&layers.initial_full_rounds)
         .rev()
     {
-        (claim_point, claims) = prove_gkr_round(
+        claims = apply_matrix(&inv_mds_matrix, &claims);
+
+        (point, claims) = prove_gkr_round(
             prover_state,
-            full_round,
-            input_layers,
-            &claim_point,
+            &FullRoundComputation {},
+            &layer.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+            &point,
             &claims,
             univariate_skips,
         );
+
+        for (claim, c) in claims.iter_mut().zip(full_round_constants) {
+            *claim -= *c;
+        }
     }
-    (claim_point, _) = prove_gkr_round(
-        prover_state,
-        &layers.initial_full_round,
-        &witness.input_layer,
-        &claim_point,
-        &claims,
-        univariate_skips,
-    );
-    let pcs_point_for_inputs = claim_point.clone();
+
+    claims = apply_matrix(&inv_mds_matrix, &claims);
+    let _ = claims;
+
+    let pcs_point_for_inputs = point.clone();
 
     let input_statements = inner_evals_on_commited_columns(
         prover_state,
@@ -146,12 +171,16 @@ where
         univariate_skips,
         &witness.input_layer,
     );
-    let cubes_statements = inner_evals_on_commited_columns(
-        prover_state,
-        &pcs_point_for_cubes,
-        univariate_skips,
-        &witness.committed_cubes,
-    );
+    let cubes_statements = if N_COMMITED_CUBES == 0 {
+        Default::default()
+    } else {
+        inner_evals_on_commited_columns(
+            prover_state,
+            &pcs_point_for_cubes,
+            univariate_skips,
+            &witness.committed_cubes,
+        )
+    };
 
     GKRPoseidonResult {
         output_values: output_claims,

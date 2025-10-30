@@ -35,7 +35,7 @@ fn main() {
         Cli::Poseidon {
             log_n_perms: log_count,
         } => {
-            run_poseidon_benchmark(log_count, false);
+            run_poseidon_benchmark::<16, 16, 3>(log_count, false);
         }
     }
 }

@@ -7,6 +7,9 @@ pub use partial_round::*;
 mod batch_partial_rounds;
 pub use batch_partial_rounds::*;
 
+mod compression;
+pub use compression::*;
+
 use p3_koala_bear::{
     KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL, KOALABEAR_RC16_INTERNAL,
     KOALABEAR_RC24_EXTERNAL_FINAL, KOALABEAR_RC24_EXTERNAL_INITIAL, KOALABEAR_RC24_INTERNAL,
@@ -16,11 +19,11 @@ use crate::F;
 
 #[derive(Debug)]
 pub struct PoseidonGKRLayers<const WIDTH: usize, const N_COMMITED_CUBES: usize> {
-    pub initial_full_round: FullRoundComputation<WIDTH, true>,
-    pub initial_full_rounds_remaining: Vec<FullRoundComputation<WIDTH, false>>,
-    pub batch_partial_rounds: BatchPartialRounds<WIDTH, N_COMMITED_CUBES>,
-    pub partial_rounds_remaining: Vec<PartialRoundComputation<WIDTH>>,
-    pub final_full_rounds: Vec<FullRoundComputation<WIDTH, false>>,
+    pub initial_full_rounds: Vec<[F; WIDTH]>,
+    pub batch_partial_rounds: Option<BatchPartialRounds<WIDTH, N_COMMITED_CUBES>>,
+    pub partial_rounds_remaining: Vec<F>,
+    pub final_full_rounds: Vec<[F; WIDTH]>,
+    pub compressed_output: Option<usize>,
 }
 
 impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES> {
@@ -54,43 +57,26 @@ impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH,
         final_constants: &[[F; WIDTH]],
         compressed_output: Option<usize>,
     ) -> Self {
-        let initial_full_round = FullRoundComputation {
-            constants: initial_constants[0],
-            compressed_output: None,
+        assert!(N_COMMITED_CUBES < internal_constants.len() - 1); // TODO we could go up to internal_constants.len() in theory
+        let initial_full_rounds = initial_constants.to_vec();
+        let (batch_partial_rounds, partial_rounds_remaining) = if N_COMMITED_CUBES == 0 {
+            (None, internal_constants.to_vec())
+        } else {
+            (
+                Some(BatchPartialRounds {
+                    constants: internal_constants[..N_COMMITED_CUBES].try_into().unwrap(),
+                    last_constant: internal_constants[N_COMMITED_CUBES],
+                }),
+                internal_constants[N_COMMITED_CUBES + 1..].to_vec(),
+            )
         };
-        let initial_full_rounds_remaining = initial_constants[1..]
-            .iter()
-            .map(|&constants| FullRoundComputation {
-                constants,
-                compressed_output: None,
-            })
-            .collect::<Vec<_>>();
-        let batch_partial_rounds = BatchPartialRounds {
-            constants: internal_constants[..N_COMMITED_CUBES].try_into().unwrap(),
-            last_constant: internal_constants[N_COMMITED_CUBES],
-        };
-        let partial_rounds_remaining = internal_constants[N_COMMITED_CUBES + 1..]
-            .iter()
-            .map(|&constant| PartialRoundComputation { constant })
-            .collect::<Vec<_>>();
-        let final_full_rounds = final_constants
-            .iter()
-            .enumerate()
-            .map(|(i, &constants)| FullRoundComputation {
-                constants,
-                compressed_output: if i == final_constants.len() - 1 {
-                    compressed_output
-                } else {
-                    None
-                },
-            })
-            .collect::<Vec<_>>();
+        let final_full_rounds = final_constants.to_vec();
         Self {
-            initial_full_round,
-            initial_full_rounds_remaining,
+            initial_full_rounds,
             batch_partial_rounds,
             partial_rounds_remaining,
             final_full_rounds,
+            compressed_output,
         }
     }
 }
