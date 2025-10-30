@@ -92,8 +92,13 @@ macro_rules! assert_eq_many {
     };
 }
 
-pub fn finger_print<F: Field, EF: ExtensionField<F>>(data: &[F], challenge: EF) -> EF {
-    challenge + dot_product::<EF, _, _>(challenge.powers().skip(2), data.iter().copied())
+pub fn finger_print<F: Field, EF: ExtensionField<F>>(
+    table_index: usize,
+    data: &[F],
+    challenge: EF,
+) -> EF {
+    dot_product::<EF, _, _>(challenge.powers().skip(1), data.iter().copied())
+        + F::from_usize(table_index)
 }
 
 pub fn powers_const<F: Field, const N: usize>(base: F) -> [F; N] {

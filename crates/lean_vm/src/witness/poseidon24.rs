@@ -70,4 +70,8 @@ impl WitnessPoseidon24 {
             F::from_usize(self.addr_output),
         ]
     }
+
+    pub fn default_addresses_field_repr(null_hash_addr: usize) -> [F; 3] {
+        [F::ZERO, F::ZERO, F::from_usize(null_hash_addr)]
+    }
 }

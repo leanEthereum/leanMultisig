@@ -56,4 +56,13 @@ impl WitnessPoseidon16 {
             F::from_bool(self.is_compression),
         ]
     }
+
+    pub fn default_addresses_field_repr(null_hash_addr: usize) -> [F; 4] {
+        [
+            F::ZERO,
+            F::ZERO,
+            F::from_usize(null_hash_addr),
+            F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION),
+        ]
+    }
 }

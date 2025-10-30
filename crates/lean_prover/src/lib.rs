@@ -25,3 +25,8 @@ pub fn whir_config_builder() -> WhirConfigBuilder {
         starting_log_inv_rate: 1,
     }
 }
+
+const TABLE_INDEX_POSEIDONS_16: usize = 1; // should be != 0
+const TABLE_INDEX_POSEIDONS_24: usize = 2;
+const TABLE_INDEX_DOT_PRODUCTS: usize = 3;
+const TABLE_INDEX_MULTILINEAR_EVAL: usize = 4;
