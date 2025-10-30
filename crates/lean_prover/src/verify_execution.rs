@@ -68,8 +68,8 @@ pub fn verify_execution(
 
     let log_public_memory = log2_strict_usize(public_memory.len());
     let log_memory = log2_ceil_usize(public_memory.len() + private_memory_len);
-    let log_n_p16 = log2_ceil_usize(n_poseidons_16);
-    let log_n_p24 = log2_ceil_usize(n_poseidons_24);
+    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(LOG_MIN_POSEIDONS_16);
+    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(LOG_MIN_POSEIDONS_24);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
         return Err(ProofError::InvalidProof);
@@ -159,7 +159,7 @@ pub fn verify_execution(
                 &WitnessPoseidon16::default_addresses_field_repr(POSEIDON_16_NULL_HASH_PTR),
                 fingerprint_challenge,
             ))
-        .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
+        .exp_u64(((1 << log_n_p16) - n_poseidons_16) as u64);
 
     let corrected_prod_p24 = grand_product_p24_res
         / (grand_product_challenge_global
@@ -168,7 +168,7 @@ pub fn verify_execution(
                 &WitnessPoseidon24::default_addresses_field_repr(POSEIDON_24_NULL_HASH_PTR),
                 fingerprint_challenge,
             ))
-        .exp_u64((n_poseidons_24.next_power_of_two() - n_poseidons_24) as u64);
+        .exp_u64(((1 << log_n_p24) - n_poseidons_24) as u64);
 
     let corrected_dot_product = grand_product_dot_product_res
         / ((grand_product_challenge_global

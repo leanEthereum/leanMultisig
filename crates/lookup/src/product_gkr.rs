@@ -37,7 +37,7 @@ where
 {
     assert!(log2_strict_usize(final_layer.len()) >= 1);
     if final_layer.len() == 2 {
-        prover_state.add_extension_scalars(&final_layer);
+        prover_state.add_extension_scalars(final_layer);
         let product = final_layer[0] * final_layer[1];
         let point = MultilinearPoint(vec![prover_state.sample()]);
         let claim = Evaluation {
@@ -71,7 +71,7 @@ where
     };
     assert_eq!(last_layer.len(), 2);
     let product = last_layer[0] * last_layer[1];
-    prover_state.add_extension_scalars(&last_layer);
+    prover_state.add_extension_scalars(last_layer);
 
     let point = MultilinearPoint(vec![prover_state.sample()]);
     let mut claim = Evaluation {

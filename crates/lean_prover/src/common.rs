@@ -17,14 +17,16 @@ pub fn get_base_dims(
     log_public_memory: usize,
     private_memory_len: usize,
     bytecode_ending_pc: usize,
-    poseidon_counts: (usize, usize),
+    (n_poseidons_16, n_poseidons_24): (usize, usize),
     n_rows_table_dot_products: usize,
     (p16_gkr_layers, p24_gkr_layers): (
         &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
         &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
     ),
 ) -> Vec<ColDims<F>> {
-    let (n_poseidons_16, n_poseidons_24) = poseidon_counts;
+    let n_poseidons_16 = n_poseidons_16.max(1 << LOG_MIN_POSEIDONS_16);
+    let n_poseidons_24 = n_poseidons_24.max(1 << LOG_MIN_POSEIDONS_24);
+
     let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(p16_gkr_layers);
     let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(p24_gkr_layers);
 

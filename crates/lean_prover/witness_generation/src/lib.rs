@@ -61,3 +61,8 @@ impl InAirColumnIndex for usize {
         }
     }
 }
+
+// Zero padding will be added to each at least, if this minimum is not reached
+// (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)
+pub const LOG_MIN_POSEIDONS_16: usize = 8;
+pub const LOG_MIN_POSEIDONS_24: usize = 8;
