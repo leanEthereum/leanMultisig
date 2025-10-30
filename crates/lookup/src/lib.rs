@@ -12,3 +12,5 @@ pub use logup_star::*;
 
 mod product_gkr;
 pub use product_gkr::*;
+
+pub(crate) const MIN_VARS_FOR_PACKING: usize = 8;

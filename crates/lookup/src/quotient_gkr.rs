@@ -13,6 +13,8 @@ use p3_field::{ExtensionField, PrimeField64, dot_product};
 use tracing::instrument;
 use utils::{FSProver, FSVerifier};
 
+use crate::MIN_VARS_FOR_PACKING;
+
 /*
 Custom GKR to compute sum of fractions.
 
@@ -38,7 +40,7 @@ with: U0 = AB(0 0 --- )
 #[instrument(skip_all)]
 pub fn prove_gkr_quotient<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    numerators: &[EFPacking<EF>],
+    numerators: &MleRef<'_, EF>,
     (c, denominator_indexes): (EF, &[PF<EF>]),
     n_non_zeros_numerator: Option<usize>, // final_layer[n_non_zeros_numerator..n / 2] are zeros
 ) -> (Evaluation<EF>, EF, EF)
@@ -46,56 +48,92 @@ where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    let n = log2_strict_usize(numerators.len()) + packing_log_width::<EF>() + 1;
-    let n_non_zeros_numerator = n_non_zeros_numerator.unwrap_or(numerators.len());
-    let mut layers_packed = Vec::new();
-    assert!(
-        n >= 5 + packing_log_width::<EF>(),
-        "TODO small GKR, no packing"
-    );
-    let mut layers_not_packed = Vec::new();
-    let last_packed = n - (4 + packing_log_width::<EF>());
-    let denominator_indexes_packed = PFPacking::<EF>::pack_slice(denominator_indexes);
-    let c_packed = EFPacking::<EF>::from(c);
-    layers_packed.push(sum_quotients_2_by_2_num_and_den(
-        numerators,
-        |i| c_packed - denominator_indexes_packed[i],
-        Some(n_non_zeros_numerator),
-    ));
-    for i in 0..last_packed - 1 {
-        layers_packed.push(sum_quotients_2_by_2(&layers_packed[i], None));
-    }
-    layers_not_packed.push(sum_quotients_2_by_2(
-        &unpack_extension(&layers_packed[last_packed - 1]),
-        None,
-    ));
-    for i in 0..n - last_packed - 2 {
-        layers_not_packed.push(sum_quotients_2_by_2(&layers_not_packed[i], None));
+    let n = numerators.n_vars() + 1;
+    assert!(n >= 2);
+    let n_non_zeros_numerator = n_non_zeros_numerator.unwrap_or(numerators.packed_len());
+    let mut layers = Vec::new();
+    match numerators {
+        MleRef::ExtensionPacked(numerators) => {
+            let denominator_indexes_packed = PFPacking::<EF>::pack_slice(denominator_indexes);
+            layers.push(MleOwned::ExtensionPacked(sum_quotients_2_by_2_num_and_den(
+                numerators,
+                |i| EFPacking::<EF>::from(c) - denominator_indexes_packed[i],
+                Some(n_non_zeros_numerator),
+            )));
+        }
+        MleRef::Extension(numerators) => {
+            layers.push(MleOwned::Extension(sum_quotients_2_by_2_num_and_den(
+                numerators,
+                |i| c - denominator_indexes[i],
+                Some(n_non_zeros_numerator),
+            )));
+        }
+        _ => unreachable!(),
     }
 
-    assert_eq!(layers_not_packed[n - last_packed - 2].len(), 2);
-    prover_state.add_extension_scalars(&layers_not_packed[n - last_packed - 2]);
+    loop {
+        let prev_layer: Mle<'_, EF> = layers.last().unwrap().by_ref().into();
+        let prev_layer = if prev_layer.is_packed() && prev_layer.n_vars() < MIN_VARS_FOR_PACKING {
+            prev_layer.unpack()
+        } else {
+            prev_layer
+        };
+        if prev_layer.n_vars() == 1 {
+            break;
+        }
+        layers.push(match prev_layer.by_ref() {
+            MleRef::ExtensionPacked(prev_layer) => {
+                MleOwned::ExtensionPacked(sum_quotients_2_by_2(prev_layer, None))
+            }
+            MleRef::Extension(numerators) => {
+                MleOwned::Extension(sum_quotients_2_by_2(numerators, None))
+            }
+            _ => unreachable!(),
+        })
+    }
+
+    assert_eq!(layers.last().unwrap().n_vars(), 1);
+    prover_state.add_extension_scalars(layers.last().unwrap().by_ref().as_extension().unwrap());
 
     let point = MultilinearPoint(vec![prover_state.sample()]);
-    let mut claim = Evaluation::new(
-        point.clone(),
-        layers_not_packed[n - last_packed - 2].evaluate(&point),
-    );
+    let mut claim = Evaluation::new(point.clone(), layers.last().unwrap().evaluate(&point));
 
-    for layer in layers_not_packed.iter().rev().skip(1) {
-        (claim, _, _) = prove_gkr_quotient_step(prover_state, layer, &claim);
-    }
-    for layer in layers_packed.iter().rev() {
-        (claim, _, _) = prove_gkr_quotient_step_packed(prover_state, layer, &claim);
+    for layer in layers.iter().rev().skip(1) {
+        match layer {
+            MleOwned::Extension(layer) => {
+                (claim, _, _) = prove_gkr_quotient_step(prover_state, layer, &claim);
+            }
+            MleOwned::ExtensionPacked(layer) => {
+                (claim, _, _) = prove_gkr_quotient_step_packed(prover_state, layer, &claim);
+            }
+            _ => unreachable!(),
+        }
     }
     let (up_layer_eval_left, up_layer_eval_right);
-    (claim, up_layer_eval_left, up_layer_eval_right) = prove_gkr_quotient_step_packed_first_round(
-        prover_state,
-        numerators,
-        (c_packed, denominator_indexes_packed),
-        &claim,
-        Some(n_non_zeros_numerator),
-    );
+
+    match numerators {
+        MleRef::ExtensionPacked(numerators) => {
+            let denominator_indexes_packed = PFPacking::<EF>::pack_slice(denominator_indexes);
+            (claim, up_layer_eval_left, up_layer_eval_right) =
+                prove_gkr_quotient_step_packed_first_round(
+                    prover_state,
+                    numerators,
+                    (EFPacking::<EF>::from(c), denominator_indexes_packed),
+                    &claim,
+                    Some(n_non_zeros_numerator),
+                );
+        }
+        MleRef::Extension(numerators) => {
+            let mut layer = EF::zero_vec(numerators.len() * 2);
+            layer[..numerators.len()].copy_from_slice(numerators);
+            for i in 0..denominator_indexes.len() {
+                layer[numerators.len() + i] = c - denominator_indexes[i];
+            }
+            (claim, up_layer_eval_left, up_layer_eval_right) =
+                prove_gkr_quotient_step(prover_state, &layer, &claim);
+        }
+        _ => unreachable!(),
+    }
 
     (claim, up_layer_eval_left, up_layer_eval_right)
 }
@@ -474,7 +512,7 @@ where
     let mid_len_packed = len_packed / 2;
     let quarter_len_packed = mid_len_packed / 2;
 
-    let mut eq_poly_packed = eval_eq_packed(&claim.point.0[1..]);
+    let eq_poly_packed = eval_eq_packed(&claim.point.0[1..]);
 
     let up_layer_octics = split_at_many(
         up_layer_packed,
@@ -613,7 +651,6 @@ where
     let sumcheck_challenge_2 = prover_state.sample();
     let sum_2 = sumcheck_polynomial_2.evaluate(sumcheck_challenge_2);
 
-    eq_poly_packed.resize(eq_poly_packed.len() / 4, Default::default());
     missing_mul_factor *= ((EF::ONE - claim.point[1]) * (EF::ONE - sumcheck_challenge_2)
         + claim.point[1] * sumcheck_challenge_2)
         / (EF::ONE - claim.point.get(2).copied().unwrap_or_default());
@@ -631,7 +668,7 @@ where
         &[],
         Some((
             claim.point.0[2..].to_vec(),
-            Some(MleOwned::ExtensionPacked(eq_poly_packed)),
+            Some(MleOwned::ExtensionPacked(eq_poly_packed).halve().halve()),
         )),
         false,
         prover_state,
@@ -854,7 +891,7 @@ mod tests {
 
         let _ = prove_gkr_quotient(
             &mut prover_state,
-            &pack_extension(&numerators),
+            &MleRef::ExtensionPacked(&pack_extension(&numerators)),
             (c, &denominators_indexes),
             None,
         );
