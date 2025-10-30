@@ -4,33 +4,27 @@
 
 - WHIR univariate skip?
 - Opti recursion bytecode
-- inverse folding ordering in WHIR to enable Packing during sumcheck (more generally, TODO packing everywhere)
+- packing (SIMD) everywhere
 - one can "move out" the variable of the eq(.) polynomials out of the sumcheck computation in WHIR (as done in the PIOP)
 - Structured AIR: often no all the columns use both up/down -> only handle the used ones to speed up the PIOP zerocheck
-- avoid transpositions (poseidon trace generation)
 - Use Univariate Skip to commit to tables with k.2^n rows (k small)
-- avoid field embedding in the initial sumcheck of logup*, when table / values are in base field
 - opti logup* GKR when the indexes are not a power of 2 (which is the case in the execution table)
 - incremental merkle paths in whir-p3
-- Experiment to increase degree, and reduce commitments, in Poseidon arithmetization. 
-  Result: degree 9 is better than 3. TODO: degree 5, or 6 ? Also, the current degre 9 implem may not be perfectly optimal?
 - Avoid embedding overhead on the flag, len, and index columns in the AIR table for dot products
-- Batched logup*: when computing the eq() factor we can opti if the points contain boolean factor
 - Lev's trick to skip some low-level modular reduction
-- Sumcheck, case z = 0, no need to fold, only keep first half of the values (done in PR 33 by Lambda) (and also in WHIR?)
+- Sumcheck, case z = 0, no need to fold, only keep first half of the values (done in PR 33 by Lambda)
 - Custom AVX2 / AVX512 / Neon implem in Plonky3 for all of the finite field operations (done for degree 4 extension, but not degree 5)
 - Many times, we evaluate different multilinear polynomials (different columns of the same table etc) at a common point. OPTI = compute the eq(.) once, and then dot_product with everything
 - To commit to multiple AIR table using 1 single pcs, the most general form our "packed pcs" api should accept is:
  a list of n (n not a power of 2) columns, each ending with m repeated values (in this manner we can reduce proof size when they are a lot of columns (poseidons ...))
 - in the runner of leanISA program, if we call 2 times the same function with the same arguments, we can reuse the same memory frame
 - the interpreter of leanISA (+ witness generation) can be partially parallelized when there are some independent loops
-- (1 - x).r1 + x.r2 = x.(r2 - r1) + r1 TODO this opti is not everywhere currently + TODO generalize this with the univaraite skip
+- (1 - x).r1 + x.r2 = x.(r2 - r1) + r1 TODO this opti is not everywhere currently + TODO generalize this with the univariate skip
 - opti compute_eval_eq when scalar = ONE
 - Dmitry's range check, bonus: we can spare 2 memory cells if the value being range check is small (using the zeros present by conventio on the public memory)
 - Make everything "padding aware" (including WHIR, logup*, AIR, etc)
 - Opti WHIR: in sumcheck we know more than f(0) + f(1), we know f(0) and f(1)
 - Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306
-- Avoid committing to extra columns / adding some constraints in poseidon16 AIR, for "compression", and use instead sumcheck
 - Avoid committing to the 3 index columns, and replace it by a sumcheck? Using this idea, we would only commit to PC and FP for the execution table. Idea by Georg (Powdr). Do we even need to commit to FP then?
 
 About "the packed pcs" (similar to SP1 Jagged PCS, slightly less efficient, but simpler (no sumchecks)):
@@ -93,11 +87,7 @@ But we reduce proof size a lot using instead (TODO):
 
 # Random ideas
 
-- About range checks, that can currently be done in 3 cycles (see 2.5.3 of the zkVM pdf), in the instruction encoding of DEREF, if we replaced (1 - AUX) by a dedicated column,
-  we could allow DEREFS that 'does not do anything with the resulting value', which is exactly what we want for range check: we only want to ensure that m[m[fp + x]] (resp m[(t-1) - m[fp + x]])
-  is a valid memory access (i.e. the index is < M the memory size), but currently the DEREF instruction forces us to 'store' the result, in m[fp + i] (resp m[fp + k]).
-  TLDR: adding a new encoding field for DEREF would save 2 memory cells / range check. If this can also increase perf in alternative scenario (other instructions for instance),
-  potentially we should consider it.
+- About range checks, that can currently be done in 3 cycles (see 2.5.3 of the zkVM pdf) + 3 memory cells used. For small ranges we can save 2 memory cells.
 
 ## Known leanISA compiler bugs:
 
