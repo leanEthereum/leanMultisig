@@ -15,6 +15,8 @@ use utils::left_ref;
 use utils::right_ref;
 use utils::{FSProver, FSVerifier};
 
+use crate::MIN_VARS_FOR_PACKING;
+
 /*
 Custom GKR to compute a product.
 
@@ -27,47 +29,64 @@ A': [a0*a4, a1*a5, a2*a6, a3*a7]
 #[instrument(skip_all)]
 pub fn prove_gkr_product<EF>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    final_layer: Vec<EFPacking<EF>>,
+    final_layer: &[EF],
 ) -> (EF, Evaluation<EF>)
 where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    let n = (final_layer.len() * packing_width::<EF>()).ilog2() as usize;
-    let mut layers_packed = Vec::new();
-    let mut layers_not_packed = Vec::new();
-    let last_packed = n
-        .checked_sub(6 + packing_log_width::<EF>())
-        .expect("TODO small GKR, no packing");
-    layers_packed.push(final_layer);
-    for i in 0..last_packed {
-        layers_packed.push(product_2_by_2(&layers_packed[i]));
-    }
-    layers_not_packed.push(product_2_by_2(&unpack_extension(
-        &layers_packed[last_packed],
-    )));
-    for i in 0..n - last_packed - 2 {
-        layers_not_packed.push(product_2_by_2(&layers_not_packed[i]));
+    assert!(log2_strict_usize(final_layer.len()) >= 1);
+    if final_layer.len() == 2 {
+        prover_state.add_extension_scalars(&final_layer);
+        let product = final_layer[0] * final_layer[1];
+        let point = MultilinearPoint(vec![prover_state.sample()]);
+        let claim = Evaluation {
+            point: point.clone(),
+            value: final_layer.evaluate(&point),
+        };
+        return (product, claim);
     }
 
-    assert_eq!(layers_not_packed[n - last_packed - 2].len(), 2);
-    let product = layers_not_packed[n - last_packed - 2]
-        .iter()
-        .copied()
-        .product::<EF>();
-    prover_state.add_extension_scalars(&layers_not_packed[n - last_packed - 2]);
+    let final_layer: Mle<'_, EF> = if final_layer.len() >= 1 << MIN_VARS_FOR_PACKING {
+        // TODO packing beforehand
+        MleOwned::ExtensionPacked(pack_extension(final_layer)).into()
+    } else {
+        MleRef::Extension(final_layer).into()
+    };
+    if final_layer.n_vars() > MIN_VARS_FOR_PACKING && !final_layer.is_packed() {
+        tracing::warn!("GKR product not packed despite being large enough for packing");
+    }
+
+    let mut layers = vec![final_layer];
+    loop {
+        if layers.last().unwrap().n_vars() == 1 {
+            break;
+        }
+        layers.push(product_2_by_2(&layers.last().unwrap().by_ref()).into());
+    }
+
+    let last_layer = match layers.last().unwrap().by_ref() {
+        MleRef::Extension(slice) => slice,
+        _ => unreachable!(),
+    };
+    assert_eq!(last_layer.len(), 2);
+    let product = last_layer[0] * last_layer[1];
+    prover_state.add_extension_scalars(&last_layer);
 
     let point = MultilinearPoint(vec![prover_state.sample()]);
     let mut claim = Evaluation {
         point: point.clone(),
-        value: layers_not_packed[n - last_packed - 2].evaluate(&point),
+        value: last_layer.evaluate(&point),
     };
 
-    for layer in layers_not_packed.iter().rev().skip(1) {
-        claim = prove_gkr_product_step(prover_state, layer, &claim);
-    }
-    for layer in layers_packed.iter().rev() {
-        claim = prove_gkr_product_step_packed(prover_state, layer, &claim);
+    for layer in layers.iter().rev().skip(1) {
+        claim = match layer.by_ref() {
+            MleRef::Extension(slice) => prove_gkr_product_step(prover_state, slice, &claim),
+            MleRef::ExtensionPacked(slice) => {
+                prove_gkr_product_step_packed(prover_state, slice, &claim)
+            }
+            _ => unreachable!(),
+        }
     }
 
     (product, claim)
@@ -201,7 +220,23 @@ where
     Ok(Evaluation::new(next_point, next_claim))
 }
 
-fn product_2_by_2<EF: PrimeCharacteristicRing + Sync + Send + Copy>(layer: &[EF]) -> Vec<EF> {
+fn product_2_by_2<EF: ExtensionField<PF<EF>>>(layer: &MleRef<'_, EF>) -> MleOwned<EF> {
+    match layer {
+        MleRef::Extension(slice) => MleOwned::Extension(product_2_by_2_helper(slice)),
+        MleRef::ExtensionPacked(slice) => {
+            if slice.len() >= 1 << MIN_VARS_FOR_PACKING {
+                MleOwned::ExtensionPacked(product_2_by_2_helper(slice))
+            } else {
+                MleOwned::Extension(product_2_by_2_helper(&unpack_extension(slice)))
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn product_2_by_2_helper<EF: PrimeCharacteristicRing + Sync + Send + Copy>(
+    layer: &[EF],
+) -> Vec<EF> {
     let n = layer.len();
     (0..n / 2)
         .into_par_iter()
@@ -221,34 +256,13 @@ mod tests {
     type EF = QuinticExtensionFieldKB;
 
     #[test]
-    fn test_gkr_product_step() {
-        let log_n = 12;
-        let n = 1 << log_n;
-
-        let mut rng = StdRng::seed_from_u64(0);
-
-        let big = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
-        let small = product_2_by_2(&big);
-
-        let point = MultilinearPoint((0..log_n - 1).map(|_| rng.random()).collect::<Vec<EF>>());
-        let eval = small.evaluate(&point);
-
-        let mut prover_state = build_prover_state();
-
-        let time = Instant::now();
-        let claim = Evaluation { point, value: eval };
-        prove_gkr_product_step_packed(&mut prover_state, &pack_extension(&big), &claim);
-        dbg!(time.elapsed());
-
-        let mut verifier_state = build_verifier_state(&prover_state);
-
-        let postponed = verify_gkr_product_step(&mut verifier_state, log_n - 1, &claim).unwrap();
-        assert_eq!(big.evaluate(&postponed.point), postponed.value);
+    fn test_gkr_product() {
+        for log_n in 1..10 {
+            test_gkr_product_helper(log_n);
+        }
     }
 
-    #[test]
-    fn test_gkr_product() {
-        let log_n = 13;
+    fn test_gkr_product_helper(log_n: usize) {
         let n = 1 << log_n;
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -259,8 +273,8 @@ mod tests {
         let mut prover_state = build_prover_state();
 
         let time = Instant::now();
-        let (product_prover, claim_prover) =
-            prove_gkr_product(&mut prover_state, pack_extension(&layer));
+
+        let (product_prover, claim_prover) = prove_gkr_product(&mut prover_state, &layer);
         println!("GKR product took {:?}", time.elapsed());
 
         let mut verifier_state = build_verifier_state(&prover_state);

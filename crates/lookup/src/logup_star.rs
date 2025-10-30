@@ -243,12 +243,20 @@ mod tests {
 
     #[test]
     fn test_logup_star() {
+        for log_table_len in [1, 10] {
+            for log_indexes_len in 1..10 {
+                test_logup_star_helper(log_table_len, log_indexes_len);
+            }
+        }
+
+        test_logup_star_helper(15, 17);
+    }
+
+    fn test_logup_star_helper(log_table_len: usize, log_indexes_len: usize) {
         init_tracing();
 
-        let log_table_len = 14;
         let table_length = 1 << log_table_len;
 
-        let log_indexes_len = log_table_len + 1;
         let indexes_len = 1 << log_indexes_len;
 
         let mut rng = StdRng::seed_from_u64(0);
