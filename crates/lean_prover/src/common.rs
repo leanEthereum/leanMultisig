@@ -210,12 +210,12 @@ impl PrecompileFootprint {
                 point[PRECOMP_INDEX_AUX],
                 self.fingerprint_challenge_powers[4],
             )
-            + ResultF::from_usize(TABLE_INDEX_POSEIDONS_16))
+            + PointF::from_usize(TABLE_INDEX_POSEIDONS_16))
             * point[PRECOMP_INDEX_POSEIDON_16]
             + (nu_a * self.fingerprint_challenge_powers[1]
                 + nu_b * self.fingerprint_challenge_powers[2]
                 + nu_c * self.fingerprint_challenge_powers[3]
-                + ResultF::from_usize(TABLE_INDEX_POSEIDONS_24))
+                + PointF::from_usize(TABLE_INDEX_POSEIDONS_24))
                 * point[PRECOMP_INDEX_POSEIDON_24]
             + (nu_a * self.fingerprint_challenge_powers[1]
                 + nu_b * self.fingerprint_challenge_powers[2]
@@ -224,7 +224,7 @@ impl PrecompileFootprint {
                     point[PRECOMP_INDEX_AUX],
                     self.fingerprint_challenge_powers[4],
                 )
-                + ResultF::from_usize(TABLE_INDEX_DOT_PRODUCTS))
+                + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS))
                 * point[PRECOMP_INDEX_DOT_PRODUCT]
             + (nu_a * self.fingerprint_challenge_powers[1]
                 + nu_b * self.fingerprint_challenge_powers[2]
@@ -233,7 +233,7 @@ impl PrecompileFootprint {
                     point[PRECOMP_INDEX_AUX],
                     self.fingerprint_challenge_powers[4],
                 )
-                + ResultF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
+                + PointF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
                 * point[PRECOMP_INDEX_MULTILINEAR_EVAL]
             + self.global_challenge
     }
