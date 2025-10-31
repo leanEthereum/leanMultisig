@@ -96,7 +96,10 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
     }
 }
 
-pub fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> (Vec<Vec<EF>>, usize) {
+pub fn build_dot_product_columns(
+    witness: &[WitnessDotProduct],
+    min_n_rows: usize,
+) -> (Vec<Vec<EF>>, usize) {
     let (
         mut flag,
         mut len,
@@ -149,7 +152,7 @@ pub fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> (Vec<Vec<EF>>
         res.extend(vec![dot_product.res; dot_product.len]);
     }
 
-    let padding_len = flag.len().next_power_of_two() - flag.len();
+    let padding_len = flag.len().next_power_of_two().max(min_n_rows) - flag.len();
     flag.extend(vec![EF::ONE; padding_len]);
     len.extend(vec![EF::ONE; padding_len]);
     index_a.extend(EF::zero_vec(padding_len));

@@ -41,8 +41,8 @@ pub fn prove_execution(
         dot_products,
         multilinear_evals: vm_multilinear_evals,
         public_memory_size,
-        non_zero_memory_size,
-        memory, // padded with zeros to next power of two
+        mut non_zero_memory_size,
+        mut memory, // padded with zeros to next power of two
     } = info_span!("Witness generation").in_scope(|| {
         let mut execution_result = info_span!("Executing bytecode").in_scope(|| {
             execute_bytecode(
@@ -58,6 +58,10 @@ pub fn prove_execution(
             .in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
+    if memory.len() < 1 << MIN_LOG_MEMORY_SIZE {
+        memory.resize(1 << MIN_LOG_MEMORY_SIZE, F::ZERO);
+        non_zero_memory_size = 1 << MIN_LOG_MEMORY_SIZE;
+    }
     let public_memory = &memory[..public_memory_size];
     let private_memory = &memory[public_memory_size..non_zero_memory_size];
     let log_memory = log2_strict_usize(memory.len());
@@ -95,7 +99,8 @@ pub fn prove_execution(
 
     let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
 
-    let (dot_product_columns, dot_product_padding_len) = build_dot_product_columns(&dot_products);
+    let (dot_product_columns, dot_product_padding_len) =
+        build_dot_product_columns(&dot_products, 1 << LOG_MIN_DOT_PRODUCT_ROWS);
 
     let dot_product_flags: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[0]).unwrap();
     let dot_product_lengths: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[1]).unwrap();

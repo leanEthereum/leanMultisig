@@ -52,7 +52,10 @@ pub fn verify_execution(
 
     if log_n_cycles > 32
         || n_poseidons_16 > 1 << 32
-        || n_compressions_16 > n_poseidons_16.next_power_of_two()
+        || n_compressions_16
+            > n_poseidons_16
+                .next_power_of_two()
+                .max(1 << LOG_MIN_POSEIDONS_16)
         || n_poseidons_24 > 1 << 32
         || n_dot_products > 1 << 32
         || n_rows_table_dot_products > 1 << 32
@@ -75,9 +78,9 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let table_dot_products_log_n_rows = log2_ceil_usize(n_rows_table_dot_products);
-    let dot_product_padding_len =
-        n_rows_table_dot_products.next_power_of_two() - n_rows_table_dot_products;
+    let table_dot_products_log_n_rows =
+        log2_ceil_usize(n_rows_table_dot_products).max(LOG_MIN_DOT_PRODUCT_ROWS);
+    let dot_product_padding_len = (1 << table_dot_products_log_n_rows) - n_rows_table_dot_products;
 
     let mut vm_multilinear_evals = Vec::new();
     for _ in 0..n_vm_multilinear_evals {
@@ -204,7 +207,7 @@ pub fn verify_execution(
         p16_grand_product_evals_on_indexes_res,
     ] = verifier_state.next_extension_scalars_const().unwrap();
     let p16_grand_product_evals_on_compression = mle_of_zeros_then_ones(
-        n_poseidons_16.next_power_of_two() - n_compressions_16,
+        (1 << log_n_p16) - n_compressions_16,
         &grand_product_p16_statement.point,
     );
 
