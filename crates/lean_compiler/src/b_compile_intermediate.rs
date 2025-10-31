@@ -615,6 +615,8 @@ fn compile_lines(
                 });
             }
             SimpleLine::RangeCheck { value, max } => {
+                // x is the fp offset of the memory cell which contains the value
+                // i.e. m[fp + x] contains value
                 let x = match IntermediateValue::from_simple_expr(value, compiler) {
                     IntermediateValue::MemoryAfterFp { offset } => offset.naive_eval().unwrap(),
                     value::IntermediateValue::Fp => F::ZERO,
@@ -636,17 +638,14 @@ fn compile_lines(
                     for_range_check: true,
                 };
 
-
-                // Step 2: ADD: m[m[fp + x]] + m[fp + j] == (t-1) 
-                //              m[fp + j] == t - 1 - value
-                //
+                // Step 2: ADD: m[fp + x] + m[fp + j] == (t-1) 
                 //              m[fp + j] == t - 1 - m[fp + x]
-                let q = t - F::ONE;
+                // Uses constraint solving to store t - 1 - m[fp + x] in m[fp + j]
                 let step_2 = IntermediateInstruction::Computation {
                     operation: Operation::Add,
                     arg_a: IntermediateValue::MemoryAfterFp { offset: x.to_usize().into() },
-                    arg_c: IntermediateValue::MemoryAfterFp { offset: aux_j.into() }, // solve
-                    res: IntermediateValue::Constant(q.to_usize().into()),            // t - 1
+                    arg_c: IntermediateValue::MemoryAfterFp { offset: aux_j.into() },
+                    res: IntermediateValue::Constant((t - F::ONE).to_usize().into()),
                 };
 
                 // Step 3: DEREF: m[fp + k] == m[m[fp + j]]
@@ -657,20 +656,22 @@ fn compile_lines(
                     for_range_check: true,
                 };
 
+                // Insert the instructions
+                instructions.extend_from_slice(
+                    &[
+                        // This is just the RangeCheck hint which does nothing
+                        IntermediateInstruction::RangeCheck {
+                            value: IntermediateValue::from_simple_expr(value, compiler),
+                            max: max.clone(),
+                        },
+                        // These are the steps that effectuate the range check
+                        step_1,
+                        step_2,
+                        step_3,
+                    ]
+                );
 
-                // TODO: handle undefined memory access error
-
-                //println!("aux_i: {}; {:?}", aux_i, step_1);
-                //println!("aux_j: {}; {:?}", aux_j, step_2);
-                //println!("aux_k: {}; {:?}", aux_k, step_3);
-
-                instructions.push(IntermediateInstruction::RangeCheck {
-                    value: IntermediateValue::from_simple_expr(value, compiler),
-                    max: max.clone(),
-                });
-                instructions.push(step_1);
-                instructions.push(step_2);
-                instructions.push(step_3);
+                // Increase the stack size by 3 as we used 3 aux variables
                 compiler.stack_size += 3;
             }
         }

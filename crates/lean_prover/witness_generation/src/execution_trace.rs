@@ -63,13 +63,13 @@ pub fn get_execution_trace(
                 // flag_a == 0
                 addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
             }
-            let value_a = memory.0[addr_a.to_usize()].unwrap();
+            let value_a = memory.get(addr_a.to_usize()).unwrap_or(F::ZERO);
             let mut addr_b = F::ZERO;
             if field_repr[4].is_zero() {
                 // flag_b == 0
                 addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
             }
-            let value_b = memory.0[addr_b.to_usize()].unwrap();
+            let value_b = memory.get(addr_b.to_usize()).unwrap_or(F::ZERO);
 
             let mut addr_c = F::ZERO;
             if field_repr[5].is_zero() {
@@ -80,7 +80,7 @@ pub fn get_execution_trace(
                 assert_eq!(field_repr[2], operand_c); // debug purpose
                 addr_c = value_a + operand_c;
             }
-            let value_c = memory.0[addr_c.to_usize()].unwrap();
+            let value_c = memory.get(addr_c.to_usize()).unwrap_or(F::ZERO);
 
             for (j, field) in field_repr.iter().enumerate() {
                 *trace_row[j] = *field;

@@ -109,6 +109,7 @@ fn test_zk_vm_helper(program_str: &str) {
         false,
         (&vec![], &vec![]),
     )
+    .unwrap()
     .0;
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 }

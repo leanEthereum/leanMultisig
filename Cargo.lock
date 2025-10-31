@@ -405,6 +405,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "rayon",
+ "thiserror",
  "tracing",
  "utils",
  "vm_air",

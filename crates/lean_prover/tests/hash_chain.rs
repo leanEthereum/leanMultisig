@@ -81,6 +81,7 @@ fn benchmark_poseidon_chain() {
         false,
         (&vec![], &vec![]), // TODO poseidons precomputed
     )
+    .unwrap()
     .0;
     let vm_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();

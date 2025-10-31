@@ -22,6 +22,14 @@ use whir_p3::{
 };
 use xmss::{Poseidon16History, Poseidon24History};
 
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ProveExecutionError {
+    #[error("MemoryError")]
+    MemoryError,
+}
+
 pub fn prove_execution(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
@@ -29,7 +37,7 @@ pub fn prove_execution(
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
-) -> (Vec<PF<EF>>, usize, String) {
+) -> Result<(Vec<PF<EF>>, usize, String), ProveExecutionError> {
     let mut exec_summary = String::new();
     let ExecutionTrace {
         full_trace,
@@ -843,9 +851,14 @@ pub fn prove_execution(
         &mut base_memory_poly_eq_point,
         memory_poly_eq_point_alpha.square(),
     );
+
+    let memory_len = memory.len();
+    if base_memory_indexes.iter().max().unwrap().to_usize() >= memory_len {
+        return Err(ProveExecutionError::MemoryError);
+    }
     let base_memory_pushforward = compute_pushforward(
         &base_memory_indexes,
-        memory.len(),
+        memory_len,
         &base_memory_poly_eq_point,
     );
 
@@ -1188,9 +1201,9 @@ pub fn prove_execution(
         &packed_pcs_witness_extension.packed_polynomial.by_ref(),
     );
 
-    (
+    Ok((
         prover_state.proof_data().to_vec(),
         prover_state.proof_size(),
         exec_summary,
-    )
+    ))
 }

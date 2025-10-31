@@ -1,39 +1,43 @@
-use lean_compiler::*;
-use lean_prover::{
-    prove_execution::prove_execution, whir_config_builder,
-};
-use lean_vm::*;
+use lean_compiler::compile_program;
+use lean_vm::{F, DIMENSION, PUBLIC_INPUT_START};
+use lean_prover::{whir_config_builder, prove_execution::prove_execution};
+use whir_p3::WhirConfigBuilder;
 use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeSet;
 use rand::Rng;
 use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::SeedableRng;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 const NO_VEC_RUNTIME_MEMORY: usize = 1 << 20;
 
-fn critical_test_cases() -> (BTreeSet<(usize, usize)>, BTreeSet<(usize, usize)>) {
-    let mut happy_test_cases = BTreeSet::<(usize, usize)>::new();
-    let mut sad_test_cases = BTreeSet::<(usize, usize)>::new();
+fn range_check_program(value: usize, max: usize) -> String {
+    let program = format!(r#"
+    fn func() {{
+        x = 1;
+        y = {value};
+        value = x * y;
+        range_check(value, {max});
+        return;
+    }}
 
-    for t in 69..70 {
-        for v in 0..t {
-            if v < t {
-                happy_test_cases.insert((v, t));
-            } else {
-                sad_test_cases.insert((v, t));
-            }
-        }
-        //for v in 16777215..16777300 {
-            //if v < t {
-                //happy_test_cases.insert((v, t));
-            //} else {
-                //sad_test_cases.insert((v, t));
-            //}
-        //}
-    }
+    fn main() {{
+        x = 1;
+        y = {value};
+        value = x * y;
+        range_check(value, {max});
 
-    (happy_test_cases, sad_test_cases)
+        func();
+
+        if 0 == 0 {{
+            a = 1;
+            b = {value};
+            c = a * b;
+            range_check(c, {max});
+        }}
+        return;
+    }}
+   "#);
+   program.to_string()
 }
 
 fn random_test_cases(num_test_cases: usize) -> BTreeSet<(usize, usize)> {
@@ -62,43 +66,7 @@ fn random_test_cases(num_test_cases: usize) -> BTreeSet<(usize, usize)> {
     test_cases
 }
 
-fn range_check_program(value: usize, max: usize) -> String {
-    let program = format!(r#"
-    const DIM = 5;
-    const SECOND_POINT = 2;
-    const SECOND_N_VARS = 7;
-    const COMPRESSION = 1;
-    const PERMUTATION = 0;
-    
-    fn main() {{
-        x = 1;
-        y = {value};
-        value = x * y;
-        range_check(value, {max});
-
-        // Need to add the following to avoid a "TODO small GKR, no packing" error
-
-        for i in 10..50 {{
-            x = malloc_vec(6);
-            poseidon16(i + 3, i, x, PERMUTATION);
-            poseidon24(i + 3, i, x + 2);
-            dot_product(i*2, i, (x + 3) * 8, 1);
-            dot_product(i*3, i + 7, (x + 4) * 8, 2);
-        }}
-
-        for i in 0..1000 {{
-            assert i != 1000;
-        }}
-
-        return;
-    }}
-   "#);
-   program.to_string()
-}
-
-fn do_test_range_check(v: usize, t: usize) {
-    let program_str = range_check_program(v, t);
-
+fn prepare_inputs() -> (Vec<F>, Vec<F>) {
     const SECOND_POINT: usize = 2;
     const SECOND_N_VARS: usize = 7;
 
@@ -117,61 +85,48 @@ fn do_test_range_check(v: usize, t: usize) {
     let private_input = (0..1 << 13)
         .map(|i| F::from_usize(i).square())
         .collect::<Vec<_>>();
+    
+    (public_input, private_input)
+}
+
+fn do_test_range_check(
+    v: usize,
+    t: usize, 
+    whir_config_builder: &WhirConfigBuilder,
+    public_input: &Vec<F>,
+    private_input: &Vec<F>
+) {
+    let program_str = range_check_program(v, t);
 
     let bytecode = compile_program(program_str);
-    let _proof_data = prove_execution(
+
+    let r = prove_execution(
         &bytecode,
-        (&public_input, &private_input),
-        whir_config_builder(),
+        (public_input, private_input),
+        whir_config_builder.clone(),
         NO_VEC_RUNTIME_MEMORY,
         false,
         (&vec![], &vec![]),
     );
-}
-
-#[test]
-fn test_prove_range_check_happy() {
-    let (happy_test_cases, _sad_test_cases) = critical_test_cases();
-    println!("Running {} test cases:", happy_test_cases.len());
-    //happy_test_cases.par_iter().for_each(|(v, t)| {
-        //do_test_range_check(*v, *t);
-    //});
-    for (v, t) in happy_test_cases {
-        do_test_range_check(v, t);
+    
+    if v < t {
+        assert!(r.is_ok(), "Proof generation should work for v < t");
+    } else {
+        assert!(r.is_err(), "Proof generation should fail for v >= t");
     }
-}
 
-//#[test]
-//fn test_prove_range_check_sad() {
-    //let (_happy_test_cases, sad_test_cases) = critical_test_cases();
-    //for (v, t) in sad_test_cases {
-        //let result = std::panic::catch_unwind(|| {
-            //do_test_range_check(v, t);
-        //});
-        //assert!(result.is_err(), "Expected panic for test case v={}, t={}", v, t);
-    //}
-//}
-
-#[test]
-#[should_panic]
-fn test_prove_range_check_sad_1() {
-    do_test_range_check(0, 0);
 }
 
 #[test]
-#[should_panic]
-fn test_prove_range_check_sad_2() {
-    do_test_range_check(1, 0);
-}
+fn test_range_check() {
+    let (public_input, private_input) = prepare_inputs();
+    let whir_config_builder = whir_config_builder();
 
-#[test]
-#[should_panic]
-fn test_prove_range_check_sad_3() {
-    do_test_range_check(2, 1);
-}
+    let test_cases = random_test_cases(500);
 
-#[test]
-#[should_panic]
-fn test_prove_range_check_sad_4() {
-    do_test_range_check(69, 65);
+    println!("Running {} random test cases", test_cases.len());
+
+    for (v, t) in test_cases {
+        do_test_range_check(v, t, &whir_config_builder, &public_input, &private_input);
+    }
 }
