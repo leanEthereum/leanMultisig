@@ -69,8 +69,8 @@ fn test_zk_vm_no_precompiles() {
     let program_str = r#"
     
     fn main() {
-        for i in 0..1000 {
-            assert i != 1000;
+        for i in 0..10 {
+            assert i != 10;
         }
         return;
     }
