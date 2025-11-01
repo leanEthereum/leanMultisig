@@ -13,7 +13,10 @@ use p3_field::PrimeCharacteristicRing;
 use tracing::{info_span, instrument};
 use utils::{FSProver, FSVerifier};
 
-use crate::quotient_gkr::{prove_gkr_quotient, verify_gkr_quotient};
+use crate::{
+    MIN_VARS_FOR_PACKING,
+    quotient_gkr::{prove_gkr_quotient, verify_gkr_quotient},
+};
 
 #[derive(Debug)]
 pub struct LogupStarStatements<EF> {
@@ -38,17 +41,19 @@ where
 {
     let table_length = table.unpacked_len();
     let indexes_length = indexes.len();
-    let max_index = max_index
-        .unwrap_or(table_length)
-        .next_multiple_of(packing_width::<EF>());
-    let max_index_packed = max_index.div_ceil(packing_width::<EF>());
+    let packing = log2_strict_usize(table_length) >= MIN_VARS_FOR_PACKING
+        && log2_strict_usize(indexes_length) >= MIN_VARS_FOR_PACKING;
+    let mut max_index = max_index.unwrap_or(table_length);
+    if packing {
+        max_index = max_index.div_ceil(packing_width::<EF>());
+    }
 
     let (poly_eq_point_packed, pushforward_packed, table_packed) =
         info_span!("packing").in_scope(|| {
             (
-                pack_extension(poly_eq_point),
-                pack_extension(pushforward),
-                table.pack(),
+                MleRef::Extension(poly_eq_point).pack_if(packing),
+                MleRef::Extension(pushforward).pack_if(packing),
+                table.pack_if(packing),
             )
         });
 
@@ -56,7 +61,7 @@ where
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
             let (sc_point, prod, table_folded, pushforward_folded) = run_product_sumcheck(
                 &table_packed.by_ref(),
-                &MleRef::ExtensionPacked(&pushforward_packed),
+                &pushforward_packed.by_ref(),
                 prover_state,
                 claimed_value,
                 table.n_vars(),
@@ -83,8 +88,12 @@ where
 
     let c = prover_state.sample();
 
-    let (claim_left, _, eval_c_minux_indexes) =
-        prove_gkr_quotient(prover_state, &poly_eq_point_packed, (c, indexes), None);
+    let (claim_left, _, eval_c_minux_indexes) = prove_gkr_quotient(
+        prover_state,
+        &poly_eq_point_packed.by_ref(),
+        (c, indexes),
+        None,
+    );
 
     let increments = (0..table.unpacked_len())
         .into_par_iter()
@@ -92,9 +101,9 @@ where
         .collect::<Vec<_>>();
     let (claim_right, pushforward_final_eval, _) = prove_gkr_quotient(
         prover_state,
-        &pushforward_packed,
+        &pushforward_packed.by_ref(),
         (c, &increments),
-        Some(max_index_packed),
+        Some(max_index),
     );
 
     let final_point_left = claim_left.point[1..].to_vec();
@@ -234,12 +243,20 @@ mod tests {
 
     #[test]
     fn test_logup_star() {
+        for log_table_len in [1, 10] {
+            for log_indexes_len in 1..10 {
+                test_logup_star_helper(log_table_len, log_indexes_len);
+            }
+        }
+
+        test_logup_star_helper(15, 17);
+    }
+
+    fn test_logup_star_helper(log_table_len: usize, log_indexes_len: usize) {
         init_tracing();
 
-        let log_table_len = 21;
         let table_length = 1 << log_table_len;
 
-        let log_indexes_len = log_table_len + 1;
         let indexes_len = 1 << log_indexes_len;
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -319,7 +336,7 @@ mod tests {
                 .par_iter()
                 .map(|x| (0..n_muls).map(|_| *x).product::<EFPacking<EF>>())
                 .sum::<EFPacking<EF>>();
-            assert!(sum != EFPacking::<EF>::ZERO);
+            assert!(sum != EFPacking::<EF>::ONE);
             println!(
                 "Optimal time we can hope for: {} ms",
                 time.elapsed().as_millis()

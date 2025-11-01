@@ -4,7 +4,7 @@ use crate::instruction_encoder::field_representation;
 use crate::{
     COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C,
     COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC,
-    N_TOTAL_COLUMNS,
+    LOG_MIN_DOT_PRODUCT_ROWS, LOG_MIN_POSEIDONS_16, LOG_MIN_POSEIDONS_24, N_TOTAL_COLUMNS,
 };
 use lean_vm::*;
 use p3_field::Field;
@@ -29,9 +29,21 @@ pub struct ExecutionTrace {
 
 pub fn get_execution_trace(
     bytecode: &Bytecode,
-    execution_result: ExecutionResult,
+    mut execution_result: ExecutionResult,
 ) -> ExecutionTrace {
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
+
+    // padding to make proof work even on small programs (TODO make this more elegant)
+    let min_cycles = 32 << LOG_MIN_DOT_PRODUCT_ROWS;
+    if execution_result.pcs.len() < min_cycles {
+        execution_result
+            .pcs
+            .resize(min_cycles, *execution_result.pcs.last().unwrap());
+        execution_result
+            .fps
+            .resize(min_cycles, *execution_result.fps.last().unwrap());
+    }
+
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
     let log_n_cycles_rounded_up = n_cycles.next_power_of_two().ilog2() as usize;
@@ -108,14 +120,18 @@ pub fn get_execution_trace(
         ..
     } = execution_result;
 
-    poseidons_16.extend(vec![
-        WitnessPoseidon16::poseidon_of_zero();
-        n_poseidons_16.next_power_of_two() - n_poseidons_16
-    ]);
-    poseidons_24.extend(vec![
-        WitnessPoseidon24::poseidon_of_zero();
-        n_poseidons_24.next_power_of_two() - n_poseidons_24
-    ]);
+    poseidons_16.resize(
+        n_poseidons_16
+            .next_power_of_two()
+            .max(1 << LOG_MIN_POSEIDONS_16),
+        WitnessPoseidon16::poseidon_of_zero(),
+    );
+    poseidons_24.resize(
+        n_poseidons_24
+            .next_power_of_two()
+            .max(1 << LOG_MIN_POSEIDONS_24),
+        WitnessPoseidon24::poseidon_of_zero(),
+    );
 
     let n_compressions_16;
     (poseidons_16, n_compressions_16) = put_poseidon16_compressions_at_the_end(&poseidons_16); // TODO avoid reallocation

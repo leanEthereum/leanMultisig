@@ -52,7 +52,10 @@ pub fn verify_execution(
 
     if log_n_cycles > 32
         || n_poseidons_16 > 1 << 32
-        || n_compressions_16 > n_poseidons_16.next_power_of_two()
+        || n_compressions_16
+            > n_poseidons_16
+                .next_power_of_two()
+                .max(1 << LOG_MIN_POSEIDONS_16)
         || n_poseidons_24 > 1 << 32
         || n_dot_products > 1 << 32
         || n_rows_table_dot_products > 1 << 32
@@ -68,16 +71,16 @@ pub fn verify_execution(
 
     let log_public_memory = log2_strict_usize(public_memory.len());
     let log_memory = log2_ceil_usize(public_memory.len() + private_memory_len);
-    let log_n_p16 = log2_ceil_usize(n_poseidons_16);
-    let log_n_p24 = log2_ceil_usize(n_poseidons_24);
+    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(LOG_MIN_POSEIDONS_16);
+    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(LOG_MIN_POSEIDONS_24);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
         return Err(ProofError::InvalidProof);
     }
 
-    let table_dot_products_log_n_rows = log2_ceil_usize(n_rows_table_dot_products);
-    let dot_product_padding_len =
-        n_rows_table_dot_products.next_power_of_two() - n_rows_table_dot_products;
+    let table_dot_products_log_n_rows =
+        log2_ceil_usize(n_rows_table_dot_products).max(LOG_MIN_DOT_PRODUCT_ROWS);
+    let dot_product_padding_len = (1 << table_dot_products_log_n_rows) - n_rows_table_dot_products;
 
     let mut vm_multilinear_evals = Vec::new();
     for _ in 0..n_vm_multilinear_evals {
@@ -159,7 +162,7 @@ pub fn verify_execution(
                 &WitnessPoseidon16::default_addresses_field_repr(POSEIDON_16_NULL_HASH_PTR),
                 fingerprint_challenge,
             ))
-        .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
+        .exp_u64(((1 << log_n_p16) - n_poseidons_16) as u64);
 
     let corrected_prod_p24 = grand_product_p24_res
         / (grand_product_challenge_global
@@ -168,7 +171,7 @@ pub fn verify_execution(
                 &WitnessPoseidon24::default_addresses_field_repr(POSEIDON_24_NULL_HASH_PTR),
                 fingerprint_challenge,
             ))
-        .exp_u64((n_poseidons_24.next_power_of_two() - n_poseidons_24) as u64);
+        .exp_u64(((1 << log_n_p24) - n_poseidons_24) as u64);
 
     let corrected_dot_product = grand_product_dot_product_res
         / ((grand_product_challenge_global
@@ -204,7 +207,7 @@ pub fn verify_execution(
         p16_grand_product_evals_on_indexes_res,
     ] = verifier_state.next_extension_scalars_const().unwrap();
     let p16_grand_product_evals_on_compression = mle_of_zeros_then_ones(
-        n_poseidons_16.next_power_of_two() - n_compressions_16,
+        (1 << log_n_p16) - n_compressions_16,
         &grand_product_p16_statement.point,
     );
 

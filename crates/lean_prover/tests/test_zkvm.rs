@@ -8,7 +8,7 @@ use p3_field::PrimeCharacteristicRing;
 const NO_VEC_RUNTIME_MEMORY: usize = 1 << 20;
 
 #[test]
-fn test_zk_vm() {
+fn test_zk_vm_all_precompiles() {
     let program_str = r#"
     const DIM = 5;
     const SECOND_POINT = 2;
@@ -59,9 +59,27 @@ fn test_zk_vm() {
 
         return;
     }
-   "#
-    .to_string();
+   "#;
 
+    test_zk_vm_helper(program_str);
+}
+
+#[test]
+fn test_zk_vm_no_precompiles() {
+    let program_str = r#"
+    
+    fn main() {
+        for i in 0..10 {
+            assert i != 10;
+        }
+        return;
+    }
+   "#;
+
+    test_zk_vm_helper(program_str);
+}
+
+fn test_zk_vm_helper(program_str: &str) {
     const SECOND_POINT: usize = 2;
     const SECOND_N_VARS: usize = 7;
 
@@ -82,7 +100,7 @@ fn test_zk_vm() {
         .collect::<Vec<_>>();
 
     // utils::init_tracing();
-    let bytecode = compile_program(program_str);
+    let bytecode = compile_program(program_str.to_string());
     let proof_data = prove_execution(
         &bytecode,
         (&public_input, &private_input),

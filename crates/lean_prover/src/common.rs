@@ -17,14 +17,17 @@ pub fn get_base_dims(
     log_public_memory: usize,
     private_memory_len: usize,
     bytecode_ending_pc: usize,
-    poseidon_counts: (usize, usize),
+    (n_poseidons_16, n_poseidons_24): (usize, usize),
     n_rows_table_dot_products: usize,
     (p16_gkr_layers, p24_gkr_layers): (
         &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
         &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
     ),
 ) -> Vec<ColDims<F>> {
-    let (n_poseidons_16, n_poseidons_24) = poseidon_counts;
+    let n_poseidons_16 = n_poseidons_16.max(1 << LOG_MIN_POSEIDONS_16);
+    let n_poseidons_24 = n_poseidons_24.max(1 << LOG_MIN_POSEIDONS_24);
+    let n_rows_table_dot_products = n_rows_table_dot_products.max(1 << LOG_MIN_DOT_PRODUCT_ROWS);
+
     let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(p16_gkr_layers);
     let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(p24_gkr_layers);
 
@@ -207,12 +210,12 @@ impl PrecompileFootprint {
                 point[PRECOMP_INDEX_AUX],
                 self.fingerprint_challenge_powers[4],
             )
-            + ResultF::from_usize(TABLE_INDEX_POSEIDONS_16))
+            + PointF::from_usize(TABLE_INDEX_POSEIDONS_16))
             * point[PRECOMP_INDEX_POSEIDON_16]
             + (nu_a * self.fingerprint_challenge_powers[1]
                 + nu_b * self.fingerprint_challenge_powers[2]
                 + nu_c * self.fingerprint_challenge_powers[3]
-                + ResultF::from_usize(TABLE_INDEX_POSEIDONS_24))
+                + PointF::from_usize(TABLE_INDEX_POSEIDONS_24))
                 * point[PRECOMP_INDEX_POSEIDON_24]
             + (nu_a * self.fingerprint_challenge_powers[1]
                 + nu_b * self.fingerprint_challenge_powers[2]
@@ -221,7 +224,7 @@ impl PrecompileFootprint {
                     point[PRECOMP_INDEX_AUX],
                     self.fingerprint_challenge_powers[4],
                 )
-                + ResultF::from_usize(TABLE_INDEX_DOT_PRODUCTS))
+                + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS))
                 * point[PRECOMP_INDEX_DOT_PRODUCT]
             + (nu_a * self.fingerprint_challenge_powers[1]
                 + nu_b * self.fingerprint_challenge_powers[2]
@@ -230,7 +233,7 @@ impl PrecompileFootprint {
                     point[PRECOMP_INDEX_AUX],
                     self.fingerprint_challenge_powers[4],
                 )
-                + ResultF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
+                + PointF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
                 * point[PRECOMP_INDEX_MULTILINEAR_EVAL]
             + self.global_challenge
     }
