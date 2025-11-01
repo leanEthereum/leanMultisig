@@ -15,6 +15,7 @@ use utils::{ToUsize, transposed_par_iter_mut};
 #[derive(Debug)]
 pub struct ExecutionTrace {
     pub full_trace: [Vec<F>; N_TOTAL_COLUMNS],
+    pub n_cycles: usize, // before padding with the repeated final instruction
     pub n_poseidons_16: usize,
     pub n_poseidons_24: usize,
     pub n_compressions_16: usize,
@@ -46,9 +47,8 @@ pub fn get_execution_trace(
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
-    let log_n_cycles_rounded_up = n_cycles.next_power_of_two().ilog2() as usize;
     let mut trace: [Vec<F>; N_TOTAL_COLUMNS] =
-        array::from_fn(|_| F::zero_vec(1 << log_n_cycles_rounded_up));
+        array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
 
     transposed_par_iter_mut(&mut trace)
         .zip(execution_result.pcs.par_iter())
@@ -138,6 +138,7 @@ pub fn get_execution_trace(
 
     ExecutionTrace {
         full_trace: trace,
+        n_cycles,
         n_poseidons_16,
         n_poseidons_24,
         n_compressions_16,

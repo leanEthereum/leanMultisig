@@ -34,7 +34,7 @@ pub fn verify_execution(
     let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
 
     let [
-        log_n_cycles,
+        n_cycles,
         n_poseidons_16,
         n_compressions_16,
         n_poseidons_24,
@@ -50,22 +50,14 @@ pub fn verify_execution(
         .try_into()
         .unwrap();
 
-    if log_n_cycles > 32
-        || n_poseidons_16 > 1 << 32
-        || n_compressions_16
-            > n_poseidons_16
-                .next_power_of_two()
-                .max(1 << LOG_MIN_POSEIDONS_16)
-        || n_poseidons_24 > 1 << 32
-        || n_dot_products > 1 << 32
-        || n_rows_table_dot_products > 1 << 32
-        || private_memory_len > 1 << 32
+    if n_compressions_16
+        > n_poseidons_16
+            .next_power_of_two()
+            .max(1 << LOG_MIN_POSEIDONS_16)
         || n_vm_multilinear_evals > 1 << 10
     {
-        // To avoid "DOS" attack
         return Err(ProofError::InvalidProof);
     }
-    let n_cycles = 1 << log_n_cycles;
 
     let public_memory = build_public_memory(public_input);
 
@@ -73,6 +65,7 @@ pub fn verify_execution(
     let log_memory = log2_ceil_usize(public_memory.len() + private_memory_len);
     let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(LOG_MIN_POSEIDONS_16);
     let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(LOG_MIN_POSEIDONS_24);
+    let log_n_cycles = log2_ceil_usize(n_cycles);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
         return Err(ProofError::InvalidProof);
@@ -149,7 +142,7 @@ pub fn verify_execution(
 
     let corrected_prod_exec = grand_product_exec_res
         / grand_product_challenge_global.exp_u64(
-            (n_cycles
+            (n_cycles.next_power_of_two()
                 - n_poseidons_16
                 - n_poseidons_24
                 - n_dot_products

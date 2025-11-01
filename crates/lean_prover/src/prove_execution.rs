@@ -33,6 +33,7 @@ pub fn prove_execution(
     let mut exec_summary = String::new();
     let ExecutionTrace {
         full_trace,
+        n_cycles,
         n_poseidons_16,
         n_poseidons_24,
         poseidons_16,      // padded with empty poseidons
@@ -67,8 +68,7 @@ pub fn prove_execution(
     let log_memory = log2_strict_usize(memory.len());
     let log_public_memory = log2_strict_usize(public_memory.len());
 
-    let n_cycles = full_trace[0].len();
-    let log_n_cycles = log2_strict_usize(n_cycles);
+    let log_n_cycles = log2_ceil_usize(n_cycles);
     assert!(full_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
 
     let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(LOG_MIN_POSEIDONS_16);
@@ -115,7 +115,7 @@ pub fn prove_execution(
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
         &[
-            log_n_cycles,
+            n_cycles,
             n_poseidons_16,
             n_compressions_16,
             n_poseidons_24,
@@ -215,7 +215,7 @@ pub fn prove_execution(
     // Grand Product for consistency with precompiles
     let grand_product_challenge_global = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
-    let mut exec_column_for_grand_product = vec![grand_product_challenge_global; n_cycles];
+    let mut exec_column_for_grand_product = vec![grand_product_challenge_global; 1 << log_n_cycles];
     for pos_16 in &poseidons_16 {
         let Some(cycle) = pos_16.cycle else {
             break;
@@ -326,7 +326,7 @@ pub fn prove_execution(
 
     let corrected_prod_exec = grand_product_exec_res
         / grand_product_challenge_global.exp_u64(
-            (n_cycles
+            ((1 << log_n_cycles)
                 - n_poseidons_16
                 - n_poseidons_24
                 - dot_products.len()
@@ -1152,6 +1152,7 @@ pub fn prove_execution(
         dot_product_computation_column_statements,
     ]
     .concat();
+
     let global_statements_base = packed_pcs_global_statements_for_prover(
         &base_pols,
         &base_dims,

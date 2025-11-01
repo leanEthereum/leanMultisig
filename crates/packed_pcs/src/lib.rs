@@ -391,8 +391,15 @@ pub fn packed_pcs_global_statements_for_prover<
                         all_chunk_evals.push(sub_value);
                     });
 
-                // deduce the first sub_value, if it's not public
-                if dim.log_public_data_size.is_none() {
+                let initial_missing_vars = statement.point.0.len() - chunks[0].n_vars;
+                let initial_offset_in_original_booleans = to_big_endian_bits(
+                    chunks[0].offset_in_original >> chunks[0].n_vars,
+                    initial_missing_vars,
+                );
+                if initial_booleans.len() < initial_offset_in_original_booleans.len() // if the statement only concern the first chunk, no need to send more data
+                    && dim.log_public_data_size.is_none()
+                // if the first value is public, no need to recompute it
+                {
                     let retrieved_eval = compute_multilinear_value_from_chunks(
                         &chunks[1..],
                         &all_chunk_evals,
@@ -611,6 +618,7 @@ mod tests {
             (754, F::from_usize(4), None),
             (1023, F::from_usize(7), None),
             (2025, F::from_usize(15), None),
+            (600, F::from_usize(100), None),
         ];
         let mut public_data = BTreeMap::new();
         let mut polynomials = Vec::new();
@@ -646,6 +654,10 @@ mod tests {
             });
             statements_per_polynomial.push(statements);
         }
+        statements_per_polynomial
+            .last_mut()
+            .unwrap()
+            .push(Evaluation::new(vec![EF::ONE; 10], EF::from_usize(100)));
 
         let mut prover_state = build_prover_state();
         precompute_dft_twiddles::<F>(1 << 24);

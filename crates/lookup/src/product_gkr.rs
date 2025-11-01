@@ -53,9 +53,6 @@ where
     } else {
         MleRef::Extension(final_layer).into()
     };
-    if final_layer.n_vars() > MIN_VARS_FOR_PACKING && !final_layer.is_packed() {
-        tracing::warn!("GKR product not packed despite being large enough for packing");
-    }
 
     let mut layers = vec![final_layer];
     loop {
