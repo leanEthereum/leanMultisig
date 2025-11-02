@@ -158,7 +158,10 @@ impl Display for IntermediateInstruction {
                 shift_1,
                 res,
                 for_range_check,
-            } => write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}] for_range_check: {for_range_check}"),
+            } => write!(
+                f,
+                "{res} = m[m[fp + {shift_0}] + {shift_1}] for_range_check: {for_range_check}"
+            ),
             Self::Panic => write!(f, "panic"),
             Self::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {

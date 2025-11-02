@@ -67,10 +67,7 @@ pub enum Hint {
     Label { label: Label },
 
     /// Range check
-    RangeCheck {
-        value: MemOrFp,
-        max: MemOrConstant,
-    },
+    RangeCheck { value: MemOrFp, max: MemOrConstant },
 }
 
 /// Execution state for hint processing

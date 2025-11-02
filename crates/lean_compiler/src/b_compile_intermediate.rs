@@ -634,17 +634,23 @@ fn compile_lines(
                 let step_1 = IntermediateInstruction::Deref {
                     shift_0: ConstExpression::scalar(x.to_usize()),
                     shift_1: ConstExpression::from(0),
-                    res: IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset: aux_i.into() },
+                    res: IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                        offset: aux_i.into(),
+                    },
                     for_range_check: true,
                 };
 
-                // Step 2: ADD: m[fp + x] + m[fp + j] == (t-1) 
+                // Step 2: ADD: m[fp + x] + m[fp + j] == (t-1)
                 //              m[fp + j] == t - 1 - m[fp + x]
                 // Uses constraint solving to store t - 1 - m[fp + x] in m[fp + j]
                 let step_2 = IntermediateInstruction::Computation {
                     operation: Operation::Add,
-                    arg_a: IntermediateValue::MemoryAfterFp { offset: x.to_usize().into() },
-                    arg_c: IntermediateValue::MemoryAfterFp { offset: aux_j.into() },
+                    arg_a: IntermediateValue::MemoryAfterFp {
+                        offset: x.to_usize().into(),
+                    },
+                    arg_c: IntermediateValue::MemoryAfterFp {
+                        offset: aux_j.into(),
+                    },
                     res: IntermediateValue::Constant((t - F::ONE).to_usize().into()),
                 };
 
@@ -652,24 +658,24 @@ fn compile_lines(
                 let step_3 = IntermediateInstruction::Deref {
                     shift_0: ConstExpression::scalar(aux_j),
                     shift_1: ConstExpression::from(0),
-                    res: IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset: aux_k.into() },
+                    res: IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                        offset: aux_k.into(),
+                    },
                     for_range_check: true,
                 };
 
                 // Insert the instructions
-                instructions.extend_from_slice(
-                    &[
-                        // This is just the RangeCheck hint which does nothing
-                        IntermediateInstruction::RangeCheck {
-                            value: IntermediateValue::from_simple_expr(value, compiler),
-                            max: max.clone(),
-                        },
-                        // These are the steps that effectuate the range check
-                        step_1,
-                        step_2,
-                        step_3,
-                    ]
-                );
+                instructions.extend_from_slice(&[
+                    // This is just the RangeCheck hint which does nothing
+                    IntermediateInstruction::RangeCheck {
+                        value: IntermediateValue::from_simple_expr(value, compiler),
+                        max: max.clone(),
+                    },
+                    // These are the steps that effectuate the range check
+                    step_1,
+                    step_2,
+                    step_3,
+                ]);
 
                 // Increase the stack size by 3 as we used 3 aux variables
                 compiler.stack_size += 3;
@@ -876,7 +882,7 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             | SimpleLine::Print { .. }
             | SimpleLine::FunctionRet { .. }
             | SimpleLine::Precompile { .. }
-            | SimpleLine::LocationReport { .. } 
+            | SimpleLine::LocationReport { .. }
             | SimpleLine::RangeCheck { .. } => {}
         }
     }

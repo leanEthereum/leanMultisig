@@ -853,15 +853,15 @@ pub fn prove_execution(
     );
 
     let memory_len = memory.len();
-    if base_memory_indexes.iter().any(|i| i.to_usize() >= memory_len) {
+    if base_memory_indexes
+        .iter()
+        .any(|i| i.to_usize() >= memory_len)
+    {
         return Err(ProveExecutionError::MemoryError);
     }
 
-    let base_memory_pushforward = compute_pushforward(
-        &base_memory_indexes,
-        memory_len,
-        &base_memory_poly_eq_point,
-    );
+    let base_memory_pushforward =
+        compute_pushforward(&base_memory_indexes, memory_len, &base_memory_poly_eq_point);
 
     // 2nd Commitment
     let extension_pols = vec![

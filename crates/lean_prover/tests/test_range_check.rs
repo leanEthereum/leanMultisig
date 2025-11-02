@@ -1,17 +1,18 @@
 use lean_compiler::compile_program;
-use lean_vm::{F, DIMENSION, PUBLIC_INPUT_START};
-use lean_prover::{whir_config_builder, prove_execution::prove_execution};
-use whir_p3::WhirConfigBuilder;
+use lean_prover::{prove_execution::prove_execution, whir_config_builder};
+use lean_vm::{DIMENSION, F, PUBLIC_INPUT_START};
 use p3_field::PrimeCharacteristicRing;
-use std::collections::BTreeSet;
 use rand::Rng;
 use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::SeedableRng;
+use std::collections::BTreeSet;
+use whir_p3::WhirConfigBuilder;
 
 const NO_VEC_RUNTIME_MEMORY: usize = 1 << 20;
 
 fn range_check_program(value: usize, max: usize) -> String {
-    let program = format!(r#"
+    let program = format!(
+        r#"
     fn func() {{
         x = 1;
         y = {value};
@@ -36,8 +37,9 @@ fn range_check_program(value: usize, max: usize) -> String {
         }}
         return;
     }}
-   "#);
-   program.to_string()
+   "#
+    );
+    program.to_string()
 }
 
 fn random_test_cases(num_test_cases: usize) -> BTreeSet<(usize, usize)> {
@@ -85,16 +87,16 @@ fn prepare_inputs() -> (Vec<F>, Vec<F>) {
     let private_input = (0..1 << 13)
         .map(|i| F::from_usize(i).square())
         .collect::<Vec<_>>();
-    
+
     (public_input, private_input)
 }
 
 fn do_test_range_check(
     v: usize,
-    t: usize, 
+    t: usize,
     whir_config_builder: &WhirConfigBuilder,
     public_input: &Vec<F>,
-    private_input: &Vec<F>
+    private_input: &Vec<F>,
 ) {
     let program_str = range_check_program(v, t);
 
@@ -108,13 +110,12 @@ fn do_test_range_check(
         false,
         (&vec![], &vec![]),
     );
-    
+
     if v < t {
         assert!(r.is_ok(), "Proof generation should work for v < t");
     } else {
         assert!(r.is_err(), "Proof generation should fail for v >= t");
     }
-
 }
 
 #[test]

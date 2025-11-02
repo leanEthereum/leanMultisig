@@ -184,7 +184,7 @@ impl Instruction {
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
 
                     if *for_range_check {
-                        // if for_range_check, ignore the UndefinedMemory error from get() 
+                        // if for_range_check, ignore the UndefinedMemory error from get()
                         let value = ctx.memory.get(ptr.to_usize() + shift_1);
                         if value.is_ok() {
                             ctx.memory.set(memory_address_res, value.unwrap())?;
@@ -438,7 +438,10 @@ impl Display for Instruction {
                 res,
                 for_range_check,
             } => {
-                write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}] for_range_check: {for_range_check}")
+                write!(
+                    f,
+                    "{res} = m[m[fp + {shift_0}] + {shift_1}] for_range_check: {for_range_check}"
+                )
             }
             Self::DotProductExtensionExtension {
                 arg0,

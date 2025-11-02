@@ -23,7 +23,7 @@ impl IntermediateInstruction {
             | Self::Poseidon2_16 { .. }
             | Self::Poseidon2_24 { .. }
             | Self::DotProduct { .. }
-            | Self::MultilinearEval { .. } => false
+            | Self::MultilinearEval { .. } => false,
         }
     }
 }
