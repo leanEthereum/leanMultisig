@@ -853,9 +853,10 @@ pub fn prove_execution(
     );
 
     let memory_len = memory.len();
-    if base_memory_indexes.iter().max().unwrap().to_usize() >= memory_len {
+    if base_memory_indexes.iter().any(|i| i.to_usize() >= memory_len) {
         return Err(ProveExecutionError::MemoryError);
     }
+
     let base_memory_pushforward = compute_pushforward(
         &base_memory_indexes,
         memory_len,
