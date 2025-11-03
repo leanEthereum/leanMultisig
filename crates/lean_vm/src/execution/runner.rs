@@ -1,8 +1,8 @@
 //! VM execution runner
 
 use crate::core::{
-    DIMENSION, F, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
-    PUBLIC_INPUT_START, VECTOR_LEN, ZERO_VEC_PTR,
+    DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR,
+    POSEIDON_24_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
 };
 use crate::diagnostics::{ExecutionResult, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
@@ -23,9 +23,11 @@ const STACK_TRACE_INSTRUCTIONS: usize = 5000;
 /// Build public memory with standard initialization
 pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     // padded to a power of two
-    let public_memory_len = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
+    let public_memory_len =
+        (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
     let mut public_memory = F::zero_vec(public_memory_len);
-    public_memory[PUBLIC_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
+    public_memory[NONRESERVED_PROGRAM_INPUT_START..][..public_input.len()]
+        .copy_from_slice(public_input);
 
     // "zero" vector
     let zero_start = ZERO_VEC_PTR * VECTOR_LEN;
@@ -157,7 +159,8 @@ fn execute_bytecode_helper(
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
 
-    let public_memory_size = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
+    let public_memory_size =
+        (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
     let mut fp = public_memory_size;
 
     for (i, value) in private_input.iter().enumerate() {
@@ -320,7 +323,8 @@ fn execute_bytecode_helper(
     summary.push_str(&format!("MEMORY: {}\n", pretty_integer(memory.0.len())));
     summary.push('\n');
 
-    let runtime_memory_size = memory.0.len() - (PUBLIC_INPUT_START + public_input.len());
+    let runtime_memory_size =
+        memory.0.len() - (NONRESERVED_PROGRAM_INPUT_START + public_input.len());
     summary.push_str(&format!(
         "Bytecode size: {}\n",
         pretty_integer(bytecode.instructions.len())
@@ -342,7 +346,7 @@ fn execute_bytecode_helper(
     let used_memory_cells = memory
         .0
         .iter()
-        .skip(PUBLIC_INPUT_START + public_input.len())
+        .skip(NONRESERVED_PROGRAM_INPUT_START + public_input.len())
         .filter(|&&x| x.is_some())
         .count();
     summary.push_str(&format!(

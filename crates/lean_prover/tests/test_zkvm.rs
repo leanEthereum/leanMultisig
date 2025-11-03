@@ -83,15 +83,15 @@ fn test_zk_vm_helper(program_str: &str) {
     const SECOND_POINT: usize = 2;
     const SECOND_N_VARS: usize = 7;
 
-    let mut public_input = (0..(1 << 13) - PUBLIC_INPUT_START)
+    let mut public_input = (0..(1 << 13) - NONRESERVED_PROGRAM_INPUT_START)
         .map(F::from_usize)
         .collect::<Vec<_>>();
 
     public_input[SECOND_POINT * (SECOND_N_VARS * DIMENSION).next_power_of_two()
         + SECOND_N_VARS * DIMENSION
-        - PUBLIC_INPUT_START
+        - NONRESERVED_PROGRAM_INPUT_START
         ..(SECOND_POINT + 1) * (SECOND_N_VARS * DIMENSION).next_power_of_two()
-            - PUBLIC_INPUT_START]
+            - NONRESERVED_PROGRAM_INPUT_START]
         .iter_mut()
         .for_each(|x| *x = F::ZERO);
 

@@ -224,7 +224,9 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     }
     public_input.insert(
         0,
-        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
+        F::from_usize(
+            (public_input.len() + 8 + NONRESERVED_PROGRAM_INPUT_START).next_power_of_two(),
+        ),
     );
     public_input.splice(1..1, F::zero_vec(7));
 

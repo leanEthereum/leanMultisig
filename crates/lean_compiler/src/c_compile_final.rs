@@ -1,4 +1,4 @@
-use crate::{F, PUBLIC_INPUT_START, ZERO_VEC_PTR, ir::*, lang::*};
+use crate::{F, NONRESERVED_PROGRAM_INPUT_START, ZERO_VEC_PTR, ir::*, lang::*};
 use lean_vm::*;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use std::collections::BTreeMap;
@@ -395,7 +395,7 @@ fn count_real_instructions(instrs: &[IntermediateInstruction]) -> usize {
 fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
     match constant {
         ConstantValue::Scalar(scalar) => *scalar,
-        ConstantValue::PublicInputStart => PUBLIC_INPUT_START,
+        ConstantValue::PublicInputStart => NONRESERVED_PROGRAM_INPUT_START,
         ConstantValue::PointerToZeroVector => ZERO_VEC_PTR,
         ConstantValue::PointerToOneVector => ONE_VEC_PTR,
         ConstantValue::FunctionSize { function_name } => {
