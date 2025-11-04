@@ -648,9 +648,9 @@ fn compile_lines(
                 };
 
                 let t = max.naive_eval().unwrap();
-                let aux_i: usize = compiler.stack_size + 0;
-                let aux_j: usize = compiler.stack_size + 1;
-                let aux_k: usize = compiler.stack_size + 2;
+                let aux_i = compiler.stack_size;
+                let aux_j = compiler.stack_size + 1;
+                let aux_k = compiler.stack_size + 2;
 
                 // Step 1: DEREF: m[fp + i] == m[m[fp + x]]
                 //         DEREF: m[fp + i] == m[value]

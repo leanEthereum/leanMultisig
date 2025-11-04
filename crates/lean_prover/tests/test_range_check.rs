@@ -49,11 +49,11 @@ fn random_test_cases(num_test_cases: usize, valid: bool) -> BTreeSet<(usize, usi
     let mut test_cases = BTreeSet::new();
 
     for _ in 0..num_test_cases {
-        let t = rng.random_range(1..t_max) as usize;
+        let t = rng.random_range(1..t_max);
         let v = if valid {
-            rng.random_range(0..t) as usize
+            rng.random_range(0..t)
         } else {
-            rng.random_range(t..1 << 31) as usize
+            rng.random_range(t..1 << 31)
         };
         test_cases.insert((v, t));
     }
@@ -88,8 +88,8 @@ fn do_test_range_check(
     v: usize,
     t: usize,
     whir_config_builder: &WhirConfigBuilder,
-    public_input: &Vec<F>,
-    private_input: &Vec<F>,
+    public_input: &[F],
+    private_input: &[F],
 ) {
     let program_str = range_check_program(v, t);
 
@@ -105,7 +105,7 @@ fn do_test_range_check(
     );
     verify_execution(
         &bytecode,
-        &public_input,
+        public_input,
         proof_data,
         whir_config_builder.clone(),
     )
