@@ -186,8 +186,8 @@ impl Instruction {
                     if *for_range_check {
                         // if for_range_check, ignore the UndefinedMemory error from get()
                         let value = ctx.memory.get(ptr.to_usize() + shift_1);
-                        if value.is_ok() {
-                            ctx.memory.set(memory_address_res, value.unwrap())?;
+                        if let Ok(value) = value {
+                            ctx.memory.set(memory_address_res, value)?;
                         }
                     } else {
                         // else, bubble it up
