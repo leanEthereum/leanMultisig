@@ -96,6 +96,7 @@ pub enum SimpleLine {
         condition: SimpleExpr,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
+        line_number: SourceLineNumber,
     },
     TestZero {
         // Test that the result of the given operation is zero
@@ -107,6 +108,7 @@ pub enum SimpleLine {
         function_name: String,
         args: Vec<SimpleExpr>,
         return_data: Vec<Var>,
+        line_number: SourceLineNumber,
     },
     FunctionRet {
         return_data: Vec<SimpleExpr>,
@@ -316,7 +318,7 @@ fn simplify_lines(
                     const_malloc,
                 );
             }
-            Line::Assert(boolean) => match boolean {
+            Line::Assert(boolean, line_number) => match boolean {
                 Boolean::Different { left, right } => {
                     let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
                     let right =
@@ -333,6 +335,7 @@ fn simplify_lines(
                         condition: diff_var.into(),
                         then_branch: vec![],
                         else_branch: vec![SimpleLine::Panic],
+                        line_number: *line_number,
                     });
                 }
                 Boolean::Equal { left, right } => {
@@ -358,6 +361,7 @@ fn simplify_lines(
                 condition,
                 then_branch,
                 else_branch,
+                line_number,
             } => {
                 let (condition_simplified, then_branch, else_branch) = match condition {
                     Condition::Comparison(condition) => {
@@ -468,6 +472,7 @@ fn simplify_lines(
                     condition: condition_simplified,
                     then_branch: then_branch_simplified,
                     else_branch: else_branch_simplified,
+                    line_number: *line_number,
                 });
             }
             Line::ForLoop {
@@ -575,6 +580,7 @@ fn simplify_lines(
                 // Create recursive function body
                 let recursive_func = create_recursive_function(
                     func_name.clone(),
+                    *line_number,
                     func_args,
                     iterator.clone(),
                     end_simplified,
@@ -591,12 +597,14 @@ fn simplify_lines(
                     function_name: func_name,
                     args: call_args,
                     return_data: vec![],
+                    line_number: *line_number,
                 });
             }
             Line::FunctionCall {
                 function_name,
                 args,
                 return_data,
+                line_number,
             } => {
                 let simplified_args = args
                     .iter()
@@ -606,6 +614,7 @@ fn simplify_lines(
                     function_name: function_name.clone(),
                     args: simplified_args,
                     return_data: return_data.clone(),
+                    line_number: *line_number,
                 });
             }
             Line::FunctionRet { return_data } => {
@@ -873,6 +882,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 condition,
                 then_branch,
                 else_branch,
+                line_number: _,
             } => {
                 on_new_condition(condition, &internal_vars, &mut external_vars);
 
@@ -895,7 +905,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 }
                 internal_vars.extend(return_data.iter().cloned());
             }
-            Line::Assert(condition) => {
+            Line::Assert(condition, _line_number) => {
                 on_new_condition(
                     &Condition::Comparison(condition.clone()),
                     &internal_vars,
@@ -1042,6 +1052,7 @@ pub fn inline_lines(
                 condition,
                 then_branch,
                 else_branch,
+                line_number: _,
             } => {
                 inline_condition(condition);
 
@@ -1060,7 +1071,7 @@ pub fn inline_lines(
                     inline_internal_var(return_var);
                 }
             }
-            Line::Assert(condition) => {
+            Line::Assert(condition, _line_number) => {
                 inline_comparison(condition);
             }
             Line::FunctionRet { return_data } => {
@@ -1237,6 +1248,7 @@ fn handle_array_assignment(
 
 fn create_recursive_function(
     name: String,
+    line_number: SourceLineNumber,
     args: Vec<Var>,
     iterator: Var,
     end: SimpleExpr,
@@ -1260,6 +1272,7 @@ fn create_recursive_function(
         function_name: name.clone(),
         args: recursive_args,
         return_data: vec![],
+        line_number,
     });
     body.push(SimpleLine::FunctionRet {
         return_data: vec![],
@@ -1280,6 +1293,7 @@ fn create_recursive_function(
             else_branch: vec![SimpleLine::FunctionRet {
                 return_data: vec![],
             }],
+            line_number,
         },
     ];
 
@@ -1419,7 +1433,10 @@ fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
-            Line::Assert(Boolean::Equal { left, right } | Boolean::Different { left, right }) => {
+            Line::Assert(
+                Boolean::Equal { left, right } | Boolean::Different { left, right },
+                _line_number,
+            ) => {
                 replace_vars_for_unroll_in_expr(
                     left,
                     iterator,
@@ -1439,6 +1456,7 @@ fn replace_vars_for_unroll(
                 condition,
                 then_branch,
                 else_branch,
+                line_number: _,
             } => {
                 match condition {
                     Condition::Comparison(
@@ -1523,6 +1541,7 @@ fn replace_vars_for_unroll(
                 function_name: _,
                 args,
                 return_data,
+                line_number: _,
             } => {
                 // Function calls are not unrolled, so we don't need to change them
                 for arg in args {
@@ -1713,6 +1732,7 @@ fn handle_inlined_functions_helper(
                 function_name,
                 args,
                 return_data,
+                line_number: _,
             } => {
                 if let Some(func) = inlined_functions.get(&*function_name) {
                     let mut inlined_lines = vec![];
@@ -1864,6 +1884,7 @@ fn handle_const_arguments_helper(
                 function_name,
                 args,
                 return_data: _,
+                line_number: _,
             } => {
                 if let Some(func) = constant_functions.get(function_name) {
                     // If the function has constant arguments, we need to handle them
@@ -2055,6 +2076,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 condition,
                 then_branch,
                 else_branch,
+                line_number: _,
             } => {
                 match condition {
                     Condition::Comparison(Boolean::Equal { left, right })
@@ -2076,7 +2098,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 replace_vars_by_const_in_expr(end, map);
                 replace_vars_by_const_in_lines(body, map);
             }
-            Line::Assert(condition) => match condition {
+            Line::Assert(condition, _line_number) => match condition {
                 Boolean::Equal { left, right } | Boolean::Different { left, right } => {
                     replace_vars_by_const_in_expr(left, map);
                     replace_vars_by_const_in_expr(right, map);
@@ -2216,6 +2238,7 @@ impl SimpleLine {
                 condition,
                 then_branch,
                 else_branch,
+                line_number: _,
             } => {
                 let then_str = then_branch
                     .iter()
@@ -2241,6 +2264,7 @@ impl SimpleLine {
                 function_name,
                 args,
                 return_data,
+                line_number: _,
             } => {
                 let args_str = args
                     .iter()

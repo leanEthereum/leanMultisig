@@ -7,13 +7,18 @@ pub enum Label {
     Function(String),
     /// Program termination: @end_program
     EndProgram,
-    /// Conditional flow: @if_{id}, @else_{id}, @if_else_end_{id}
-    If { id: usize, kind: IfKind },
+    /// Conditional flow: @if_{id}_line_{line_number}, @else_{id}_line_{line_number},
+    ///   @if_else_end_{id}_line_{line_number}
+    If {
+        id: usize,
+        kind: IfKind,
+        line_number: SourceLineNumber,
+    },
     /// Match statement end: @match_end_{id}
     MatchEnd(usize),
     /// Return from function call: @return_from_call_{id}
-    ReturnFromCall(usize),
-    /// Loop definition: @loop_{id}_{line_number}
+    ReturnFromCall(usize, SourceLineNumber),
+    /// Loop definition: @loop_{id}_line_{line_number}
     Loop(usize, SourceLineNumber),
     /// Built-in memory symbols
     BuiltinSymbol(BuiltinSymbol),
@@ -70,13 +75,19 @@ impl std::fmt::Display for Label {
         match self {
             Self::Function(name) => write!(f, "@function_{name}"),
             Self::EndProgram => write!(f, "@end_program"),
-            Self::If { id, kind } => match kind {
-                IfKind::If => write!(f, "@if_{id}"),
-                IfKind::Else => write!(f, "@else_{id}"),
-                IfKind::End => write!(f, "@if_else_end_{id}"),
+            Self::If {
+                id,
+                kind,
+                line_number,
+            } => match kind {
+                IfKind::If => write!(f, "@if_{id}_line_{line_number}"),
+                IfKind::Else => write!(f, "@else_{id}_line_{line_number}"),
+                IfKind::End => write!(f, "@if_else_end_{id}_line_{line_number}"),
             },
             Self::MatchEnd(id) => write!(f, "@match_end_{id}"),
-            Self::ReturnFromCall(id) => write!(f, "@return_from_call_{id}"),
+            Self::ReturnFromCall(id, line_number) => {
+                write!(f, "@return_from_call_{id}_line_{line_number}")
+            }
             Self::Loop(id, line_number) => write!(f, "@loop_{id}_line_{line_number}"),
             Self::BuiltinSymbol(symbol) => write!(f, "{symbol}"),
             Self::AuxVar { kind, id } => match kind {
@@ -110,24 +121,27 @@ impl Label {
         Self::Function(name.into())
     }
 
-    pub fn if_label(id: usize) -> Self {
+    pub fn if_label(id: usize, line_number: SourceLineNumber) -> Self {
         Self::If {
             id,
             kind: IfKind::If,
+            line_number,
         }
     }
 
-    pub fn else_label(id: usize) -> Self {
+    pub fn else_label(id: usize, line_number: SourceLineNumber) -> Self {
         Self::If {
             id,
             kind: IfKind::Else,
+            line_number,
         }
     }
 
-    pub fn if_else_end(id: usize) -> Self {
+    pub fn if_else_end(id: usize, line_number: SourceLineNumber) -> Self {
         Self::If {
             id,
             kind: IfKind::End,
+            line_number,
         }
     }
 
@@ -135,8 +149,8 @@ impl Label {
         Self::MatchEnd(id)
     }
 
-    pub fn return_from_call(id: usize) -> Self {
-        Self::ReturnFromCall(id)
+    pub fn return_from_call(id: usize, line_number: SourceLineNumber) -> Self {
+        Self::ReturnFromCall(id, line_number)
     }
 
     pub fn loop_label(id: usize, line_number: SourceLineNumber) -> Self {
