@@ -1,3 +1,5 @@
+use crate::core::SourceLineNumber;
+
 /// Structured label for bytecode locations
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Label {
@@ -11,8 +13,8 @@ pub enum Label {
     MatchEnd(usize),
     /// Return from function call: @return_from_call_{id}
     ReturnFromCall(usize),
-    /// Loop definition: @loop_{id}
-    Loop(usize),
+    /// Loop definition: @loop_{id}_{line_number}
+    Loop(usize, SourceLineNumber),
     /// Built-in memory symbols
     BuiltinSymbol(BuiltinSymbol),
     /// Auxiliary variables during compilation
@@ -75,7 +77,7 @@ impl std::fmt::Display for Label {
             },
             Self::MatchEnd(id) => write!(f, "@match_end_{id}"),
             Self::ReturnFromCall(id) => write!(f, "@return_from_call_{id}"),
-            Self::Loop(id) => write!(f, "@loop_{id}"),
+            Self::Loop(id, line_number) => write!(f, "@loop_{id}_line_{line_number}"),
             Self::BuiltinSymbol(symbol) => write!(f, "{symbol}"),
             Self::AuxVar { kind, id } => match kind {
                 AuxKind::AuxVar => write!(f, "@aux_var_{id}"),
@@ -137,8 +139,8 @@ impl Label {
         Self::ReturnFromCall(id)
     }
 
-    pub fn loop_label(id: usize) -> Self {
-        Self::Loop(id)
+    pub fn loop_label(id: usize, line_number: SourceLineNumber) -> Self {
+        Self::Loop(id, line_number)
     }
 
     pub fn aux_var(id: usize) -> Self {

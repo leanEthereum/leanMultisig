@@ -477,6 +477,7 @@ fn simplify_lines(
                 body,
                 rev,
                 unroll,
+                line_number,
             } => {
                 if *unroll {
                     let (internal_variables, _) = find_variable_usage(body);
@@ -534,7 +535,7 @@ fn simplify_lines(
                 const_malloc.counter = loop_const_malloc.counter;
                 array_manager.valid = valid_aux_vars_in_array_manager_before; // restore the valid aux vars
 
-                let func_name = format!("@loop_{}", counters.loops);
+                let func_name = format!("@loop_{}_line_{}", counters.loops, line_number);
                 counters.loops += 1;
 
                 // Find variables used inside loop but defined outside
@@ -941,6 +942,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 body,
                 rev: _,
                 unroll: _,
+                line_number: _,
             } => {
                 let (body_internal, body_external) = find_variable_usage(body);
                 internal_vars.extend(body_internal);
@@ -1112,6 +1114,7 @@ pub fn inline_lines(
                 body,
                 rev: _,
                 unroll: _,
+                line_number: _,
             } => {
                 inline_lines(body, args, res, inlining_count);
                 inline_internal_var(iterator);
@@ -1489,6 +1492,7 @@ fn replace_vars_for_unroll(
                 body,
                 rev: _,
                 unroll: _,
+                line_number: _,
             } => {
                 assert!(other_iterator != iterator);
                 *other_iterator =

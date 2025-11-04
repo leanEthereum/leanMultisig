@@ -345,6 +345,7 @@ pub enum Line {
         body: Vec<Self>,
         rev: bool,
         unroll: bool,
+        line_number: SourceLineNumber,
     },
     FunctionCall {
         function_name: String,
@@ -481,6 +482,7 @@ impl Line {
                 body,
                 rev,
                 unroll,
+                line_number: _,
             } => {
                 let body_str = body
                     .iter()

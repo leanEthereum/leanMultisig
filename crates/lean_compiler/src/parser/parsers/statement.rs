@@ -170,6 +170,7 @@ pub struct ForStatementParser;
 
 impl Parse<Line> for ForStatementParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let iterator = next_inner_pair(&mut inner, "loop iterator")?
             .as_str()
@@ -209,6 +210,7 @@ impl Parse<Line> for ForStatementParser {
             body,
             rev,
             unroll,
+            line_number,
         })
     }
 }
