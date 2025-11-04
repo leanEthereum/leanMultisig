@@ -3,6 +3,7 @@ use super::literal::VarListParser;
 use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
+    SourceLineNumber,
     lang::{Expression, Function, Line, SimpleExpr},
     parser::{
         error::{ParseResult, SemanticError},
@@ -113,6 +114,7 @@ impl Parse<Line> for FunctionCallParser {
         let mut return_data = Vec::new();
         let mut function_name = String::new();
         let mut args = Vec::new();
+        let line_number = pair.line_col().0;
 
         for item in pair.into_inner() {
             match item.as_rule() {
@@ -148,12 +150,13 @@ impl Parse<Line> for FunctionCallParser {
         }
 
         // Handle built-in functions
-        Self::handle_builtin_function(function_name, args, return_data)
+        Self::handle_builtin_function(line_number, function_name, args, return_data)
     }
 }
 
 impl FunctionCallParser {
     fn handle_builtin_function(
+        line_number: SourceLineNumber,
         function_name: String,
         args: Vec<Expression>,
         return_data: Vec<String>,
@@ -249,6 +252,7 @@ impl FunctionCallParser {
                         function_name,
                         args,
                         return_data,
+                        line_number,
                     })
                 }
             }
