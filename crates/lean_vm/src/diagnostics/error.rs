@@ -1,4 +1,5 @@
 use crate::core::F;
+use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
 use crate::witness::{
     WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
@@ -46,4 +47,5 @@ pub struct ExecutionResult {
     pub dot_products: Vec<WitnessDotProduct>,
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
     pub summary: String,
+    pub memory_profile: Option<MemoryProfile>,
 }

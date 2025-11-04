@@ -314,7 +314,7 @@ pub fn run_poseidon_benchmark<
             .collect::<Vec<_>>()
     );
 
-    println!("2^{} Poseidon2", log_n_poseidons);
+    println!("2^{log_n_poseidons} Poseidon2");
     println!(
         "Plaintext (no proof) time: {:.3}s ({:.2}M Poseidons / s)",
         plaintext_duration.as_secs_f64(),

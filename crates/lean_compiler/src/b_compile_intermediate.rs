@@ -10,7 +10,7 @@ use utils::ToUsize;
 #[derive(Default)]
 struct Compiler {
     bytecode: BTreeMap<Label, Vec<IntermediateInstruction>>,
-    match_blocks: Vec<Vec<Vec<IntermediateInstruction>>>, // each match = many bytecode blocks, each bytecode block = many instructions
+    match_blocks: Vec<MatchBlock>,
     if_counter: usize,
     call_counter: usize,
     func_name: String,
@@ -152,10 +152,17 @@ fn compile_function(
     compiler.args_count = function.arguments.len();
 
     let mut declared_vars: BTreeSet<Var> = function.arguments.iter().cloned().collect();
-    compile_lines(&function.instructions, compiler, None, &mut declared_vars)
+    compile_lines(
+        &Label::function(function.name.clone()),
+        &function.instructions,
+        compiler,
+        None,
+        &mut declared_vars,
+    )
 }
 
 fn compile_lines(
+    function_name: &Label,
     lines: &[SimpleLine],
     compiler: &mut Compiler,
     final_jump: Option<Label>,
@@ -212,6 +219,7 @@ fn compile_lines(
                     let mut arm_declared_vars = declared_vars.clone();
                     compiler.stack_size = original_stack_size;
                     let arm_instructions = compile_lines(
+                        function_name,
                         arm,
                         compiler,
                         Some(end_label.clone()),
@@ -229,7 +237,10 @@ fn compile_lines(
                     };
                 }
                 compiler.stack_size = new_stack_size;
-                compiler.match_blocks.push(compiled_arms);
+                compiler.match_blocks.push(MatchBlock {
+                    function_name: function_name.clone(),
+                    match_cases: compiled_arms,
+                });
 
                 let value_scaled_offset = IntermediateValue::MemoryAfterFp {
                     offset: compiler.stack_size.into(),
@@ -261,8 +272,13 @@ fn compile_lines(
                     updated_fp: None,
                 });
 
-                let remaining =
-                    compile_lines(&lines[i + 1..], compiler, final_jump, declared_vars)?;
+                let remaining = compile_lines(
+                    function_name,
+                    &lines[i + 1..],
+                    compiler,
+                    final_jump,
+                    declared_vars,
+                )?;
                 compiler.bytecode.insert(end_label, remaining);
 
                 return Ok(instructions);
@@ -349,6 +365,7 @@ fn compile_lines(
 
                 let mut then_declared_vars = declared_vars.clone();
                 let then_instructions = compile_lines(
+                    function_name,
                     then_branch,
                     compiler,
                     Some(end_label.clone()),
@@ -359,6 +376,7 @@ fn compile_lines(
                 compiler.stack_size = original_stack;
                 let mut else_declared_vars = declared_vars.clone();
                 let else_instructions = compile_lines(
+                    function_name,
                     else_branch,
                     compiler,
                     Some(end_label.clone()),
@@ -375,8 +393,13 @@ fn compile_lines(
                 compiler.bytecode.insert(if_label, then_instructions);
                 compiler.bytecode.insert(else_label, else_instructions);
 
-                let remaining =
-                    compile_lines(&lines[i + 1..], compiler, final_jump, declared_vars)?;
+                let remaining = compile_lines(
+                    function_name,
+                    &lines[i + 1..],
+                    compiler,
+                    final_jump,
+                    declared_vars,
+                )?;
                 compiler.bytecode.insert(end_label, remaining);
 
                 return Ok(instructions);
@@ -400,7 +423,7 @@ fn compile_lines(
             }
 
             SimpleLine::FunctionCall {
-                function_name,
+                function_name: callee_function_name,
                 args,
                 return_data,
             } => {
@@ -412,7 +435,7 @@ fn compile_lines(
                 compiler.stack_size += 1;
 
                 instructions.extend(setup_function_call(
-                    function_name,
+                    callee_function_name,
                     args,
                     new_fp_pos,
                     &return_label,
@@ -438,6 +461,7 @@ fn compile_lines(
                     }
 
                     instructions.extend(compile_lines(
+                        function_name,
                         &lines[i + 1..],
                         compiler,
                         final_jump,

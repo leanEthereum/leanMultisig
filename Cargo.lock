@@ -403,7 +403,6 @@ dependencies = [
  "pest_derive",
  "poseidon_circuit",
  "rand",
- "rand_chacha",
  "rayon",
  "thiserror",
  "tracing",

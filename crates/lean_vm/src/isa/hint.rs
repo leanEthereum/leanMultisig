@@ -1,5 +1,5 @@
 use crate::core::{F, LOG_VECTOR_LEN, Label, SourceLineNumber, VECTOR_LEN};
-use crate::diagnostics::RunnerError;
+use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::{MemOrConstant, MemOrFp};
 use p3_field::{Field, PrimeCharacteristicRing};
@@ -19,6 +19,8 @@ pub enum Hint {
     },
     /// Request memory allocation
     RequestMemory {
+        /// Function name this allocation is associated with (for profiling)
+        function_name: Label,
         /// Memory offset where hint will be stored: m[fp + offset]
         offset: usize,
         /// The requested memory size
@@ -68,6 +70,9 @@ pub enum Hint {
 
     /// Range check
     RangeCheck { value: MemOrFp, max: MemOrConstant },
+
+    /// Stack frame size (for memory profiling)
+    StackFrame { label: Label, size: usize },
 }
 
 /// Execution state for hint processing
@@ -85,6 +90,8 @@ pub struct HintExecutionContext<'a> {
     pub last_checkpoint_cpu_cycles: &'a mut usize,
     pub checkpoint_ap: &'a mut usize,
     pub checkpoint_ap_vec: &'a mut usize,
+    pub profiling: bool,
+    pub memory_profile: &'a mut MemoryProfile,
 }
 
 impl Hint {
@@ -93,6 +100,7 @@ impl Hint {
     pub fn execute_hint(&self, ctx: &mut HintExecutionContext<'_>) -> Result<(), RunnerError> {
         match self {
             Self::RequestMemory {
+                function_name,
                 offset,
                 size,
                 vectorized,
@@ -107,14 +115,41 @@ impl Hint {
                     while !(*ctx.ap_vec * VECTOR_LEN).is_multiple_of(1 << *vectorized_len) {
                         *ctx.ap_vec += 1;
                     }
+                    let allocation_start_addr = *ctx.ap_vec;
                     ctx.memory.set(
                         ctx.fp + *offset,
-                        F::from_usize(*ctx.ap_vec >> (*vectorized_len - LOG_VECTOR_LEN)),
+                        F::from_usize(allocation_start_addr >> (*vectorized_len - LOG_VECTOR_LEN)),
                     )?;
-                    *ctx.ap_vec += size << (*vectorized_len - LOG_VECTOR_LEN);
+                    let size_vectors = size << (*vectorized_len - LOG_VECTOR_LEN);
+                    let size_words = size_vectors * VECTOR_LEN;
+                    *ctx.ap_vec += size_vectors;
+
+                    if ctx.profiling {
+                        ctx.memory_profile.objects.insert(
+                            allocation_start_addr * VECTOR_LEN,
+                            MemoryObject {
+                                object_type: MemoryObjectType::VectorHeapObject,
+                                function_name: function_name.clone(),
+                                size: size_words,
+                            },
+                        );
+                    }
                 } else {
-                    ctx.memory.set(ctx.fp + *offset, F::from_usize(*ctx.ap))?;
+                    let allocation_start_addr = *ctx.ap;
+                    ctx.memory
+                        .set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
                     *ctx.ap += size;
+
+                    if ctx.profiling {
+                        ctx.memory_profile.objects.insert(
+                            allocation_start_addr,
+                            MemoryObject {
+                                object_type: MemoryObjectType::NonVectorHeapObject,
+                                function_name: function_name.clone(),
+                                size,
+                            },
+                        );
+                    }
                 }
             }
             Self::DecomposeBits {
@@ -197,6 +232,18 @@ impl Hint {
             }
             Self::Label { .. } => {}
             Self::RangeCheck { .. } => {}
+            Self::StackFrame { label, size } => {
+                if ctx.profiling {
+                    ctx.memory_profile.objects.insert(
+                        ctx.fp,
+                        MemoryObject {
+                            object_type: MemoryObjectType::StackFrame,
+                            function_name: label.clone(),
+                            size: *size,
+                        },
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -206,6 +253,7 @@ impl Display for Hint {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::RequestMemory {
+                function_name: _,
                 offset,
                 size,
                 vectorized,
@@ -272,6 +320,9 @@ impl Display for Hint {
             }
             Self::RangeCheck { value, max } => {
                 write!(f, "range_check({value}, {max})")
+            }
+            Self::StackFrame { label, size } => {
+                write!(f, "stack frame for {label} size {size}")
             }
         }
     }

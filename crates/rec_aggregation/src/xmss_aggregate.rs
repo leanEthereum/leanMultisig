@@ -224,7 +224,9 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     }
     public_input.insert(
         0,
-        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
+        F::from_usize(
+            (public_input.len() + 8 + NONRESERVED_PROGRAM_INPUT_START).next_power_of_two(),
+        ),
     );
     public_input.splice(1..1, F::zero_vec(7));
 
@@ -283,7 +285,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 
-    println!("{}", summary);
+    println!("{summary}");
     println!(
         "XMSS aggregation, proving time: {:.3} s ({:.1} XMSS/s), proof size: {} KiB (not optimized)",
         proving_time.as_secs_f64(),

@@ -27,7 +27,7 @@ const MLE_N_VARS: usize = 1;
 
 // Ensure public input covers the highest index used (dot product arg1 slice).
 const MAX_MEMORY_INDEX: usize = DOT_ARG1_PTR + DOT_PRODUCT_LEN * DIMENSION - 1;
-const PUBLIC_INPUT_LEN: usize = MAX_MEMORY_INDEX - PUBLIC_INPUT_START + 1;
+const PUBLIC_INPUT_LEN: usize = MAX_MEMORY_INDEX - NONRESERVED_PROGRAM_INPUT_START + 1;
 
 const POSEIDON16_ARG_A_VALUES: [u64; VECTOR_LEN] = [1, 2, 3, 4, 5, 6, 7, 8];
 const POSEIDON16_ARG_B_VALUES: [u64; VECTOR_LEN] = [101, 102, 103, 104, 105, 106, 107, 108];
@@ -47,8 +47,8 @@ fn f(value: u64) -> F {
 }
 
 fn set_public_input_cell(public_input: &mut [F], memory_index: usize, value: F) {
-    assert!(memory_index >= PUBLIC_INPUT_START);
-    let idx = memory_index - PUBLIC_INPUT_START;
+    assert!(memory_index >= NONRESERVED_PROGRAM_INPUT_START);
+    let idx = memory_index - NONRESERVED_PROGRAM_INPUT_START;
     assert!(idx < public_input.len());
     public_input[idx] = value;
 }
@@ -122,6 +122,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     hints.insert(
         0,
         vec![Hint::RequestMemory {
+            function_name: Label::function("main"),
             offset: POSEIDON16_RES_OFFSET,
             size: MemOrConstant::Constant(f(2)),
             vectorized: true,
@@ -131,6 +132,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     hints.insert(
         1,
         vec![Hint::RequestMemory {
+            function_name: Label::function("main"),
             offset: POSEIDON24_RES_OFFSET,
             size: MemOrConstant::Constant(f(1)),
             vectorized: true,
@@ -140,6 +142,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     hints.insert(
         2,
         vec![Hint::RequestMemory {
+            function_name: Label::function("main"),
             offset: DOT_RES_OFFSET,
             size: MemOrConstant::Constant(f(1)),
             vectorized: false,
@@ -149,6 +152,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     hints.insert(
         3,
         vec![Hint::RequestMemory {
+            function_name: Label::function("main"),
             offset: MLE_RES_OFFSET,
             size: MemOrConstant::Constant(f(1)),
             vectorized: true,

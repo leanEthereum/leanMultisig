@@ -127,7 +127,7 @@ pub fn run_whir_recursion_benchmark() {
 
     // to align the first merkle leaves (in base field) (required to appropriately call the precompile multilinear_eval)
     let mut proof_data_padding = (1 << first_folding_factor)
-        - ((PUBLIC_INPUT_START
+        - ((NONRESERVED_PROGRAM_INPUT_START
             + public_input.len()
             + {
                 // sumcheck polys
@@ -202,7 +202,7 @@ pub fn run_whir_recursion_benchmark() {
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 
-    println!("{}", summary);
+    println!("{summary}");
     println!(
         "WHIR recursion, proving time: {} ms, proof size: {} KiB (not optimized)",
         proving_time.as_millis(),

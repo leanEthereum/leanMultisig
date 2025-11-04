@@ -1,4 +1,4 @@
-use crate::{F, PUBLIC_INPUT_START, ZERO_VEC_PTR, ir::*, lang::*};
+use crate::{F, NONRESERVED_PROGRAM_INPUT_START, ZERO_VEC_PTR, ir::*, lang::*};
 use lean_vm::*;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use std::collections::BTreeMap;
@@ -53,18 +53,39 @@ pub fn compile_to_low_level_bytecode(
         .get("main")
         .unwrap();
 
+    let mut hints = BTreeMap::new();
     let mut label_to_pc = BTreeMap::new();
     label_to_pc.insert(Label::function("main"), 0);
     let entrypoint = intermediate_bytecode
         .bytecode
         .remove(&Label::function("main"))
         .ok_or("No main function found in the compiled program")?;
+    hints.insert(
+        0,
+        vec![Hint::StackFrame {
+            label: Label::function("main"),
+            size: starting_frame_memory,
+        }],
+    );
 
-    let mut code_blocks = vec![(0, entrypoint.clone())];
+    let mut code_blocks = vec![(Label::function("main"), 0, entrypoint.clone())];
     let mut pc = count_real_instructions(&entrypoint);
+
     for (label, instructions) in &intermediate_bytecode.bytecode {
         label_to_pc.insert(label.clone(), pc);
-        code_blocks.push((pc, instructions.clone()));
+        if let Label::Function(function_name) = label {
+            hints
+                .entry(pc)
+                .or_insert_with(Vec::new)
+                .push(Hint::StackFrame {
+                    label: label.clone(),
+                    size: *intermediate_bytecode
+                        .memory_size_per_function
+                        .get(function_name)
+                        .unwrap(),
+                });
+        }
+        code_blocks.push((label.clone(), pc, instructions.clone()));
         pc += count_real_instructions(instructions);
     }
 
@@ -72,8 +93,12 @@ pub fn compile_to_low_level_bytecode(
 
     let mut match_block_sizes = Vec::new();
     let mut match_first_block_starts = Vec::new();
-    for match_statement in intermediate_bytecode.match_blocks {
-        let max_block_size = match_statement
+    for MatchBlock {
+        function_name,
+        match_cases,
+    } in intermediate_bytecode.match_blocks
+    {
+        let max_block_size = match_cases
             .iter()
             .map(|block| count_real_instructions(block))
             .max()
@@ -81,19 +106,18 @@ pub fn compile_to_low_level_bytecode(
         match_first_block_starts.push(pc);
         match_block_sizes.push(max_block_size);
 
-        for mut block in match_statement {
+        for mut block in match_cases {
             // fill the end of block with unreachable instructions
             block.extend(vec![
                 IntermediateInstruction::Panic;
                 max_block_size - count_real_instructions(&block)
             ]);
-            code_blocks.push((pc, block));
+            code_blocks.push((function_name.clone(), pc, block));
             pc += max_block_size;
         }
     }
 
     let mut low_level_bytecode = Vec::new();
-    let mut hints = BTreeMap::new();
 
     for (label, pc) in label_to_pc.clone() {
         hints
@@ -109,9 +133,10 @@ pub fn compile_to_low_level_bytecode(
         match_first_block_starts,
     };
 
-    for (pc_start, block) in code_blocks {
+    for (function_name, pc_start, block) in code_blocks {
         compile_block(
             &compiler,
+            &function_name,
             &block,
             pc_start,
             &mut low_level_bytecode,
@@ -131,6 +156,7 @@ pub fn compile_to_low_level_bytecode(
 
 fn compile_block(
     compiler: &Compiler,
+    function_name: &Label,
     block: &[IntermediateInstruction],
     pc_start: CodeAddress,
     low_level_bytecode: &mut Vec<Instruction>,
@@ -362,6 +388,7 @@ fn compile_block(
                     .unwrap()
                     .to_usize();
                 let hint = Hint::RequestMemory {
+                    function_name: function_name.clone(),
                     offset: eval_const_expression_usize(&offset, compiler),
                     vectorized,
                     size,
@@ -405,7 +432,7 @@ fn count_real_instructions(instrs: &[IntermediateInstruction]) -> usize {
 fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
     match constant {
         ConstantValue::Scalar(scalar) => *scalar,
-        ConstantValue::PublicInputStart => PUBLIC_INPUT_START,
+        ConstantValue::PublicInputStart => NONRESERVED_PROGRAM_INPUT_START,
         ConstantValue::PointerToZeroVector => ZERO_VEC_PTR,
         ConstantValue::PointerToOneVector => ONE_VEC_PTR,
         ConstantValue::FunctionSize { function_name } => {
