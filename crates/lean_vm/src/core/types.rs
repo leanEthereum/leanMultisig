@@ -11,3 +11,6 @@ pub type SourceLineNumber = usize;
 
 /// Bytecode address (i.e., a value of the program counter)
 pub type CodeAddress = usize;
+
+/// Memory address
+pub type MemoryAddress = usize;

@@ -4,7 +4,7 @@ use crate::core::{
     DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR,
     POSEIDON_24_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
 };
-use crate::diagnostics::{ExecutionResult, RunnerError};
+use crate::diagnostics::{ExecutionResult, MemoryProfile, RunnerError, memory_profiling_report};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
@@ -13,7 +13,7 @@ use crate::witness::{
 };
 use crate::{CodeAddress, HintExecutionContext, SourceLineNumber};
 use p3_field::PrimeCharacteristicRing;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
 use xmss::{Poseidon16History, Poseidon24History};
 
@@ -67,7 +67,7 @@ pub fn execute_bytecode(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
-    profiler: bool,
+    profiling: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
 ) -> ExecutionResult {
     let mut std_out = String::new();
@@ -78,7 +78,7 @@ pub fn execute_bytecode(
         &mut std_out,
         &mut instruction_history,
         no_vec_runtime_memory,
-        profiler,
+        profiling,
         (poseidons_16_precomputed, poseidons_24_precomputed),
     )
     .unwrap_or_else(|err| {
@@ -101,9 +101,12 @@ pub fn execute_bytecode(
         }
         panic!("Error during bytecode execution: {err}");
     });
-    if profiler {
+    if profiling {
         print_line_cycle_counts(instruction_history);
         print_instruction_cycle_counts(bytecode, result.pcs.clone());
+        if let Some(ref mem_profile) = result.memory_profile {
+            print!("{}", memory_profiling_report(mem_profile));
+        }
     }
     result
 }
@@ -153,7 +156,7 @@ fn execute_bytecode_helper(
     std_out: &mut String,
     instruction_history: &mut ExecutionHistory,
     no_vec_runtime_memory: usize,
-    profiler: bool,
+    profiling: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
 ) -> Result<ExecutionResult, RunnerError> {
     // set public memory
@@ -166,6 +169,15 @@ fn execute_bytecode_helper(
     for (i, value) in private_input.iter().enumerate() {
         memory.set(fp + i, *value)?;
     }
+
+    let mut mem_profile = MemoryProfile {
+        used: BTreeSet::new(),
+        public_inputs: NONRESERVED_PROGRAM_INPUT_START
+            ..NONRESERVED_PROGRAM_INPUT_START + public_memory_size,
+        private_inputs: fp..fp + private_input.len(),
+        objects: BTreeMap::new(),
+    };
+
     fp += private_input.len();
     fp = fp.next_multiple_of(DIMENSION);
 
@@ -228,6 +240,8 @@ fn execute_bytecode_helper(
                 last_checkpoint_cpu_cycles: &mut last_checkpoint_cpu_cycles,
                 checkpoint_ap: &mut checkpoint_ap,
                 checkpoint_ap_vec: &mut checkpoint_ap_vec,
+                profiling,
+                memory_profile: &mut mem_profile,
             };
             hint.execute_hint(&mut hint_ctx)?;
         }
@@ -289,7 +303,7 @@ fn execute_bytecode_helper(
 
     let mut summary = String::new();
 
-    if profiler {
+    if profiling {
         let report =
             crate::diagnostics::profiling_report(instruction_history, &bytecode.function_locations);
         summary.push_str(&report);
@@ -392,6 +406,14 @@ fn execute_bytecode_helper(
     summary
         .push_str("──────────────────────────────────────────────────────────────────────────\n");
 
+    if profiling {
+        for (addr, val) in (0..).zip(memory.0.iter()) {
+            if val.is_some() {
+                mem_profile.used.insert(addr);
+            }
+        }
+    }
+
     Ok(ExecutionResult {
         no_vec_runtime_memory,
         public_memory_size,
@@ -403,5 +425,6 @@ fn execute_bytecode_helper(
         dot_products,
         multilinear_evals,
         summary,
+        memory_profile: if profiling { Some(mem_profile) } else { None },
     })
 }

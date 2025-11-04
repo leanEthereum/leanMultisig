@@ -23,7 +23,7 @@ pub const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
 /// program_input: the input of the program we want to prove
 ///
 /// [reserved_area] = [00000000] [00000000] [10000000] [poseidon_16(0) (16 field elements)] [poseidon_24(0) (8 last field elements)]
-
+///
 /// Convention: vectorized pointer of size 2, pointing to 16 zeros
 pub const ZERO_VEC_PTR: usize = 0;
 
