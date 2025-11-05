@@ -68,6 +68,10 @@ But we reduce proof size a lot using instead (TODO):
 └────────────────────────┘└──────────┘└─┘
 ```
 
+## Security:
+
+Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed checked (Lev)
+
 ## Not Perf
 
 - Whir batching: handle the case where the second polynomial is too small compared to the first one
