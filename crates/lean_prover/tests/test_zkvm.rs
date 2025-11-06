@@ -127,14 +127,14 @@ fn test_zk_vm_helper(
     let time = std::time::Instant::now();
     let (proof_data, _, summary) = prove_execution(
         &bytecode,
-        (&public_input, &private_input),
+        (public_input, private_input),
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]),
     );
     let proof_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+    verify_execution(&bytecode, public_input, proof_data, whir_config_builder()).unwrap();
     println!("{}", summary);
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }
