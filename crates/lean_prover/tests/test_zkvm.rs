@@ -5,8 +5,6 @@ use lean_prover::{
 use lean_vm::*;
 use p3_field::PrimeCharacteristicRing;
 
-const NO_VEC_RUNTIME_MEMORY: usize = 1 << 20;
-
 #[test]
 fn test_zk_vm_all_precompiles() {
     let program_str = r#"
@@ -61,25 +59,6 @@ fn test_zk_vm_all_precompiles() {
     }
    "#;
 
-    test_zk_vm_helper(program_str);
-}
-
-#[test]
-fn test_zk_vm_no_precompiles() {
-    let program_str = r#"
-    
-    fn main() {
-        for i in 0..10 {
-            assert i != 10;
-        }
-        return;
-    }
-   "#;
-
-    test_zk_vm_helper(program_str);
-}
-
-fn test_zk_vm_helper(program_str: &str) {
     const SECOND_POINT: usize = 2;
     const SECOND_N_VARS: usize = 7;
 
@@ -99,16 +78,63 @@ fn test_zk_vm_helper(program_str: &str) {
         .map(|i| F::from_usize(i).square())
         .collect::<Vec<_>>();
 
-    // utils::init_tracing();
+    test_zk_vm_helper(program_str, (&public_input, &private_input), 1 << 20);
+}
+
+#[test]
+fn test_prove_fibonacci() {
+    let program_str = r#"
+    const N = 2000000;
+    const STEPS = 10000; // N should be a multiple of STEPS
+    const N_STEPS = N / STEPS;
+
+    fn main() {
+        x, y = fibonacci_step(0, 1, N_STEPS);
+        print(x);
+        return;
+    }
+
+    fn fibonacci_step(a, b, steps_remaining) -> 2 {
+        if steps_remaining == 0 {
+            return a, b;
+        }
+        new_a, new_b = fibonacci_const(a, b, STEPS);
+        res_a, res_b = fibonacci_step(new_a, new_b, steps_remaining - 1);
+        return res_a, res_b;
+    }
+
+    fn fibonacci_const(a, b, const n) -> 2 {
+        buff = malloc(n + 2);
+        buff[0] = a;
+        buff[1] = b;
+        for j in 2..n + 2 unroll {
+            buff[j] = buff[j - 1] + buff[j - 2];
+        }
+        return buff[n], buff[n + 1];
+    }
+   "#;
+
+    test_zk_vm_helper(program_str, (&[F::ZERO; 1 << 14], &[]), 0);
+}
+
+fn test_zk_vm_helper(
+    program_str: &str,
+    (public_input, private_input): (&[F], &[F]),
+    no_vec_runtime_memory: usize,
+) {
+    utils::init_tracing();
     let bytecode = compile_program(program_str.to_string());
-    let proof_data = prove_execution(
+    let time = std::time::Instant::now();
+    let (proof_data, _, summary) = prove_execution(
         &bytecode,
         (&public_input, &private_input),
         whir_config_builder(),
-        NO_VEC_RUNTIME_MEMORY,
+        no_vec_runtime_memory,
         false,
         (&vec![], &vec![]),
-    )
-    .0;
+    );
+    let proof_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+    println!("{}", summary);
+    println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }
