@@ -27,6 +27,25 @@
 - Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306
 - Avoid committing to the 3 index columns, and replace it by a sumcheck? Using this idea, we would only commit to PC and FP for the execution table. Idea by Georg (Powdr). Do we even need to commit to FP then?
 
+- About the ordering of the variables in sumchecks, currently we do as follows:
+
+[a, b, c, d, e, f, g, h]                                        (1st round of sumcheck)
+[(a-r).a + r.e, (1-r).b + r.f, (1-r).c + r.g, (1-r).d + r.h]    (2nd round of sumcheck)
+... etc
+
+This is otpimal for packing (SIMD) but not optimal when to comes to padding.
+When there are a lot of "ending" zeros, the optimal way of folding is:
+
+[a, b, c, d, e, 0, 0, 0]                                        (1st round of sumcheck)
+[(a-r).a + r.b, (1-r).c + r.d, (1-r).e, 0]                      (2nd round of sumcheck)
+... etc
+
+But we can get the bost of both worlds (suggested by Lev, TODO implement):
+
+[a, b, c, d, e, f, g, h, i, 0, 0, 0, 0, 0, 0, 0]                                    (1st round of sumcheck)
+[(1-r).a + r.c, (1-r).b + r.d, (1-r).e + r.g, (1-r).f + r.h, (1-r).i, 0, 0, 0]      (2nd round of sumcheck)
+... etc
+
 About "the packed pcs" (similar to SP1 Jagged PCS, slightly less efficient, but simpler (no sumchecks)):
 - The best strategy is probably to pack as much as possible (the cost increasing the density = additional inner evaluations), if we can fit below a power of 2 - epsilon  (epsilon = 20% for instance, tbd), if the sum of the non zero data is just above a power of 2, no packed technique, even the best, can help us, so we should spread aniway (to reduce the pressure of inner evaluations)
 - About those inner evaluations, there is a trick: we need to compute M1(a, b, c, d, ...) then M2(b, c, d, ...), then M3(c, d, ...) -> The trick = compute the "eq(.) for (b, c, d), then dot product with M3. Then expand to eq(b, c, d, ...), dot product with M2. Then expand to eq(a, b, c, d, ...), dot product with M1. The idea is that in this order, computing each "eq" is easier is we start from the previous one.
