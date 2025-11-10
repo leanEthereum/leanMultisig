@@ -332,7 +332,7 @@ fn test_memory_operations() {
 
 #[test]
 fn test_operation_compute() {
-    use crate::isa::Operation;
+    use crate::Operation;
 
     let add = Operation::Add;
     let mul = Operation::Mul;

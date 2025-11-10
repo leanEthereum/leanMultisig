@@ -792,6 +792,7 @@ dependencies = [
 name = "packed_pcs"
 version = "0.1.0"
 dependencies = [
+ "lookup",
  "multilinear-toolkit",
  "p3-field",
  "p3-koala-bear",

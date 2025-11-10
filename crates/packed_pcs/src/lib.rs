@@ -11,7 +11,7 @@ use utils::{
 use whir_p3::*;
 
 #[derive(Debug, Clone)]
-struct Chunk {
+pub struct Chunk {
     original_poly_index: usize,
     original_n_vars: usize,
     n_vars: usize,
@@ -143,7 +143,7 @@ fn split_in_chunks<F: Field>(
 fn compute_chunks<F: Field>(
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
-) -> (BTreeMap<usize, Vec<Chunk>>, usize) {
+) -> (Vec<Vec<Chunk>>, usize) {
     let mut all_chunks = Vec::new();
     for (i, dim) in dims.iter().enumerate() {
         all_chunks.extend(split_in_chunks(i, dim, log_smallest_decomposition_chunk));
@@ -169,6 +169,8 @@ fn compute_chunks<F: Field>(
             .map(|c| 1 << c.n_vars)
             .sum::<usize>(),
     );
+    let chunks_decomposition = chunks_decomposition.values().cloned().collect::<Vec<_>>();
+    assert_eq!(chunks_decomposition.len(), dims.len());
     (chunks_decomposition, packed_n_vars)
 }
 
@@ -187,17 +189,13 @@ pub struct MultiCommitmentWitness<EF: ExtensionField<PF<EF>>> {
 }
 
 #[instrument(skip_all)]
-pub fn packed_pcs_commit<F, EF>(
-    whir_config_builder: &WhirConfigBuilder,
+pub fn group_multilinear_claims<F>(
     polynomials: &[&[F]],
     dims: &[ColDims<F>],
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     log_smallest_decomposition_chunk: usize,
-) -> MultiCommitmentWitness<EF>
+) -> (Vec<F>, Vec<Vec<Chunk>>)
 where
-    F: Field + TwoAdicField + ExtensionField<PF<EF>>,
-    PF<EF>: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField + ExtensionField<PF<EF>>,
+    F: Field,
 {
     assert_eq!(polynomials.len(), dims.len());
     for (i, (poly, dim)) in polynomials.iter().zip(dims.iter()).enumerate() {
@@ -217,7 +215,7 @@ where
         // logging
         let total_commited_data: usize = dims.iter().map(|d| d.committed_size).sum();
         let packed_commited_data: usize = chunks_decomposition
-            .values()
+            .iter()
             .flatten()
             .filter(|c| !c.public_data)
             .map(|c| 1 << c.n_vars)
@@ -232,9 +230,22 @@ where
         );
     }
 
+    let packed_polynomial = apply_chunks::<F>(&chunks_decomposition, polynomials, packed_n_vars);
+
+    (packed_polynomial, chunks_decomposition)
+}
+
+pub fn apply_chunks<F>(
+    chunks_decomposition: &[Vec<Chunk>],
+    polynomials: &[&[F]],
+    packed_n_vars: usize,
+) -> Vec<F>
+where
+    F: Field,
+{
     let packed_polynomial = F::zero_vec(1 << packed_n_vars); // TODO avoid this huge cloning of all witness data
     chunks_decomposition
-        .values()
+        .iter()
         .flatten()
         .collect::<Vec<_>>()
         .par_iter()
@@ -254,6 +265,26 @@ where
                 );
             }
         });
+
+    packed_polynomial
+}
+
+#[instrument(skip_all)]
+pub fn packed_pcs_commit<F, EF>(
+    whir_config_builder: &WhirConfigBuilder,
+    polynomials: &[&[F]],
+    dims: &[ColDims<F>],
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    log_smallest_decomposition_chunk: usize,
+) -> MultiCommitmentWitness<EF>
+where
+    F: Field + TwoAdicField + ExtensionField<PF<EF>>,
+    PF<EF>: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField + ExtensionField<PF<EF>>,
+{
+    let (packed_polynomial, _chunks_decomposition) =
+        group_multilinear_claims::<F>(polynomials, dims, log_smallest_decomposition_chunk);
+    let packed_n_vars = log2_strict_usize(packed_polynomial.len());
 
     let mle = if TypeId::of::<F>() == TypeId::of::<PF<EF>>() {
         MleOwned::Base(unsafe { std::mem::transmute::<Vec<F>, Vec<PF<EF>>>(packed_polynomial) })
@@ -310,9 +341,7 @@ pub fn packed_pcs_global_statements_for_prover<
             let dim = &dims[*poly_index];
             let pol = polynomials[*poly_index];
 
-            let chunks = chunks_decomposition
-                .get(poly_index)
-                .expect("missing chunk definition for polynomial");
+            let chunks = &chunks_decomposition[*poly_index];
             assert!(!chunks.is_empty());
             let mut sub_packed_statements = Vec::new();
             let mut evals_to_send = Vec::new();
@@ -469,9 +498,7 @@ pub fn packed_pcs_global_statements_for_verifier<
     for (poly_index, statements) in statements_per_polynomial.iter().enumerate() {
         let dim = &dims[poly_index];
         let has_public_data = dim.log_public_data_size.is_some();
-        let chunks = chunks_decomposition
-            .get(&poly_index)
-            .expect("missing chunk definition for polynomial");
+        let chunks = &chunks_decomposition[poly_index];
         assert!(!chunks.is_empty());
         for statement in statements {
             if chunks.len() == 1 {
