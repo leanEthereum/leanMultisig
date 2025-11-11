@@ -1,9 +1,9 @@
-use std::any::TypeId;
-
 use lookup::compute_pushforward;
 use lookup::prove_logup_star;
+use lookup::verify_logup_star;
 use multilinear_toolkit::prelude::*;
 use p3_field::{ExtensionField, Field};
+use std::any::TypeId;
 use utils::{FSProver, assert_eq_many};
 
 use crate::{ColDims, MultilinearChunks, packed_pcs_global_statements_for_prover};
@@ -38,6 +38,7 @@ impl<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>> PackedLooku
 where
     PF<EF>: PrimeField64,
 {
+    // before committing to the pushforward
     pub fn step_1(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         table: &'a [TF], // table[0] is assumed to be zero
@@ -91,19 +92,7 @@ where
             &flatened_value_columns,
             &all_dims,
             log_smallest_decomposition_chunk,
-            &initial_statements
-                .iter()
-                .map(|multi_evals| {
-                    let mut evals = vec![vec![]; multi_evals[0].num_values()];
-                    for meval in multi_evals {
-                        for (i, &v) in meval.values.iter().enumerate() {
-                            evals[i].push(Evaluation::new(meval.point.clone(), v));
-                        }
-                    }
-                    evals
-                })
-                .flatten()
-                .collect::<Vec<_>>(),
+            &expand_multi_evals(&initial_statements),
             prover_state,
         );
 
@@ -161,6 +150,7 @@ where
         }
     }
 
+    // after committing to the pushforward
     fn step_2(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -245,4 +235,149 @@ where
             on_indexes: index_statements_to_prove,
         }
     }
+}
+
+#[derive(Debug)]
+pub struct PackedLookupVerifier<EF: ExtensionField<PF<EF>>> {
+    n_cols_per_group: Vec<usize>,
+    chunks: MultilinearChunks,
+    batching_scalar: EF,
+    packed_statements: Vec<Evaluation<EF>>,
+}
+
+impl<EF: ExtensionField<PF<EF>>> PackedLookupVerifier<EF>
+where
+    PF<EF>: PrimeField64,
+{
+    // before receiving the commitment to the pushforward
+    pub fn step_1<TF: ExtensionField<PF<EF>>>(
+        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        heights: Vec<usize>,
+        default_indexes: Vec<usize>,
+        initial_statements: Vec<Vec<MultiEvaluation<EF>>>,
+        log_smallest_decomposition_chunk: usize,
+        table_initial_values: &[TF],
+    ) -> Self
+    where
+        EF: ExtensionField<TF>,
+    {
+        let n_cols_per_group = initial_statements
+            .iter()
+            .map(|evals| evals[0].num_values())
+            .collect::<Vec<usize>>();
+        let mut all_dims = vec![];
+        for (i, (default_index, height)) in default_indexes.iter().zip(heights.iter()).enumerate() {
+            for col_index in 0..n_cols_per_group[i] {
+                all_dims.push(ColDims::padded(
+                    *height,
+                    table_initial_values[col_index + default_index],
+                ));
+            }
+        }
+
+        let packed_statements = crate::packed_pcs_global_statements_for_verifier(
+            &all_dims,
+            log_smallest_decomposition_chunk,
+            &expand_multi_evals(&initial_statements),
+            verifier_state,
+            &Default::default(),
+        )
+        .unwrap();
+        let chunks = MultilinearChunks::compute(&all_dims, log_smallest_decomposition_chunk);
+
+        let batching_scalar = verifier_state.sample();
+
+        Self {
+            n_cols_per_group,
+            chunks,
+            batching_scalar,
+            packed_statements,
+        }
+    }
+
+    // after receiving the commitment to the pushforward
+    pub fn step_2(
+        &self,
+        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        log_memory_size: usize,
+    ) -> ProofResult<PackedLookupStatements<EF>> {
+        let logup_star_statements = verify_logup_star(
+            verifier_state,
+            log_memory_size,
+            self.chunks.packed_n_vars,
+            &self.packed_statements,
+            self.batching_scalar,
+        )
+        .unwrap();
+
+        let mut value_on_packed_indexes = EF::ZERO;
+        let mut offset = 0;
+        let mut index_statements_to_verify = vec![];
+        for n_cols in &self.n_cols_per_group {
+            let my_chunks = &self.chunks[offset..offset + n_cols];
+            offset += n_cols;
+
+            // sanity check
+            assert!(my_chunks.iter().all(|col_chunks| {
+                col_chunks.iter().zip(my_chunks[0].iter()).all(|(c1, c2)| {
+                    c1.offset_in_original == c2.offset_in_original && c1.n_vars == c2.n_vars
+                })
+            }));
+            let mut inner_statements = vec![];
+            let inner_evals = verifier_state.next_extension_scalars_vec(my_chunks[0].len())?;
+            for (chunk, &eval) in my_chunks[0].iter().zip(&inner_evals) {
+                let sparse_point = MultilinearPoint(
+                    [
+                        chunk.bits_offset_in_original(),
+                        logup_star_statements.on_indexes.point
+                            [self.chunks.packed_n_vars - chunk.n_vars..]
+                            .to_vec(),
+                    ]
+                    .concat(),
+                );
+                inner_statements.push(Evaluation::new(sparse_point, eval));
+            }
+            index_statements_to_verify.push(inner_statements);
+
+            for (col_index, chunks_for_col) in my_chunks.iter().enumerate() {
+                for (&inner_eval, chunk) in inner_evals.iter().zip(chunks_for_col) {
+                    let missing_vars = self.chunks.packed_n_vars - chunk.n_vars;
+                    value_on_packed_indexes += (inner_eval + PF::<EF>::from_usize(col_index))
+                        * MultilinearPoint(
+                            logup_star_statements.on_indexes.point[..missing_vars].to_vec(),
+                        )
+                        .eq_poly_outside(&MultilinearPoint(
+                            chunk.bits_offset_in_packed(self.chunks.packed_n_vars),
+                        ));
+                }
+            }
+        }
+        if value_on_packed_indexes != logup_star_statements.on_indexes.value {
+            return Err(ProofError::InvalidProof);
+        }
+
+        Ok(PackedLookupStatements {
+            on_table: logup_star_statements.on_table,
+            on_pushforward: logup_star_statements.on_pushforward,
+            on_indexes: index_statements_to_verify,
+        })
+    }
+}
+
+fn expand_multi_evals<EF: Field>(
+    statements: &[Vec<MultiEvaluation<EF>>],
+) -> Vec<Vec<Evaluation<EF>>> {
+    statements
+        .iter()
+        .map(|multi_evals| {
+            let mut evals = vec![vec![]; multi_evals[0].num_values()];
+            for meval in multi_evals {
+                for (i, &v) in meval.values.iter().enumerate() {
+                    evals[i].push(Evaluation::new(meval.point.clone(), v));
+                }
+            }
+            evals
+        })
+        .flatten()
+        .collect::<Vec<_>>()
 }
