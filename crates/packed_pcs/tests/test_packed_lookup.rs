@@ -5,7 +5,7 @@ use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
 use packed_pcs::{ColDims, MultilinearChunks, packed_pcs_global_statements_for_prover};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{ToUsize, build_prover_state, build_verifier_state};
+use utils::{ToUsize, assert_eq_many, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -17,7 +17,12 @@ fn test_packed_lookup() {
     let lookups_num_lines_and_cols: Vec<(usize, usize)> =
         vec![(4587, 1), (1234, 3), (9411, 1), (7890, 2)];
     let default_indexes = vec![7, 11, 0, 2];
-    assert_eq!(lookups_num_lines_and_cols.len(), default_indexes.len());
+    let n_statements = vec![1, 5, 2, 1];
+    assert_eq_many!(
+        lookups_num_lines_and_cols.len(),
+        default_indexes.len(),
+        n_statements.len()
+    );
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(memory_size.next_power_of_two());
@@ -37,12 +42,10 @@ fn test_packed_lookup() {
         all_indexe_columns.push(indexes);
         let indexes = all_indexe_columns.last().unwrap();
 
-        let point = MultilinearPoint(
-            (0..log2_ceil_usize(*n_lines))
-                .map(|_| rng.random())
-                .collect::<Vec<EF>>(),
-        );
-        all_points.push(point.clone());
+        let points = (0..n_statements[i])
+            .map(|_| MultilinearPoint::<EF>::random(&mut rng, log2_ceil_usize(*n_lines)))
+            .collect::<Vec<_>>();
+        all_points.push(points.clone());
 
         let mut columns = vec![];
         let mut evaluations = vec![];
@@ -51,7 +54,12 @@ fn test_packed_lookup() {
             for i in 0..n_lines.next_power_of_two() {
                 col[i] = memory[indexes[i].to_usize() + col_index];
             }
-            evaluations.push(col.evaluate(&point));
+            evaluations.push(
+                points
+                    .iter()
+                    .map(|point| col.evaluate(point))
+                    .collect::<Vec<_>>(),
+            );
             columns.push(col);
         }
         all_evaluations.push(evaluations);
@@ -61,7 +69,10 @@ fn test_packed_lookup() {
     let mut all_dims = vec![];
     for (i, (n_lines, n_cols)) in lookups_num_lines_and_cols.iter().enumerate() {
         for col_index in 0..*n_cols {
-            all_dims.push(ColDims::padded(*n_lines, memory[col_index + default_indexes[i]]));
+            all_dims.push(ColDims::padded(
+                *n_lines,
+                memory[col_index + default_indexes[i]],
+            ));
         }
     }
 
@@ -95,9 +106,13 @@ fn test_packed_lookup() {
     );
 
     let mut initial_statements = vec![];
-    for (point, evaluations) in all_points.iter().zip(all_evaluations.iter()) {
-        for &evaluation in evaluations {
-            initial_statements.push(vec![Evaluation::new(point.clone(), evaluation)]);
+    for (points, evaluations_for_group) in all_points.iter().zip(all_evaluations.iter()) {
+        for evaluations_for_col in evaluations_for_group {
+            let mut col_statements = vec![];
+            for (point, &eval) in points.iter().zip(evaluations_for_col) {
+                col_statements.push(Evaluation::new(point.clone(), eval));
+            }
+            initial_statements.push(col_statements);
         }
     }
 
