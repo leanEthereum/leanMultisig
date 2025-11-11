@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use lookup::{compute_pushforward, prove_logup_star, verify_logup_star};
 use multilinear_toolkit::prelude::*;
 use p3_field::PrimeCharacteristicRing;
@@ -203,9 +201,45 @@ fn test_packed_lookup() {
                 pusforward_statement.value
             );
         }
-        // let mut cache = BTreeMap::new();
-        // for chunk in all_chunks.iter() {
 
-        // }
+        let mut value_on_packed_indexes = EF::ZERO;
+        let mut offset = 0;
+        for (i, (_n_lines, n_cols)) in lookups_num_lines_and_cols.iter().enumerate() {
+            let my_chunks = &chunks[offset..offset + n_cols];
+            offset += n_cols;
+
+            assert!(my_chunks.iter().all(|col_chunks| {
+                col_chunks.iter().zip(my_chunks[0].iter()).all(|(c1, c2)| {
+                    c1.offset_in_original == c2.offset_in_original && c1.n_vars == c2.n_vars
+                })
+            }));
+            let mut inner_evals = vec![];
+            for chunk in &my_chunks[0] {
+                inner_evals.push(
+                    (&all_indexe_columns[i][chunk.offset_in_original..][..1 << chunk.n_vars])
+                        .evaluate(&MultilinearPoint(
+                            logup_star_statements.on_indexes.point
+                                [all_chunks.packed_n_vars - chunk.n_vars..]
+                                .to_vec(),
+                        )),
+                );
+            }
+            for (col_index, chunks_for_col) in my_chunks.iter().enumerate() {
+                for (&inner_eval, chunk) in inner_evals.iter().zip(chunks_for_col) {
+                    let missing_vars = all_chunks.packed_n_vars - chunk.n_vars;
+                    value_on_packed_indexes += (inner_eval + F::from_usize(col_index))
+                        * MultilinearPoint(
+                            logup_star_statements.on_indexes.point[..missing_vars].to_vec(),
+                        )
+                        .eq_poly_outside(&MultilinearPoint(
+                            chunk.bits_offset_in_packed(all_chunks.packed_n_vars),
+                        ));
+                }
+            }
+        }
+        assert_eq!(
+            value_on_packed_indexes,
+            logup_star_statements.on_indexes.value
+        );
     }
 }

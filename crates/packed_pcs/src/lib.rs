@@ -12,39 +12,33 @@ use whir_p3::*;
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    original_poly_index: usize,
-    original_n_vars: usize,
-    n_vars: usize,
-    offset_in_original: usize,
-    public_data: bool,
-    offset_in_packed: Option<usize>,
+    pub original_poly_index: usize,
+    pub original_n_vars: usize,
+    pub n_vars: usize,
+    pub offset_in_original: usize,
+    pub public_data: bool,
+    pub offset_in_packed: Option<usize>,
 }
 
 impl Chunk {
-    fn bits_offset_in_original<EF: Field>(&self) -> Vec<EF> {
+    pub fn bits_offset_in_original<EF: Field>(&self) -> Vec<EF> {
         to_big_endian_in_field(
             self.offset_in_original >> self.n_vars,
             self.original_n_vars - self.n_vars,
         )
     }
-}
-
-impl Chunk {
+    pub fn bits_offset_in_packed<EF: Field>(&self, packed_n_vars: usize) -> Vec<EF> {
+        to_big_endian_in_field(
+            self.offset_in_packed.unwrap() >> self.n_vars,
+            packed_n_vars - self.n_vars,
+        )
+    }
     fn global_point_for_statement<F: Field>(
         &self,
         point: &[F],
         packed_n_vars: usize,
     ) -> MultilinearPoint<F> {
-        MultilinearPoint(
-            [
-                to_big_endian_in_field(
-                    self.offset_in_packed.unwrap() >> self.n_vars,
-                    packed_n_vars - self.n_vars,
-                ),
-                point.to_vec(),
-            ]
-            .concat(),
-        )
+        MultilinearPoint([self.bits_offset_in_packed(packed_n_vars), point.to_vec()].concat())
     }
 }
 
