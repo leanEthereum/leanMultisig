@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use lookup::{compute_pushforward, prove_logup_star, verify_logup_star};
 use multilinear_toolkit::prelude::*;
 use p3_field::PrimeCharacteristicRing;
@@ -9,134 +11,98 @@ use utils::{ToUsize, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
-const DIM: usize = 5;
 const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 
 #[test]
 fn test_packed_lookup() {
-    let n_lookups_for_execution = 3;
-    let n_cycles = 7541;
-    let log_n_cycles = log2_ceil_usize(n_cycles);
     let memory_size: usize = 37412;
-    let n_dot_product_rows: usize = 1574;
-    let log_n_dot_product_rows = log2_ceil_usize(n_dot_product_rows);
-    let n_extension_field_lookups = 5;
+    let lookups_num_lines_and_cols: Vec<(usize, usize)> =
+        vec![(4587, 1), (1234, 3), (9411, 1), (7890, 2)];
+    let max_n_cols = lookups_num_lines_and_cols
+        .iter()
+        .map(|&(_, cols)| cols)
+        .max()
+        .unwrap();
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(memory_size.next_power_of_two());
-    for i in DIM..memory_size {
+    for i in max_n_cols..memory_size {
         memory[i] = rng.random();
     }
 
-    let mut execution_table_indexes =
-        vec![vec![0; n_cycles.next_power_of_two()]; n_lookups_for_execution];
-    for cycle in 0..n_cycles {
-        for lookup in 0..n_lookups_for_execution {
-            execution_table_indexes[lookup][cycle] = rng.random_range(0..memory_size);
+    let mut all_indexe_columns = vec![];
+    let mut all_value_columns = vec![];
+    let mut all_points = vec![];
+    let mut all_evaluations = vec![];
+    for (n_lines, n_cols) in &lookups_num_lines_and_cols {
+        let mut indexes = F::zero_vec(n_lines.next_power_of_two());
+        for i in 0..*n_lines {
+            indexes[i] = F::from_usize(rng.random_range(0..memory_size));
         }
-    }
+        all_indexe_columns.push(indexes);
+        let indexes = all_indexe_columns.last().unwrap();
 
-    let mut execution_table_values =
-        vec![vec![F::ZERO; n_cycles.next_power_of_two()]; n_lookups_for_execution];
-    for cycle in 0..n_cycles {
-        for lookup in 0..n_lookups_for_execution {
-            let index = execution_table_indexes[lookup][cycle];
-            execution_table_values[lookup][cycle] = memory[index];
-        }
-    }
+        let point = MultilinearPoint(
+            (0..log2_ceil_usize(*n_lines))
+                .map(|_| rng.random())
+                .collect::<Vec<EF>>(),
+        );
+        all_points.push(point.clone());
 
-    let mut dot_product_indexes =
-        vec![vec![0; n_dot_product_rows.next_power_of_two()]; n_extension_field_lookups];
-    for row in 0..n_dot_product_rows {
-        for lookup in 0..n_extension_field_lookups {
-            dot_product_indexes[lookup][row] = rng.random_range(0..memory_size - DIM);
-        }
-    }
-
-    let mut dot_product_values = vec![
-        vec![F::zero_vec(n_dot_product_rows.next_power_of_two()); DIM];
-        n_extension_field_lookups
-    ];
-    for row in 0..n_dot_product_rows {
-        for lookup in 0..n_extension_field_lookups {
-            let index = dot_product_indexes[lookup][row];
-            for d in 0..DIM {
-                dot_product_values[lookup][d][row] = memory[index + d];
+        let mut columns = vec![];
+        let mut evaluations = vec![];
+        for col_index in 0..*n_cols {
+            let mut col = F::zero_vec(n_lines.next_power_of_two());
+            for i in 0..*n_lines {
+                col[i] = memory[indexes[i].to_usize() + col_index];
             }
+            evaluations.push(col.evaluate(&point));
+            columns.push(col);
+        }
+        all_evaluations.push(evaluations);
+        all_value_columns.push(columns);
+    }
+
+    let mut all_dims = vec![];
+    for (n_lines, n_cols) in &lookups_num_lines_and_cols {
+        for _ in 0..*n_cols {
+            all_dims.push(ColDims::padded(*n_lines, F::ZERO));
         }
     }
 
-    let exec_point = MultilinearPoint((0..log_n_cycles).map(|_| rng.random()).collect::<Vec<EF>>());
-    let dp_point = MultilinearPoint(
-        (0..log_n_dot_product_rows)
-            .map(|_| rng.random())
-            .collect::<Vec<EF>>(),
-    );
-
-    let exec_evaluations = execution_table_values
+    let all_value_columns_ref = all_value_columns
         .iter()
-        .map(|col| col.evaluate(&exec_point))
-        .collect::<Vec<_>>();
+        .flat_map(|cols| cols.iter().map(|col| col.as_slice()))
+        .collect::<Vec<&[F]>>();
 
-    let dp_evaluations = dot_product_values
+    let mut all_indexes_columns_field = vec![];
+    for (indexes, (_, n_cols)) in all_indexe_columns
         .iter()
-        .map(|cols| {
-            cols.iter()
-                .map(|col| col.evaluate(&dp_point))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-
-    let exec_dims = vec![ColDims::padded(n_cycles, F::ZERO); n_lookups_for_execution];
-    let dp_dims =
-        vec![ColDims::padded(n_dot_product_rows, F::ZERO); DIM * n_extension_field_lookups];
-
-    let all_dims = [exec_dims, dp_dims].concat();
-
-    let all_colum_values_ref = [
-        execution_table_values
-            .iter()
-            .map(|col| col.as_slice())
-            .collect::<Vec<&[F]>>(),
-        dot_product_values
-            .iter()
-            .flat_map(|cols| cols.iter().map(|col| col.as_slice()))
-            .collect::<Vec<&[F]>>(),
-    ]
-    .concat();
-
-    let dot_product_all_consecutive_indexes = dot_product_indexes
-        .iter()
-        .flat_map(|indexes| (0..DIM).map(|d| indexes.iter().map(|i| i + d).collect::<Vec<usize>>()))
-        .collect::<Vec<Vec<usize>>>();
-
-    let all_colum_indexes_field = execution_table_indexes
-        .par_iter()
-        .chain(&dot_product_all_consecutive_indexes)
-        .map(|col| {
-            col.par_iter()
-                .map(|&i| F::from_usize(i))
-                .collect::<Vec<F>>()
-        })
-        .collect::<Vec<Vec<F>>>();
-    let all_colum_indexes_field_ref = all_colum_indexes_field
+        .zip(lookups_num_lines_and_cols.iter())
+    {
+        for col_index in 0..*n_cols {
+            let col_field = indexes
+                .iter()
+                .map(|&i| i + F::from_usize(col_index))
+                .collect::<Vec<F>>();
+            all_indexes_columns_field.push(col_field);
+        }
+    }
+    let all_indexes_columns_field_ref = all_indexes_columns_field
         .iter()
         .map(|col| col.as_slice())
         .collect::<Vec<&[F]>>();
 
     let (packed_lookup_values, chunks) = packed_pcs::compute_multilinear_chunks_and_apply(
-        &all_colum_values_ref,
+        &all_value_columns_ref,
         &all_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let mut initial_statements = exec_evaluations
-        .iter()
-        .map(|&v| vec![Evaluation::new(exec_point.clone(), v)])
-        .collect::<Vec<_>>();
-    for values in &dp_evaluations {
-        for &v in values {
-            initial_statements.push(vec![Evaluation::new(dp_point.clone(), v)]);
+    let mut initial_statements = vec![];
+    for (point, evaluations) in all_points.iter().zip(all_evaluations.iter()) {
+        for &evaluation in evaluations {
+            initial_statements.push(vec![Evaluation::new(point.clone(), evaluation)]);
         }
     }
 
@@ -144,7 +110,7 @@ fn test_packed_lookup() {
 
     {
         let statements = packed_pcs_global_statements_for_prover(
-            &all_colum_values_ref,
+            &all_value_columns_ref,
             &all_dims,
             LOG_SMALLEST_DECOMPOSITION_CHUNK,
             &initial_statements,
@@ -159,7 +125,7 @@ fn test_packed_lookup() {
             );
         }
 
-        let packed_lookup_indexes = chunks.apply(&all_colum_indexes_field_ref);
+        let packed_lookup_indexes = chunks.apply(&all_indexes_columns_field_ref);
 
         // sanity check
         for (i, index) in packed_lookup_indexes.iter().enumerate() {
@@ -214,11 +180,11 @@ fn test_packed_lookup() {
         let batching_scalar = verifier_state.sample();
 
         // receive commitment to pushforward
-        let pushforward_commitment = verifier_state
+        let pushforward = verifier_state
             .receive_hint_extension_scalars(memory_size.next_power_of_two())
             .unwrap();
 
-        verify_logup_star(
+        let logup_star_statements = verify_logup_star(
             &mut verifier_state,
             log2_ceil_usize(memory_size),
             all_chunks.packed_n_vars,
@@ -226,5 +192,20 @@ fn test_packed_lookup() {
             batching_scalar,
         )
         .unwrap();
+
+        assert_eq!(
+            memory.evaluate(&logup_star_statements.on_table.point),
+            logup_star_statements.on_table.value
+        );
+        for pusforward_statement in &logup_star_statements.on_pushforward {
+            assert_eq!(
+                pushforward.evaluate(&pusforward_statement.point),
+                pusforward_statement.value
+            );
+        }
+        // let mut cache = BTreeMap::new();
+        // for chunk in all_chunks.iter() {
+
+        // }
     }
 }
