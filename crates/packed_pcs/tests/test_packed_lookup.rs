@@ -16,15 +16,12 @@ fn test_packed_lookup() {
     let memory_size: usize = 37412;
     let lookups_num_lines_and_cols: Vec<(usize, usize)> =
         vec![(4587, 1), (1234, 3), (9411, 1), (7890, 2)];
-    let max_n_cols = lookups_num_lines_and_cols
-        .iter()
-        .map(|&(_, cols)| cols)
-        .max()
-        .unwrap();
+    let default_indexes = vec![7, 11, 0, 2];
+    assert_eq!(lookups_num_lines_and_cols.len(), default_indexes.len());
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(memory_size.next_power_of_two());
-    for i in max_n_cols..memory_size {
+    for i in 1..memory_size {
         memory[i] = rng.random();
     }
 
@@ -32,8 +29,8 @@ fn test_packed_lookup() {
     let mut all_value_columns = vec![];
     let mut all_points = vec![];
     let mut all_evaluations = vec![];
-    for (n_lines, n_cols) in &lookups_num_lines_and_cols {
-        let mut indexes = F::zero_vec(n_lines.next_power_of_two());
+    for (i, (n_lines, n_cols)) in lookups_num_lines_and_cols.iter().enumerate() {
+        let mut indexes = vec![F::from_usize(default_indexes[i]); n_lines.next_power_of_two()];
         for i in 0..*n_lines {
             indexes[i] = F::from_usize(rng.random_range(0..memory_size));
         }
@@ -51,7 +48,7 @@ fn test_packed_lookup() {
         let mut evaluations = vec![];
         for col_index in 0..*n_cols {
             let mut col = F::zero_vec(n_lines.next_power_of_two());
-            for i in 0..*n_lines {
+            for i in 0..n_lines.next_power_of_two() {
                 col[i] = memory[indexes[i].to_usize() + col_index];
             }
             evaluations.push(col.evaluate(&point));
@@ -62,9 +59,9 @@ fn test_packed_lookup() {
     }
 
     let mut all_dims = vec![];
-    for (n_lines, n_cols) in &lookups_num_lines_and_cols {
-        for _ in 0..*n_cols {
-            all_dims.push(ColDims::padded(*n_lines, F::ZERO));
+    for (i, (n_lines, n_cols)) in lookups_num_lines_and_cols.iter().enumerate() {
+        for col_index in 0..*n_cols {
+            all_dims.push(ColDims::padded(*n_lines, memory[col_index + default_indexes[i]]));
         }
     }
 
