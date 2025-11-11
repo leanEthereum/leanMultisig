@@ -94,7 +94,7 @@ fn test_packed_lookup() {
             all_indexes_columns_field.push(col_field);
         }
     }
-    let all_indexes_columns_field_ref = all_indexes_columns_field
+    let all_index_cols_ref = all_indexes_columns_field
         .iter()
         .map(|col| col.as_slice())
         .collect::<Vec<&[F]>>();
@@ -135,7 +135,7 @@ fn test_packed_lookup() {
             );
         }
 
-        let packed_lookup_indexes = chunks.apply(&all_indexes_columns_field_ref);
+        let packed_lookup_indexes = chunks.apply(&all_index_cols_ref);
 
         // sanity check
         for (i, index) in packed_lookup_indexes.iter().enumerate() {

@@ -15,8 +15,9 @@ derive_more.workspace = true
 rayon.workspace = true
 p3-util.workspace = true
 multilinear-toolkit.workspace = true
+lookup.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
 rand.workspace = true
-lookup.workspace = true
+
