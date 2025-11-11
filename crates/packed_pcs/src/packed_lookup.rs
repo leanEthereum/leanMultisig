@@ -122,11 +122,7 @@ where
         for (alpha_power, statement) in batching_scalar.powers().zip(&packed_statements) {
             compute_sparse_eval_eq(&statement.point, &mut poly_eq_point, alpha_power);
         }
-        let pushforward = compute_pushforward(
-            &packed_lookup_indexes,
-            log2_strict_usize(table.len()),
-            &poly_eq_point,
-        );
+        let pushforward = compute_pushforward(&packed_lookup_indexes, table.len(), &poly_eq_point);
 
         let batched_value: EF = batching_scalar
             .powers()
@@ -151,7 +147,7 @@ where
     }
 
     // after committing to the pushforward
-    fn step_2(
+    pub fn step_2(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         non_zero_memory_size: usize,
