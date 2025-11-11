@@ -792,6 +792,7 @@ dependencies = [
 name = "packed_pcs"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "lookup",
  "multilinear-toolkit",
  "p3-field",
