@@ -1,11 +1,11 @@
-use lookup::{compute_pushforward, prove_logup_star};
+use lookup::{compute_pushforward, prove_logup_star, verify_logup_star};
 use multilinear_toolkit::prelude::*;
 use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
-use packed_pcs::{ColDims, packed_pcs_global_statements_for_prover};
+use packed_pcs::{ColDims, MultilinearChunks, packed_pcs_global_statements_for_prover};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{ToUsize, build_prover_state};
+use utils::{ToUsize, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -142,57 +142,89 @@ fn test_packed_lookup() {
 
     let mut prover_state = build_prover_state();
 
-    let statements = packed_pcs_global_statements_for_prover(
-        &all_colum_values_ref,
-        &all_dims,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &initial_statements,
-        &mut prover_state,
-    );
+    {
+        let statements = packed_pcs_global_statements_for_prover(
+            &all_colum_values_ref,
+            &all_dims,
+            LOG_SMALLEST_DECOMPOSITION_CHUNK,
+            &initial_statements,
+            &mut prover_state,
+        );
 
-    // sanitiy check
-    for statement in &statements {
-        assert_eq!(
-            packed_lookup_values.evaluate_sparse(&statement.point),
-            statement.value
+        // sanitiy check
+        for statement in &statements {
+            assert_eq!(
+                packed_lookup_values.evaluate_sparse(&statement.point),
+                statement.value
+            );
+        }
+
+        let packed_lookup_indexes = chunks.apply(&all_colum_indexes_field_ref);
+
+        // sanity check
+        for (i, index) in packed_lookup_indexes.iter().enumerate() {
+            assert_eq!(packed_lookup_values[i], memory[index.to_usize()]);
+        }
+
+        let batching_scalar = prover_state.sample();
+
+        let mut poly_eq_point = EF::zero_vec(1 << chunks.packed_n_vars);
+        for (alpha_power, statement) in batching_scalar.powers().zip(&statements) {
+            compute_sparse_eval_eq(&statement.point, &mut poly_eq_point, alpha_power);
+        }
+        let pushforward = compute_pushforward(
+            &packed_lookup_indexes,
+            memory_size.next_power_of_two(),
+            &poly_eq_point,
+        );
+
+        let batched_value = batching_scalar
+            .powers()
+            .zip(&statements)
+            .map(|(alpha_power, statement)| alpha_power * statement.value)
+            .sum();
+
+        // phony commitment to pushforward
+        prover_state.hint_extension_scalars(&pushforward);
+
+        prove_logup_star(
+            &mut prover_state,
+            &MleRef::BasePacked(FPacking::<F>::pack_slice(&memory)),
+            &packed_lookup_indexes,
+            batched_value,
+            &poly_eq_point,
+            &pushforward,
+            Some(memory_size),
         );
     }
 
-    let packed_lookup_indexes = chunks.apply(&all_colum_indexes_field_ref);
+    let mut verifier_state = build_verifier_state(&prover_state);
 
-    // sanity check
-    for (i, index) in packed_lookup_indexes.iter().enumerate() {
-        assert_eq!(packed_lookup_values[i], memory[index.to_usize()]);
+    {
+        let statements = packed_pcs::packed_pcs_global_statements_for_verifier(
+            &all_dims,
+            LOG_SMALLEST_DECOMPOSITION_CHUNK,
+            &initial_statements,
+            &mut verifier_state,
+            &Default::default(),
+        )
+        .unwrap();
+        let all_chunks = MultilinearChunks::compute(&all_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK);
+
+        let batching_scalar = verifier_state.sample();
+
+        // receive commitment to pushforward
+        let pushforward_commitment = verifier_state
+            .receive_hint_extension_scalars(memory_size.next_power_of_two())
+            .unwrap();
+
+        verify_logup_star(
+            &mut verifier_state,
+            log2_ceil_usize(memory_size),
+            all_chunks.packed_n_vars,
+            &statements,
+            batching_scalar,
+        )
+        .unwrap();
     }
-
-    let batching_scalar = prover_state.sample();
-
-    let mut poly_eq_point = EF::zero_vec(1 << chunks.packed_n_vars);
-    for (alpha_power, statement) in batching_scalar.powers().zip(&statements) {
-        compute_sparse_eval_eq(&statement.point, &mut poly_eq_point, alpha_power);
-    }
-    let pushforward = compute_pushforward(
-        &packed_lookup_indexes,
-        memory_size.next_power_of_two(),
-        &poly_eq_point,
-    );
-
-    let batched_value = batching_scalar
-        .powers()
-        .zip(&statements)
-        .map(|(alpha_power, statement)| alpha_power * statement.value)
-        .sum();
-
-    // phony commitment to pushforward
-    prover_state.hint_extension_scalars(&pushforward);
-
-    prove_logup_star(
-        &mut prover_state,
-        &MleRef::BasePacked(FPacking::<F>::pack_slice(&memory)),
-        &packed_lookup_indexes,
-        batched_value,
-        &poly_eq_point,
-        &pushforward,
-        Some(memory_size),
-    );
 }

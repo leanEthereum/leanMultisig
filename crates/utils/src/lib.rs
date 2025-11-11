@@ -20,3 +20,6 @@ pub use constraints_checker::*;
 
 mod poseidon2;
 pub use poseidon2::*;
+
+mod debug;
+pub use debug::*;
