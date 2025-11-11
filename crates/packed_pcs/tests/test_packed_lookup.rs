@@ -76,7 +76,7 @@ fn test_packed_lookup() {
         }
     }
 
-    let all_value_columns_ref = all_value_columns
+    let flatened_value_columns = all_value_columns
         .iter()
         .flat_map(|cols| cols.iter().map(|col| col.as_slice()))
         .collect::<Vec<&[F]>>();
@@ -100,7 +100,7 @@ fn test_packed_lookup() {
         .collect::<Vec<&[F]>>();
 
     let (packed_lookup_values, chunks) = packed_pcs::compute_multilinear_chunks_and_apply(
-        &all_value_columns_ref,
+        &flatened_value_columns,
         &all_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
@@ -119,8 +119,8 @@ fn test_packed_lookup() {
     let mut prover_state = build_prover_state();
 
     {
-        let statements = packed_pcs_global_statements_for_prover(
-            &all_value_columns_ref,
+        let packed_statements = packed_pcs_global_statements_for_prover(
+            &flatened_value_columns,
             &all_dims,
             LOG_SMALLEST_DECOMPOSITION_CHUNK,
             &initial_statements,
@@ -128,7 +128,7 @@ fn test_packed_lookup() {
         );
 
         // sanitiy check
-        for statement in &statements {
+        for statement in &packed_statements {
             assert_eq!(
                 packed_lookup_values.evaluate_sparse(&statement.point),
                 statement.value
@@ -145,7 +145,7 @@ fn test_packed_lookup() {
         let batching_scalar = prover_state.sample();
 
         let mut poly_eq_point = EF::zero_vec(1 << chunks.packed_n_vars);
-        for (alpha_power, statement) in batching_scalar.powers().zip(&statements) {
+        for (alpha_power, statement) in batching_scalar.powers().zip(&packed_statements) {
             compute_sparse_eval_eq(&statement.point, &mut poly_eq_point, alpha_power);
         }
         let pushforward = compute_pushforward(
@@ -156,7 +156,7 @@ fn test_packed_lookup() {
 
         let batched_value = batching_scalar
             .powers()
-            .zip(&statements)
+            .zip(&packed_statements)
             .map(|(alpha_power, statement)| alpha_power * statement.value)
             .sum();
 

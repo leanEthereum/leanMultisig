@@ -95,7 +95,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#43c8955c2ca07c1c64962f190aab38c28e53adbb"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#66583347be84e81bb0925792ac6710d75561cfc3"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -179,7 +179,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#43c8955c2ca07c1c64962f190aab38c28e53adbb"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#66583347be84e81bb0925792ac6710d75561cfc3"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -488,7 +488,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#43c8955c2ca07c1c64962f190aab38c28e53adbb"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#66583347be84e81bb0925792ac6710d75561cfc3"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -896,9 +896,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.41"
+version = "1.0.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce25767e7b499d1b604768e7cde645d14cc8584231ea6b295e9c9eb22c02e1d1"
+checksum = "a338cc41d27e6cc6dce6cefc13a0729dfbb81c262b1f519331575dd80ef3067f"
 dependencies = [
  "proc-macro2",
 ]
@@ -1094,7 +1094,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#43c8955c2ca07c1c64962f190aab38c28e53adbb"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#66583347be84e81bb0925792ac6710d75561cfc3"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1108,9 +1108,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.108"
+version = "2.0.110"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da58917d35242480a05c2897064da0a80589a2a0476c9a3f2fdc83b53502e917"
+checksum = "a99801b5bd34ede4cf3fc688c5919368fea4e4814a4664359503e6015b280aea"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1341,7 +1341,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#57c8d12015260a6aca706a021364225e5ebdd636"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#b364fb79b1d15cf38bf2699a298338f9ce4d4530"
 dependencies = [
  "itertools",
  "multilinear-toolkit",
