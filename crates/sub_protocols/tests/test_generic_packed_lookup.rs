@@ -11,7 +11,7 @@ type EF = QuinticExtensionFieldKB;
 const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 
 #[test]
-fn test_packed_lookup() {
+fn test_generic_packed_lookup() {
     let non_zero_memory_size: usize = 37412;
     let lookups_height_and_cols: Vec<(usize, usize)> =
         vec![(4587, 1), (1234, 3), (9411, 1), (7890, 2)];
@@ -80,7 +80,7 @@ fn test_packed_lookup() {
     // phony commitment to pushforward
     prover_state.hint_extension_scalars(&packed_lookup_prover.pushforward_to_commit());
 
-    let _remaining_claims_to_prove =
+    let remaining_claims_to_prove =
         packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
 
     let mut verifier_state = build_verifier_state(&prover_state);
@@ -103,6 +103,8 @@ fn test_packed_lookup() {
     let remaining_claims_to_verify = packed_lookup_verifier
         .step_2(&mut verifier_state, log2_ceil_usize(non_zero_memory_size))
         .unwrap();
+
+    assert_eq!(&remaining_claims_to_prove, &remaining_claims_to_verify);
 
     assert_eq!(
         memory.evaluate(&remaining_claims_to_verify.on_table.point),

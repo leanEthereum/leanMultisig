@@ -25,7 +25,7 @@ pub struct GenericPackedLookupProver<'a, TF: Field, EF: ExtensionField<TF> + Ext
     pub(crate) batched_value: EF,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct PackedLookupStatements<EF> {
     pub on_table: Evaluation<EF>,
     pub on_pushforward: Vec<Evaluation<EF>>,
