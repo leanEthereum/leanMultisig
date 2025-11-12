@@ -5,35 +5,6 @@ use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 use witness_generation::*;
 
-/*
-
-Bytecode columns:
-
-0: OPERAND_A
-1: OPERAND_B
-2: OPERAND_C
-3: FLAG_A
-4: FLAG_B
-5: FLAG_C
-6: ADD
-7: MUL
-8: DEREF
-9: JUMP
-10: AUX
-
-Execution columns:
-
-11: VALUE_A (virtual)
-12: VALUE_B (virtual)
-13: VALUE_C (virtual)
-14: PC
-15: FP
-16: ADDR_A
-17: ADDR_B
-18: ADDR_C
-
-*/
-
 #[derive(Debug)]
 pub struct VMAir;
 
