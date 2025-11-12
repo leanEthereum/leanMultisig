@@ -430,9 +430,9 @@ pub fn verify_execution(
     let dot_product_evals_spread = verifier_state.next_extension_scalars_vec(DIMENSION)?;
 
     let dot_product_values_mixed = [
-        dot_product_evals_to_verify[5],
-        dot_product_evals_to_verify[6],
-        dot_product_evals_to_verify[7],
+        dot_product_evals_to_verify[DOT_PRODUCT_AIR_COL_VALUE_A],
+        dot_product_evals_to_verify[DOT_PRODUCT_AIR_COL_VALUE_B],
+        dot_product_evals_to_verify[DOT_PRODUCT_AIR_COL_RES],
         EF::ZERO,
     ]
     .evaluate(&dot_product_values_mixing_challenges);
@@ -666,7 +666,7 @@ pub fn verify_execution(
     let dot_product_computation_column_evals =
         verifier_state.next_extension_scalars_const::<DIMENSION>()?;
     if dot_product_with_base(&dot_product_computation_column_evals)
-        != dot_product_evals_to_verify[8]
+        != dot_product_evals_to_verify[DOT_PRODUCT_AIR_COL_COMPUTATION]
     {
         return Err(ProofError::InvalidProof);
     }
@@ -821,25 +821,25 @@ pub fn verify_execution(
             p24_cubes_statements,
             vec![
                 vec![
-                    dot_product_air_statement(0),
+                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG),
                     grand_product_dot_product_flag_statement,
                 ], // dot product: (start) flag
                 vec![
-                    dot_product_air_statement(1),
+                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN),
                     grand_product_dot_product_len_statement,
                 ], // dot product: length
                 vec![
-                    dot_product_air_statement(2),
+                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A),
                     dot_product_logup_star_indexes_statement_a,
                     grand_product_dot_product_table_indexes_statement_index_a,
                 ], // dot product: index a
                 vec![
-                    dot_product_air_statement(3),
+                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B),
                     dot_product_logup_star_indexes_statement_b,
                     grand_product_dot_product_table_indexes_statement_index_b,
                 ], // dot product: index b
                 vec![
-                    dot_product_air_statement(4),
+                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES),
                     dot_product_logup_star_indexes_statement_res,
                     grand_product_dot_product_table_indexes_statement_index_res,
                 ], // dot product: index res
