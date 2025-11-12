@@ -102,15 +102,17 @@ pub fn prove_execution(
     let (dot_product_columns, dot_product_padding_len) =
         build_dot_product_columns(&dot_products, 1 << LOG_MIN_DOT_PRODUCT_ROWS);
 
-    let dot_product_flags: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[0]).unwrap();
-    let dot_product_lengths: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[1]).unwrap();
+    let dot_product_flags: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_START_FLAG]).unwrap();
+    let dot_product_lengths: Vec<PF<EF>> =
+        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_LEN]).unwrap();
 
-    let dot_product_computations: &[EF] = &dot_product_columns[8];
+    let dot_product_computations: &[EF] = &dot_product_columns[DOT_PRODUCT_AIR_COL_COMPUTATION];
     let dot_product_computations_base =
         transpose_slice_to_basis_coefficients::<F, EF>(dot_product_computations);
 
-    let n_rows_table_dot_products = dot_product_columns[0].len() - dot_product_padding_len;
-    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_columns[0].len());
+    let n_rows_table_dot_products = dot_product_flags.len() - dot_product_padding_len;
+    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_flags.len());
 
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
@@ -672,9 +674,15 @@ pub fn prove_execution(
     assert!(dot_product_table_length.is_power_of_two());
     let mut dot_product_indexes_spread = vec![F::zero_vec(dot_product_table_length * 4); DIMENSION];
     for i in 0..dot_product_table_length {
-        let index_a: F = dot_product_columns[2][i].as_base().unwrap();
-        let index_b: F = dot_product_columns[3][i].as_base().unwrap();
-        let index_res: F = dot_product_columns[4][i].as_base().unwrap();
+        let index_a: F = dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_A][i]
+            .as_base()
+            .unwrap();
+        let index_b: F = dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_B][i]
+            .as_base()
+            .unwrap();
+        let index_res: F = dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_RES][i]
+            .as_base()
+            .unwrap();
         for (j, column) in dot_product_indexes_spread.iter_mut().enumerate() {
             column[i] = index_a + F::from_usize(j);
             column[i + dot_product_table_length] = index_b + F::from_usize(j);
@@ -693,9 +701,9 @@ pub fn prove_execution(
 
     let dot_product_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
     let dot_product_values_mixed = [
-        dot_product_evals_to_prove[5],
-        dot_product_evals_to_prove[6],
-        dot_product_evals_to_prove[7],
+        dot_product_evals_to_prove[DOT_PRODUCT_AIR_COL_VALUE_A],
+        dot_product_evals_to_prove[DOT_PRODUCT_AIR_COL_VALUE_B],
+        dot_product_evals_to_prove[DOT_PRODUCT_AIR_COL_RES],
         EF::ZERO,
     ]
     .evaluate(&dot_product_values_mixing_challenges);
@@ -1126,28 +1134,28 @@ pub fn prove_execution(
         p24_cubes_statements,
         vec![
             vec![
-                dot_product_air_statement(0),
+                dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG),
                 grand_product_dot_product_flag_statement,
-            ], // dot product: (start) flag
+            ],
             vec![
-                dot_product_air_statement(1),
+                dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN),
                 grand_product_dot_product_len_statement,
-            ], // dot product: length
+            ],
             vec![
-                dot_product_air_statement(2),
+                dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A),
                 dot_product_logup_star_indexes_statement_a,
                 grand_product_dot_product_table_indexes_statement_index_a,
-            ], // dot product: index a
+            ],
             vec![
-                dot_product_air_statement(3),
+                dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B),
                 dot_product_logup_star_indexes_statement_b,
                 grand_product_dot_product_table_indexes_statement_index_b,
-            ], // dot product: index b
+            ],
             vec![
-                dot_product_air_statement(4),
+                dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES),
                 dot_product_logup_star_indexes_statement_res,
                 grand_product_dot_product_table_indexes_statement_index_res,
-            ], // dot product: index res
+            ],
         ],
         dot_product_computation_column_statements,
     ]

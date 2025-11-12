@@ -21,14 +21,24 @@ use p3_matrix::Matrix;
 | ...       | ... | ...    | ...    | ...      | ...           | ...         | ...                | ...                                      |
 */
 
-const DOT_PRODUCT_AIR_COLUMNS: usize = 9;
+pub const DOT_PRODUCT_AIR_COL_START_FLAG: usize = 0;
+pub const DOT_PRODUCT_AIR_COL_LEN: usize = 1;
+pub const DOT_PRODUCT_AIR_COL_INDEX_A: usize = 2;
+pub const DOT_PRODUCT_AIR_COL_INDEX_B: usize = 3;
+pub const DOT_PRODUCT_AIR_COL_INDEX_RES: usize = 4;
+pub const DOT_PRODUCT_AIR_COL_VALUE_A: usize = 5;
+pub const DOT_PRODUCT_AIR_COL_VALUE_B: usize = 6;
+pub const DOT_PRODUCT_AIR_COL_RES: usize = 7;
+pub const DOT_PRODUCT_AIR_COL_COMPUTATION: usize = 8;
+
+pub const DOT_PRODUCT_AIR_N_COLUMNS: usize = 9;
 
 #[derive(Debug)]
 pub struct DotProductAir;
 
 impl<F> BaseAir<F> for DotProductAir {
     fn width(&self) -> usize {
-        DOT_PRODUCT_AIR_COLUMNS
+        DOT_PRODUCT_AIR_N_COLUMNS
     }
     fn structured(&self) -> bool {
         true
@@ -44,10 +54,10 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
         let main = builder.main();
         let up = main.row_slice(0).unwrap();
         let up: &[AB::Var] = (*up).borrow();
-        assert_eq!(up.len(), DOT_PRODUCT_AIR_COLUMNS);
+        assert_eq!(up.len(), DOT_PRODUCT_AIR_N_COLUMNS);
         let down = main.row_slice(1).unwrap();
         let down: &[AB::Var] = (*down).borrow();
-        assert_eq!(down.len(), DOT_PRODUCT_AIR_COLUMNS);
+        assert_eq!(down.len(), DOT_PRODUCT_AIR_N_COLUMNS);
 
         let [
             start_flag_up,
