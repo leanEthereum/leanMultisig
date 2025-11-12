@@ -3,7 +3,7 @@ use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sub_protocols::{PackedLookupProver, PackedLookupVerifier};
+use sub_protocols::{GenericPackedLookupProver, GenericPackedLookupVerifier};
 use utils::{ToUsize, assert_eq_many, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;
@@ -63,7 +63,7 @@ fn test_packed_lookup() {
 
     let mut prover_state = build_prover_state();
 
-    let packed_lookup_prover = PackedLookupProver::step_1(
+    let packed_lookup_prover = GenericPackedLookupProver::step_1(
         &mut prover_state,
         &memory,
         all_indexe_columns.iter().map(Vec::as_slice).collect(),
@@ -85,7 +85,7 @@ fn test_packed_lookup() {
 
     let mut verifier_state = build_verifier_state(&prover_state);
 
-    let packed_lookup_verifier = PackedLookupVerifier::step_1(
+    let packed_lookup_verifier = GenericPackedLookupVerifier::step_1(
         &mut verifier_state,
         lookups_height_and_cols.iter().map(|(h, _)| *h).collect(),
         default_indexes,

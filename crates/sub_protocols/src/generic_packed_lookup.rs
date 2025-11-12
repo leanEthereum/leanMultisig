@@ -9,7 +9,8 @@ use utils::{FSProver, assert_eq_many};
 use crate::{ColDims, MultilinearChunks, packed_pcs_global_statements_for_prover};
 
 #[derive(Debug)]
-pub struct PackedLookupProver<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>> {
+pub struct GenericPackedLookupProver<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>>
+{
     // inputs
     pub table: &'a [TF],
     pub index_columns: Vec<&'a [PF<EF>]>,
@@ -34,7 +35,8 @@ pub struct PackedLookupStatements<EF> {
     pub on_indexes: Vec<Vec<Evaluation<EF>>>, // contain sparse points (TODO take advantage of it)
 }
 
-impl<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>> PackedLookupProver<'a, TF, EF>
+impl<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>>
+    GenericPackedLookupProver<'a, TF, EF>
 where
     PF<EF>: PrimeField64,
 {
@@ -234,14 +236,14 @@ where
 }
 
 #[derive(Debug)]
-pub struct PackedLookupVerifier<EF: ExtensionField<PF<EF>>> {
+pub struct GenericPackedLookupVerifier<EF: ExtensionField<PF<EF>>> {
     n_cols_per_group: Vec<usize>,
     chunks: MultilinearChunks,
     batching_scalar: EF,
     packed_statements: Vec<Evaluation<EF>>,
 }
 
-impl<EF: ExtensionField<PF<EF>>> PackedLookupVerifier<EF>
+impl<EF: ExtensionField<PF<EF>>> GenericPackedLookupVerifier<EF>
 where
     PF<EF>: PrimeField64,
 {
