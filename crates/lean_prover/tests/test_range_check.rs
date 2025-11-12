@@ -135,3 +135,17 @@ fn test_range_check(num_test_cases: usize, valid: bool) {
         do_test_range_check(v, t, &whir_config_builder, &public_input, &private_input);
     }
 }
+
+// BUG HERE
+#[test]
+fn failing_test() {
+    let (public_input, private_input) = prepare_inputs();
+    let whir_config_builder = whir_config_builder();
+    do_test_range_check(
+        16390,
+        1 << 16,
+        &whir_config_builder,
+        &public_input,
+        &private_input,
+    );
+}
