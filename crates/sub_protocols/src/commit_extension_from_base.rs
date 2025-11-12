@@ -59,8 +59,7 @@ impl ExtensionCommitmentFromBaseVerifier {
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         claim: &Evaluation<EF>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
-        let sub_evals =
-            verifier_state.next_extension_scalars_vec(EF::DIMENSION)?;
+        let sub_evals = verifier_state.next_extension_scalars_vec(EF::DIMENSION)?;
 
         let statements_remaning_to_verify = sub_evals
             .iter()

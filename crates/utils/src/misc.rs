@@ -152,3 +152,18 @@ pub fn transposed_par_iter_mut<A: Send + Sync, const N: usize>(
         .into_par_iter()
         .map(move |i| unsafe { std::array::from_fn(|j| &mut *data_ptrs[j].0.add(i)) })
 }
+
+#[derive(Debug)]
+pub enum VecOrSlice<'a, T> {
+    Vec(Vec<T>),
+    Slice(&'a [T]),
+}
+
+impl<'a, T> VecOrSlice<'a, T> {
+    pub fn as_slice(&self) -> &[T] {
+        match self {
+            VecOrSlice::Vec(v) => v.as_slice(),
+            VecOrSlice::Slice(s) => s,
+        }
+    }
+}

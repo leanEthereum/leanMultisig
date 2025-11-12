@@ -4,6 +4,7 @@ use lookup::verify_logup_star;
 use multilinear_toolkit::prelude::*;
 use p3_field::{ExtensionField, Field};
 use std::any::TypeId;
+use utils::VecOrSlice;
 use utils::{FSProver, assert_eq_many};
 
 use crate::{ColDims, MultilinearChunks, packed_pcs_global_statements_for_prover};
@@ -12,20 +13,16 @@ use crate::{ColDims, MultilinearChunks, packed_pcs_global_statements_for_prover}
 pub struct GenericPackedLookupProver<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>>
 {
     // inputs
-    pub table: &'a [TF],
-    pub index_columns: Vec<&'a [PF<EF>]>,
-    pub heights: Vec<usize>,
-    pub default_indexes: Vec<usize>,
-    pub value_columns: Vec<Vec<&'a [TF]>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
-    pub initial_statements: Vec<Vec<MultiEvaluation<EF>>>,
+    pub(crate) table: &'a [TF],
+    pub(crate) index_columns: Vec<&'a [PF<EF>]>,
 
     // outputs
-    pub chunks: MultilinearChunks,
-    pub packed_lookup_indexes: Vec<PF<EF>>,
-    pub poly_eq_point: Vec<EF>,
-    pub pushforward: Vec<EF>, // to be committed
-    pub batching_scalar: EF,
-    pub batched_value: EF,
+    pub(crate) n_cols_per_group: Vec<usize>,
+    pub(crate) chunks: MultilinearChunks,
+    pub(crate) packed_lookup_indexes: Vec<PF<EF>>,
+    pub(crate) poly_eq_point: Vec<EF>,
+    pub(crate) pushforward: Vec<EF>, // to be committed
+    pub(crate) batched_value: EF,
 }
 
 #[derive(Debug)]
@@ -40,6 +37,10 @@ impl<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>>
 where
     PF<EF>: PrimeField64,
 {
+    pub fn pushforward_to_commit(&self) -> &[EF] {
+        &self.pushforward
+    }
+
     // before committing to the pushforward
     pub fn step_1(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -47,7 +48,7 @@ where
         index_columns: Vec<&'a [PF<EF>]>,
         heights: Vec<usize>,
         default_indexes: Vec<usize>,
-        value_columns: Vec<Vec<&'a [TF]>>,
+        value_columns: Vec<Vec<VecOrSlice<'a, TF>>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
         initial_statements: Vec<Vec<MultiEvaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
     ) -> Self {
@@ -74,7 +75,7 @@ where
 
         let flatened_value_columns = value_columns
             .iter()
-            .flat_map(|cols| cols.iter().map(|col| *col))
+            .flat_map(|cols| cols.iter().map(|col| col.as_slice()))
             .collect::<Vec<&[TF]>>();
 
         let mut all_dims = vec![];
@@ -135,15 +136,11 @@ where
         Self {
             table,
             index_columns,
-            heights,
-            default_indexes,
-            value_columns,
-            batching_scalar,
+            n_cols_per_group,
             batched_value,
             packed_lookup_indexes,
             poly_eq_point,
             pushforward,
-            initial_statements,
             chunks,
         }
     }
@@ -154,12 +151,6 @@ where
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         non_zero_memory_size: usize,
     ) -> PackedLookupStatements<EF> {
-        let n_cols_per_group = self
-            .value_columns
-            .iter()
-            .map(|cols| cols.len())
-            .collect::<Vec<usize>>();
-
         let table = if TypeId::of::<TF>() == TypeId::of::<PF<EF>>() {
             MleRef::Base(unsafe { std::mem::transmute::<&[TF], &[PF<EF>]>(self.table) })
         } else if TypeId::of::<TF>() == TypeId::of::<EF>() {
@@ -180,7 +171,7 @@ where
         let mut value_on_packed_indexes = EF::ZERO;
         let mut offset = 0;
         let mut index_statements_to_prove = vec![];
-        for (i, n_cols) in n_cols_per_group.iter().enumerate() {
+        for (i, n_cols) in self.n_cols_per_group.iter().enumerate() {
             let my_chunks = &self.chunks[offset..offset + n_cols];
             offset += n_cols;
 
@@ -255,7 +246,7 @@ where
         initial_statements: Vec<Vec<MultiEvaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
         table_initial_values: &[TF],
-    ) -> Self
+    ) -> ProofResult<Self>
     where
         EF: ExtensionField<TF>,
     {
@@ -279,18 +270,17 @@ where
             &expand_multi_evals(&initial_statements),
             verifier_state,
             &Default::default(),
-        )
-        .unwrap();
+        )?;
         let chunks = MultilinearChunks::compute(&all_dims, log_smallest_decomposition_chunk);
 
         let batching_scalar = verifier_state.sample();
 
-        Self {
+        Ok(Self {
             n_cols_per_group,
             chunks,
             batching_scalar,
             packed_statements,
-        }
+        })
     }
 
     // after receiving the commitment to the pushforward

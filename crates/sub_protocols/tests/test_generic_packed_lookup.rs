@@ -4,7 +4,7 @@ use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sub_protocols::{GenericPackedLookupProver, GenericPackedLookupVerifier};
-use utils::{ToUsize, assert_eq_many, build_prover_state, build_verifier_state};
+use utils::{ToUsize, VecOrSlice, assert_eq_many, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -71,14 +71,14 @@ fn test_packed_lookup() {
         default_indexes.clone(),
         all_value_columns
             .iter()
-            .map(|cols| cols.iter().map(Vec::as_slice).collect())
+            .map(|cols| cols.iter().map(|s| VecOrSlice::Slice(s)).collect())
             .collect(),
         all_statements.clone(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
     // phony commitment to pushforward
-    prover_state.hint_extension_scalars(&packed_lookup_prover.pushforward);
+    prover_state.hint_extension_scalars(&packed_lookup_prover.pushforward_to_commit());
 
     let _remaining_claims_to_prove =
         packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
@@ -92,7 +92,8 @@ fn test_packed_lookup() {
         all_statements,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &memory[..100],
-    );
+    )
+    .unwrap();
 
     // receive commitment to pushforward
     let pushforward = verifier_state
