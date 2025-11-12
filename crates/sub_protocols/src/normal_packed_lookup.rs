@@ -66,7 +66,7 @@ where
 
         for (eval_group, extension_column_split) in initial_statements[n_base_cols..]
             .iter()
-            .zip(&all_value_columns)
+            .zip(&all_value_columns[n_base_cols..])
         {
             let mut multi_evals = vec![];
             for eval in eval_group {
