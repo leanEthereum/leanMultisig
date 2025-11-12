@@ -31,6 +31,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             res,
             for_range_check: _,
         } => {
+            fields[8] = F::ONE; // DEREF = 1
             fields[3] = F::ZERO; // flag_A = 0
             fields[0] = F::from_usize(*shift_0);
             fields[5] = F::ONE; // flag_C = 1

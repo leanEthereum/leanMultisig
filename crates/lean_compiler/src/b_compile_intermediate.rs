@@ -288,6 +288,7 @@ fn compile_lines(
                 condition,
                 then_branch,
                 else_branch,
+                line_number,
             } => {
                 validate_vars_declared(&[condition], declared_vars)?;
 
@@ -295,9 +296,9 @@ fn compile_lines(
                 compiler.if_counter += 1;
 
                 let (if_label, else_label, end_label) = (
-                    Label::if_label(if_id),
-                    Label::else_label(if_id),
-                    Label::if_else_end(if_id),
+                    Label::if_label(if_id, *line_number),
+                    Label::else_label(if_id, *line_number),
+                    Label::if_else_end(if_id, *line_number),
                 );
 
                 // c: condition
@@ -426,10 +427,11 @@ fn compile_lines(
                 function_name: callee_function_name,
                 args,
                 return_data,
+                line_number,
             } => {
                 let call_id = compiler.call_counter;
                 compiler.call_counter += 1;
-                let return_label = Label::return_from_call(call_id);
+                let return_label = Label::return_from_call(call_id, *line_number);
 
                 let new_fp_pos = compiler.stack_size;
                 compiler.stack_size += 1;

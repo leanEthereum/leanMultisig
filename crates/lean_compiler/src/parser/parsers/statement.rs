@@ -79,6 +79,7 @@ pub struct IfStatementParser;
 
 impl Parse<Line> for IfStatementParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let condition = ConditionParser::parse(next_inner_pair(&mut inner, "if condition")?, ctx)?;
 
@@ -105,6 +106,7 @@ impl Parse<Line> for IfStatementParser {
             condition,
             then_branch,
             else_branch,
+            line_number,
         })
     }
 }
@@ -171,6 +173,7 @@ pub struct ForStatementParser;
 
 impl Parse<Line> for ForStatementParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let iterator = next_inner_pair(&mut inner, "loop iterator")?
             .as_str()
@@ -210,6 +213,7 @@ impl Parse<Line> for ForStatementParser {
             body,
             rev,
             unroll,
+            line_number,
         })
     }
 }
@@ -299,11 +303,12 @@ pub struct AssertEqParser;
 
 impl Parse<Line> for AssertEqParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
-        Ok(Line::Assert(Boolean::Equal { left, right }))
+        Ok(Line::Assert(Boolean::Equal { left, right }, line_number))
     }
 }
 
@@ -312,11 +317,15 @@ pub struct AssertNotEqParser;
 
 impl Parse<Line> for AssertNotEqParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
-        Ok(Line::Assert(Boolean::Different { left, right }))
+        Ok(Line::Assert(
+            Boolean::Different { left, right },
+            line_number,
+        ))
     }
 }
 

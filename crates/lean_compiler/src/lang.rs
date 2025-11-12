@@ -332,11 +332,12 @@ pub enum Line {
         index: Expression,
         value: Expression,
     },
-    Assert(Boolean),
+    Assert(Boolean, SourceLineNumber),
     IfCondition {
         condition: Condition,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
+        line_number: SourceLineNumber,
     },
     ForLoop {
         iterator: Var,
@@ -345,11 +346,13 @@ pub enum Line {
         body: Vec<Self>,
         rev: bool,
         unroll: bool,
+        line_number: SourceLineNumber,
     },
     FunctionCall {
         function_name: String,
         args: Vec<Expression>,
         return_data: Vec<Var>,
+        line_number: SourceLineNumber,
     },
     FunctionRet {
         return_data: Vec<Expression>,
@@ -449,11 +452,12 @@ impl Line {
             } => {
                 format!("{array}[{index}] = {value}")
             }
-            Self::Assert(condition) => format!("assert {condition}"),
+            Self::Assert(condition, _line_number) => format!("assert {condition}"),
             Self::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
+                line_number: _,
             } => {
                 let then_str = then_branch
                     .iter()
@@ -485,6 +489,7 @@ impl Line {
                 body,
                 rev,
                 unroll,
+                line_number: _,
             } => {
                 let body_str = body
                     .iter()
@@ -506,6 +511,7 @@ impl Line {
                 function_name,
                 args,
                 return_data,
+                line_number: _,
             } => {
                 let args_str = args
                     .iter()

@@ -56,6 +56,19 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 990
 
 ![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated_overhead.svg)
 
+### Fibonacci:
+
+n = 2,000,000
+
+```
+RUSTFLAGS='-C target-cpu=native' cargo test --release --package lean_prover --test test_zkvm -- --nocapture -- test_prove_fibonacci --exact --nocapture
+```
+
+Proving time:
+
+- i9-12900H: 2.0 s (1.0 MHz)
+- mac m4 max: 1.2 s (1.7 MHz)
+
 ### Proof size
 
 With conjecture "up to capacity", current proofs with rate = 1/2 are about ≈ 400 - 500 KiB, of which ≈ 300 KiB comes from WHIR.
