@@ -49,7 +49,7 @@ where
         heights: Vec<usize>,
         default_indexes: Vec<usize>,
         value_columns: Vec<Vec<VecOrSlice<'a, TF>>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
-        initial_statements: Vec<Vec<MultiEvaluation<EF>>>,
+        statements: Vec<Vec<MultiEvaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
     ) -> Self {
         assert!(table[0].is_zero());
@@ -59,11 +59,11 @@ where
             heights.len(),
             default_indexes.len(),
             value_columns.len(),
-            initial_statements.len()
+            statements.len()
         );
         value_columns
             .iter()
-            .zip(&initial_statements)
+            .zip(&statements)
             .for_each(|(cols, evals)| {
                 assert_eq!(cols.len(), evals[0].num_values());
             });
@@ -95,7 +95,7 @@ where
             &flatened_value_columns,
             &all_dims,
             log_smallest_decomposition_chunk,
-            &expand_multi_evals(&initial_statements),
+            &expand_multi_evals(&statements),
             prover_state,
         );
 
@@ -243,14 +243,14 @@ where
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         heights: Vec<usize>,
         default_indexes: Vec<usize>,
-        initial_statements: Vec<Vec<MultiEvaluation<EF>>>,
+        statements: Vec<Vec<MultiEvaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
         table_initial_values: &[TF],
     ) -> ProofResult<Self>
     where
         EF: ExtensionField<TF>,
     {
-        let n_cols_per_group = initial_statements
+        let n_cols_per_group = statements
             .iter()
             .map(|evals| evals[0].num_values())
             .collect::<Vec<usize>>();
@@ -267,7 +267,7 @@ where
         let packed_statements = crate::packed_pcs_global_statements_for_verifier(
             &all_dims,
             log_smallest_decomposition_chunk,
-            &expand_multi_evals(&initial_statements),
+            &expand_multi_evals(&statements),
             verifier_state,
             &Default::default(),
         )?;

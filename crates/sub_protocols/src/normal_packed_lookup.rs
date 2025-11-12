@@ -31,7 +31,7 @@ where
         default_indexes: Vec<usize>,
         value_columns_base: Vec<&'a [PF<EF>]>,
         value_columns_extension: Vec<&'a [EF]>,
-        initial_statements: Vec<Vec<Evaluation<EF>>>,
+        statements: Vec<Vec<Evaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
     ) -> Self {
         assert_eq!(
@@ -55,7 +55,7 @@ where
         }
 
         let mut multi_eval_statements = vec![];
-        for eval_group in &initial_statements[..n_base_cols] {
+        for eval_group in &statements[..n_base_cols] {
             multi_eval_statements.push(
                 eval_group
                     .iter()
@@ -64,7 +64,7 @@ where
             );
         }
 
-        for (eval_group, extension_column_split) in initial_statements[n_base_cols..]
+        for (eval_group, extension_column_split) in statements[n_base_cols..]
             .iter()
             .zip(&all_value_columns[n_base_cols..])
         {
@@ -123,7 +123,7 @@ where
         n_base_cols: usize,
         heights: Vec<usize>,
         default_indexes: Vec<usize>,
-        initial_statements: Vec<Vec<Evaluation<EF>>>,
+        statements: Vec<Vec<Evaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
         table_initial_values: &[TF],
     ) -> ProofResult<Self>
@@ -131,7 +131,7 @@ where
         EF: ExtensionField<TF>,
     {
         let mut multi_eval_statements = vec![];
-        for eval_group in &initial_statements[..n_base_cols] {
+        for eval_group in &statements[..n_base_cols] {
             multi_eval_statements.push(
                 eval_group
                     .iter()
@@ -140,7 +140,7 @@ where
             );
         }
 
-        for eval_group in &initial_statements[n_base_cols..] {
+        for eval_group in &statements[n_base_cols..] {
             let mut multi_evals = vec![];
             for eval in eval_group {
                 let sub_evals = verifier_state

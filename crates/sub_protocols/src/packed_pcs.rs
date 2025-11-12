@@ -400,7 +400,7 @@ pub fn packed_pcs_global_statements_for_prover<
                             MultilinearPoint(statement.point.0[missing_vars..].to_vec());
                         let sub_value = (&pol[chunk.offset_in_original
                             ..chunk.offset_in_original + (1 << chunk.n_vars)])
-                            .evaluate(&sub_point);
+                            .evaluate_sparse(&sub_point); // `evaluate_sparse` because sometime (typically due to packed lookup protocol, the original statement is already sparse)
                         (
                             Some(Evaluation::new(
                                 chunk.global_point_for_statement(

@@ -28,7 +28,7 @@ pub const DOT_PRODUCT_AIR_COL_INDEX_B: usize = 3;
 pub const DOT_PRODUCT_AIR_COL_INDEX_RES: usize = 4;
 pub const DOT_PRODUCT_AIR_COL_VALUE_A: usize = 5;
 pub const DOT_PRODUCT_AIR_COL_VALUE_B: usize = 6;
-pub const DOT_PRODUCT_AIR_COL_RES: usize = 7;
+pub const DOT_PRODUCT_AIR_COL_VALUE_RES: usize = 7;
 pub const DOT_PRODUCT_AIR_COL_COMPUTATION: usize = 8;
 
 pub const DOT_PRODUCT_AIR_N_COLUMNS: usize = 9;

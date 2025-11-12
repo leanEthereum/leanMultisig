@@ -5,6 +5,7 @@ use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
 use p3_util::log2_ceil_usize;
 use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};
 use sub_protocols::{ColDims, committed_dims_extension_from_base};
+use vm_air::*;
 
 use crate::*;
 use lean_vm::*;
@@ -62,6 +63,48 @@ pub fn get_base_dims(
             ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index res
         ],
         committed_dims_extension_from_base(n_rows_table_dot_products, EF::ZERO), // dot product: computation
+    ]
+    .concat()
+}
+
+pub fn normal_lookup_into_memory_initial_statements(
+    grand_product_exec_sumcheck_point: &MultilinearPoint<EF>,
+    grand_product_exec_sumcheck_inner_evals: &[EF],
+    exec_air_point: &MultilinearPoint<EF>,
+    exec_evals: &[EF],
+    dot_product_air_point: &MultilinearPoint<EF>,
+    dot_product_evals: &[EF],
+) -> Vec<Vec<Evaluation<EF>>> {
+    [
+        [
+            COL_INDEX_MEM_VALUE_A,
+            COL_INDEX_MEM_VALUE_B,
+            COL_INDEX_MEM_VALUE_C,
+        ]
+        .into_iter()
+        .map(|index| {
+            vec![
+                Evaluation::new(
+                    grand_product_exec_sumcheck_point.clone(),
+                    grand_product_exec_sumcheck_inner_evals[index],
+                ),
+                Evaluation::new(exec_air_point.clone(), exec_evals[index.index_in_air()]),
+            ]
+        })
+        .collect::<Vec<_>>(),
+        [
+            DOT_PRODUCT_AIR_COL_VALUE_A,
+            DOT_PRODUCT_AIR_COL_VALUE_B,
+            DOT_PRODUCT_AIR_COL_VALUE_RES,
+        ]
+        .into_iter()
+        .map(|index| {
+            vec![Evaluation::new(
+                dot_product_air_point.clone(),
+                dot_product_evals[index],
+            )]
+        })
+        .collect::<Vec<_>>(),
     ]
     .concat()
 }
