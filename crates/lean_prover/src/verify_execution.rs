@@ -663,21 +663,14 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(bytecode, log_n_cycles);
 
-    let dot_product_computation_column_evals =
-        verifier_state.next_extension_scalars_const::<DIMENSION>()?;
-    if dot_product_with_base(&dot_product_computation_column_evals)
-        != dot_product_evals_to_verify[DOT_PRODUCT_AIR_COL_COMPUTATION]
-    {
-        return Err(ProofError::InvalidProof);
-    }
-    let dot_product_computation_column_statements = (0..DIMENSION)
-        .map(|i| {
-            vec![Evaluation::new(
+    let dot_product_computation_column_statements =
+        ExtensionCommitmentFromBaseVerifier::after_commitment(
+            &mut verifier_state,
+            &Evaluation::new(
                 dot_product_air_point.clone(),
-                dot_product_computation_column_evals[i],
-            )]
-        })
-        .collect::<Vec<_>>();
+                dot_product_evals_to_verify[DOT_PRODUCT_AIR_COL_COMPUTATION],
+            ),
+        )?;
 
     let mem_lookup_eval_indexes_partial_point =
         MultilinearPoint(base_memory_logup_star_statements.on_indexes.point[2..].to_vec());

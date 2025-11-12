@@ -4,7 +4,7 @@ use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
 use p3_util::log2_ceil_usize;
 use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};
-use sub_protocols::ColDims;
+use sub_protocols::{ColDims, committed_dims_extension_from_base};
 
 use crate::*;
 use lean_vm::*;
@@ -61,7 +61,7 @@ pub fn get_base_dims(
             ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index b
             ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index res
         ],
-        vec![ColDims::padded(n_rows_table_dot_products, F::ZERO); DIMENSION], // dot product: computation
+        committed_dims_extension_from_base(n_rows_table_dot_products, EF::ZERO), // dot product: computation
     ]
     .concat()
 }

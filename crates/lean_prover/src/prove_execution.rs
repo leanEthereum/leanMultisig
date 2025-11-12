@@ -108,8 +108,8 @@ pub fn prove_execution(
         field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_LEN]).unwrap();
 
     let dot_product_computations: &[EF] = &dot_product_columns[DOT_PRODUCT_AIR_COL_COMPUTATION];
-    let dot_product_computations_base =
-        transpose_slice_to_basis_coefficients::<F, EF>(dot_product_computations);
+    let dot_product_computation_ext_to_base_helper =
+        ExtensionCommitmentFromBaseProver::before_commitment(&dot_product_computations);
 
     let n_rows_table_dot_products = dot_product_flags.len() - dot_product_padding_len;
     let log_n_rows_dot_product_table = log2_strict_usize(dot_product_flags.len());
@@ -198,7 +198,8 @@ pub fn prove_execution(
             dot_product_col_index_b.as_slice(),
             dot_product_col_index_res.as_slice(),
         ],
-        dot_product_computations_base
+        dot_product_computation_ext_to_base_helper
+            .sub_columns_to_commit
             .iter()
             .map(Vec::as_slice)
             .collect(),
@@ -1010,20 +1011,8 @@ pub fn prove_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(bytecode, log_n_cycles);
 
-    let dot_product_computation_column_evals = dot_product_computations_base
-        .par_iter()
-        .map(|slice| slice.evaluate(&dot_product_air_point))
-        .collect::<Vec<_>>();
-
-    prover_state.add_extension_scalars(&dot_product_computation_column_evals);
-    let dot_product_computation_column_statements = (0..DIMENSION)
-        .map(|i| {
-            vec![Evaluation::new(
-                dot_product_air_point.clone(),
-                dot_product_computation_column_evals[i],
-            )]
-        })
-        .collect::<Vec<_>>();
+    let dot_product_computation_column_statements = dot_product_computation_ext_to_base_helper
+        .after_commitment(&mut prover_state, &dot_product_air_point);
 
     let mem_lookup_eval_indexes_partial_point =
         MultilinearPoint(base_memory_logup_star_statements.on_indexes.point[2..].to_vec());
