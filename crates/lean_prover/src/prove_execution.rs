@@ -1052,12 +1052,15 @@ pub fn prove_execution(
 
     let dot_product_logup_star_indexes_inner_point =
         MultilinearPoint(mem_lookup_eval_indexes_partial_point.0[5 + index_diff..].to_vec());
-    let dot_product_logup_star_indexes_inner_value_a =
-        dot_product_columns[2].evaluate(&dot_product_logup_star_indexes_inner_point);
-    let dot_product_logup_star_indexes_inner_value_b =
-        dot_product_columns[3].evaluate(&dot_product_logup_star_indexes_inner_point);
-    let dot_product_logup_star_indexes_inner_value_res =
-        dot_product_columns[4].evaluate(&dot_product_logup_star_indexes_inner_point);
+    let dot_product_logup_star_indexes_inner_value_a = dot_product_columns
+        [DOT_PRODUCT_AIR_COL_INDEX_A]
+        .evaluate(&dot_product_logup_star_indexes_inner_point);
+    let dot_product_logup_star_indexes_inner_value_b = dot_product_columns
+        [DOT_PRODUCT_AIR_COL_INDEX_B]
+        .evaluate(&dot_product_logup_star_indexes_inner_point);
+    let dot_product_logup_star_indexes_inner_value_res = dot_product_columns
+        [DOT_PRODUCT_AIR_COL_INDEX_RES]
+        .evaluate(&dot_product_logup_star_indexes_inner_point);
 
     prover_state.add_extension_scalars(&[
         dot_product_logup_star_indexes_inner_value_a,
