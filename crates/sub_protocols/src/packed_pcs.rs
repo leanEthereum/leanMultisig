@@ -10,9 +10,6 @@ use utils::{
 };
 use whir_p3::*;
 
-mod packed_lookup;
-pub use packed_lookup::*;
-
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub original_poly_index: usize,

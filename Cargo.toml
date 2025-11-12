@@ -44,7 +44,7 @@ air = { path = "crates/air" }
 utils = { path = "crates/utils" }
 lean_vm = { path = "crates/lean_vm" }
 xmss = { path = "crates/xmss" }
-packed_pcs = { path = "crates/packed_pcs" }
+sub_protocols = { path = "crates/sub_protocols" }
 lookup = { path = "crates/lookup" }
 lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }

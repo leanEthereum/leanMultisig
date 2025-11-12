@@ -369,11 +369,11 @@ dependencies = [
  "p3-poseidon2-air",
  "p3-symmetric",
  "p3-util",
- "packed_pcs",
  "pest",
  "pest_derive",
  "rand",
  "rayon",
+ "sub_protocols",
  "tracing",
  "utils",
  "whir-p3",
@@ -398,12 +398,12 @@ dependencies = [
  "p3-poseidon2-air",
  "p3-symmetric",
  "p3-util",
- "packed_pcs",
  "pest",
  "pest_derive",
  "poseidon_circuit",
  "rand",
  "rayon",
+ "sub_protocols",
  "tracing",
  "utils",
  "vm_air",
@@ -430,11 +430,11 @@ dependencies = [
  "p3-poseidon2-air",
  "p3-symmetric",
  "p3-util",
- "packed_pcs",
  "pest",
  "pest_derive",
  "rand",
  "rayon",
+ "sub_protocols",
  "thiserror",
  "tracing",
  "utils",
@@ -789,23 +789,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "packed_pcs"
-version = "0.1.0"
-dependencies = [
- "derive_more",
- "lookup",
- "multilinear-toolkit",
- "p3-field",
- "p3-koala-bear",
- "p3-util",
- "rand",
- "rayon",
- "tracing",
- "utils",
- "whir-p3",
-]
-
-[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -869,8 +852,8 @@ dependencies = [
  "p3-koala-bear",
  "p3-monty-31",
  "p3-poseidon2",
- "packed_pcs",
  "rand",
+ "sub_protocols",
  "tracing",
  "utils",
  "whir-p3",
@@ -977,10 +960,10 @@ dependencies = [
  "p3-poseidon2-air",
  "p3-symmetric",
  "p3-util",
- "packed_pcs",
  "rand",
  "rayon",
  "serde_json",
+ "sub_protocols",
  "tracing",
  "utils",
  "whir-p3",
@@ -1090,6 +1073,23 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "sub_protocols"
+version = "0.1.0"
+dependencies = [
+ "derive_more",
+ "lookup",
+ "multilinear-toolkit",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-util",
+ "rand",
+ "rayon",
+ "tracing",
+ "utils",
+ "whir-p3",
+]
 
 [[package]]
 name = "sumcheck"
@@ -1317,11 +1317,11 @@ dependencies = [
  "p3-poseidon2-air",
  "p3-symmetric",
  "p3-util",
- "packed_pcs",
  "pest",
  "pest_derive",
  "rand",
  "rayon",
+ "sub_protocols",
  "tracing",
  "utils",
  "whir-p3",
@@ -1575,12 +1575,12 @@ dependencies = [
  "p3-poseidon2-air",
  "p3-symmetric",
  "p3-util",
- "packed_pcs",
  "pest",
  "pest_derive",
  "poseidon_circuit",
  "rand",
  "rayon",
+ "sub_protocols",
  "tracing",
  "utils",
  "whir-p3",

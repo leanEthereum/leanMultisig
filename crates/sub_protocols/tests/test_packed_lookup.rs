@@ -2,8 +2,8 @@ use multilinear_toolkit::prelude::*;
 use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
-use packed_pcs::{PackedLookupProver, PackedLookupVerifier};
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use sub_protocols::{PackedLookupProver, PackedLookupVerifier};
 use utils::{ToUsize, assert_eq_many, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;

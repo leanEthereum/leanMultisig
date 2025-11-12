@@ -17,5 +17,5 @@ p3-poseidon2.workspace = true
 p3-monty-31.workspace = true
 rand.workspace = true
 whir-p3.workspace = true
-packed_pcs.workspace = true
+sub_protocols.workspace = true
 
