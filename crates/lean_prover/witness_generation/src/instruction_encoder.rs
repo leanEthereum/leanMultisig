@@ -29,6 +29,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             shift_0,
             shift_1,
             res,
+            for_range_check: _,
         } => {
             fields[COL_INDEX_DEREF] = F::ONE;
             fields[COL_INDEX_FLAG_A] = F::ZERO;

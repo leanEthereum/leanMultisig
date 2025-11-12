@@ -404,6 +404,7 @@ dependencies = [
  "poseidon_circuit",
  "rand",
  "rayon",
+ "thiserror",
  "tracing",
  "utils",
  "vm_air",

@@ -4,6 +4,45 @@ use utils::{poseidon16_permute, poseidon24_permute};
 
 const DEFAULT_NO_VEC_RUNTIME_MEMORY: usize = 1 << 15;
 
+// TODO: create more test programs
+fn range_check_program(value: usize, max: usize) -> String {
+    let program = format!(
+        r#"
+    //fn func(val) {{
+        //if 0 == 0 {{
+            //range_check(val, {max});
+        //}}
+        //abc = 0;
+        //range_check(abc, {max});
+        //return;
+    //}}
+
+    fn main() {{
+        val = {value};
+        //func(val);
+        range_check(val, {max});
+        //range_check(val, {max});
+        return;
+    }}
+    "#
+    );
+    program.to_string()
+}
+
+#[test]
+fn test_compile_range_check() {
+    let program = range_check_program(1000, 100000);
+    let bytecode = compile_program(program.clone());
+    println!("{}", bytecode);
+    compile_and_run(
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+    //TODO test more
+}
+
 #[test]
 #[should_panic]
 fn test_duplicate_function_name() {

@@ -111,7 +111,7 @@ pub fn transpose<F: Copy + Send + Sync>(
     width: usize,
     column_extra_capacity: usize,
 ) -> Vec<Vec<F>> {
-    assert!((matrix.len().is_multiple_of(width)));
+    assert!(matrix.len().is_multiple_of(width));
     let height = matrix.len() / width;
     let res = vec![
         {

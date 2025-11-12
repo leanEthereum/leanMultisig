@@ -13,7 +13,8 @@ impl IntermediateInstruction {
             | Self::DecomposeCustom { .. }
             | Self::CounterHint { .. }
             | Self::Inverse { .. }
-            | Self::LocationReport { .. } => true,
+            | Self::LocationReport { .. }
+            | Self::RangeCheck { .. } => true,
             Self::Computation { .. }
             | Self::Panic
             | Self::Deref { .. }
@@ -264,6 +265,7 @@ fn compile_block(
                 shift_0,
                 shift_1,
                 res,
+                for_range_check,
             } => {
                 low_level_bytecode.push(Instruction::Deref {
                     shift_0: eval_const_expression(&shift_0, compiler).to_usize(),
@@ -279,6 +281,7 @@ fn compile_block(
                             MemOrFpOrConstant::Constant(eval_const_expression(&c, compiler))
                         }
                     },
+                    for_range_check,
                 });
             }
             IntermediateInstruction::JumpIfNotZero {
@@ -407,8 +410,15 @@ fn compile_block(
                 let hint = Hint::LocationReport { location };
                 hints.entry(pc).or_default().push(hint);
             }
+            IntermediateInstruction::RangeCheck { value, max } => {
+                let hint = Hint::RangeCheck {
+                    value: value.try_into_mem_or_fp(compiler).unwrap(),
+                    // TODO: support max being an IntermediateValue
+                    max: MemOrConstant::Constant(eval_const_expression(&max, compiler)),
+                };
+                hints.entry(pc).or_default().push(hint);
+            }
         }
-
         if !instruction.is_hint() {
             pc += 1;
         }

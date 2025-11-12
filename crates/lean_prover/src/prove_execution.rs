@@ -851,11 +851,11 @@ pub fn prove_execution(
         &mut base_memory_poly_eq_point,
         memory_poly_eq_point_alpha.square(),
     );
-    let base_memory_pushforward = compute_pushforward(
-        &base_memory_indexes,
-        memory.len(),
-        &base_memory_poly_eq_point,
-    );
+
+    let memory_len = memory.len();
+
+    let base_memory_pushforward =
+        compute_pushforward(&base_memory_indexes, memory_len, &base_memory_poly_eq_point);
 
     // 2nd Commitment
     let extension_pols = vec![
