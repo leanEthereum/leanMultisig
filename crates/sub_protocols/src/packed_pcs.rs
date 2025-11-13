@@ -349,7 +349,12 @@ pub fn packed_pcs_global_statements_for_prover<
                     statement.point.0.len(),
                     "poly: {poly_index}"
                 );
-                assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
+                assert!(
+                    chunks[0]
+                        .offset_in_packed
+                        .unwrap()
+                        .is_multiple_of(1 << chunks[0].n_vars)
+                );
 
                 sub_packed_statements.push(Evaluation::new(
                     chunks[0]
@@ -505,7 +510,12 @@ pub fn packed_pcs_global_statements_for_verifier<
             if chunks.len() == 1 {
                 assert!(!chunks[0].public_data, "TODO");
                 assert_eq!(chunks[0].n_vars, statement.point.0.len());
-                assert!(chunks[0].offset_in_packed.unwrap() % (1 << chunks[0].n_vars) == 0);
+                assert!(
+                    chunks[0]
+                        .offset_in_packed
+                        .unwrap()
+                        .is_multiple_of(1 << chunks[0].n_vars)
+                );
                 packed_statements.push(Evaluation::new(
                     chunks[0]
                         .global_point_for_statement(&statement.point, all_chunks.packed_n_vars),

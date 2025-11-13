@@ -37,17 +37,15 @@ impl<EF: ExtensionField<PF<EF>>> ExtensionCommitmentFromBaseProver<EF> {
         let sub_evals = self
             .sub_columns_to_commit
             .par_iter()
-            .map(|slice| slice.evaluate(&evaluation_point))
+            .map(|slice| slice.evaluate(evaluation_point))
             .collect::<Vec<_>>();
 
         prover_state.add_extension_scalars(&sub_evals);
 
-        let statements_remaning_to_prove = sub_evals
+        sub_evals
             .iter()
             .map(|&sub_value| vec![Evaluation::new(evaluation_point.clone(), sub_value)])
-            .collect::<Vec<_>>();
-
-        statements_remaning_to_prove
+            .collect::<Vec<_>>()
     }
 }
 

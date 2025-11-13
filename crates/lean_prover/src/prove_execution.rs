@@ -110,7 +110,7 @@ pub fn prove_execution(
 
     let dot_product_computations: &[EF] = &dot_product_columns[DOT_PRODUCT_AIR_COL_COMPUTATION];
     let dot_product_computation_ext_to_base_helper =
-        ExtensionCommitmentFromBaseProver::before_commitment(&dot_product_computations);
+        ExtensionCommitmentFromBaseProver::before_commitment(dot_product_computations);
 
     let n_rows_table_dot_products = dot_product_flags.len() - dot_product_padding_len;
     let log_n_rows_dot_product_table = log2_strict_usize(dot_product_flags.len());

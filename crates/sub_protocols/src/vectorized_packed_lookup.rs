@@ -23,6 +23,7 @@ where
     }
 
     // before committing to the pushforward
+    #[allow(clippy::too_many_arguments)]
     pub fn step_1(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         table: &'a [PF<EF>], // table[0] is assumed to be zero
@@ -35,7 +36,7 @@ where
     ) -> Self {
         let folding_scalars =
             MultilinearPoint(prover_state.sample_vec(log2_strict_usize(VECTOR_LEN)));
-        let folded_table = fold_multilinear_chunks(&table, &folding_scalars);
+        let folded_table = fold_multilinear_chunks(table, &folding_scalars);
 
         let folding_poly_eq = eval_eq(&folding_scalars);
         let folded_value_columns = value_columns
@@ -165,7 +166,7 @@ fn get_folded_statements<EF: Field>(
                 .map(|meval| {
                     MultiEvaluation::new(
                         meval.point.clone(),
-                        vec![meval.values.evaluate(&folding_scalars)],
+                        vec![meval.values.evaluate(folding_scalars)],
                     )
                 })
                 .collect::<Vec<_>>()

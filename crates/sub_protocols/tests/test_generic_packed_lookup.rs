@@ -15,7 +15,7 @@ fn test_generic_packed_lookup() {
     let lookups_height_and_cols: Vec<(usize, usize)> =
         vec![(4587, 1), (1234, 3), (9411, 1), (7890, 2)];
     let default_indexes = vec![7, 11, 0, 2];
-    let n_statements = vec![1, 5, 2, 1];
+    let n_statements = [1, 5, 2, 1];
     assert_eq_many!(
         lookups_height_and_cols.len(),
         default_indexes.len(),
@@ -24,8 +24,8 @@ fn test_generic_packed_lookup() {
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(non_zero_memory_size.next_power_of_two());
-    for i in 1..non_zero_memory_size {
-        memory[i] = rng.random();
+    for mem in memory.iter_mut().take(non_zero_memory_size).skip(1) {
+        *mem = rng.random();
     }
 
     let mut all_indexe_columns = vec![];
@@ -33,8 +33,8 @@ fn test_generic_packed_lookup() {
     let mut all_statements = vec![];
     for (i, (n_lines, n_cols)) in lookups_height_and_cols.iter().enumerate() {
         let mut indexes = vec![F::from_usize(default_indexes[i]); n_lines.next_power_of_two()];
-        for i in 0..*n_lines {
-            indexes[i] = F::from_usize(rng.random_range(0..non_zero_memory_size));
+        for idx in indexes.iter_mut().take(*n_lines) {
+            *idx = F::from_usize(rng.random_range(0..non_zero_memory_size));
         }
         all_indexe_columns.push(indexes);
         let indexes = all_indexe_columns.last().unwrap();
@@ -77,7 +77,7 @@ fn test_generic_packed_lookup() {
     );
 
     // phony commitment to pushforward
-    prover_state.hint_extension_scalars(&packed_lookup_prover.pushforward_to_commit());
+    prover_state.hint_extension_scalars(packed_lookup_prover.pushforward_to_commit());
 
     let remaining_claims_to_prove =
         packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);

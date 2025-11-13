@@ -25,15 +25,19 @@ fn test_vectorized_packed_lookup() {
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(non_zero_memory_size.next_power_of_two());
-    for i in VECTOR_LEN..non_zero_memory_size {
-        memory[i] = rng.random();
+    for mem in memory
+        .iter_mut()
+        .take(non_zero_memory_size)
+        .skip(VECTOR_LEN)
+    {
+        *mem = rng.random();
     }
 
     let mut all_indexe_columns = vec![];
     for (i, height) in cols_heights.iter().enumerate() {
         let mut indexes = vec![F::from_usize(default_indexes[i]); height.next_power_of_two()];
-        for i in 0..*height {
-            indexes[i] = F::from_usize(rng.random_range(0..non_zero_memory_size / VECTOR_LEN));
+        for idx in indexes.iter_mut().take(*height) {
+            *idx = F::from_usize(rng.random_range(0..non_zero_memory_size / VECTOR_LEN));
         }
         all_indexe_columns.push(indexes);
     }
@@ -78,7 +82,7 @@ fn test_vectorized_packed_lookup() {
     );
 
     // phony commitment to pushforward
-    prover_state.hint_extension_scalars(&packed_lookup_prover.pushforward_to_commit());
+    prover_state.hint_extension_scalars(packed_lookup_prover.pushforward_to_commit());
 
     let remaining_claims_to_prove =
         packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);

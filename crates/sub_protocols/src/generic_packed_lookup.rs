@@ -41,6 +41,7 @@ where
     }
 
     // before committing to the pushforward
+    #[allow(clippy::too_many_arguments)]
     pub fn step_1(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         table: VecOrSlice<'a, TF>, // table[0] is assumed to be zero
@@ -361,7 +362,7 @@ fn expand_multi_evals<EF: Field>(
 ) -> Vec<Vec<Evaluation<EF>>> {
     statements
         .iter()
-        .map(|multi_evals| {
+        .flat_map(|multi_evals| {
             let mut evals = vec![vec![]; multi_evals[0].num_values()];
             for meval in multi_evals {
                 for (i, &v) in meval.values.iter().enumerate() {
@@ -370,6 +371,5 @@ fn expand_multi_evals<EF: Field>(
             }
             evals
         })
-        .flatten()
         .collect::<Vec<_>>()
 }

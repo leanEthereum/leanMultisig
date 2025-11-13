@@ -24,15 +24,15 @@ fn test_normal_packed_lookup() {
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(non_zero_memory_size.next_power_of_two());
-    for i in 1..non_zero_memory_size {
-        memory[i] = rng.random();
+    for mem in memory.iter_mut().take(non_zero_memory_size).skip(1) {
+        *mem = rng.random();
     }
 
     let mut all_indexe_columns = vec![];
     for (i, height) in base_cols_heights.iter().enumerate() {
         let mut indexes = vec![F::from_usize(default_indexes[i]); height.next_power_of_two()];
-        for i in 0..*height {
-            indexes[i] = F::from_usize(rng.random_range(0..non_zero_memory_size));
+        for idx in indexes.iter_mut().take(*height) {
+            *idx = F::from_usize(rng.random_range(0..non_zero_memory_size));
         }
         all_indexe_columns.push(indexes);
     }
@@ -41,8 +41,8 @@ fn test_normal_packed_lookup() {
             F::from_usize(default_indexes[i + base_cols_heights.len()]);
             height.next_power_of_two()
         ];
-        for i in 0..*height {
-            indexes[i] = F::from_usize(rng.random_range(
+        for idx in indexes.iter_mut().take(*height) {
+            *idx = F::from_usize(rng.random_range(
                 0..non_zero_memory_size - <EF as BasedVectorSpace<PF<EF>>>::DIMENSION,
             ));
         }
@@ -108,7 +108,7 @@ fn test_normal_packed_lookup() {
     );
 
     // phony commitment to pushforward
-    prover_state.hint_extension_scalars(&packed_lookup_prover.pushforward_to_commit());
+    prover_state.hint_extension_scalars(packed_lookup_prover.pushforward_to_commit());
 
     let remaining_claims_to_prove =
         packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
