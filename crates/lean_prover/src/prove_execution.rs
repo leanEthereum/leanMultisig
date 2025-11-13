@@ -511,7 +511,7 @@ pub fn prove_execution(
             )
         });
 
-    // TODO compute eq polynomial 1 time and then inner product with each column
+    let grand_product_exec_eq_weights = eval_eq_packed(&grand_product_exec_sumcheck_point);
     for col in [
         COL_INDEX_OPERAND_C,
         COL_INDEX_ADD,
@@ -525,7 +525,10 @@ pub fn prove_execution(
     ] {
         grand_product_exec_sumcheck_inner_evals.insert(
             col,
-            full_trace[col].evaluate(&grand_product_exec_sumcheck_point),
+            dot_product_ef_packed_par(
+                &grand_product_exec_eq_weights,
+                FPacking::<F>::pack_slice(&full_trace[col]),
+            ),
         );
     }
     assert_eq!(
