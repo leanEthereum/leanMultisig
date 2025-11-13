@@ -93,8 +93,7 @@ pub fn run_poseidon_benchmark<
         proof_size_gkr,
         output_layer,
         prover_duration,
-        output_values_prover,
-        claim_point,
+        output_statements_prover,
     ) = {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
@@ -140,7 +139,7 @@ pub fn run_poseidon_benchmark<
         let claim_point = prover_state.sample_vec(log_n_poseidons);
 
         let GKRPoseidonResult {
-            output_values,
+            output_statements,
             input_statements,
             cubes_statements,
         } = prove_poseidon_gkr(
@@ -150,13 +149,14 @@ pub fn run_poseidon_benchmark<
             UNIVARIATE_SKIPS,
             &layers,
         );
+        assert_eq!(&output_statements.point.0, &claim_point);
 
         // PCS opening
         let mut pcs_statements = vec![];
-        for (point_to_prove, evals_to_prove) in [input_statements, cubes_statements] {
-            for v in evals_to_prove {
+        for meval in [input_statements, cubes_statements] {
+            for v in meval.values {
                 pcs_statements.push(vec![Evaluation {
-                    point: point_to_prove.clone(),
+                    point: meval.point.clone(),
                     value: v,
                 }]);
             }
@@ -190,14 +190,13 @@ pub fn run_poseidon_benchmark<
                 true => witness.compression.unwrap().2,
             },
             prover_duration,
-            output_values,
-            claim_point,
+            output_statements,
         )
     };
 
     let verifier_time = Instant::now();
 
-    let output_values_verifier = {
+    let output_statements_verifier = {
         // ---------------------------------------------------- VERIFIER ----------------------------------------------------
 
         let parsed_pcs_commitment = packed_pcs_parse_commitment(
@@ -211,7 +210,7 @@ pub fn run_poseidon_benchmark<
         let output_claim_point = verifier_state.sample_vec(log_n_poseidons);
 
         let GKRPoseidonResult {
-            output_values,
+            output_statements,
             input_statements,
             cubes_statements,
         } = verify_poseidon_gkr(
@@ -222,13 +221,14 @@ pub fn run_poseidon_benchmark<
             UNIVARIATE_SKIPS,
             if compress { Some(n_compressions) } else { None },
         );
+        assert_eq!(&output_statements.point.0, &output_claim_point);
 
         // PCS verification
         let mut pcs_statements = vec![];
-        for (point_to_verif, evals_to_verif) in [input_statements, cubes_statements] {
-            for v in evals_to_verif {
+        for meval in [input_statements, cubes_statements] {
+            for v in meval.values {
                 pcs_statements.push(vec![Evaluation {
-                    point: point_to_verif.clone(),
+                    point: meval.point.clone(),
                     value: v,
                 }]);
             }
@@ -250,7 +250,7 @@ pub fn run_poseidon_benchmark<
                 global_statements,
             )
             .unwrap();
-        output_values
+        output_statements
     };
     let verifier_duration = verifier_time.elapsed();
 
@@ -304,13 +304,13 @@ pub fn run_poseidon_benchmark<
             assert_eq!(PFPacking::<EF>::unpack_slice(layer), data_to_hash[i]);
         });
     }
-    assert_eq!(output_values_verifier, output_values_prover);
+    assert_eq!(&output_statements_prover, &output_statements_verifier);
     assert_eq!(
-        output_values_verifier.as_slice(),
+        &output_statements_verifier.values,
         &output_layer
             .iter()
             .map(|layer| PFPacking::<EF>::unpack_slice(layer)
-                .evaluate(&MultilinearPoint(claim_point.clone())))
+                .evaluate(&output_statements_verifier.point))
             .collect::<Vec<_>>()
     );
 

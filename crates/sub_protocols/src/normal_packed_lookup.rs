@@ -145,8 +145,9 @@ where
             for eval in eval_group {
                 let sub_evals = verifier_state
                     .next_extension_scalars_vec(<EF as BasedVectorSpace<PF<EF>>>::DIMENSION)?;
-                // sanity check:
-                assert_eq!(dot_product_with_base(&sub_evals), eval.value);
+                if dot_product_with_base(&sub_evals) != eval.value {
+                    return Err(ProofError::InvalidProof);
+                }
                 multi_evals.push(MultiEvaluation::new(eval.point.clone(), sub_evals));
             }
 

@@ -6,82 +6,32 @@ use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 use poseidon_circuit::{PoseidonGKRLayers, PoseidonWitness, generate_poseidon_witness};
 use tracing::instrument;
-use utils::{padd_with_zero_to_next_power_of_two, transposed_par_iter_mut};
+use utils::transposed_par_iter_mut;
 
-pub fn all_poseidon_16_indexes(poseidons_16: &[WitnessPoseidon16]) -> [Vec<F>; 3] {
-    [
-        poseidons_16
-            .par_iter()
-            .map(|p| F::from_usize(p.addr_input_a))
-            .collect::<Vec<_>>(),
-        poseidons_16
-            .par_iter()
-            .map(|p| F::from_usize(p.addr_input_b))
-            .collect::<Vec<_>>(),
-        poseidons_16
-            .par_iter()
-            .map(|p| F::from_usize(p.addr_output))
-            .collect::<Vec<_>>(),
-    ]
-}
-
-pub fn all_poseidon_24_indexes(poseidons_24: &[WitnessPoseidon24]) -> [Vec<F>; 3] {
-    [
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_24
-                .iter()
-                .map(|p| F::from_usize(p.addr_input_a))
-                .collect::<Vec<_>>(),
-        ),
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_24
-                .iter()
-                .map(|p| F::from_usize(p.addr_input_b))
-                .collect::<Vec<_>>(),
-        ),
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_24
-                .iter()
-                .map(|p| F::from_usize(p.addr_output))
-                .collect::<Vec<_>>(),
-        ),
-    ]
-}
-
-pub fn full_poseidon_indexes_poly(
-    poseidons_16: &[WitnessPoseidon16],
-    poseidons_24: &[WitnessPoseidon24],
-) -> Vec<F> {
-    let max_n_poseidons = poseidons_16
-        .len()
-        .max(poseidons_24.len())
-        .next_power_of_two();
-    let mut all_poseidon_indexes = F::zero_vec(8 * max_n_poseidons);
+pub fn all_poseidon_16_indexes(poseidons_16: &[WitnessPoseidon16]) -> [Vec<F>; 4] {
+    assert!(poseidons_16.len().is_power_of_two());
     #[rustfmt::skip]
-        let chunks = [
-            poseidons_16.par_iter().map(|p| p.addr_input_a).collect::<Vec<_>>(),
-            poseidons_16.par_iter().map(|p| p.addr_input_b).collect::<Vec<_>>(),
-            poseidons_16.par_iter().map(|p| p.addr_output).collect::<Vec<_>>(),
-            poseidons_16.par_iter().map(|p| {
-                (1 - p.is_compression  as usize) * (p.addr_output + 1)
-            })
-            .collect::<Vec<_>>(),
-            poseidons_24.par_iter().map(|p| p.addr_input_a).collect::<Vec<_>>(),
-            poseidons_24.par_iter().map(|p| p.addr_input_a + 1).collect::<Vec<_>>(),
-            poseidons_24.par_iter().map(|p| p.addr_input_b).collect::<Vec<_>>(),
-            poseidons_24.par_iter().map(|p| p.addr_output).collect::<Vec<_>>()
-        ];
+    let res = [
+        poseidons_16.par_iter().map(|p| F::from_usize(p.addr_input_a)).collect::<Vec<_>>(),
+        poseidons_16.par_iter().map(|p| F::from_usize(p.addr_input_b)).collect::<Vec<_>>(),
+        poseidons_16.par_iter().map(|p| F::from_usize(p.addr_output)).collect::<Vec<_>>(),
+        poseidons_16.par_iter().map(|p| {
+            F::from_usize((1 - p.is_compression  as usize) * (p.addr_output + 1))
+        }).collect::<Vec<_>>(),
+    ];
+    res
+}
 
-    for (chunk_idx, addrs) in chunks.into_iter().enumerate() {
-        all_poseidon_indexes[chunk_idx * max_n_poseidons..]
-            .par_iter_mut()
-            .zip(addrs)
-            .for_each(|(slot, addr)| {
-                *slot = F::from_usize(addr);
-            });
-    }
-
-    all_poseidon_indexes
+pub fn all_poseidon_24_indexes(poseidons_24: &[WitnessPoseidon24]) -> [Vec<F>; 4] {
+    assert!(poseidons_24.len().is_power_of_two());
+    #[rustfmt::skip]
+    let res = [
+        poseidons_24.par_iter().map(|p| F::from_usize(p.addr_input_a)).collect::<Vec<_>>(),
+        poseidons_24.par_iter().map(|p| F::from_usize(p.addr_input_a + 1)).collect::<Vec<_>>(),
+        poseidons_24.par_iter().map(|p| F::from_usize(p.addr_input_b)).collect::<Vec<_>>(),
+        poseidons_24.par_iter().map(|p| F::from_usize(p.addr_output)).collect::<Vec<_>>()
+    ];
+    res
 }
 
 #[instrument(skip_all)]

@@ -164,3 +164,7 @@ impl<'a, T> VecOrSlice<'a, T> {
         }
     }
 }
+
+pub fn encapsulate_vec<T>(v: Vec<T>) -> Vec<Vec<T>> {
+    v.into_iter().map(|x| vec![x]).collect()
+}

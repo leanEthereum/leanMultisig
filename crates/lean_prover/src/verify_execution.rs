@@ -352,7 +352,7 @@ pub fn verify_execution(
         dot_product_table.verify(&mut verifier_state, 1, table_dot_products_log_n_rows)?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
-    let gkr_16 = verify_poseidon_gkr(
+    let p16_gkr = verify_poseidon_gkr(
         &mut verifier_state,
         log_n_p16,
         &random_point_p16,
@@ -360,20 +360,9 @@ pub fn verify_execution(
         UNIVARIATE_SKIPS,
         Some(n_compressions_16),
     );
-    let p16_cubes_statements = gkr_16
-        .cubes_statements
-        .1
-        .iter()
-        .map(|&e| {
-            vec![Evaluation {
-                point: gkr_16.cubes_statements.0.clone(),
-                value: e,
-            }]
-        })
-        .collect::<Vec<_>>();
 
     let random_point_p24 = MultilinearPoint(verifier_state.sample_vec(log_n_p24));
-    let gkr_24 = verify_poseidon_gkr(
+    let p24_gkr = verify_poseidon_gkr(
         &mut verifier_state,
         log_n_p24,
         &random_point_p24,
@@ -381,20 +370,6 @@ pub fn verify_execution(
         UNIVARIATE_SKIPS,
         None,
     );
-    let p24_cubes_statements = gkr_24
-        .cubes_statements
-        .1
-        .iter()
-        .map(|&e| {
-            vec![Evaluation {
-                point: gkr_24.cubes_statements.0.clone(),
-                value: e,
-            }]
-        })
-        .collect::<Vec<_>>();
-
-    let poseidon_logup_star_alpha = verifier_state.sample();
-    let memory_folding_challenges = MultilinearPoint(verifier_state.sample_vec(LOG_VECTOR_LEN));
 
     let non_used_precompiles_evals = verifier_state
         .next_extension_scalars_vec(N_INSTRUCTION_COLUMNS - N_INSTRUCTION_COLUMNS_IN_AIR)?;
@@ -443,13 +418,26 @@ pub fn verify_execution(
         &public_memory, // we need to pass the first few values of memory, public memory is enough
     )?;
 
+    let vectorized_lookup_into_memory = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
+        &mut verifier_state,
+        [
+            vec![n_poseidons_16.max(1 << LOG_MIN_POSEIDONS_16); 4],
+            vec![n_poseidons_24.max(1 << LOG_MIN_POSEIDONS_24); 4],
+        ]
+        .concat(),
+        default_poseidon_indexes(),
+        poseidon_lookup_statements(&p16_gkr, &p24_gkr),
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
+        &public_memory, // we need to pass the first few values of memory, public memory is enough
+    )?;
+
     let extension_dims = vec![
-        ColDims::padded(public_memory.len() + private_memory_len, EF::ZERO), // memory
+        ColDims::padded(public_memory.len() + private_memory_len, EF::ZERO), // memory pushwordard
         ColDims::padded(
             (public_memory.len() + private_memory_len).div_ceil(VECTOR_LEN),
             EF::ZERO,
-        ), // memory (folded)
-        ColDims::padded(bytecode.instructions.len(), EF::ZERO),
+        ), // memory (folded) pushwordard
+        ColDims::padded(bytecode.instructions.len(), EF::ZERO),              // bytecode pushforward
     ];
 
     let parsed_commitment_extension = packed_pcs_parse_commitment(
@@ -464,27 +452,11 @@ pub fn verify_execution(
     )
     .unwrap();
 
-    let normal_lookup_into_memory_statements =
+    let normal_lookup_statements =
         normal_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
 
-    let poseidon_lookup_statements = get_poseidon_lookup_statements(
-        (log_n_p16, log_n_p24),
-        &gkr_16.input_statements,
-        &(random_point_p16.clone(), gkr_16.output_values),
-        &gkr_24.input_statements,
-        &(random_point_p24.clone(), gkr_24.output_values),
-        &memory_folding_challenges,
-    );
-
-    let poseidon_lookup_log_length = 3 + log_n_p16.max(log_n_p24);
-    let poseidon_logup_star_statements = verify_logup_star(
-        &mut verifier_state,
-        log_memory - 3, // "-3" because it's folded memory
-        poseidon_lookup_log_length,
-        &poseidon_lookup_statements,
-        poseidon_logup_star_alpha,
-    )
-    .unwrap();
+    let vectorized_lookup_statements =
+        vectorized_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
 
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
@@ -501,30 +473,27 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let poseidon_lookup_memory_point = MultilinearPoint(
-        [
-            poseidon_logup_star_statements.on_table.point.0.clone(),
-            memory_folding_challenges.0,
-        ]
-        .concat(),
-    );
-
-    memory_statements.push(normal_lookup_into_memory_statements.on_table.clone());
-    memory_statements.push(Evaluation::new(
-        poseidon_lookup_memory_point.clone(),
-        poseidon_logup_star_statements.on_table.value,
-    ));
+    memory_statements.push(normal_lookup_statements.on_table.clone());
+    memory_statements.push(vectorized_lookup_statements.on_table.clone());
 
     {
         // index opening for poseidon lookup
 
-        let (correcting_factor_p16, correcting_factor_p24) = poseidon_lookup_correcting_factors(
-            log_n_p16,
-            log_n_p24,
-            &poseidon_logup_star_statements.on_indexes.point,
+        // index opening for poseidon lookup
+        p16_indexes_a_statements.extend(vectorized_lookup_statements.on_indexes[0].clone());
+        p16_indexes_b_statements.extend(vectorized_lookup_statements.on_indexes[1].clone());
+        p16_indexes_res_statements.extend(vectorized_lookup_statements.on_indexes[2].clone());
+        // vectorized_lookup_statements.on_indexes[3] is proven via sumcheck below
+        p24_indexes_a_statements.extend(vectorized_lookup_statements.on_indexes[4].clone());
+        p24_indexes_a_statements.extend(
+            vectorized_lookup_statements.on_indexes[5]
+                .iter()
+                .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
         );
+        p24_indexes_b_statements.extend(vectorized_lookup_statements.on_indexes[6].clone());
+        p24_indexes_res_statements.extend(vectorized_lookup_statements.on_indexes[7].clone());
 
-        let mut inner_values = verifier_state.next_extension_scalars_vec(6)?;
+        let alpha = verifier_state.sample();
 
         let (p16_value_index_res_b, sc_eval) = sumcheck_verify_with_univariate_skip(
             &mut verifier_state,
@@ -532,6 +501,18 @@ pub fn verify_execution(
             log_n_p16,
             1, // TODO univariate skip
         )?;
+        let mut eq_poly_eval = EF::ZERO;
+        let mut p16_value_index_res_b_expected = EF::ZERO;
+        for (statement, alpha_power) in vectorized_lookup_statements.on_indexes[3]
+            .iter()
+            .zip(alpha.powers())
+        {
+            p16_value_index_res_b_expected += statement.value * alpha_power;
+            eq_poly_eval += alpha_power * statement.point.eq_poly_outside(&sc_eval.point);
+        }
+        if p16_value_index_res_b_expected != p16_value_index_res_b {
+            return Err(ProofError::InvalidProof);
+        }
         let sc_res_index_value = verifier_state.next_extension_scalar()?;
         p16_indexes_res_statements.push(Evaluation::new(
             sc_eval.point.clone(),
@@ -541,44 +522,8 @@ pub fn verify_execution(
         if sc_res_index_value
             * (EF::ONE
                 - mle_of_zeros_then_ones((1 << log_n_p16) - n_compressions_16, &sc_eval.point))
-            * sc_eval.point.eq_poly_outside(&MultilinearPoint(
-                poseidon_logup_star_statements.on_indexes.point[3..].to_vec(),
-            ))
+            * eq_poly_eval
             != sc_eval.value
-        {
-            return Err(ProofError::InvalidProof);
-        }
-
-        add_poseidon_lookup_statements_on_indexes(
-            log_n_p16,
-            log_n_p24,
-            &poseidon_logup_star_statements.on_indexes.point,
-            &inner_values,
-            [
-                &mut p16_indexes_a_statements,
-                &mut p16_indexes_b_statements,
-                &mut p16_indexes_res_statements,
-            ],
-            [
-                &mut p24_indexes_a_statements,
-                &mut p24_indexes_b_statements,
-                &mut p24_indexes_res_statements,
-            ],
-        );
-
-        inner_values.insert(3, p16_value_index_res_b);
-        inner_values.insert(5, inner_values[4] + EF::ONE);
-
-        for v in &mut inner_values[..4] {
-            *v *= correcting_factor_p16;
-        }
-        for v in &mut inner_values[4..] {
-            *v *= correcting_factor_p24;
-        }
-
-        if inner_values.evaluate(&MultilinearPoint(
-            poseidon_logup_star_statements.on_indexes.point[..3].to_vec(),
-        )) != poseidon_logup_star_statements.on_indexes.value
         {
             return Err(ProofError::InvalidProof);
         }
@@ -624,17 +569,17 @@ pub fn verify_execution(
                 vec![exec_air_statement(COL_INDEX_FP), grand_product_fp_statement], // fp
                 [
                     vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_A)],
-                    normal_lookup_into_memory_statements.on_indexes[0].clone(),
+                    normal_lookup_statements.on_indexes[0].clone(),
                 ]
                 .concat(), // exec memory address A
                 [
                     vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_B)],
-                    normal_lookup_into_memory_statements.on_indexes[1].clone(),
+                    normal_lookup_statements.on_indexes[1].clone(),
                 ]
                 .concat(), // exec memory address B
                 [
                     vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_C)],
-                    normal_lookup_into_memory_statements.on_indexes[2].clone(),
+                    normal_lookup_statements.on_indexes[2].clone(),
                 ]
                 .concat(), // exec memory address C
                 p16_indexes_a_statements,
@@ -644,8 +589,8 @@ pub fn verify_execution(
                 p24_indexes_b_statements,
                 p24_indexes_res_statements,
             ],
-            p16_cubes_statements,
-            p24_cubes_statements,
+            encapsulate_vec(p16_gkr.cubes_statements.split()),
+            encapsulate_vec(p24_gkr.cubes_statements.split()),
             vec![
                 vec![
                     dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG),
@@ -660,7 +605,7 @@ pub fn verify_execution(
                         dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A),
                         grand_product_dot_product_table_indexes_statement_index_a,
                     ],
-                    normal_lookup_into_memory_statements.on_indexes[3].clone(),
+                    normal_lookup_statements.on_indexes[3].clone(),
                 ]
                 .concat(),
                 [
@@ -668,7 +613,7 @@ pub fn verify_execution(
                         dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B),
                         grand_product_dot_product_table_indexes_statement_index_b,
                     ],
-                    normal_lookup_into_memory_statements.on_indexes[4].clone(),
+                    normal_lookup_statements.on_indexes[4].clone(),
                 ]
                 .concat(),
                 [
@@ -676,7 +621,7 @@ pub fn verify_execution(
                         dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES),
                         grand_product_dot_product_table_indexes_statement_index_res,
                     ],
-                    normal_lookup_into_memory_statements.on_indexes[4].clone(),
+                    normal_lookup_statements.on_indexes[4].clone(),
                 ]
                 .concat(),
             ],
@@ -691,8 +636,8 @@ pub fn verify_execution(
         &extension_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &[
-            normal_lookup_into_memory_statements.on_pushforward,
-            poseidon_logup_star_statements.on_pushforward,
+            normal_lookup_statements.on_pushforward,
+            vectorized_lookup_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,
         ],
         &mut verifier_state,
