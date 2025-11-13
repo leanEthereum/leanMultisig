@@ -198,7 +198,7 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
 
     let evaluations_remaining_to_prove = info_span!("final evals").in_scope(|| {
         witness
-            .iter()
+            .par_iter()
             .map(|col| col.evaluate(&inner_challenges))
             .collect::<Vec<_>>()
     });
