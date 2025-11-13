@@ -30,7 +30,7 @@ where
         index_columns: Vec<&'a [PF<EF>]>,
         heights: Vec<usize>,
         default_indexes: Vec<usize>,
-        value_columns: Vec<&'a [Vec<PF<EF>>; VECTOR_LEN]>,
+        value_columns: Vec<[&'a [PF<EF>]; VECTOR_LEN]>,
         statements: Vec<Vec<MultiEvaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
     ) -> Self {

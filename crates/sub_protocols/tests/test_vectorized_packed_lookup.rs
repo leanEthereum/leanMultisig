@@ -1,3 +1,5 @@
+use std::array;
+
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
@@ -76,7 +78,10 @@ fn test_vectorized_packed_lookup() {
         all_indexe_columns.iter().map(Vec::as_slice).collect(),
         cols_heights.clone(),
         default_indexes.clone(),
-        all_value_columns.iter().collect(),
+        all_value_columns
+            .iter()
+            .map(|v| array::from_fn::<_, VECTOR_LEN, _>(|i| v[i].as_slice()))
+            .collect(),
         all_statements.clone(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
