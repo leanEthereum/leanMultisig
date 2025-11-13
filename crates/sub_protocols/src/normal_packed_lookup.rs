@@ -86,7 +86,7 @@ where
 
         let generic = GenericPackedLookupProver::step_1(
             prover_state,
-            table,
+            VecOrSlice::Slice(table),
             index_columns,
             heights,
             default_indexes,

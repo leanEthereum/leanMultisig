@@ -3,76 +3,77 @@ use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sub_protocols::{GenericPackedLookupProver, GenericPackedLookupVerifier};
-use utils::{ToUsize, VecOrSlice, assert_eq_many, build_prover_state, build_verifier_state};
+use sub_protocols::{VectorizedPackedLookupProver, VectorizedPackedLookupVerifier};
+use utils::{ToUsize, assert_eq_many, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 
+const VECTOR_LEN: usize = 8;
+
 #[test]
-fn test_generic_packed_lookup() {
+fn test_vectorized_packed_lookup() {
     let non_zero_memory_size: usize = 37412;
-    let lookups_height_and_cols: Vec<(usize, usize)> =
-        vec![(4587, 1), (1234, 3), (9411, 1), (7890, 2)];
-    let default_indexes = vec![7, 11, 0, 2];
-    let n_statements = vec![1, 5, 2, 1];
+    let cols_heights: Vec<usize> = vec![785, 1022, 4751];
+    let default_indexes = vec![7, 11, 0];
+    let n_statements = vec![1, 5, 2];
     assert_eq_many!(
-        lookups_height_and_cols.len(),
+        cols_heights.len(),
         default_indexes.len(),
         n_statements.len()
     );
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(non_zero_memory_size.next_power_of_two());
-    for i in 1..non_zero_memory_size {
+    for i in VECTOR_LEN..non_zero_memory_size {
         memory[i] = rng.random();
     }
 
     let mut all_indexe_columns = vec![];
-    let mut all_value_columns = vec![];
-    let mut all_statements = vec![];
-    for (i, (n_lines, n_cols)) in lookups_height_and_cols.iter().enumerate() {
-        let mut indexes = vec![F::from_usize(default_indexes[i]); n_lines.next_power_of_two()];
-        for i in 0..*n_lines {
-            indexes[i] = F::from_usize(rng.random_range(0..non_zero_memory_size));
+    for (i, height) in cols_heights.iter().enumerate() {
+        let mut indexes = vec![F::from_usize(default_indexes[i]); height.next_power_of_two()];
+        for i in 0..*height {
+            indexes[i] = F::from_usize(rng.random_range(0..non_zero_memory_size / VECTOR_LEN));
         }
         all_indexe_columns.push(indexes);
-        let indexes = all_indexe_columns.last().unwrap();
+    }
 
-        let mut columns = vec![];
-        for col_index in 0..*n_cols {
-            let mut col = F::zero_vec(n_lines.next_power_of_two());
-            for i in 0..n_lines.next_power_of_two() {
-                col[i] = memory[indexes[i].to_usize() + col_index];
+    let mut all_value_columns = vec![];
+    for index_col in &all_indexe_columns {
+        let mut values: [Vec<F>; VECTOR_LEN] = Default::default();
+        for index in index_col {
+            for i in 0..VECTOR_LEN {
+                values[i].push(memory[index.to_usize() * VECTOR_LEN + i]);
             }
-            columns.push(col);
         }
+        all_value_columns.push(values);
+    }
+
+    let mut all_statements = vec![];
+    for (value_cols, n_statements) in all_value_columns.iter().zip(&n_statements) {
         let mut statements = vec![];
-        for _ in 0..n_statements[i] {
-            let point = MultilinearPoint::<EF>::random(&mut rng, log2_ceil_usize(*n_lines));
-            let values = columns
+        for _ in 0..*n_statements {
+            let point =
+                MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_cols[0].len()));
+            let values = value_cols
                 .iter()
                 .map(|col| col.evaluate(&point))
                 .collect::<Vec<EF>>();
             statements.push(MultiEvaluation::new(point, values));
         }
         all_statements.push(statements);
-        all_value_columns.push(columns);
     }
 
     let mut prover_state = build_prover_state();
 
-    let packed_lookup_prover = GenericPackedLookupProver::step_1(
+    let packed_lookup_prover = VectorizedPackedLookupProver::step_1(
         &mut prover_state,
-        VecOrSlice::Slice(&memory),
+        &memory,
         all_indexe_columns.iter().map(Vec::as_slice).collect(),
-        lookups_height_and_cols.iter().map(|(h, _)| *h).collect(),
+        cols_heights.clone(),
         default_indexes.clone(),
-        all_value_columns
-            .iter()
-            .map(|cols| cols.iter().map(|s| VecOrSlice::Slice(s)).collect())
-            .collect(),
+        all_value_columns.iter().collect(),
         all_statements.clone(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
@@ -85,9 +86,9 @@ fn test_generic_packed_lookup() {
 
     let mut verifier_state = build_verifier_state(&prover_state);
 
-    let packed_lookup_verifier = GenericPackedLookupVerifier::step_1(
+    let packed_lookup_verifier = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
         &mut verifier_state,
-        lookups_height_and_cols.iter().map(|(h, _)| *h).collect(),
+        cols_heights,
         default_indexes,
         all_statements,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -97,7 +98,7 @@ fn test_generic_packed_lookup() {
 
     // receive commitment to pushforward
     let pushforward = verifier_state
-        .receive_hint_extension_scalars(non_zero_memory_size.next_power_of_two())
+        .receive_hint_extension_scalars(non_zero_memory_size.next_power_of_two() / VECTOR_LEN)
         .unwrap();
 
     let remaining_claims_to_verify = packed_lookup_verifier

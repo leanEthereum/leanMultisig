@@ -13,7 +13,7 @@ use crate::{ColDims, MultilinearChunks, packed_pcs_global_statements_for_prover}
 pub struct GenericPackedLookupProver<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>>
 {
     // inputs
-    pub(crate) table: &'a [TF],
+    pub(crate) table: VecOrSlice<'a, TF>,
     pub(crate) index_columns: Vec<&'a [PF<EF>]>,
 
     // outputs
@@ -44,7 +44,7 @@ where
     // before committing to the pushforward
     pub fn step_1(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        table: &'a [TF], // table[0] is assumed to be zero
+        table: VecOrSlice<'a, TF>, // table[0] is assumed to be zero
         index_columns: Vec<&'a [PF<EF>]>,
         heights: Vec<usize>,
         default_indexes: Vec<usize>,
@@ -52,8 +52,9 @@ where
         statements: Vec<Vec<MultiEvaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
     ) -> Self {
-        assert!(table[0].is_zero());
-        assert!(table.len().is_power_of_two());
+        let table_ref = table.as_slice();
+        assert!(table_ref[0].is_zero());
+        assert!(table_ref.len().is_power_of_two());
         assert_eq_many!(
             index_columns.len(),
             heights.len(),
@@ -81,7 +82,7 @@ where
         let mut all_dims = vec![];
         for (i, (default_index, height)) in default_indexes.iter().zip(heights.iter()).enumerate() {
             for col_index in 0..n_cols_per_group[i] {
-                all_dims.push(ColDims::padded(*height, table[col_index + default_index]));
+                all_dims.push(ColDims::padded(*height, table_ref[col_index + default_index]));
             }
         }
 
@@ -125,7 +126,7 @@ where
         for (alpha_power, statement) in batching_scalar.powers().zip(&packed_statements) {
             compute_sparse_eval_eq(&statement.point, &mut poly_eq_point, alpha_power);
         }
-        let pushforward = compute_pushforward(&packed_lookup_indexes, table.len(), &poly_eq_point);
+        let pushforward = compute_pushforward(&packed_lookup_indexes, table_ref.len(), &poly_eq_point);
 
         let batched_value: EF = batching_scalar
             .powers()
@@ -152,9 +153,9 @@ where
         non_zero_memory_size: usize,
     ) -> PackedLookupStatements<EF> {
         let table = if TypeId::of::<TF>() == TypeId::of::<PF<EF>>() {
-            MleRef::Base(unsafe { std::mem::transmute::<&[TF], &[PF<EF>]>(self.table) })
+            MleRef::Base(unsafe { std::mem::transmute::<&[TF], &[PF<EF>]>(self.table.as_slice()) })
         } else if TypeId::of::<TF>() == TypeId::of::<EF>() {
-            MleRef::Extension(unsafe { std::mem::transmute::<&[TF], &[EF]>(self.table) })
+            MleRef::Extension(unsafe { std::mem::transmute::<&[TF], &[EF]>(self.table.as_slice()) })
         } else {
             panic!();
         };
