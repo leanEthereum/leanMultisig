@@ -1,5 +1,3 @@
-use std::array;
-
 use crate::instruction_encoder::field_representation;
 use crate::{
     COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C,
@@ -7,9 +5,8 @@ use crate::{
     LOG_MIN_DOT_PRODUCT_ROWS, LOG_MIN_POSEIDONS_16, LOG_MIN_POSEIDONS_24, N_TOTAL_COLUMNS,
 };
 use lean_vm::*;
-use p3_field::Field;
-use p3_field::PrimeCharacteristicRing;
-use rayon::prelude::*;
+use multilinear_toolkit::prelude::*;
+use std::array;
 use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]

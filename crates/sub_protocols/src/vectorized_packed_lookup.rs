@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_field::ExtensionField;
 use utils::FSProver;
 use utils::VecOrSlice;
 use utils::fold_multilinear_chunks;

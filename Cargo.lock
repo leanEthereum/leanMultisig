@@ -17,7 +17,6 @@ version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
  "p3-air",
- "p3-field",
  "p3-koala-bear",
  "p3-matrix",
  "p3-uni-stark",
@@ -95,7 +94,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#66583347be84e81bb0925792ac6710d75561cfc3"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#7c1b4da24c047baf9c34c1ff8739fea3f93d6d7e"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -179,7 +178,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#66583347be84e81bb0925792ac6710d75561cfc3"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#7c1b4da24c047baf9c34c1ff8739fea3f93d6d7e"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -232,9 +231,9 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
 name = "crypto-common"
-version = "0.1.6"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
 dependencies = [
  "generic-array",
  "typenum",
@@ -290,9 +289,9 @@ dependencies = [
 
 [[package]]
 name = "generic-array"
-version = "0.14.9"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bb6743198531e02858aeaea5398fcc883e71851fcbcb5a2f773e2fb6cb1edf2"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
@@ -362,7 +361,6 @@ dependencies = [
  "multilinear-toolkit",
  "p3-air",
  "p3-challenger",
- "p3-field",
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",
@@ -372,7 +370,6 @@ dependencies = [
  "pest",
  "pest_derive",
  "rand",
- "rayon",
  "sub_protocols",
  "tracing",
  "utils",
@@ -391,7 +388,6 @@ dependencies = [
  "multilinear-toolkit",
  "p3-air",
  "p3-challenger",
- "p3-field",
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",
@@ -402,7 +398,6 @@ dependencies = [
  "pest_derive",
  "poseidon_circuit",
  "rand",
- "rayon",
  "sub_protocols",
  "tracing",
  "utils",
@@ -423,7 +418,6 @@ dependencies = [
  "multilinear-toolkit",
  "p3-air",
  "p3-challenger",
- "p3-field",
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",
@@ -433,7 +427,6 @@ dependencies = [
  "pest",
  "pest_derive",
  "rand",
- "rayon",
  "sub_protocols",
  "thiserror",
  "tracing",
@@ -460,11 +453,9 @@ version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
  "p3-challenger",
- "p3-field",
  "p3-koala-bear",
  "p3-util",
  "rand",
- "rayon",
  "tracing",
  "utils",
  "whir-p3",
@@ -488,7 +479,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#66583347be84e81bb0925792ac6710d75561cfc3"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#7c1b4da24c047baf9c34c1ff8739fea3f93d6d7e"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -848,7 +839,6 @@ name = "poseidon_circuit"
 version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
- "p3-field",
  "p3-koala-bear",
  "p3-monty-31",
  "p3-poseidon2",
@@ -953,7 +943,6 @@ dependencies = [
  "multilinear-toolkit",
  "p3-air",
  "p3-challenger",
- "p3-field",
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",
@@ -961,7 +950,6 @@ dependencies = [
  "p3-symmetric",
  "p3-util",
  "rand",
- "rayon",
  "serde_json",
  "sub_protocols",
  "tracing",
@@ -1081,11 +1069,9 @@ dependencies = [
  "derive_more",
  "lookup",
  "multilinear-toolkit",
- "p3-field",
  "p3-koala-bear",
  "p3-util",
  "rand",
- "rayon",
  "tracing",
  "utils",
  "whir-p3",
@@ -1094,7 +1080,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#66583347be84e81bb0925792ac6710d75561cfc3"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#7c1b4da24c047baf9c34c1ff8739fea3f93d6d7e"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1273,7 +1259,6 @@ dependencies = [
  "multilinear-toolkit",
  "p3-air",
  "p3-challenger",
- "p3-field",
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",
@@ -1281,7 +1266,6 @@ dependencies = [
  "p3-symmetric",
  "p3-util",
  "rand",
- "rayon",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
@@ -1310,7 +1294,6 @@ dependencies = [
  "multilinear-toolkit",
  "p3-air",
  "p3-challenger",
- "p3-field",
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",
@@ -1320,7 +1303,6 @@ dependencies = [
  "pest",
  "pest_derive",
  "rand",
- "rayon",
  "sub_protocols",
  "tracing",
  "utils",
@@ -1567,7 +1549,6 @@ dependencies = [
  "multilinear-toolkit",
  "p3-air",
  "p3-challenger",
- "p3-field",
  "p3-koala-bear",
  "p3-matrix",
  "p3-monty-31",
@@ -1579,7 +1560,6 @@ dependencies = [
  "pest_derive",
  "poseidon_circuit",
  "rand",
- "rayon",
  "sub_protocols",
  "tracing",
  "utils",
@@ -1591,7 +1571,7 @@ dependencies = [
 name = "xmss"
 version = "0.1.0"
 dependencies = [
- "p3-field",
+ "multilinear-toolkit",
  "p3-koala-bear",
  "p3-util",
  "rand",

@@ -2,7 +2,6 @@ use std::array;
 
 use lean_vm::{F, PoseidonWitnessTrait, WitnessPoseidon16, WitnessPoseidon24};
 use multilinear_toolkit::prelude::*;
-use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 use poseidon_circuit::{PoseidonGKRLayers, PoseidonWitness, generate_poseidon_witness};

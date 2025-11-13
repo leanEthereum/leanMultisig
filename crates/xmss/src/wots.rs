@@ -1,4 +1,4 @@
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use p3_util::log2_strict_usize;
 use rand::{Rng, RngCore};
 use utils::{ToUsize, to_little_endian_bits};

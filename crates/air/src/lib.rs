@@ -3,7 +3,6 @@
 use ::utils::ConstraintChecker;
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use p3_field::ExtensionField;
 use p3_uni_stark::SymbolicAirBuilder;
 
 mod prove;

@@ -5,7 +5,6 @@ use lean_vm::*;
 use lookup::verify_gkr_product;
 use lookup::verify_logup_star;
 use multilinear_toolkit::prelude::*;
-use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::PoseidonGKRLayers;
 use poseidon_circuit::verify_poseidon_gkr;

@@ -2,7 +2,6 @@ use std::any::TypeId;
 
 use multilinear_toolkit::prelude::*;
 use p3_air::BaseAir;
-use p3_field::{ExtensionField, Field, cyclic_subgroup_known_order};
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::{info_span, instrument};
 use utils::{

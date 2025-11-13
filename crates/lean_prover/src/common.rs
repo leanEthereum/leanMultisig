@@ -1,6 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_field::{Algebra, BasedVectorSpace};
-use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
 use p3_util::log2_ceil_usize;
 use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};

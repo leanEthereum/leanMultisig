@@ -1,7 +1,6 @@
 use std::{any::TypeId, marker::PhantomData, mem::transmute};
 
 use p3_air::BaseAir;
-use p3_field::{ExtensionField, Field};
 
 use multilinear_toolkit::prelude::*;
 use p3_matrix::dense::RowMajorMatrixView;

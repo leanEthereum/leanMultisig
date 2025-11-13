@@ -8,8 +8,6 @@ with custom GKR
 */
 
 use multilinear_toolkit::prelude::*;
-use p3_field::PrimeCharacteristicRing;
-use p3_field::{ExtensionField, PrimeField64};
 use tracing::instrument;
 use utils::left_ref;
 use utils::right_ref;

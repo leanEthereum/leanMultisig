@@ -1,6 +1,6 @@
 use crate::{F, a_simplify_lang::*, ir::*, lang::*, precompiles::*};
 use lean_vm::*;
-use p3_field::Field;
+use multilinear_toolkit::prelude::*;
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},

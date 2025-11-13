@@ -1,9 +1,8 @@
-use std::borrow::Borrow;
-
 use lean_vm::{DIMENSION, EF, WitnessDotProduct};
+use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
+use std::borrow::Borrow;
 
 /*
 (DIMENSION = 5)

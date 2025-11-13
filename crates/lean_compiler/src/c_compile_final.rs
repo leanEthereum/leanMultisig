@@ -1,6 +1,6 @@
 use crate::{F, NONRESERVED_PROGRAM_INPUT_START, ZERO_VEC_PTR, ir::*, lang::*};
 use lean_vm::*;
-use p3_field::{PrimeCharacteristicRing, PrimeField32};
+use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 

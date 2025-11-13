@@ -2,7 +2,6 @@ use lookup::compute_pushforward;
 use lookup::prove_logup_star;
 use lookup::verify_logup_star;
 use multilinear_toolkit::prelude::*;
-use p3_field::{ExtensionField, Field};
 use std::any::TypeId;
 use utils::VecOrSlice;
 use utils::{FSProver, assert_eq_many};
@@ -82,7 +81,10 @@ where
         let mut all_dims = vec![];
         for (i, (default_index, height)) in default_indexes.iter().zip(heights.iter()).enumerate() {
             for col_index in 0..n_cols_per_group[i] {
-                all_dims.push(ColDims::padded(*height, table_ref[col_index + default_index]));
+                all_dims.push(ColDims::padded(
+                    *height,
+                    table_ref[col_index + default_index],
+                ));
             }
         }
 
@@ -126,7 +128,8 @@ where
         for (alpha_power, statement) in batching_scalar.powers().zip(&packed_statements) {
             compute_sparse_eval_eq(&statement.point, &mut poly_eq_point, alpha_power);
         }
-        let pushforward = compute_pushforward(&packed_lookup_indexes, table_ref.len(), &poly_eq_point);
+        let pushforward =
+            compute_pushforward(&packed_lookup_indexes, table_ref.len(), &poly_eq_point);
 
         let batched_value: EF = batching_scalar
             .powers()

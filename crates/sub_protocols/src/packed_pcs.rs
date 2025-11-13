@@ -1,7 +1,6 @@
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap};
 
 use multilinear_toolkit::prelude::*;
-use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::instrument;
 use utils::{
@@ -594,7 +593,6 @@ fn compute_multilinear_value_from_chunks<F: Field, EF: ExtensionField<F>>(
 
 #[cfg(test)]
 mod tests {
-    use p3_field::PrimeCharacteristicRing;
     use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
     use p3_util::log2_strict_usize;
     use rand::{Rng, SeedableRng, rngs::StdRng};

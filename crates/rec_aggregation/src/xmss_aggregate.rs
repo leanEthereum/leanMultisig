@@ -1,13 +1,10 @@
-use std::time::Instant;
-
 use lean_compiler::*;
 use lean_prover::whir_config_builder;
 use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
-use p3_field::Field;
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rayon::prelude::*;
+use std::time::Instant;
 use tracing::instrument;
 use xmss::{
     PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature,

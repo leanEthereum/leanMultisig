@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_field::ExtensionField;
 
 use crate::{EF, F};
 

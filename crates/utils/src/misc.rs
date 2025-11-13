@@ -1,6 +1,3 @@
-use p3_field::{BasedVectorSpace, ExtensionField, Field, dot_product};
-use rayon::prelude::*;
-
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 

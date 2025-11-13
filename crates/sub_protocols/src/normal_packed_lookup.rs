@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_field::{ExtensionField, Field};
 use utils::FSProver;
 use utils::VecOrSlice;
 use utils::dot_product_with_base;

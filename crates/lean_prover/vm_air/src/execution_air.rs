@@ -1,8 +1,7 @@
-use std::borrow::Borrow;
-
+use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
+use std::borrow::Borrow;
 use witness_generation::*;
 
 #[derive(Debug)]

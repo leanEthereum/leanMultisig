@@ -1,6 +1,5 @@
 use multilinear_toolkit::prelude::*;
 use p3_air::BaseAir;
-use p3_field::{ExtensionField, cyclic_subgroup_known_order, dot_product};
 use p3_util::log2_ceil_usize;
 
 use crate::{

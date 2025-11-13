@@ -7,7 +7,6 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-p3-field.workspace = true
 tracing.workspace = true
 utils.workspace = true
 # p3-util.workspace = true

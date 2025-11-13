@@ -11,7 +11,6 @@ use crate::witness::{
     WitnessPoseidon24,
 };
 use multilinear_toolkit::prelude::*;
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, dot_product};
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
 use utils::{ToUsize, poseidon16_permute, poseidon24_permute};

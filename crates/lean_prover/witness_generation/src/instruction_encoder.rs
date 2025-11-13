@@ -1,7 +1,6 @@
-use lean_vm::*;
-use p3_field::PrimeCharacteristicRing;
-
 use crate::*;
+use lean_vm::*;
+use multilinear_toolkit::prelude::*;
 
 pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
     let mut fields = [F::ZERO; N_INSTRUCTION_COLUMNS];
