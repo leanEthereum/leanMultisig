@@ -63,7 +63,7 @@ pub fn full_poseidon_indexes_poly(
             poseidons_16.par_iter().map(|p| p.addr_input_b).collect::<Vec<_>>(),
             poseidons_16.par_iter().map(|p| p.addr_output).collect::<Vec<_>>(),
             poseidons_16.par_iter().map(|p| {
-                if p.is_compression { 0 } else { p.addr_output + 1 }
+                (1 - p.is_compression  as usize) * (p.addr_output + 1)
             })
             .collect::<Vec<_>>(),
             poseidons_24.par_iter().map(|p| p.addr_input_a).collect::<Vec<_>>(),
