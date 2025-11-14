@@ -75,14 +75,7 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
             log_n_rows,
         )
     } else {
-        verify_unstructured_columns(
-            verifier_state,
-            univariate_skips,
-            inner_sums,
-            &outer_statement.point,
-            &outer_selector_evals,
-            log_n_rows,
-        )
+        unreachable!()
     }
 }
 
@@ -95,52 +88,6 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
         verify_air::<EF, A>(verifier_state, self, univariate_skips, log_n_rows)
     }
-}
-
-fn verify_unstructured_columns<EF: ExtensionField<PF<EF>>>(
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    univariate_skips: usize,
-    inner_sums: Vec<EF>,
-    outer_sumcheck_point: &MultilinearPoint<EF>,
-    outer_selector_evals: &[EF],
-    log_n_rows: usize,
-) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
-    let n_columns = inner_sums.len();
-    let columns_batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns));
-
-    let sub_evals = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
-
-    if dot_product::<EF, _, _>(
-        sub_evals.iter().copied(),
-        outer_selector_evals.iter().copied(),
-    ) != dot_product::<EF, _, _>(
-        inner_sums.iter().copied(),
-        eval_eq(&columns_batching_scalars).iter().copied(),
-    ) {
-        return Err(ProofError::InvalidProof);
-    }
-
-    let epsilons = MultilinearPoint(verifier_state.sample_vec(univariate_skips));
-    let common_point = MultilinearPoint(
-        [
-            epsilons.0.clone(),
-            outer_sumcheck_point[1..log_n_rows - univariate_skips + 1].to_vec(),
-        ]
-        .concat(),
-    );
-
-    let evaluations_remaining_to_verify = verifier_state.next_extension_scalars_vec(n_columns)?;
-
-    if sub_evals.evaluate(&epsilons)
-        != dot_product(
-            eval_eq(&columns_batching_scalars).into_iter(),
-            evaluations_remaining_to_verify.iter().copied(),
-        )
-    {
-        return Err(ProofError::InvalidProof);
-    }
-
-    Ok((common_point, evaluations_remaining_to_verify))
 }
 
 #[allow(clippy::too_many_arguments)] // TODO
