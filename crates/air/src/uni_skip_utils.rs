@@ -32,6 +32,8 @@ pub fn matrix_down_folded<F: ExtensionField<PF<F>>>(outer_challenges: &[F], dest
 mod tests {
     use utils::to_big_endian_in_field;
 
+    use crate::utils::matrix_down_lde;
+
     use super::*;
     type F = p3_koala_bear::KoalaBear;
 
@@ -49,7 +51,14 @@ mod tests {
                 } else {
                     F::from_bool(x + 1 == y)
                 };
-                assert_eq!(matrix.evaluate(&MultilinearPoint(y_bools)), expected);
+                assert_eq!(
+                    matrix.evaluate(&MultilinearPoint(y_bools.clone())),
+                    expected
+                );
+                assert_eq!(
+                    matrix_down_lde(&[x_bools.clone(), y_bools].concat()),
+                    expected
+                );
             }
         }
     }
