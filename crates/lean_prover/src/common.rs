@@ -237,44 +237,30 @@ impl PrecompileFootprint {
         point: &[PointF],
         mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
     ) -> ResultF {
-        let nu_a = (ResultF::ONE - point[PRECOMP_INDEX_FLAG_A]) * point[PRECOMP_INDEX_MEM_VALUE_A]
+        let nu_a = (PointF::ONE - point[PRECOMP_INDEX_FLAG_A]) * point[PRECOMP_INDEX_MEM_VALUE_A]
             + point[PRECOMP_INDEX_FLAG_A] * point[PRECOMP_INDEX_OPERAND_A];
-        let nu_b = (ResultF::ONE - point[PRECOMP_INDEX_FLAG_B]) * point[PRECOMP_INDEX_MEM_VALUE_B]
+        let nu_b = (PointF::ONE - point[PRECOMP_INDEX_FLAG_B]) * point[PRECOMP_INDEX_MEM_VALUE_B]
             + point[PRECOMP_INDEX_FLAG_B] * point[PRECOMP_INDEX_OPERAND_B];
-        let nu_c = (ResultF::ONE - point[PRECOMP_INDEX_FLAG_C]) * point[PRECOMP_INDEX_MEM_VALUE_C]
+        let nu_c = (PointF::ONE - point[PRECOMP_INDEX_FLAG_C]) * point[PRECOMP_INDEX_MEM_VALUE_C]
             + point[PRECOMP_INDEX_FLAG_C] * point[PRECOMP_INDEX_FP];
 
-        (nu_a * self.fingerprint_challenge_powers[1]
-            + nu_b * self.fingerprint_challenge_powers[2]
-            + nu_c * self.fingerprint_challenge_powers[3]
-            + mul_point_f_and_ef(
-                point[PRECOMP_INDEX_AUX],
-                self.fingerprint_challenge_powers[4],
-            )
-            + PointF::from_usize(TABLE_INDEX_POSEIDONS_16))
+        let nu_a_mul_challenge_1 = mul_point_f_and_ef(nu_a, self.fingerprint_challenge_powers[1]);
+        let nu_b_mul_challenge_2 = mul_point_f_and_ef(nu_b, self.fingerprint_challenge_powers[2]);
+        let nu_c_mul_challenge_3 = mul_point_f_and_ef(nu_c, self.fingerprint_challenge_powers[3]);
+        let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
+        let aux_mul_challenge_4 = mul_point_f_and_ef(
+            point[PRECOMP_INDEX_AUX],
+            self.fingerprint_challenge_powers[4],
+        );
+        let nu_sums_plus_aux = nu_sums + aux_mul_challenge_4;
+
+        (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_POSEIDONS_16))
             * point[PRECOMP_INDEX_POSEIDON_16]
-            + (nu_a * self.fingerprint_challenge_powers[1]
-                + nu_b * self.fingerprint_challenge_powers[2]
-                + nu_c * self.fingerprint_challenge_powers[3]
-                + PointF::from_usize(TABLE_INDEX_POSEIDONS_24))
+            + (nu_sums + PointF::from_usize(TABLE_INDEX_POSEIDONS_24))
                 * point[PRECOMP_INDEX_POSEIDON_24]
-            + (nu_a * self.fingerprint_challenge_powers[1]
-                + nu_b * self.fingerprint_challenge_powers[2]
-                + nu_c * self.fingerprint_challenge_powers[3]
-                + mul_point_f_and_ef(
-                    point[PRECOMP_INDEX_AUX],
-                    self.fingerprint_challenge_powers[4],
-                )
-                + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS))
+            + (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS))
                 * point[PRECOMP_INDEX_DOT_PRODUCT]
-            + (nu_a * self.fingerprint_challenge_powers[1]
-                + nu_b * self.fingerprint_challenge_powers[2]
-                + nu_c * self.fingerprint_challenge_powers[3]
-                + mul_point_f_and_ef(
-                    point[PRECOMP_INDEX_AUX],
-                    self.fingerprint_challenge_powers[4],
-                )
-                + PointF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
+            + (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
                 * point[PRECOMP_INDEX_MULTILINEAR_EVAL]
             + self.global_challenge
     }
