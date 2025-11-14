@@ -1,7 +1,5 @@
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_matrix::Matrix;
-use std::borrow::Borrow;
 use witness_generation::*;
 
 #[derive(Debug)]
@@ -11,11 +9,11 @@ impl<F> BaseAir<F> for VMAir {
     fn width(&self) -> usize {
         N_EXEC_AIR_COLUMNS
     }
-    fn structured(&self) -> bool {
-        true
-    }
     fn degree(&self) -> usize {
         5
+    }
+    fn columns_with_shift(&self) -> Vec<usize> {
+        vec![COL_INDEX_PC.index_in_air(), COL_INDEX_FP.index_in_air()]
     }
 }
 
@@ -23,12 +21,11 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
     #[inline]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let up = main.row_slice(0).unwrap();
-        let up: &[AB::Var] = (*up).borrow();
-        assert_eq!(up.len(), N_EXEC_AIR_COLUMNS);
-        let down = main.row_slice(1).unwrap();
-        let down: &[AB::Var] = (*down).borrow();
-        assert_eq!(down.len(), N_EXEC_AIR_COLUMNS);
+        let up = &main[..N_EXEC_AIR_COLUMNS];
+        let down = &main[N_EXEC_AIR_COLUMNS..];
+
+        let next_pc = down[0].clone();
+        let next_fp = down[1].clone();
 
         let (operand_a, operand_b, operand_c) = (
             up[COL_INDEX_OPERAND_A].clone(),
@@ -51,14 +48,8 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
             up[COL_INDEX_MEM_VALUE_B.index_in_air()].clone(),
             up[COL_INDEX_MEM_VALUE_C.index_in_air()].clone(),
         );
-        let (pc, next_pc) = (
-            up[COL_INDEX_PC.index_in_air()].clone(),
-            down[COL_INDEX_PC.index_in_air()].clone(),
-        );
-        let (fp, next_fp) = (
-            up[COL_INDEX_FP.index_in_air()].clone(),
-            down[COL_INDEX_FP.index_in_air()].clone(),
-        );
+        let pc = up[COL_INDEX_PC.index_in_air()].clone();
+        let fp = up[COL_INDEX_FP.index_in_air()].clone();
         let (addr_a, addr_b, addr_c) = (
             up[COL_INDEX_MEM_ADDRESS_A.index_in_air()].clone(),
             up[COL_INDEX_MEM_ADDRESS_B.index_in_air()].clone(),
@@ -99,4 +90,12 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_pc - pc_plus_one));
         builder.assert_zero(jump * nu_a_minus_one * (next_fp - fp));
     }
+}
+
+pub fn execution_air_padding_row<F: Field>(ending_pc: usize) -> Vec<F> {
+    // only the shifted columns
+    vec![
+        F::from_usize(ending_pc), // PC
+        F::ZERO,                  // FP
+    ]
 }

@@ -1,8 +1,6 @@
 use lean_vm::{DIMENSION, EF, WitnessDotProduct};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_matrix::Matrix;
-use std::borrow::Borrow;
 
 /*
 (DIMENSION = 5)
@@ -39,11 +37,17 @@ impl<F> BaseAir<F> for DotProductAir {
     fn width(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS
     }
-    fn structured(&self) -> bool {
-        true
-    }
     fn degree(&self) -> usize {
         3
+    }
+    fn columns_with_shift(&self) -> Vec<usize> {
+        vec![
+            DOT_PRODUCT_AIR_COL_START_FLAG,
+            DOT_PRODUCT_AIR_COL_LEN,
+            DOT_PRODUCT_AIR_COL_INDEX_A,
+            DOT_PRODUCT_AIR_COL_INDEX_B,
+            DOT_PRODUCT_AIR_COL_COMPUTATION,
+        ]
     }
 }
 
@@ -51,12 +55,8 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
     #[inline]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let up = main.row_slice(0).unwrap();
-        let up: &[AB::Var] = (*up).borrow();
-        assert_eq!(up.len(), DOT_PRODUCT_AIR_N_COLUMNS);
-        let down = main.row_slice(1).unwrap();
-        let down: &[AB::Var] = (*down).borrow();
-        assert_eq!(down.len(), DOT_PRODUCT_AIR_N_COLUMNS);
+        let up = &main[..DOT_PRODUCT_AIR_N_COLUMNS];
+        let down = &main[DOT_PRODUCT_AIR_N_COLUMNS..];
 
         let [
             start_flag_up,
@@ -68,20 +68,16 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             value_b_up,
             res_up,
             computation_up,
-        ] = up.to_vec().try_into().ok().unwrap();
+        ] = up.to_vec().try_into().ok().unwrap(); // TODO avoid allocation ("to_vec")
         let [
             start_flag_down,
             len_down,
             index_a_down,
             index_b_down,
-            _index_res_down,
-            _value_a_down,
-            _value_b_down,
-            _res_down,
             computation_down,
-        ] = down.to_vec().try_into().ok().unwrap();
+        ] = down.to_vec().try_into().ok().unwrap(); // TODO avoid allocation ("to_vec")
 
-        // TODO we could some some of the following computation in the base field
+        // TODO we could do most of the following computation in the base field
 
         builder.assert_bool(start_flag_down.clone());
 
@@ -188,16 +184,13 @@ pub fn build_dot_product_columns(
     )
 }
 
-pub const fn dot_product_air_padding_row() -> [EF; DOT_PRODUCT_AIR_N_COLUMNS] {
-    [
+pub fn dot_product_air_padding_row() -> Vec<EF> {
+    // only the shifted columns
+    vec![
         EF::ONE,  // StartFlag
         EF::ONE,  // Len
         EF::ZERO, // IndexA
         EF::ZERO, // IndexB
-        EF::ZERO, // IndexRes
-        EF::ZERO, // ValueA
-        EF::ZERO, // ValueB
-        EF::ZERO, // Res
         EF::ZERO, // Computation
     ]
 }

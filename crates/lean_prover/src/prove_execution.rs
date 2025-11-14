@@ -2,7 +2,8 @@ use std::array;
 
 use crate::common::*;
 use crate::*;
-use ::air::table::AirTable;
+use ::air::AirTable;
+use air::prove_air;
 use lean_vm::*;
 use lookup::prove_gkr_product;
 use lookup::{compute_pushforward, prove_logup_star};
@@ -560,17 +561,13 @@ pub fn prove_execution(
         grand_product_exec_sumcheck_inner_evals[COL_INDEX_FP],
     );
 
-    let last_row_execution = execution_air_padding_row(bytecode.ending_pc);
-    exec_columns
-        .iter()
-        .zip(&last_row_execution)
-        .for_each(|(col, last_value)| assert_eq!(col.last().unwrap(), last_value));
     let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
-        exec_table.prove_base(
+        prove_air(
             &mut prover_state,
+            &exec_table,
             UNIVARIATE_SKIPS,
             &exec_columns,
-            Some(last_row_execution),
+            &execution_air_padding_row(bytecode.ending_pc),
         )
     });
 
@@ -580,11 +577,12 @@ pub fn prove_execution(
         .collect::<Vec<_>>();
     let (dot_product_air_point, dot_product_evals_to_prove) = info_span!("DotProduct AIR proof")
         .in_scope(|| {
-            dot_product_table.prove_extension(
+            prove_air(
                 &mut prover_state,
+                &dot_product_table,
                 1,
                 &dot_product_columns_ref,
-                Some(dot_product_air_padding_row().to_vec()),
+                &dot_product_air_padding_row(),
             )
         });
 

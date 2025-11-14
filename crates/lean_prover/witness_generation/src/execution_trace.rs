@@ -161,22 +161,3 @@ fn put_poseidon16_compressions_at_the_end(
     let n_compressions = compression.len();
     ([no_compression, compression].concat(), n_compressions)
 }
-
-pub fn execution_air_padding_row(ending_pc: usize) -> Vec<F> {
-    let mut fields = vec![F::ZERO; N_EXEC_AIR_COLUMNS];
-    // current PC = ending_pc
-    fields[COL_INDEX_PC.index_in_air()] = F::from_usize(ending_pc);
-    // current FP = 0
-    fields[COL_INDEX_FP.index_in_air()] = F::ZERO;
-    // opcode = JUMP
-    fields[COL_INDEX_JUMP.index_in_air()] = F::ONE;
-    // condition = 1 (always jump in place)
-    fields[COL_INDEX_FLAG_A] = F::ONE;
-    fields[COL_INDEX_OPERAND_A] = F::ONE;
-    // destination = final_pc
-    fields[COL_INDEX_FLAG_B] = F::ONE;
-    fields[COL_INDEX_OPERAND_B] = F::from_usize(ending_pc);
-    // don't upadate FP
-    fields[COL_INDEX_FLAG_C] = F::ONE;
-    fields
-}

@@ -70,14 +70,6 @@ pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) 
 //     dst
 // }
 
-pub fn add_multilinears_inplace<F: Field>(dst: &mut [F], src: &[F]) {
-    assert_eq!(dst.len(), src.len());
-
-    dst.par_iter_mut()
-        .zip(src.par_iter())
-        .for_each(|(a, b)| *a += *b);
-}
-
 pub fn padd_with_zero_to_next_power_of_two<F: Field>(pol: &[F]) -> Vec<F> {
     let next_power_of_two = pol.len().next_power_of_two();
     let mut padded = pol.to_vec();

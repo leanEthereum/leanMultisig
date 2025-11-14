@@ -1,6 +1,7 @@
 use crate::common::*;
 use crate::*;
-use ::air::table::AirTable;
+use ::air::AirTable;
+use air::verify_air;
 use lean_vm::*;
 use lookup::verify_gkr_product;
 use lookup::verify_logup_star;
@@ -345,23 +346,20 @@ pub fn verify_execution(
         grand_product_exec_sumcheck_inner_evals[COL_INDEX_FP],
     );
 
-    let last_row_execution = execution_air_padding_row(bytecode.ending_pc);
-    let last_row_execution_ef = last_row_execution
-        .iter()
-        .map(|x| EF::from(*x))
-        .collect::<Vec<_>>();
-    let (exec_air_point, exec_evals_to_verify) = exec_table.verify(
+    let (exec_air_point, exec_evals_to_verify) = verify_air(
         &mut verifier_state,
+        &exec_table,
         UNIVARIATE_SKIPS,
         log_n_cycles,
-        Some(last_row_execution_ef),
+        &execution_air_padding_row(bytecode.ending_pc),
     )?;
 
-    let (dot_product_air_point, dot_product_evals_to_verify) = dot_product_table.verify(
+    let (dot_product_air_point, dot_product_evals_to_verify) = verify_air(
         &mut verifier_state,
+        &dot_product_table,
         1,
         table_dot_products_log_n_rows,
-        Some(dot_product_air_padding_row().to_vec()),
+        &dot_product_air_padding_row(),
     )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));

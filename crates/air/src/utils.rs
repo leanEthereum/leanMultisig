@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use tracing::instrument;
 
 /// Returns a multilinear polynomial in 2n variables that evaluates to 1
 /// if and only if the second n-bit vector is equal to the first vector plus one (viewed as big-endian integers).
@@ -83,22 +82,7 @@ pub(crate) fn next_mle<F: Field>(point: &[F]) -> F {
         .sum()
 }
 
-#[instrument(skip_all, fields(len = columns.len(), col_len = columns[0].len()))]
-pub(crate) fn columns_up_and_down<F: Field>(columns: &[&[F]], final_row: &[F]) -> Vec<Vec<F>> {
-    assert_eq!(columns.len(), final_row.len());
-    (0..columns.len() * 2)
-        .into_par_iter()
-        .map(|i| {
-            if i < columns.len() {
-                columns[i].to_vec()
-            } else {
-                column_down(columns[i - columns.len()], final_row[i - columns.len()])
-            }
-        })
-        .collect()
-}
-
-pub(crate) fn column_down<F: Field>(column: &[F], final_value: F) -> Vec<F> {
+pub(crate) fn column_shifted<F: Field>(column: &[F], final_value: F) -> Vec<F> {
     let mut down = unsafe { uninitialized_vec(column.len()) };
     parallel_clone(&column[1..], &mut down[..column.len() - 1]);
     down[column.len() - 1] = final_value;

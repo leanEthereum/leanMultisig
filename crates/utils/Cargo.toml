@@ -8,13 +8,11 @@ workspace = true
 
 [dependencies]
 p3-air.workspace = true
-p3-matrix.workspace = true
 p3-challenger.workspace = true
 p3-koala-bear.workspace = true
 tracing-forest.workspace = true
 p3-symmetric.workspace = true
 p3-poseidon2.workspace = true
-p3-poseidon2-air.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 p3-util.workspace = true
