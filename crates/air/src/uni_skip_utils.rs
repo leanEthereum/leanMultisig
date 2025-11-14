@@ -27,3 +27,30 @@ pub fn matrix_down_folded<F: ExtensionField<PF<F>>>(outer_challenges: &[F], dest
     // bottom left corner:
     dest[(1 << n) - 1] += outer_challenges.iter().copied().product::<F>();
 }
+
+#[cfg(test)]
+mod tests {
+    use utils::to_big_endian_in_field;
+
+    use super::*;
+    type F = p3_koala_bear::KoalaBear;
+
+    #[test]
+    fn test_matrix_down_folded() {
+        let n_vars = 5;
+        for x in 0..1 << n_vars {
+            let x_bools = to_big_endian_in_field::<F>(x, n_vars);
+            let mut matrix = F::zero_vec(1 << n_vars);
+            matrix_down_folded(&x_bools, &mut matrix);
+            for y in 0..1 << n_vars {
+                let y_bools = to_big_endian_in_field::<F>(y, n_vars);
+                let expected = if x == (1 << n_vars) - 1 {
+                    F::from_bool(x == y)
+                } else {
+                    F::from_bool(x + 1 == y)
+                };
+                assert_eq!(matrix.evaluate(&MultilinearPoint(y_bools)), expected);
+            }
+        }
+    }
+}
