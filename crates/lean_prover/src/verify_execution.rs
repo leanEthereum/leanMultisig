@@ -345,11 +345,24 @@ pub fn verify_execution(
         grand_product_exec_sumcheck_inner_evals[COL_INDEX_FP],
     );
 
-    let (exec_air_point, exec_evals_to_verify) =
-        exec_table.verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_cycles)?;
+    let last_row_execution = execution_air_padding_row(bytecode.ending_pc);
+    let last_row_execution_ef = last_row_execution
+        .iter()
+        .map(|x| EF::from(*x))
+        .collect::<Vec<_>>();
+    let (exec_air_point, exec_evals_to_verify) = exec_table.verify(
+        &mut verifier_state,
+        UNIVARIATE_SKIPS,
+        log_n_cycles,
+        Some(last_row_execution_ef),
+    )?;
 
-    let (dot_product_air_point, dot_product_evals_to_verify) =
-        dot_product_table.verify(&mut verifier_state, 1, table_dot_products_log_n_rows)?;
+    let (dot_product_air_point, dot_product_evals_to_verify) = dot_product_table.verify(
+        &mut verifier_state,
+        1,
+        table_dot_products_log_n_rows,
+        Some(dot_product_air_padding_row().to_vec()),
+    )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
     let p16_gkr = verify_poseidon_gkr(

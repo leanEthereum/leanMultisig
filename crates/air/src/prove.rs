@@ -10,8 +10,8 @@ use utils::{
 
 use crate::MyAir;
 use crate::{
-    uni_skip_utils::{matrix_down_folded, matrix_up_folded},
-    utils::{column_down, column_up, columns_up_and_down},
+    uni_skip_utils::matrix_next_mle_folded,
+    utils::{column_down, columns_up_and_down},
 };
 
 use super::table::AirTable;
@@ -33,9 +33,13 @@ fn prove_air<
     univariate_skips: usize,
     table: &AirTable<EF, A>,
     witness: &[&'a [WF]],
+    last_row: Option<Vec<WF>>, // Some(...) if air is structured
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
     let n_rows = witness[0].len();
     assert!(witness.iter().all(|col| col.len() == n_rows));
+    if let Some(last_row) = last_row.as_ref() {
+        assert!(last_row.len() == table.n_columns());
+    }
     let log_n_rows = log2_strict_usize(n_rows);
     assert!(
         univariate_skips < log_n_rows,
@@ -57,7 +61,9 @@ fn prove_air<
     let columns_for_zero_check: MleGroup<'_, EF> = if TypeId::of::<WF>() == TypeId::of::<PF<EF>>() {
         let columns = unsafe { std::mem::transmute::<&[&[WF]], &[&[PF<EF>]]>(witness) };
         if structured_air {
-            MleGroupOwned::Base(columns_up_and_down(columns)).into()
+            let last_row =
+                unsafe { std::mem::transmute::<&[WF], &[PF<EF>]>(last_row.as_ref().unwrap()) };
+            MleGroupOwned::Base(columns_up_and_down(columns, last_row)).into()
         } else {
             MleGroupRef::Base(columns.to_vec()).into()
         }
@@ -65,7 +71,9 @@ fn prove_air<
         assert!(TypeId::of::<WF>() == TypeId::of::<EF>());
         let columns = unsafe { std::mem::transmute::<&[&'a [WF]], &[&'a [EF]]>(witness) };
         if structured_air {
-            MleGroupOwned::Extension(columns_up_and_down(columns)).into()
+            let last_row =
+                unsafe { std::mem::transmute::<&[WF], &[EF]>(last_row.as_ref().unwrap()) };
+            MleGroupOwned::Extension(columns_up_and_down(columns, last_row)).into()
         } else {
             MleGroupRef::Extension(columns.to_vec()).into()
         }
@@ -108,8 +116,9 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF> + 'static> AirTable<EF, A> {
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
         witness: &[&[PF<EF>]],
+        last_row: Option<Vec<PF<EF>>>,
     ) -> (MultilinearPoint<EF>, Vec<EF>) {
-        prove_air::<PF<EF>, EF, A>(prover_state, univariate_skips, self, witness)
+        prove_air::<PF<EF>, EF, A>(prover_state, univariate_skips, self, witness, last_row)
     }
 
     #[instrument(name = "air: prove in extension", skip_all)]
@@ -118,8 +127,9 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF> + 'static> AirTable<EF, A> {
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
         witness: &[&[EF]],
+        last_row: Option<Vec<EF>>,
     ) -> (MultilinearPoint<EF>, Vec<EF>) {
-        prove_air::<EF, EF, A>(prover_state, univariate_skips, self, witness)
+        prove_air::<EF, EF, A>(prover_state, univariate_skips, self, witness, last_row)
     }
 }
 
@@ -142,15 +152,14 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
         multilinears_linear_combination(witness, &poly_eq_batching_scalars[..n_columns]);
 
     let batched_column_mixed = info_span!("mixing up / down").in_scope(|| {
-        let mut batched_column_mixed = column_down(&batched_column);
+        let mut batched_column_mixed = column_down(&batched_column, EF::ZERO);
         add_multilinears_inplace(
             &mut batched_column_mixed,
-            &scale_poly(&column_up(&batched_column), alpha),
+            &scale_poly(&batched_column, alpha),
         );
         batched_column_mixed
     });
 
-    // TODO do not recompute this (we can deduce it from already computed values)
     let sub_evals = info_span!("fold_multilinear_chunks").in_scope(|| {
         fold_multilinear_chunks(
             &batched_column_mixed,
@@ -162,7 +171,7 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
     prover_state.add_extension_scalars(&sub_evals);
 
     let epsilons = prover_state.sample_vec(univariate_skips);
-    
+
     let inner_sum = sub_evals.evaluate(&MultilinearPoint(epsilons.clone()));
 
     let point = [
@@ -171,11 +180,11 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
     ]
     .concat();
 
-    let mut mat_up = matrix_up_folded(&point, alpha);
-    matrix_down_folded(&point, &mut mat_up);
+    let mut matrix = eval_eq_scaled(&point, alpha);
+    matrix_next_mle_folded(&point, &mut matrix);
     let inner_mle = info_span!("packing").in_scope(|| {
         MleGroupOwned::ExtensionPacked(vec![
-            pack_extension(&mat_up),
+            pack_extension(&matrix),
             pack_extension(&batched_column),
         ])
     });

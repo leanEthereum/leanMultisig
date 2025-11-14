@@ -187,3 +187,17 @@ pub fn build_dot_product_columns(
         padding_len,
     )
 }
+
+pub const fn dot_product_air_padding_row() -> [EF; DOT_PRODUCT_AIR_N_COLUMNS] {
+    [
+        EF::ONE,  // StartFlag
+        EF::ONE,  // Len
+        EF::ZERO, // IndexA
+        EF::ZERO, // IndexB
+        EF::ZERO, // IndexRes
+        EF::ZERO, // ValueA
+        EF::ZERO, // ValueB
+        EF::ZERO, // Res
+        EF::ZERO, // Computation
+    ]
+}

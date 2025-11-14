@@ -1,64 +1,18 @@
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 
-pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
-    /*
-        Matrix UP:
-
-       (1 0 0 0 ... 0 0 0)
-       (0 1 0 0 ... 0 0 0)
-       (0 0 1 0 ... 0 0 0)
-       (0 0 0 1 ... 0 0 0)
-       ...      ...   ...
-       (0 0 0 0 ... 1 0 0)
-       (0 0 0 0 ... 0 1 0)
-       (0 0 0 0 ... 0 1 0)
-
-       Square matrix of size self.n_columns x sef.n_columns
-       As a multilinear polynomial in 2 * log_length variables:
-       - self.n_columns first variables -> encoding the row index
-       - self.n_columns last variables -> encoding the column index
-    */
-
-    assert_eq!(point.len() % 2, 0);
-    let n = point.len() / 2;
-    let (s1, s2) = point.split_at(n);
-    MultilinearPoint(s1.to_vec()).eq_poly_outside(&MultilinearPoint(s2.to_vec()))
-        + point[..point.len() - 1].iter().copied().product::<F>()
-            * (F::ONE - point[point.len() - 1] * F::TWO)
-}
-
-pub(crate) fn matrix_down_lde<F: Field>(point: &[F]) -> F {
-    /*
-        Matrix DOWN:
-
-       (0 1 0 0 ... 0 0 0)
-       (0 0 1 0 ... 0 0 0)
-       (0 0 0 1 ... 0 0 0)
-       (0 0 0 0 ... 0 0 0)
-       (0 0 0 0 ... 0 0 0)
-       ...      ...   ...
-       (0 0 0 0 ... 0 1 0)
-       (0 0 0 0 ... 0 0 1)
-       (0 0 0 0 ... 0 0 1)
-
-       Square matrix of size self.n_columns x sef.n_columns
-       As a multilinear polynomial in 2 * log_length variables:
-       - self.n_columns first variables -> encoding the row index
-       - self.n_columns last variables -> encoding the column index
-
-       TODO OPTIMIZATIOn:
-       the lde currently is in log(table_length)^2, but it could be log(table_length) using a recursive construction
-       (However it is not representable as a polynomial in this case, but as a fraction instead)
-
-    */
-    next_mle(point) + point.iter().copied().product::<F>()
-
-    // bottom right corner
-}
-
 /// Returns a multilinear polynomial in 2n variables that evaluates to 1
 /// if and only if the second n-bit vector is equal to the first vector plus one (viewed as big-endian integers).
+///
+/// (0 1 0 0 ... 0 0 0)
+/// (0 0 1 0 ... 0 0 0)
+/// (0 0 0 1 ... 0 0 0)
+/// (0 0 0 0 ... 0 0 0)
+/// (0 0 0 0 ... 0 0 0)
+/// ...      ...   ...
+/// (0 0 0 0 ... 0 1 0)
+/// (0 0 0 0 ... 0 0 1)
+/// (0 0 0 0 ... 0 0 0)
 ///
 /// # Arguments
 /// - `point`: A slice of 2n field elements representing two n-bit vectors concatenated.
@@ -81,7 +35,7 @@ pub(crate) fn matrix_down_lde<F: Field>(point: &[F]) -> F {
 ///
 /// # Returns
 /// Field element: 1 if y = x + 1, 0 otherwise.
-fn next_mle<F: Field>(point: &[F]) -> F {
+pub(crate) fn next_mle<F: Field>(point: &[F]) -> F {
     // Check that the point length is even: we split into x and y of equal length.
     assert_eq!(
         point.len() % 2,
@@ -130,28 +84,23 @@ fn next_mle<F: Field>(point: &[F]) -> F {
 }
 
 #[instrument(skip_all, fields(len = columns.len(), col_len = columns[0].len()))]
-pub(crate) fn columns_up_and_down<F: Field>(columns: &[&[F]]) -> Vec<Vec<F>> {
+pub(crate) fn columns_up_and_down<F: Field>(columns: &[&[F]], final_row: &[F]) -> Vec<Vec<F>> {
+    assert_eq!(columns.len(), final_row.len());
     (0..columns.len() * 2)
         .into_par_iter()
         .map(|i| {
             if i < columns.len() {
-                column_up(columns[i])
+                columns[i].to_vec()
             } else {
-                column_down(columns[i - columns.len()])
+                column_down(columns[i - columns.len()], final_row[i - columns.len()])
             }
         })
         .collect()
 }
 
-pub(crate) fn column_up<F: Field>(column: &[F]) -> Vec<F> {
-    let mut up = parallel_clone_vec(column);
-    up[column.len() - 1] = up[column.len() - 2];
-    up
-}
-
-pub(crate) fn column_down<F: Field>(column: &[F]) -> Vec<F> {
+pub(crate) fn column_down<F: Field>(column: &[F], final_value: F) -> Vec<F> {
     let mut down = unsafe { uninitialized_vec(column.len()) };
     parallel_clone(&column[1..], &mut down[..column.len() - 1]);
-    down[column.len() - 1] = down[column.len() - 2];
+    down[column.len() - 1] = final_value;
     down
 }

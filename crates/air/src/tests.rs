@@ -57,9 +57,8 @@ impl<AB: AirBuilder, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize
 }
 
 fn generate_structured_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize>(
-    log_length: usize,
+    n_rows: usize,
 ) -> Vec<Vec<F>> {
-    let n_rows = 1 << log_length;
     let mut trace = vec![];
     let mut rng = StdRng::seed_from_u64(0);
     for _ in 0..N_PREPROCESSED_COLUMNS {
@@ -91,18 +90,39 @@ fn test_structured_air() {
     const N_COLUMNS: usize = 17;
     const N_PREPROCESSED_COLUMNS: usize = 3;
     let log_n_rows = 12;
+    let n_rows = 1 << log_n_rows;
     let mut prover_state = build_prover_state::<EF>();
 
-    let columns = generate_structured_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(log_n_rows);
-    let columns_ref = columns.iter().map(|col| col.as_slice()).collect::<Vec<_>>();
+    let columns_plus_one =
+        generate_structured_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(n_rows + 1);
+    let columns_ref = columns_plus_one
+        .iter()
+        .map(|col| &col[..n_rows])
+        .collect::<Vec<_>>();
+    let last_row = columns_plus_one
+        .iter()
+        .map(|col| col[n_rows])
+        .collect::<Vec<_>>();
+    let last_row_ef = last_row.iter().map(|&v| EF::from(v)).collect::<Vec<_>>();
 
     let table = AirTable::<EF, _>::new(ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>);
-    table.check_trace_validity(&columns_ref).unwrap();
-    let (point_prover, evaluations_remaining_to_prove) =
-        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &columns_ref);
+    table
+        .check_trace_validity(&columns_ref, Some(last_row.clone()))
+        .unwrap();
+    let (point_prover, evaluations_remaining_to_prove) = table.prove_base(
+        &mut prover_state,
+        UNIVARIATE_SKIPS,
+        &columns_ref,
+        Some(last_row),
+    );
     let mut verifier_state = build_verifier_state(&prover_state);
     let (point_verifier, evaluations_remaining_to_verify) = table
-        .verify(&mut verifier_state, UNIVARIATE_SKIPS, log_n_rows)
+        .verify(
+            &mut verifier_state,
+            UNIVARIATE_SKIPS,
+            log_n_rows,
+            Some(last_row_ef),
+        )
         .unwrap();
     assert_eq!(point_prover, point_verifier);
     assert_eq!(
@@ -111,7 +131,7 @@ fn test_structured_air() {
     );
     for i in 0..N_COLUMNS {
         assert_eq!(
-            columns[i].evaluate(&point_prover),
+            columns_ref[i].evaluate(&point_prover),
             evaluations_remaining_to_verify[i]
         );
     }

@@ -560,8 +560,19 @@ pub fn prove_execution(
         grand_product_exec_sumcheck_inner_evals[COL_INDEX_FP],
     );
 
-    let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof")
-        .in_scope(|| exec_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, &exec_columns));
+    let last_row_execution = execution_air_padding_row(bytecode.ending_pc);
+    exec_columns
+        .iter()
+        .zip(&last_row_execution)
+        .for_each(|(col, last_value)| assert_eq!(col.last().unwrap(), last_value));
+    let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
+        exec_table.prove_base(
+            &mut prover_state,
+            UNIVARIATE_SKIPS,
+            &exec_columns,
+            Some(last_row_execution),
+        )
+    });
 
     let dot_product_columns_ref = dot_product_columns
         .iter()
@@ -569,7 +580,12 @@ pub fn prove_execution(
         .collect::<Vec<_>>();
     let (dot_product_air_point, dot_product_evals_to_prove) = info_span!("DotProduct AIR proof")
         .in_scope(|| {
-            dot_product_table.prove_extension(&mut prover_state, 1, &dot_product_columns_ref)
+            dot_product_table.prove_extension(
+                &mut prover_state,
+                1,
+                &dot_product_columns_ref,
+                Some(dot_product_air_padding_row().to_vec()),
+            )
         });
 
     let random_point_p16 = MultilinearPoint(prover_state.sample_vec(log_n_p16));

@@ -1,9 +1,5 @@
 use crate::instruction_encoder::field_representation;
-use crate::{
-    COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C,
-    COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC,
-    LOG_MIN_DOT_PRODUCT_ROWS, LOG_MIN_POSEIDONS_16, LOG_MIN_POSEIDONS_24, N_TOTAL_COLUMNS,
-};
+use crate::*;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::array;
@@ -164,4 +160,23 @@ fn put_poseidon16_compressions_at_the_end(
         .collect::<Vec<_>>();
     let n_compressions = compression.len();
     ([no_compression, compression].concat(), n_compressions)
+}
+
+pub fn execution_air_padding_row(ending_pc: usize) -> Vec<F> {
+    let mut fields = vec![F::ZERO; N_EXEC_AIR_COLUMNS];
+    // current PC = ending_pc
+    fields[COL_INDEX_PC.index_in_air()] = F::from_usize(ending_pc);
+    // current FP = 0
+    fields[COL_INDEX_FP.index_in_air()] = F::ZERO;
+    // opcode = JUMP
+    fields[COL_INDEX_JUMP.index_in_air()] = F::ONE;
+    // condition = 1 (always jump in place)
+    fields[COL_INDEX_FLAG_A] = F::ONE;
+    fields[COL_INDEX_OPERAND_A] = F::ONE;
+    // destination = final_pc
+    fields[COL_INDEX_FLAG_B] = F::ONE;
+    fields[COL_INDEX_OPERAND_B] = F::from_usize(ending_pc);
+    // don't upadate FP
+    fields[COL_INDEX_FLAG_C] = F::ONE;
+    fields
 }

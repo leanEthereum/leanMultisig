@@ -2,10 +2,7 @@ use multilinear_toolkit::prelude::*;
 use p3_air::BaseAir;
 use p3_util::log2_ceil_usize;
 
-use crate::{
-    MyAir,
-    utils::{matrix_down_lde, matrix_up_lde},
-};
+use crate::{MyAir, utils::next_mle};
 
 use super::table::AirTable;
 
@@ -14,6 +11,7 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
     table: &AirTable<EF, A>,
     univariate_skips: usize,
     log_n_rows: usize,
+    last_row: Option<Vec<EF>>, // Some(...) if air is structured
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
     let constraints_batching_scalar = verifier_state.sample();
 
@@ -66,10 +64,11 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
             verifier_state,
             table.n_columns(),
             univariate_skips,
-            &inner_sums,
+            inner_sums,
             &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
             &outer_selector_evals,
             log_n_rows,
+            last_row.as_ref().unwrap(),
         )
     } else {
         unreachable!()
@@ -82,8 +81,9 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
         log_n_rows: usize,
+        last_row: Option<Vec<EF>>,
     ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
-        verify_air::<EF, A>(verifier_state, self, univariate_skips, log_n_rows)
+        verify_air::<EF, A>(verifier_state, self, univariate_skips, log_n_rows, last_row)
     }
 }
 
@@ -92,11 +92,24 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_columns: usize,
     univariate_skips: usize,
-    all_inner_sums: &[EF],
+    mut all_inner_sums: Vec<EF>,
     outer_sumcheck_challenge: &Evaluation<EF>,
     outer_selector_evals: &[EF],
     log_n_rows: usize,
+    last_row: &[EF],
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
+    assert_eq!(last_row.len(), n_columns);
+    assert_eq!(all_inner_sums.len(), n_columns * 2);
+    let last_row_selector = outer_selector_evals[(1 << univariate_skips) - 1]
+        * outer_sumcheck_challenge
+            .point
+            .iter()
+            .copied()
+            .product::<EF>();
+    for (&last_row_value, down_col_eval) in last_row.iter().zip(&mut all_inner_sums[n_columns..]) {
+        *down_col_eval -= last_row_value * last_row_selector;
+    }
+
     let columns_batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns));
     let alpha = verifier_state.sample();
 
@@ -130,14 +143,17 @@ fn verify_structured_columns<EF: ExtensionField<PF<EF>>>(
         return Err(ProofError::InvalidProof);
     }
 
-    let matrix_lde_point = [
-        epsilons.0,
-        outer_sumcheck_challenge.point.to_vec(),
-        inner_sumcheck_stement.point.0.clone(),
-    ]
-    .concat();
-    let up = matrix_up_lde(&matrix_lde_point);
-    let down = matrix_down_lde(&matrix_lde_point);
+    let up =
+        MultilinearPoint([epsilons.0.clone(), outer_sumcheck_challenge.point.0.clone()].concat())
+            .eq_poly_outside(&inner_sumcheck_stement.point);
+    let down = next_mle(
+        &[
+            epsilons.0,
+            outer_sumcheck_challenge.point.to_vec(),
+            inner_sumcheck_stement.point.0.clone(),
+        ]
+        .concat(),
+    );
 
     let final_value = inner_sumcheck_stement.value / (up * alpha + down);
 

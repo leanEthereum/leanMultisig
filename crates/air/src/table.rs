@@ -40,6 +40,7 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     pub fn check_trace_validity<IF: ExtensionField<PF<EF>>>(
         &self,
         witness: &[&[IF]],
+        last_row: Option<Vec<IF>>, // Some(...) if air is structured
     ) -> Result<(), String>
     where
         EF: ExtensionField<IF>,
@@ -49,7 +50,7 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         if witness.len() != self.n_columns() {
             return Err("Invalid number of columns".to_string());
         }
-        let handle_errors = |row: usize, constraint_checker: &mut ConstraintChecker<'_, IF, EF>| {
+        let handle_errors = |row: usize, constraint_checker: &ConstraintChecker<'_, IF, EF>| {
             if !constraint_checker.errors.is_empty() {
                 return Err(format!(
                     "Trace is not valid at row {}: contraints not respected: {}",
@@ -73,30 +74,17 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
                     .map(|j| witness[j][row + 1])
                     .collect::<Vec<_>>();
                 let up_and_down = [up, down].concat();
-                let mut constraints_checker = ConstraintChecker::<IF, EF> {
-                    main: RowMajorMatrixView::new(&up_and_down, self.n_columns()),
-                    constraint_index: 0,
-                    errors: Vec::new(),
-                    field: PhantomData,
-                };
-                if TypeId::of::<IF>() == TypeId::of::<EF>() {
-                    unsafe {
-                        self.air.eval(transmute::<
-                            &mut ConstraintChecker<'_, IF, EF>,
-                            &mut ConstraintChecker<'_, EF, EF>,
-                        >(&mut constraints_checker));
-                    }
-                } else {
-                    assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
-                    unsafe {
-                        self.air.eval(transmute::<
-                            &mut ConstraintChecker<'_, IF, EF>,
-                            &mut ConstraintChecker<'_, PF<EF>, EF>,
-                        >(&mut constraints_checker));
-                    }
-                }
-                handle_errors(row, &mut constraints_checker)?;
+                let constraints_checker = self.eval_transition::<IF>(&up_and_down);
+                handle_errors(row, &constraints_checker)?;
             }
+            // last transition:
+            let up = (0..self.n_columns())
+                .map(|j| witness[j][n_rows - 1])
+                .collect::<Vec<_>>();
+            let down = last_row.unwrap();
+            let up_and_down = [up, down].concat();
+            let constraints_checker = self.eval_transition::<IF>(&up_and_down);
+            handle_errors(n_rows - 1, &constraints_checker)?;
         } else {
             #[allow(clippy::needless_range_loop)]
             for row in 0..n_rows {
@@ -129,5 +117,37 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
             }
         }
         Ok(())
+    }
+
+    fn eval_transition<'a, IF: ExtensionField<PF<EF>>>(
+        &self,
+        up_and_down: &'a [IF],
+    ) -> ConstraintChecker<'a, IF, EF>
+    where
+        EF: ExtensionField<IF>,
+    {
+        let mut constraints_checker = ConstraintChecker::<IF, EF> {
+            main: RowMajorMatrixView::new(up_and_down, self.n_columns()),
+            constraint_index: 0,
+            errors: Vec::new(),
+            field: PhantomData,
+        };
+        if TypeId::of::<IF>() == TypeId::of::<EF>() {
+            unsafe {
+                self.air.eval(transmute::<
+                    &mut ConstraintChecker<'_, IF, EF>,
+                    &mut ConstraintChecker<'_, EF, EF>,
+                >(&mut constraints_checker));
+            }
+        } else {
+            assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
+            unsafe {
+                self.air.eval(transmute::<
+                    &mut ConstraintChecker<'_, IF, EF>,
+                    &mut ConstraintChecker<'_, PF<EF>, EF>,
+                >(&mut constraints_checker));
+            }
+        }
+        constraints_checker
     }
 }

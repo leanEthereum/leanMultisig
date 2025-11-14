@@ -532,7 +532,7 @@ fn compile_lines(
 
             SimpleLine::FunctionRet { return_data } => {
                 if compiler.func_name == "main" {
-                    // pC -> ending_pc, fp -> 0
+                    // pc -> ending_pc, fp -> 0
                     let zero_value_offset = IntermediateValue::MemoryAfterFp {
                         offset: compiler.stack_size.into(),
                     };
