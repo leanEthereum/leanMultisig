@@ -162,16 +162,14 @@ fn open_structured_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: 
     prover_state.add_extension_scalars(&sub_evals);
 
     let epsilons = prover_state.sample_vec(univariate_skips);
+    
+    let inner_sum = sub_evals.evaluate(&MultilinearPoint(epsilons.clone()));
 
     let point = [
         epsilons,
         outer_sumcheck_challenge[1..log_n_rows - univariate_skips + 1].to_vec(),
     ]
     .concat();
-
-    // TODO do not recompute this (we can deduce it from already computed values)
-    let inner_sum = info_span!("mixed column eval")
-        .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
     let mut mat_up = matrix_up_folded(&point, alpha);
     matrix_down_folded(&point, &mut mat_up);
