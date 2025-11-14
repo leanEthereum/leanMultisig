@@ -67,10 +67,7 @@ fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
             table.n_columns(),
             univariate_skips,
             &inner_sums,
-            &Evaluation::new(
-                outer_statement.point[1..log_n_rows - univariate_skips + 1].to_vec(),
-                outer_statement.value,
-            ),
+            &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
             &outer_selector_evals,
             log_n_rows,
         )
