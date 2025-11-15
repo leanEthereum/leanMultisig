@@ -25,7 +25,6 @@ pub fn verify_execution(
 ) -> Result<(), ProofError> {
     let mut verifier_state = VerifierState::new(proof_data, build_challenger());
 
-    let exec_table = AirTable::<EF, _>::new(VMAir);
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
@@ -119,7 +118,7 @@ pub fn verify_execution(
     let grand_product_challenge_global = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
     let (grand_product_exec_res, grand_product_exec_statement) =
-        verify_gkr_product::<_, 2>(&mut verifier_state, log_n_cycles)?;
+        verify_gkr_product::<_, TWO_POW_UNIVARIATE_SKIPS>(&mut verifier_state, log_n_cycles)?;
     let (grand_product_p16_res, grand_product_p16_statement) =
         verify_gkr_product::<_, 2>(&mut verifier_state, log_n_p16)?;
     let (grand_product_p24_res, grand_product_p24_statement) =
@@ -309,49 +308,17 @@ pub fn verify_execution(
         grand_product_dot_product_sumcheck_inner_evals[4],
     );
 
-    let (grand_product_final_exec_eval, grand_product_exec_sumcheck_claim) =
-        sumcheck_verify(&mut verifier_state, log_n_cycles, 4)?;
-    if grand_product_final_exec_eval != grand_product_exec_statement.value {
-        return Err(ProofError::InvalidProof);
-    }
-
-    let grand_product_exec_sumcheck_inner_evals =
-        verifier_state.next_extension_scalars_vec(N_TOTAL_COLUMNS)?; // TODO some of the values are unused
-
-    let grand_product_exec_evals_on_each_column =
-        &grand_product_exec_sumcheck_inner_evals[..N_INSTRUCTION_COLUMNS];
-
-    if grand_product_exec_sumcheck_claim.value
-        != grand_product_exec_sumcheck_claim
-            .point
-            .eq_poly_outside(&grand_product_exec_statement.point)
-            * {
-                PrecompileFootprint {
-                    global_challenge: grand_product_challenge_global,
-                    fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-                }
-                .eval(
-                    &reorder_full_trace_for_precomp_foot_print(
-                        grand_product_exec_sumcheck_inner_evals.clone(),
-                    ),
-                    &[],
-                )
-            }
-    {
-        return Err(ProofError::InvalidProof);
-    }
-
-    let grand_product_fp_statement = Evaluation::new(
-        grand_product_exec_sumcheck_claim.point.clone(),
-        grand_product_exec_sumcheck_inner_evals[COL_INDEX_FP],
-    );
-
+    let exec_table = AirTable::<EF, _>::new(VMAir {
+        global_challenge: grand_product_challenge_global,
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+    });
     let (exec_air_point, exec_evals_to_verify) = verify_air(
         &mut verifier_state,
         &exec_table,
         UNIVARIATE_SKIPS,
         log_n_cycles,
         &execution_air_padding_row(bytecode.ending_pc),
+        Some(grand_product_exec_statement),
     )?;
 
     let (dot_product_air_point, dot_product_evals_to_verify) = verify_air(
@@ -360,6 +327,7 @@ pub fn verify_execution(
         1,
         table_dot_products_log_n_rows,
         &dot_product_air_padding_row(),
+        None,
     )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
@@ -382,31 +350,14 @@ pub fn verify_execution(
         None,
     );
 
-    let non_used_precompiles_evals = verifier_state
-        .next_extension_scalars_vec(N_INSTRUCTION_COLUMNS - N_INSTRUCTION_COLUMNS_IN_AIR)?;
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
     let bytecode_lookup_claim_1 = Evaluation::new(
         exec_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(
-            &[
-                (0..N_INSTRUCTION_COLUMNS_IN_AIR)
-                    .map(|i| exec_evals_to_verify[i])
-                    .collect::<Vec<_>>(),
-                non_used_precompiles_evals,
-            ]
-            .concat(),
-        )
-        .evaluate(&bytecode_compression_challenges),
-    );
-
-    let bytecode_lookup_claim_2 = Evaluation::new(
-        grand_product_exec_sumcheck_claim.point.clone(),
-        padd_with_zero_to_next_power_of_two(grand_product_exec_evals_on_each_column)
+        padd_with_zero_to_next_power_of_two(&exec_evals_to_verify[..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
-    let alpha_bytecode_lookup = verifier_state.sample();
 
     let normal_lookup_into_memory = NormalPackedLookupVerifier::step_1(
         &mut verifier_state,
@@ -418,8 +369,6 @@ pub fn verify_execution(
         .concat(),
         [vec![0; 3], vec![0; 3]].concat(),
         normal_lookup_into_memory_initial_statements(
-            &grand_product_exec_sumcheck_claim.point,
-            &grand_product_exec_sumcheck_inner_evals,
             &exec_air_point,
             &exec_evals_to_verify,
             &dot_product_air_point,
@@ -473,8 +422,8 @@ pub fn verify_execution(
         &mut verifier_state,
         log2_ceil_usize(bytecode.instructions.len()),
         log_n_cycles,
-        &[bytecode_lookup_claim_1, bytecode_lookup_claim_2],
-        alpha_bytecode_lookup,
+        &[bytecode_lookup_claim_1],
+        EF::ONE,
     )
     .unwrap();
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
@@ -552,12 +501,8 @@ pub fn verify_execution(
             ),
         )?;
 
-    let exec_air_statement = |col_index: usize| {
-        Evaluation::new(
-            exec_air_point.clone(),
-            exec_evals_to_verify[col_index.index_in_air()],
-        )
-    };
+    let exec_air_statement =
+        |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_verify[col_index]);
     let dot_product_air_statement = |col_index: usize| {
         Evaluation::new(
             dot_product_air_point.clone(),
@@ -577,7 +522,7 @@ pub fn verify_execution(
                     initial_pc_statement,
                     final_pc_statement,
                 ], // pc
-                vec![exec_air_statement(COL_INDEX_FP), grand_product_fp_statement], // fp
+                vec![exec_air_statement(COL_INDEX_FP)], // fp
                 [
                     vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_A)],
                     normal_lookup_statements.on_indexes[0].clone(),

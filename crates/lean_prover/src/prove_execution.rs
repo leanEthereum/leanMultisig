@@ -74,18 +74,6 @@ pub fn prove_execution(
 
     precompute_dft_twiddles::<F>(1 << 24);
 
-    let mut exec_columns = full_trace[..N_INSTRUCTION_COLUMNS_IN_AIR]
-        .iter()
-        .map(Vec::as_slice)
-        .collect::<Vec<_>>();
-    exec_columns.extend(
-        full_trace[N_INSTRUCTION_COLUMNS..]
-            .iter()
-            .map(Vec::as_slice)
-            .collect::<Vec<_>>(),
-    );
-    let exec_table = AirTable::<EF, _>::new(VMAir);
-
     let _validity_proof_span = info_span!("Validity proof generation").entered();
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
@@ -277,7 +265,10 @@ pub fn prove_execution(
     }
 
     let (grand_product_exec_res, grand_product_exec_statement) =
-        prove_gkr_product::<_, 2>(&mut prover_state, &exec_column_for_grand_product);
+        prove_gkr_product::<_, TWO_POW_UNIVARIATE_SKIPS>(
+            &mut prover_state,
+            &exec_column_for_grand_product,
+        );
 
     let p16_column_for_grand_product = poseidons_16
         .par_iter()
@@ -502,72 +493,18 @@ pub fn prove_execution(
         grand_product_dot_product_sumcheck_inner_evals[4],
     );
 
-    let precompile_foot_print_computation = PrecompileFootprint {
+    let exec_table = AirTable::<EF, _>::new(VMAir {
         global_challenge: grand_product_challenge_global,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-    };
-
-    let (grand_product_exec_sumcheck_point, mut grand_product_exec_sumcheck_inner_evals, _) =
-        info_span!("Grand product sumcheck for Execution").in_scope(|| {
-            sumcheck_prove(
-                1, // TODO univariate skip
-                MleGroupRef::Base(
-                    reorder_full_trace_for_precomp_foot_print(
-                        full_trace.iter().collect::<Vec<_>>(),
-                    )
-                    .iter()
-                    .map(|c| c.as_slice())
-                    .collect::<Vec<_>>(),
-                )
-                .pack(),
-                &precompile_foot_print_computation,
-                &[],
-                Some((grand_product_exec_statement.point.0.clone(), None)),
-                false,
-                &mut prover_state,
-                grand_product_exec_statement.value,
-                None,
-            )
-        });
-
-    // TODO compute eq polynomial 1 time and then inner product with each column
-    for col in [
-        COL_INDEX_OPERAND_C,
-        COL_INDEX_ADD,
-        COL_INDEX_MUL,
-        COL_INDEX_DEREF,
-        COL_INDEX_JUMP,
-        COL_INDEX_PC,
-        COL_INDEX_MEM_ADDRESS_A,
-        COL_INDEX_MEM_ADDRESS_B,
-        COL_INDEX_MEM_ADDRESS_C,
-    ] {
-        grand_product_exec_sumcheck_inner_evals.insert(
-            col,
-            full_trace[col].evaluate(&grand_product_exec_sumcheck_point),
-        );
-    }
-    assert_eq!(
-        N_TOTAL_COLUMNS,
-        grand_product_exec_sumcheck_inner_evals.len()
-    );
-    prover_state.add_extension_scalars(&grand_product_exec_sumcheck_inner_evals);
-
-    let grand_product_exec_evals_on_each_column =
-        &grand_product_exec_sumcheck_inner_evals[..N_INSTRUCTION_COLUMNS];
-
-    let grand_product_fp_statement = Evaluation::new(
-        grand_product_exec_sumcheck_point.clone(),
-        grand_product_exec_sumcheck_inner_evals[COL_INDEX_FP],
-    );
-
+    });
     let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
         prove_air(
             &mut prover_state,
             &exec_table,
             UNIVARIATE_SKIPS,
-            &exec_columns,
+            &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &execution_air_padding_row(bytecode.ending_pc),
+            Some(grand_product_exec_statement),
         )
     });
 
@@ -583,6 +520,7 @@ pub fn prove_execution(
                 1,
                 &dot_product_columns_ref,
                 &dot_product_air_padding_row(),
+                None,
             )
         });
 
@@ -625,12 +563,6 @@ pub fn prove_execution(
         }),
     ];
 
-    let non_used_precompiles_evals = full_trace
-        [N_INSTRUCTION_COLUMNS_IN_AIR..N_INSTRUCTION_COLUMNS]
-        .iter()
-        .map(|col| col.evaluate(&exec_air_point))
-        .collect::<Vec<_>>();
-    prover_state.add_extension_scalars(&non_used_precompiles_evals);
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
@@ -638,31 +570,10 @@ pub fn prove_execution(
 
     let bytecode_lookup_claim_1 = Evaluation::new(
         exec_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(
-            &[
-                (0..N_INSTRUCTION_COLUMNS_IN_AIR)
-                    .map(|i| exec_evals_to_prove[i])
-                    .collect::<Vec<_>>(),
-                non_used_precompiles_evals,
-            ]
-            .concat(),
-        )
-        .evaluate(&bytecode_compression_challenges),
-    );
-    let bytecode_lookup_point_2 = grand_product_exec_sumcheck_point.clone();
-    let bytecode_lookup_claim_2 = Evaluation::new(
-        bytecode_lookup_point_2.clone(),
-        padd_with_zero_to_next_power_of_two(grand_product_exec_evals_on_each_column)
+        padd_with_zero_to_next_power_of_two(&exec_evals_to_prove[..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
-    let alpha_bytecode_lookup = prover_state.sample();
-
-    let mut bytecode_poly_eq_point = eval_eq(&exec_air_point);
-    compute_eval_eq::<PF<EF>, EF, true>(
-        &bytecode_lookup_point_2,
-        &mut bytecode_poly_eq_point,
-        alpha_bytecode_lookup,
-    );
+    let bytecode_poly_eq_point = eval_eq(&exec_air_point);
     let bytecode_pushforward = compute_pushforward(
         &full_trace[COL_INDEX_PC],
         folded_bytecode.len(),
@@ -697,8 +608,6 @@ pub fn prove_execution(
             &dot_product_columns[DOT_PRODUCT_AIR_COL_VALUE_RES],
         ],
         normal_lookup_into_memory_initial_statements(
-            &grand_product_exec_sumcheck_point,
-            &grand_product_exec_sumcheck_inner_evals,
             &exec_air_point,
             &exec_evals_to_prove,
             &dot_product_air_point,
@@ -766,7 +675,7 @@ pub fn prove_execution(
         &mut prover_state,
         &MleRef::Extension(&folded_bytecode),
         &full_trace[COL_INDEX_PC],
-        bytecode_lookup_claim_1.value + alpha_bytecode_lookup * bytecode_lookup_claim_2.value,
+        bytecode_lookup_claim_1.value,
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
         Some(bytecode.instructions.len()),
@@ -841,12 +750,8 @@ pub fn prove_execution(
     let dot_product_computation_column_statements = dot_product_computation_ext_to_base_helper
         .after_commitment(&mut prover_state, &dot_product_air_point);
 
-    let exec_air_statement = |col_index: usize| {
-        Evaluation::new(
-            exec_air_point.clone(),
-            exec_evals_to_prove[col_index.index_in_air()],
-        )
-    };
+    let exec_air_statement =
+        |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_prove[col_index]);
     let dot_product_air_statement = |col_index: usize| {
         Evaluation::new(
             dot_product_air_point.clone(),
@@ -864,7 +769,7 @@ pub fn prove_execution(
                 initial_pc_statement,
                 final_pc_statement,
             ], // pc
-            vec![exec_air_statement(COL_INDEX_FP), grand_product_fp_statement], // fp
+            vec![exec_air_statement(COL_INDEX_FP)], // fp
             [
                 vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_A)],
                 normal_lookup_into_memory_statements.on_indexes[0].clone(),

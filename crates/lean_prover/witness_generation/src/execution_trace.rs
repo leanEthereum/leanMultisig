@@ -7,7 +7,7 @@ use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
-    pub full_trace: [Vec<F>; N_TOTAL_COLUMNS],
+    pub full_trace: [Vec<F>; N_EXEC_AIR_COLUMNS],
     pub n_cycles: usize, // before padding with the repeated final instruction
     pub n_poseidons_16: usize,
     pub n_poseidons_24: usize,
@@ -40,7 +40,7 @@ pub fn get_execution_trace(
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
-    let mut trace: [Vec<F>; N_TOTAL_COLUMNS] =
+    let mut trace: [Vec<F>; N_EXEC_AIR_COLUMNS] =
         array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
 
     transposed_par_iter_mut(&mut trace)

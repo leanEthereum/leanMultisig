@@ -12,11 +12,16 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
     univariate_skips: usize,
     log_n_rows: usize,
     last_row: &[EF],
+    virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
     let constraints_batching_scalar = verifier_state.sample();
 
-    let n_zerocheck_challenges = log_n_rows + 1 - univariate_skips;
-    let global_zerocheck_challenges = verifier_state.sample_vec(n_zerocheck_challenges);
+    let n_sc_rounds = log_n_rows + 1 - univariate_skips;
+    let zerocheck_challenges = virtual_column_statement
+        .as_ref()
+        .map(|st| st.point.0.clone())
+        .unwrap_or_else(|| verifier_state.sample_vec(n_sc_rounds));
+    assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
     let (sc_sum, outer_statement) = sumcheck_verify_with_univariate_skip::<EF>(
         verifier_state,
@@ -24,7 +29,12 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
         log_n_rows,
         univariate_skips,
     )?;
-    if sc_sum != EF::ZERO {
+    if sc_sum
+        != virtual_column_statement
+            .as_ref()
+            .map(|st| st.value)
+            .unwrap_or(EF::ZERO)
+    {
         return Err(ProofError::InvalidProof);
     }
 
@@ -36,15 +46,15 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
     let inner_sums = verifier_state
         .next_extension_scalars_vec(table.n_columns() + table.columns_with_shift().len())?;
 
-    let constraint_evals = SumcheckComputation::eval(
-        &table.air,
-        &inner_sums,
-        &cyclic_subgroup_known_order(constraints_batching_scalar, table.n_constraints)
-            .collect::<Vec<_>>(),
-    );
+    let constraints_batching_scalars = constraints_batching_scalar
+        .powers()
+        .take(table.n_constraints + virtual_column_statement.is_some() as usize)
+        .collect();
+    let constraint_evals =
+        SumcheckComputation::eval(&table.air, &inner_sums, &constraints_batching_scalars);
 
     if eq_poly_with_skip(
-        &global_zerocheck_challenges,
+        &zerocheck_challenges,
         &outer_statement.point,
         univariate_skips,
     ) * constraint_evals

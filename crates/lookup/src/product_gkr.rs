@@ -81,10 +81,10 @@ fn prove_gkr_product_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
 ) -> Evaluation<EF> {
     match up_layer {
         MleRef::Extension(slice) => {
-            prove_gkr_product_step_unpacked::<_, N_GROUPS>(prover_state, slice, &claim)
+            prove_gkr_product_step_unpacked::<_, N_GROUPS>(prover_state, slice, claim)
         }
         MleRef::ExtensionPacked(slice) => {
-            prove_gkr_product_step_packed::<_, N_GROUPS>(prover_state, slice, &claim)
+            prove_gkr_product_step_packed::<_, N_GROUPS>(prover_state, slice, claim)
         }
         _ => unreachable!(),
     }

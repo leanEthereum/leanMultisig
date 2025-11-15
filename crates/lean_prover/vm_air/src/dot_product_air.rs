@@ -99,6 +99,11 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
 
         builder.assert_zero(start_flag_up * (computation_up - res_up));
     }
+
+    fn eval_custom(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
+        let _ = inputs;
+        todo!()
+    }
 }
 
 pub fn build_dot_product_columns(

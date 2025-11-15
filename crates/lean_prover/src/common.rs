@@ -66,8 +66,6 @@ pub fn get_base_dims(
 }
 
 pub fn normal_lookup_into_memory_initial_statements(
-    grand_product_exec_sumcheck_point: &MultilinearPoint<EF>,
-    grand_product_exec_sumcheck_inner_evals: &[EF],
     exec_air_point: &MultilinearPoint<EF>,
     exec_evals: &[EF],
     dot_product_air_point: &MultilinearPoint<EF>,
@@ -80,15 +78,7 @@ pub fn normal_lookup_into_memory_initial_statements(
             COL_INDEX_MEM_VALUE_C,
         ]
         .into_iter()
-        .map(|index| {
-            vec![
-                Evaluation::new(
-                    grand_product_exec_sumcheck_point.clone(),
-                    grand_product_exec_sumcheck_inner_evals[index],
-                ),
-                Evaluation::new(exec_air_point.clone(), exec_evals[index.index_in_air()]),
-            ]
-        })
+        .map(|index| vec![Evaluation::new(exec_air_point.clone(), exec_evals[index])])
         .collect::<Vec<_>>(),
         [
             DOT_PRODUCT_AIR_COL_VALUE_A,
@@ -186,110 +176,6 @@ pub fn add_memory_statements_for_dot_product_precompile(
     }
 
     Ok(())
-}
-
-pub struct PrecompileFootprint {
-    pub global_challenge: EF,
-    pub fingerprint_challenge_powers: [EF; 5],
-}
-
-const PRECOMP_INDEX_OPERAND_A: usize = 0;
-const PRECOMP_INDEX_OPERAND_B: usize = 1;
-const PRECOMP_INDEX_FLAG_A: usize = 2;
-const PRECOMP_INDEX_FLAG_B: usize = 3;
-const PRECOMP_INDEX_FLAG_C: usize = 4;
-const PRECOMP_INDEX_AUX: usize = 5;
-const PRECOMP_INDEX_POSEIDON_16: usize = 6;
-const PRECOMP_INDEX_POSEIDON_24: usize = 7;
-const PRECOMP_INDEX_DOT_PRODUCT: usize = 8;
-const PRECOMP_INDEX_MULTILINEAR_EVAL: usize = 9;
-const PRECOMP_INDEX_MEM_VALUE_A: usize = 10;
-const PRECOMP_INDEX_MEM_VALUE_B: usize = 11;
-const PRECOMP_INDEX_MEM_VALUE_C: usize = 12;
-const PRECOMP_INDEX_FP: usize = 13;
-
-pub fn reorder_full_trace_for_precomp_foot_print<A: Copy>(full_trace: Vec<A>) -> Vec<A> {
-    assert_eq!(full_trace.len(), N_TOTAL_COLUMNS);
-    vec![
-        full_trace[COL_INDEX_OPERAND_A],
-        full_trace[COL_INDEX_OPERAND_B],
-        full_trace[COL_INDEX_FLAG_A],
-        full_trace[COL_INDEX_FLAG_B],
-        full_trace[COL_INDEX_FLAG_C],
-        full_trace[COL_INDEX_AUX],
-        full_trace[COL_INDEX_POSEIDON_16],
-        full_trace[COL_INDEX_POSEIDON_24],
-        full_trace[COL_INDEX_DOT_PRODUCT],
-        full_trace[COL_INDEX_MULTILINEAR_EVAL],
-        full_trace[COL_INDEX_MEM_VALUE_A],
-        full_trace[COL_INDEX_MEM_VALUE_B],
-        full_trace[COL_INDEX_MEM_VALUE_C],
-        full_trace[COL_INDEX_FP],
-    ]
-}
-
-impl PrecompileFootprint {
-    fn air_eval<
-        PointF: PrimeCharacteristicRing + Copy,
-        ResultF: Algebra<EF> + Algebra<PointF> + Copy,
-    >(
-        &self,
-        point: &[PointF],
-        mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
-    ) -> ResultF {
-        let nu_a = (PointF::ONE - point[PRECOMP_INDEX_FLAG_A]) * point[PRECOMP_INDEX_MEM_VALUE_A]
-            + point[PRECOMP_INDEX_FLAG_A] * point[PRECOMP_INDEX_OPERAND_A];
-        let nu_b = (PointF::ONE - point[PRECOMP_INDEX_FLAG_B]) * point[PRECOMP_INDEX_MEM_VALUE_B]
-            + point[PRECOMP_INDEX_FLAG_B] * point[PRECOMP_INDEX_OPERAND_B];
-        let nu_c = (PointF::ONE - point[PRECOMP_INDEX_FLAG_C]) * point[PRECOMP_INDEX_MEM_VALUE_C]
-            + point[PRECOMP_INDEX_FLAG_C] * point[PRECOMP_INDEX_FP];
-
-        let nu_a_mul_challenge_1 = mul_point_f_and_ef(nu_a, self.fingerprint_challenge_powers[1]);
-        let nu_b_mul_challenge_2 = mul_point_f_and_ef(nu_b, self.fingerprint_challenge_powers[2]);
-        let nu_c_mul_challenge_3 = mul_point_f_and_ef(nu_c, self.fingerprint_challenge_powers[3]);
-        let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
-        let aux_mul_challenge_4 = mul_point_f_and_ef(
-            point[PRECOMP_INDEX_AUX],
-            self.fingerprint_challenge_powers[4],
-        );
-        let nu_sums_plus_aux = nu_sums + aux_mul_challenge_4;
-
-        (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_POSEIDONS_16))
-            * point[PRECOMP_INDEX_POSEIDON_16]
-            + (nu_sums + PointF::from_usize(TABLE_INDEX_POSEIDONS_24))
-                * point[PRECOMP_INDEX_POSEIDON_24]
-            + (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS))
-                * point[PRECOMP_INDEX_DOT_PRODUCT]
-            + (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
-                * point[PRECOMP_INDEX_MULTILINEAR_EVAL]
-            + self.global_challenge
-    }
-}
-
-impl<N: ExtensionField<F>> SumcheckComputation<N, EF> for PrecompileFootprint
-where
-    EF: ExtensionField<N>,
-{
-    fn degree(&self) -> usize {
-        3
-    }
-    fn eval(&self, point: &[N], _: &[EF]) -> EF {
-        self.air_eval(point, |p, c| c * p)
-    }
-}
-
-impl SumcheckComputationPacked<EF> for PrecompileFootprint {
-    fn degree(&self) -> usize {
-        3
-    }
-
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
-        self.air_eval(point, |p, c| p * c)
-    }
-
-    fn eval_packed_base(&self, point: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
-        self.air_eval(point, |p, c| EFPacking::<EF>::from(p) * c)
-    }
 }
 
 pub struct DotProductFootprint {

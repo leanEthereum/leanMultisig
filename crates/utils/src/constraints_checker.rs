@@ -22,6 +22,7 @@ impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<
     type F = PF<EF>;
     type Expr = IF;
     type Var = IF;
+    type FinalOutput = EF;
 
     #[inline]
     fn main(&self) -> &[IF] {
@@ -37,8 +38,7 @@ impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<
         self.constraint_index += 1;
     }
 
-    #[inline]
-    fn assert_zeros<const N: usize, I: Into<Self::Expr>>(&mut self, _: [I; N]) {
-        unreachable!()
+    fn add_custom(&mut self, value: Self::FinalOutput) {
+        let _ = value;
     }
 }

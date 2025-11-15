@@ -1,7 +1,5 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
-use lean_compiler::PRECOMPILES;
-
 mod execution_trace;
 mod instruction_encoder;
 
@@ -14,10 +12,8 @@ pub use poseidon_tables::*;
 pub const N_INSTRUCTION_COLUMNS: usize = 15;
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
 pub const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with logup*)
-pub const N_EXEC_COLUMNS: usize = N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
-pub const N_INSTRUCTION_COLUMNS_IN_AIR: usize = N_INSTRUCTION_COLUMNS - PRECOMPILES.len();
-pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS_IN_AIR + N_EXEC_COLUMNS;
-pub const N_TOTAL_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS;
+pub const N_EXEC_AIR_COLUMNS: usize =
+    N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
 
 // Instruction columns
 pub const COL_INDEX_OPERAND_A: usize = 0;
@@ -45,22 +41,6 @@ pub const COL_INDEX_FP: usize = 19;
 pub const COL_INDEX_MEM_ADDRESS_A: usize = 20;
 pub const COL_INDEX_MEM_ADDRESS_B: usize = 21;
 pub const COL_INDEX_MEM_ADDRESS_C: usize = 22;
-
-pub trait InAirColumnIndex {
-    fn index_in_air(self) -> usize;
-}
-
-impl InAirColumnIndex for usize {
-    fn index_in_air(self) -> usize {
-        if self < N_INSTRUCTION_COLUMNS_IN_AIR {
-            self
-        } else {
-            assert!(self >= N_INSTRUCTION_COLUMNS);
-            assert!(self < N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS);
-            self - PRECOMPILES.len()
-        }
-    }
-}
 
 // Zero padding will be added to each at least, if this minimum is not reached
 // (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)

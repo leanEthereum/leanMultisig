@@ -27,6 +27,7 @@ pub fn prove_air<
     univariate_skips: usize,
     witness: &[&[WF]],
     last_row_shifted: &[WF],
+    virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
     let n_rows = witness[0].len();
     assert!(witness.iter().all(|col| col.len() == n_rows));
@@ -38,13 +39,18 @@ pub fn prove_air<
 
     let constraints_batching_scalar = prover_state.sample();
 
-    let constraints_batching_scalars =
-        cyclic_subgroup_known_order(constraints_batching_scalar, table.n_constraints)
-            .collect::<Vec<_>>();
+    let constraints_batching_scalars = constraints_batching_scalar
+        .powers()
+        .take(table.n_constraints + virtual_column_statement.is_some() as usize)
+        .collect();
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
 
-    let zerocheck_challenges = prover_state.sample_vec(n_sc_rounds);
+    let zerocheck_challenges = virtual_column_statement
+        .as_ref()
+        .map(|st| st.point.0.clone())
+        .unwrap_or_else(|| prover_state.sample_vec(n_sc_rounds));
+    assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
     let shifted_rows = table
         .columns_with_shift()
@@ -76,9 +82,12 @@ pub fn prove_air<
             &table.air,
             &constraints_batching_scalars,
             Some((zerocheck_challenges, None)),
-            true,
+            virtual_column_statement.is_none(),
             prover_state,
-            EF::ZERO,
+            virtual_column_statement
+                .as_ref()
+                .map(|st| st.value)
+                .unwrap_or_else(|| EF::ZERO),
             None,
         )
     });

@@ -12,6 +12,7 @@ pub mod prove_execution;
 pub mod verify_execution;
 
 const UNIVARIATE_SKIPS: usize = 3;
+const TWO_POW_UNIVARIATE_SKIPS: usize = 1 << UNIVARIATE_SKIPS;
 const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 8; // TODO optimize
 
 pub fn whir_config_builder() -> WhirConfigBuilder {
@@ -25,8 +26,3 @@ pub fn whir_config_builder() -> WhirConfigBuilder {
         starting_log_inv_rate: 1,
     }
 }
-
-const TABLE_INDEX_POSEIDONS_16: usize = 1; // should be != 0
-const TABLE_INDEX_POSEIDONS_24: usize = 2;
-const TABLE_INDEX_DOT_PRODUCTS: usize = 3;
-const TABLE_INDEX_MULTILINEAR_EVAL: usize = 4;
