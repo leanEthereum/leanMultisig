@@ -178,56 +178,6 @@ pub fn add_memory_statements_for_dot_product_precompile(
     Ok(())
 }
 
-pub struct DotProductFootprint {
-    pub global_challenge: EF,
-    pub fingerprint_challenge_powers: [EF; 5],
-}
-
-impl DotProductFootprint {
-    fn air_eval<
-        PointF: PrimeCharacteristicRing + Copy,
-        ResultF: Algebra<EF> + Algebra<PointF> + Copy,
-    >(
-        &self,
-        point: &[PointF],
-        mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
-    ) -> ResultF {
-        ResultF::from_usize(TABLE_INDEX_DOT_PRODUCTS)
-            + (mul_point_f_and_ef(point[2], self.fingerprint_challenge_powers[1])
-                + mul_point_f_and_ef(point[3], self.fingerprint_challenge_powers[2])
-                + mul_point_f_and_ef(point[4], self.fingerprint_challenge_powers[3])
-                + mul_point_f_and_ef(point[1], self.fingerprint_challenge_powers[4]))
-                * point[0]
-            + self.global_challenge
-    }
-}
-
-impl<N: ExtensionField<PF<EF>>> SumcheckComputation<N, EF> for DotProductFootprint
-where
-    EF: ExtensionField<N>,
-{
-    fn degree(&self) -> usize {
-        2
-    }
-
-    fn eval(&self, point: &[N], _: &[EF]) -> EF {
-        self.air_eval(point, |p, c| c * p)
-    }
-}
-
-impl SumcheckComputationPacked<EF> for DotProductFootprint {
-    fn degree(&self) -> usize {
-        2
-    }
-
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
-        self.air_eval(point, |p, c| p * c)
-    }
-    fn eval_packed_base(&self, point: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
-        self.air_eval(point, |p, c| EFPacking::<EF>::from(p) * c)
-    }
-}
-
 pub fn default_poseidon_indexes() -> Vec<usize> {
     [
         vec![

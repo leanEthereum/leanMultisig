@@ -15,6 +15,9 @@ const UNIVARIATE_SKIPS: usize = 3;
 const TWO_POW_UNIVARIATE_SKIPS: usize = 1 << UNIVARIATE_SKIPS;
 const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 8; // TODO optimize
 
+const DOT_PRODUCT_UNIVARIATE_SKIPS: usize = 1;
+const TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS: usize = 1 << DOT_PRODUCT_UNIVARIATE_SKIPS;
+
 pub fn whir_config_builder() -> WhirConfigBuilder {
     WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 4),

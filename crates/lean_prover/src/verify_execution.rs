@@ -28,8 +28,6 @@ pub fn verify_execution(
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
-
     let [
         n_cycles,
         n_poseidons_16,
@@ -124,7 +122,10 @@ pub fn verify_execution(
     let (grand_product_p24_res, grand_product_p24_statement) =
         verify_gkr_product::<_, 2>(&mut verifier_state, log_n_p24)?;
     let (grand_product_dot_product_res, grand_product_dot_product_statement) =
-        verify_gkr_product::<_, 2>(&mut verifier_state, table_dot_products_log_n_rows)?;
+        verify_gkr_product::<_, TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS>(
+            &mut verifier_state,
+            table_dot_products_log_n_rows,
+        )?;
     let vm_multilinear_eval_grand_product_res = vm_multilinear_evals
         .iter()
         .map(|vm_multilinear_eval| {
@@ -263,51 +264,6 @@ pub fn verify_execution(
         p24_grand_product_evals_on_indexes_res,
     )];
 
-    // Grand product statements
-    let (grand_product_final_dot_product_eval, grand_product_dot_product_sumcheck_claim) =
-        sumcheck_verify(&mut verifier_state, table_dot_products_log_n_rows, 3)?;
-    if grand_product_final_dot_product_eval != grand_product_dot_product_statement.value {
-        return Err(ProofError::InvalidProof);
-    }
-    let grand_product_dot_product_sumcheck_inner_evals =
-        verifier_state.next_extension_scalars_vec(5)?;
-
-    if grand_product_dot_product_sumcheck_claim.value
-        != grand_product_dot_product_sumcheck_claim
-            .point
-            .eq_poly_outside(&grand_product_dot_product_statement.point)
-            * {
-                DotProductFootprint {
-                    global_challenge: grand_product_challenge_global,
-                    fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-                }
-                .eval(&grand_product_dot_product_sumcheck_inner_evals, &[])
-            }
-    {
-        return Err(ProofError::InvalidProof);
-    }
-
-    let grand_product_dot_product_flag_statement = Evaluation::new(
-        grand_product_dot_product_sumcheck_claim.point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[0],
-    );
-    let grand_product_dot_product_len_statement = Evaluation::new(
-        grand_product_dot_product_sumcheck_claim.point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[1],
-    );
-    let grand_product_dot_product_table_indexes_statement_index_a = Evaluation::new(
-        grand_product_dot_product_sumcheck_claim.point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[2],
-    );
-    let grand_product_dot_product_table_indexes_statement_index_b = Evaluation::new(
-        grand_product_dot_product_sumcheck_claim.point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[3],
-    );
-    let grand_product_dot_product_table_indexes_statement_index_res = Evaluation::new(
-        grand_product_dot_product_sumcheck_claim.point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[4],
-    );
-
     let exec_table = AirTable::<EF, _>::new(VMAir {
         global_challenge: grand_product_challenge_global,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
@@ -321,13 +277,17 @@ pub fn verify_execution(
         Some(grand_product_exec_statement),
     )?;
 
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
+        global_challenge: grand_product_challenge_global,
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+    });
     let (dot_product_air_point, dot_product_evals_to_verify) = verify_air(
         &mut verifier_state,
         &dot_product_table,
-        1,
+        DOT_PRODUCT_UNIVARIATE_SKIPS,
         table_dot_products_log_n_rows,
         &dot_product_air_padding_row(),
-        None,
+        Some(grand_product_dot_product_statement),
     )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
@@ -548,35 +508,20 @@ pub fn verify_execution(
             encapsulate_vec(p16_gkr.cubes_statements.split()),
             encapsulate_vec(p24_gkr.cubes_statements.split()),
             vec![
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG),
-                    grand_product_dot_product_flag_statement,
-                ], // dot product: (start) flag
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN),
-                    grand_product_dot_product_len_statement,
-                ], // dot product: length
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG)], // dot product: (start) flag
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN)], // dot product: length
                 [
-                    vec![
-                        dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A),
-                        grand_product_dot_product_table_indexes_statement_index_a,
-                    ],
+                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A)],
                     normal_lookup_statements.on_indexes[3].clone(),
                 ]
                 .concat(),
                 [
-                    vec![
-                        dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B),
-                        grand_product_dot_product_table_indexes_statement_index_b,
-                    ],
+                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B)],
                     normal_lookup_statements.on_indexes[4].clone(),
                 ]
                 .concat(),
                 [
-                    vec![
-                        dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES),
-                        grand_product_dot_product_table_indexes_statement_index_res,
-                    ],
+                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES)],
                     normal_lookup_statements.on_indexes[4].clone(),
                 ]
                 .concat(),

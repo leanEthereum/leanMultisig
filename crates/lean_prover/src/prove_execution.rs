@@ -83,8 +83,6 @@ pub fn prove_execution(
         generate_poseidon_witness_helper(&p16_gkr_layers, &poseidons_16, Some(n_compressions_16));
     let p24_witness = generate_poseidon_witness_helper(&p24_gkr_layers, &poseidons_24, None);
 
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
-
     let (dot_product_columns, dot_product_padding_len) =
         build_dot_product_columns(&dot_products, 1 << LOG_MIN_DOT_PRODUCT_ROWS);
 
@@ -334,7 +332,10 @@ pub fn prove_execution(
         .product::<EF>();
 
     let (grand_product_dot_product_res, grand_product_dot_product_statement) =
-        prove_gkr_product::<_, 2>(&mut prover_state, &dot_product_column_for_grand_product);
+        prove_gkr_product::<_, TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS>(
+            &mut prover_state,
+            &dot_product_column_for_grand_product,
+        );
 
     let corrected_prod_exec = grand_product_exec_res
         / grand_product_challenge_global.exp_u64(
@@ -440,59 +441,6 @@ pub fn prove_execution(
         p24_grand_product_evals_on_indexes_res,
     )];
 
-    let dot_product_footprint_computation = DotProductFootprint {
-        global_challenge: grand_product_challenge_global,
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-    };
-
-    let (
-        grand_product_dot_product_sumcheck_point,
-        grand_product_dot_product_sumcheck_inner_evals,
-        _,
-    ) = info_span!("Grand product sumcheck for Dot Product").in_scope(|| {
-        sumcheck_prove(
-            1,
-            MleGroupRef::Extension(
-                dot_product_columns[..5]
-                    .iter()
-                    .map(|c| c.as_slice())
-                    .collect::<Vec<_>>(),
-            ), // we do not use packing here because it's slower in practice (this sumcheck is small)
-            &dot_product_footprint_computation,
-            &[],
-            Some((grand_product_dot_product_statement.point.0.clone(), None)),
-            false,
-            &mut prover_state,
-            grand_product_dot_product_statement.value,
-            None,
-        )
-    });
-    assert_eq!(grand_product_dot_product_sumcheck_inner_evals.len(), 5);
-    prover_state.add_extension_scalars(&grand_product_dot_product_sumcheck_inner_evals);
-
-    let grand_product_dot_product_flag_statement = Evaluation::new(
-        grand_product_dot_product_sumcheck_point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[0],
-    );
-
-    let grand_product_dot_product_len_statement = Evaluation::new(
-        grand_product_dot_product_sumcheck_point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[1],
-    );
-
-    let grand_product_dot_product_table_indexes_statement_index_a = Evaluation::new(
-        grand_product_dot_product_sumcheck_point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[2],
-    );
-    let grand_product_dot_product_table_indexes_statement_index_b = Evaluation::new(
-        grand_product_dot_product_sumcheck_point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[3],
-    );
-    let grand_product_dot_product_table_indexes_statement_index_res = Evaluation::new(
-        grand_product_dot_product_sumcheck_point.clone(),
-        grand_product_dot_product_sumcheck_inner_evals[4],
-    );
-
     let exec_table = AirTable::<EF, _>::new(VMAir {
         global_challenge: grand_product_challenge_global,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
@@ -508,6 +456,10 @@ pub fn prove_execution(
         )
     });
 
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
+        global_challenge: grand_product_challenge_global,
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+    });
     let dot_product_columns_ref = dot_product_columns
         .iter()
         .map(Vec::as_slice)
@@ -517,10 +469,10 @@ pub fn prove_execution(
             prove_air(
                 &mut prover_state,
                 &dot_product_table,
-                1,
+                DOT_PRODUCT_UNIVARIATE_SKIPS,
                 &dot_product_columns_ref,
                 &dot_product_air_padding_row(),
-                None,
+                Some(grand_product_dot_product_statement),
             )
         });
 
@@ -795,35 +747,20 @@ pub fn prove_execution(
         encapsulate_vec(p16_gkr.cubes_statements.split()),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
         vec![
-            vec![
-                dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG),
-                grand_product_dot_product_flag_statement,
-            ],
-            vec![
-                dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN),
-                grand_product_dot_product_len_statement,
-            ],
+            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG)],
+            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN)],
             [
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A),
-                    grand_product_dot_product_table_indexes_statement_index_a,
-                ],
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A)],
                 normal_lookup_into_memory_statements.on_indexes[3].clone(),
             ]
             .concat(),
             [
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B),
-                    grand_product_dot_product_table_indexes_statement_index_b,
-                ],
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B)],
                 normal_lookup_into_memory_statements.on_indexes[4].clone(),
             ]
             .concat(),
             [
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES),
-                    grand_product_dot_product_table_indexes_statement_index_res,
-                ],
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES)],
                 normal_lookup_into_memory_statements.on_indexes[4].clone(),
             ]
             .concat(),
