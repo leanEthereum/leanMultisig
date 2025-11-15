@@ -93,7 +93,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#2ca3ed6833569eebb4a34ad1ef6903a9d83c341e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#2a7029d2965839a0730a14ed172d3da0f12b9452"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -177,7 +177,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#2ca3ed6833569eebb4a34ad1ef6903a9d83c341e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#2a7029d2965839a0730a14ed172d3da0f12b9452"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -471,7 +471,7 @@ dependencies = [
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#2ca3ed6833569eebb4a34ad1ef6903a9d83c341e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#2a7029d2965839a0730a14ed172d3da0f12b9452"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1056,7 +1056,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#2ca3ed6833569eebb4a34ad1ef6903a9d83c341e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#2a7029d2965839a0730a14ed172d3da0f12b9452"
 dependencies = [
  "backend",
  "constraints-folder",

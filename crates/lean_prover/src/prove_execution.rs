@@ -277,7 +277,7 @@ pub fn prove_execution(
     }
 
     let (grand_product_exec_res, grand_product_exec_statement) =
-        prove_gkr_product(&mut prover_state, &exec_column_for_grand_product);
+        prove_gkr_product::<_, 2>(&mut prover_state, &exec_column_for_grand_product);
 
     let p16_column_for_grand_product = poseidons_16
         .par_iter()
@@ -292,7 +292,7 @@ pub fn prove_execution(
         .collect::<Vec<_>>();
 
     let (grand_product_p16_res, grand_product_p16_statement) =
-        prove_gkr_product(&mut prover_state, &p16_column_for_grand_product);
+        prove_gkr_product::<_, 2>(&mut prover_state, &p16_column_for_grand_product);
 
     let p24_column_for_grand_product = poseidons_24
         .par_iter()
@@ -307,7 +307,7 @@ pub fn prove_execution(
         .collect::<Vec<_>>();
 
     let (grand_product_p24_res, grand_product_p24_statement) =
-        prove_gkr_product(&mut prover_state, &p24_column_for_grand_product);
+        prove_gkr_product::<_, 2>(&mut prover_state, &p24_column_for_grand_product);
 
     let dot_product_column_for_grand_product = (0..1 << log_n_rows_dot_product_table)
         .into_par_iter()
@@ -343,7 +343,7 @@ pub fn prove_execution(
         .product::<EF>();
 
     let (grand_product_dot_product_res, grand_product_dot_product_statement) =
-        prove_gkr_product(&mut prover_state, &dot_product_column_for_grand_product);
+        prove_gkr_product::<_, 2>(&mut prover_state, &dot_product_column_for_grand_product);
 
     let corrected_prod_exec = grand_product_exec_res
         / grand_product_challenge_global.exp_u64(

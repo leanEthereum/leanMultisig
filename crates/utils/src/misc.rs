@@ -11,18 +11,6 @@ pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const After, new_len) }
 }
 
-pub fn left_ref<A>(slice: &[A]) -> &[A] {
-    assert!(slice.len().is_multiple_of(2));
-    let mid = slice.len() / 2;
-    &slice[..mid]
-}
-
-pub fn right_ref<A>(slice: &[A]) -> &[A] {
-    assert!(slice.len().is_multiple_of(2));
-    let mid = slice.len() / 2;
-    &slice[mid..]
-}
-
 pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     assert!(n <= slice.len());
     &slice[slice.len() - n..]

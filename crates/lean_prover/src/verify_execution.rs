@@ -119,13 +119,13 @@ pub fn verify_execution(
     let grand_product_challenge_global = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
     let (grand_product_exec_res, grand_product_exec_statement) =
-        verify_gkr_product(&mut verifier_state, log_n_cycles)?;
+        verify_gkr_product::<_, 2>(&mut verifier_state, log_n_cycles)?;
     let (grand_product_p16_res, grand_product_p16_statement) =
-        verify_gkr_product(&mut verifier_state, log_n_p16)?;
+        verify_gkr_product::<_, 2>(&mut verifier_state, log_n_p16)?;
     let (grand_product_p24_res, grand_product_p24_statement) =
-        verify_gkr_product(&mut verifier_state, log_n_p24)?;
+        verify_gkr_product::<_, 2>(&mut verifier_state, log_n_p24)?;
     let (grand_product_dot_product_res, grand_product_dot_product_statement) =
-        verify_gkr_product(&mut verifier_state, table_dot_products_log_n_rows)?;
+        verify_gkr_product::<_, 2>(&mut verifier_state, table_dot_products_log_n_rows)?;
     let vm_multilinear_eval_grand_product_res = vm_multilinear_evals
         .iter()
         .map(|vm_multilinear_eval| {
