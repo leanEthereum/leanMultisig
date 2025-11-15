@@ -6,12 +6,37 @@ use std::{
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder, BaseAir};
 use p3_uni_stark::SymbolicExpression;
-use witness_generation::*;
 
-pub const TABLE_INDEX_POSEIDONS_16: usize = 1; // should be != 0
-pub const TABLE_INDEX_POSEIDONS_24: usize = 2;
-pub const TABLE_INDEX_DOT_PRODUCTS: usize = 3;
-pub const TABLE_INDEX_MULTILINEAR_EVAL: usize = 4;
+pub const N_INSTRUCTION_COLUMNS: usize = 13;
+pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
+pub const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with logup*)
+pub const N_EXEC_AIR_COLUMNS: usize =
+    N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
+
+// Instruction columns
+pub const COL_INDEX_OPERAND_A: usize = 0;
+pub const COL_INDEX_OPERAND_B: usize = 1;
+pub const COL_INDEX_OPERAND_C: usize = 2;
+pub const COL_INDEX_FLAG_A: usize = 3;
+pub const COL_INDEX_FLAG_B: usize = 4;
+pub const COL_INDEX_FLAG_C: usize = 5;
+pub const COL_INDEX_ADD: usize = 6;
+pub const COL_INDEX_MUL: usize = 7;
+pub const COL_INDEX_DEREF: usize = 8;
+pub const COL_INDEX_JUMP: usize = 9;
+pub const COL_INDEX_AUX: usize = 10;
+pub const COL_INDEX_IS_PRECOMPILE: usize = 11;
+pub const COL_INDEX_PRECOMPILE_INDEX: usize = 12;
+
+// Execution columns
+pub const COL_INDEX_MEM_VALUE_A: usize = 13; // virtual with logup*
+pub const COL_INDEX_MEM_VALUE_B: usize = 14; // virtual with logup*
+pub const COL_INDEX_MEM_VALUE_C: usize = 15; // virtual with logup*
+pub const COL_INDEX_PC: usize = 16;
+pub const COL_INDEX_FP: usize = 17;
+pub const COL_INDEX_MEM_ADDRESS_A: usize = 18;
+pub const COL_INDEX_MEM_ADDRESS_B: usize = 19;
+pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
 
 #[derive(Debug)]
 pub struct VMAir<EF> {
@@ -62,10 +87,8 @@ where
         let deref = up[COL_INDEX_DEREF].clone();
         let jump = up[COL_INDEX_JUMP].clone();
         let aux = up[COL_INDEX_AUX].clone();
-        let poseidon_16 = up[COL_INDEX_POSEIDON_16].clone();
-        let poseidon_24 = up[COL_INDEX_POSEIDON_24].clone();
-        let dot_product = up[COL_INDEX_DOT_PRODUCT].clone();
-        let multilinear_eval = up[COL_INDEX_MULTILINEAR_EVAL].clone();
+        let is_precompile = up[COL_INDEX_IS_PRECOMPILE].clone();
+        let precompile_index = up[COL_INDEX_PRECOMPILE_INDEX].clone();
 
         let (value_a, value_b, value_c) = (
             up[COL_INDEX_MEM_VALUE_A].clone(),
@@ -101,10 +124,8 @@ where
                 nu_b.clone(),
                 nu_c.clone(),
                 aux.clone().into(),
-                poseidon_16.into(),
-                poseidon_24.into(),
-                dot_product.into(),
-                multilinear_eval.into(),
+                is_precompile.into(),
+                precompile_index.into(),
             ],
         ));
 
@@ -179,10 +200,8 @@ impl<EF: Copy> VMAir<EF> {
         let nu_b = point[1];
         let nu_c = point[2];
         let aux = point[3];
-        let poseidon_16 = point[4];
-        let poseidon_24 = point[5];
-        let dot_product = point[6];
-        let multilinear_eval = point[7];
+        let is_precompile = point[4];
+        let precompile_index = point[5];
 
         let nu_a_mul_challenge_1 = mul_point_f_and_ef(nu_a, self.fingerprint_challenge_powers[1]);
         let nu_b_mul_challenge_2 = mul_point_f_and_ef(nu_b, self.fingerprint_challenge_powers[2]);
@@ -190,14 +209,7 @@ impl<EF: Copy> VMAir<EF> {
 
         let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
         let aux_mul_challenge_4 = mul_point_f_and_ef(aux, self.fingerprint_challenge_powers[4]);
-        let nu_sums_plus_aux = nu_sums + aux_mul_challenge_4;
-
-        (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_POSEIDONS_16)) * poseidon_16
-            + (nu_sums + PointF::from_usize(TABLE_INDEX_POSEIDONS_24)) * poseidon_24
-            + (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS)) * dot_product
-            + (nu_sums_plus_aux + PointF::from_usize(TABLE_INDEX_MULTILINEAR_EVAL))
-                * multilinear_eval
-            + self.global_challenge
+        (nu_sums + aux_mul_challenge_4 + precompile_index) * is_precompile + self.global_challenge
     }
 }
 

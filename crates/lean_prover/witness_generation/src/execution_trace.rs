@@ -4,6 +4,7 @@ use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::array;
 use utils::{ToUsize, transposed_par_iter_mut};
+use vm_air::*;
 
 #[derive(Debug)]
 pub struct ExecutionTrace {

@@ -175,7 +175,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
                 offset: POSEIDON24_RES_OFFSET,
             },
         },
-        Instruction::DotProductExtensionExtension {
+        Instruction::DotProduct {
             arg0: MemOrConstant::Constant(f(DOT_ARG0_PTR as u64)),
             arg1: MemOrConstant::Constant(f(DOT_ARG1_PTR as u64)),
             res: MemOrFp::MemoryAfterFp {

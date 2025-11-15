@@ -1,6 +1,6 @@
-use crate::*;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
+use vm_air::*;
 
 pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
     let mut fields = [F::ZERO; N_INSTRUCTION_COLUMNS];
@@ -68,25 +68,28 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             res,
             is_compression,
         } => {
-            fields[COL_INDEX_POSEIDON_16] = F::ONE;
+            fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
+            fields[COL_INDEX_PRECOMPILE_INDEX] = F::from_usize(TABLE_INDEX_POSEIDONS_16);
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, res);
             fields[COL_INDEX_AUX] = F::from_bool(*is_compression); // AUX = "is_compression"
         }
         Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
-            fields[COL_INDEX_POSEIDON_24] = F::ONE;
+            fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
+            fields[COL_INDEX_PRECOMPILE_INDEX] = F::from_usize(TABLE_INDEX_POSEIDONS_24);
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, res);
         }
-        Instruction::DotProductExtensionExtension {
+        Instruction::DotProduct {
             arg0,
             arg1,
             res,
             size,
         } => {
-            fields[COL_INDEX_DOT_PRODUCT] = F::ONE;
+            fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
+            fields[COL_INDEX_PRECOMPILE_INDEX] = F::from_usize(TABLE_INDEX_DOT_PRODUCTS);
             set_nu_a(&mut fields, arg0);
             set_nu_b(&mut fields, arg1);
             set_nu_c(&mut fields, res);
@@ -98,7 +101,8 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             res,
             n_vars,
         } => {
-            fields[COL_INDEX_MULTILINEAR_EVAL] = F::ONE;
+            fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
+            fields[COL_INDEX_PRECOMPILE_INDEX] = F::from_usize(TABLE_INDEX_MULTILINEAR_EVAL);
             set_nu_a(&mut fields, coeffs);
             set_nu_b(&mut fields, point);
             set_nu_c(&mut fields, res);

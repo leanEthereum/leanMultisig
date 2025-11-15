@@ -1279,7 +1279,6 @@ dependencies = [
  "tracing",
  "utils",
  "whir-p3",
- "witness_generation",
  "xmss",
 ]
 
@@ -1459,6 +1458,7 @@ dependencies = [
  "sub_protocols",
  "tracing",
  "utils",
+ "vm_air",
  "whir-p3",
  "xmss",
 ]
