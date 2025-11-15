@@ -1,10 +1,10 @@
 //! Lean VM - A minimal virtual machine implementation
 
-pub mod core;
-pub mod diagnostics;
-pub mod execution;
-pub mod isa;
-pub mod witness;
+mod core;
+mod diagnostics;
+mod execution;
+mod isa;
+mod witness;
 
 pub use core::*;
 pub use diagnostics::*;

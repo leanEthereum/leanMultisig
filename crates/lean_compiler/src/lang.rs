@@ -1,5 +1,5 @@
 use lean_vm::*;
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};

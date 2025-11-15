@@ -12,13 +12,14 @@ use tracing::{info_span, instrument};
 pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     witness: &PoseidonWitness<FPacking<F>, WIDTH, N_COMMITED_CUBES>,
-    mut point: Vec<EF>,
+    output_point: Vec<EF>,
     univariate_skips: usize,
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
 ) -> GKRPoseidonResult
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
+    let mut point = output_point.clone();
     let selectors = univariate_selectors::<F>(univariate_skips);
     let (inv_mds_matrix, inv_light_matrix) = build_poseidon_inv_matrices::<WIDTH>();
 
@@ -182,8 +183,9 @@ where
         )
     };
 
+    let output_statements = MultiEvaluation::new(output_point, output_claims);
     GKRPoseidonResult {
-        output_values: output_claims,
+        output_statements,
         input_statements,
         cubes_statements,
     }
@@ -306,7 +308,7 @@ fn inner_evals_on_commited_columns(
     point: &[EF],
     univariate_skips: usize,
     columns: &[Vec<PFPacking<EF>>],
-) -> (MultilinearPoint<EF>, Vec<EF>) {
+) -> MultiEvaluation<EF> {
     let eq_mle = eval_eq_packed(&point[1..]);
     let inner_evals = columns
         .par_iter()
@@ -333,5 +335,5 @@ fn inner_evals_on_commited_columns(
         values_to_prove
             .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
-    (point_to_prove, values_to_prove)
+    MultiEvaluation::new(point_to_prove, values_to_prove)
 }

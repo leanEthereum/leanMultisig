@@ -1,6 +1,6 @@
 use crate::{F, NONRESERVED_PROGRAM_INPUT_START, ZERO_VEC_PTR, ir::*, lang::*};
 use lean_vm::*;
-use p3_field::{PrimeCharacteristicRing, PrimeField32};
+use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 
@@ -317,7 +317,7 @@ fn compile_block(
                 res,
                 size,
             } => {
-                low_level_bytecode.push(Instruction::DotProductExtensionExtension {
+                low_level_bytecode.push(Instruction::DotProduct {
                     arg0: arg0.try_into_mem_or_constant(compiler).unwrap(),
                     arg1: arg1.try_into_mem_or_constant(compiler).unwrap(),
                     res: res.try_into_mem_or_fp(compiler).unwrap(),

@@ -1,11 +1,10 @@
-use std::time::Instant;
-
 use lean_compiler::*;
 use lean_prover::{
     prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder,
 };
 use lean_vm::{F, execute_bytecode};
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
+use std::time::Instant;
 use xmss::iterate_hash;
 
 #[test]

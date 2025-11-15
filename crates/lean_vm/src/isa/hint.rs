@@ -2,7 +2,7 @@ use crate::core::{F, LOG_VECTOR_LEN, Label, SourceLineNumber, VECTOR_LEN};
 use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;
-use p3_field::{Field, PrimeCharacteristicRing};
+use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 use utils::{ToUsize, pretty_integer};
 

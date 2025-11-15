@@ -1,20 +1,14 @@
-use std::array;
-
 use crate::instruction_encoder::field_representation;
-use crate::{
-    COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C,
-    COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC,
-    LOG_MIN_DOT_PRODUCT_ROWS, LOG_MIN_POSEIDONS_16, LOG_MIN_POSEIDONS_24, N_TOTAL_COLUMNS,
-};
+use crate::*;
 use lean_vm::*;
-use p3_field::Field;
-use p3_field::PrimeCharacteristicRing;
-use rayon::prelude::*;
+use multilinear_toolkit::prelude::*;
+use std::array;
 use utils::{ToUsize, transposed_par_iter_mut};
+use vm_air::*;
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
-    pub full_trace: [Vec<F>; N_TOTAL_COLUMNS],
+    pub full_trace: [Vec<F>; N_EXEC_AIR_COLUMNS],
     pub n_cycles: usize, // before padding with the repeated final instruction
     pub n_poseidons_16: usize,
     pub n_poseidons_24: usize,
@@ -47,7 +41,7 @@ pub fn get_execution_trace(
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
-    let mut trace: [Vec<F>; N_TOTAL_COLUMNS] =
+    let mut trace: [Vec<F>; N_EXEC_AIR_COLUMNS] =
         array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
 
     transposed_par_iter_mut(&mut trace)

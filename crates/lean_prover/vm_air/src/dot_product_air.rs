@@ -1,9 +1,11 @@
-use std::borrow::Borrow;
-
-use lean_vm::{DIMENSION, EF, WitnessDotProduct};
+use lean_vm::{DIMENSION, EF, TABLE_INDEX_DOT_PRODUCTS};
+use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::PrimeCharacteristicRing;
-use p3_matrix::Matrix;
+use p3_uni_stark::SymbolicExpression;
+use std::{
+    any::TypeId,
+    mem::{transmute, transmute_copy},
+};
 
 /*
 (DIMENSION = 5)
@@ -28,61 +30,75 @@ pub const DOT_PRODUCT_AIR_COL_INDEX_B: usize = 3;
 pub const DOT_PRODUCT_AIR_COL_INDEX_RES: usize = 4;
 pub const DOT_PRODUCT_AIR_COL_VALUE_A: usize = 5;
 pub const DOT_PRODUCT_AIR_COL_VALUE_B: usize = 6;
-pub const DOT_PRODUCT_AIR_COL_RES: usize = 7;
+pub const DOT_PRODUCT_AIR_COL_VALUE_RES: usize = 7;
 pub const DOT_PRODUCT_AIR_COL_COMPUTATION: usize = 8;
 
 pub const DOT_PRODUCT_AIR_N_COLUMNS: usize = 9;
 
 #[derive(Debug)]
-pub struct DotProductAir;
+pub struct DotProductAir<EF> {
+    pub global_challenge: EF,
+    pub fingerprint_challenge_powers: [EF; 5],
+}
 
-impl<F> BaseAir<F> for DotProductAir {
+impl<F, EF: Send + Sync> BaseAir<F> for DotProductAir<EF> {
     fn width(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS
-    }
-    fn structured(&self) -> bool {
-        true
     }
     fn degree(&self) -> usize {
         3
     }
+    fn columns_with_shift(&self) -> Vec<usize> {
+        vec![
+            DOT_PRODUCT_AIR_COL_START_FLAG,
+            DOT_PRODUCT_AIR_COL_LEN,
+            DOT_PRODUCT_AIR_COL_INDEX_A,
+            DOT_PRODUCT_AIR_COL_INDEX_B,
+            DOT_PRODUCT_AIR_COL_COMPUTATION,
+        ]
+    }
 }
 
-impl<AB: AirBuilder> Air<AB> for DotProductAir {
+impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for DotProductAir<EF>
+where
+    AB::Var: 'static,
+    AB::Expr: 'static,
+    AB::FinalOutput: 'static,
+{
     #[inline]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-        let up = main.row_slice(0).unwrap();
-        let up: &[AB::Var] = (*up).borrow();
-        assert_eq!(up.len(), DOT_PRODUCT_AIR_N_COLUMNS);
-        let down = main.row_slice(1).unwrap();
-        let down: &[AB::Var] = (*down).borrow();
-        assert_eq!(down.len(), DOT_PRODUCT_AIR_N_COLUMNS);
+        let up = &main[..DOT_PRODUCT_AIR_N_COLUMNS];
+        let down = &main[DOT_PRODUCT_AIR_N_COLUMNS..];
 
-        let [
-            start_flag_up,
-            len_up,
-            index_a_up,
-            index_b_up,
-            _index_res_up,
-            value_a_up,
-            value_b_up,
-            res_up,
-            computation_up,
-        ] = up.to_vec().try_into().ok().unwrap();
-        let [
-            start_flag_down,
-            len_down,
-            index_a_down,
-            index_b_down,
-            _index_res_down,
-            _value_a_down,
-            _value_b_down,
-            _res_down,
-            computation_down,
-        ] = down.to_vec().try_into().ok().unwrap();
+        let start_flag_up = up[DOT_PRODUCT_AIR_COL_START_FLAG].clone();
+        let len_up = up[DOT_PRODUCT_AIR_COL_LEN].clone();
+        let index_a_up = up[DOT_PRODUCT_AIR_COL_INDEX_A].clone();
+        let index_b_up = up[DOT_PRODUCT_AIR_COL_INDEX_B].clone();
+        let index_res_up = up[DOT_PRODUCT_AIR_COL_INDEX_RES].clone();
+        let value_a_up = up[DOT_PRODUCT_AIR_COL_VALUE_A].clone();
+        let value_b_up = up[DOT_PRODUCT_AIR_COL_VALUE_B].clone();
+        let res_up = up[DOT_PRODUCT_AIR_COL_VALUE_RES].clone();
+        let computation_up = up[DOT_PRODUCT_AIR_COL_COMPUTATION].clone();
 
-        // TODO we could some some of the following computation in the base field
+        let start_flag_down = down[0].clone();
+        let len_down = down[1].clone();
+        let index_a_down = down[2].clone();
+        let index_b_down = down[3].clone();
+        let computation_down = down[4].clone();
+
+        // TODO we could do most of the following computation in the base field
+
+        builder.add_custom(<DotProductAir<EF> as Air<AB>>::eval_custom(
+            self,
+            &[
+                start_flag_up.clone().into(),
+                len_up.clone().into(),
+                index_a_up.clone().into(),
+                index_b_up.clone().into(),
+                index_res_up.clone().into(),
+            ],
+        ));
 
         builder.assert_bool(start_flag_down.clone());
 
@@ -104,87 +120,65 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
 
         builder.assert_zero(start_flag_up * (computation_up - res_up));
     }
+
+    fn eval_custom(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
+        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
+        let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
+        // let type_id_f = TypeId::of::<PF<EF>>();
+        let type_id_ef = TypeId::of::<EF>();
+        let type_id_f_packing = TypeId::of::<PFPacking<EF>>();
+        let type_id_ef_packing = TypeId::of::<EFPacking<EF>>();
+
+        if type_id_expr == type_id_ef {
+            assert_eq!(type_id_final_output, type_id_ef);
+            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EF]>(inputs) };
+            let res = self.gkr_virtual_column_eval(inputs, |p, c| c * p);
+            unsafe { transmute_copy::<EF, <AB as AirBuilder>::FinalOutput>(&res) }
+        } else if type_id_expr == type_id_ef_packing {
+            assert_eq!(type_id_final_output, type_id_ef_packing);
+            let inputs =
+                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EFPacking<EF>]>(inputs) };
+            let res = self.gkr_virtual_column_eval(inputs, |p, c| p * c);
+            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
+        } else if type_id_expr == type_id_f_packing {
+            assert_eq!(type_id_final_output, type_id_ef_packing);
+            let inputs =
+                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[PFPacking<EF>]>(inputs) };
+            let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
+            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
+        } else {
+            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<PF<EF>>>());
+            unsafe { transmute_copy(&SymbolicExpression::<PF<EF>>::default()) }
+        }
+    }
 }
 
-pub fn build_dot_product_columns(
-    witness: &[WitnessDotProduct],
-    min_n_rows: usize,
-) -> (Vec<Vec<EF>>, usize) {
-    let (
-        mut flag,
-        mut len,
-        mut index_a,
-        mut index_b,
-        mut index_res,
-        mut value_a,
-        mut value_b,
-        mut res,
-        mut computation,
-    ) = (
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-    );
-    for dot_product in witness {
-        assert!(dot_product.len > 0);
-
-        // computation
-        {
-            computation.extend(EF::zero_vec(dot_product.len));
-            let new_size = computation.len();
-            computation[new_size - 1] =
-                dot_product.slice_0[dot_product.len - 1] * dot_product.slice_1[dot_product.len - 1];
-            for i in 0..dot_product.len - 1 {
-                computation[new_size - 2 - i] = computation[new_size - 1 - i]
-                    + dot_product.slice_0[dot_product.len - 2 - i]
-                        * dot_product.slice_1[dot_product.len - 2 - i];
-            }
-        }
-
-        flag.push(EF::ONE);
-        flag.extend(EF::zero_vec(dot_product.len - 1));
-        len.extend(((1..=dot_product.len).rev()).map(EF::from_usize));
-        index_a.extend(
-            (0..dot_product.len).map(|i| EF::from_usize(dot_product.addr_0 + i * DIMENSION)),
-        );
-        index_b.extend(
-            (0..dot_product.len).map(|i| EF::from_usize(dot_product.addr_1 + i * DIMENSION)),
-        );
-        index_res.extend(vec![EF::from_usize(dot_product.addr_res); dot_product.len]);
-        value_a.extend(dot_product.slice_0.clone());
-        value_b.extend(dot_product.slice_1.clone());
-        res.extend(vec![dot_product.res; dot_product.len]);
+impl<EF: Copy> DotProductAir<EF> {
+    fn gkr_virtual_column_eval<
+        PointF: PrimeCharacteristicRing + Copy,
+        ResultF: Algebra<EF> + Algebra<PointF> + Copy,
+    >(
+        &self,
+        point: &[PointF],
+        mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
+    ) -> ResultF {
+        ResultF::from_usize(TABLE_INDEX_DOT_PRODUCTS)
+            + (mul_point_f_and_ef(point[2], self.fingerprint_challenge_powers[1])
+                + mul_point_f_and_ef(point[3], self.fingerprint_challenge_powers[2])
+                + mul_point_f_and_ef(point[4], self.fingerprint_challenge_powers[3])
+                + mul_point_f_and_ef(point[1], self.fingerprint_challenge_powers[4]))
+                * point[0]
+            + self.global_challenge
     }
+}
 
-    let padding_len = flag.len().next_power_of_two().max(min_n_rows) - flag.len();
-    flag.extend(vec![EF::ONE; padding_len]);
-    len.extend(vec![EF::ONE; padding_len]);
-    index_a.extend(EF::zero_vec(padding_len));
-    index_b.extend(EF::zero_vec(padding_len));
-    index_res.extend(EF::zero_vec(padding_len));
-    value_a.extend(EF::zero_vec(padding_len));
-    value_b.extend(EF::zero_vec(padding_len));
-    res.extend(EF::zero_vec(padding_len));
-    computation.extend(EF::zero_vec(padding_len));
-
-    (
-        vec![
-            flag,
-            len,
-            index_a,
-            index_b,
-            index_res,
-            value_a,
-            value_b,
-            res,
-            computation,
-        ],
-        padding_len,
-    )
+pub fn dot_product_air_padding_row() -> Vec<EF> {
+    // only the shifted columns
+    vec![
+        EF::ONE,  // StartFlag
+        EF::ONE,  // Len
+        EF::ZERO, // IndexA
+        EF::ZERO, // IndexB
+        EF::ZERO, // Computation
+    ]
 }

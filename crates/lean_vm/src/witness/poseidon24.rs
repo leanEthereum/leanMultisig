@@ -4,7 +4,7 @@ use crate::{
     PoseidonWitnessTrait,
     core::{F, POSEIDON_24_NULL_HASH_PTR, ZERO_VEC_PTR},
 };
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 
 /// Witness data for Poseidon2 over 24 field elements
 #[derive(Debug, Clone)]

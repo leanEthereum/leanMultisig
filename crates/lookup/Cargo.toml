@@ -8,10 +8,8 @@ workspace = true
 
 [dependencies]
 utils.workspace = true
-p3-field.workspace = true
 p3-koala-bear.workspace = true
 rand.workspace = true
-rayon.workspace = true
 whir-p3.workspace = true
 p3-challenger.workspace = true
 tracing.workspace = true

@@ -1,9 +1,7 @@
 //! Memory management for the VM
-
 use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
-use rayon::prelude::*;
+use multilinear_toolkit::prelude::*;
 
 pub const MIN_LOG_MEMORY_SIZE: usize = 16;
 pub const MAX_LOG_MEMORY_SIZE: usize = 29;

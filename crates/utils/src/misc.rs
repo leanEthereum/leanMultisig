@@ -1,6 +1,3 @@
-use p3_field::{BasedVectorSpace, ExtensionField, Field, dot_product};
-use rayon::prelude::*;
-
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 
@@ -12,18 +9,6 @@ pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
     );
     assert_eq!(slice.as_ptr() as usize % std::mem::align_of::<After>(), 0);
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const After, new_len) }
-}
-
-pub fn left_ref<A>(slice: &[A]) -> &[A] {
-    assert!(slice.len().is_multiple_of(2));
-    let mid = slice.len() / 2;
-    &slice[..mid]
-}
-
-pub fn right_ref<A>(slice: &[A]) -> &[A] {
-    assert!(slice.len().is_multiple_of(2));
-    let mid = slice.len() / 2;
-    &slice[mid..]
 }
 
 pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
@@ -151,4 +136,23 @@ pub fn transposed_par_iter_mut<A: Send + Sync, const N: usize>(
     (0..len)
         .into_par_iter()
         .map(move |i| unsafe { std::array::from_fn(|j| &mut *data_ptrs[j].0.add(i)) })
+}
+
+#[derive(Debug)]
+pub enum VecOrSlice<'a, T> {
+    Vec(Vec<T>),
+    Slice(&'a [T]),
+}
+
+impl<'a, T> VecOrSlice<'a, T> {
+    pub fn as_slice(&self) -> &[T] {
+        match self {
+            VecOrSlice::Vec(v) => v.as_slice(),
+            VecOrSlice::Slice(s) => s,
+        }
+    }
+}
+
+pub fn encapsulate_vec<T>(v: Vec<T>) -> Vec<Vec<T>> {
+    v.into_iter().map(|x| vec![x]).collect()
 }

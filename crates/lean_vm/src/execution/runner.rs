@@ -12,7 +12,7 @@ use crate::witness::{
     WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
 use crate::{CodeAddress, HintExecutionContext, SourceLineNumber};
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
 use xmss::{Poseidon16History, Poseidon24History};

@@ -7,9 +7,6 @@ with custom GKR
 
 */
 use multilinear_toolkit::prelude::*;
-use p3_field::PackedFieldExtension;
-use p3_field::PrimeCharacteristicRing;
-use p3_field::{ExtensionField, PrimeField64, dot_product};
 use tracing::instrument;
 use utils::{FSProver, FSVerifier};
 

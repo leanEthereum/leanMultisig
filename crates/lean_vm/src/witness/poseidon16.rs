@@ -4,7 +4,7 @@ use crate::{
     PoseidonWitnessTrait,
     core::{F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR},
 };
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 

@@ -3,7 +3,7 @@ use lean_prover::{
     prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder,
 };
 use lean_vm::*;
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 
 #[test]
 fn test_zk_vm_all_precompiles() {

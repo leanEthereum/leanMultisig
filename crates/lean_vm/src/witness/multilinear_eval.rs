@@ -1,7 +1,7 @@
 //! Multilinear polynomial evaluation witness
 
 use crate::core::{EF, F};
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct RowMultilinearEval {

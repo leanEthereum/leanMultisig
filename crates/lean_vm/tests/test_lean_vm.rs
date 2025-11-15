@@ -1,7 +1,6 @@
 use lean_vm::error::ExecutionResult;
 use lean_vm::*;
-use p3_field::BasedVectorSpace;
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use utils::ToUsize;
@@ -176,7 +175,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
                 offset: POSEIDON24_RES_OFFSET,
             },
         },
-        Instruction::DotProductExtensionExtension {
+        Instruction::DotProduct {
             arg0: MemOrConstant::Constant(f(DOT_ARG0_PTR as u64)),
             arg1: MemOrConstant::Constant(f(DOT_ARG1_PTR as u64)),
             res: MemOrFp::MemoryAfterFp {
@@ -332,7 +331,7 @@ fn test_memory_operations() {
 
 #[test]
 fn test_operation_compute() {
-    use crate::isa::Operation;
+    use crate::Operation;
 
     let add = Operation::Add;
     let mul = Operation::Mul;

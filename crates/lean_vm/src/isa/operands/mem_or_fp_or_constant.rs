@@ -1,7 +1,7 @@
 use crate::core::F;
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 
 /// Memory, frame pointer, or constant operand
