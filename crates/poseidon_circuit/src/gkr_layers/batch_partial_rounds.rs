@@ -1,7 +1,6 @@
 use std::array;
 
 use multilinear_toolkit::prelude::*;
-use p3_field::ExtensionField;
 use p3_koala_bear::{
     GenericPoseidon2LinearLayersKoalaBear, KoalaBearInternalLayerParameters, KoalaBearParameters,
 };

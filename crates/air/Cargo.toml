@@ -7,16 +7,13 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-p3-field.workspace = true
 tracing.workspace = true
 utils.workspace = true
 p3-air.workspace = true
 p3-uni-stark.workspace = true
-p3-matrix.workspace = true
 p3-util.workspace = true
 multilinear-toolkit.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
-p3-matrix.workspace = true
 rand.workspace = true

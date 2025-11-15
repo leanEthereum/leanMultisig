@@ -8,7 +8,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use utils::ToUsize;
 
 /// Parser for constant declarations.

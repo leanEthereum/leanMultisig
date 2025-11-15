@@ -1,7 +1,6 @@
 use crate::F;
 use lean_vm::Operation;
-use p3_field::PrimeCharacteristicRing;
-use p3_field::PrimeField64;
+use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 

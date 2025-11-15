@@ -1,5 +1,5 @@
 [package]
-name = "packed_pcs"
+name = "sub_protocols"
 version.workspace = true
 edition.workspace = true
 
@@ -7,14 +7,15 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-p3-field.workspace = true
 tracing.workspace = true
 utils.workspace = true
 whir-p3.workspace = true
-rayon.workspace = true
+derive_more.workspace = true
 p3-util.workspace = true
 multilinear-toolkit.workspace = true
+lookup.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
 rand.workspace = true
+

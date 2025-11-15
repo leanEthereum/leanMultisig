@@ -172,8 +172,10 @@ where
         )
     };
 
+    let output_statements =
+        MultiEvaluation::new(MultilinearPoint(output_claim_point.to_vec()), output_claims);
     GKRPoseidonResult {
-        output_values: output_claims,
+        output_statements,
         input_statements,
         cubes_statements,
     }
@@ -221,7 +223,7 @@ fn verify_inner_evals_on_commited_columns(
     point: &[EF],
     claimed_evals: &[EF],
     selectors: &[DensePolynomial<F>],
-) -> (MultilinearPoint<EF>, Vec<EF>) {
+) -> MultiEvaluation<EF> {
     let univariate_skips = log2_strict_usize(selectors.len());
     let inner_evals_inputs = verifier_state
         .next_extension_scalars_vec(claimed_evals.len() << univariate_skips)
@@ -246,5 +248,5 @@ fn verify_inner_evals_on_commited_columns(
         values_to_verif
             .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
-    (point_to_verif, values_to_verif)
+    MultiEvaluation::new(point_to_verif, values_to_verif)
 }

@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 
 use p3_air::AirBuilder;
-use p3_field::ExtensionField;
-use p3_matrix::dense::RowMajorMatrixView;
 
 use multilinear_toolkit::prelude::*;
 
@@ -12,7 +10,7 @@ Debug purpose
 
 #[derive(Debug)]
 pub struct ConstraintChecker<'a, IF, EF> {
-    pub main: RowMajorMatrixView<'a, IF>,
+    pub main: &'a [IF],
     pub constraint_index: usize,
     pub errors: Vec<usize>,
     pub field: PhantomData<EF>,
@@ -24,26 +22,11 @@ impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<
     type F = PF<EF>;
     type Expr = IF;
     type Var = IF;
-    type M = RowMajorMatrixView<'a, IF>;
+    type FinalOutput = EF;
 
     #[inline]
-    fn main(&self) -> Self::M {
+    fn main(&self) -> &[IF] {
         self.main
-    }
-
-    #[inline]
-    fn is_first_row(&self) -> Self::Expr {
-        unreachable!()
-    }
-
-    #[inline]
-    fn is_last_row(&self) -> Self::Expr {
-        unreachable!()
-    }
-
-    #[inline]
-    fn is_transition_window(&self, _: usize) -> Self::Expr {
-        unreachable!()
     }
 
     #[inline]
@@ -55,8 +38,7 @@ impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<
         self.constraint_index += 1;
     }
 
-    #[inline]
-    fn assert_zeros<const N: usize, I: Into<Self::Expr>>(&mut self, _: [I; N]) {
-        unreachable!()
+    fn add_custom(&mut self, value: Self::FinalOutput) {
+        let _ = value;
     }
 }
