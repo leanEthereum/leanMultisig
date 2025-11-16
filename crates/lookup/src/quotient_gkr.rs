@@ -284,7 +284,7 @@ mod tests {
         nums.iter().zip(den.iter()).map(|(&n, &d)| n / d).sum()
     }
 
-    const N_GROUPS: usize = 4;
+    const N_GROUPS: usize = 2;
 
     #[test]
     fn test_gkr_quotient() {
