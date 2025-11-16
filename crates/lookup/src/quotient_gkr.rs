@@ -1,3 +1,5 @@
+use std::array;
+
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 use utils::{FSProver, FSVerifier};
@@ -9,13 +11,14 @@ GKR to compute sum of fractions.
 */
 
 #[instrument(skip_all)]
-pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
+pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     numerators_and_denominators: &MleGroupRef<'_, EF>,
 ) -> (MultilinearPoint<EF>, EF, EF) {
     assert_eq!(numerators_and_denominators.n_columns(), 2);
     let mut layers = vec![MleGroup::Ref(numerators_and_denominators.soft_clone())];
-    loop {
+
+    for i in 0.. {
         let prev_layer: MleGroup<'_, EF> = layers.last().unwrap().by_ref().into();
         let prev_layer = if prev_layer.is_packed() && prev_layer.n_vars() < MIN_VARS_FOR_PACKING {
             prev_layer.by_ref().unpack().as_owned_or_clone().into()
@@ -25,19 +28,11 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
         if prev_layer.n_vars() == 1 {
             break;
         }
-        layers.push(match prev_layer.by_ref() {
-            MleGroupRef::ExtensionPacked(prev_layer) => {
-                assert_eq!(prev_layer.len(), 2);
-                MleGroupOwned::ExtensionPacked(sum_quotients_2_by_2(&prev_layer[0], &prev_layer[1]))
-                    .into()
-            }
-            MleGroupRef::Extension(prev_layer) => {
-                assert_eq!(prev_layer.len(), 2);
-                MleGroupOwned::Extension(sum_quotients_2_by_2(&prev_layer[0], &prev_layer[1]))
-                    .into()
-            }
-            _ => unreachable!(),
-        })
+        if i == 0 {
+            layers.push(sum_quotients::<EF, N_GROUPS>(prev_layer.by_ref()).into());
+        } else {
+            layers.push(sum_quotients::<EF, 2>(prev_layer.by_ref()).into());
+        }
     }
 
     let last_layer = layers.pop().unwrap();
@@ -53,15 +48,27 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     let mut claim_num = last_nums.evaluate(&point);
     let mut claim_den = last_dens.evaluate(&point);
 
-    for layer in layers.iter().rev() {
-        (point, claim_num, claim_den) =
-            prove_gkr_quotient_step(prover_state, layer.by_ref(), &point, claim_num, claim_den);
+    for layer in layers[1..].iter().rev() {
+        (point, claim_num, claim_den) = prove_gkr_quotient_step::<_, 2>(
+            prover_state,
+            layer.by_ref(),
+            &point,
+            claim_num,
+            claim_den,
+        );
     }
+    (point, claim_num, claim_den) = prove_gkr_quotient_step::<_, N_GROUPS>(
+        prover_state,
+        layers[0].by_ref(),
+        &point,
+        claim_num,
+        claim_den,
+    );
 
     (point, claim_num, claim_den)
 }
 
-fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
+fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     numerators_and_denominators: MleGroupRef<'_, EF>,
     claim_point: &MultilinearPoint<EF>,
@@ -70,44 +77,10 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
 ) -> (MultilinearPoint<EF>, EF, EF) {
     let numerators_and_denominators_split = match numerators_and_denominators {
         MleGroupRef::Extension(numerators_and_denominators) => {
-            assert_eq!(numerators_and_denominators.len(), 2);
-            let numerators = &numerators_and_denominators[0];
-            let denominators = &numerators_and_denominators[1];
-            let n = numerators.len();
-            assert_eq!(n, denominators.len());
-            assert!(n.is_power_of_two() && n >= 2);
-
-            let numerators_left = &numerators[..n / 2];
-            let numerators_right = &numerators[n / 2..];
-            let denominators_left = &denominators[..n / 2];
-            let denominators_right = &denominators[n / 2..];
-
-            MleGroupRef::Extension(vec![
-                numerators_left,
-                numerators_right,
-                denominators_left,
-                denominators_right,
-            ])
+            MleGroupRef::Extension(split_chunks::<_, N_GROUPS>(&numerators_and_denominators))
         }
         MleGroupRef::ExtensionPacked(numerators_and_denominators) => {
-            assert_eq!(numerators_and_denominators.len(), 2);
-            let numerators = &numerators_and_denominators[0];
-            let denominators = &numerators_and_denominators[1];
-            let n = numerators.len();
-            assert_eq!(n, denominators.len());
-            assert!(n.is_power_of_two() && n >= 2);
-
-            let numerators_left = &numerators[..n / 2];
-            let numerators_right = &numerators[n / 2..];
-            let denominators_left = &denominators[..n / 2];
-            let denominators_right = &denominators[n / 2..];
-
-            MleGroupRef::ExtensionPacked(vec![
-                numerators_left,
-                numerators_right,
-                denominators_left,
-                denominators_right,
-            ])
+            MleGroupRef::ExtensionPacked(split_chunks::<_, N_GROUPS>(&numerators_and_denominators))
         }
         _ => unreachable!(),
     };
@@ -117,7 +90,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     let (mut next_claim_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
         1,
         numerators_and_denominators_split,
-        &GKRQuotientComputation {},
+        &GKRQuotientComputation::<N_GROUPS> {},
         &[alpha],
         Some((claim_point.0.clone(), None)),
         false,
@@ -127,8 +100,19 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     );
     prover_state.add_extension_scalars(&inner_evals);
     let beta = prover_state.sample();
-    let next_claim_numerator = inner_evals[0] * (EF::ONE - beta) + inner_evals[1] * beta;
-    let next_claim_denominator = inner_evals[2] * (EF::ONE - beta) + inner_evals[3] * beta;
+    let selectors = univariate_selectors(log2_strict_usize(N_GROUPS));
+    let next_claim_numerator = evaluate_univariate_multilinear::<_, _, _, false>(
+        &inner_evals[..N_GROUPS],
+        &[beta],
+        &selectors,
+        None,
+    );
+    let next_claim_denominator = evaluate_univariate_multilinear::<_, _, _, false>(
+        &inner_evals[N_GROUPS..],
+        &[beta],
+        &selectors,
+        None,
+    );
     next_claim_point.0.insert(0, beta);
 
     (
@@ -138,7 +122,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     )
 }
 
-pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>>(
+pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
 ) -> Result<(EF, MultilinearPoint<EF>, EF, EF), ProofError> {
@@ -153,15 +137,22 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     let mut claim_num = [num_left, num_right].evaluate(&point);
     let mut claim_den = [den_left, den_right].evaluate(&point);
 
-    for i in 1..n_vars {
+    for i in 1..n_vars - log2_strict_usize(N_GROUPS) {
         (point, claim_num, claim_den) =
-            verify_gkr_quotient_step(verifier_state, i, &point, claim_num, claim_den)?;
+            verify_gkr_quotient_step::<_, 2>(verifier_state, i, &point, claim_num, claim_den)?;
     }
+    (point, claim_num, claim_den) = verify_gkr_quotient_step::<_, N_GROUPS>(
+        verifier_state,
+        n_vars - log2_strict_usize(N_GROUPS),
+        &point,
+        claim_num,
+        claim_den,
+    )?;
 
     Ok((quotient, point, claim_num, claim_den))
 }
 
-fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
+fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
     point: &MultilinearPoint<EF>,
@@ -169,21 +160,20 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     claim_den: EF,
 ) -> Result<(MultilinearPoint<EF>, EF, EF), ProofError> {
     let alpha = verifier_state.sample();
-    let (retrieved_quotient, postponed) =
-        sumcheck_verify(verifier_state, n_vars, 3).map_err(|_| ProofError::InvalidProof)?;
+
+    let (retrieved_quotient, postponed) = sumcheck_verify(verifier_state, n_vars, 1 + N_GROUPS)?;
 
     if retrieved_quotient != claim_num + alpha * claim_den {
         return Err(ProofError::InvalidProof);
     }
 
-    let [next_num_left, next_num_right, next_den_left, next_den_right] =
-        verifier_state.next_extension_scalars_const()?;
+    let inner_evals = verifier_state.next_extension_scalars_vec(N_GROUPS * 2)?;
 
     if postponed.value
         != point.eq_poly_outside(&postponed.point)
-            * <GKRQuotientComputation as SumcheckComputation<EF>>::eval_extension(
+            * <GKRQuotientComputation<N_GROUPS> as SumcheckComputation<EF>>::eval_extension(
                 &Default::default(),
-                &[next_num_left, next_num_right, next_den_left, next_den_right],
+                &inner_evals,
                 &[alpha],
             )
     {
@@ -191,35 +181,92 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     }
 
     let beta = verifier_state.sample();
-    let next_claim_num = next_num_left * (EF::ONE - beta) + next_num_right * beta;
-    let next_claim_den = next_den_left * (EF::ONE - beta) + next_den_right * beta;
+    let selectors = univariate_selectors(log2_strict_usize(N_GROUPS));
+    let next_claim_numerator = evaluate_univariate_multilinear::<_, _, _, false>(
+        &inner_evals[..N_GROUPS],
+        &[beta],
+        &selectors,
+        None,
+    );
+    let next_claim_denominator = evaluate_univariate_multilinear::<_, _, _, false>(
+        &inner_evals[N_GROUPS..],
+        &[beta],
+        &selectors,
+        None,
+    );
     let mut next_claim_point = postponed.point.clone();
     next_claim_point.0.insert(0, beta);
 
-    Ok((next_claim_point, next_claim_num, next_claim_den))
+    Ok((
+        next_claim_point,
+        next_claim_numerator,
+        next_claim_denominator,
+    ))
 }
 
-fn sum_quotients_2_by_2<F: PrimeCharacteristicRing + Sync + Send + Copy>(
+fn sum_quotients<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
+    numerators_and_denominators: MleGroupRef<'_, EF>,
+) -> MleGroupOwned<EF> {
+    match numerators_and_denominators {
+        MleGroupRef::ExtensionPacked(numerators_and_denominators) => {
+            assert_eq!(numerators_and_denominators.len(), 2);
+            MleGroupOwned::ExtensionPacked(sum_quotients_helper::<_, N_GROUPS>(
+                &numerators_and_denominators[0],
+                &numerators_and_denominators[1],
+            ))
+            .into()
+        }
+        MleGroupRef::Extension(numerators_and_denominators) => {
+            assert_eq!(numerators_and_denominators.len(), 2);
+            MleGroupOwned::Extension(sum_quotients_helper::<_, N_GROUPS>(
+                &numerators_and_denominators[0],
+                &numerators_and_denominators[1],
+            ))
+            .into()
+        }
+        _ => unreachable!(),
+    }
+}
+fn sum_quotients_helper<F: PrimeCharacteristicRing + Sync + Send + Copy, const N: usize>(
     numerators: &[F],
     denominators: &[F],
 ) -> Vec<Vec<F>> {
     let n = numerators.len();
-    let mut new_numerators = unsafe { uninitialized_vec(n / 2) };
-    let mut new_denominators = unsafe { uninitialized_vec(n / 2) };
-    let n_over_2 = n / 2;
+    let new_n = n / N;
+    let mut new_numerators = unsafe { uninitialized_vec(new_n) };
+    let mut new_denominators = unsafe { uninitialized_vec(new_n) };
     new_numerators
         .par_iter_mut()
         .zip(new_denominators.par_iter_mut())
         .enumerate()
         .for_each(|(i, (num, den))| {
-            let prev_num_1 = numerators[i];
-            let prev_num_2 = numerators[n_over_2 + i];
-            let prev_den_1 = denominators[i];
-            let prev_den_2 = denominators[n_over_2 + i];
-            *num = prev_num_1 * prev_den_2 + prev_num_2 * prev_den_1;
-            *den = prev_den_1 * prev_den_2;
+            let my_numerators: [_; N] = array::from_fn(|j| numerators[i + new_n * j]);
+            let my_denominators: [_; N] = array::from_fn(|j| denominators[i + new_n * j]);
+            *num = numerator_of_sum_of_quotients::<N, _>(&my_numerators, &my_denominators);
+            *den = mul_many_const::<N, _>(&my_denominators);
         });
     vec![new_numerators, new_denominators]
+}
+fn split_chunks<'a, A, const N_GROUPS: usize>(
+    numerators_and_denominators: &[&'a [A]],
+) -> Vec<&'a [A]> {
+    assert_eq!(numerators_and_denominators.len(), 2);
+    let numerators = &numerators_and_denominators[0];
+    let denominators = &numerators_and_denominators[1];
+    let n = numerators.len();
+    assert_eq!(n, denominators.len());
+    assert!(n.is_power_of_two() && n >= N_GROUPS);
+
+    let numerator_chunks = split_at_many(
+        &numerators,
+        &(1..N_GROUPS).map(|i| i * n / N_GROUPS).collect::<Vec<_>>(),
+    );
+    let denominator_chunks = split_at_many(
+        &denominators,
+        &(1..N_GROUPS).map(|i| i * n / N_GROUPS).collect::<Vec<_>>(),
+    );
+
+    [numerator_chunks, denominator_chunks].concat()
 }
 
 #[cfg(test)]
@@ -236,6 +283,8 @@ mod tests {
     fn sum_all_quotients(nums: &[EF], den: &[EF]) -> EF {
         nums.iter().zip(den.iter()).map(|(&n, &d)| n / d).sum()
     }
+
+    const N_GROUPS: usize = 4;
 
     #[test]
     fn test_gkr_quotient() {
@@ -258,7 +307,7 @@ mod tests {
         let mut prover_state = build_prover_state();
 
         let time = Instant::now();
-        let _ = prove_gkr_quotient(
+        let prover_statements = prove_gkr_quotient::<EF, N_GROUPS>(
             &mut prover_state,
             &MleGroupRef::ExtensionPacked(vec![
                 &pack_extension(&numerators),
@@ -270,9 +319,31 @@ mod tests {
         let mut verifier_state = build_verifier_state(&prover_state);
 
         let (retrieved_quotient, claim_point, claim_num, claim_den) =
-            verify_gkr_quotient::<EF>(&mut verifier_state, log_n).unwrap();
+            verify_gkr_quotient::<EF, N_GROUPS>(&mut verifier_state, log_n).unwrap();
+
+        assert_eq!(&prover_statements.0, &claim_point);
+        assert_eq!(prover_statements.1, claim_num);
+        assert_eq!(prover_statements.2, claim_den);
+
         assert_eq!(retrieved_quotient, real_quotient);
-        assert_eq!(numerators.evaluate(&claim_point), claim_num);
-        assert_eq!(denominators.evaluate(&claim_point), claim_den);
+        let selectors = univariate_selectors::<PF<EF>>(log2_strict_usize(N_GROUPS));
+        assert_eq!(
+            evaluate_univariate_multilinear::<_, _, _, true>(
+                &numerators,
+                &claim_point,
+                &selectors,
+                None
+            ),
+            claim_num
+        );
+        assert_eq!(
+            evaluate_univariate_multilinear::<_, _, _, true>(
+                &denominators,
+                &claim_point,
+                &selectors,
+                None
+            ),
+            claim_den
+        );
     }
 }
