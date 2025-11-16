@@ -181,7 +181,7 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
 
     if postponed.value
         != point.eq_poly_outside(&postponed.point)
-            * <GKRQuotientComputation as SumcheckComputation<EF>>::eval::<EF>(
+            * <GKRQuotientComputation as SumcheckComputation<EF>>::eval_extension(
                 &Default::default(),
                 &[next_num_left, next_num_right, next_den_left, next_den_right],
                 &[alpha],

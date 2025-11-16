@@ -192,20 +192,19 @@ impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for MySumcheck {
     fn degree(&self) -> usize {
         2
     }
-    fn eval<IF: ExtensionField<PF<EF>>>(&self, point: &[IF], _: &[EF]) -> EF
-    where
-        EF: ExtensionField<IF>,
-    {
-        if TypeId::of::<IF>() == TypeId::of::<EF>() {
-            let point = unsafe { std::mem::transmute::<&[IF], &[EF]>(point) };
-            point[0] * point[1] + point[2] * point[3]
-        } else {
-            unreachable!()
-        }
+    #[inline(always)]
+    fn eval_base(&self, _: &[PF<EF>], _: &[EF]) -> EF {
+        unreachable!()
     }
+    #[inline(always)]
+    fn eval_extension(&self, point: &[EF], _: &[EF]) -> EF {
+        point[0] * point[1] + point[2] * point[3]
+    }
+    #[inline(always)]
     fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         unreachable!()
     }
+    #[inline(always)]
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         point[0] * point[1] + point[2] * point[3]
     }

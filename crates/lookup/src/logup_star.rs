@@ -313,7 +313,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(&verifier_statements, &prover_statements);
-        assert_eq!(prover_state.challenger().state(), verifier_state.challenger().state());
+        assert_eq!(
+            prover_state.challenger().state(),
+            verifier_state.challenger().state()
+        );
 
         assert_eq!(
             indexes.evaluate(&verifier_statements.on_indexes.point),

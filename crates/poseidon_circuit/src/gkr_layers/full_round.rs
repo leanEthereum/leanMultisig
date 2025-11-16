@@ -16,18 +16,17 @@ where
         3
     }
 
-    fn eval<NF: ExtensionField<PF<EF>>>(&self, point: &[NF], alpha_powers: &[EF]) -> EF
-    where
-        EF: ExtensionField<NF>,
-    {
-        debug_assert_eq!(point.len(), WIDTH);
-        let mut res = EF::ZERO;
-        for i in 0..WIDTH {
-            res += alpha_powers[i] * point[i].cube();
-        }
-        res
+    #[inline(always)]
+    fn eval_base(&self, point: &[PF<EF>], alpha_powers: &[EF]) -> EF {
+        self.my_eval::<PF<EF>>(point, alpha_powers)
     }
 
+    #[inline(always)]
+    fn eval_extension(&self, point: &[EF], alpha_powers: &[EF]) -> EF {
+        self.my_eval::<EF>(point, alpha_powers)
+    }
+
+    #[inline(always)]
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH);
         let mut res = EFPacking::<EF>::ZERO;
@@ -37,11 +36,31 @@ where
         res
     }
 
+    #[inline(always)]
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH);
         let mut res = EFPacking::<EF>::ZERO;
         for i in 0..WIDTH {
             res += point[i].cube() * alpha_powers[i];
+        }
+        res
+    }
+}
+
+impl<const WIDTH: usize> FullRoundComputation<WIDTH>
+where
+    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
+    EF: ExtensionField<PF<EF>>,
+{
+    #[inline(always)]
+    fn my_eval<NF: ExtensionField<PF<EF>>>(&self, point: &[NF], alpha_powers: &[EF]) -> EF
+    where
+        EF: ExtensionField<NF>,
+    {
+        debug_assert_eq!(point.len(), WIDTH);
+        let mut res = EF::ZERO;
+        for i in 0..WIDTH {
+            res += alpha_powers[i] * point[i].cube();
         }
         res
     }

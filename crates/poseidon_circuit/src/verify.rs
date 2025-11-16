@@ -206,7 +206,7 @@ fn verify_gkr_round<SC: SumcheckComputation<EF>>(
 
     let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(n_inputs).unwrap();
     assert_eq!(
-        computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &batching_scalars_powers)
             * eq_poly_with_skip(
                 &sumcheck_postponed_claim.point,
                 claim_point,

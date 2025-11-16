@@ -221,7 +221,7 @@ fn prove_gkr_round<SC: SumcheckComputation<EF> + 'static>(
 
     // sanity check
     debug_assert_eq!(
-        computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &batching_scalars_powers)
             * eq_poly_with_skip(&sumcheck_point, claim_point, univariate_skips),
         sumcheck_final_sum
     );
@@ -288,7 +288,7 @@ where
 
     // sanity check
     debug_assert_eq!(
-        computation.eval(&sumcheck_inner_evals, &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &batching_scalars_powers)
             * eq_poly_with_skip(&sumcheck_point, claim_point, univariate_skips),
         sumcheck_final_sum
     );
