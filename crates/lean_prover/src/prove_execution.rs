@@ -684,7 +684,7 @@ pub fn prove_execution(
                 &p16_one_minus_compression,
                 &p16_index_res_a_plus_one,
             ]),
-            &CubeComputation,
+            &CubeComputation {},
             &[],
             None,
             false,

@@ -26,6 +26,9 @@ pub trait MyAir<EF: ExtensionField<PF<EF>>>:
     + for<'a> Air<ConstraintChecker<'a, EF, EF>>
     + for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
     + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>
+    + SumcheckComputationForAir
+    + Send
+    + Sync
 {
 }
 
@@ -38,6 +41,9 @@ where
         + for<'a> Air<ConstraintChecker<'a, PF<EF>, EF>>
         + for<'a> Air<ConstraintChecker<'a, EF, EF>>
         + for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
-        + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
+        + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>
+        + SumcheckComputationForAir
+        + Send
+        + Sync,
 {
 }

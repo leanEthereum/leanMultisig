@@ -41,6 +41,8 @@ pub struct DotProductAir<EF> {
     pub fingerprint_challenge_powers: [EF; 5],
 }
 
+impl <EF>SumcheckComputationForAir for DotProductAir<EF> {}
+
 impl<F, EF: Send + Sync> BaseAir<F> for DotProductAir<EF> {
     fn width(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS

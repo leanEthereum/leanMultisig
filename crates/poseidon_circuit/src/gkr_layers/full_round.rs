@@ -2,37 +2,30 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 
-use crate::{EF, F};
+use crate::EF;
 
 #[derive(Debug)]
 pub struct FullRoundComputation<const WIDTH: usize> {}
 
-impl<NF: ExtensionField<F>, const WIDTH: usize> SumcheckComputation<NF, EF>
-    for FullRoundComputation<WIDTH>
+impl<const WIDTH: usize> SumcheckComputation<EF> for FullRoundComputation<WIDTH>
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-    EF: ExtensionField<NF>,
+    EF: ExtensionField<PF<EF>>,
 {
     fn degree(&self) -> usize {
         3
     }
 
-    fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
+    fn eval<NF: ExtensionField<PF<EF>>>(&self, point: &[NF], alpha_powers: &[EF]) -> EF
+    where
+        EF: ExtensionField<NF>,
+    {
         debug_assert_eq!(point.len(), WIDTH);
         let mut res = EF::ZERO;
         for i in 0..WIDTH {
             res += alpha_powers[i] * point[i].cube();
         }
         res
-    }
-}
-
-impl<const WIDTH: usize> SumcheckComputationPacked<EF> for FullRoundComputation<WIDTH>
-where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-{
-    fn degree(&self) -> usize {
-        3
     }
 
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {

@@ -15,17 +15,20 @@ pub struct BatchPartialRounds<const WIDTH: usize, const N_COMMITED_CUBES: usize>
     pub last_constant: F,
 }
 
-impl<NF: ExtensionField<F>, const WIDTH: usize, const N_COMMITED_CUBES: usize>
-    SumcheckComputation<NF, EF> for BatchPartialRounds<WIDTH, N_COMMITED_CUBES>
+impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> SumcheckComputation<EF>
+    for BatchPartialRounds<WIDTH, N_COMMITED_CUBES>
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-    EF: ExtensionField<NF>,
+    EF: ExtensionField<PF<EF>>,
 {
     fn degree(&self) -> usize {
         3
     }
 
-    fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
+    fn eval<NF: ExtensionField<PF<EF>>>(&self, point: &[NF], alpha_powers: &[EF]) -> EF
+    where
+        EF: ExtensionField<NF>,
+    {
         debug_assert_eq!(point.len(), WIDTH + N_COMMITED_CUBES);
         debug_assert_eq!(alpha_powers.len(), WIDTH + N_COMMITED_CUBES);
 
@@ -44,16 +47,6 @@ where
             res += alpha_powers[i] * buff[i];
         }
         res
-    }
-}
-
-impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> SumcheckComputationPacked<EF>
-    for BatchPartialRounds<WIDTH, N_COMMITED_CUBES>
-where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-{
-    fn degree(&self) -> usize {
-        3
     }
 
     fn eval_packed_base(&self, point: &[FPacking<F>], alpha_powers: &[EF]) -> EFPacking<EF> {

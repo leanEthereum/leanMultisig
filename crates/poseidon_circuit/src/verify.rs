@@ -181,7 +181,7 @@ where
     }
 }
 
-fn verify_gkr_round<SC: SumcheckComputation<EF, EF>>(
+fn verify_gkr_round<SC: SumcheckComputation<EF>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     computation: &SC,
     log_n_poseidons: usize,

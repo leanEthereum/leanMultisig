@@ -192,12 +192,7 @@ where
 }
 
 #[instrument(skip_all)]
-fn prove_gkr_round<
-    SC: SumcheckComputation<F, EF>
-        + SumcheckComputation<EF, EF>
-        + SumcheckComputationPacked<EF>
-        + 'static,
->(
+fn prove_gkr_round<SC: SumcheckComputation<EF> + 'static>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     computation: &SC,
     input_layers: &[impl AsRef<[PFPacking<EF>]>],

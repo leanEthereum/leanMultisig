@@ -45,6 +45,8 @@ pub struct VMAir<EF> {
     pub fingerprint_challenge_powers: [EF; 5],
 }
 
+impl <EF>SumcheckComputationForAir for VMAir<EF> {}
+
 impl<F, EF: Send + Sync> BaseAir<F> for VMAir<EF> {
     fn width(&self) -> usize {
         N_EXEC_AIR_COLUMNS

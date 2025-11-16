@@ -25,6 +25,12 @@ struct ExampleStructuredAir<
     const VIRTUAL_COLUMN: bool,
 >;
 
+impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool>
+    SumcheckComputationForAir
+    for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
+{
+}
+
 impl<F, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool>
     BaseAir<F> for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
 {
