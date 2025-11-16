@@ -48,13 +48,14 @@ fn random_test_cases(num_test_cases: usize, valid: bool) -> BTreeSet<(usize, usi
 
     let mut test_cases = BTreeSet::new();
 
-    for _ in 0..num_test_cases {
+    while test_cases.len() < num_test_cases {
         let t = rng.random_range(1..t_max);
         let v = if valid {
             rng.random_range(0..t)
         } else {
             rng.random_range(t..1 << 31)
         };
+
         test_cases.insert((v, t));
     }
 
@@ -114,16 +115,16 @@ fn do_test_range_check(
 
 #[test]
 fn test_range_check_valid() {
-    test_range_check(10, true);
+    test_range_check_random(100, true);
 }
 
 #[test]
 #[should_panic]
 fn test_range_check_invalid() {
-    test_range_check(1, false);
+    test_range_check_random(1, false);
 }
 
-fn test_range_check(num_test_cases: usize, valid: bool) {
+fn test_range_check_random(num_test_cases: usize, valid: bool) {
     let (public_input, private_input) = prepare_inputs();
     let whir_config_builder = whir_config_builder();
 
@@ -132,6 +133,34 @@ fn test_range_check(num_test_cases: usize, valid: bool) {
     println!("Running {} random test cases", test_cases.len());
 
     for (v, t) in test_cases {
+        println!("v: {v}; t: {t}");
         do_test_range_check(v, t, &whir_config_builder, &public_input, &private_input);
     }
+}
+
+#[test]
+fn test_range_check_valid_1() {
+    let (public_input, private_input) = prepare_inputs();
+    let whir_config_builder = whir_config_builder();
+    do_test_range_check(
+        3716,
+        20122,
+        &whir_config_builder,
+        &public_input,
+        &private_input,
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_range_check_invalid_1() {
+    let (public_input, private_input) = prepare_inputs();
+    let whir_config_builder = whir_config_builder();
+    do_test_range_check(
+        1,
+        0,
+        &whir_config_builder,
+        &public_input,
+        &private_input,
+    );
 }

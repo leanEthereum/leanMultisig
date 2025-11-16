@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
@@ -48,4 +49,5 @@ pub struct ExecutionResult {
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
     pub summary: String,
     pub memory_profile: Option<MemoryProfile>,
+    pub range_check_cells_to_fill: Vec<(usize, usize)>,
 }

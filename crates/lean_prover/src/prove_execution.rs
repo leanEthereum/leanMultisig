@@ -54,6 +54,15 @@ pub fn prove_execution(
                 (poseidons_16_precomputed, poseidons_24_precomputed),
             )
         });
+
+        // Fill undefined memory cells used for range checks
+        for (dest_ptr, src_ptr) in &execution_result.range_check_cells_to_fill {
+            if execution_result.memory.get(*dest_ptr).is_err() {
+                let value = execution_result.memory.get(*src_ptr).unwrap_or(F::ZERO);
+                execution_result.memory.set(*dest_ptr, value).unwrap();
+            }
+        }
+
         exec_summary = std::mem::take(&mut execution_result.summary);
         info_span!("Building execution trace")
             .in_scope(|| get_execution_trace(bytecode, execution_result))
