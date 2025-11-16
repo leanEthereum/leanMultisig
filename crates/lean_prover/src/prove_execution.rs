@@ -692,6 +692,7 @@ pub fn prove_execution(
             false,
             &mut prover_state,
             sum,
+            None,
             false,
         );
         prover_state.add_extension_scalar(sc_values[2]);

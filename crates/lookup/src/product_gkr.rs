@@ -145,6 +145,7 @@ fn prove_gkr_product_step_core<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize
         false,
         prover_state,
         claim.value,
+        None,
         false,
     );
 

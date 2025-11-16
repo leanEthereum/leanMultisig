@@ -41,7 +41,7 @@ where
 
         res
     }
-    
+
     #[inline(always)]
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + 1);
