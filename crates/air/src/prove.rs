@@ -28,7 +28,7 @@ pub fn prove_air<
     witness: &[&[WF]],
     last_row_shifted: &[WF],
     virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
-    store_intermediate_foldings: bool,
+    store_intermediate_foldings: bool
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
     let n_rows = witness[0].len();
     assert!(witness.iter().all(|col| col.len() == n_rows));
@@ -89,7 +89,6 @@ pub fn prove_air<
                 .as_ref()
                 .map(|st| st.value)
                 .unwrap_or_else(|| EF::ZERO),
-            None,
             store_intermediate_foldings,
         )
     });
@@ -173,7 +172,6 @@ fn open_columns<EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: Field>(
             false,
             prover_state,
             inner_sum,
-            None,
             false,
         )
     });

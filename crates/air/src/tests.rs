@@ -224,7 +224,7 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
         &columns_ref,
         &last_row,
         virtual_column_statement_prover,
-        true,
+        true
     );
     let mut verifier_state = build_verifier_state(&prover_state);
 

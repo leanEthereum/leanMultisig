@@ -216,7 +216,6 @@ fn prove_gkr_round<SC: SumcheckComputation<EF> + 'static>(
         false,
         prover_state,
         batched_claim,
-        None,
         true,
     );
 
@@ -284,7 +283,6 @@ where
         false,
         prover_state,
         batched_claim,
-        None,
         true,
     );
 
