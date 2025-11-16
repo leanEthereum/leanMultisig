@@ -96,7 +96,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
         false,
         prover_state,
         claim_num + alpha * claim_den,
-        true,
+        false,
     );
     prover_state.add_extension_scalars(&inner_evals);
     let beta = prover_state.sample();
