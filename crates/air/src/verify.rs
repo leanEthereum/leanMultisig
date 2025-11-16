@@ -51,7 +51,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
         .take(table.n_constraints + virtual_column_statement.is_some() as usize)
         .collect();
     let constraint_evals =
-        SumcheckComputation::eval(&table.air, &inner_sums, &constraints_batching_scalars);
+        SumcheckComputation::eval_extension(&table.air, &inner_sums, &constraints_batching_scalars);
 
     if eq_poly_with_skip(
         &zerocheck_challenges,

@@ -93,7 +93,6 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#8bf0cfebcddd4292a0be65d795c43da680d70336"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -177,7 +176,6 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#8bf0cfebcddd4292a0be65d795c43da680d70336"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -471,7 +469,6 @@ dependencies = [
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#8bf0cfebcddd4292a0be65d795c43da680d70336"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1056,7 +1053,6 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#8bf0cfebcddd4292a0be65d795c43da680d70336"
 dependencies = [
  "backend",
  "constraints-folder",
