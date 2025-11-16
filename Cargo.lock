@@ -1290,7 +1290,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=modular-precompiles#9e4698dfb4b0c273dba8dc067ad2cd8f5730a592"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=modular-precompiles#fd11d16b378e281f7a780379af75f47fed634f0e"
 dependencies = [
  "itertools",
  "multilinear-toolkit",

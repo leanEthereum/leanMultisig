@@ -453,6 +453,7 @@ pub fn prove_execution(
             &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &execution_air_padding_row(bytecode.ending_pc),
             Some(grand_product_exec_statement),
+            true,
         )
     });
 
@@ -473,6 +474,7 @@ pub fn prove_execution(
                 &dot_product_columns_ref,
                 &dot_product_air_padding_row(),
                 Some(grand_product_dot_product_statement),
+                true,
             )
         });
 
@@ -690,7 +692,7 @@ pub fn prove_execution(
             false,
             &mut prover_state,
             sum,
-            None,
+            false,
         );
         prover_state.add_extension_scalar(sc_values[2]);
         p16_indexes_res_statements.push(Evaluation::new(sc_point, sc_values[2] - EF::ONE));
