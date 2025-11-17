@@ -11,7 +11,6 @@ use crate::witness::{
     WitnessPoseidon24,
 };
 use multilinear_toolkit::prelude::*;
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, dot_product};
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
 use utils::{ToUsize, poseidon16_permute, poseidon24_permute};
@@ -77,7 +76,7 @@ pub enum Instruction {
     },
 
     /// Dot product computation between extension field element vectors
-    DotProductExtensionExtension {
+    DotProduct {
         /// First vector pointer (normal pointer, size `size`)
         arg0: MemOrConstant,
         /// Second vector pointer (normal pointer, size `size`)
@@ -330,7 +329,7 @@ impl Instruction {
                 *ctx.pc += 1;
                 Ok(())
             }
-            Self::DotProductExtensionExtension {
+            Self::DotProduct {
                 arg0,
                 arg1,
                 res,
@@ -450,7 +449,7 @@ impl Display for Instruction {
                     "{res} = m[m[fp + {shift_0}] + {shift_1}] for_range_check: {for_range_check}"
                 )
             }
-            Self::DotProductExtensionExtension {
+            Self::DotProduct {
                 arg0,
                 arg1,
                 res,

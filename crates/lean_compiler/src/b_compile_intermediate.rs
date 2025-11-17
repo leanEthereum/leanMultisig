@@ -1,6 +1,6 @@
 use crate::{F, a_simplify_lang::*, ir::*, lang::*, precompiles::*};
 use lean_vm::*;
-use p3_field::{Field, PrimeCharacteristicRing};
+use multilinear_toolkit::prelude::*;
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
@@ -534,7 +534,7 @@ fn compile_lines(
 
             SimpleLine::FunctionRet { return_data } => {
                 if compiler.func_name == "main" {
-                    // pC -> ending_pc, fp -> 0
+                    // pc -> ending_pc, fp -> 0
                     let zero_value_offset = IntermediateValue::MemoryAfterFp {
                         offset: compiler.stack_size.into(),
                     };

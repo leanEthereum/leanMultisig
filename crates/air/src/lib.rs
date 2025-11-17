@@ -3,14 +3,17 @@
 use ::utils::ConstraintChecker;
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use p3_field::ExtensionField;
 use p3_uni_stark::SymbolicAirBuilder;
 
 mod prove;
-pub mod table;
+mod table;
 mod uni_skip_utils;
 mod utils;
 mod verify;
+
+pub use prove::*;
+pub use table::*;
+pub use verify::*;
 
 #[cfg(test)]
 pub mod tests;

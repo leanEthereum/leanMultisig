@@ -1,7 +1,5 @@
 use multilinear_toolkit::prelude::*;
 use p3_challenger::DuplexChallenger;
-use p3_field::ExtensionField;
-use p3_field::PrimeField64;
 use p3_koala_bear::KoalaBear;
 
 use crate::Poseidon16;

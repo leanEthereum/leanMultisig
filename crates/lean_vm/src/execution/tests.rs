@@ -1,6 +1,5 @@
 use crate::*;
-use p3_field::BasedVectorSpace;
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 
 #[test]
 fn test_basic_memory_operations() {

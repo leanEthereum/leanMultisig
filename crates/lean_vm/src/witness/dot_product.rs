@@ -1,7 +1,7 @@
 //! Dot product witness for arithmetic operations between extension field elements
 
 use crate::core::{EF, F};
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 
 /// Witness data for dot the product precompile
 #[derive(Debug, Clone)]

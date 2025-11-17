@@ -2,11 +2,11 @@ use lean_compiler::compile_program;
 use lean_prover::verify_execution::verify_execution;
 use lean_prover::{prove_execution::prove_execution, whir_config_builder};
 use lean_vm::{DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START};
-use p3_field::PrimeCharacteristicRing;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::BTreeSet;
 use whir_p3::WhirConfigBuilder;
+use multilinear_toolkit::prelude::*;
 
 const NO_VEC_RUNTIME_MEMORY: usize = 1 << 20;
 

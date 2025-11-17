@@ -6,10 +6,8 @@ https://eprint.iacr.org/2025/946.pdf
 */
 
 use multilinear_toolkit::prelude::*;
-use p3_field::{ExtensionField, PrimeField64};
 use utils::ToUsize;
 
-use p3_field::PrimeCharacteristicRing;
 use tracing::{info_span, instrument};
 use utils::{FSProver, FSVerifier};
 
@@ -233,7 +231,6 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
-    use p3_field::PrimeCharacteristicRing;
     use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use utils::{build_challenger, init_tracing};

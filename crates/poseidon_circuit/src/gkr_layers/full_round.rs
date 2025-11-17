@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_field::ExtensionField;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 

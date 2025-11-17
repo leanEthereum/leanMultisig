@@ -1,7 +1,7 @@
 //! VM operation definitions
 
 use crate::core::F;
-use p3_field::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 
 /// Basic arithmetic operations supported by the VM
