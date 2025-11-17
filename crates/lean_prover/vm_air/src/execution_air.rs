@@ -43,6 +43,7 @@ pub struct VMAir<EF> {
     // GKR grand product challenges
     pub global_challenge: EF,
     pub fingerprint_challenge_powers: [EF; 5],
+    pub exec_bus_beta: EF,
 }
 
 impl<EF> SumcheckComputationForAir for VMAir<EF> {}
@@ -211,7 +212,9 @@ impl<EF: Copy> VMAir<EF> {
 
         let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
         let aux_mul_challenge_4 = mul_point_f_and_ef(aux, self.fingerprint_challenge_powers[4]);
-        (nu_sums + aux_mul_challenge_4 + precompile_index) * is_precompile + self.global_challenge
+        ((nu_sums + aux_mul_challenge_4 + precompile_index) + self.global_challenge)
+            * self.exec_bus_beta
+            + is_precompile
     }
 }
 

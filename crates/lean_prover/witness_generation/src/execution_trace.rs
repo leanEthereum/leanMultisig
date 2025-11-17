@@ -9,6 +9,7 @@ use vm_air::*;
 #[derive(Debug)]
 pub struct ExecutionTrace {
     pub full_trace: [Vec<F>; N_EXEC_AIR_COLUMNS],
+    pub nu_columns: [Vec<F>; 3],
     pub n_cycles: usize, // before padding with the repeated final instruction
     pub n_poseidons_16: usize,
     pub n_poseidons_24: usize,
@@ -43,29 +44,31 @@ pub fn get_execution_trace(
     let memory = &execution_result.memory;
     let mut trace: [Vec<F>; N_EXEC_AIR_COLUMNS] =
         array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
+    let mut nu_columns: [Vec<F>; 3] = array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
 
     transposed_par_iter_mut(&mut trace)
+        .zip(transposed_par_iter_mut(&mut nu_columns))
         .zip(execution_result.pcs.par_iter())
         .zip(execution_result.fps.par_iter())
-        .for_each(|((trace_row, &pc), &fp)| {
+        .for_each(|(((trace_row, nu_row), &pc), &fp)| {
             let instruction = &bytecode.instructions[pc];
             let field_repr = field_representation(instruction);
 
             let mut addr_a = F::ZERO;
-            if field_repr[3].is_zero() {
+            if field_repr[COL_INDEX_FLAG_A].is_zero() {
                 // flag_a == 0
                 addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
             }
             let value_a = memory.0[addr_a.to_usize()].unwrap();
             let mut addr_b = F::ZERO;
-            if field_repr[4].is_zero() {
+            if field_repr[COL_INDEX_FLAG_B].is_zero() {
                 // flag_b == 0
                 addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
             }
             let value_b = memory.0[addr_b.to_usize()].unwrap();
 
             let mut addr_c = F::ZERO;
-            if field_repr[5].is_zero() {
+            if field_repr[COL_INDEX_FLAG_C].is_zero() {
                 // flag_c == 0
                 addr_c = F::from_usize(fp) + field_repr[2]; // fp + operand_c
             } else if let Instruction::Deref { shift_1, .. } = instruction {
@@ -78,6 +81,17 @@ pub fn get_execution_trace(
             for (j, field) in field_repr.iter().enumerate() {
                 *trace_row[j] = *field;
             }
+
+            let nu_a = field_repr[COL_INDEX_FLAG_A] * field_repr[COL_INDEX_OPERAND_A]
+                + (F::ONE - field_repr[COL_INDEX_FLAG_A]) * value_a;
+            let nu_b = field_repr[COL_INDEX_FLAG_B] * field_repr[COL_INDEX_OPERAND_B]
+                + (F::ONE - field_repr[COL_INDEX_FLAG_B]) * value_b;
+            let nu_c = field_repr[COL_INDEX_FLAG_C] * F::from_usize(fp)
+                + (F::ONE - field_repr[COL_INDEX_FLAG_C]) * value_c;
+            *nu_row[0] = nu_a;
+            *nu_row[1] = nu_b;
+            *nu_row[2] = nu_c;
+
             *trace_row[COL_INDEX_MEM_VALUE_A] = value_a;
             *trace_row[COL_INDEX_MEM_VALUE_B] = value_b;
             *trace_row[COL_INDEX_MEM_VALUE_C] = value_c;
@@ -90,6 +104,12 @@ pub fn get_execution_trace(
 
     // repeat the last row to get to a power of two
     trace.par_iter_mut().for_each(|column| {
+        let last_value = column[n_cycles - 1];
+        for cell in &mut column[n_cycles..] {
+            *cell = last_value;
+        }
+    });
+    nu_columns.par_iter_mut().for_each(|column| {
         let last_value = column[n_cycles - 1];
         for cell in &mut column[n_cycles..] {
             *cell = last_value;
@@ -132,6 +152,7 @@ pub fn get_execution_trace(
 
     ExecutionTrace {
         full_trace: trace,
+        nu_columns,
         n_cycles,
         n_poseidons_16,
         n_poseidons_24,

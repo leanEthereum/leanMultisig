@@ -5,8 +5,7 @@ use crate::*;
 use ::air::AirTable;
 use air::prove_air;
 use lean_vm::*;
-use lookup::prove_gkr_product;
-use lookup::{compute_pushforward, prove_logup_star};
+use lookup::{compute_pushforward, prove_gkr_quotient, prove_logup_star};
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
@@ -31,6 +30,7 @@ pub fn prove_execution(
     let mut exec_summary = String::new();
     let ExecutionTrace {
         full_trace,
+        nu_columns,
         n_cycles,
         n_poseidons_16,
         n_poseidons_24,
@@ -111,7 +111,6 @@ pub fn prove_execution(
             n_poseidons_16,
             n_compressions_16,
             n_poseidons_24,
-            dot_products.len(),
             n_rows_table_dot_products,
             private_memory.len(),
             vm_multilinear_evals.len(),
@@ -219,231 +218,316 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    // Grand Product for consistency with precompiles
     let grand_product_challenge_global = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
-    let mut exec_column_for_grand_product = vec![grand_product_challenge_global; 1 << log_n_cycles];
-    for pos_16 in &poseidons_16 {
-        let Some(cycle) = pos_16.cycle else {
-            break;
-        };
-        exec_column_for_grand_product[cycle] = grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_POSEIDONS_16,
-                &pos_16.addresses_field_repr(),
-                fingerprint_challenge,
-            );
-    }
-    for pos_24 in &poseidons_24 {
-        let Some(cycle) = pos_24.cycle else {
-            break;
-        };
-        exec_column_for_grand_product[cycle] = grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_POSEIDONS_24,
-                &pos_24.addresses_field_repr(),
-                fingerprint_challenge,
-            );
-    }
-    for dot_product in &dot_products {
-        exec_column_for_grand_product[dot_product.cycle] = grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_DOT_PRODUCTS,
-                &dot_product.addresses_and_len_field_repr(),
-                fingerprint_challenge,
-            );
-    }
-    for multilinear_eval in &vm_multilinear_evals {
-        exec_column_for_grand_product[multilinear_eval.cycle] = grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_MULTILINEAR_EVAL,
-                &multilinear_eval.addresses_and_n_vars_field_repr(),
-                fingerprint_challenge,
-            );
-    }
+    let (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim) = {
+        let mut exec_bus_data = unsafe { uninitialized_vec::<EF>(n_cycles.next_power_of_two()) };
 
-    let (grand_product_exec_res, grand_product_exec_statement) =
-        prove_gkr_product::<_, TWO_POW_UNIVARIATE_SKIPS>(
-            &mut prover_state,
-            &exec_column_for_grand_product,
+        exec_bus_data.par_iter_mut().enumerate().for_each(|(i, v)| {
+            let precompile_index = full_trace[COL_INDEX_PRECOMPILE_INDEX][i];
+
+            *v = grand_product_challenge_global
+                + finger_print(
+                    precompile_index.to_usize(),
+                    &[
+                        nu_columns[0][i],
+                        nu_columns[1][i],
+                        nu_columns[2][i],
+                        full_trace[COL_INDEX_AUX][i],
+                    ],
+                    fingerprint_challenge,
+                )
+        });
+
+        let exec_bus_selector = full_trace[COL_INDEX_IS_PRECOMPILE]
+            .par_iter()
+            .map(|&v| EF::from(v)) // TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            .collect::<Vec<_>>();
+        let exec_bus_selector_packed = pack_extension(&exec_bus_selector);
+        let exec_bus_data_packed = pack_extension(&exec_bus_data);
+        let (exec_bus_quotient, exec_bus_point, exec_bus_selector_value, exec_bus_data_value) =
+            prove_gkr_quotient::<_, 2>(
+                &mut prover_state,
+                &MleGroupRef::ExtensionPacked(vec![
+                    &exec_bus_selector_packed,
+                    &exec_bus_data_packed,
+                ]),
+            );
+
+        let exec_bus_selector_inner_values = exec_bus_selector
+            .par_chunks_exact(exec_bus_selector.len() >> UNIVARIATE_SKIPS)
+            .map(|chunk| {
+                chunk.evaluate(&MultilinearPoint(
+                    exec_bus_point[UNIVARIATE_SKIPS..].to_vec(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        prover_state.add_extension_scalars(&exec_bus_selector_inner_values);
+        assert_eq!(
+            exec_bus_selector_inner_values.evaluate(&MultilinearPoint(
+                exec_bus_point[..UNIVARIATE_SKIPS].to_vec()
+            )),
+            exec_bus_selector_value
         );
 
-    let p16_column_for_grand_product = poseidons_16
-        .par_iter()
-        .map(|pos_16| {
-            grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_POSEIDONS_16,
-                    &pos_16.addresses_field_repr(),
-                    fingerprint_challenge,
-                )
-        })
-        .collect::<Vec<_>>();
+        let exec_bus_data_inner_values = exec_bus_data
+            .par_chunks_exact(exec_bus_data.len() >> UNIVARIATE_SKIPS)
+            .map(|chunk| {
+                chunk.evaluate(&MultilinearPoint(
+                    exec_bus_point[UNIVARIATE_SKIPS..].to_vec(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        prover_state.add_extension_scalars(&exec_bus_data_inner_values);
+        assert_eq!(
+            exec_bus_data_inner_values.evaluate(&MultilinearPoint(
+                exec_bus_point[..UNIVARIATE_SKIPS].to_vec()
+            )),
+            exec_bus_data_value
+        );
+        let exec_bus_gkr_epsilon = prover_state.sample();
+        let exec_bus_final_point = [
+            vec![exec_bus_gkr_epsilon],
+            exec_bus_point[UNIVARIATE_SKIPS..].to_vec(),
+        ]
+        .concat();
+        let exec_bus_beta = prover_state.sample();
+        let selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
+        let exec_bus_final_value = evaluate_univariate_multilinear::<_, _, _, false>(
+            &exec_bus_selector_inner_values,
+            &[exec_bus_gkr_epsilon],
+            &selectors,
+            None,
+        ) + exec_bus_beta
+            * evaluate_univariate_multilinear::<_, _, _, false>(
+                &exec_bus_data_inner_values,
+                &[exec_bus_gkr_epsilon],
+                &selectors,
+                None,
+            );
 
-    let (grand_product_p16_res, grand_product_p16_statement) =
-        prove_gkr_product::<_, 2>(&mut prover_state, &p16_column_for_grand_product);
+        let exec_bus_final_claim = Evaluation::new(exec_bus_final_point, exec_bus_final_value);
+        (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim)
+    };
 
-    let p24_column_for_grand_product = poseidons_24
-        .par_iter()
-        .map(|pos_24| {
-            grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_POSEIDONS_24,
-                    &pos_24.addresses_field_repr(),
-                    fingerprint_challenge,
-                )
-        })
-        .collect::<Vec<_>>();
+    let (
+        p16_bus_quotient,
+        p16_bus_point,
+        p16_bus_eval_index_input_a,
+        p16_bus_eval_index_input_b,
+        p16_bus_eval_index_input_output,
+    ) = {
+        let p16_bus_data = poseidons_16
+            .par_iter()
+            .map(|pos_16| {
+                grand_product_challenge_global
+                    + finger_print(
+                        TABLE_INDEX_POSEIDONS_16,
+                        &pos_16.addresses_field_repr(),
+                        fingerprint_challenge,
+                    )
+            })
+            .collect::<Vec<_>>();
 
-    let (grand_product_p24_res, grand_product_p24_statement) =
-        prove_gkr_product::<_, 2>(&mut prover_state, &p24_column_for_grand_product);
+        let mut p16_bus_selector = vec![-EF::ONE; n_poseidons_16]; // TODO embedding overhead !!!!!!!!!!!!!!
+        p16_bus_selector.resize(1 << log_n_p16, EF::ZERO);
+        let p16_bus_selector_packed = pack_extension(&p16_bus_selector);
+        let p16_bus_data_packed = pack_extension(&p16_bus_data);
+        let (p16_bus_quotient, p16_bus_point, _, _) = prove_gkr_quotient::<_, 2>(
+            &mut prover_state,
+            &MleGroupRef::ExtensionPacked(vec![&p16_bus_selector_packed, &p16_bus_data_packed]),
+        );
+        let p16_bus_eval_index_input_a = p16_indexes_input_a.evaluate(&p16_bus_point);
+        let p16_bus_eval_index_input_b = p16_indexes_input_b.evaluate(&p16_bus_point);
+        let p16_bus_eval_index_input_output = p16_indexes_output.evaluate(&p16_bus_point);
+        prover_state.add_extension_scalars(&[
+            p16_bus_eval_index_input_a,
+            p16_bus_eval_index_input_b,
+            p16_bus_eval_index_input_output,
+        ]);
+        (
+            p16_bus_quotient,
+            p16_bus_point,
+            p16_bus_eval_index_input_a,
+            p16_bus_eval_index_input_b,
+            p16_bus_eval_index_input_output,
+        )
+    };
 
-    let dot_product_column_for_grand_product = (0..1 << log_n_rows_dot_product_table)
-        .into_par_iter()
-        .map(|i| {
-            grand_product_challenge_global
-                + if dot_product_columns[0][i].is_zero() {
-                    EF::from_usize(TABLE_INDEX_DOT_PRODUCTS)
-                } else {
-                    finger_print(
+    let (
+        p24_bus_quotient,
+        p24_bus_point,
+        p24_bus_eval_index_input_a,
+        p24_bus_eval_index_input_b,
+        p24_bus_eval_index_input_output,
+    ) = {
+        let p24_bus_data = poseidons_24
+            .par_iter()
+            .map(|pos_24| {
+                grand_product_challenge_global
+                    + finger_print(
+                        TABLE_INDEX_POSEIDONS_24,
+                        &pos_24.addresses_field_repr(),
+                        fingerprint_challenge,
+                    )
+            })
+            .collect::<Vec<_>>();
+
+        let mut p24_bus_selector = vec![-EF::ONE; n_poseidons_24]; // TODO embedding overhead !!!!!!!!!!!!!!
+        p24_bus_selector.resize(1 << log_n_p24, EF::ZERO);
+        let p24_bus_selector_packed = pack_extension(&p24_bus_selector);
+        let p24_bus_data_packed = pack_extension(&p24_bus_data);
+        let (p24_bus_quotient, p24_bus_point, _, _) = prove_gkr_quotient::<_, 2>(
+            &mut prover_state,
+            &MleGroupRef::ExtensionPacked(vec![&p24_bus_selector_packed, &p24_bus_data_packed]),
+        );
+        let p24_bus_eval_index_input_a = p24_indexes_input_a.evaluate(&p24_bus_point);
+        let p24_bus_eval_index_input_b = p24_indexes_input_b.evaluate(&p24_bus_point);
+        let p24_bus_eval_index_input_output = p24_indexes_output.evaluate(&p24_bus_point);
+        prover_state.add_extension_scalars(&[
+            p24_bus_eval_index_input_a,
+            p24_bus_eval_index_input_b,
+            p24_bus_eval_index_input_output,
+        ]);
+        (
+            p24_bus_quotient,
+            p24_bus_point,
+            p24_bus_eval_index_input_a,
+            p24_bus_eval_index_input_b,
+            p24_bus_eval_index_input_output,
+        )
+    };
+
+    let (
+        mut dot_product_bus_quotient,
+        dot_product_bus_point,
+        dot_product_bus_eval_index_input_a,
+        dot_product_bus_eval_index_input_b,
+        dot_product_bus_eval_index_res,
+        dot_product_bus_eval_len,
+        dot_product_bus_eval_flags,
+    ) = {
+        let dot_product_bus_data = (0..1 << log_n_rows_dot_product_table)
+            .into_par_iter()
+            .map(|i| {
+                grand_product_challenge_global
+                    + finger_print(
                         TABLE_INDEX_DOT_PRODUCTS,
                         &[
-                            dot_product_columns[2][i],
-                            dot_product_columns[3][i],
-                            dot_product_columns[4][i],
-                            dot_product_columns[1][i],
+                            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_A][i],
+                            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_B][i],
+                            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_RES][i],
+                            dot_product_columns[DOT_PRODUCT_AIR_COL_LEN][i],
                         ],
                         fingerprint_challenge,
                     )
-                }
-        })
-        .collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
-    let vm_multilinear_eval_grand_product_res = vm_multilinear_evals
+        let dot_product_bus_selector = dot_product_columns[DOT_PRODUCT_AIR_COL_START_FLAG]
+            .par_iter()
+            .map(|&x| -x)
+            .collect::<Vec<_>>(); // TODO embedding overhead !!!!!!!!!!!!!!
+        let dot_product_bus_selector_packed = pack_extension(&dot_product_bus_selector);
+        let dot_product_bus_data_packed = pack_extension(&dot_product_bus_data);
+        let (dot_product_bus_quotient, dot_product_bus_point, dot_product_bus_selector_value, _) =
+            prove_gkr_quotient::<_, 2>(
+                &mut prover_state,
+                &MleGroupRef::ExtensionPacked(vec![
+                    &dot_product_bus_selector_packed,
+                    &dot_product_bus_data_packed,
+                ]),
+            );
+        let dot_product_bus_eval_index_input_a =
+            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_A].evaluate(&dot_product_bus_point);
+        let dot_product_bus_eval_index_input_b =
+            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_B].evaluate(&dot_product_bus_point);
+        let dot_product_bus_eval_index_res =
+            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_RES].evaluate(&dot_product_bus_point);
+        let dot_product_bus_eval_len =
+            dot_product_columns[DOT_PRODUCT_AIR_COL_LEN].evaluate(&dot_product_bus_point);
+
+        prover_state.add_extension_scalars(&[
+            dot_product_bus_eval_index_input_a,
+            dot_product_bus_eval_index_input_b,
+            dot_product_bus_eval_index_res,
+            dot_product_bus_eval_len,
+        ]);
+        (
+            dot_product_bus_quotient,
+            dot_product_bus_point,
+            dot_product_bus_eval_index_input_a,
+            dot_product_bus_eval_index_input_b,
+            dot_product_bus_eval_index_res,
+            dot_product_bus_eval_len,
+            -dot_product_bus_selector_value,
+        )
+    };
+
+    let multilinear_eval_bus_quotient = vm_multilinear_evals
         .par_iter()
         .map(|vm_multilinear_eval| {
-            grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_MULTILINEAR_EVAL,
-                    &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
-                    fingerprint_challenge,
-                )
+            -EF::ONE
+                / (grand_product_challenge_global
+                    + finger_print(
+                        TABLE_INDEX_MULTILINEAR_EVAL,
+                        &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
+                        fingerprint_challenge,
+                    ))
         })
-        .product::<EF>();
+        .sum::<EF>();
 
-    let (grand_product_dot_product_res, grand_product_dot_product_statement) =
-        prove_gkr_product::<_, TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS>(
-            &mut prover_state,
-            &dot_product_column_for_grand_product,
-        );
-
-    let corrected_prod_exec = grand_product_exec_res
-        / grand_product_challenge_global.exp_u64(
-            ((1 << log_n_cycles)
-                - n_poseidons_16
-                - n_poseidons_24
-                - dot_products.len()
-                - vm_multilinear_evals.len()) as u64,
-        );
-    let corrected_prod_p16 = grand_product_p16_res
+    dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
         / (grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_POSEIDONS_16,
-                &WitnessPoseidon16::default_addresses_field_repr(POSEIDON_16_NULL_HASH_PTR),
-                fingerprint_challenge,
-            ))
-        .exp_u64(((1 << log_n_p16) - n_poseidons_16) as u64);
-
-    let corrected_prod_p24 = grand_product_p24_res
-        / (grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_POSEIDONS_24,
-                &WitnessPoseidon24::default_addresses_field_repr(POSEIDON_24_NULL_HASH_PTR),
-                fingerprint_challenge,
-            ))
-        .exp_u64(((1 << log_n_p24) - n_poseidons_24) as u64);
-
-    let corrected_dot_product = grand_product_dot_product_res
-        / ((grand_product_challenge_global
             + finger_print(
                 TABLE_INDEX_DOT_PRODUCTS,
-                &[F::ZERO, F::ZERO, F::ZERO, F::ONE],
+                &[
+                    EF::ZERO, // IndexA
+                    EF::ZERO, // IndexB
+                    EF::ZERO, // IndexRes
+                    EF::ONE,  // Len
+                ],
                 fingerprint_challenge,
-            ))
-        .exp_u64(dot_product_padding_len as u64)
-            * (grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_DOT_PRODUCTS,
-                    &[F::ZERO, F::ZERO, F::ZERO, F::ZERO],
-                    fingerprint_challenge,
-                ))
-            .exp_u64(
-                ((1 << log_n_rows_dot_product_table) - dot_product_padding_len - dot_products.len())
-                    as u64,
             ));
-
     assert_eq!(
-        corrected_prod_exec,
-        corrected_prod_p16
-            * corrected_prod_p24
-            * corrected_dot_product
-            * vm_multilinear_eval_grand_product_res
+        exec_bus_quotient
+            + p16_bus_quotient
+            + p24_bus_quotient
+            + dot_product_bus_quotient
+            + multilinear_eval_bus_quotient,
+        EF::ZERO
     );
 
-    let p16_grand_product_evals_on_indexes_a =
-        p16_indexes_input_a.evaluate(&grand_product_p16_statement.point);
-    let p16_grand_product_evals_on_indexes_b =
-        p16_indexes_input_b.evaluate(&grand_product_p16_statement.point);
-    let p16_grand_product_evals_on_indexes_res =
-        p16_indexes_output.evaluate(&grand_product_p16_statement.point);
-
-    prover_state.add_extension_scalars(&[
-        p16_grand_product_evals_on_indexes_a,
-        p16_grand_product_evals_on_indexes_b,
-        p16_grand_product_evals_on_indexes_res,
-    ]);
-
     let mut p16_indexes_a_statements = vec![Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_a,
+        p16_bus_point.clone(),
+        p16_bus_eval_index_input_a,
     )];
     let mut p16_indexes_b_statements = vec![Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_b,
+        p16_bus_point.clone(),
+        p16_bus_eval_index_input_b,
     )];
     let mut p16_indexes_res_statements = vec![Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_res,
+        p16_bus_point.clone(),
+        p16_bus_eval_index_input_output,
     )];
-
-    let p24_grand_product_evals_on_indexes_a =
-        p24_indexes_input_a.evaluate(&grand_product_p24_statement.point);
-    let p24_grand_product_evals_on_indexes_b =
-        p24_indexes_input_b.evaluate(&grand_product_p24_statement.point);
-    let p24_grand_product_evals_on_indexes_res =
-        p24_indexes_output.evaluate(&grand_product_p24_statement.point);
-    prover_state.add_extension_scalars(&[
-        p24_grand_product_evals_on_indexes_a,
-        p24_grand_product_evals_on_indexes_b,
-        p24_grand_product_evals_on_indexes_res,
-    ]);
 
     let mut p24_indexes_a_statements = vec![Evaluation::new(
-        grand_product_p24_statement.point.clone(),
-        p24_grand_product_evals_on_indexes_a,
+        p24_bus_point.clone(),
+        p24_bus_eval_index_input_a,
     )];
     let mut p24_indexes_b_statements = vec![Evaluation::new(
-        grand_product_p24_statement.point.clone(),
-        p24_grand_product_evals_on_indexes_b,
+        p24_bus_point.clone(),
+        p24_bus_eval_index_input_b,
     )];
     let mut p24_indexes_res_statements = vec![Evaluation::new(
-        grand_product_p24_statement.point.clone(),
-        p24_grand_product_evals_on_indexes_res,
+        p24_bus_point.clone(),
+        p24_bus_eval_index_input_output,
     )];
 
     let exec_table = AirTable::<EF, _>::new(VMAir {
         global_challenge: grand_product_challenge_global,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        exec_bus_beta,
     });
     let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
         prove_air(
@@ -452,15 +536,12 @@ pub fn prove_execution(
             UNIVARIATE_SKIPS,
             &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &execution_air_padding_row(bytecode.ending_pc),
-            Some(grand_product_exec_statement),
+            Some(exec_bus_final_claim),
             true,
         )
     });
 
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
-        global_challenge: grand_product_challenge_global,
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-    });
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {});
     let dot_product_columns_ref = dot_product_columns
         .iter()
         .map(Vec::as_slice)
@@ -473,7 +554,7 @@ pub fn prove_execution(
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
                 &dot_product_columns_ref,
                 &dot_product_air_padding_row(),
-                Some(grand_product_dot_product_statement),
+                None,
                 true,
             )
         });
@@ -749,20 +830,44 @@ pub fn prove_execution(
         encapsulate_vec(p16_gkr.cubes_statements.split()),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
         vec![
-            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG)],
-            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN)],
+            vec![
+                dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG),
+                Evaluation::new(dot_product_bus_point.clone(), dot_product_bus_eval_flags),
+            ],
+            vec![
+                dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN),
+                Evaluation::new(dot_product_bus_point.clone(), dot_product_bus_eval_len),
+            ],
             [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A)],
+                vec![
+                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A),
+                    Evaluation::new(
+                        dot_product_bus_point.clone(),
+                        dot_product_bus_eval_index_input_a,
+                    ),
+                ],
                 normal_lookup_into_memory_statements.on_indexes[3].clone(),
             ]
             .concat(),
             [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B)],
+                vec![
+                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B),
+                    Evaluation::new(
+                        dot_product_bus_point.clone(),
+                        dot_product_bus_eval_index_input_b,
+                    ),
+                ],
                 normal_lookup_into_memory_statements.on_indexes[4].clone(),
             ]
             .concat(),
             [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES)],
+                vec![
+                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES),
+                    Evaluation::new(
+                        dot_product_bus_point.clone(),
+                        dot_product_bus_eval_index_res,
+                    ),
+                ],
                 normal_lookup_into_memory_statements.on_indexes[4].clone(),
             ]
             .concat(),

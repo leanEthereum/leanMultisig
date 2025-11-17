@@ -14,7 +14,7 @@ GKR to compute sum of fractions.
 pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     numerators_and_denominators: &MleGroupRef<'_, EF>,
-) -> (MultilinearPoint<EF>, EF, EF) {
+) -> (EF, MultilinearPoint<EF>, EF, EF) {
     assert_eq!(numerators_and_denominators.n_columns(), 2);
     let mut layers = vec![MleGroup::Ref(numerators_and_denominators.soft_clone())];
 
@@ -43,6 +43,7 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     let last_dens: [_; 2] = last_layer[1].clone().try_into().unwrap();
     prover_state.add_extension_scalars(&last_nums);
     prover_state.add_extension_scalars(&last_dens);
+    let quotient = last_nums[0] / last_dens[0] + last_nums[1] / last_dens[1];
 
     let mut point = MultilinearPoint(vec![prover_state.sample()]);
     let mut claim_num = last_nums.evaluate(&point);
@@ -65,7 +66,7 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
         claim_den,
     );
 
-    (point, claim_num, claim_den)
+    (quotient, point, claim_num, claim_den)
 }
 
 fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
@@ -96,7 +97,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
         false,
         prover_state,
         claim_num + alpha * claim_den,
-        false,
+        N_GROUPS != 2,
     );
     prover_state.add_extension_scalars(&inner_evals);
     let beta = prover_state.sample();
@@ -211,18 +212,16 @@ fn sum_quotients<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
         MleGroupRef::ExtensionPacked(numerators_and_denominators) => {
             assert_eq!(numerators_and_denominators.len(), 2);
             MleGroupOwned::ExtensionPacked(sum_quotients_helper::<_, N_GROUPS>(
-                &numerators_and_denominators[0],
-                &numerators_and_denominators[1],
+                numerators_and_denominators[0],
+                numerators_and_denominators[1],
             ))
-            .into()
         }
         MleGroupRef::Extension(numerators_and_denominators) => {
             assert_eq!(numerators_and_denominators.len(), 2);
             MleGroupOwned::Extension(sum_quotients_helper::<_, N_GROUPS>(
-                &numerators_and_denominators[0],
-                &numerators_and_denominators[1],
+                numerators_and_denominators[0],
+                numerators_and_denominators[1],
             ))
-            .into()
         }
         _ => unreachable!(),
     }
@@ -258,11 +257,11 @@ fn split_chunks<'a, A, const N_GROUPS: usize>(
     assert!(n.is_power_of_two() && n >= N_GROUPS);
 
     let numerator_chunks = split_at_many(
-        &numerators,
+        numerators,
         &(1..N_GROUPS).map(|i| i * n / N_GROUPS).collect::<Vec<_>>(),
     );
     let denominator_chunks = split_at_many(
-        &denominators,
+        denominators,
         &(1..N_GROUPS).map(|i| i * n / N_GROUPS).collect::<Vec<_>>(),
     );
 
@@ -284,7 +283,7 @@ mod tests {
         nums.iter().zip(den.iter()).map(|(&n, &d)| n / d).sum()
     }
 
-    const N_GROUPS: usize = 2;
+    const N_GROUPS: usize = 8;
 
     #[test]
     fn test_gkr_quotient() {
@@ -318,12 +317,10 @@ mod tests {
 
         let mut verifier_state = build_verifier_state(&prover_state);
 
-        let (retrieved_quotient, claim_point, claim_num, claim_den) =
+        let verifier_statements =
             verify_gkr_quotient::<EF, N_GROUPS>(&mut verifier_state, log_n).unwrap();
-
-        assert_eq!(&prover_statements.0, &claim_point);
-        assert_eq!(prover_statements.1, claim_num);
-        assert_eq!(prover_statements.2, claim_den);
+        assert_eq!(&verifier_statements, &prover_statements);
+        let (retrieved_quotient, claim_point, claim_num, claim_den) = verifier_statements;
 
         assert_eq!(retrieved_quotient, real_quotient);
         let selectors = univariate_selectors::<PF<EF>>(log2_strict_usize(N_GROUPS));

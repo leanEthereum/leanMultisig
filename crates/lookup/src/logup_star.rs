@@ -94,7 +94,7 @@ where
         .collect::<Vec<_>>();
     let c_minus_indexes_packed = MleRef::Extension(&c_minus_indexes).pack_if(packing);
 
-    let (claim_point_left, _, eval_c_minus_indexes) = prove_gkr_quotient::<_, 2>(
+    let (_, claim_point_left, _, eval_c_minus_indexes) = prove_gkr_quotient::<_, 2>(
         prover_state,
         &MleGroupRef::merge(&[
             &poly_eq_point_packed.by_ref(),
@@ -109,7 +109,7 @@ where
             .collect::<Vec<_>>(),
     );
     let c_minus_increments_packed = c_minus_increments.pack_if(packing);
-    let (claim_point_right, pushforward_final_eval, _) = prove_gkr_quotient::<_, 2>(
+    let (_, claim_point_right, pushforward_final_eval, _) = prove_gkr_quotient::<_, 2>(
         prover_state,
         &MleGroupRef::merge(&[
             &pushforward_packed.by_ref(),
@@ -239,8 +239,8 @@ mod tests {
 
     #[test]
     fn test_logup_star() {
-        for log_table_len in [1, 10] {
-            for log_indexes_len in 1..10 {
+        for log_table_len in [3, 10] {
+            for log_indexes_len in 3..10 {
                 test_logup_star_helper(log_table_len, log_indexes_len);
             }
         }

@@ -41,7 +41,7 @@ where
 
         res
     }
-    
+
     #[inline(always)]
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + 1);
@@ -60,14 +60,11 @@ where
 
 impl<const WIDTH: usize> CompressionComputation<WIDTH> {
     #[inline(always)]
-    fn my_eval<EF: ExtensionField<PF<EF>>, NF: ExtensionField<PF<EF>>>(
+    fn my_eval<EF: ExtensionField<PF<EF>> + ExtensionField<NF>, NF: ExtensionField<PF<EF>>>(
         &self,
         point: &[NF],
         alpha_powers: &[EF],
-    ) -> EF
-    where
-        EF: ExtensionField<NF>,
-    {
+    ) -> EF {
         debug_assert_eq!(point.len(), WIDTH + 1);
         let mut res = EF::ZERO;
         let compressed = point[WIDTH];

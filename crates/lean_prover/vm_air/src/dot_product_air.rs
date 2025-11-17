@@ -1,11 +1,6 @@
-use lean_vm::{DIMENSION, EF, TABLE_INDEX_DOT_PRODUCTS};
+use lean_vm::{DIMENSION, EF};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_uni_stark::SymbolicExpression;
-use std::{
-    any::TypeId,
-    mem::{transmute, transmute_copy},
-};
 
 /*
 (DIMENSION = 5)
@@ -36,14 +31,11 @@ pub const DOT_PRODUCT_AIR_COL_COMPUTATION: usize = 8;
 pub const DOT_PRODUCT_AIR_N_COLUMNS: usize = 9;
 
 #[derive(Debug)]
-pub struct DotProductAir<EF> {
-    pub global_challenge: EF,
-    pub fingerprint_challenge_powers: [EF; 5],
-}
+pub struct DotProductAir {}
 
-impl<EF> SumcheckComputationForAir for DotProductAir<EF> {}
+impl SumcheckComputationForAir for DotProductAir {}
 
-impl<F, EF: Send + Sync> BaseAir<F> for DotProductAir<EF> {
+impl<F> BaseAir<F> for DotProductAir {
     fn width(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS
     }
@@ -61,7 +53,7 @@ impl<F, EF: Send + Sync> BaseAir<F> for DotProductAir<EF> {
     }
 }
 
-impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for DotProductAir<EF>
+impl<AB: AirBuilder> Air<AB> for DotProductAir
 where
     AB::Var: 'static,
     AB::Expr: 'static,
@@ -77,7 +69,7 @@ where
         let len_up = up[DOT_PRODUCT_AIR_COL_LEN].clone();
         let index_a_up = up[DOT_PRODUCT_AIR_COL_INDEX_A].clone();
         let index_b_up = up[DOT_PRODUCT_AIR_COL_INDEX_B].clone();
-        let index_res_up = up[DOT_PRODUCT_AIR_COL_INDEX_RES].clone();
+        let _ = up[DOT_PRODUCT_AIR_COL_INDEX_RES].clone();
         let value_a_up = up[DOT_PRODUCT_AIR_COL_VALUE_A].clone();
         let value_b_up = up[DOT_PRODUCT_AIR_COL_VALUE_B].clone();
         let res_up = up[DOT_PRODUCT_AIR_COL_VALUE_RES].clone();
@@ -90,17 +82,6 @@ where
         let computation_down = down[4].clone();
 
         // TODO we could do most of the following computation in the base field
-
-        builder.add_custom(<DotProductAir<EF> as Air<AB>>::eval_custom(
-            self,
-            &[
-                start_flag_up.clone().into(),
-                len_up.clone().into(),
-                index_a_up.clone().into(),
-                index_b_up.clone().into(),
-                index_res_up.clone().into(),
-            ],
-        ));
 
         builder.assert_bool(start_flag_down.clone());
 
@@ -123,54 +104,8 @@ where
         builder.assert_zero(start_flag_up * (computation_up - res_up));
     }
 
-    fn eval_custom(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
-        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
-        let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
-        // let type_id_f = TypeId::of::<PF<EF>>();
-        let type_id_ef = TypeId::of::<EF>();
-        let type_id_f_packing = TypeId::of::<PFPacking<EF>>();
-        let type_id_ef_packing = TypeId::of::<EFPacking<EF>>();
-
-        if type_id_expr == type_id_ef {
-            assert_eq!(type_id_final_output, type_id_ef);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EF]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| c * p);
-            unsafe { transmute_copy::<EF, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else if type_id_expr == type_id_ef_packing {
-            assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs =
-                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EFPacking<EF>]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| p * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else if type_id_expr == type_id_f_packing {
-            assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs =
-                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[PFPacking<EF>]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else {
-            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<PF<EF>>>());
-            unsafe { transmute_copy(&SymbolicExpression::<PF<EF>>::default()) }
-        }
-    }
-}
-
-impl<EF: Copy> DotProductAir<EF> {
-    fn gkr_virtual_column_eval<
-        PointF: PrimeCharacteristicRing + Copy,
-        ResultF: Algebra<EF> + Algebra<PointF> + Copy,
-    >(
-        &self,
-        point: &[PointF],
-        mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
-    ) -> ResultF {
-        ResultF::from_usize(TABLE_INDEX_DOT_PRODUCTS)
-            + (mul_point_f_and_ef(point[2], self.fingerprint_challenge_powers[1])
-                + mul_point_f_and_ef(point[3], self.fingerprint_challenge_powers[2])
-                + mul_point_f_and_ef(point[4], self.fingerprint_challenge_powers[3])
-                + mul_point_f_and_ef(point[1], self.fingerprint_challenge_powers[4]))
-                * point[0]
-            + self.global_challenge
+    fn eval_custom(&self, _: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
+        unreachable!()
     }
 }
 
