@@ -120,6 +120,7 @@ pub struct InstructionContext<'a> {
     pub poseidon24_precomputed: &'a [([F; 24], [F; 8])],
     pub n_poseidon16_precomputed_used: &'a mut usize,
     pub n_poseidon24_precomputed_used: &'a mut usize,
+    pub range_check_cells_to_fill: &'a mut Vec<(usize, usize)>,
 }
 
 impl Instruction {
@@ -184,13 +185,18 @@ impl Instruction {
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
 
                     if *for_range_check {
-                        // if for_range_check, ignore the UndefinedMemory error from get()
-                        let value = ctx.memory.get(ptr.to_usize() + shift_1);
+                        let ptr_usize = ptr.to_usize();
+                        let value = ctx.memory.get(ptr_usize + shift_1);
                         if let Ok(value) = value {
                             ctx.memory.set(memory_address_res, value)?;
+                        } else {
+                            // Ignore the UndefinedMemory error from get(). Also, indicate/"hint"
+                            // to the prover that it needs to be filled later on with either 0 or
+                            // some other value which a later instruction will set
+                            ctx.range_check_cells_to_fill.push((memory_address_res, ptr_usize));
                         }
                     } else {
-                        // else, bubble it up
+                        // For non-range check derefs, allow the error to bubble up
                         let value = ctx.memory.get(ptr.to_usize() + shift_1)?;
                         ctx.memory.set(memory_address_res, value)?;
                     }
@@ -212,6 +218,7 @@ impl Instruction {
             } => {
                 let condition_value = condition.read_value(ctx.memory, *ctx.fp)?;
                 assert!([F::ZERO, F::ONE].contains(&condition_value),);
+
                 if condition_value == F::ZERO {
                     *ctx.pc += 1;
                 } else {
