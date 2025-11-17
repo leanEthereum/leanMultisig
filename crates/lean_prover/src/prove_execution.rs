@@ -246,7 +246,7 @@ pub fn prove_execution(
         let exec_bus_selector_packed = pack_extension(&exec_bus_selector);
         let exec_bus_data_packed = pack_extension(&exec_bus_data);
         let (exec_bus_quotient, exec_bus_point, exec_bus_selector_value, exec_bus_data_value) =
-            prove_gkr_quotient::<_, 2>(
+            prove_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
                 &mut prover_state,
                 &MleGroupRef::ExtensionPacked(vec![
                     &exec_bus_selector_packed,
@@ -254,59 +254,10 @@ pub fn prove_execution(
                 ]),
             );
 
-        let exec_bus_selector_inner_values = exec_bus_selector
-            .par_chunks_exact(exec_bus_selector.len() >> UNIVARIATE_SKIPS)
-            .map(|chunk| {
-                chunk.evaluate(&MultilinearPoint(
-                    exec_bus_point[UNIVARIATE_SKIPS..].to_vec(),
-                ))
-            })
-            .collect::<Vec<_>>();
-        prover_state.add_extension_scalars(&exec_bus_selector_inner_values);
-        assert_eq!(
-            exec_bus_selector_inner_values.evaluate(&MultilinearPoint(
-                exec_bus_point[..UNIVARIATE_SKIPS].to_vec()
-            )),
-            exec_bus_selector_value
-        );
-
-        let exec_bus_data_inner_values = exec_bus_data
-            .par_chunks_exact(exec_bus_data.len() >> UNIVARIATE_SKIPS)
-            .map(|chunk| {
-                chunk.evaluate(&MultilinearPoint(
-                    exec_bus_point[UNIVARIATE_SKIPS..].to_vec(),
-                ))
-            })
-            .collect::<Vec<_>>();
-        prover_state.add_extension_scalars(&exec_bus_data_inner_values);
-        assert_eq!(
-            exec_bus_data_inner_values.evaluate(&MultilinearPoint(
-                exec_bus_point[..UNIVARIATE_SKIPS].to_vec()
-            )),
-            exec_bus_data_value
-        );
-        let exec_bus_gkr_epsilon = prover_state.sample();
-        let exec_bus_final_point = [
-            vec![exec_bus_gkr_epsilon],
-            exec_bus_point[UNIVARIATE_SKIPS..].to_vec(),
-        ]
-        .concat();
         let exec_bus_beta = prover_state.sample();
-        let selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
-        let exec_bus_final_value = evaluate_univariate_multilinear::<_, _, _, false>(
-            &exec_bus_selector_inner_values,
-            &[exec_bus_gkr_epsilon],
-            &selectors,
-            None,
-        ) + exec_bus_beta
-            * evaluate_univariate_multilinear::<_, _, _, false>(
-                &exec_bus_data_inner_values,
-                &[exec_bus_gkr_epsilon],
-                &selectors,
-                None,
-            );
+        let exec_bus_final_value = exec_bus_selector_value + exec_bus_beta * exec_bus_data_value;
 
-        let exec_bus_final_claim = Evaluation::new(exec_bus_final_point, exec_bus_final_value);
+        let exec_bus_final_claim = Evaluation::new(exec_bus_point, exec_bus_final_value);
         (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim)
     };
 

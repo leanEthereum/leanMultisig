@@ -117,47 +117,11 @@ pub fn verify_execution(
 
     let (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim) = {
         let (exec_bus_quotient, exec_bus_point, exec_bus_selector_value, exec_bus_data_value) =
-            verify_gkr_quotient::<_, 2>(&mut verifier_state, log_n_cycles)?;
-
-        let exec_bus_selector_inner_values =
-            verifier_state.next_extension_scalars_vec(1 << UNIVARIATE_SKIPS)?;
-        if exec_bus_selector_inner_values.evaluate(&MultilinearPoint(
-            exec_bus_point[..UNIVARIATE_SKIPS].to_vec(),
-        )) != exec_bus_selector_value
-        {
-            return Err(ProofError::InvalidProof);
-        }
-
-        let exec_bus_data_inner_values =
-            verifier_state.next_extension_scalars_vec(1 << UNIVARIATE_SKIPS)?;
-        if exec_bus_data_inner_values.evaluate(&MultilinearPoint(
-            exec_bus_point[..UNIVARIATE_SKIPS].to_vec(),
-        )) != exec_bus_data_value
-        {
-            return Err(ProofError::InvalidProof);
-        }
-        let exec_bus_gkr_epsilon = verifier_state.sample();
-        let exec_bus_final_point = [
-            vec![exec_bus_gkr_epsilon],
-            exec_bus_point[UNIVARIATE_SKIPS..].to_vec(),
-        ]
-        .concat();
+            verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(&mut verifier_state, log_n_cycles)?;
         let exec_bus_beta = verifier_state.sample();
-        let selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
-        let exec_bus_final_value = evaluate_univariate_multilinear::<_, _, _, false>(
-            &exec_bus_selector_inner_values,
-            &[exec_bus_gkr_epsilon],
-            &selectors,
-            None,
-        ) + exec_bus_beta
-            * evaluate_univariate_multilinear::<_, _, _, false>(
-                &exec_bus_data_inner_values,
-                &[exec_bus_gkr_epsilon],
-                &selectors,
-                None,
-            );
+        let exec_bus_final_value = exec_bus_selector_value + exec_bus_beta * exec_bus_data_value;
 
-        let exec_bus_final_claim = Evaluation::new(exec_bus_final_point, exec_bus_final_value);
+        let exec_bus_final_claim = Evaluation::new(exec_bus_point, exec_bus_final_value);
         (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim)
     };
 

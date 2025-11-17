@@ -75,7 +75,6 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     (quotient, point, claims[0], claims[1])
 }
 
-#[instrument(skip_all)]
 fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     numerators_and_denominators: MleGroupRef<'_, EF>,
@@ -250,7 +249,7 @@ fn sum_quotients<EF: ExtensionField<PF<EF>>>(
         _ => unreachable!(),
     }
 }
-#[instrument(skip_all)]
+
 fn sum_quotients_helper<F: PrimeCharacteristicRing + Sync + Send + Copy>(
     numerators_and_denominators: &[&[F]],
     n_groups: usize,
