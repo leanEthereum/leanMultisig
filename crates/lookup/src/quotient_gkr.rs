@@ -75,6 +75,7 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     (quotient, point, claims[0], claims[1])
 }
 
+#[instrument(skip_all)]
 fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     numerators_and_denominators: MleGroupRef<'_, EF>,
@@ -249,6 +250,7 @@ fn sum_quotients<EF: ExtensionField<PF<EF>>>(
         _ => unreachable!(),
     }
 }
+#[instrument(skip_all)]
 fn sum_quotients_helper<F: PrimeCharacteristicRing + Sync + Send + Copy>(
     numerators_and_denominators: &[&[F]],
     n_groups: usize,
@@ -261,29 +263,38 @@ fn sum_quotients_helper<F: PrimeCharacteristicRing + Sync + Send + Copy>(
     let (prev_numerators, prev_denominators) = numerators_and_denominators.split_at(n_groups / 2);
     let (new_numerators, new_denominators) =
         new_numerators_and_denominators.split_at_mut(n_groups / 2);
+    for i in 0..n_groups / 2 {
+        sum_quotients_helper_2_by_2(
+            prev_numerators[i],
+            prev_denominators[i],
+            &mut new_numerators[i],
+            &mut new_denominators[i],
+        );
+    }
+    new_numerators_and_denominators
+}
+
+fn sum_quotients_helper_2_by_2<F: PrimeCharacteristicRing + Sync + Send + Copy>(
+    numerators: &[F],
+    denominators: &[F],
+    new_numerators: &mut [F],
+    new_denominators: &mut [F],
+) {
+    let n = numerators.len();
+    assert_eq!(n, denominators.len());
+    let new_n = n / 2;
+    assert_eq!(new_denominators.len(), new_n);
+    assert_eq!(new_numerators.len(), new_n);
     new_numerators
         .par_iter_mut()
         .zip(new_denominators.par_iter_mut())
-        .zip(prev_numerators)
-        .zip(prev_denominators)
-        .for_each(|(((new_nums, new_dens), prev_nums), prev_dens)| {
-            let (prev_nums_left, prev_nums_right) = prev_nums.split_at(n / 2);
-            let (prev_dens_left, prev_dens_right) = prev_dens.split_at(n / 2);
-            new_nums
-                .par_iter_mut()
-                .zip(new_dens.par_iter_mut())
-                .zip(prev_nums_left)
-                .zip(prev_dens_right)
-                .zip(prev_nums_right)
-                .zip(prev_dens_left)
-                .for_each(
-                    |(((((new_num, new_den), &num_left), &den_right), &num_right), &den_left)| {
-                        *new_num = num_left * den_right + num_right * den_left;
-                        *new_den = den_left * den_right;
-                    },
-                );
+        .enumerate()
+        .for_each(|(i, (num, den))| {
+            let my_numerators: [_; 2] = [numerators[i], numerators[i + new_n]];
+            let my_denominators: [_; 2] = [denominators[i], denominators[i + new_n]];
+            *num = my_numerators[0] * my_denominators[1] + my_numerators[1] * my_denominators[0];
+            *den = my_denominators[0] * my_denominators[1];
         });
-    new_numerators_and_denominators
 }
 
 fn split_mle_group<'a, EF: ExtensionField<PF<EF>>>(
@@ -366,7 +377,8 @@ mod tests {
 
         let mut verifier_state = build_verifier_state(&prover_state);
 
-        let verifier_statements = verify_gkr_quotient::<EF, N_GROUPS>(&mut verifier_state, log_n).unwrap();
+        let verifier_statements =
+            verify_gkr_quotient::<EF, N_GROUPS>(&mut verifier_state, log_n).unwrap();
         assert_eq!(&verifier_statements, &prover_statements);
         let (retrieved_quotient, claim_point, claim_num, claim_den) = verifier_statements;
 
