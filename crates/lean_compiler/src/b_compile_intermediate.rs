@@ -126,13 +126,14 @@ fn compile_function(
     function: &SimpleFunction,
     compiler: &mut Compiler,
 ) -> Result<Vec<IntermediateInstruction>, String> {
-    let mut internal_vars = find_internal_vars(&function.instructions);
-
-    internal_vars.retain(|var| !function.arguments.contains(var));
+    let internal_vars: InternalVars =
+        find_internal_vars(&function.instructions, &|var: &Var| -> bool {
+            function.arguments.contains(var)
+        });
 
     // memory layout: pc, fp, args, return_vars, internal_vars
     let mut stack_pos = 2; // Reserve space for pc and fp
-    let mut var_positions = BTreeMap::new();
+    let mut var_positions: BTreeMap<Var, usize> = BTreeMap::new();
 
     for (i, var) in function.arguments.iter().enumerate() {
         var_positions.insert(var.clone(), stack_pos + i);
@@ -141,10 +142,7 @@ fn compile_function(
 
     stack_pos += function.n_returned_vars;
 
-    for (i, var) in internal_vars.iter().enumerate() {
-        var_positions.insert(var.clone(), stack_pos + i);
-    }
-    stack_pos += internal_vars.len();
+    stack_pos = layout_internal_vars(&internal_vars, &mut var_positions, stack_pos);
 
     compiler.func_name = function.name.clone();
     compiler.var_positions = var_positions;
@@ -159,6 +157,37 @@ fn compile_function(
         None,
         &mut declared_vars,
     )
+}
+
+fn layout_internal_vars(
+    internal_vars: &InternalVars,
+    var_positions: &mut BTreeMap<Var, usize>,
+    initial_stack_pos: usize,
+) -> usize {
+    let mut stack_pos = initial_stack_pos;
+    match internal_vars {
+        InternalVars::One(var) => {
+            if !var_positions.contains_key(var) {
+                var_positions.insert(var.clone(), stack_pos);
+                stack_pos += 1;
+            }
+        }
+        InternalVars::AllOf(children) => {
+            for child in children {
+                stack_pos = layout_internal_vars(child, var_positions, stack_pos);
+            }
+        }
+        InternalVars::OneOf(children) => {
+            // TODO: this is wrong b/c it can result in the same stack pos
+            // being doubly assigned when a name is shared between branches?
+            let mut new_stack_poss: Vec<usize> = Vec::new();
+            for child in children {
+                new_stack_poss.push(layout_internal_vars(child, var_positions, stack_pos));
+            }
+            stack_pos = *new_stack_poss.iter().max().unwrap_or(&stack_pos);
+        }
+    }
+    stack_pos
 }
 
 fn compile_lines(
@@ -795,18 +824,31 @@ fn compile_function_ret(
     });
 }
 
-fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
-    let mut internal_vars = BTreeSet::new();
+enum InternalVars {
+    One(Var),
+    AllOf(Vec<InternalVars>),
+    OneOf(Vec<InternalVars>),
+}
+
+fn find_internal_vars<F>(lines: &[SimpleLine], exclude: &F) -> InternalVars
+where
+    F: Fn(&Var) -> bool,
+{
+    let mut internal_vars: Vec<InternalVars> = Vec::new();
     for line in lines {
         match line {
             SimpleLine::Match { arms, .. } => {
+                let mut branch_vars: Vec<InternalVars> = Vec::new();
                 for arm in arms {
-                    internal_vars.extend(find_internal_vars(arm));
+                    branch_vars.push(find_internal_vars(arm, exclude));
                 }
+                internal_vars.push(InternalVars::OneOf(branch_vars));
             }
             SimpleLine::Assignment { var, .. } => {
-                if let VarOrConstMallocAccess::Var(var) = var {
-                    internal_vars.insert(var.clone());
+                if let VarOrConstMallocAccess::Var(var) = var
+                    && !exclude(var)
+                {
+                    internal_vars.push(InternalVars::One(var.clone()));
                 }
             }
             SimpleLine::TestZero { .. } => {}
@@ -815,23 +857,33 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             | SimpleLine::DecomposeBits { var, .. }
             | SimpleLine::DecomposeCustom { var, .. }
             | SimpleLine::CounterHint { var } => {
-                internal_vars.insert(var.clone());
+                internal_vars.push(InternalVars::One(var.clone()));
             }
             SimpleLine::RawAccess { res, .. } => {
-                if let SimpleExpr::Var(var) = res {
-                    internal_vars.insert(var.clone());
+                if let SimpleExpr::Var(var) = res
+                    && !exclude(var)
+                {
+                    internal_vars.push(InternalVars::One(var.clone()));
                 }
             }
             SimpleLine::FunctionCall { return_data, .. } => {
-                internal_vars.extend(return_data.iter().cloned());
+                internal_vars.extend(
+                    return_data
+                        .iter()
+                        .filter(|&var| !exclude(var))
+                        .cloned()
+                        .map(InternalVars::One),
+                );
             }
             SimpleLine::IfNotZero {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                internal_vars.extend(find_internal_vars(then_branch));
-                internal_vars.extend(find_internal_vars(else_branch));
+                internal_vars.push(InternalVars::OneOf(vec![
+                    find_internal_vars(then_branch, exclude),
+                    find_internal_vars(else_branch, exclude),
+                ]));
             }
             SimpleLine::Panic
             | SimpleLine::Print { .. }
@@ -840,5 +892,5 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             | SimpleLine::LocationReport { .. } => {}
         }
     }
-    internal_vars
+    InternalVars::AllOf(internal_vars)
 }
