@@ -2,11 +2,11 @@ use lean_compiler::compile_program;
 use lean_prover::verify_execution::verify_execution;
 use lean_prover::{prove_execution::prove_execution, whir_config_builder};
 use lean_vm::{DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START};
+use multilinear_toolkit::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::BTreeSet;
 use whir_p3::WhirConfigBuilder;
-use multilinear_toolkit::prelude::*;
 
 const NO_VEC_RUNTIME_MEMORY: usize = 1 << 20;
 
@@ -156,11 +156,5 @@ fn test_range_check_valid_1() {
 fn test_range_check_invalid_1() {
     let (public_input, private_input) = prepare_inputs();
     let whir_config_builder = whir_config_builder();
-    do_test_range_check(
-        1,
-        0,
-        &whir_config_builder,
-        &public_input,
-        &private_input,
-    );
+    do_test_range_check(1, 0, &whir_config_builder, &public_input, &private_input);
 }

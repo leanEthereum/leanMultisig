@@ -1,10 +1,10 @@
-use std::collections::BTreeSet;
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
 use crate::witness::{
     WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
+use std::collections::BTreeSet;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]

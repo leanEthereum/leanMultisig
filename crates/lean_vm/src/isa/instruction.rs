@@ -192,7 +192,8 @@ impl Instruction {
                             // Ignore the UndefinedMemory error from get(). Also, indicate/"hint"
                             // to the prover that it needs to be filled later on with either 0 or
                             // some other value which a later instruction will set
-                            ctx.range_check_cells_to_fill.push((memory_address_res, ptr_usize));
+                            ctx.range_check_cells_to_fill
+                                .push((memory_address_res, ptr_usize));
                         }
                     } else {
                         // For non-range check derefs, allow the error to bubble up
