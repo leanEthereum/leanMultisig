@@ -40,7 +40,7 @@ pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
 
 #[derive(Debug)]
 pub struct VMAir<EF> {
-    // GKR grand product challenges
+    // GKR quotient challenges
     pub global_challenge: EF,
     pub fingerprint_challenge_powers: [EF; 5],
     pub exec_bus_beta: EF,

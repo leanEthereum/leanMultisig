@@ -219,50 +219,23 @@ pub fn verify_execution(
         )
     };
 
-    let (
-        mut dot_product_bus_quotient,
-        dot_product_bus_point,
-        dot_product_bus_eval_index_input_a,
-        dot_product_bus_eval_index_input_b,
-        dot_product_bus_eval_index_res,
-        dot_product_bus_eval_len,
-        dot_product_bus_eval_flags,
-    ) = {
+    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_final_claim) = {
         let (
             dot_product_bus_quotient,
             dot_product_bus_point,
             dot_product_bus_selector_value,
             dot_product_bus_data_value,
         ) = verify_gkr_quotient::<_, 2>(&mut verifier_state, table_dot_products_log_n_rows)?;
-        let [
-            dot_product_bus_eval_index_input_a,
-            dot_product_bus_eval_index_input_b,
-            dot_product_bus_eval_index_res,
-            dot_product_bus_eval_len,
-        ] = verifier_state.next_extension_scalars_const::<4>()?;
-        if dot_product_bus_data_value
-            != grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_DOT_PRODUCTS,
-                    &[
-                        dot_product_bus_eval_index_input_a,
-                        dot_product_bus_eval_index_input_b,
-                        dot_product_bus_eval_index_res,
-                        dot_product_bus_eval_len,
-                    ],
-                    fingerprint_challenge,
-                )
-        {
-            return Err(ProofError::InvalidProof);
-        }
+        let dot_product_bus_beta = verifier_state.sample();
+        let dot_product_bus_final_value =
+            (-dot_product_bus_selector_value) + dot_product_bus_beta * dot_product_bus_data_value; // Note the "-" sign here !!
+
+        let dot_product_bus_final_claim =
+            Evaluation::new(dot_product_bus_point, dot_product_bus_final_value);
         (
             dot_product_bus_quotient,
-            dot_product_bus_point,
-            dot_product_bus_eval_index_input_a,
-            dot_product_bus_eval_index_input_b,
-            dot_product_bus_eval_index_res,
-            dot_product_bus_eval_len,
-            -dot_product_bus_selector_value,
+            dot_product_bus_beta,
+            dot_product_bus_final_claim,
         )
     };
 
@@ -341,14 +314,18 @@ pub fn verify_execution(
         Some(exec_bus_final_claim),
     )?;
 
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {});
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
+        global_challenge: grand_product_challenge_global,
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        dot_product_bus_beta,
+    });
     let (dot_product_air_point, dot_product_evals_to_verify) = verify_air(
         &mut verifier_state,
         &dot_product_table,
         DOT_PRODUCT_UNIVARIATE_SKIPS,
         table_dot_products_log_n_rows,
         &dot_product_air_padding_row(),
-        None,
+        Some(dot_product_bus_final_claim),
     )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
@@ -569,44 +546,20 @@ pub fn verify_execution(
             encapsulate_vec(p16_gkr.cubes_statements.split()),
             encapsulate_vec(p24_gkr.cubes_statements.split()),
             vec![
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG),
-                    Evaluation::new(dot_product_bus_point.clone(), dot_product_bus_eval_flags),
-                ], // dot product: (start) flag
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN),
-                    Evaluation::new(dot_product_bus_point.clone(), dot_product_bus_eval_len),
-                ], // dot product: length
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG)], // dot product: (start) flag
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN)], // dot product: length
                 [
-                    vec![
-                        dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A),
-                        Evaluation::new(
-                            dot_product_bus_point.clone(),
-                            dot_product_bus_eval_index_input_a,
-                        ),
-                    ],
+                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A)],
                     normal_lookup_statements.on_indexes[3].clone(),
                 ]
                 .concat(),
                 [
-                    vec![
-                        dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B),
-                        Evaluation::new(
-                            dot_product_bus_point.clone(),
-                            dot_product_bus_eval_index_input_b,
-                        ),
-                    ],
+                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B)],
                     normal_lookup_statements.on_indexes[4].clone(),
                 ]
                 .concat(),
                 [
-                    vec![
-                        dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES),
-                        Evaluation::new(
-                            dot_product_bus_point.clone(),
-                            dot_product_bus_eval_index_res,
-                        ),
-                    ],
+                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES)],
                     normal_lookup_statements.on_indexes[4].clone(),
                 ]
                 .concat(),

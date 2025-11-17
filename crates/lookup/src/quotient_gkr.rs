@@ -294,9 +294,9 @@ fn split_mle_group<'a, EF: ExtensionField<PF<EF>>>(
     n_groups: usize,
 ) -> MleGroupRef<'a, EF> {
     match polys {
-        MleGroupRef::Extension(polys) => MleGroupRef::Extension(split_chunks(&polys, n_groups)),
+        MleGroupRef::Extension(polys) => MleGroupRef::Extension(split_chunks(polys, n_groups)),
         MleGroupRef::ExtensionPacked(polys) => {
-            MleGroupRef::ExtensionPacked(split_chunks(&polys, n_groups))
+            MleGroupRef::ExtensionPacked(split_chunks(polys, n_groups))
         }
         _ => unreachable!(),
     }

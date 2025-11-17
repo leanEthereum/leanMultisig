@@ -349,15 +349,7 @@ pub fn prove_execution(
         )
     };
 
-    let (
-        mut dot_product_bus_quotient,
-        dot_product_bus_point,
-        dot_product_bus_eval_index_input_a,
-        dot_product_bus_eval_index_input_b,
-        dot_product_bus_eval_index_res,
-        dot_product_bus_eval_len,
-        dot_product_bus_eval_flags,
-    ) = {
+    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_final_claim) = {
         let dot_product_bus_data = (0..1 << log_n_rows_dot_product_table)
             .into_par_iter()
             .map(|i| {
@@ -381,37 +373,29 @@ pub fn prove_execution(
             .collect::<Vec<_>>(); // TODO embedding overhead !!!!!!!!!!!!!!
         let dot_product_bus_selector_packed = pack_extension(&dot_product_bus_selector);
         let dot_product_bus_data_packed = pack_extension(&dot_product_bus_data);
-        let (dot_product_bus_quotient, dot_product_bus_point, dot_product_bus_selector_value, _) =
-            prove_gkr_quotient::<_, 2>(
-                &mut prover_state,
-                &MleGroupRef::ExtensionPacked(vec![
-                    &dot_product_bus_selector_packed,
-                    &dot_product_bus_data_packed,
-                ]),
-            );
-        let dot_product_bus_eval_index_input_a =
-            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_A].evaluate(&dot_product_bus_point);
-        let dot_product_bus_eval_index_input_b =
-            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_B].evaluate(&dot_product_bus_point);
-        let dot_product_bus_eval_index_res =
-            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_RES].evaluate(&dot_product_bus_point);
-        let dot_product_bus_eval_len =
-            dot_product_columns[DOT_PRODUCT_AIR_COL_LEN].evaluate(&dot_product_bus_point);
-
-        prover_state.add_extension_scalars(&[
-            dot_product_bus_eval_index_input_a,
-            dot_product_bus_eval_index_input_b,
-            dot_product_bus_eval_index_res,
-            dot_product_bus_eval_len,
-        ]);
-        (
+        let (
             dot_product_bus_quotient,
             dot_product_bus_point,
-            dot_product_bus_eval_index_input_a,
-            dot_product_bus_eval_index_input_b,
-            dot_product_bus_eval_index_res,
-            dot_product_bus_eval_len,
-            -dot_product_bus_selector_value,
+            dot_product_bus_selector_value,
+            dot_product_bus_data_value,
+        ) = prove_gkr_quotient::<_, TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS>(
+            &mut prover_state,
+            &MleGroupRef::ExtensionPacked(vec![
+                &dot_product_bus_selector_packed,
+                &dot_product_bus_data_packed,
+            ]),
+        );
+
+        let dot_product_bus_beta = prover_state.sample();
+        let dot_product_bus_final_value =
+            (-dot_product_bus_selector_value) + dot_product_bus_beta * dot_product_bus_data_value; // Note the "-" sign here !!
+
+        let dot_product_bus_final_claim =
+            Evaluation::new(dot_product_bus_point, dot_product_bus_final_value);
+        (
+            dot_product_bus_quotient,
+            dot_product_bus_beta,
+            dot_product_bus_final_claim,
         )
     };
 
@@ -492,7 +476,11 @@ pub fn prove_execution(
         )
     });
 
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {});
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
+        global_challenge: grand_product_challenge_global,
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        dot_product_bus_beta,
+    });
     let dot_product_columns_ref = dot_product_columns
         .iter()
         .map(Vec::as_slice)
@@ -505,7 +493,7 @@ pub fn prove_execution(
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
                 &dot_product_columns_ref,
                 &dot_product_air_padding_row(),
-                None,
+                Some(dot_product_bus_final_claim),
                 true,
             )
         });
@@ -781,44 +769,20 @@ pub fn prove_execution(
         encapsulate_vec(p16_gkr.cubes_statements.split()),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
         vec![
-            vec![
-                dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG),
-                Evaluation::new(dot_product_bus_point.clone(), dot_product_bus_eval_flags),
-            ],
-            vec![
-                dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN),
-                Evaluation::new(dot_product_bus_point.clone(), dot_product_bus_eval_len),
-            ],
+            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG)],
+            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN)],
             [
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A),
-                    Evaluation::new(
-                        dot_product_bus_point.clone(),
-                        dot_product_bus_eval_index_input_a,
-                    ),
-                ],
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A)],
                 normal_lookup_into_memory_statements.on_indexes[3].clone(),
             ]
             .concat(),
             [
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B),
-                    Evaluation::new(
-                        dot_product_bus_point.clone(),
-                        dot_product_bus_eval_index_input_b,
-                    ),
-                ],
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B)],
                 normal_lookup_into_memory_statements.on_indexes[4].clone(),
             ]
             .concat(),
             [
-                vec![
-                    dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES),
-                    Evaluation::new(
-                        dot_product_bus_point.clone(),
-                        dot_product_bus_eval_index_res,
-                    ),
-                ],
+                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES)],
                 normal_lookup_into_memory_statements.on_indexes[4].clone(),
             ]
             .concat(),
