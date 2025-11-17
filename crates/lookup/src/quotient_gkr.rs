@@ -258,33 +258,26 @@ fn sum_quotients_helper<F: PrimeCharacteristicRing + Sync + Send + Copy>(
     assert_eq!(numerators_and_denominators.len(), n_groups);
     let n = numerators_and_denominators[0].len();
     assert!(n.is_power_of_two() && n >= 2);
-    let new_n = n / 2;
-    let mut new_numerators_and_denominators = vec![unsafe { uninitialized_vec(new_n) }; n_groups];
+    let mut new_numerators = Vec::new();
+    let mut new_denominators = Vec::new();
     let (prev_numerators, prev_denominators) = numerators_and_denominators.split_at(n_groups / 2);
-    let (new_numerators, new_denominators) =
-        new_numerators_and_denominators.split_at_mut(n_groups / 2);
     for i in 0..n_groups / 2 {
-        sum_quotients_helper_2_by_2(
-            prev_numerators[i],
-            prev_denominators[i],
-            &mut new_numerators[i],
-            &mut new_denominators[i],
-        );
+        let (new_num, new_den) =
+            sum_quotients_2_by_2::<F>(prev_numerators[i], prev_denominators[i]);
+        new_numerators.push(new_num);
+        new_denominators.push(new_den);
     }
-    new_numerators_and_denominators
+    new_numerators.extend(new_denominators);
+    new_numerators
 }
-
-fn sum_quotients_helper_2_by_2<F: PrimeCharacteristicRing + Sync + Send + Copy>(
+fn sum_quotients_2_by_2<F: PrimeCharacteristicRing + Sync + Send + Copy>(
     numerators: &[F],
     denominators: &[F],
-    new_numerators: &mut [F],
-    new_denominators: &mut [F],
-) {
+) -> (Vec<F>, Vec<F>) {
     let n = numerators.len();
-    assert_eq!(n, denominators.len());
     let new_n = n / 2;
-    assert_eq!(new_denominators.len(), new_n);
-    assert_eq!(new_numerators.len(), new_n);
+    let mut new_numerators = unsafe { uninitialized_vec(new_n) };
+    let mut new_denominators = unsafe { uninitialized_vec(new_n) };
     new_numerators
         .par_iter_mut()
         .zip(new_denominators.par_iter_mut())
@@ -295,8 +288,8 @@ fn sum_quotients_helper_2_by_2<F: PrimeCharacteristicRing + Sync + Send + Copy>(
             *num = my_numerators[0] * my_denominators[1] + my_numerators[1] * my_denominators[0];
             *den = my_denominators[0] * my_denominators[1];
         });
+    (new_numerators, new_denominators)
 }
-
 fn split_mle_group<'a, EF: ExtensionField<PF<EF>>>(
     polys: &'a MleGroupRef<'a, EF>,
     n_groups: usize,
@@ -343,7 +336,7 @@ mod tests {
         nums.iter().zip(den.iter()).map(|(&n, &d)| n / d).sum()
     }
 
-    const N_GROUPS: usize = 2;
+    const N_GROUPS: usize = 8;
 
     #[test]
     fn test_gkr_quotient() {
