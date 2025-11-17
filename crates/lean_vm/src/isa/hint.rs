@@ -1,7 +1,7 @@
 use crate::core::{F, LOG_VECTOR_LEN, Label, SourceLineNumber, VECTOR_LEN};
 use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
-use crate::isa::operands::MemOrConstant;
+use crate::isa::operands::{MemOrConstant, MemOrFp};
 use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 use utils::{ToUsize, pretty_integer};
@@ -67,6 +67,10 @@ pub enum Hint {
     },
     /// Jump destination label (for debugging purposes)
     Label { label: Label },
+
+    /// Range check
+    RangeCheck { value: MemOrFp, max: MemOrConstant },
+
     /// Stack frame size (for memory profiling)
     StackFrame { label: Label, size: usize },
 }
@@ -227,6 +231,7 @@ impl Hint {
                 *ctx.cpu_cycles_before_new_line = 0;
             }
             Self::Label { .. } => {}
+            Self::RangeCheck { .. } => {}
             Self::StackFrame { label, size } => {
                 if ctx.profiling {
                     ctx.memory_profile.objects.insert(
@@ -312,6 +317,9 @@ impl Display for Hint {
             }
             Self::Label { label } => {
                 write!(f, "label: {label}")
+            }
+            Self::RangeCheck { value, max } => {
+                write!(f, "range_check({value}, {max})")
             }
             Self::StackFrame { label, size } => {
                 write!(f, "stack frame for {label} size {size}")

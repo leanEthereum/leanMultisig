@@ -384,6 +384,7 @@ dependencies = [
  "poseidon_circuit",
  "rand",
  "sub_protocols",
+ "thiserror",
  "tracing",
  "utils",
  "vm_air",

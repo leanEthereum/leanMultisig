@@ -214,6 +214,7 @@ fn execute_bytecode_helper(
 
     let mut counter_hint = 0;
     let mut cpu_cycles_before_new_line = 0;
+    let mut range_check_cells_to_fill = Vec::new();
 
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {
@@ -264,6 +265,7 @@ fn execute_bytecode_helper(
             poseidon24_precomputed: poseidons_24_precomputed,
             n_poseidon16_precomputed_used: &mut n_poseidon16_precomputed_used,
             n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
+            range_check_cells_to_fill: &mut range_check_cells_to_fill,
         };
         instruction.execute_instruction(&mut instruction_ctx)?;
     }
@@ -426,5 +428,6 @@ fn execute_bytecode_helper(
         multilinear_evals,
         summary,
         memory_profile: if profiling { Some(mem_profile) } else { None },
+        range_check_cells_to_fill,
     })
 }

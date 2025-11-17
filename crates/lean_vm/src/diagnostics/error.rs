@@ -4,6 +4,7 @@ use crate::execution::Memory;
 use crate::witness::{
     WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
+use std::collections::BTreeSet;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]
@@ -48,4 +49,5 @@ pub struct ExecutionResult {
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
     pub summary: String,
     pub memory_profile: Option<MemoryProfile>,
+    pub range_check_cells_to_fill: Vec<(usize, usize)>,
 }
