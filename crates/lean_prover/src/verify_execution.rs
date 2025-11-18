@@ -50,7 +50,7 @@ pub fn verify_execution(
             .max(1 << LOG_MIN_POSEIDONS_16)
         || n_vm_multilinear_evals > 1 << 10
     {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
 
     let public_memory = build_public_memory(public_input);
@@ -62,7 +62,7 @@ pub fn verify_execution(
     let log_n_cycles = log2_ceil_usize(n_cycles);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
 
     let table_dot_products_log_n_rows =
@@ -115,14 +115,15 @@ pub fn verify_execution(
     let bus_challenge = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
 
-    let (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim) = {
+    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) = {
         let (exec_bus_quotient, exec_bus_point, exec_bus_selector_value, exec_bus_data_value) =
             verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(&mut verifier_state, log_n_cycles)?;
         let exec_bus_beta = verifier_state.sample();
         let exec_bus_final_value = exec_bus_selector_value + exec_bus_beta * exec_bus_data_value;
 
-        let exec_bus_final_claim = Evaluation::new(exec_bus_point, exec_bus_final_value);
-        (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim)
+        let exec_bus_virtual_statement =
+            MultiEvaluation::new(exec_bus_point, vec![exec_bus_final_value]);
+        (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement)
     };
 
     let (
@@ -143,7 +144,7 @@ pub fn verify_execution(
         if p16_bus_selector_value
             != mle_of_zeros_then_ones(n_poseidons_16, &p16_bus_point) - EF::ONE
         {
-            panic!()
+            return Err(ProofError::InvalidProof);
         }
 
         let p16_eval_on_compression =
@@ -162,7 +163,7 @@ pub fn verify_execution(
                     fingerprint_challenge,
                 )
         {
-            panic!()
+            return Err(ProofError::InvalidProof);
         }
 
         (
@@ -192,7 +193,7 @@ pub fn verify_execution(
         if p24_bus_selector_value
             != mle_of_zeros_then_ones(n_poseidons_24, &p24_bus_point) - EF::ONE
         {
-            panic!()
+            return Err(ProofError::InvalidProof);
         }
 
         if p24_bus_data_value
@@ -207,7 +208,7 @@ pub fn verify_execution(
                     fingerprint_challenge,
                 )
         {
-            panic!()
+            return Err(ProofError::InvalidProof);
         }
 
         (
@@ -219,7 +220,7 @@ pub fn verify_execution(
         )
     };
 
-    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_final_claim) = {
+    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) = {
         let (
             dot_product_bus_quotient,
             dot_product_bus_point,
@@ -230,12 +231,12 @@ pub fn verify_execution(
         let dot_product_bus_final_value =
             (-dot_product_bus_selector_value) + dot_product_bus_beta * dot_product_bus_data_value; // Note the "-" sign here !!
 
-        let dot_product_bus_final_claim =
-            Evaluation::new(dot_product_bus_point, dot_product_bus_final_value);
+        let dot_product_bus_virtual_statement =
+            MultiEvaluation::new(dot_product_bus_point, vec![dot_product_bus_final_value]);
         (
             dot_product_bus_quotient,
             dot_product_bus_beta,
-            dot_product_bus_final_claim,
+            dot_product_bus_virtual_statement,
         )
     };
 
@@ -271,7 +272,7 @@ pub fn verify_execution(
         + multilinear_eval_bus_quotient
         != EF::ZERO
     {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
 
     let mut p16_indexes_a_statements = vec![Evaluation::new(
@@ -311,7 +312,7 @@ pub fn verify_execution(
         UNIVARIATE_SKIPS,
         log_n_cycles,
         &execution_air_padding_row::<EF>(bytecode.ending_pc),
-        Some(exec_bus_final_claim),
+        Some(exec_bus_virtual_statement),
     )?;
 
     let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
@@ -325,7 +326,7 @@ pub fn verify_execution(
         DOT_PRODUCT_UNIVARIATE_SKIPS,
         table_dot_products_log_n_rows,
         &dot_product_air_padding_row(),
-        Some(dot_product_bus_final_claim),
+        Some(dot_product_bus_virtual_statement),
     )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
@@ -407,8 +408,7 @@ pub fn verify_execution(
         &mut verifier_state,
         &extension_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    )
-    .unwrap();
+    )?;
 
     let normal_lookup_statements =
         normal_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
@@ -422,13 +422,12 @@ pub fn verify_execution(
         log_n_cycles,
         &[bytecode_lookup_claim_1],
         EF::ONE,
-    )
-    .unwrap();
+    )?;
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
     if folded_bytecode.evaluate(&bytecode_logup_star_statements.on_table.point)
         != bytecode_logup_star_statements.on_table.value
     {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
 
     memory_statements.push(normal_lookup_statements.on_table.clone());
@@ -469,7 +468,7 @@ pub fn verify_execution(
             eq_poly_eval += alpha_power * statement.point.eq_poly_outside(&sc_eval.point);
         }
         if p16_value_index_res_b_expected != p16_value_index_res_b {
-            panic!()
+            return Err(ProofError::InvalidProof);
         }
         let sc_res_index_value = verifier_state.next_extension_scalar()?;
         p16_indexes_res_statements.push(Evaluation::new(
@@ -483,7 +482,7 @@ pub fn verify_execution(
             * eq_poly_eval
             != sc_eval.value
         {
-            panic!()
+            return Err(ProofError::InvalidProof);
         }
     }
 

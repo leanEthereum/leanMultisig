@@ -36,8 +36,6 @@ pub struct Bus {
 
 pub trait ModularPrecompile: Air {
     fn name(&self) -> &str;
-    fn n_columns(&self) -> usize;
-    fn flat_air(&self) -> bool;
     fn commited_columns(&self) -> &[ColIndex];
     fn simple_lookups(&self) -> &[LookupIntoMemory];
     fn ext_field_lookups(&self) -> &[ExtensionFieldLookupIntoMemory];

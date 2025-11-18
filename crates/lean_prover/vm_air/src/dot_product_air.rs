@@ -96,7 +96,7 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
 
         // TODO we could do most of the following computation in the base field
 
-        builder.eval_custom(eval_virtual_col::<AB, EF>(
+        builder.eval_virtual_column(eval_virtual_col::<AB, EF>(
             self,
             start_flag_up.clone(),
             index_a_up.clone(),

@@ -12,12 +12,12 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     univariate_skips: usize,
     log_n_rows: usize,
     last_row: &[EF],
-    virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
+    virtual_column_statements: Option<MultiEvaluation<EF>>, // point should be randomness generated after committing to the columns
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
     let constraints_batching_scalar = verifier_state.sample();
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
-    let zerocheck_challenges = virtual_column_statement
+    let zerocheck_challenges = virtual_column_statements
         .as_ref()
         .map(|st| st.point.0.clone())
         .unwrap_or_else(|| verifier_state.sample_vec(n_sc_rounds));
@@ -30,10 +30,15 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
         univariate_skips,
     )?;
     if sc_sum
-        != virtual_column_statement
+        != virtual_column_statements
             .as_ref()
-            .map(|st| st.value)
-            .unwrap_or(EF::ZERO)
+            .map(|st| {
+                dot_product(
+                    st.values.iter().copied(),
+                    constraints_batching_scalar.powers(),
+                )
+            })
+            .unwrap_or_else(|| EF::ZERO)
     {
         return Err(ProofError::InvalidProof);
     }
@@ -48,7 +53,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
 
     let constraints_batching_scalars = constraints_batching_scalar
         .powers()
-        .take(table.n_constraints() + virtual_column_statement.is_some() as usize)
+        .take(table.n_constraints() + virtual_column_statements.is_some() as usize)
         .collect();
     let n_columns_down_f = table
         .down_column_indexes()

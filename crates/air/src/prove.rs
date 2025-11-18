@@ -23,7 +23,7 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     columns_f: &[&[PF<EF>]],
     columns_ef: &[&[EF]],
     last_row_shifted: &[EF],
-    virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
+    virtual_column_statements: Option<MultiEvaluation<EF>>, // point should be randomness generated after committing to the columns
     store_intermediate_foldings: bool,
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
     let n_rows = columns_f[0].len();
@@ -39,12 +39,12 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
 
     let constraints_batching_scalars = constraints_batching_scalar
         .powers()
-        .take(table.n_constraints() + virtual_column_statement.is_some() as usize)
+        .take(table.n_constraints() + virtual_column_statements.is_some() as usize)
         .collect();
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
 
-    let zerocheck_challenges = virtual_column_statement
+    let zerocheck_challenges = virtual_column_statements
         .as_ref()
         .map(|st| st.point.0.clone())
         .unwrap_or_else(|| prover_state.sample_vec(n_sc_rounds));
@@ -91,11 +91,11 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
             &table.air,
             &constraints_batching_scalars,
             Some((zerocheck_challenges, None)),
-            virtual_column_statement.is_none(),
+            virtual_column_statements.is_none(),
             prover_state,
-            virtual_column_statement
+            virtual_column_statements
                 .as_ref()
-                .map(|st| st.value)
+                .map(|st| dot_product(st.values.iter().copied(), constraints_batching_scalar.powers()))
                 .unwrap_or_else(|| EF::ZERO),
             store_intermediate_foldings,
         )

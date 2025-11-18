@@ -56,7 +56,7 @@ impl<EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintChecker<EF> {
         self.constraint_index += 1;
     }
 
-    fn eval_custom(&mut self, _: Self::EF) {
+    fn eval_virtual_column(&mut self, _: Self::EF) {
         // do nothing
     }
 }

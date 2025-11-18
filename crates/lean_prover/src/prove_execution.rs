@@ -206,7 +206,7 @@ pub fn prove_execution(
 
     let bus_challenge = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
-    let (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim) = {
+    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) = {
         let mut exec_bus_data = unsafe { uninitialized_vec::<EF>(n_cycles.next_power_of_two()) };
 
         exec_bus_data.par_iter_mut().enumerate().for_each(|(i, v)| {
@@ -243,8 +243,9 @@ pub fn prove_execution(
         let exec_bus_beta = prover_state.sample();
         let exec_bus_final_value = exec_bus_selector_value + exec_bus_beta * exec_bus_data_value;
 
-        let exec_bus_final_claim = Evaluation::new(exec_bus_point, exec_bus_final_value);
-        (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim)
+        let exec_bus_virtual_statement =
+            MultiEvaluation::new(exec_bus_point, vec![exec_bus_final_value]);
+        (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement)
     };
 
     let (
@@ -335,7 +336,7 @@ pub fn prove_execution(
         )
     };
 
-    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_final_claim) = {
+    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) = {
         let dot_product_bus_data = (0..1 << log_n_rows_dot_product_table)
             .into_par_iter()
             .map(|i| {
@@ -376,12 +377,12 @@ pub fn prove_execution(
         let dot_product_bus_final_value =
             (-dot_product_bus_selector_value) + dot_product_bus_beta * dot_product_bus_data_value; // Note the "-" sign here !!
 
-        let dot_product_bus_final_claim =
-            Evaluation::new(dot_product_bus_point, dot_product_bus_final_value);
+        let dot_product_bus_virtual_statement =
+            MultiEvaluation::new(dot_product_bus_point, vec![dot_product_bus_final_value]);
         (
             dot_product_bus_quotient,
             dot_product_bus_beta,
-            dot_product_bus_final_claim,
+            dot_product_bus_virtual_statement,
         )
     };
 
@@ -458,7 +459,7 @@ pub fn prove_execution(
             &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &[],
             &execution_air_padding_row::<EF>(bytecode.ending_pc),
-            Some(exec_bus_final_claim),
+            Some(exec_bus_virtual_statement),
             true,
         )
     });
@@ -484,7 +485,7 @@ pub fn prove_execution(
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),
                 &dot_product_air_padding_row(),
-                Some(dot_product_bus_final_claim),
+                Some(dot_product_bus_virtual_statement),
                 true,
             )
         });

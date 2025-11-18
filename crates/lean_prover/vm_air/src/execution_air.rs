@@ -113,7 +113,7 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.eval_custom(eval_virtual_col::<AB, EF>(
+        builder.eval_virtual_column(eval_virtual_col::<AB, EF>(
             self,
             nu_a.clone(),
             nu_b.clone(),
