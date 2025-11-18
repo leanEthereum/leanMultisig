@@ -48,12 +48,7 @@ pub struct VMAir<EF> {
 
 impl<EF> SumcheckComputationForAir for VMAir<EF> {}
 
-impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for VMAir<EF>
-where
-    AB::Var: 'static,
-    AB::Expr: 'static,
-    AB::FinalOutput: 'static,
-{
+impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
     fn width(&self) -> usize {
         N_EXEC_AIR_COLUMNS
     }
@@ -65,7 +60,7 @@ where
     }
 
     #[inline]
-    fn eval(&self, builder: &mut AB) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
         let main = builder.main();
         let up = &main[..N_EXEC_AIR_COLUMNS];
         let down = &main[N_EXEC_AIR_COLUMNS..];
@@ -118,8 +113,7 @@ where
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.add_custom(<VMAir<EF> as Air<AB>>::eval_custom(
-            self,
+        builder.add_custom(self.eval_custom::<AB>(
             &[
                 nu_a.clone(),
                 nu_b.clone(),
@@ -156,7 +150,7 @@ where
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
 
-    fn eval_custom(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
+    fn eval_custom<AB: AirBuilder>(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
         let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
         let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
         // let type_id_f = TypeId::of::<PF<EF>>();

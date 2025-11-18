@@ -31,16 +31,8 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
 {
 }
 
-impl<
-    AB: AirBuilder,
-    const N_COLUMNS: usize,
-    const N_PREPROCESSED_COLUMNS: usize,
-    const VIRTUAL_COLUMN: bool,
-> Air<AB> for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
-where
-    AB::Var: 'static,
-    AB::Expr: 'static,
-    AB::FinalOutput: 'static,
+impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool> Air
+    for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
 {
     fn width(&self) -> usize {
         N_COLUMNS
@@ -57,7 +49,7 @@ where
     }
 
     #[inline]
-    fn eval(&self, builder: &mut AB) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
         let main = builder.main();
         let up = main[..N_COLUMNS].to_vec();
         let down = main[N_COLUMNS..].to_vec();
@@ -65,14 +57,11 @@ where
 
         if VIRTUAL_COLUMN {
             // virtual column = col_0 * col_1 + col_2
-            builder.add_custom(<Self as Air<AB>>::eval_custom(
-                self,
-                &[
-                    up[0].clone().into(),
-                    up[1].clone().into(),
-                    up[2].clone().into(),
-                ],
-            ));
+            builder.add_custom(self.eval_custom::<AB>(&[
+                up[0].clone().into(),
+                up[1].clone().into(),
+                up[2].clone().into(),
+            ]));
         }
 
         for j in N_PREPROCESSED_COLUMNS..N_COLUMNS {
@@ -87,7 +76,11 @@ where
         }
     }
 
-    fn eval_custom(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
+    fn eval_custom<AB: AirBuilder>(
+        &self,
+        inputs: &[<AB as AirBuilder>::Expr],
+    ) -> <AB as AirBuilder>::FinalOutput
+    {
         assert_eq!(inputs.len(), 3);
         let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
         let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();

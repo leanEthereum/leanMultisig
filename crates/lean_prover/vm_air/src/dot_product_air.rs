@@ -44,12 +44,7 @@ pub struct DotProductAir<EF> {
 
 impl<EF> SumcheckComputationForAir for DotProductAir<EF> {}
 
-impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for DotProductAir<EF>
-where
-    AB::Var: 'static,
-    AB::Expr: 'static,
-    AB::FinalOutput: 'static,
-{
+impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
     fn width(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS
     }
@@ -67,7 +62,7 @@ where
     }
 
     #[inline]
-    fn eval(&self, builder: &mut AB) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
         let main = builder.main();
         let up = &main[..DOT_PRODUCT_AIR_N_COLUMNS];
         let down = &main[DOT_PRODUCT_AIR_N_COLUMNS..];
@@ -90,16 +85,13 @@ where
 
         // TODO we could do most of the following computation in the base field
 
-        builder.add_custom(<DotProductAir<EF> as Air<AB>>::eval_custom(
-            self,
-            &[
-                start_flag_up.clone().into(),
-                index_a_up.clone().into(),
-                index_b_up.clone().into(),
-                index_res_up.clone().into(),
-                len_up.clone().into(),
-            ],
-        ));
+        builder.add_custom(self.eval_custom::<AB>(&[
+            start_flag_up.clone().into(),
+            index_a_up.clone().into(),
+            index_b_up.clone().into(),
+            index_res_up.clone().into(),
+            len_up.clone().into(),
+        ]));
 
         builder.assert_bool(start_flag_down.clone());
 
@@ -122,7 +114,7 @@ where
         builder.assert_zero(start_flag_up * (computation_up - res_up));
     }
 
-    fn eval_custom(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
+    fn eval_custom<AB: AirBuilder>(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
         let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
         let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
         // let type_id_f = TypeId::of::<PF<EF>>();
