@@ -112,7 +112,10 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
         builder.assert_zero(start_flag_up * (computation_up - res_up));
     }
 
-    fn eval_custom<AB: AirBuilder>(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
+    fn eval_custom<AB: AirBuilder>(
+        &self,
+        inputs: &[<AB as AirBuilder>::Expr],
+    ) -> <AB as AirBuilder>::FinalOutput {
         let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
         let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
         // let type_id_f = TypeId::of::<PF<EF>>();
@@ -137,9 +140,11 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
                 unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[PFPacking<EF>]>(inputs) };
             let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
             unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else {
-            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<PF<EF>>>());
+        } else if type_id_expr == TypeId::of::<SymbolicExpression<PF<EF>>>() {
             unsafe { transmute_copy(&SymbolicExpression::<PF<EF>>::default()) }
+        } else {
+            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<EF>>());
+            unsafe { transmute_copy(&SymbolicExpression::<EF>::default()) }
         }
     }
 }

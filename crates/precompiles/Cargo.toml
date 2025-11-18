@@ -12,6 +12,7 @@ utils.workspace = true
 whir-p3.workspace = true
 derive_more.workspace = true
 p3-util.workspace = true
+p3-air.workspace = true
 multilinear-toolkit.workspace = true
 lookup.workspace = true
 

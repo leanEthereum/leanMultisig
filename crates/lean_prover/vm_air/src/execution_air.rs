@@ -111,16 +111,14 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.add_custom(self.eval_custom::<AB>(
-            &[
-                nu_a.clone(),
-                nu_b.clone(),
-                nu_c.clone(),
-                aux.clone().into(),
-                is_precompile.into(),
-                precompile_index.into(),
-            ],
-        ));
+        builder.add_custom(self.eval_custom::<AB>(&[
+            nu_a.clone(),
+            nu_b.clone(),
+            nu_c.clone(),
+            aux.clone().into(),
+            is_precompile.into(),
+            precompile_index.into(),
+        ]));
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
         builder.assert_zero(flag_b_minus_one * (addr_b.clone() - fp_plus_operand_b));
@@ -148,7 +146,10 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
 
-    fn eval_custom<AB: AirBuilder>(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
+    fn eval_custom<AB: AirBuilder>(
+        &self,
+        inputs: &[<AB as AirBuilder>::Expr],
+    ) -> <AB as AirBuilder>::FinalOutput {
         let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
         let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
         // let type_id_f = TypeId::of::<PF<EF>>();
@@ -173,9 +174,11 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
                 unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[PFPacking<EF>]>(inputs) };
             let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
             unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else {
-            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<PF<EF>>>());
+        } else if type_id_expr == TypeId::of::<SymbolicExpression<PF<EF>>>() {
             unsafe { transmute_copy(&SymbolicExpression::<PF<EF>>::default()) }
+        } else {
+            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<EF>>());
+            unsafe { transmute_copy(&SymbolicExpression::<EF>::default()) }
         }
     }
 }

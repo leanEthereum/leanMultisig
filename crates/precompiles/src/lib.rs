@@ -1,3 +1,5 @@
+use p3_air::Air;
+
 pub type ColIndex = usize;
 pub type BusIndex = usize;
 
@@ -32,7 +34,7 @@ pub struct Bus {
     pub data: Vec<ColIndex>, // only commited columns (for now)
 }
 
-pub trait ModularPrecompile {
+pub trait ModularPrecompile: Air {
     fn name(&self) -> &str;
     fn n_columns(&self) -> usize;
     fn flat_air(&self) -> bool;
