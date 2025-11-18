@@ -152,7 +152,7 @@ pub fn verify_execution(
         if p16_bus_data_value
             != bus_challenge
                 + finger_print(
-                    TABLE_INDEX_POSEIDONS_16,
+                    Table::Poseidons16,
                     &[
                         p16_bus_eval_index_input_a,
                         p16_bus_eval_index_input_b,
@@ -198,7 +198,7 @@ pub fn verify_execution(
         if p24_bus_data_value
             != bus_challenge
                 + finger_print(
-                    TABLE_INDEX_POSEIDONS_24,
+                    Table::Poseidons24,
                     &[
                         p24_bus_eval_index_input_a,
                         p24_bus_eval_index_input_b,
@@ -245,7 +245,7 @@ pub fn verify_execution(
             -EF::ONE
                 / (bus_challenge
                     + finger_print(
-                        TABLE_INDEX_MULTILINEAR_EVAL,
+                        Table::MultilinearEval,
                         &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
                         fingerprint_challenge,
                     ))
@@ -255,7 +255,7 @@ pub fn verify_execution(
     dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
         / (bus_challenge
             + finger_print(
-                TABLE_INDEX_DOT_PRODUCTS,
+                Table::DotProducts,
                 &[
                     EF::ZERO, // IndexA
                     EF::ZERO, // IndexB

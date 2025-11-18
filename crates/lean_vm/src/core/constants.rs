@@ -1,3 +1,6 @@
+use multilinear_toolkit::prelude::PrimeCharacteristicRing;
+use num_enum::TryFromPrimitive;
+
 /// Vector dimension for field operations
 pub const DIMENSION: usize = 5;
 
@@ -39,8 +42,17 @@ pub const POSEIDON_24_NULL_HASH_PTR: usize = 5;
 /// Normal pointer to start of program input
 pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * 8;
 
-/// Precompiles Indexes
-pub const TABLE_INDEX_POSEIDONS_16: usize = 1; // should be != 0
-pub const TABLE_INDEX_POSEIDONS_24: usize = 2;
-pub const TABLE_INDEX_DOT_PRODUCTS: usize = 3;
-pub const TABLE_INDEX_MULTILINEAR_EVAL: usize = 4;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
+#[repr(usize)]
+pub enum Table {
+    _UNUSED,
+    Poseidons16,
+    Poseidons24,
+    DotProducts,
+    MultilinearEval,
+}
+impl Table {
+    pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
+        PF::from_usize(*self as usize)
+    }
+}

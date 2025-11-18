@@ -239,3 +239,11 @@ pub fn poseidon_lookup_statements(
         )],
     ]
 }
+
+pub fn finger_print<F: Field, EF: ExtensionField<F>>(
+    table: Table,
+    data: &[F],
+    challenge: EF,
+) -> EF {
+    dot_product::<EF, _, _>(challenge.powers().skip(1), data.iter().copied()) + table.embed::<F>()
+}

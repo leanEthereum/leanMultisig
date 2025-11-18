@@ -1,6 +1,6 @@
 use std::any::TypeId;
 
-use lean_vm::{DIMENSION, EF, TABLE_INDEX_DOT_PRODUCTS};
+use lean_vm::{DIMENSION, EF, Table};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
 use std::mem::transmute_copy;
@@ -155,8 +155,7 @@ fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
         + air.fingerprint_challenge_powers[3].clone() * index_res
         + air.fingerprint_challenge_powers[4].clone() * len;
 
-    ((data + AB::F::from_usize(TABLE_INDEX_DOT_PRODUCTS)) + air.bus_challenge)
-        * air.dot_product_bus_beta
+    ((data + Table::DotProducts.embed::<AB::F>()) + air.bus_challenge) * air.dot_product_bus_beta
         + start_flag_up
 }
 

@@ -69,7 +69,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             is_compression,
         } => {
             fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
-            fields[COL_INDEX_PRECOMPILE_INDEX] = F::from_usize(TABLE_INDEX_POSEIDONS_16);
+            fields[COL_INDEX_PRECOMPILE_INDEX] = Table::Poseidons16.embed();
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, res);
@@ -77,7 +77,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
         }
         Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
             fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
-            fields[COL_INDEX_PRECOMPILE_INDEX] = F::from_usize(TABLE_INDEX_POSEIDONS_24);
+            fields[COL_INDEX_PRECOMPILE_INDEX] = Table::Poseidons24.embed();
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, res);
@@ -89,7 +89,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             size,
         } => {
             fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
-            fields[COL_INDEX_PRECOMPILE_INDEX] = F::from_usize(TABLE_INDEX_DOT_PRODUCTS);
+            fields[COL_INDEX_PRECOMPILE_INDEX] = Table::DotProducts.embed();
             set_nu_a(&mut fields, arg0);
             set_nu_b(&mut fields, arg1);
             set_nu_c(&mut fields, res);
@@ -102,7 +102,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             n_vars,
         } => {
             fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
-            fields[COL_INDEX_PRECOMPILE_INDEX] = F::from_usize(TABLE_INDEX_MULTILINEAR_EVAL);
+            fields[COL_INDEX_PRECOMPILE_INDEX] = Table::MultilinearEval.embed();
             set_nu_a(&mut fields, coeffs);
             set_nu_b(&mut fields, point);
             set_nu_c(&mut fields, res);

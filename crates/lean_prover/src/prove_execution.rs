@@ -213,7 +213,7 @@ pub fn prove_execution(
 
             *v = bus_challenge
                 + finger_print(
-                    precompile_index.to_usize(),
+                    Table::try_from(precompile_index.to_usize()).unwrap(),
                     &[
                         nu_columns[0][i],
                         nu_columns[1][i],
@@ -259,7 +259,7 @@ pub fn prove_execution(
             .map(|pos_16| {
                 bus_challenge
                     + finger_print(
-                        TABLE_INDEX_POSEIDONS_16,
+                        Table::Poseidons16,
                         &pos_16.addresses_field_repr(),
                         fingerprint_challenge,
                     )
@@ -303,7 +303,7 @@ pub fn prove_execution(
             .map(|pos_24| {
                 bus_challenge
                     + finger_print(
-                        TABLE_INDEX_POSEIDONS_24,
+                        Table::Poseidons24,
                         &pos_24.addresses_field_repr(),
                         fingerprint_challenge,
                     )
@@ -341,7 +341,7 @@ pub fn prove_execution(
             .map(|i| {
                 bus_challenge
                     + finger_print(
-                        TABLE_INDEX_DOT_PRODUCTS,
+                        Table::DotProducts,
                         &[
                             dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_A][i],
                             dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_B][i],
@@ -391,7 +391,7 @@ pub fn prove_execution(
             -EF::ONE
                 / (bus_challenge
                     + finger_print(
-                        TABLE_INDEX_MULTILINEAR_EVAL,
+                        Table::MultilinearEval,
                         &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
                         fingerprint_challenge,
                     ))
@@ -401,7 +401,7 @@ pub fn prove_execution(
     dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
         / (bus_challenge
             + finger_print(
-                TABLE_INDEX_DOT_PRODUCTS,
+                Table::DotProducts,
                 &[
                     EF::ZERO, // IndexA
                     EF::ZERO, // IndexB
