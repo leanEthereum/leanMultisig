@@ -62,7 +62,7 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
             builder.assert_eq(
                 down[j - N_COLS_WITHOUT_SHIFT].clone(),
                 up[j].clone()
-                    + AB::F::from_usize(j)
+                    + AB::Expr::from_usize(j)
                     + (0..N_PREPROCESSED_COLUMNS - N_COLS_WITHOUT_SHIFT)
                         .map(|k| down[k].clone())
                         .product::<AB::Expr>(),

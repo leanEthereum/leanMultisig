@@ -19,7 +19,6 @@ pub struct ConstraintChecker<'a, IF, EF> {
 impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<EF>>> AirBuilder
     for ConstraintChecker<'a, IF, EF>
 {
-    type F = PF<EF>;
     type Expr = IF;
     type FinalOutput = EF;
 

@@ -97,9 +97,9 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
             up[COL_INDEX_MEM_ADDRESS_C].clone(),
         );
 
-        let flag_a_minus_one = flag_a.clone() - AB::F::ONE;
-        let flag_b_minus_one = flag_b.clone() - AB::F::ONE;
-        let flag_c_minus_one = flag_c.clone() - AB::F::ONE;
+        let flag_a_minus_one = flag_a.clone() - AB::Expr::ONE;
+        let flag_b_minus_one = flag_b.clone() - AB::Expr::ONE;
+        let flag_c_minus_one = flag_c.clone() - AB::Expr::ONE;
 
         let nu_a = flag_a * operand_a.clone() + value_a.clone() * -flag_a_minus_one.clone();
         let nu_b = flag_b * operand_b.clone() + value_b.clone() * -flag_b_minus_one.clone();
@@ -108,8 +108,8 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         let fp_plus_operand_a = fp.clone() + operand_a.clone();
         let fp_plus_operand_b = fp.clone() + operand_b.clone();
         let fp_plus_operand_c = fp.clone() + operand_c.clone();
-        let pc_plus_one = pc + AB::F::ONE;
-        let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
+        let pc_plus_one = pc + AB::Expr::ONE;
+        let nu_a_minus_one = nu_a.clone() - AB::Expr::ONE;
 
         builder.add_custom(self.eval_custom::<AB>(&[
             nu_a.clone(),
@@ -131,11 +131,11 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
             .assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
         builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
         builder.assert_zero(
-            deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()),
+            deref.clone() * (aux.clone() - AB::Expr::ONE) * (value_c.clone() - fp.clone()),
         );
 
-        builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
-        builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
+        builder.assert_zero((jump.clone() - AB::Expr::ONE) * (next_pc.clone() - pc_plus_one.clone()));
+        builder.assert_zero((jump.clone() - AB::Expr::ONE) * (next_fp.clone() - fp.clone()));
 
         builder.assert_zero(jump.clone() * nu_a.clone() * nu_a_minus_one.clone());
         builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
