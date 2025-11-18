@@ -42,8 +42,6 @@ pub struct DotProductAir<EF> {
     pub dot_product_bus_beta: EF,
 }
 
-impl<EF> SumcheckComputationForAir for DotProductAir<EF> {}
-
 impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
     fn width(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS

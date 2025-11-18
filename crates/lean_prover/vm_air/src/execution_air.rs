@@ -46,8 +46,6 @@ pub struct VMAir<EF> {
     pub exec_bus_beta: EF,
 }
 
-impl<EF> SumcheckComputationForAir for VMAir<EF> {}
-
 impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
     fn width(&self) -> usize {
         N_EXEC_AIR_COLUMNS

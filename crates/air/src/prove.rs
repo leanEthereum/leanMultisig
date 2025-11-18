@@ -1,11 +1,11 @@
 use std::any::TypeId;
 
 use multilinear_toolkit::prelude::*;
+use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::{info_span, instrument};
 use utils::{FSProver, fold_multilinear_chunks, multilinears_linear_combination};
 
-use crate::MyAir;
 use crate::{uni_skip_utils::matrix_next_mle_folded, utils::column_shifted};
 
 use super::table::AirTable;
@@ -20,7 +20,7 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 pub fn prove_air<
     WF: ExtensionField<PF<EF>>, // witness field
     EF: ExtensionField<PF<EF>> + ExtensionField<WF>,
-    A: MyAir<EF> + 'static,
+    A: Air,
 >(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     table: &AirTable<EF, A>,

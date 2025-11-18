@@ -1,11 +1,12 @@
 use multilinear_toolkit::prelude::*;
+use p3_air::Air;
 use p3_util::log2_ceil_usize;
 
-use crate::{MyAir, utils::next_mle};
+use crate::{utils::next_mle};
 
 use super::table::AirTable;
 
-pub fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
+pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     table: &AirTable<EF, A>,
     univariate_skips: usize,

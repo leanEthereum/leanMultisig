@@ -25,12 +25,6 @@ struct ExampleStructuredAir<
     const VIRTUAL_COLUMN: bool,
 >;
 
-impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool>
-    SumcheckComputationForAir
-    for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
-{
-}
-
 impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool> Air
     for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
 {
@@ -79,8 +73,7 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
     fn eval_custom<AB: AirBuilder>(
         &self,
         inputs: &[<AB as AirBuilder>::Expr],
-    ) -> <AB as AirBuilder>::FinalOutput
-    {
+    ) -> <AB as AirBuilder>::FinalOutput {
         assert_eq!(inputs.len(), 3);
         let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
         let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();

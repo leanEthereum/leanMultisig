@@ -1,11 +1,10 @@
 use std::{any::TypeId, marker::PhantomData, mem::transmute};
 
 use multilinear_toolkit::prelude::*;
+use p3_air::Air;
 use p3_uni_stark::{SymbolicExpression, get_symbolic_constraints};
 use tracing::instrument;
 use utils::ConstraintChecker;
-
-use crate::MyAir;
 
 #[derive(Debug)]
 pub struct AirTable<EF: Field, A> {
@@ -15,7 +14,7 @@ pub struct AirTable<EF: Field, A> {
     _phantom: std::marker::PhantomData<EF>,
 }
 
-impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
+impl<EF: ExtensionField<PF<EF>>, A: Air> AirTable<EF, A> {
     pub fn new(air: A) -> Self {
         let symbolic_constraints = get_symbolic_constraints(&air);
         let n_constraints = symbolic_constraints.len();
