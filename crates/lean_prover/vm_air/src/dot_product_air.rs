@@ -41,7 +41,7 @@ pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize =
 #[derive(Debug)]
 pub struct DotProductAir<EF> {
     // GKR quotient challenges
-    pub global_challenge: EF,
+    pub bus_challenge: EF,
     pub fingerprint_challenge_powers: [EF; 5],
     pub dot_product_bus_beta: EF,
 }
@@ -177,7 +177,7 @@ impl<EF: Copy> DotProductAir<EF> {
             + mul_point_f_and_ef(index_res, self.fingerprint_challenge_powers[3])
             + mul_point_f_and_ef(len, self.fingerprint_challenge_powers[4]);
 
-        ((data + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS)) + self.global_challenge)
+        ((data + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS)) + self.bus_challenge)
             * self.dot_product_bus_beta
             + start_flag_up
     }

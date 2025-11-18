@@ -112,7 +112,7 @@ pub fn verify_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     )?;
 
-    let grand_product_challenge_global = verifier_state.sample();
+    let bus_challenge = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
 
     let (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim) = {
@@ -150,7 +150,7 @@ pub fn verify_execution(
             mle_of_zeros_then_ones((1 << log_n_p16) - n_compressions_16, &p16_bus_point);
 
         if p16_bus_data_value
-            != grand_product_challenge_global
+            != bus_challenge
                 + finger_print(
                     TABLE_INDEX_POSEIDONS_16,
                     &[
@@ -196,7 +196,7 @@ pub fn verify_execution(
         }
 
         if p24_bus_data_value
-            != grand_product_challenge_global
+            != bus_challenge
                 + finger_print(
                     TABLE_INDEX_POSEIDONS_24,
                     &[
@@ -243,7 +243,7 @@ pub fn verify_execution(
         .par_iter()
         .map(|vm_multilinear_eval| {
             -EF::ONE
-                / (grand_product_challenge_global
+                / (bus_challenge
                     + finger_print(
                         TABLE_INDEX_MULTILINEAR_EVAL,
                         &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
@@ -253,7 +253,7 @@ pub fn verify_execution(
         .sum::<EF>();
 
     dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
-        / (grand_product_challenge_global
+        / (bus_challenge
             + finger_print(
                 TABLE_INDEX_DOT_PRODUCTS,
                 &[
@@ -301,7 +301,7 @@ pub fn verify_execution(
     )];
 
     let exec_table = AirTable::<EF, _>::new(VMAir {
-        global_challenge: grand_product_challenge_global,
+        bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         exec_bus_beta,
     });
@@ -315,7 +315,7 @@ pub fn verify_execution(
     )?;
 
     let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
-        global_challenge: grand_product_challenge_global,
+        bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         dot_product_bus_beta,
     });

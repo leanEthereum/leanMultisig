@@ -204,7 +204,7 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let grand_product_challenge_global = prover_state.sample();
+    let bus_challenge = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
     let (exec_bus_quotient, exec_bus_beta, exec_bus_final_claim) = {
         let mut exec_bus_data = unsafe { uninitialized_vec::<EF>(n_cycles.next_power_of_two()) };
@@ -212,7 +212,7 @@ pub fn prove_execution(
         exec_bus_data.par_iter_mut().enumerate().for_each(|(i, v)| {
             let precompile_index = full_trace[COL_INDEX_PRECOMPILE_INDEX][i];
 
-            *v = grand_product_challenge_global
+            *v = bus_challenge
                 + finger_print(
                     precompile_index.to_usize(),
                     &[
@@ -257,7 +257,7 @@ pub fn prove_execution(
         let p16_bus_data = poseidons_16
             .par_iter()
             .map(|pos_16| {
-                grand_product_challenge_global
+                bus_challenge
                     + finger_print(
                         TABLE_INDEX_POSEIDONS_16,
                         &pos_16.addresses_field_repr(),
@@ -301,7 +301,7 @@ pub fn prove_execution(
         let p24_bus_data = poseidons_24
             .par_iter()
             .map(|pos_24| {
-                grand_product_challenge_global
+                bus_challenge
                     + finger_print(
                         TABLE_INDEX_POSEIDONS_24,
                         &pos_24.addresses_field_repr(),
@@ -339,7 +339,7 @@ pub fn prove_execution(
         let dot_product_bus_data = (0..1 << log_n_rows_dot_product_table)
             .into_par_iter()
             .map(|i| {
-                grand_product_challenge_global
+                bus_challenge
                     + finger_print(
                         TABLE_INDEX_DOT_PRODUCTS,
                         &[
@@ -389,7 +389,7 @@ pub fn prove_execution(
         .par_iter()
         .map(|vm_multilinear_eval| {
             -EF::ONE
-                / (grand_product_challenge_global
+                / (bus_challenge
                     + finger_print(
                         TABLE_INDEX_MULTILINEAR_EVAL,
                         &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
@@ -399,7 +399,7 @@ pub fn prove_execution(
         .sum::<EF>();
 
     dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
-        / (grand_product_challenge_global
+        / (bus_challenge
             + finger_print(
                 TABLE_INDEX_DOT_PRODUCTS,
                 &[
@@ -446,7 +446,7 @@ pub fn prove_execution(
     )];
 
     let exec_table = AirTable::<EF, _>::new(VMAir {
-        global_challenge: grand_product_challenge_global,
+        bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         exec_bus_beta,
     });
@@ -464,7 +464,7 @@ pub fn prove_execution(
     });
 
     let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
-        global_challenge: grand_product_challenge_global,
+        bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         dot_product_bus_beta,
     });
