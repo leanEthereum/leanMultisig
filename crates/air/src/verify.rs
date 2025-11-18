@@ -2,7 +2,7 @@ use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use p3_util::log2_ceil_usize;
 
-use crate::{utils::next_mle};
+use crate::utils::next_mle;
 
 use super::table::AirTable;
 
@@ -25,7 +25,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
 
     let (sc_sum, outer_statement) = sumcheck_verify_with_univariate_skip::<EF>(
         verifier_state,
-        table.air.degree() + 1,
+        A::degree() + 1,
         log_n_rows,
         univariate_skips,
     )?;
@@ -43,15 +43,24 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
         .map(|s| s.evaluate(outer_statement.point[0]))
         .collect::<Vec<_>>();
 
-    let inner_sums = verifier_state
-        .next_extension_scalars_vec(table.n_columns() + table.columns_with_shift().len())?;
+    let mut inner_sums = verifier_state
+        .next_extension_scalars_vec(table.n_columns() + table.down_column_indexes().len())?;
 
     let constraints_batching_scalars = constraints_batching_scalar
         .powers()
-        .take(table.n_constraints + virtual_column_statement.is_some() as usize)
+        .take(table.n_constraints() + virtual_column_statement.is_some() as usize)
         .collect();
-    let constraint_evals =
-        SumcheckComputation::eval_extension(&table.air, &inner_sums, &constraints_batching_scalars);
+    let n_columns_down_f = table
+        .down_column_indexes()
+        .iter()
+        .filter(|&&i| i < A::n_columns_f())
+        .count();
+    let constraint_evals = SumcheckComputation::eval_extension(
+        &table.air,
+        &inner_sums[..A::n_columns_f() + n_columns_down_f],
+        &inner_sums[A::n_columns_f() + n_columns_down_f..],
+        &constraints_batching_scalars,
+    );
 
     if eq_poly_with_skip(
         &zerocheck_challenges,
@@ -63,11 +72,19 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
         return Err(ProofError::InvalidProof);
     }
 
+    inner_sums = [
+        inner_sums[..A::n_columns_f()].to_vec(),
+        inner_sums[A::n_columns_f() + n_columns_down_f..][..A::n_columns_ef()].to_vec(),
+        inner_sums[A::n_columns_f()..][..n_columns_down_f].to_vec(),
+        inner_sums[A::n_columns_f() + n_columns_down_f + A::n_columns_ef()..].to_vec(),
+    ]
+    .concat();
+
     open_columns(
         verifier_state,
         table.n_columns(),
         univariate_skips,
-        &table.columns_with_shift(),
+        &table.down_column_indexes(),
         inner_sums,
         &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
         &outer_selector_evals,

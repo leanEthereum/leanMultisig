@@ -1,56 +1,48 @@
-use std::{any::TypeId, marker::PhantomData, mem::transmute};
-
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use p3_uni_stark::{SymbolicExpression, get_symbolic_constraints};
 use tracing::instrument;
 use utils::ConstraintChecker;
 
 #[derive(Debug)]
 pub struct AirTable<EF: Field, A> {
     pub air: A,
-    pub n_constraints: usize,
-
     _phantom: std::marker::PhantomData<EF>,
 }
 
 impl<EF: ExtensionField<PF<EF>>, A: Air> AirTable<EF, A> {
     pub fn new(air: A) -> Self {
-        let symbolic_constraints = get_symbolic_constraints(&air);
-        let n_constraints = symbolic_constraints.len();
-        let constraint_degree =
-            Iterator::max(symbolic_constraints.iter().map(|c: &SymbolicExpression<EF>| c.degree_multiple())).unwrap();
-        assert_eq!(constraint_degree, air.degree());
         Self {
             air,
-            n_constraints,
             _phantom: std::marker::PhantomData,
         }
     }
 
     pub fn n_columns(&self) -> usize {
-        self.air.width()
+        A::n_columns()
     }
 
-    pub fn columns_with_shift(&self) -> Vec<usize> {
-        self.air.columns_with_shift()
+    pub fn n_constraints(&self) -> usize {
+        A::n_constraints()
+    }
+
+    pub fn down_column_indexes(&self) -> Vec<usize> {
+        A::down_column_indexes()
     }
 
     #[instrument(name = "Check trace validity", skip_all)]
-    pub fn check_trace_validity<IF: ExtensionField<PF<EF>>>(
+    pub fn check_trace_validity(
         &self,
-        witness: &[&[IF]],
-        last_row: &[IF],
-    ) -> Result<(), String>
-    where
-        EF: ExtensionField<IF>,
-    {
-        let n_rows = witness[0].len();
-        assert!(witness.iter().all(|col| col.len() == n_rows));
-        if witness.len() != self.n_columns() {
+        columns_f: &[&[PF<EF>]],
+        columns_ef: &[&[EF]],
+        last_row: &[EF],
+    ) -> Result<(), String> {
+        let n_rows = columns_f[0].len();
+        assert!(columns_f.iter().all(|col| col.len() == n_rows));
+        assert!(columns_ef.iter().all(|col| col.len() == n_rows));
+        if columns_f.len() + columns_ef.len() != self.n_columns() {
             return Err("Invalid number of columns".to_string());
         }
-        let handle_errors = |row: usize, constraint_checker: &ConstraintChecker<'_, IF, EF>| {
+        let handle_errors = |row: usize, constraint_checker: &ConstraintChecker<EF>| {
             if !constraint_checker.errors.is_empty() {
                 return Err(format!(
                     "Trace is not valid at row {}: contraints not respected: {}",
@@ -66,58 +58,62 @@ impl<EF: ExtensionField<PF<EF>>, A: Air> AirTable<EF, A> {
             Ok(())
         };
         for row in 0..n_rows - 1 {
-            let up = (0..self.n_columns())
-                .map(|j| witness[j][row])
+            let up_f = (0..A::n_columns_f())
+                .map(|j| columns_f[j][row])
                 .collect::<Vec<_>>();
-            let down = self
-                .columns_with_shift()
+            let up_ef = (0..A::n_columns_ef())
+                .map(|j| columns_ef[j][row])
+                .collect::<Vec<_>>();
+            let down_f = self
+                .down_column_indexes()
                 .iter()
-                .map(|j| witness[*j][row + 1])
+                .filter(|i| **i < A::n_columns_f())
+                .map(|j| columns_f[*j][row + 1])
                 .collect::<Vec<_>>();
-            let up_and_down = [up, down].concat();
-            let constraints_checker = self.eval_transition::<IF>(&up_and_down);
+            let down_ef = self
+                .down_column_indexes()
+                .iter()
+                .filter(|i| **i >= A::n_columns_f())
+                .map(|j| columns_ef[*j - A::n_columns_f()][row + 1])
+                .collect::<Vec<_>>();
+            let mut constraints_checker = ConstraintChecker {
+                up_f,
+                up_ef,
+                down_f,
+                down_ef,
+                constraint_index: 0,
+                errors: Vec::new(),
+            };
+            self.air.eval(&mut constraints_checker);
             handle_errors(row, &constraints_checker)?;
         }
         // last transition:
-        let up = (0..self.n_columns())
-            .map(|j| witness[j][n_rows - 1])
+        let up_f = (0..A::n_columns_f())
+            .map(|j| columns_f[j][n_rows - 1])
             .collect::<Vec<_>>();
-        assert_eq!(last_row.len(), self.columns_with_shift().len());
-        let up_and_down = [up, last_row.to_vec()].concat();
-        let constraints_checker = self.eval_transition::<IF>(&up_and_down);
-        handle_errors(n_rows - 1, &constraints_checker)?;
-        Ok(())
-    }
-
-    fn eval_transition<'a, IF: ExtensionField<PF<EF>>>(
-        &self,
-        up_and_down: &'a [IF],
-    ) -> ConstraintChecker<'a, IF, EF>
-    where
-        EF: ExtensionField<IF>,
-    {
-        let mut constraints_checker = ConstraintChecker::<IF, EF> {
-            main: up_and_down,
+        let up_ef = (0..A::n_columns_ef())
+            .map(|j| columns_ef[j][n_rows - 1])
+            .collect::<Vec<_>>();
+        let last_row_f_count = self
+            .down_column_indexes()
+            .iter()
+            .filter(|i| **i < A::n_columns_f())
+            .count();
+        let last_row_f = last_row[..last_row_f_count]
+            .iter()
+            .map(|e| e.as_base().unwrap())
+            .collect::<Vec<_>>();
+        let last_row_ef = last_row[last_row_f_count..].to_vec();
+        let mut constraints_checker = ConstraintChecker {
+            up_f,
+            up_ef,
+            down_f: last_row_f,
+            down_ef: last_row_ef,
             constraint_index: 0,
             errors: Vec::new(),
-            field: PhantomData,
         };
-        if TypeId::of::<IF>() == TypeId::of::<EF>() {
-            unsafe {
-                self.air.eval(transmute::<
-                    &mut ConstraintChecker<'_, IF, EF>,
-                    &mut ConstraintChecker<'_, EF, EF>,
-                >(&mut constraints_checker));
-            }
-        } else {
-            assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
-            unsafe {
-                self.air.eval(transmute::<
-                    &mut ConstraintChecker<'_, IF, EF>,
-                    &mut ConstraintChecker<'_, PF<EF>, EF>,
-                >(&mut constraints_checker));
-            }
-        }
-        constraints_checker
+        self.air.eval(&mut constraints_checker);
+        handle_errors(n_rows - 1, &constraints_checker)?;
+        Ok(())
     }
 }

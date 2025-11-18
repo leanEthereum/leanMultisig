@@ -16,17 +16,22 @@ where
     }
 
     #[inline(always)]
-    fn eval_base(&self, point: &[PF<EF>], alpha_powers: &[EF]) -> EF {
+    fn eval_base(&self, point: &[PF<EF>], _: &[EF], alpha_powers: &[EF]) -> EF {
         self.my_eval::<EF, PF<EF>>(point, alpha_powers)
     }
 
     #[inline(always)]
-    fn eval_extension(&self, point: &[EF], alpha_powers: &[EF]) -> EF {
+    fn eval_extension(&self, point: &[EF], _: &[EF], alpha_powers: &[EF]) -> EF {
         self.my_eval::<EF, EF>(point, alpha_powers)
     }
 
     #[inline(always)]
-    fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_base(
+        &self,
+        point: &[PFPacking<EF>],
+        _: &[EFPacking<EF>],
+        alpha_powers: &[EF],
+    ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + 1);
         let mut res = EFPacking::<EF>::ZERO;
         let compressed = point[WIDTH];
@@ -43,7 +48,12 @@ where
     }
 
     #[inline(always)]
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_extension(
+        &self,
+        point: &[EFPacking<EF>],
+        _: &[EFPacking<EF>],
+        alpha_powers: &[EF],
+    ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + 1);
         let mut res = EFPacking::<EF>::ZERO;
         let compressed = point[WIDTH];

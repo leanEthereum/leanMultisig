@@ -11,7 +11,6 @@ use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
 use sub_protocols::*;
 use tracing::info_span;
-use utils::field_slice_as_base;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
 use vm_air::*;
 use whir_p3::{
@@ -83,26 +82,19 @@ pub fn prove_execution(
         generate_poseidon_witness_helper(&p16_gkr_layers, &poseidons_16, Some(n_compressions_16));
     let p24_witness = generate_poseidon_witness_helper(&p24_gkr_layers, &poseidons_24, None);
 
-    let (dot_product_columns, dot_product_padding_len) =
-        build_dot_product_columns(&dot_products, 1 << LOG_MIN_DOT_PRODUCT_ROWS);
+    let DotProductColumns {
+        in_base: dot_product_columns_f,
+        in_ext: dot_product_columns_ef,
+        padding_len: dot_product_padding_len,
+    } = build_dot_product_columns(&dot_products, 1 << LOG_MIN_DOT_PRODUCT_ROWS);
 
-    let dot_product_col_index_a =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_A]).unwrap();
-    let dot_product_col_index_b =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_B]).unwrap();
-    let dot_product_col_index_res =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_RES]).unwrap();
-    let dot_product_flags: Vec<PF<EF>> =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_START_FLAG]).unwrap();
-    let dot_product_lengths: Vec<PF<EF>> =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_LEN]).unwrap();
-
-    let dot_product_computations: &[EF] = &dot_product_columns[DOT_PRODUCT_AIR_COL_COMPUTATION];
     let dot_product_computation_ext_to_base_helper =
-        ExtensionCommitmentFromBaseProver::before_commitment(dot_product_computations);
+        ExtensionCommitmentFromBaseProver::before_commitment(
+            &dot_product_columns_ef[DOT_PRODUCT_AIR_COL_COMPUTATION],
+        );
 
-    let n_rows_table_dot_products = dot_product_flags.len() - dot_product_padding_len;
-    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_flags.len());
+    let n_rows_table_dot_products = dot_product_columns_f[0].len() - dot_product_padding_len;
+    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_columns_f[0].len());
 
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
@@ -194,13 +186,7 @@ pub fn prove_execution(
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        vec![
-            dot_product_flags.as_slice(),
-            dot_product_lengths.as_slice(),
-            dot_product_col_index_a.as_slice(),
-            dot_product_col_index_b.as_slice(),
-            dot_product_col_index_res.as_slice(),
-        ],
+        dot_product_columns_f.iter().map(Vec::as_slice).collect(),
         dot_product_computation_ext_to_base_helper
             .sub_columns_to_commit
             .iter()
@@ -357,19 +343,19 @@ pub fn prove_execution(
                     + finger_print(
                         TABLE_INDEX_DOT_PRODUCTS,
                         &[
-                            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_A][i],
-                            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_B][i],
-                            dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_RES][i],
-                            dot_product_columns[DOT_PRODUCT_AIR_COL_LEN][i],
+                            dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_A][i],
+                            dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_B][i],
+                            dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_RES][i],
+                            dot_product_columns_f[DOT_PRODUCT_AIR_COL_LEN][i],
                         ],
                         fingerprint_challenge,
                     )
             })
             .collect::<Vec<_>>();
 
-        let dot_product_bus_selector = dot_product_columns[DOT_PRODUCT_AIR_COL_START_FLAG]
+        let dot_product_bus_selector = dot_product_columns_f[DOT_PRODUCT_AIR_COL_START_FLAG]
             .par_iter()
-            .map(|&x| -x)
+            .map(|&x| EF::from(-x)) // NOTE the "-" sign here !!
             .collect::<Vec<_>>(); // TODO embedding overhead !!!!!!!!!!!!!!
         let dot_product_bus_selector_packed = pack_extension(&dot_product_bus_selector);
         let dot_product_bus_data_packed = pack_extension(&dot_product_bus_data);
@@ -470,7 +456,8 @@ pub fn prove_execution(
             &exec_table,
             UNIVARIATE_SKIPS,
             &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
-            &execution_air_padding_row(bytecode.ending_pc),
+            &[],
+            &execution_air_padding_row::<EF>(bytecode.ending_pc),
             Some(exec_bus_final_claim),
             true,
         )
@@ -481,17 +468,21 @@ pub fn prove_execution(
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         dot_product_bus_beta,
     });
-    let dot_product_columns_ref = dot_product_columns
-        .iter()
-        .map(Vec::as_slice)
-        .collect::<Vec<_>>();
+
     let (dot_product_air_point, dot_product_evals_to_prove) = info_span!("DotProduct AIR proof")
         .in_scope(|| {
             prove_air(
                 &mut prover_state,
                 &dot_product_table,
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
-                &dot_product_columns_ref,
+                &dot_product_columns_f
+                    .iter()
+                    .map(Vec::as_slice)
+                    .collect::<Vec<_>>(),
+                &dot_product_columns_ef
+                    .iter()
+                    .map(Vec::as_slice)
+                    .collect::<Vec<_>>(),
                 &dot_product_air_padding_row(),
                 Some(dot_product_bus_final_claim),
                 true,
@@ -561,9 +552,9 @@ pub fn prove_execution(
             &full_trace[COL_INDEX_MEM_ADDRESS_A],
             &full_trace[COL_INDEX_MEM_ADDRESS_B],
             &full_trace[COL_INDEX_MEM_ADDRESS_C],
-            &dot_product_col_index_a,
-            &dot_product_col_index_b,
-            &dot_product_col_index_res,
+            &dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_A],
+            &dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_B],
+            &dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_RES],
         ],
         [
             vec![n_cycles; 3],
@@ -577,9 +568,9 @@ pub fn prove_execution(
             &full_trace[COL_INDEX_MEM_VALUE_C],
         ],
         vec![
-            &dot_product_columns[DOT_PRODUCT_AIR_COL_VALUE_A],
-            &dot_product_columns[DOT_PRODUCT_AIR_COL_VALUE_B],
-            &dot_product_columns[DOT_PRODUCT_AIR_COL_VALUE_RES],
+            &dot_product_columns_ef[DOT_PRODUCT_AIR_COL_VALUE_A],
+            &dot_product_columns_ef[DOT_PRODUCT_AIR_COL_VALUE_B],
+            &dot_product_columns_ef[DOT_PRODUCT_AIR_COL_VALUE_RES],
         ],
         normal_lookup_into_memory_initial_statements(
             &exec_air_point,
@@ -706,6 +697,7 @@ pub fn prove_execution(
                 &p16_one_minus_compression,
                 &p16_index_res_a_plus_one,
             ]),
+            None,
             &CubeComputation {},
             &[],
             None,

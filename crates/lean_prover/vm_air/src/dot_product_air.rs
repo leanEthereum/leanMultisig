@@ -3,7 +3,6 @@ use std::{any::TypeId, mem::transmute};
 use lean_vm::{DIMENSION, EF, TABLE_INDEX_DOT_PRODUCTS};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
-use p3_uni_stark::SymbolicExpression;
 use std::mem::transmute_copy;
 
 /*
@@ -22,17 +21,22 @@ use std::mem::transmute_copy;
 | ...       | ... | ...    | ...    | ...      | ...           | ...         | ...                | ...                                      |
 */
 
+// F columns
 pub const DOT_PRODUCT_AIR_COL_START_FLAG: usize = 0;
 pub const DOT_PRODUCT_AIR_COL_LEN: usize = 1;
 pub const DOT_PRODUCT_AIR_COL_INDEX_A: usize = 2;
 pub const DOT_PRODUCT_AIR_COL_INDEX_B: usize = 3;
 pub const DOT_PRODUCT_AIR_COL_INDEX_RES: usize = 4;
-pub const DOT_PRODUCT_AIR_COL_VALUE_A: usize = 5;
-pub const DOT_PRODUCT_AIR_COL_VALUE_B: usize = 6;
-pub const DOT_PRODUCT_AIR_COL_VALUE_RES: usize = 7;
-pub const DOT_PRODUCT_AIR_COL_COMPUTATION: usize = 8;
+// EF columns
+pub const DOT_PRODUCT_AIR_COL_VALUE_A: usize = 0;
+pub const DOT_PRODUCT_AIR_COL_VALUE_B: usize = 1;
+pub const DOT_PRODUCT_AIR_COL_VALUE_RES: usize = 2;
+pub const DOT_PRODUCT_AIR_COL_COMPUTATION: usize = 3;
 
-pub const DOT_PRODUCT_AIR_N_COLUMNS: usize = 9;
+pub const DOT_PRODUCT_AIR_N_COLUMNS_F: usize = 5;
+pub const DOT_PRODUCT_AIR_N_COLUMNS_EF: usize = 4;
+pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize =
+    DOT_PRODUCT_AIR_N_COLUMNS_F + DOT_PRODUCT_AIR_N_COLUMNS_EF;
 
 #[derive(Debug)]
 pub struct DotProductAir<EF> {
@@ -43,81 +47,90 @@ pub struct DotProductAir<EF> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
-    fn width(&self) -> usize {
-        DOT_PRODUCT_AIR_N_COLUMNS
+    fn n_columns_f() -> usize {
+        DOT_PRODUCT_AIR_N_COLUMNS_F
     }
-    fn degree(&self) -> usize {
+    fn n_columns_ef() -> usize {
+        DOT_PRODUCT_AIR_N_COLUMNS_EF
+    }
+    fn degree() -> usize {
         3
     }
-    fn columns_with_shift(&self) -> Vec<usize> {
+    fn n_constraints() -> usize {
+        8
+    }
+    fn down_column_indexes() -> Vec<usize> {
         vec![
             DOT_PRODUCT_AIR_COL_START_FLAG,
             DOT_PRODUCT_AIR_COL_LEN,
             DOT_PRODUCT_AIR_COL_INDEX_A,
             DOT_PRODUCT_AIR_COL_INDEX_B,
-            DOT_PRODUCT_AIR_COL_COMPUTATION,
+            DOT_PRODUCT_AIR_N_COLUMNS_F + DOT_PRODUCT_AIR_COL_COMPUTATION,
         ]
     }
 
     #[inline]
     fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
-        let main = builder.main();
-        let up = &main[..DOT_PRODUCT_AIR_N_COLUMNS];
-        let down = &main[DOT_PRODUCT_AIR_N_COLUMNS..];
+        let up_f = builder.up_f();
+        let up_ef = builder.up_ef();
+        let down_f = builder.down_f();
+        let down_ef = builder.down_ef();
 
-        let start_flag_up = up[DOT_PRODUCT_AIR_COL_START_FLAG].clone();
-        let len_up = up[DOT_PRODUCT_AIR_COL_LEN].clone();
-        let index_a_up = up[DOT_PRODUCT_AIR_COL_INDEX_A].clone();
-        let index_b_up = up[DOT_PRODUCT_AIR_COL_INDEX_B].clone();
-        let index_res_up = up[DOT_PRODUCT_AIR_COL_INDEX_RES].clone();
-        let value_a_up = up[DOT_PRODUCT_AIR_COL_VALUE_A].clone();
-        let value_b_up = up[DOT_PRODUCT_AIR_COL_VALUE_B].clone();
-        let res_up = up[DOT_PRODUCT_AIR_COL_VALUE_RES].clone();
-        let computation_up = up[DOT_PRODUCT_AIR_COL_COMPUTATION].clone();
+        let start_flag_up = up_f[DOT_PRODUCT_AIR_COL_START_FLAG].clone();
+        let len_up = up_f[DOT_PRODUCT_AIR_COL_LEN].clone();
+        let index_a_up = up_f[DOT_PRODUCT_AIR_COL_INDEX_A].clone();
+        let index_b_up = up_f[DOT_PRODUCT_AIR_COL_INDEX_B].clone();
+        let index_res_up = up_f[DOT_PRODUCT_AIR_COL_INDEX_RES].clone();
 
-        let start_flag_down = down[0].clone();
-        let len_down = down[1].clone();
-        let index_a_down = down[2].clone();
-        let index_b_down = down[3].clone();
-        let computation_down = down[4].clone();
+        let value_a_up = up_ef[DOT_PRODUCT_AIR_COL_VALUE_A].clone();
+        let value_b_up = up_ef[DOT_PRODUCT_AIR_COL_VALUE_B].clone();
+        let res_up = up_ef[DOT_PRODUCT_AIR_COL_VALUE_RES].clone();
+        let computation_up = up_ef[DOT_PRODUCT_AIR_COL_COMPUTATION].clone();
+
+        let start_flag_down = down_f[0].clone();
+        let len_down = down_f[1].clone();
+        let index_a_down = down_f[2].clone();
+        let index_b_down = down_f[3].clone();
+
+        let computation_down = down_ef[0].clone();
 
         // TODO we could do most of the following computation in the base field
 
-        builder.add_custom(self.eval_custom::<AB>(&[
-            start_flag_up.clone().into(),
-            index_a_up.clone().into(),
-            index_b_up.clone().into(),
-            index_res_up.clone().into(),
-            len_up.clone().into(),
+        builder.eval_custom(self.eval_custom::<AB>(&[
+            start_flag_up.clone(),
+            index_a_up.clone(),
+            index_b_up.clone(),
+            index_res_up.clone(),
+            len_up.clone(),
         ]));
 
         builder.assert_bool(start_flag_down.clone());
 
         let product_up = value_a_up * value_b_up;
-        let not_flag_down = AB::Expr::ONE - start_flag_down.clone();
-        builder.assert_eq(
+        let not_flag_down = AB::F::ONE - start_flag_down.clone();
+        builder.assert_eq_ef(
             computation_up.clone(),
-            start_flag_down.clone() * product_up.clone()
-                + not_flag_down.clone() * (product_up + computation_down),
+            product_up.clone() * start_flag_down.clone()
+                + (product_up + computation_down) * not_flag_down.clone(),
         );
-        builder.assert_zero(not_flag_down.clone() * (len_up.clone() - (len_down + AB::Expr::ONE)));
-        builder.assert_zero(start_flag_down * (len_up - AB::Expr::ONE));
+        builder.assert_zero(not_flag_down.clone() * (len_up.clone() - (len_down + AB::F::ONE)));
+        builder.assert_zero(start_flag_down * (len_up - AB::F::ONE));
         builder.assert_zero(
-            not_flag_down.clone() * (index_a_up - (index_a_down - AB::Expr::from_usize(DIMENSION))),
+            not_flag_down.clone() * (index_a_up - (index_a_down - AB::F::from_usize(DIMENSION))),
         );
         builder.assert_zero(
-            not_flag_down * (index_b_up - (index_b_down - AB::Expr::from_usize(DIMENSION))),
+            not_flag_down * (index_b_up - (index_b_down - AB::F::from_usize(DIMENSION))),
         );
 
-        builder.assert_zero(start_flag_up * (computation_up - res_up));
+        builder.assert_zero_ef((computation_up - res_up) * start_flag_up);
     }
 
     fn eval_custom<AB: AirBuilder>(
         &self,
-        inputs: &[<AB as AirBuilder>::Expr],
-    ) -> <AB as AirBuilder>::FinalOutput {
-        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
-        let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
+        inputs: &[<AB as AirBuilder>::F],
+    ) -> <AB as AirBuilder>::EF {
+        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::EF>();
+        let type_id_expr = TypeId::of::<<AB as AirBuilder>::F>();
         // let type_id_f = TypeId::of::<PF<EF>>();
         let type_id_ef = TypeId::of::<EF>();
         let type_id_f_packing = TypeId::of::<PFPacking<EF>>();
@@ -125,26 +138,21 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
 
         if type_id_expr == type_id_ef {
             assert_eq!(type_id_final_output, type_id_ef);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EF]>(inputs) };
+            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[EF]>(inputs) };
             let res = self.gkr_virtual_column_eval(inputs, |p, c| c * p);
-            unsafe { transmute_copy::<EF, <AB as AirBuilder>::FinalOutput>(&res) }
+            unsafe { transmute_copy::<EF, <AB as AirBuilder>::EF>(&res) }
         } else if type_id_expr == type_id_ef_packing {
             assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs =
-                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EFPacking<EF>]>(inputs) };
+            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[EFPacking<EF>]>(inputs) };
             let res = self.gkr_virtual_column_eval(inputs, |p, c| p * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
+            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::EF>(&res) }
         } else if type_id_expr == type_id_f_packing {
             assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs =
-                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[PFPacking<EF>]>(inputs) };
+            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[PFPacking<EF>]>(inputs) };
             let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else if type_id_expr == TypeId::of::<SymbolicExpression<PF<EF>>>() {
-            unsafe { transmute_copy(&SymbolicExpression::<PF<EF>>::default()) }
+            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::EF>(&res) }
         } else {
-            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<EF>>());
-            unsafe { transmute_copy(&SymbolicExpression::<EF>::default()) }
+            unreachable!()
         }
     }
 }

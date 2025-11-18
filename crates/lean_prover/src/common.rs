@@ -89,7 +89,7 @@ pub fn normal_lookup_into_memory_initial_statements(
         .map(|index| {
             vec![Evaluation::new(
                 dot_product_air_point.clone(),
-                dot_product_evals[index],
+                dot_product_evals[index + DOT_PRODUCT_AIR_N_COLUMNS_F],
             )]
         })
         .collect::<Vec<_>>(),

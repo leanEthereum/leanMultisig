@@ -50,7 +50,7 @@ pub fn verify_execution(
             .max(1 << LOG_MIN_POSEIDONS_16)
         || n_vm_multilinear_evals > 1 << 10
     {
-        return Err(ProofError::InvalidProof);
+        panic!()
     }
 
     let public_memory = build_public_memory(public_input);
@@ -62,7 +62,7 @@ pub fn verify_execution(
     let log_n_cycles = log2_ceil_usize(n_cycles);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
-        return Err(ProofError::InvalidProof);
+        panic!()
     }
 
     let table_dot_products_log_n_rows =
@@ -143,7 +143,7 @@ pub fn verify_execution(
         if p16_bus_selector_value
             != mle_of_zeros_then_ones(n_poseidons_16, &p16_bus_point) - EF::ONE
         {
-            return Err(ProofError::InvalidProof);
+            panic!()
         }
 
         let p16_eval_on_compression =
@@ -162,7 +162,7 @@ pub fn verify_execution(
                     fingerprint_challenge,
                 )
         {
-            return Err(ProofError::InvalidProof);
+            panic!()
         }
 
         (
@@ -192,7 +192,7 @@ pub fn verify_execution(
         if p24_bus_selector_value
             != mle_of_zeros_then_ones(n_poseidons_24, &p24_bus_point) - EF::ONE
         {
-            return Err(ProofError::InvalidProof);
+            panic!()
         }
 
         if p24_bus_data_value
@@ -207,7 +207,7 @@ pub fn verify_execution(
                     fingerprint_challenge,
                 )
         {
-            return Err(ProofError::InvalidProof);
+            panic!()
         }
 
         (
@@ -271,7 +271,7 @@ pub fn verify_execution(
         + multilinear_eval_bus_quotient
         != EF::ZERO
     {
-        return Err(ProofError::InvalidProof);
+        panic!()
     }
 
     let mut p16_indexes_a_statements = vec![Evaluation::new(
@@ -310,7 +310,7 @@ pub fn verify_execution(
         &exec_table,
         UNIVARIATE_SKIPS,
         log_n_cycles,
-        &execution_air_padding_row(bytecode.ending_pc),
+        &execution_air_padding_row::<EF>(bytecode.ending_pc),
         Some(exec_bus_final_claim),
     )?;
 
@@ -428,7 +428,7 @@ pub fn verify_execution(
     if folded_bytecode.evaluate(&bytecode_logup_star_statements.on_table.point)
         != bytecode_logup_star_statements.on_table.value
     {
-        return Err(ProofError::InvalidProof);
+        panic!()
     }
 
     memory_statements.push(normal_lookup_statements.on_table.clone());
@@ -469,7 +469,7 @@ pub fn verify_execution(
             eq_poly_eval += alpha_power * statement.point.eq_poly_outside(&sc_eval.point);
         }
         if p16_value_index_res_b_expected != p16_value_index_res_b {
-            return Err(ProofError::InvalidProof);
+            panic!()
         }
         let sc_res_index_value = verifier_state.next_extension_scalar()?;
         p16_indexes_res_statements.push(Evaluation::new(
@@ -483,7 +483,7 @@ pub fn verify_execution(
             * eq_poly_eval
             != sc_eval.value
         {
-            return Err(ProofError::InvalidProof);
+            panic!()
         }
     }
 
@@ -495,7 +495,8 @@ pub fn verify_execution(
             &mut verifier_state,
             &Evaluation::new(
                 dot_product_air_point.clone(),
-                dot_product_evals_to_verify[DOT_PRODUCT_AIR_COL_COMPUTATION],
+                dot_product_evals_to_verify
+                    [DOT_PRODUCT_AIR_COL_COMPUTATION + DOT_PRODUCT_AIR_N_COLUMNS_F],
             ),
         )?;
 

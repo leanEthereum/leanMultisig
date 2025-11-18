@@ -9,6 +9,3 @@ mod verify;
 pub use prove::*;
 pub use table::*;
 pub use verify::*;
-
-#[cfg(test)]
-pub mod tests;

@@ -97,6 +97,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     let (mut next_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
         1,
         prev_numerators_and_denominators_split,
+        None,
         &GKRQuotientComputation::<N_GROUPS> {},
         &alpha.powers().take(N_GROUPS).collect(),
         Some((claim_point.0.clone(), None)),
@@ -197,6 +198,7 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
             * <GKRQuotientComputation<N_GROUPS> as SumcheckComputation<EF>>::eval_extension(
                 &Default::default(),
                 &inner_evals,
+                &[],
                 &alpha.powers().take(N_GROUPS).collect(),
             )
     {

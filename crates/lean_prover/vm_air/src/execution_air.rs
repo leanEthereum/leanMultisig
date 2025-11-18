@@ -3,9 +3,9 @@ use std::{
     mem::{transmute, transmute_copy},
 };
 
+use lean_vm::EF;
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
-use p3_uni_stark::SymbolicExpression;
 
 pub const N_INSTRUCTION_COLUMNS: usize = 13;
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
@@ -47,21 +47,26 @@ pub struct VMAir<EF> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
-    fn width(&self) -> usize {
+    fn n_columns_f() -> usize {
         N_EXEC_AIR_COLUMNS
     }
-    fn degree(&self) -> usize {
+    fn n_columns_ef() -> usize {
+        0
+    }
+    fn degree() -> usize {
         5
     }
-    fn columns_with_shift(&self) -> Vec<usize> {
+    fn down_column_indexes() -> Vec<usize> {
         vec![COL_INDEX_PC, COL_INDEX_FP]
+    }
+    fn n_constraints() -> usize {
+        16
     }
 
     #[inline]
     fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
-        let main = builder.main();
-        let up = &main[..N_EXEC_AIR_COLUMNS];
-        let down = &main[N_EXEC_AIR_COLUMNS..];
+        let up = builder.up_f();
+        let down = builder.down_f();
 
         let next_pc = down[0].clone();
         let next_fp = down[1].clone();
@@ -97,9 +102,9 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
             up[COL_INDEX_MEM_ADDRESS_C].clone(),
         );
 
-        let flag_a_minus_one = flag_a.clone() - AB::Expr::ONE;
-        let flag_b_minus_one = flag_b.clone() - AB::Expr::ONE;
-        let flag_c_minus_one = flag_c.clone() - AB::Expr::ONE;
+        let flag_a_minus_one = flag_a.clone() - AB::F::ONE;
+        let flag_b_minus_one = flag_b.clone() - AB::F::ONE;
+        let flag_c_minus_one = flag_c.clone() - AB::F::ONE;
 
         let nu_a = flag_a * operand_a.clone() + value_a.clone() * -flag_a_minus_one.clone();
         let nu_b = flag_b * operand_b.clone() + value_b.clone() * -flag_b_minus_one.clone();
@@ -108,16 +113,16 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         let fp_plus_operand_a = fp.clone() + operand_a.clone();
         let fp_plus_operand_b = fp.clone() + operand_b.clone();
         let fp_plus_operand_c = fp.clone() + operand_c.clone();
-        let pc_plus_one = pc + AB::Expr::ONE;
-        let nu_a_minus_one = nu_a.clone() - AB::Expr::ONE;
+        let pc_plus_one = pc + AB::F::ONE;
+        let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.add_custom(self.eval_custom::<AB>(&[
+        builder.eval_custom(self.eval_custom::<AB>(&[
             nu_a.clone(),
             nu_b.clone(),
             nu_c.clone(),
-            aux.clone().into(),
-            is_precompile.into(),
-            precompile_index.into(),
+            aux.clone(),
+            is_precompile,
+            precompile_index,
         ]));
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
@@ -131,11 +136,11 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
             .assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
         builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
         builder.assert_zero(
-            deref.clone() * (aux.clone() - AB::Expr::ONE) * (value_c.clone() - fp.clone()),
+            deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()),
         );
 
-        builder.assert_zero((jump.clone() - AB::Expr::ONE) * (next_pc.clone() - pc_plus_one.clone()));
-        builder.assert_zero((jump.clone() - AB::Expr::ONE) * (next_fp.clone() - fp.clone()));
+        builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
+        builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
 
         builder.assert_zero(jump.clone() * nu_a.clone() * nu_a_minus_one.clone());
         builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
@@ -148,10 +153,10 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
 
     fn eval_custom<AB: AirBuilder>(
         &self,
-        inputs: &[<AB as AirBuilder>::Expr],
-    ) -> <AB as AirBuilder>::FinalOutput {
-        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
-        let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
+        inputs: &[<AB as AirBuilder>::F],
+    ) -> <AB as AirBuilder>::EF {
+        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::EF>();
+        let type_id_expr = TypeId::of::<<AB as AirBuilder>::F>();
         // let type_id_f = TypeId::of::<PF<EF>>();
         let type_id_ef = TypeId::of::<EF>();
         let type_id_f_packing = TypeId::of::<PFPacking<EF>>();
@@ -159,26 +164,21 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
 
         if type_id_expr == type_id_ef {
             assert_eq!(type_id_final_output, type_id_ef);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EF]>(inputs) };
+            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[EF]>(inputs) };
             let res = self.gkr_virtual_column_eval(inputs, |p, c| c * p);
-            unsafe { transmute_copy::<EF, <AB as AirBuilder>::FinalOutput>(&res) }
+            unsafe { transmute_copy::<EF, <AB as AirBuilder>::EF>(&res) }
         } else if type_id_expr == type_id_ef_packing {
             assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs =
-                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EFPacking<EF>]>(inputs) };
+            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[EFPacking<EF>]>(inputs) };
             let res = self.gkr_virtual_column_eval(inputs, |p, c| p * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
+            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::EF>(&res) }
         } else if type_id_expr == type_id_f_packing {
             assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs =
-                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[PFPacking<EF>]>(inputs) };
+            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[PFPacking<EF>]>(inputs) };
             let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else if type_id_expr == TypeId::of::<SymbolicExpression<PF<EF>>>() {
-            unsafe { transmute_copy(&SymbolicExpression::<PF<EF>>::default()) }
+            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::EF>(&res) }
         } else {
-            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<EF>>());
-            unsafe { transmute_copy(&SymbolicExpression::<EF>::default()) }
+            unreachable!()
         }
     }
 }
@@ -211,10 +211,10 @@ impl<EF: Copy> VMAir<EF> {
     }
 }
 
-pub fn execution_air_padding_row<F: Field>(ending_pc: usize) -> Vec<F> {
+pub fn execution_air_padding_row<F: Field>(ending_pc: usize) -> Vec<EF> {
     // only the shifted columns
     vec![
-        F::from_usize(ending_pc), // PC
-        F::ZERO,                  // FP
+        EF::from_usize(ending_pc), // PC
+        EF::ZERO,                  // FP
     ]
 }
