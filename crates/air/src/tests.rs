@@ -52,9 +52,9 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
         if VIRTUAL_COLUMN {
             // virtual column = col_0 * col_1 + col_2
             builder.add_custom(self.eval_custom::<AB>(&[
-                up[0].clone().into(),
-                up[1].clone().into(),
-                up[2].clone().into(),
+                up[0].clone(),
+                up[1].clone(),
+                up[2].clone(),
             ]));
         }
 
@@ -64,7 +64,7 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
                 up[j].clone()
                     + AB::F::from_usize(j)
                     + (0..N_PREPROCESSED_COLUMNS - N_COLS_WITHOUT_SHIFT)
-                        .map(|k| AB::Expr::from(down[k].clone()))
+                        .map(|k| down[k].clone())
                         .product::<AB::Expr>(),
             );
         }

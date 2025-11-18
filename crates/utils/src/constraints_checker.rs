@@ -21,7 +21,6 @@ impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<
 {
     type F = PF<EF>;
     type Expr = IF;
-    type Var = IF;
     type FinalOutput = EF;
 
     #[inline]
