@@ -1,0 +1,21 @@
+[package]
+name = "precompiles"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing.workspace = true
+utils.workspace = true
+whir-p3.workspace = true
+derive_more.workspace = true
+p3-util.workspace = true
+multilinear-toolkit.workspace = true
+lookup.workspace = true
+
+[dev-dependencies]
+p3-koala-bear.workspace = true
+rand.workspace = true
+

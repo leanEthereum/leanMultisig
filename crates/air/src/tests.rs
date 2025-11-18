@@ -4,7 +4,7 @@ use std::{
 };
 
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder, BaseAir};
+use p3_air::{Air, AirBuilder};
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_uni_stark::SymbolicExpression;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -31,8 +31,16 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
 {
 }
 
-impl<F, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool>
-    BaseAir<F> for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
+impl<
+    AB: AirBuilder,
+    const N_COLUMNS: usize,
+    const N_PREPROCESSED_COLUMNS: usize,
+    const VIRTUAL_COLUMN: bool,
+> Air<AB> for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
+where
+    AB::Var: 'static,
+    AB::Expr: 'static,
+    AB::FinalOutput: 'static,
 {
     fn width(&self) -> usize {
         N_COLUMNS
@@ -47,19 +55,7 @@ impl<F, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTU
         ]
         .concat()
     }
-}
 
-impl<
-    AB: AirBuilder,
-    const N_COLUMNS: usize,
-    const N_PREPROCESSED_COLUMNS: usize,
-    const VIRTUAL_COLUMN: bool,
-> Air<AB> for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
-where
-    AB::Var: 'static,
-    AB::Expr: 'static,
-    AB::FinalOutput: 'static,
-{
     #[inline]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();

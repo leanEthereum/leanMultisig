@@ -1,5 +1,6 @@
 use multilinear_toolkit::prelude::*;
-use p3_air::BaseAir;
+use p3_air::Air;
+use p3_uni_stark::SymbolicAirBuilder;
 use p3_util::log2_ceil_usize;
 
 use crate::{MyAir, utils::next_mle};
@@ -25,7 +26,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: MyAir<EF>>(
 
     let (sc_sum, outer_statement) = sumcheck_verify_with_univariate_skip::<EF>(
         verifier_state,
-        <A as BaseAir<PF<EF>>>::degree(&table.air) + 1,
+        <A as Air<SymbolicAirBuilder<PF<EF>>>>::degree(&table.air) + 1,
         log_n_rows,
         univariate_skips,
     )?;

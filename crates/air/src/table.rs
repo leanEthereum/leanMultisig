@@ -1,9 +1,8 @@
 use std::{any::TypeId, marker::PhantomData, mem::transmute};
 
-use p3_air::BaseAir;
-
 use multilinear_toolkit::prelude::*;
-use p3_uni_stark::get_symbolic_constraints;
+use p3_air::Air;
+use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
 use tracing::instrument;
 use utils::ConstraintChecker;
 
@@ -23,7 +22,7 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         let n_constraints = symbolic_constraints.len();
         let constraint_degree =
             Iterator::max(symbolic_constraints.iter().map(|c| c.degree_multiple())).unwrap();
-        assert_eq!(constraint_degree, <A as BaseAir<PF<EF>>>::degree(&air));
+        assert_eq!(constraint_degree, <A as Air<SymbolicAirBuilder<PF<EF>>>>::degree(&air));
         Self {
             air,
             n_constraints,
@@ -32,11 +31,11 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     }
 
     pub fn n_columns(&self) -> usize {
-        <A as BaseAir<PF<EF>>>::width(&self.air)
+        <A as Air<SymbolicAirBuilder<PF<EF>>>>::width(&self.air)
     }
 
     pub fn columns_with_shift(&self) -> Vec<usize> {
-        <A as BaseAir<PF<EF>>>::columns_with_shift(&self.air)
+        <A as Air<SymbolicAirBuilder<PF<EF>>>>::columns_with_shift(&self.air)
     }
 
     #[instrument(name = "Check trace validity", skip_all)]

@@ -2,7 +2,7 @@ use std::{any::TypeId, mem::transmute};
 
 use lean_vm::{DIMENSION, EF, TABLE_INDEX_DOT_PRODUCTS};
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder, BaseAir};
+use p3_air::{Air, AirBuilder};
 use p3_uni_stark::SymbolicExpression;
 use std::mem::transmute_copy;
 
@@ -44,7 +44,12 @@ pub struct DotProductAir<EF> {
 
 impl<EF> SumcheckComputationForAir for DotProductAir<EF> {}
 
-impl<F, EF: Send + Sync> BaseAir<F> for DotProductAir<EF> {
+impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for DotProductAir<EF>
+where
+    AB::Var: 'static,
+    AB::Expr: 'static,
+    AB::FinalOutput: 'static,
+{
     fn width(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS
     }
@@ -60,14 +65,7 @@ impl<F, EF: Send + Sync> BaseAir<F> for DotProductAir<EF> {
             DOT_PRODUCT_AIR_COL_COMPUTATION,
         ]
     }
-}
 
-impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for DotProductAir<EF>
-where
-    AB::Var: 'static,
-    AB::Expr: 'static,
-    AB::FinalOutput: 'static,
-{
     #[inline]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();

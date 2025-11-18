@@ -4,7 +4,7 @@ use std::{
 };
 
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder, BaseAir};
+use p3_air::{Air, AirBuilder};
 use p3_uni_stark::SymbolicExpression;
 
 pub const N_INSTRUCTION_COLUMNS: usize = 13;
@@ -48,7 +48,12 @@ pub struct VMAir<EF> {
 
 impl<EF> SumcheckComputationForAir for VMAir<EF> {}
 
-impl<F, EF: Send + Sync> BaseAir<F> for VMAir<EF> {
+impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for VMAir<EF>
+where
+    AB::Var: 'static,
+    AB::Expr: 'static,
+    AB::FinalOutput: 'static,
+{
     fn width(&self) -> usize {
         N_EXEC_AIR_COLUMNS
     }
@@ -58,14 +63,7 @@ impl<F, EF: Send + Sync> BaseAir<F> for VMAir<EF> {
     fn columns_with_shift(&self) -> Vec<usize> {
         vec![COL_INDEX_PC, COL_INDEX_FP]
     }
-}
 
-impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for VMAir<EF>
-where
-    AB::Var: 'static,
-    AB::Expr: 'static,
-    AB::FinalOutput: 'static,
-{
     #[inline]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
