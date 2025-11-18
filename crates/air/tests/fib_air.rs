@@ -38,10 +38,6 @@ impl Air for FibonacciAir {
         builder.assert_eq_ef(b_down, b_up.clone() + a_up);
         builder.assert_eq_ef(AB::EF::from(a_down), b_up);
     }
-
-    fn eval_custom<AB: AirBuilder>(&self, _: &[AB::F]) -> AB::EF {
-        unreachable!()
-    }
 }
 
 fn generate_trace(n_rows: usize) -> (Vec<F>, Vec<EF>) {

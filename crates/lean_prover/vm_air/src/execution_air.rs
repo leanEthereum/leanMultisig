@@ -1,7 +1,4 @@
-use std::{
-    any::TypeId,
-    mem::{transmute, transmute_copy},
-};
+use std::{any::TypeId, mem::transmute_copy};
 
 use lean_vm::EF;
 use multilinear_toolkit::prelude::*;
@@ -116,14 +113,15 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.eval_custom(self.eval_custom::<AB>(&[
+        builder.eval_custom(eval_virtual_col::<AB, EF>(
+            self,
             nu_a.clone(),
             nu_b.clone(),
             nu_c.clone(),
             aux.clone(),
-            is_precompile,
-            precompile_index,
-        ]));
+            is_precompile.clone(),
+            precompile_index.clone(),
+        ));
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
         builder.assert_zero(flag_b_minus_one * (addr_b.clone() - fp_plus_operand_b));
@@ -150,65 +148,39 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         );
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
-
-    fn eval_custom<AB: AirBuilder>(
-        &self,
-        inputs: &[<AB as AirBuilder>::F],
-    ) -> <AB as AirBuilder>::EF {
-        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::EF>();
-        let type_id_expr = TypeId::of::<<AB as AirBuilder>::F>();
-        // let type_id_f = TypeId::of::<PF<EF>>();
-        let type_id_ef = TypeId::of::<EF>();
-        let type_id_f_packing = TypeId::of::<PFPacking<EF>>();
-        let type_id_ef_packing = TypeId::of::<EFPacking<EF>>();
-
-        if type_id_expr == type_id_ef {
-            assert_eq!(type_id_final_output, type_id_ef);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[EF]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| c * p);
-            unsafe { transmute_copy::<EF, <AB as AirBuilder>::EF>(&res) }
-        } else if type_id_expr == type_id_ef_packing {
-            assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[EFPacking<EF>]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| p * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::EF>(&res) }
-        } else if type_id_expr == type_id_f_packing {
-            assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[PFPacking<EF>]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::EF>(&res) }
-        } else {
-            unreachable!()
-        }
-    }
 }
 
-impl<EF: Copy> VMAir<EF> {
-    fn gkr_virtual_column_eval<
-        PointF: PrimeCharacteristicRing + Copy,
-        ResultF: Algebra<EF> + Algebra<PointF> + Copy,
-    >(
-        &self,
-        point: &[PointF],
-        mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
-    ) -> ResultF {
-        let nu_a = point[0];
-        let nu_b = point[1];
-        let nu_c = point[2];
-        let aux = point[3];
-        let is_precompile = point[4];
-        let precompile_index = point[5];
+fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
+    air: &VMAir<EF>,
+    nu_a: AB::F,
+    nu_b: AB::F,
+    nu_c: AB::F,
+    aux: AB::F,
+    is_precompile: AB::F,
+    precompile_index: AB::F,
+) -> AB::EF {
+    let air = if TypeId::of::<AB::EF>() == TypeId::of::<EF>() {
+        unsafe { transmute_copy::<VMAir<EF>, VMAir<AB::EF>>(air) }
+    } else {
+        assert_eq!(TypeId::of::<AB::EF>(), TypeId::of::<EFPacking<EF>>());
+        let air_packed = VMAir {
+            bus_challenge: EFPacking::<EF>::from(air.bus_challenge),
+            fingerprint_challenge_powers: air
+                .fingerprint_challenge_powers
+                .map(|c| EFPacking::<EF>::from(c)),
+            exec_bus_beta: EFPacking::<EF>::from(air.exec_bus_beta),
+        };
+        unsafe { transmute_copy::<VMAir<EFPacking<EF>>, VMAir<AB::EF>>(&air_packed) }
+    };
 
-        let nu_a_mul_challenge_1 = mul_point_f_and_ef(nu_a, self.fingerprint_challenge_powers[1]);
-        let nu_b_mul_challenge_2 = mul_point_f_and_ef(nu_b, self.fingerprint_challenge_powers[2]);
-        let nu_c_mul_challenge_3 = mul_point_f_and_ef(nu_c, self.fingerprint_challenge_powers[3]);
+    let nu_a_mul_challenge_1 = air.fingerprint_challenge_powers[1].clone() * nu_a;
+    let nu_b_mul_challenge_2 = air.fingerprint_challenge_powers[2].clone() * nu_b;
+    let nu_c_mul_challenge_3 = air.fingerprint_challenge_powers[3].clone() * nu_c;
 
-        let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
-        let aux_mul_challenge_4 = mul_point_f_and_ef(aux, self.fingerprint_challenge_powers[4]);
-        ((nu_sums + aux_mul_challenge_4 + precompile_index) + self.bus_challenge)
-            * self.exec_bus_beta
-            + is_precompile
-    }
+    let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
+    let aux_mul_challenge_4 = air.fingerprint_challenge_powers[4].clone() * aux;
+    ((nu_sums + aux_mul_challenge_4 + precompile_index) + air.bus_challenge) * air.exec_bus_beta
+        + is_precompile
 }
 
 pub fn execution_air_padding_row<F: Field>(ending_pc: usize) -> Vec<EF> {

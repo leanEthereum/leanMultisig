@@ -65,10 +65,6 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
             );
         }
     }
-
-    fn eval_custom<AB: AirBuilder>(&self, _: &[AB::F]) -> AB::EF {
-        unreachable!()
-    }
 }
 
 fn generate_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize>(

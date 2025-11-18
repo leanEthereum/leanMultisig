@@ -1,4 +1,4 @@
-use std::{any::TypeId, mem::transmute};
+use std::any::TypeId;
 
 use lean_vm::{DIMENSION, EF, TABLE_INDEX_DOT_PRODUCTS};
 use multilinear_toolkit::prelude::*;
@@ -96,13 +96,14 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
 
         // TODO we could do most of the following computation in the base field
 
-        builder.eval_custom(self.eval_custom::<AB>(&[
+        builder.eval_custom(eval_virtual_col::<AB, EF>(
+            self,
             start_flag_up.clone(),
             index_a_up.clone(),
             index_b_up.clone(),
             index_res_up.clone(),
             len_up.clone(),
-        ]));
+        ));
 
         builder.assert_bool(start_flag_down.clone());
 
@@ -124,63 +125,39 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
 
         builder.assert_zero_ef((computation_up - res_up) * start_flag_up);
     }
-
-    fn eval_custom<AB: AirBuilder>(
-        &self,
-        inputs: &[<AB as AirBuilder>::F],
-    ) -> <AB as AirBuilder>::EF {
-        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::EF>();
-        let type_id_expr = TypeId::of::<<AB as AirBuilder>::F>();
-        // let type_id_f = TypeId::of::<PF<EF>>();
-        let type_id_ef = TypeId::of::<EF>();
-        let type_id_f_packing = TypeId::of::<PFPacking<EF>>();
-        let type_id_ef_packing = TypeId::of::<EFPacking<EF>>();
-
-        if type_id_expr == type_id_ef {
-            assert_eq!(type_id_final_output, type_id_ef);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[EF]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| c * p);
-            unsafe { transmute_copy::<EF, <AB as AirBuilder>::EF>(&res) }
-        } else if type_id_expr == type_id_ef_packing {
-            assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[EFPacking<EF>]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| p * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::EF>(&res) }
-        } else if type_id_expr == type_id_f_packing {
-            assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::F], &[PFPacking<EF>]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::EF>(&res) }
-        } else {
-            unreachable!()
-        }
-    }
 }
 
-impl<EF: Copy> DotProductAir<EF> {
-    fn gkr_virtual_column_eval<
-        PointF: PrimeCharacteristicRing + Copy,
-        ResultF: Algebra<EF> + Algebra<PointF> + Copy,
-    >(
-        &self,
-        point: &[PointF],
-        mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
-    ) -> ResultF {
-        let start_flag_up = point[0];
-        let index_a = point[1];
-        let index_b = point[2];
-        let index_res = point[3];
-        let len = point[4];
+fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
+    air: &DotProductAir<EF>,
+    start_flag_up: AB::F,
+    index_a: AB::F,
+    index_b: AB::F,
+    index_res: AB::F,
+    len: AB::F,
+) -> AB::EF {
+    let air: DotProductAir<AB::EF> = if TypeId::of::<AB::EF>() == TypeId::of::<EF>() {
+        unsafe { transmute_copy::<DotProductAir<EF>, DotProductAir<AB::EF>>(air) }
+    } else {
+        assert_eq!(TypeId::of::<AB::EF>(), TypeId::of::<EFPacking<EF>>());
+        let air_packed = DotProductAir {
+            bus_challenge: EFPacking::<EF>::from(air.bus_challenge),
+            fingerprint_challenge_powers: air
+                .fingerprint_challenge_powers
+                .map(|c| EFPacking::<EF>::from(c)),
+            dot_product_bus_beta: EFPacking::<EF>::from(air.dot_product_bus_beta),
+        };
+        unsafe {
+            transmute_copy::<DotProductAir<EFPacking<EF>>, DotProductAir<AB::EF>>(&air_packed)
+        }
+    };
+    let data = air.fingerprint_challenge_powers[1].clone() * index_a
+        + air.fingerprint_challenge_powers[2].clone() * index_b
+        + air.fingerprint_challenge_powers[3].clone() * index_res
+        + air.fingerprint_challenge_powers[4].clone() * len;
 
-        let data = mul_point_f_and_ef(index_a, self.fingerprint_challenge_powers[1])
-            + mul_point_f_and_ef(index_b, self.fingerprint_challenge_powers[2])
-            + mul_point_f_and_ef(index_res, self.fingerprint_challenge_powers[3])
-            + mul_point_f_and_ef(len, self.fingerprint_challenge_powers[4]);
-
-        ((data + PointF::from_usize(TABLE_INDEX_DOT_PRODUCTS)) + self.bus_challenge)
-            * self.dot_product_bus_beta
-            + start_flag_up
-    }
+    ((data + AB::F::from_usize(TABLE_INDEX_DOT_PRODUCTS)) + air.bus_challenge)
+        * air.dot_product_bus_beta
+        + start_flag_up
 }
 
 pub fn dot_product_air_padding_row() -> Vec<EF> {
