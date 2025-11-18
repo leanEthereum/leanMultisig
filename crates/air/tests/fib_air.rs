@@ -3,7 +3,7 @@ use p3_air::{Air, AirBuilder};
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use utils::{build_prover_state, build_verifier_state};
 
-use air::{AirTable, prove_air, verify_air};
+use air::{check_air_validity, prove_air, verify_air};
 
 const UNIVARIATE_SKIPS: usize = 3;
 
@@ -63,18 +63,16 @@ fn test_air_fibonacci() {
     let columns_ref_ef = vec![&columns_plus_one_ef[..n_rows]];
     let last_row = vec![
         EF::from(columns_plus_one_f[n_rows]),
-        columns_plus_one_ef[n_rows]
+        columns_plus_one_ef[n_rows],
     ];
 
-    let table = AirTable::<EF, _>::new(FibonacciAir {});
+    let air = FibonacciAir {};
 
-    table
-        .check_trace_validity(&columns_ref_f, &columns_ref_ef, &last_row)
-        .unwrap();
+    check_air_validity(&air, &columns_ref_f, &columns_ref_ef, &last_row).unwrap();
 
     let (point_prover, evaluations_remaining_to_prove) = prove_air(
         &mut prover_state,
-        &table,
+        &air,
         UNIVARIATE_SKIPS,
         &columns_ref_f,
         &columns_ref_ef,
@@ -86,7 +84,7 @@ fn test_air_fibonacci() {
 
     let (point_verifier, evaluations_remaining_to_verify) = verify_air(
         &mut verifier_state,
-        &table,
+        &air,
         UNIVARIATE_SKIPS,
         log_n_rows,
         &last_row,

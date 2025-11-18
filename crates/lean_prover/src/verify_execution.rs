@@ -1,6 +1,5 @@
 use crate::common::*;
 use crate::*;
-use ::air::AirTable;
 use air::verify_air;
 use lean_vm::*;
 use lookup::verify_gkr_quotient;
@@ -301,28 +300,28 @@ pub fn verify_execution(
         p24_bus_eval_index_input_output,
     )];
 
-    let exec_table = AirTable::<EF, _>::new(VMAir {
+    let exec_air = VMAir {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         exec_bus_beta,
-    });
+    };
     let (exec_air_point, exec_evals_to_verify) = verify_air(
         &mut verifier_state,
-        &exec_table,
+        &exec_air,
         UNIVARIATE_SKIPS,
         log_n_cycles,
         &execution_air_padding_row::<EF>(bytecode.ending_pc),
         Some(exec_bus_virtual_statement),
     )?;
 
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
+    let dot_product_air = DotProductAir {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         dot_product_bus_beta,
-    });
+    };
     let (dot_product_air_point, dot_product_evals_to_verify) = verify_air(
         &mut verifier_state,
-        &dot_product_table,
+        &dot_product_air,
         DOT_PRODUCT_UNIVARIATE_SKIPS,
         table_dot_products_log_n_rows,
         &dot_product_air_padding_row(),

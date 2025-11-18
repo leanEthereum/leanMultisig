@@ -4,11 +4,9 @@ use p3_util::log2_ceil_usize;
 
 use crate::utils::next_mle;
 
-use super::table::AirTable;
-
 pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    table: &AirTable<EF, A>,
+    air: &A,
     univariate_skips: usize,
     log_n_rows: usize,
     last_row: &[EF],
@@ -49,19 +47,18 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
         .collect::<Vec<_>>();
 
     let mut inner_sums = verifier_state
-        .next_extension_scalars_vec(table.n_columns() + table.down_column_indexes().len())?;
+        .next_extension_scalars_vec(A::n_columns() + A::down_column_indexes().len())?;
 
     let constraints_batching_scalars = constraints_batching_scalar
         .powers()
-        .take(table.n_constraints() + virtual_column_statements.is_some() as usize)
+        .take(A::n_constraints() + virtual_column_statements.is_some() as usize)
         .collect();
-    let n_columns_down_f = table
-        .down_column_indexes()
+    let n_columns_down_f = A::down_column_indexes()
         .iter()
         .filter(|&&i| i < A::n_columns_f())
         .count();
     let constraint_evals = SumcheckComputation::eval_extension(
-        &table.air,
+        air,
         &inner_sums[..A::n_columns_f() + n_columns_down_f],
         &inner_sums[A::n_columns_f() + n_columns_down_f..],
         &constraints_batching_scalars,
@@ -87,9 +84,9 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
 
     open_columns(
         verifier_state,
-        table.n_columns(),
+        A::n_columns(),
         univariate_skips,
-        &table.down_column_indexes(),
+        &A::down_column_indexes(),
         inner_sums,
         &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
         &outer_selector_evals,

@@ -6,8 +6,6 @@ use utils::{FSProver, fold_multilinear_chunks, multilinears_linear_combination};
 
 use crate::{uni_skip_utils::matrix_next_mle_folded, utils::column_shifted};
 
-use super::table::AirTable;
-
 /*
 
 cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-air/#fnref:1
@@ -18,7 +16,7 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 #[allow(clippy::too_many_arguments)]
 pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    table: &AirTable<EF, A>,
+    air: &A,
     univariate_skips: usize,
     columns_f: &[&[PF<EF>]],
     columns_ef: &[&[EF]],
@@ -39,7 +37,7 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
 
     let constraints_batching_scalars = constraints_batching_scalar
         .powers()
-        .take(table.n_constraints() + virtual_column_statements.is_some() as usize)
+        .take(A::n_constraints() + virtual_column_statements.is_some() as usize)
         .collect();
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
@@ -50,8 +48,7 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
         .unwrap_or_else(|| prover_state.sample_vec(n_sc_rounds));
     assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
-    let shifted_rows_f = table
-        .down_column_indexes()
+    let shifted_rows_f = A::down_column_indexes()
         .par_iter()
         .zip_eq(last_row_shifted)
         .filter(|(i, _)| **i < A::n_columns_f())
@@ -59,8 +56,7 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
             column_shifted(columns_f[col_index], final_value.as_base().unwrap())
         })
         .collect::<Vec<_>>();
-    let shifted_rows_ef = table
-        .down_column_indexes()
+    let shifted_rows_ef = A::down_column_indexes()
         .par_iter()
         .zip_eq(last_row_shifted)
         .filter(|(i, _)| **i >= A::n_columns_f())
@@ -88,14 +84,19 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
             univariate_skips,
             columns_up_down_group_f_packed,
             Some(columns_up_down_group_ef_packed),
-            &table.air,
+            air,
             &constraints_batching_scalars,
             Some((zerocheck_challenges, None)),
             virtual_column_statements.is_none(),
             prover_state,
             virtual_column_statements
                 .as_ref()
-                .map(|st| dot_product(st.values.iter().copied(), constraints_batching_scalar.powers()))
+                .map(|st| {
+                    dot_product(
+                        st.values.iter().copied(),
+                        constraints_batching_scalar.powers(),
+                    )
+                })
                 .unwrap_or_else(|| EF::ZERO),
             store_intermediate_foldings,
         )
@@ -106,7 +107,7 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     open_columns(
         prover_state,
         univariate_skips,
-        &table.down_column_indexes(),
+        &A::down_column_indexes(),
         columns_f,
         columns_ef,
         &outer_sumcheck_challenge,

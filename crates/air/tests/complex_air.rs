@@ -4,7 +4,7 @@ use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state};
 
-use air::{AirTable, prove_air, verify_air};
+use air::{check_air_validity, prove_air, verify_air};
 
 const UNIVARIATE_SKIPS: usize = 3;
 
@@ -165,19 +165,13 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
         None
     };
 
-    let table = AirTable::<EF, _>::new(ExampleStructuredAir::<
-        N_COLUMNS,
-        N_PREPROCESSED_COLUMNS,
-        VIRTUAL_COLUMN,
-    > {});
+    let air = ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN> {};
 
-    table
-        .check_trace_validity(&columns_ref_f, &columns_ref_ef, &last_row_ef)
-        .unwrap();
+        check_air_validity(&air, &columns_ref_f, &columns_ref_ef, &last_row_ef).unwrap();
 
     let (point_prover, evaluations_remaining_to_prove) = prove_air(
         &mut prover_state,
-        &table,
+        &air,
         UNIVARIATE_SKIPS,
         &columns_ref_f,
         &columns_ref_ef,
@@ -202,7 +196,7 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
 
     let (point_verifier, evaluations_remaining_to_verify) = verify_air(
         &mut verifier_state,
-        &table,
+        &air,
         UNIVARIATE_SKIPS,
         log_n_rows,
         &last_row_ef,

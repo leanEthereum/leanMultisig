@@ -2,7 +2,6 @@ use std::array;
 
 use crate::common::*;
 use crate::*;
-use ::air::AirTable;
 use air::prove_air;
 use lean_vm::*;
 use lookup::{compute_pushforward, prove_gkr_quotient, prove_logup_star};
@@ -446,15 +445,15 @@ pub fn prove_execution(
         p24_bus_eval_index_input_output,
     )];
 
-    let exec_table = AirTable::<EF, _>::new(VMAir {
+    let exec_air = VMAir {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         exec_bus_beta,
-    });
+    };
     let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
         prove_air(
             &mut prover_state,
-            &exec_table,
+            &exec_air,
             UNIVARIATE_SKIPS,
             &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &[],
@@ -464,17 +463,16 @@ pub fn prove_execution(
         )
     });
 
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
+    let dot_product_air = DotProductAir {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         dot_product_bus_beta,
-    });
-
+    };
     let (dot_product_air_point, dot_product_evals_to_prove) = info_span!("DotProduct AIR proof")
         .in_scope(|| {
             prove_air(
                 &mut prover_state,
-                &dot_product_table,
+                &dot_product_air,
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
                 &dot_product_columns_f
                     .iter()
