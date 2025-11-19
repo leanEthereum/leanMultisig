@@ -11,17 +11,19 @@ impl<const WIDTH: usize> SumcheckComputation<EF> for CompressionComputation<WIDT
 where
     EF: ExtensionField<PF<EF>>,
 {
+    type ExtraData = Vec<EF>;
+
     fn degree(&self) -> usize {
         2
     }
 
     #[inline(always)]
-    fn eval_base(&self, point: &[PF<EF>], _: &[EF], alpha_powers: &[EF]) -> EF {
+    fn eval_base(&self, point: &[PF<EF>], _: &[EF], alpha_powers: &Self::ExtraData) -> EF {
         self.my_eval::<EF, PF<EF>>(point, alpha_powers)
     }
 
     #[inline(always)]
-    fn eval_extension(&self, point: &[EF], _: &[EF], alpha_powers: &[EF]) -> EF {
+    fn eval_extension(&self, point: &[EF], _: &[EF], alpha_powers: &Self::ExtraData) -> EF {
         self.my_eval::<EF, EF>(point, alpha_powers)
     }
 
@@ -30,7 +32,7 @@ where
         &self,
         point: &[PFPacking<EF>],
         _: &[EFPacking<EF>],
-        alpha_powers: &[EF],
+        alpha_powers: &Self::ExtraData,
     ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + 1);
         let mut res = EFPacking::<EF>::ZERO;
@@ -52,7 +54,7 @@ where
         &self,
         point: &[EFPacking<EF>],
         _: &[EFPacking<EF>],
-        alpha_powers: &[EF],
+        alpha_powers: &Self::ExtraData,
     ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + 1);
         let mut res = EFPacking::<EF>::ZERO;

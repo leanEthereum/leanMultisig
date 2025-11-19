@@ -38,15 +38,35 @@ pub const DOT_PRODUCT_AIR_N_COLUMNS_EF: usize = 4;
 pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize =
     DOT_PRODUCT_AIR_N_COLUMNS_F + DOT_PRODUCT_AIR_N_COLUMNS_EF;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DotProductAir<EF> {
+    _marker: std::marker::PhantomData<EF>,
+}
+
+#[derive(Debug)]
+pub struct DotProductAirExtraData<EF> {
     // GKR quotient challenges
     pub bus_challenge: EF,
     pub fingerprint_challenge_powers: [EF; 5],
     pub dot_product_bus_beta: EF,
+    pub alpha_powers: Vec<EF>,
+}
+
+impl AlphaPowersMut<EF> for DotProductAirExtraData<EF> {
+    fn alpha_powers_mut(&mut self) -> &mut Vec<EF> {
+        &mut self.alpha_powers
+    }
+}
+
+impl AlphaPowers<EF> for DotProductAirExtraData<EF> {
+    fn alpha_powers(&self) -> &[EF] {
+        &self.alpha_powers
+    }
 }
 
 impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
+    type ExtraData = DotProductAirExtraData<EF>;
+
     fn n_columns_f() -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS_F
     }
@@ -70,7 +90,7 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up_f = builder.up_f();
         let up_ef = builder.up_ef();
         let down_f = builder.down_f();
@@ -97,7 +117,7 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
         // TODO we could do most of the following computation in the base field
 
         builder.eval_virtual_column(eval_virtual_col::<AB, EF>(
-            self,
+            extra_data,
             start_flag_up.clone(),
             index_a_up.clone(),
             index_b_up.clone(),
@@ -128,34 +148,43 @@ impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
 }
 
 fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
-    air: &DotProductAir<EF>,
+    extra_data: &DotProductAirExtraData<EF>,
     start_flag_up: AB::F,
     index_a: AB::F,
     index_b: AB::F,
     index_res: AB::F,
     len: AB::F,
 ) -> AB::EF {
-    let air: DotProductAir<AB::EF> = if TypeId::of::<AB::EF>() == TypeId::of::<EF>() {
-        unsafe { transmute_copy::<DotProductAir<EF>, DotProductAir<AB::EF>>(air) }
+    let (bus_challenge, fingerprint_challenge_powers, dot_product_bus_beta): (
+        AB::EF,
+        [AB::EF; 5],
+        AB::EF,
+    ) = if TypeId::of::<AB::EF>() == TypeId::of::<EF>() {
+        unsafe {
+            transmute_copy::<_, _>(&(
+                extra_data.bus_challenge,
+                extra_data.fingerprint_challenge_powers,
+                extra_data.dot_product_bus_beta,
+            ))
+        }
     } else {
         assert_eq!(TypeId::of::<AB::EF>(), TypeId::of::<EFPacking<EF>>());
-        let air_packed = DotProductAir {
-            bus_challenge: EFPacking::<EF>::from(air.bus_challenge),
-            fingerprint_challenge_powers: air
-                .fingerprint_challenge_powers
-                .map(|c| EFPacking::<EF>::from(c)),
-            dot_product_bus_beta: EFPacking::<EF>::from(air.dot_product_bus_beta),
-        };
         unsafe {
-            transmute_copy::<DotProductAir<EFPacking<EF>>, DotProductAir<AB::EF>>(&air_packed)
+            transmute_copy::<_, _>(&(
+                EFPacking::<EF>::from(extra_data.bus_challenge),
+                extra_data
+                    .fingerprint_challenge_powers
+                    .map(|c| EFPacking::<EF>::from(c)),
+                EFPacking::<EF>::from(extra_data.dot_product_bus_beta),
+            ))
         }
     };
-    let data = air.fingerprint_challenge_powers[1].clone() * index_a
-        + air.fingerprint_challenge_powers[2].clone() * index_b
-        + air.fingerprint_challenge_powers[3].clone() * index_res
-        + air.fingerprint_challenge_powers[4].clone() * len;
+    let data = fingerprint_challenge_powers[1].clone() * index_a
+        + fingerprint_challenge_powers[2].clone() * index_b
+        + fingerprint_challenge_powers[3].clone() * index_res
+        + fingerprint_challenge_powers[4].clone() * len;
 
-    ((data + Table::DotProducts.embed::<AB::F>()) + air.bus_challenge) * air.dot_product_bus_beta
+    ((data + Table::DotProducts.embed::<AB::F>()) + bus_challenge) * dot_product_bus_beta
         + start_flag_up
 }
 

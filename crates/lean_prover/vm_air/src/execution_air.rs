@@ -35,15 +35,35 @@ pub const COL_INDEX_MEM_ADDRESS_A: usize = 18;
 pub const COL_INDEX_MEM_ADDRESS_B: usize = 19;
 pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VMAir<EF> {
+    _marker: std::marker::PhantomData<EF>,
+}
+
+#[derive(Debug)]
+pub struct VMAirExtraData<EF> {
     // GKR quotient challenges
     pub bus_challenge: EF,
     pub fingerprint_challenge_powers: [EF; 5],
     pub exec_bus_beta: EF,
+    pub alpha_powers: Vec<EF>,
+}
+
+impl AlphaPowersMut<EF> for VMAirExtraData<EF> {
+    fn alpha_powers_mut(&mut self) -> &mut Vec<EF> {
+        &mut self.alpha_powers
+    }
+}
+
+impl AlphaPowers<EF> for VMAirExtraData<EF> {
+    fn alpha_powers(&self) -> &[EF] {
+        &self.alpha_powers
+    }
 }
 
 impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
+    type ExtraData = VMAirExtraData<EF>;
+
     fn n_columns_f() -> usize {
         N_EXEC_AIR_COLUMNS
     }
@@ -61,7 +81,7 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
         let down = builder.down_f();
 
@@ -114,7 +134,7 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
         builder.eval_virtual_column(eval_virtual_col::<AB, EF>(
-            self,
+            extra_data,
             nu_a.clone(),
             nu_b.clone(),
             nu_c.clone(),
@@ -151,7 +171,7 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
 }
 
 fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
-    air: &VMAir<EF>,
+    extra_data: &VMAirExtraData<EF>,
     nu_a: AB::F,
     nu_b: AB::F,
     nu_c: AB::F,
@@ -159,27 +179,38 @@ fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
     is_precompile: AB::F,
     precompile_index: AB::F,
 ) -> AB::EF {
-    let air = if TypeId::of::<AB::EF>() == TypeId::of::<EF>() {
-        unsafe { transmute_copy::<VMAir<EF>, VMAir<AB::EF>>(air) }
+    let (bus_challenge, fingerprint_challenge_powers, exec_bus_beta): (
+        AB::EF,
+        [AB::EF; 5],
+        AB::EF,
+    ) = if TypeId::of::<AB::EF>() == TypeId::of::<EF>() {
+        unsafe {
+            transmute_copy::<_, _>(&(
+                extra_data.bus_challenge,
+                extra_data.fingerprint_challenge_powers,
+                extra_data.exec_bus_beta,
+            ))
+        }
     } else {
         assert_eq!(TypeId::of::<AB::EF>(), TypeId::of::<EFPacking<EF>>());
-        let air_packed = VMAir {
-            bus_challenge: EFPacking::<EF>::from(air.bus_challenge),
-            fingerprint_challenge_powers: air
-                .fingerprint_challenge_powers
-                .map(|c| EFPacking::<EF>::from(c)),
-            exec_bus_beta: EFPacking::<EF>::from(air.exec_bus_beta),
-        };
-        unsafe { transmute_copy::<VMAir<EFPacking<EF>>, VMAir<AB::EF>>(&air_packed) }
+        unsafe {
+            transmute_copy::<_, _>(&(
+                EFPacking::<EF>::from(extra_data.bus_challenge),
+                extra_data
+                    .fingerprint_challenge_powers
+                    .map(|c| EFPacking::<EF>::from(c)),
+                EFPacking::<EF>::from(extra_data.exec_bus_beta),
+            ))
+        }
     };
 
-    let nu_a_mul_challenge_1 = air.fingerprint_challenge_powers[1].clone() * nu_a;
-    let nu_b_mul_challenge_2 = air.fingerprint_challenge_powers[2].clone() * nu_b;
-    let nu_c_mul_challenge_3 = air.fingerprint_challenge_powers[3].clone() * nu_c;
+    let nu_a_mul_challenge_1 = fingerprint_challenge_powers[1].clone() * nu_a;
+    let nu_b_mul_challenge_2 = fingerprint_challenge_powers[2].clone() * nu_b;
+    let nu_c_mul_challenge_3 = fingerprint_challenge_powers[3].clone() * nu_c;
 
     let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
-    let aux_mul_challenge_4 = air.fingerprint_challenge_powers[4].clone() * aux;
-    ((nu_sums + aux_mul_challenge_4 + precompile_index) + air.bus_challenge) * air.exec_bus_beta
+    let aux_mul_challenge_4 = fingerprint_challenge_powers[4].clone() * aux;
+    ((nu_sums + aux_mul_challenge_4 + precompile_index) + bus_challenge) * exec_bus_beta
         + is_precompile
 }
 

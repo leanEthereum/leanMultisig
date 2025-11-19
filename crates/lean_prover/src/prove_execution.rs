@@ -445,15 +445,17 @@ pub fn prove_execution(
         p24_bus_eval_index_input_output,
     )];
 
-    let exec_air = VMAir {
+    let exec_air_extra_data = VMAirExtraData {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         exec_bus_beta,
+        alpha_powers: vec![], // filled later
     };
     let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
         prove_air(
             &mut prover_state,
-            &exec_air,
+            &VMAir::default(),
+            exec_air_extra_data,
             UNIVARIATE_SKIPS,
             &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &[],
@@ -463,16 +465,18 @@ pub fn prove_execution(
         )
     });
 
-    let dot_product_air = DotProductAir {
+    let dot_product_air_extra_data = DotProductAirExtraData {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         dot_product_bus_beta,
+        alpha_powers: vec![], // filled later
     };
     let (dot_product_air_point, dot_product_evals_to_prove) = info_span!("DotProduct AIR proof")
         .in_scope(|| {
             prove_air(
                 &mut prover_state,
-                &dot_product_air,
+                &DotProductAir::default(),
+                dot_product_air_extra_data,
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
                 &dot_product_columns_f
                     .iter()
@@ -698,7 +702,7 @@ pub fn prove_execution(
             ]),
             None,
             &CubeComputation {},
-            &[],
+            &vec![],
             None,
             false,
             &mut prover_state,

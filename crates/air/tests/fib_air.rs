@@ -13,6 +13,8 @@ type EF = QuinticExtensionFieldKB;
 struct FibonacciAir;
 
 impl Air for FibonacciAir {
+    type ExtraData = Vec<EF>;
+
     fn n_columns_f() -> usize {
         1
     }
@@ -30,7 +32,7 @@ impl Air for FibonacciAir {
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
         let a_up = builder.up_f()[0].clone();
         let b_up = builder.up_ef()[0].clone();
         let a_down = builder.down_f()[0].clone();
@@ -68,11 +70,12 @@ fn test_air_fibonacci() {
 
     let air = FibonacciAir {};
 
-    check_air_validity(&air, &columns_ref_f, &columns_ref_ef, &last_row).unwrap();
+    check_air_validity(&air, &vec![], &columns_ref_f, &columns_ref_ef, &last_row).unwrap();
 
     let (point_prover, evaluations_remaining_to_prove) = prove_air(
         &mut prover_state,
         &air,
+        vec![],
         UNIVARIATE_SKIPS,
         &columns_ref_f,
         &columns_ref_ef,
@@ -85,6 +88,7 @@ fn test_air_fibonacci() {
     let (point_verifier, evaluations_remaining_to_verify) = verify_air(
         &mut verifier_state,
         &air,
+        vec![],
         UNIVARIATE_SKIPS,
         log_n_rows,
         &last_row,

@@ -22,6 +22,8 @@ struct ExampleStructuredAir<
 impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool> Air
     for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
 {
+    type ExtraData = Vec<EF>;
+
     fn n_columns_f() -> usize {
         N_COLS_F
     }
@@ -39,7 +41,7 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
         let up_f = builder.up_f().to_vec();
         let up_ef = builder.up_ef().to_vec();
         let down_ef = builder.down_ef().to_vec();
@@ -167,11 +169,12 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
 
     let air = ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN> {};
 
-        check_air_validity(&air, &columns_ref_f, &columns_ref_ef, &last_row_ef).unwrap();
+    check_air_validity(&air, &vec![], &columns_ref_f, &columns_ref_ef, &last_row_ef).unwrap();
 
     let (point_prover, evaluations_remaining_to_prove) = prove_air(
         &mut prover_state,
         &air,
+        vec![],
         UNIVARIATE_SKIPS,
         &columns_ref_f,
         &columns_ref_ef,
@@ -197,6 +200,7 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
     let (point_verifier, evaluations_remaining_to_verify) = verify_air(
         &mut verifier_state,
         &air,
+        vec![],
         UNIVARIATE_SKIPS,
         log_n_rows,
         &last_row_ef,

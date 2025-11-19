@@ -6,6 +6,7 @@ use utils::ConstraintChecker;
 #[instrument(name = "Check trace validity", skip_all)]
 pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
     air: &A,
+    extra_data: &A::ExtraData,
     columns_f: &[&[PF<EF>]],
     columns_ef: &[&[EF]],
     last_row: &[EF],
@@ -56,7 +57,7 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
             constraint_index: 0,
             errors: Vec::new(),
         };
-        air.eval(&mut constraints_checker);
+        air.eval(&mut constraints_checker, extra_data);
         handle_errors(row, &constraints_checker)?;
     }
     // last transition:
@@ -83,7 +84,7 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
         constraint_index: 0,
         errors: Vec::new(),
     };
-    air.eval(&mut constraints_checker);
+    air.eval(&mut constraints_checker, extra_data);
     handle_errors(n_rows - 1, &constraints_checker)?;
     Ok(())
 }

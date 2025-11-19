@@ -300,28 +300,32 @@ pub fn verify_execution(
         p24_bus_eval_index_input_output,
     )];
 
-    let exec_air = VMAir {
+    let exec_air_extra_data = VMAirExtraData {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         exec_bus_beta,
+        alpha_powers: vec![], // filled later
     };
     let (exec_air_point, exec_evals_to_verify) = verify_air(
         &mut verifier_state,
-        &exec_air,
+        &VMAir::default(),
+        exec_air_extra_data,
         UNIVARIATE_SKIPS,
         log_n_cycles,
         &execution_air_padding_row::<EF>(bytecode.ending_pc),
         Some(exec_bus_virtual_statement),
     )?;
 
-    let dot_product_air = DotProductAir {
+    let dot_product_air_extra_data = DotProductAirExtraData {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         dot_product_bus_beta,
+        alpha_powers: vec![], // filled later
     };
     let (dot_product_air_point, dot_product_evals_to_verify) = verify_air(
         &mut verifier_state,
-        &dot_product_air,
+        &DotProductAir::default(),
+        dot_product_air_extra_data,
         DOT_PRODUCT_UNIVARIATE_SKIPS,
         table_dot_products_log_n_rows,
         &dot_product_air_padding_row(),

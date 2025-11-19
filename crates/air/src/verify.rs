@@ -7,12 +7,26 @@ use crate::utils::next_mle;
 pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     air: &A,
+    mut extra_data: A::ExtraData,
     univariate_skips: usize,
     log_n_rows: usize,
     last_row: &[EF],
     virtual_column_statements: Option<MultiEvaluation<EF>>, // point should be randomness generated after committing to the columns
-) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
-    let constraints_batching_scalar = verifier_state.sample();
+) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError>
+where
+    A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
+{
+    let alpha = verifier_state.sample(); // random challenge for batching constraints
+
+    *extra_data.alpha_powers_mut() = alpha
+        .powers()
+        .take(
+            A::n_constraints()
+                + virtual_column_statements
+                    .as_ref()
+                    .map_or(0, |s| s.values.len()),
+        )
+        .collect();
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
     let zerocheck_challenges = virtual_column_statements
@@ -30,12 +44,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     if sc_sum
         != virtual_column_statements
             .as_ref()
-            .map(|st| {
-                dot_product(
-                    st.values.iter().copied(),
-                    constraints_batching_scalar.powers(),
-                )
-            })
+            .map(|st| dot_product(st.values.iter().copied(), alpha.powers()))
             .unwrap_or_else(|| EF::ZERO)
     {
         return Err(ProofError::InvalidProof);
@@ -49,10 +58,6 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     let mut inner_sums = verifier_state
         .next_extension_scalars_vec(A::n_columns() + A::down_column_indexes().len())?;
 
-    let constraints_batching_scalars = constraints_batching_scalar
-        .powers()
-        .take(A::n_constraints() + virtual_column_statements.is_some() as usize)
-        .collect();
     let n_columns_down_f = A::down_column_indexes()
         .iter()
         .filter(|&&i| i < A::n_columns_f())
@@ -61,7 +66,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
         air,
         &inner_sums[..A::n_columns_f() + n_columns_down_f],
         &inner_sums[A::n_columns_f() + n_columns_down_f..],
-        &constraints_batching_scalars,
+        &extra_data,
     );
 
     if eq_poly_with_skip(
