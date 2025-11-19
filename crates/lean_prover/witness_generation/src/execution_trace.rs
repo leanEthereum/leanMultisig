@@ -2,6 +2,7 @@ use crate::instruction_encoder::field_representation;
 use crate::*;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
+use p3_air::Air;
 use std::array;
 use utils::{ToUsize, transposed_par_iter_mut};
 use vm_air::*;
@@ -16,7 +17,7 @@ pub struct ExecutionTrace {
     pub n_compressions_16: usize,
     pub poseidons_16: Vec<WitnessPoseidon16>, // padded with empty poseidons
     pub poseidons_24: Vec<WitnessPoseidon24>, // padded with empty poseidons
-    pub dot_products: Vec<WitnessDotProduct>,
+    pub dot_product_trace: PrecompileTrace,
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
@@ -129,7 +130,7 @@ pub fn get_execution_trace(
     let ExecutionResult {
         mut poseidons_16,
         mut poseidons_24,
-        dot_products,
+        mut dot_product_trace,
         multilinear_evals,
         ..
     } = execution_result;
@@ -147,6 +148,21 @@ pub fn get_execution_trace(
         WitnessPoseidon24::poseidon_of_zero(),
     );
 
+    dot_product_trace.padding_len = dot_product_trace.base[0]
+        .len()
+        .next_power_of_two()
+        .max(1 << LOG_MIN_DOT_PRODUCT_ROWS)
+        - dot_product_trace.base[0].len();
+    for (i, col) in dot_product_trace.base.iter_mut().enumerate() {
+        let default_value: F = DotProductPrecompile::padding_row()[i].as_base().unwrap();
+        col.extend(std::iter::repeat(default_value).take(dot_product_trace.padding_len));
+    }
+    for (i, col) in dot_product_trace.ext.iter_mut().enumerate() {
+        let default_value =
+            DotProductPrecompile::padding_row()[i + DotProductPrecompile::n_columns_f()];
+        col.extend(std::iter::repeat(default_value).take(dot_product_trace.padding_len));
+    }
+
     let n_compressions_16;
     (poseidons_16, n_compressions_16) = put_poseidon16_compressions_at_the_end(&poseidons_16); // TODO avoid reallocation
 
@@ -159,7 +175,7 @@ pub fn get_execution_trace(
         n_compressions_16,
         poseidons_16,
         poseidons_24,
-        dot_products,
+        dot_product_trace,
         multilinear_evals,
         public_memory_size: execution_result.public_memory_size,
         non_zero_memory_size: memory.0.len(),

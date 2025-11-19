@@ -2,13 +2,13 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
-use crate::{DotProductPrecompile, ModularPrecompile, WitnessDotProduct};
 use crate::core::{DIMENSION, EF, F, Label, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
 use crate::witness::{
     RowMultilinearEval, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
+use crate::{DotProductPrecompile, ModularPrecompile, PrecompileTrace};
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
@@ -107,7 +107,7 @@ pub struct InstructionContext<'a> {
     pub pcs: &'a Vec<usize>,
     pub poseidons_16: &'a mut Vec<WitnessPoseidon16>,
     pub poseidons_24: &'a mut Vec<WitnessPoseidon24>,
-    pub dot_products: &'a mut Vec<WitnessDotProduct>,
+    pub dot_product_trace: &'a mut PrecompileTrace,
     pub multilinear_evals: &'a mut Vec<WitnessMultilinearEval>,
     pub add_counts: &'a mut usize,
     pub mul_counts: &'a mut usize,
@@ -315,18 +315,14 @@ impl Instruction {
                 res,
                 size,
             } => {
-                let ptr_arg_0 = arg0.read_value(ctx.memory, *ctx.fp)?;
-                let ptr_arg_1 = arg1.read_value(ctx.memory, *ctx.fp)?;
-                let ptr_res = res.read_value(ctx.memory, *ctx.fp)?;
-
-                let dot_product_witness = DotProductPrecompile::execute(
-                    ptr_arg_0,
-                    ptr_arg_1,
-                    ptr_res,
+                DotProductPrecompile::execute(
+                    arg0.read_value(ctx.memory, *ctx.fp)?,
+                    arg1.read_value(ctx.memory, *ctx.fp)?,
+                    res.read_value(ctx.memory, *ctx.fp)?,
                     *size,
                     ctx.memory,
+                    ctx.dot_product_trace,
                 )?;
-                ctx.dot_products.push(dot_product_witness);
 
                 *ctx.pc += 1;
                 Ok(())

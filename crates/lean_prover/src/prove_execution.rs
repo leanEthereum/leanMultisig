@@ -35,7 +35,7 @@ pub fn prove_execution(
         poseidons_16,      // padded with empty poseidons
         poseidons_24,      // padded with empty poseidons
         n_compressions_16, // included the padding (that are compressions of zeros)
-        dot_products,
+        dot_product_trace,
         multilinear_evals: vm_multilinear_evals,
         public_memory_size,
         mut non_zero_memory_size,
@@ -81,19 +81,13 @@ pub fn prove_execution(
         generate_poseidon_witness_helper(&p16_gkr_layers, &poseidons_16, Some(n_compressions_16));
     let p24_witness = generate_poseidon_witness_helper(&p24_gkr_layers, &poseidons_24, None);
 
-    let DotProductColumns {
-        in_base: dot_product_columns_f,
-        in_ext: dot_product_columns_ef,
-        padding_len: dot_product_padding_len,
-    } = build_dot_product_columns(&dot_products, 1 << LOG_MIN_DOT_PRODUCT_ROWS);
-
     let dot_product_computation_ext_to_base_helper =
         ExtensionCommitmentFromBaseProver::before_commitment(
-            &dot_product_columns_ef[DOT_PRODUCT_AIR_COL_COMPUTATION],
+            &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_COMPUTATION],
         );
 
-    let n_rows_table_dot_products = dot_product_columns_f[0].len() - dot_product_padding_len;
-    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_columns_f[0].len());
+    let n_rows_table_dot_products = dot_product_trace.base[0].len() - dot_product_trace.padding_len;
+    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_trace.base[0].len());
 
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
@@ -185,7 +179,7 @@ pub fn prove_execution(
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        dot_product_columns_f.iter().map(Vec::as_slice).collect(),
+        dot_product_trace.base.iter().map(Vec::as_slice).collect(),
         dot_product_computation_ext_to_base_helper
             .sub_columns_to_commit
             .iter()
@@ -343,17 +337,17 @@ pub fn prove_execution(
                     + finger_print(
                         Table::DotProduct,
                         &[
-                            dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_A][i],
-                            dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_B][i],
-                            dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_RES][i],
-                            dot_product_columns_f[DOT_PRODUCT_AIR_COL_LEN][i],
+                            dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_A][i],
+                            dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_B][i],
+                            dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_RES][i],
+                            dot_product_trace.base[DOT_PRODUCT_AIR_COL_LEN][i],
                         ],
                         fingerprint_challenge,
                     )
             })
             .collect::<Vec<_>>();
 
-        let dot_product_bus_selector = dot_product_columns_f[DOT_PRODUCT_AIR_COL_START_FLAG]
+        let dot_product_bus_selector = dot_product_trace.base[DOT_PRODUCT_AIR_COL_START_FLAG]
             .par_iter()
             .map(|&x| EF::from(-x)) // NOTE the "-" sign here !!
             .collect::<Vec<_>>(); // TODO embedding overhead !!!!!!!!!!!!!!
@@ -398,7 +392,7 @@ pub fn prove_execution(
         })
         .sum::<EF>();
 
-    dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
+    dot_product_bus_quotient += EF::from_usize(dot_product_trace.padding_len)
         / (bus_challenge
             + finger_print(
                 Table::DotProduct,
@@ -478,11 +472,11 @@ pub fn prove_execution(
                 &DotProductPrecompile {},
                 dot_product_air_extra_data,
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
-                &dot_product_columns_f
+                &dot_product_trace.base
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),
-                &dot_product_columns_ef
+                &dot_product_trace.ext
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),
@@ -555,9 +549,9 @@ pub fn prove_execution(
             &full_trace[COL_INDEX_MEM_ADDRESS_A],
             &full_trace[COL_INDEX_MEM_ADDRESS_B],
             &full_trace[COL_INDEX_MEM_ADDRESS_C],
-            &dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_A],
-            &dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_B],
-            &dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_RES],
+            &dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_A],
+            &dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_B],
+            &dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_RES],
         ],
         [
             vec![n_cycles; 3],
@@ -571,9 +565,9 @@ pub fn prove_execution(
             &full_trace[COL_INDEX_MEM_VALUE_C],
         ],
         vec![
-            &dot_product_columns_ef[DOT_PRODUCT_AIR_COL_VALUE_A],
-            &dot_product_columns_ef[DOT_PRODUCT_AIR_COL_VALUE_B],
-            &dot_product_columns_ef[DOT_PRODUCT_AIR_COL_VALUE_RES],
+            &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_VALUE_A],
+            &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_VALUE_B],
+            &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_VALUE_RES],
         ],
         normal_lookup_into_memory_initial_statements(
             &exec_air_point,

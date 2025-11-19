@@ -1,11 +1,9 @@
 use crate::precompiles::dot_product::vm_exec::exec_dot_product;
 use crate::{
-    Bus, ColIndex, EF, ExtensionFieldLookupIntoMemory, F, LookupIntoMemory, Memory, ModularPrecompile, PrecompileTrace, RunnerError, Table, VectorLookupIntoMemory
+    Bus, ColIndex, EF, ExtensionFieldLookupIntoMemory, F, LookupIntoMemory, Memory,
+    ModularPrecompile, PrecompileTrace, RunnerError, Table, VectorLookupIntoMemory,
 };
 use multilinear_toolkit::prelude::*;
-pub use witness::*;
-
-mod witness;
 
 mod air;
 pub use air::*;
@@ -16,8 +14,6 @@ mod vm_exec;
 pub struct DotProductPrecompile;
 
 impl ModularPrecompile for DotProductPrecompile {
-    type Witness = WitnessDotProduct;
-
     fn name() -> &'static str {
         "dot_product"
     }
@@ -52,24 +48,19 @@ impl ModularPrecompile for DotProductPrecompile {
         arg_c: F,
         aux: usize,
         memory: &mut Memory,
-    ) -> Result<Self::Witness, RunnerError> {
-        exec_dot_product(arg_a, arg_b, arg_c, aux, memory)
+        trace: &mut PrecompileTrace,
+    ) -> Result<(), RunnerError> {
+        exec_dot_product(arg_a, arg_b, arg_c, aux, memory, trace)
     }
 
-    fn gen_trace(witness: &[Self::Witness]) -> ProofResult<PrecompileTrace> {
-        Ok(PrecompileTrace {
-            base: vec![vec![F::ZERO; witness.len()]],
-            ext: vec![vec![EF::ZERO; witness.len()]],
-        })
-    }
-
-    fn air_padding_row() -> Vec<EF> {
-        vec![
-            EF::ONE,  // StartFlag
-            EF::ONE,  // Len
-            EF::ZERO, // IndexA
-            EF::ZERO, // IndexB
-            EF::ZERO, // Computation
+    fn padding_row() -> Vec<EF> {
+        [
+            vec![
+                EF::ONE, // StartFlag
+                EF::ONE, // Len
+            ],
+            vec![EF::ZERO; DOT_PRODUCT_AIR_N_COLUMNS_TOTAL - 2],
         ]
+        .concat()
     }
 }

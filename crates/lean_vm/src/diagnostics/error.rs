@@ -1,4 +1,4 @@
-use crate::WitnessDotProduct;
+use crate::PrecompileTrace;
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
@@ -45,7 +45,7 @@ pub struct ExecutionResult {
     pub fps: Vec<usize>,
     pub poseidons_16: Vec<WitnessPoseidon16>,
     pub poseidons_24: Vec<WitnessPoseidon24>,
-    pub dot_products: Vec<WitnessDotProduct>,
+    pub dot_product_trace: PrecompileTrace,
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
     pub summary: String,
     pub memory_profile: Option<MemoryProfile>,

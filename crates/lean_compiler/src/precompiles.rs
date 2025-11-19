@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter};
 
+use lean_vm::ModularPrecompile;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Precompile {
     pub name: PrecompileName,
@@ -44,5 +46,12 @@ pub const MULTILINEAR_EVAL: Precompile = Precompile {
     name: PrecompileName::MultilinearEval,
     n_inputs: 4,
 };
+
+// pub enum MyPrecompile {
+//     Poseidon16,
+//     Poseidon24,
+//     MultilinearEval,
+//     Custom(Box<dyn ModularPrecompile>)
+// }
 
 pub const PRECOMPILES: [Precompile; 4] = [POSEIDON_16, POSEIDON_24, DOT_PRODUCT, MULTILINEAR_EVAL];

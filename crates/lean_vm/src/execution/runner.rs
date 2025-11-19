@@ -8,10 +8,9 @@ use crate::diagnostics::{ExecutionResult, MemoryProfile, RunnerError, memory_pro
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
-use crate::witness::{
- WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
+use crate::{
+    CodeAddress, DotProductPrecompile, HintExecutionContext, PrecompileTrace, SourceLineNumber,
 };
-use crate::{CodeAddress, HintExecutionContext, SourceLineNumber, WitnessDotProduct};
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
@@ -202,10 +201,10 @@ fn execute_bytecode_helper(
     let mut n_poseidon24_precomputed_used = 0;
 
     // Events collected only in final execution
-    let mut poseidons_16: Vec<WitnessPoseidon16> = Vec::new();
-    let mut poseidons_24: Vec<WitnessPoseidon24> = Vec::new();
-    let mut dot_products: Vec<WitnessDotProduct> = Vec::new();
-    let mut multilinear_evals: Vec<WitnessMultilinearEval> = Vec::new();
+    let mut poseidons_16 = Vec::new();
+    let mut poseidons_24 = Vec::new();
+    let mut dot_product_trace = PrecompileTrace::new::<DotProductPrecompile>();
+    let mut multilinear_evals = Vec::new();
 
     let mut add_counts = 0;
     let mut mul_counts = 0;
@@ -254,7 +253,7 @@ fn execute_bytecode_helper(
             pcs: &pcs,
             poseidons_16: &mut poseidons_16,
             poseidons_24: &mut poseidons_24,
-            dot_products: &mut dot_products,
+            dot_product_trace: &mut dot_product_trace,
             multilinear_evals: &mut multilinear_evals,
             add_counts: &mut add_counts,
             mul_counts: &mut mul_counts,
@@ -378,12 +377,12 @@ fn execute_bytecode_helper(
             cpu_cycles / (poseidons_16.len() + poseidons_24.len())
         ));
     }
-    if !dot_products.is_empty() {
-        summary.push_str(&format!(
-            "DotProduct calls: {}\n",
-            pretty_integer(dot_products.len())
-        ));
-    }
+    // if !dot_products.is_empty() {
+    //     summary.push_str(&format!(
+    //         "DotProduct calls: {}\n",
+    //         pretty_integer(dot_products.len())
+    //     ));
+    // }
     if !multilinear_evals.is_empty() {
         summary.push_str(&format!(
             "MultilinearEval calls: {}\n",
@@ -422,7 +421,7 @@ fn execute_bytecode_helper(
         fps,
         poseidons_16,
         poseidons_24,
-        dot_products,
+        dot_product_trace,
         multilinear_evals,
         summary,
         memory_profile: if profiling { Some(mem_profile) } else { None },

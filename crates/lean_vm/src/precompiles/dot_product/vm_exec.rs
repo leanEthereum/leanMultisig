@@ -2,9 +2,10 @@ use crate::EF;
 use crate::F;
 use crate::Memory;
 use crate::ONE_VEC_PTR;
+use crate::PrecompileTrace;
 use crate::RunnerError;
 use crate::VECTOR_LEN;
-use crate::WitnessDotProduct;
+use crate::*;
 use multilinear_toolkit::prelude::*;
 use utils::ToUsize;
 
@@ -14,34 +15,51 @@ pub(crate) fn exec_dot_product(
     ptr_res: F,
     size: usize,
     memory: &mut Memory,
-) -> Result<WitnessDotProduct, RunnerError> {
-    let ptr_arg_0 = ptr_arg_0.to_usize();
-    let ptr_arg_1 = ptr_arg_1.to_usize();
-    let ptr_res = ptr_res.to_usize();
+    trace: &mut PrecompileTrace,
+) -> Result<(), RunnerError> {
+    assert!(size > 0);
 
-    let slice_0 = memory.get_continuous_slice_of_ef_elements(ptr_arg_0, size)?;
+    let slice_0 = memory.get_continuous_slice_of_ef_elements(ptr_arg_0.to_usize(), size)?;
 
-    let (slice_1, dot_product_result) = if ptr_arg_1 == ONE_VEC_PTR * VECTOR_LEN {
+    let (slice_1, dot_product_result) = if ptr_arg_1.to_usize() == ONE_VEC_PTR * VECTOR_LEN {
         if size != 1 {
             unimplemented!("weird use case");
         }
         (vec![EF::ONE], slice_0[0])
     } else {
-        let slice_1 = memory.get_continuous_slice_of_ef_elements(ptr_arg_1, size)?;
+        let slice_1 = memory.get_continuous_slice_of_ef_elements(ptr_arg_1.to_usize(), size)?;
         let dot_product_result =
             dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
         (slice_1, dot_product_result)
     };
 
-    memory.set_ef_element(ptr_res, dot_product_result)?;
+    memory.set_ef_element(ptr_res.to_usize(), dot_product_result)?;
 
-    Ok(WitnessDotProduct {
-        addr_0: ptr_arg_0,
-        addr_1: ptr_arg_1,
-        addr_res: ptr_res,
-        len: size,
-        slice_0: slice_0.clone(),
-        slice_1: slice_1.clone(),
-        res: dot_product_result,
-    })
+    {
+        {
+            let computation = &mut trace.ext[DOT_PRODUCT_AIR_COL_COMPUTATION];
+            computation.extend(EF::zero_vec(size));
+            let new_size = computation.len();
+            computation[new_size - 1] = slice_0[size - 1] * slice_1[size - 1];
+            for i in 0..size - 1 {
+                computation[new_size - 2 - i] =
+                    computation[new_size - 1 - i] + slice_0[size - 2 - i] * slice_1[size - 2 - i];
+            }
+        }
+
+        trace.base[DOT_PRODUCT_AIR_COL_START_FLAG].push(F::ONE);
+        trace.base[DOT_PRODUCT_AIR_COL_START_FLAG].extend(F::zero_vec(size - 1));
+        trace.base[DOT_PRODUCT_AIR_COL_LEN].extend(((1..=size).rev()).map(F::from_usize));
+        trace.base[DOT_PRODUCT_AIR_COL_INDEX_A]
+            .extend((0..size).map(|i| F::from_usize(ptr_arg_0.to_usize() + i * DIMENSION)));
+        trace.base[DOT_PRODUCT_AIR_COL_INDEX_B]
+            .extend((0..size).map(|i| F::from_usize(ptr_arg_1.to_usize() + i * DIMENSION)));
+        trace.base[DOT_PRODUCT_AIR_COL_INDEX_RES]
+            .extend(vec![F::from_usize(ptr_res.to_usize()); size]);
+        trace.ext[DOT_PRODUCT_AIR_COL_VALUE_A].extend(slice_0.clone());
+        trace.ext[DOT_PRODUCT_AIR_COL_VALUE_B].extend(slice_1.clone());
+        trace.ext[DOT_PRODUCT_AIR_COL_VALUE_RES].extend(vec![dot_product_result; size]);
+    }
+
+    Ok(())
 }

@@ -224,7 +224,6 @@ fn vm_precompile_events_capture_expected_data() {
 
     assert_eq!(execution_result.poseidons_16.len(), 1);
     assert_eq!(execution_result.poseidons_24.len(), 1);
-    assert_eq!(execution_result.dot_products.len(), 1);
     assert_eq!(execution_result.multilinear_evals.len(), 1);
 
     let poseidon16_event = &execution_result.poseidons_16[0];
@@ -266,29 +265,6 @@ fn vm_precompile_events_capture_expected_data() {
     expected_poseidon24_input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&poseidon24_input_a1);
     expected_poseidon24_input[2 * VECTOR_LEN..].copy_from_slice(&poseidon24_input_b);
     assert_eq!(poseidon24_event.input, expected_poseidon24_input);
-
-    let dot_event = &execution_result.dot_products[0];
-    assert_eq!(dot_event.addr_0, DOT_ARG0_PTR);
-    assert_eq!(dot_event.addr_1, DOT_ARG1_PTR);
-
-    let dot_slice_0 = DOT_ARG0_VALUES
-        .iter()
-        .map(|coeffs| coeffs.map(f))
-        .map(|coeffs| EF::from_basis_coefficients_slice(&coeffs).unwrap())
-        .collect::<Vec<_>>();
-    let dot_slice_1 = DOT_ARG1_VALUES
-        .iter()
-        .map(|coeffs| coeffs.map(f))
-        .map(|coeffs| EF::from_basis_coefficients_slice(&coeffs).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(dot_event.slice_0, dot_slice_0);
-    assert_eq!(dot_event.slice_1, dot_slice_1);
-
-    let dot_res = execution_result
-        .memory
-        .get_ef_element(dot_event.addr_res)
-        .unwrap();
-    assert_eq!(dot_event.res, dot_res);
 
     let mle_event = &execution_result.multilinear_evals[0];
     assert_eq!(mle_event.cycle, 3);

@@ -1,5 +1,4 @@
 use crate::{EF, F, Memory, RunnerError, Table};
-use multilinear_toolkit::prelude::ProofResult;
 use p3_air::Air;
 
 mod dot_product;
@@ -43,11 +42,20 @@ pub struct Bus {
 pub struct PrecompileTrace {
     pub base: Vec<Vec<F>>,
     pub ext: Vec<Vec<EF>>,
+    pub padding_len: usize,
+}
+
+impl PrecompileTrace {
+    pub fn new<A: Air>() -> Self {
+        Self {
+            base: vec![Vec::new(); A::n_columns_f()],
+            ext: vec![Vec::new(); A::n_columns_ef()],
+            padding_len: 0,
+        }
+    }
 }
 
 pub trait ModularPrecompile: Air {
-    type Witness: Send + Sync;
-
     fn name() -> &'static str;
     fn identifier() -> Table;
     fn commited_columns() -> &'static [ColIndex];
@@ -61,7 +69,15 @@ pub trait ModularPrecompile: Air {
         arg_c: F,
         aux: usize,
         memory: &mut Memory,
-    ) -> Result<Self::Witness, RunnerError>;
-    fn gen_trace(witness: &[Self::Witness]) -> ProofResult<PrecompileTrace>;
-    fn air_padding_row() -> Vec<EF>; // only the shifted (in AIR) columns
+        trace: &mut PrecompileTrace,
+    ) -> Result<(), RunnerError>;
+    fn padding_row() -> Vec<EF>;
+
+    fn air_padding_row() -> Vec<EF> {
+        // only the shited_columns
+        Self::down_column_indexes()
+            .into_iter()
+            .map(|i| Self::padding_row()[i])
+            .collect()
+    }
 }
