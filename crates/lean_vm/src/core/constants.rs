@@ -48,7 +48,7 @@ pub enum Table {
     _UNUSED,
     Poseidons16,
     Poseidons24,
-    DotProducts,
+    DotProduct,
     MultilinearEval,
 }
 impl Table {

@@ -1,10 +1,11 @@
+use crate::{EF, F, Memory, RunnerError, Table};
 use multilinear_toolkit::prelude::ProofResult;
 use p3_air::Air;
 
-use crate::{EF, F, Memory, Table};
+mod dot_product;
+pub use dot_product::*;
 
 pub type ColIndex = usize;
-pub type BusIndex = usize;
 
 #[derive(Debug)]
 pub struct LookupIntoMemory {
@@ -33,8 +34,9 @@ pub enum BusDirection {
 #[derive(Debug)]
 pub struct Bus {
     pub direction: BusDirection,
-    pub bus_index: BusIndex,
-    pub data: Vec<ColIndex>, // only commited columns (for now)
+    pub table: Table,
+    pub selector: ColIndex,
+    pub data: Vec<ColIndex>,
 }
 
 #[derive(Debug)]
@@ -57,8 +59,9 @@ pub trait ModularPrecompile: Air {
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux: F,
+        aux: usize,
         memory: &mut Memory,
-    ) -> ProofResult<Self::Witness>;
-    fn gen_trace(witness: &[Self::Witness], memory: &[F]) -> ProofResult<PrecompileTrace>;
+    ) -> Result<Self::Witness, RunnerError>;
+    fn gen_trace(witness: &[Self::Witness]) -> ProofResult<PrecompileTrace>;
+    fn air_padding_row() -> Vec<EF>; // only the shifted (in AIR) columns
 }

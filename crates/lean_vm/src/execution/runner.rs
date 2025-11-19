@@ -9,9 +9,9 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::witness::{
-    WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
+ WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
-use crate::{CodeAddress, HintExecutionContext, SourceLineNumber};
+use crate::{CodeAddress, HintExecutionContext, SourceLineNumber, WitnessDotProduct};
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};

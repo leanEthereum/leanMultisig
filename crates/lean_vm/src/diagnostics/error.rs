@@ -1,8 +1,9 @@
+use crate::WitnessDotProduct;
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
 use crate::witness::{
-    WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
+    WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
 use thiserror::Error;
 

@@ -341,7 +341,7 @@ pub fn prove_execution(
             .map(|i| {
                 bus_challenge
                     + finger_print(
-                        Table::DotProducts,
+                        Table::DotProduct,
                         &[
                             dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_A][i],
                             dot_product_columns_f[DOT_PRODUCT_AIR_COL_INDEX_B][i],
@@ -401,7 +401,7 @@ pub fn prove_execution(
     dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
         / (bus_challenge
             + finger_print(
-                Table::DotProducts,
+                Table::DotProduct,
                 &[
                     EF::ZERO, // IndexA
                     EF::ZERO, // IndexB
@@ -475,7 +475,7 @@ pub fn prove_execution(
         .in_scope(|| {
             prove_air(
                 &mut prover_state,
-                &DotProductAir::default(),
+                &DotProductPrecompile {},
                 dot_product_air_extra_data,
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
                 &dot_product_columns_f
@@ -486,7 +486,7 @@ pub fn prove_execution(
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),
-                &dot_product_air_padding_row(),
+                &DotProductPrecompile::air_padding_row(),
                 Some(dot_product_bus_virtual_statement),
                 true,
             )

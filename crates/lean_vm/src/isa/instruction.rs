@@ -2,13 +2,12 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
-use crate::ONE_VEC_PTR;
+use crate::{DotProductPrecompile, ModularPrecompile, WitnessDotProduct};
 use crate::core::{DIMENSION, EF, F, Label, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
 use crate::witness::{
-    RowMultilinearEval, WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16,
-    WitnessPoseidon24,
+    RowMultilinearEval, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
@@ -316,43 +315,18 @@ impl Instruction {
                 res,
                 size,
             } => {
-                let ptr_arg_0 = arg0.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_arg_1 = arg1.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_res = res.read_value(ctx.memory, *ctx.fp)?.to_usize();
+                let ptr_arg_0 = arg0.read_value(ctx.memory, *ctx.fp)?;
+                let ptr_arg_1 = arg1.read_value(ctx.memory, *ctx.fp)?;
+                let ptr_res = res.read_value(ctx.memory, *ctx.fp)?;
 
-                let slice_0 = ctx
-                    .memory
-                    .get_continuous_slice_of_ef_elements(ptr_arg_0, *size)?;
-
-                let (slice_1, dot_product_result) = if ptr_arg_1 == ONE_VEC_PTR * VECTOR_LEN {
-                    if *size != 1 {
-                        unimplemented!("weird use case");
-                    }
-                    (vec![EF::ONE], slice_0[0])
-                } else {
-                    let slice_1 = ctx
-                        .memory
-                        .get_continuous_slice_of_ef_elements(ptr_arg_1, *size)?;
-                    let dot_product_result =
-                        dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
-                    (slice_1, dot_product_result)
-                };
-
-                ctx.memory.set_ef_element(ptr_res, dot_product_result)?;
-
-                {
-                    let cycle = ctx.pcs.len() - 1;
-                    ctx.dot_products.push(WitnessDotProduct {
-                        cycle,
-                        addr_0: ptr_arg_0,
-                        addr_1: ptr_arg_1,
-                        addr_res: ptr_res,
-                        len: *size,
-                        slice_0: slice_0.clone(),
-                        slice_1: slice_1.clone(),
-                        res: dot_product_result,
-                    });
-                }
+                let dot_product_witness = DotProductPrecompile::execute(
+                    ptr_arg_0,
+                    ptr_arg_1,
+                    ptr_res,
+                    *size,
+                    ctx.memory,
+                )?;
+                ctx.dot_products.push(dot_product_witness);
 
                 *ctx.pc += 1;
                 Ok(())

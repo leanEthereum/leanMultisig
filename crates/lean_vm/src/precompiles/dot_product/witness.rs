@@ -1,4 +1,3 @@
-//! Dot product witness for arithmetic operations between extension field elements
 
 use crate::core::{EF, F};
 use multilinear_toolkit::prelude::*;
@@ -6,8 +5,6 @@ use multilinear_toolkit::prelude::*;
 /// Witness data for dot the product precompile
 #[derive(Debug, Clone)]
 pub struct WitnessDotProduct {
-    /// Execution cycle when this operation occurred
-    pub cycle: usize,
     /// Memory address of first input vector (normal pointer)
     pub addr_0: usize,
     /// Memory address of second input vector (normal pointer)

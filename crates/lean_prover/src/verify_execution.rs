@@ -255,7 +255,7 @@ pub fn verify_execution(
     dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
         / (bus_challenge
             + finger_print(
-                Table::DotProducts,
+                Table::DotProduct,
                 &[
                     EF::ZERO, // IndexA
                     EF::ZERO, // IndexB
@@ -324,11 +324,11 @@ pub fn verify_execution(
     };
     let (dot_product_air_point, dot_product_evals_to_verify) = verify_air(
         &mut verifier_state,
-        &DotProductAir::default(),
+        &DotProductPrecompile {},
         dot_product_air_extra_data,
         DOT_PRODUCT_UNIVARIATE_SKIPS,
         table_dot_products_log_n_rows,
-        &dot_product_air_padding_row(),
+        &DotProductPrecompile::air_padding_row(),
         Some(dot_product_bus_virtual_statement),
     )?;
 

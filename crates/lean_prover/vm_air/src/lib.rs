@@ -2,6 +2,3 @@
 
 mod execution_air;
 pub use execution_air::*;
-
-mod dot_product_air;
-pub use dot_product_air::*;

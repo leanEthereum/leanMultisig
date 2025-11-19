@@ -268,16 +268,8 @@ fn vm_precompile_events_capture_expected_data() {
     assert_eq!(poseidon24_event.input, expected_poseidon24_input);
 
     let dot_event = &execution_result.dot_products[0];
-    assert_eq!(dot_event.cycle, 2);
     assert_eq!(dot_event.addr_0, DOT_ARG0_PTR);
     assert_eq!(dot_event.addr_1, DOT_ARG1_PTR);
-
-    let dot_res_ptr = execution_result
-        .memory
-        .get(execution_result.fps[dot_event.cycle] + DOT_RES_OFFSET)
-        .unwrap()
-        .to_usize();
-    assert_eq!(dot_event.addr_res, dot_res_ptr);
 
     let dot_slice_0 = DOT_ARG0_VALUES
         .iter()

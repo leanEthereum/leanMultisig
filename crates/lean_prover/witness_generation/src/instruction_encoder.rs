@@ -89,7 +89,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             size,
         } => {
             fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
-            fields[COL_INDEX_PRECOMPILE_INDEX] = Table::DotProducts.embed();
+            fields[COL_INDEX_PRECOMPILE_INDEX] = Table::DotProduct.embed();
             set_nu_a(&mut fields, arg0);
             set_nu_b(&mut fields, arg1);
             set_nu_c(&mut fields, res);

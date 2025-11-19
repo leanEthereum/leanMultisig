@@ -1,6 +1,6 @@
 use std::any::TypeId;
 
-use lean_vm::{DIMENSION, EF, Table};
+use crate::{DIMENSION, DotProductPrecompile, EF, Table};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
 use std::mem::transmute_copy;
@@ -38,10 +38,6 @@ pub const DOT_PRODUCT_AIR_N_COLUMNS_EF: usize = 4;
 pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize =
     DOT_PRODUCT_AIR_N_COLUMNS_F + DOT_PRODUCT_AIR_N_COLUMNS_EF;
 
-#[derive(Debug, Default)]
-pub struct DotProductAir<EF> {
-    _marker: std::marker::PhantomData<EF>,
-}
 
 #[derive(Debug)]
 pub struct DotProductAirExtraData<EF> {
@@ -64,7 +60,7 @@ impl AlphaPowers<EF> for DotProductAirExtraData<EF> {
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>> Air for DotProductAir<EF> {
+impl Air for DotProductPrecompile {
     type ExtraData = DotProductAirExtraData<EF>;
 
     fn n_columns_f() -> usize {
@@ -184,17 +180,6 @@ fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
         + fingerprint_challenge_powers[3].clone() * index_res
         + fingerprint_challenge_powers[4].clone() * len;
 
-    ((data + Table::DotProducts.embed::<AB::F>()) + bus_challenge) * dot_product_bus_beta
+    ((data + Table::DotProduct.embed::<AB::F>()) + bus_challenge) * dot_product_bus_beta
         + start_flag_up
-}
-
-pub fn dot_product_air_padding_row() -> Vec<EF> {
-    // only the shifted columns
-    vec![
-        EF::ONE,  // StartFlag
-        EF::ONE,  // Len
-        EF::ZERO, // IndexA
-        EF::ZERO, // IndexB
-        EF::ZERO, // Computation
-    ]
 }
