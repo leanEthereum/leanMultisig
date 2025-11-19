@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
-use crate::{F, ir::HighLevelOperation, precompiles::Precompile};
+use crate::{F, ir::HighLevelOperation};
 
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -358,7 +358,7 @@ pub enum Line {
         return_data: Vec<Expression>,
     },
     Precompile {
-        precompile: Precompile,
+        table: Table,
         args: Vec<Expression>,
     },
     Break,
@@ -534,10 +534,13 @@ impl Line {
                     .join(", ");
                 format!("return {return_data_str}")
             }
-            Self::Precompile { precompile, args } => {
+            Self::Precompile {
+                table: precompile,
+                args,
+            } => {
                 format!(
                     "{}({})",
-                    precompile.name,
+                    precompile.name(),
                     args.iter()
                         .map(|arg| format!("{arg}"))
                         .collect::<Vec<_>>()

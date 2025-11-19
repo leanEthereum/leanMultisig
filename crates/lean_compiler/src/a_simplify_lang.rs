@@ -5,9 +5,8 @@ use crate::{
         AssumeBoolean, Boolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue,
         Expression, Function, Line, Program, SimpleExpr, Var,
     },
-    precompiles::Precompile,
 };
-use lean_vm::SourceLineNumber;
+use lean_vm::{SourceLineNumber, Table};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -114,7 +113,7 @@ pub enum SimpleLine {
         return_data: Vec<SimpleExpr>,
     },
     Precompile {
-        precompile: Precompile,
+        table: Table,
         args: Vec<SimpleExpr>,
     },
     Panic,
@@ -630,13 +629,13 @@ fn simplify_lines(
                     return_data: simplified_return_data,
                 });
             }
-            Line::Precompile { precompile, args } => {
+            Line::Precompile { table, args } => {
                 let simplified_args = args
                     .iter()
                     .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::Precompile {
-                    precompile: precompile.clone(),
+                    table: *table,
                     args: simplified_args,
                 });
             }
@@ -921,10 +920,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 on_new_expr(size, &internal_vars, &mut external_vars);
                 internal_vars.insert(var.clone());
             }
-            Line::Precompile {
-                precompile: _,
-                args,
-            } => {
+            Line::Precompile { table: _, args } => {
                 for arg in args {
                     on_new_expr(arg, &internal_vars, &mut external_vars);
                 }
@@ -1096,7 +1092,7 @@ pub fn inline_lines(
                 inline_internal_var(var);
             }
             Line::Precompile {
-                precompile: _,
+                table: _,
                 args: precompile_args,
             } => {
                 for arg in precompile_args {
@@ -1568,10 +1564,7 @@ fn replace_vars_for_unroll(
                     );
                 }
             }
-            Line::Precompile {
-                precompile: _,
-                args,
-            } => {
+            Line::Precompile { table: _, args } => {
                 for arg in args {
                     replace_vars_for_unroll_in_expr(
                         arg,
@@ -2109,10 +2102,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(ret, map);
                 }
             }
-            Line::Precompile {
-                precompile: _,
-                args,
-            } => {
+            Line::Precompile { table: _, args } => {
                 for arg in args {
                     replace_vars_by_const_in_expr(arg, map);
                 }
@@ -2291,10 +2281,13 @@ impl SimpleLine {
                     .join(", ");
                 format!("return {return_data_str}")
             }
-            Self::Precompile { precompile, args } => {
+            Self::Precompile {
+                table: precompile,
+                args,
+            } => {
                 format!(
                     "{}({})",
-                    &precompile.name,
+                    &precompile.name(),
                     args.iter()
                         .map(|arg| format!("{arg}"))
                         .collect::<Vec<_>>()

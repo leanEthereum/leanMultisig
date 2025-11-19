@@ -19,10 +19,7 @@ impl IntermediateInstruction {
             | Self::Deref { .. }
             | Self::JumpIfNotZero { .. }
             | Self::Jump { .. }
-            | Self::Poseidon2_16 { .. }
-            | Self::Poseidon2_24 { .. }
-            | Self::DotProduct { .. }
-            | Self::MultilinearEval { .. } => false,
+            | Self::Precompile { .. } => false,
         }
     }
 }
@@ -291,50 +288,19 @@ fn compile_block(
                     IntermediateValue::Constant(ConstExpression::Value(ConstantValue::Scalar(1)));
                 codegen_jump(hints, low_level_bytecode, one, dest, updated_fp)
             }
-            IntermediateInstruction::Poseidon2_16 {
+            IntermediateInstruction::Precompile {
+                table,
                 arg_a,
                 arg_b,
-                res,
-                is_compression,
+                arg_c,
+                aux,
             } => {
-                low_level_bytecode.push(Instruction::Poseidon2_16 {
+                low_level_bytecode.push(Instruction::Precompile {
+                    table,
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
                     arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
-                    res: try_as_mem_or_fp(&res).unwrap(),
-                    is_compression,
-                });
-            }
-            IntermediateInstruction::Poseidon2_24 { arg_a, arg_b, res } => {
-                low_level_bytecode.push(Instruction::Poseidon2_24 {
-                    arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
-                    arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
-                    res: try_as_mem_or_fp(&res).unwrap(),
-                });
-            }
-            IntermediateInstruction::DotProduct {
-                arg0,
-                arg1,
-                res,
-                size,
-            } => {
-                low_level_bytecode.push(Instruction::DotProduct {
-                    arg0: arg0.try_into_mem_or_constant(compiler).unwrap(),
-                    arg1: arg1.try_into_mem_or_constant(compiler).unwrap(),
-                    res: res.try_into_mem_or_fp(compiler).unwrap(),
-                    size: eval_const_expression_usize(&size, compiler),
-                });
-            }
-            IntermediateInstruction::MultilinearEval {
-                coeffs,
-                point,
-                res,
-                n_vars,
-            } => {
-                low_level_bytecode.push(Instruction::MultilinearEval {
-                    coeffs: coeffs.try_into_mem_or_constant(compiler).unwrap(),
-                    point: point.try_into_mem_or_constant(compiler).unwrap(),
-                    res: res.try_into_mem_or_fp(compiler).unwrap(),
-                    n_vars: eval_const_expression_usize(&n_vars, compiler),
+                    arg_c: try_as_mem_or_fp(&arg_c).unwrap(),
+                    aux: eval_const_expression_usize(&aux, compiler),
                 });
             }
             IntermediateInstruction::DecomposeBits {

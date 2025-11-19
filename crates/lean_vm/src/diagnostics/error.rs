@@ -2,9 +2,7 @@ use crate::PrecompileTrace;
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
-use crate::witness::{
-    WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
-};
+use crate::witness::{WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]

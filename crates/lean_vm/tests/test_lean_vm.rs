@@ -160,36 +160,41 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     );
 
     let instructions = vec![
-        Instruction::Poseidon2_16 {
+        Instruction::Precompile {
+            table: Table::Poseidons16,
             arg_a: MemOrConstant::Constant(f(POSEIDON16_ARG_A_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(POSEIDON16_ARG_B_PTR as u64)),
-            res: MemOrFp::MemoryAfterFp {
+            arg_c: MemOrFp::MemoryAfterFp {
                 offset: POSEIDON16_RES_OFFSET,
             },
-            is_compression: false,
+            aux: 0, // compression = false
         },
-        Instruction::Poseidon2_24 {
+        Instruction::Precompile {
+            table: Table::Poseidons24,
             arg_a: MemOrConstant::Constant(f(POSEIDON24_ARG_A_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(POSEIDON24_ARG_B_PTR as u64)),
-            res: MemOrFp::MemoryAfterFp {
+            arg_c: MemOrFp::MemoryAfterFp {
                 offset: POSEIDON24_RES_OFFSET,
             },
+            aux: 0, // unused
         },
-        Instruction::DotProduct {
-            arg0: MemOrConstant::Constant(f(DOT_ARG0_PTR as u64)),
-            arg1: MemOrConstant::Constant(f(DOT_ARG1_PTR as u64)),
-            res: MemOrFp::MemoryAfterFp {
+        Instruction::Precompile {
+            table: Table::DotProduct,
+            arg_a: MemOrConstant::Constant(f(DOT_ARG0_PTR as u64)),
+            arg_b: MemOrConstant::Constant(f(DOT_ARG1_PTR as u64)),
+            arg_c: MemOrFp::MemoryAfterFp {
                 offset: DOT_RES_OFFSET,
             },
-            size: DOT_PRODUCT_LEN,
+            aux: DOT_PRODUCT_LEN,
         },
-        Instruction::MultilinearEval {
-            coeffs: MemOrConstant::Constant(f(MLE_COEFF_PTR as u64)),
-            point: MemOrConstant::Constant(f(MLE_POINT_PTR as u64)),
-            res: MemOrFp::MemoryAfterFp {
+        Instruction::Precompile {
+            table: Table::MultilinearEval,
+            arg_a: MemOrConstant::Constant(f(MLE_COEFF_PTR as u64)), // coeffs pointer
+            arg_b: MemOrConstant::Constant(f(MLE_POINT_PTR as u64)), // point pointer
+            arg_c: MemOrFp::MemoryAfterFp {
                 offset: MLE_RES_OFFSET,
-            },
-            n_vars: MLE_N_VARS,
+            }, // result pointer
+            aux: MLE_N_VARS,                                         // n_vars
         },
     ];
 

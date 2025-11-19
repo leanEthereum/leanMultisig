@@ -42,6 +42,7 @@ impl ModularPrecompile for DotProductPrecompile {
         &[]
     }
 
+    #[inline(always)]
     fn execute(
         arg_a: F,
         arg_b: F,

@@ -8,7 +8,7 @@ use crate::execution::Memory;
 use crate::witness::{
     RowMultilinearEval, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
 };
-use crate::{DotProductPrecompile, ModularPrecompile, PrecompileTrace};
+use crate::{PrecompileTrace, Table};
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
@@ -51,50 +51,12 @@ pub enum Instruction {
         updated_fp: MemOrFp,
     },
 
-    /// Poseidon2 cryptographic hash with 16-element input
-    Poseidon2_16 {
-        /// First input vector (vectorized pointer, size 1)
+    Precompile {
+        table: Table,
         arg_a: MemOrConstant,
-        /// Second input vector (vectorized pointer, size 1)
         arg_b: MemOrConstant,
-        /// Output hash result (vectorized pointer, size 1 or 2 depending on compression)
-        res: MemOrFp,
-        /// Whether to perform compression (output size 1) or not (output size 2)
-        is_compression: bool,
-    },
-
-    /// Poseidon2 cryptographic hash with 24-element input
-    Poseidon2_24 {
-        /// First input vector (vectorized pointer, size 2)
-        arg_a: MemOrConstant,
-        /// Second input vector (vectorized pointer, size 1)
-        arg_b: MemOrConstant,
-        /// Output hash result (vectorized pointer, size 1)
-        res: MemOrFp,
-    },
-
-    /// Dot product computation between extension field element vectors
-    DotProduct {
-        /// First vector pointer (normal pointer, size `size`)
-        arg0: MemOrConstant,
-        /// Second vector pointer (normal pointer, size `size`)
-        arg1: MemOrConstant,
-        /// Result destination (normal pointer, size 1)
-        res: MemOrFp,
-        /// Vector length for the dot product
-        size: usize,
-    },
-
-    /// Multilinear polynomial evaluation instruction
-    MultilinearEval {
-        /// Polynomial coefficients (vectorized pointer, chunk size = 2^n_vars)
-        coeffs: MemOrConstant,
-        /// Evaluation point (normal pointer to `n_vars` continuous EF elements)
-        point: MemOrConstant,
-        /// Evaluation result (vectorized pointer to 1 EF element)
-        res: MemOrFp,
-        /// Number of variables in the multilinear polynomial
-        n_vars: usize,
+        arg_c: MemOrFp,
+        aux: usize,
     },
 }
 
@@ -208,12 +170,15 @@ impl Instruction {
                 *ctx.jump_counts += 1;
                 Ok(())
             }
-            Self::Poseidon2_16 {
+            Self::Precompile {
+                table: Table::Poseidons16,
                 arg_a,
                 arg_b,
-                res,
-                is_compression,
+                arg_c: res,
+                aux: is_compression,
             } => {
+                assert!(*is_compression == 0 || *is_compression == 1);
+                let is_compression = *is_compression == 1;
                 let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
                 let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
                 let res_value = res.read_value(ctx.memory, *ctx.fp)?;
@@ -255,14 +220,21 @@ impl Instruction {
                         addr_input_b,
                         addr_output,
                         input,
-                        is_compression: *is_compression,
+                        is_compression,
                     });
                 }
 
                 *ctx.pc += 1;
                 Ok(())
             }
-            Self::Poseidon2_24 { arg_a, arg_b, res } => {
+            Self::Precompile {
+                table: Table::Poseidons24,
+                arg_a,
+                arg_b,
+                arg_c: res,
+                aux,
+            } => {
+                assert_eq!(*aux, 0); // no aux for poseidon24
                 let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
                 let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
                 let res_value = res.read_value(ctx.memory, *ctx.fp)?;
@@ -309,29 +281,12 @@ impl Instruction {
                 *ctx.pc += 1;
                 Ok(())
             }
-            Self::DotProduct {
-                arg0,
-                arg1,
-                res,
-                size,
-            } => {
-                DotProductPrecompile::execute(
-                    arg0.read_value(ctx.memory, *ctx.fp)?,
-                    arg1.read_value(ctx.memory, *ctx.fp)?,
-                    res.read_value(ctx.memory, *ctx.fp)?,
-                    *size,
-                    ctx.memory,
-                    ctx.dot_product_trace,
-                )?;
-
-                *ctx.pc += 1;
-                Ok(())
-            }
-            Self::MultilinearEval {
-                coeffs,
-                point,
-                res,
-                n_vars,
+            Self::Precompile {
+                table: Table::MultilinearEval,
+                arg_a: coeffs,
+                arg_b: point,
+                arg_c: res,
+                aux: n_vars,
             } => {
                 let ptr_coeffs = coeffs.read_value(ctx.memory, *ctx.fp)?.to_usize();
                 let ptr_point = point.read_value(ctx.memory, *ctx.fp)?.to_usize();
@@ -374,6 +329,25 @@ impl Instruction {
                 *ctx.pc += 1;
                 Ok(())
             }
+            Self::Precompile {
+                table,
+                arg_a,
+                arg_b,
+                arg_c,
+                aux: size,
+            } => {
+                table.execute(
+                    arg_a.read_value(ctx.memory, *ctx.fp)?,
+                    arg_b.read_value(ctx.memory, *ctx.fp)?,
+                    arg_c.read_value(ctx.memory, *ctx.fp)?,
+                    *size,
+                    ctx.memory,
+                    ctx.dot_product_trace,
+                )?;
+
+                *ctx.pc += 1;
+                Ok(())
+            }
         }
     }
 }
@@ -396,22 +370,6 @@ impl Display for Instruction {
             } => {
                 write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]")
             }
-            Self::DotProduct {
-                arg0,
-                arg1,
-                res,
-                size,
-            } => {
-                write!(f, "dot_product({arg0}, {arg1}, {res}, {size})")
-            }
-            Self::MultilinearEval {
-                coeffs,
-                point,
-                res,
-                n_vars,
-            } => {
-                write!(f, "multilinear_eval({coeffs}, {point}, {res}, {n_vars})")
-            }
             Self::Jump {
                 condition,
                 label,
@@ -423,19 +381,14 @@ impl Display for Instruction {
                     "if {condition} != 0 jump to {label} = {dest} with next(fp) = {updated_fp}"
                 )
             }
-            Self::Poseidon2_16 {
+            Self::Precompile {
+                table,
                 arg_a,
                 arg_b,
-                res,
-                is_compression,
+                arg_c,
+                aux,
             } => {
-                write!(
-                    f,
-                    "{res} = poseidon2_16({arg_a}, {arg_b}, compression={is_compression})"
-                )
-            }
-            Self::Poseidon2_24 { arg_a, arg_b, res } => {
-                write!(f, "{res} = poseidon2_24({arg_a}, {arg_b})")
+                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux})", table.name())
             }
         }
     }

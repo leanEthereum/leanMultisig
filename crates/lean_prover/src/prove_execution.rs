@@ -472,11 +472,13 @@ pub fn prove_execution(
                 &DotProductPrecompile {},
                 dot_product_air_extra_data,
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
-                &dot_product_trace.base
+                &dot_product_trace
+                    .base
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),
-                &dot_product_trace.ext
+                &dot_product_trace
+                    .ext
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),

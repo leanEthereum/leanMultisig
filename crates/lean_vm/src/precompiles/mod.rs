@@ -1,8 +1,8 @@
 use std::{any::TypeId, mem::transmute_copy};
 
 use crate::{EF, F, Memory, RunnerError, Table};
-use p3_air::Air;
 use multilinear_toolkit::prelude::*;
+use p3_air::Air;
 mod dot_product;
 pub use dot_product::*;
 
@@ -66,7 +66,6 @@ pub struct ExtraDataForBuses<EF> {
     pub alpha_powers: Vec<EF>,
 }
 
-
 impl AlphaPowersMut<EF> for ExtraDataForBuses<EF> {
     fn alpha_powers_mut(&mut self) -> &mut Vec<EF> {
         &mut self.alpha_powers
@@ -102,7 +101,6 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
         }
     }
 }
-
 
 pub trait ModularPrecompile: Air {
     fn name() -> &'static str;

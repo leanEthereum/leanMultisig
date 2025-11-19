@@ -3,7 +3,7 @@ use crate::*;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use std::array;
+use std::{array, iter::repeat_n};
 use utils::{ToUsize, transposed_par_iter_mut};
 use vm_air::*;
 
@@ -155,12 +155,12 @@ pub fn get_execution_trace(
         - dot_product_trace.base[0].len();
     for (i, col) in dot_product_trace.base.iter_mut().enumerate() {
         let default_value: F = DotProductPrecompile::padding_row()[i].as_base().unwrap();
-        col.extend(std::iter::repeat(default_value).take(dot_product_trace.padding_len));
+        col.extend(repeat_n(default_value, dot_product_trace.padding_len));
     }
     for (i, col) in dot_product_trace.ext.iter_mut().enumerate() {
         let default_value =
             DotProductPrecompile::padding_row()[i + DotProductPrecompile::n_columns_f()];
-        col.extend(std::iter::repeat(default_value).take(dot_product_trace.padding_len));
+        col.extend(repeat_n(default_value, dot_product_trace.padding_len));
     }
 
     let n_compressions_16;
