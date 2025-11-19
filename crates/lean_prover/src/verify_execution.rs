@@ -46,7 +46,7 @@ pub fn verify_execution(
     if n_compressions_16
         > n_poseidons_16
             .next_power_of_two()
-            .max(1 << LOG_MIN_POSEIDONS_16)
+            .max(MIN_N_ROWS_PER_TABLE)
         || n_vm_multilinear_evals > 1 << 10
     {
         return Err(ProofError::InvalidProof);
@@ -56,8 +56,8 @@ pub fn verify_execution(
 
     let log_public_memory = log2_strict_usize(public_memory.len());
     let log_memory = log2_ceil_usize(public_memory.len() + private_memory_len);
-    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(LOG_MIN_POSEIDONS_16);
-    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(LOG_MIN_POSEIDONS_24);
+    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(MIN_LOG_N_ROWS_PER_TABLE);
+    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(MIN_LOG_N_ROWS_PER_TABLE);
     let log_n_cycles = log2_ceil_usize(n_cycles);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
@@ -65,7 +65,7 @@ pub fn verify_execution(
     }
 
     let table_dot_products_log_n_rows =
-        log2_ceil_usize(n_rows_table_dot_products).max(LOG_MIN_DOT_PRODUCT_ROWS);
+        log2_ceil_usize(n_rows_table_dot_products).max(MIN_LOG_N_ROWS_PER_TABLE);
     let dot_product_padding_len = (1 << table_dot_products_log_n_rows) - n_rows_table_dot_products;
 
     let mut vm_multilinear_evals = Vec::new();
@@ -366,7 +366,7 @@ pub fn verify_execution(
         3,
         [
             vec![n_cycles; 3],
-            vec![n_rows_table_dot_products.max(1 << LOG_MIN_DOT_PRODUCT_ROWS); 3],
+            vec![n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE); 3],
         ]
         .concat(),
         [vec![0; 3], vec![0; 3]].concat(),
@@ -383,8 +383,8 @@ pub fn verify_execution(
     let vectorized_lookup_into_memory = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
         &mut verifier_state,
         [
-            vec![n_poseidons_16.max(1 << LOG_MIN_POSEIDONS_16); 4],
-            vec![n_poseidons_24.max(1 << LOG_MIN_POSEIDONS_24); 4],
+            vec![n_poseidons_16.max(MIN_N_ROWS_PER_TABLE); 4],
+            vec![n_poseidons_24.max(MIN_N_ROWS_PER_TABLE); 4],
         ]
         .concat(),
         default_poseidon_indexes(),

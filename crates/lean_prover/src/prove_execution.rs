@@ -67,8 +67,8 @@ pub fn prove_execution(
     let log_n_cycles = log2_ceil_usize(n_cycles);
     assert!(full_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
 
-    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(LOG_MIN_POSEIDONS_16);
-    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(LOG_MIN_POSEIDONS_24);
+    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(MIN_LOG_N_ROWS_PER_TABLE);
+    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(MIN_LOG_N_ROWS_PER_TABLE);
 
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -86,9 +86,6 @@ pub fn prove_execution(
             &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_COMPUTATION],
         );
 
-    let n_rows_table_dot_products = dot_product_trace.base[0].len() - dot_product_trace.padding_len;
-    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_trace.base[0].len());
-
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
         &[
@@ -96,7 +93,7 @@ pub fn prove_execution(
             n_poseidons_16,
             n_compressions_16,
             n_poseidons_24,
-            n_rows_table_dot_products,
+            dot_product_trace.n_rows_non_padded(),
             private_memory.len(),
             vm_multilinear_evals.len(),
         ]
@@ -146,7 +143,7 @@ pub fn prove_execution(
         private_memory.len(),
         bytecode.ending_pc,
         (n_poseidons_16, n_poseidons_24),
-        n_rows_table_dot_products,
+        dot_product_trace.n_rows_non_padded(),
         (&p16_gkr_layers, &p24_gkr_layers),
     );
 
@@ -330,7 +327,7 @@ pub fn prove_execution(
     };
 
     let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) = {
-        let dot_product_bus_data = (0..1 << log_n_rows_dot_product_table)
+        let dot_product_bus_data = (0..dot_product_trace.n_rows_padded())
             .into_par_iter()
             .map(|i| {
                 bus_challenge
@@ -557,7 +554,12 @@ pub fn prove_execution(
         ],
         [
             vec![n_cycles; 3],
-            vec![n_rows_table_dot_products.max(1 << LOG_MIN_DOT_PRODUCT_ROWS); 3],
+            vec![
+                dot_product_trace
+                    .n_rows_non_padded()
+                    .max(MIN_N_ROWS_PER_TABLE);
+                3
+            ],
         ]
         .concat(),
         [vec![0; 3], vec![0; 3]].concat(),
@@ -594,8 +596,8 @@ pub fn prove_execution(
             &p24_indexes_output,
         ],
         [
-            vec![n_poseidons_16.max(1 << LOG_MIN_POSEIDONS_16); 4],
-            vec![n_poseidons_24.max(1 << LOG_MIN_POSEIDONS_24); 4],
+            vec![n_poseidons_16.max(MIN_N_ROWS_PER_TABLE); 4],
+            vec![n_poseidons_24.max(MIN_N_ROWS_PER_TABLE); 4],
         ]
         .concat(),
         default_poseidon_indexes(),

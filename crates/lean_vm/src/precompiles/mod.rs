@@ -55,6 +55,15 @@ impl PrecompileTrace {
             padding_len: 0,
         }
     }
+
+    pub fn n_rows_non_padded(&self) -> usize {
+        self.base[0].len() - self.padding_len
+    }
+
+    pub fn n_rows_padded(&self) -> usize {
+        assert!(self.base[0].len().is_power_of_two());
+        self.base[0].len()
+    }
 }
 
 #[derive(Debug)]

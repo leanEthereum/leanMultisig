@@ -31,7 +31,7 @@ pub fn get_execution_trace(
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
 
     // padding to make proof work even on small programs (TODO make this more elegant)
-    let min_cycles = 32 << LOG_MIN_DOT_PRODUCT_ROWS;
+    let min_cycles = 32 << MIN_LOG_N_ROWS_PER_TABLE;
     if execution_result.pcs.len() < min_cycles {
         execution_result
             .pcs
@@ -138,20 +138,20 @@ pub fn get_execution_trace(
     poseidons_16.resize(
         n_poseidons_16
             .next_power_of_two()
-            .max(1 << LOG_MIN_POSEIDONS_16),
+            .max(MIN_N_ROWS_PER_TABLE),
         WitnessPoseidon16::poseidon_of_zero(),
     );
     poseidons_24.resize(
         n_poseidons_24
             .next_power_of_two()
-            .max(1 << LOG_MIN_POSEIDONS_24),
+            .max(MIN_N_ROWS_PER_TABLE),
         WitnessPoseidon24::poseidon_of_zero(),
     );
 
     dot_product_trace.padding_len = dot_product_trace.base[0]
         .len()
         .next_power_of_two()
-        .max(1 << LOG_MIN_DOT_PRODUCT_ROWS)
+        .max(MIN_N_ROWS_PER_TABLE)
         - dot_product_trace.base[0].len();
     for (i, col) in dot_product_trace.base.iter_mut().enumerate() {
         let default_value: F = DotProductPrecompile::padding_row()[i].as_base().unwrap();
