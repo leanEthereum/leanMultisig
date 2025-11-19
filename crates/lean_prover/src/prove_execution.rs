@@ -439,10 +439,10 @@ pub fn prove_execution(
         p24_bus_eval_index_input_output,
     )];
 
-    let exec_air_extra_data = VMAirExtraData {
+    let exec_air_extra_data = ExtraDataForBuses {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-        exec_bus_beta,
+        bus_beta: exec_bus_beta,
         alpha_powers: vec![], // filled later
     };
     let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
@@ -459,10 +459,10 @@ pub fn prove_execution(
         )
     });
 
-    let dot_product_air_extra_data = DotProductAirExtraData {
+    let dot_product_air_extra_data = ExtraDataForBuses {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-        dot_product_bus_beta,
+        bus_beta: dot_product_bus_beta,
         alpha_powers: vec![], // filled later
     };
     let (dot_product_air_point, dot_product_evals_to_prove) = info_span!("DotProduct AIR proof")

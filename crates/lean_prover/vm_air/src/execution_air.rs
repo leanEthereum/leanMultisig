@@ -1,6 +1,4 @@
-use std::{any::TypeId, mem::transmute_copy};
-
-use lean_vm::EF;
+use lean_vm::{EF, ExtraDataForBuses};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
 
@@ -40,29 +38,8 @@ pub struct VMAir<EF> {
     _marker: std::marker::PhantomData<EF>,
 }
 
-#[derive(Debug)]
-pub struct VMAirExtraData<EF> {
-    // GKR quotient challenges
-    pub bus_challenge: EF,
-    pub fingerprint_challenge_powers: [EF; 5],
-    pub exec_bus_beta: EF,
-    pub alpha_powers: Vec<EF>,
-}
-
-impl AlphaPowersMut<EF> for VMAirExtraData<EF> {
-    fn alpha_powers_mut(&mut self) -> &mut Vec<EF> {
-        &mut self.alpha_powers
-    }
-}
-
-impl AlphaPowers<EF> for VMAirExtraData<EF> {
-    fn alpha_powers(&self) -> &[EF] {
-        &self.alpha_powers
-    }
-}
-
 impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
-    type ExtraData = VMAirExtraData<EF>;
+    type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f() -> usize {
         N_EXEC_AIR_COLUMNS
@@ -168,10 +145,14 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
         );
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
+
+    fn n_columns() -> usize {
+        Self::n_columns_f() + Self::n_columns_ef()
+    }
 }
 
 fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
-    extra_data: &VMAirExtraData<EF>,
+    extra_data: &ExtraDataForBuses<EF>,
     nu_a: AB::F,
     nu_b: AB::F,
     nu_c: AB::F,
@@ -179,30 +160,8 @@ fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
     is_precompile: AB::F,
     precompile_index: AB::F,
 ) -> AB::EF {
-    let (bus_challenge, fingerprint_challenge_powers, exec_bus_beta): (
-        AB::EF,
-        [AB::EF; 5],
-        AB::EF,
-    ) = if TypeId::of::<AB::EF>() == TypeId::of::<EF>() {
-        unsafe {
-            transmute_copy::<_, _>(&(
-                extra_data.bus_challenge,
-                extra_data.fingerprint_challenge_powers,
-                extra_data.exec_bus_beta,
-            ))
-        }
-    } else {
-        assert_eq!(TypeId::of::<AB::EF>(), TypeId::of::<EFPacking<EF>>());
-        unsafe {
-            transmute_copy::<_, _>(&(
-                EFPacking::<EF>::from(extra_data.bus_challenge),
-                extra_data
-                    .fingerprint_challenge_powers
-                    .map(|c| EFPacking::<EF>::from(c)),
-                EFPacking::<EF>::from(extra_data.exec_bus_beta),
-            ))
-        }
-    };
+    let (bus_challenge, fingerprint_challenge_powers, exec_bus_beta) =
+        extra_data.transmute_bus_data::<AB::EF>();
 
     let nu_a_mul_challenge_1 = fingerprint_challenge_powers[1].clone() * nu_a;
     let nu_b_mul_challenge_2 = fingerprint_challenge_powers[2].clone() * nu_b;

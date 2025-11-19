@@ -1,6 +1,8 @@
+use std::{any::TypeId, mem::transmute_copy};
+
 use crate::{EF, F, Memory, RunnerError, Table};
 use p3_air::Air;
-
+use multilinear_toolkit::prelude::*;
 mod dot_product;
 pub use dot_product::*;
 
@@ -54,6 +56,53 @@ impl PrecompileTrace {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct ExtraDataForBuses<EF> {
+    // GKR quotient challenges
+    pub bus_challenge: EF,
+    pub fingerprint_challenge_powers: [EF; 5],
+    pub bus_beta: EF,
+    pub alpha_powers: Vec<EF>,
+}
+
+
+impl AlphaPowersMut<EF> for ExtraDataForBuses<EF> {
+    fn alpha_powers_mut(&mut self) -> &mut Vec<EF> {
+        &mut self.alpha_powers
+    }
+}
+
+impl AlphaPowers<EF> for ExtraDataForBuses<EF> {
+    fn alpha_powers(&self) -> &[EF] {
+        &self.alpha_powers
+    }
+}
+
+impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
+    pub fn transmute_bus_data<NewEF: 'static>(&self) -> (NewEF, [NewEF; 5], NewEF) {
+        if TypeId::of::<NewEF>() == TypeId::of::<EF>() {
+            unsafe {
+                transmute_copy::<_, _>(&(
+                    self.bus_challenge,
+                    self.fingerprint_challenge_powers,
+                    self.bus_beta,
+                ))
+            }
+        } else {
+            assert_eq!(TypeId::of::<NewEF>(), TypeId::of::<EFPacking<EF>>());
+            unsafe {
+                transmute_copy::<_, _>(&(
+                    EFPacking::<EF>::from(self.bus_challenge),
+                    self.fingerprint_challenge_powers
+                        .map(|c| EFPacking::<EF>::from(c)),
+                    EFPacking::<EF>::from(self.bus_beta),
+                ))
+            }
+        }
+    }
+}
+
 
 pub trait ModularPrecompile: Air {
     fn name() -> &'static str;

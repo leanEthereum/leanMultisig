@@ -1,9 +1,6 @@
-use std::any::TypeId;
-
-use crate::{DIMENSION, DotProductPrecompile, EF, Table};
+use crate::{DIMENSION, DotProductPrecompile, EF, ExtraDataForBuses, Table};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
-use std::mem::transmute_copy;
 
 /*
 (DIMENSION = 5)
@@ -38,30 +35,8 @@ pub const DOT_PRODUCT_AIR_N_COLUMNS_EF: usize = 4;
 pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize =
     DOT_PRODUCT_AIR_N_COLUMNS_F + DOT_PRODUCT_AIR_N_COLUMNS_EF;
 
-
-#[derive(Debug)]
-pub struct DotProductAirExtraData<EF> {
-    // GKR quotient challenges
-    pub bus_challenge: EF,
-    pub fingerprint_challenge_powers: [EF; 5],
-    pub dot_product_bus_beta: EF,
-    pub alpha_powers: Vec<EF>,
-}
-
-impl AlphaPowersMut<EF> for DotProductAirExtraData<EF> {
-    fn alpha_powers_mut(&mut self) -> &mut Vec<EF> {
-        &mut self.alpha_powers
-    }
-}
-
-impl AlphaPowers<EF> for DotProductAirExtraData<EF> {
-    fn alpha_powers(&self) -> &[EF] {
-        &self.alpha_powers
-    }
-}
-
 impl Air for DotProductPrecompile {
-    type ExtraData = DotProductAirExtraData<EF>;
+    type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f() -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS_F
@@ -144,37 +119,16 @@ impl Air for DotProductPrecompile {
 }
 
 fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
-    extra_data: &DotProductAirExtraData<EF>,
+    extra_data: &ExtraDataForBuses<EF>,
     start_flag_up: AB::F,
     index_a: AB::F,
     index_b: AB::F,
     index_res: AB::F,
     len: AB::F,
 ) -> AB::EF {
-    let (bus_challenge, fingerprint_challenge_powers, dot_product_bus_beta): (
-        AB::EF,
-        [AB::EF; 5],
-        AB::EF,
-    ) = if TypeId::of::<AB::EF>() == TypeId::of::<EF>() {
-        unsafe {
-            transmute_copy::<_, _>(&(
-                extra_data.bus_challenge,
-                extra_data.fingerprint_challenge_powers,
-                extra_data.dot_product_bus_beta,
-            ))
-        }
-    } else {
-        assert_eq!(TypeId::of::<AB::EF>(), TypeId::of::<EFPacking<EF>>());
-        unsafe {
-            transmute_copy::<_, _>(&(
-                EFPacking::<EF>::from(extra_data.bus_challenge),
-                extra_data
-                    .fingerprint_challenge_powers
-                    .map(|c| EFPacking::<EF>::from(c)),
-                EFPacking::<EF>::from(extra_data.dot_product_bus_beta),
-            ))
-        }
-    };
+    let (bus_challenge, fingerprint_challenge_powers, dot_product_bus_beta) =
+        extra_data.transmute_bus_data::<AB::EF>();
+
     let data = fingerprint_challenge_powers[1].clone() * index_a
         + fingerprint_challenge_powers[2].clone() * index_b
         + fingerprint_challenge_powers[3].clone() * index_res
