@@ -294,39 +294,24 @@ pub fn verify_execution(
     .map(|v| vec![Evaluation::new(p24_bus_point.clone(), *v)])
     .collect::<Vec<_>>();
 
-    let exec_air_extra_data = ExtraDataForBuses {
-        bus_challenge,
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-        bus_beta: exec_bus_beta,
-        alpha_powers: vec![], // filled later
-    };
-    let (exec_air_point, exec_evals_to_verify) = verify_air(
+    let (exec_air_point, exec_evals_to_verify) = verify_table_air(
         &mut verifier_state,
         &ExecutionTable,
-        exec_air_extra_data,
-        UNIVARIATE_SKIPS,
         log_n_cycles,
-        &vec![
-            EF::from_usize(ENDING_PC), // PC
-            EF::ZERO,                  // FP
-        ],
-        Some(exec_bus_virtual_statement),
+        bus_challenge,
+        fingerprint_challenge,
+        exec_bus_beta,
+        exec_bus_virtual_statement,
     )?;
 
-    let dot_product_air_extra_data = ExtraDataForBuses {
-        bus_challenge,
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-        bus_beta: dot_product_bus_beta,
-        alpha_powers: vec![], // filled later
-    };
-    let (dot_product_air_point, dot_product_evals_to_verify) = verify_air(
+    let (dot_product_air_point, dot_product_evals_to_verify) = verify_table_air(
         &mut verifier_state,
-        &DotProductPrecompile {},
-        dot_product_air_extra_data,
-        UNIVARIATE_SKIPS,
+        &DotProductPrecompile,
         table_dot_products_log_n_rows,
-        &DotProductPrecompile.air_padding_row(),
-        Some(dot_product_bus_virtual_statement),
+        bus_challenge,
+        fingerprint_challenge,
+        dot_product_bus_beta,
+        dot_product_bus_virtual_statement,
     )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
@@ -562,4 +547,30 @@ pub fn verify_execution(
     )?;
 
     Ok(())
+}
+
+fn verify_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
+    verifier_state: &mut VerifierState<PF<EF>, EF, impl FSChallenger<EF>>,
+    t: &T,
+    log_n_rows: usize,
+    bus_challenge: EF,
+    fingerprint_challenge: EF,
+    bus_beta: EF,
+    bus_virtual_statement: MultiEvaluation<EF>,
+) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)> {
+    let air_extra_data = ExtraDataForBuses {
+        bus_challenge,
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        bus_beta,
+        alpha_powers: vec![], // filled later
+    };
+    verify_air(
+        verifier_state,
+        t,
+        air_extra_data,
+        UNIVARIATE_SKIPS,
+        log_n_rows,
+        &t.air_padding_row(),
+        Some(bus_virtual_statement),
+    )
 }

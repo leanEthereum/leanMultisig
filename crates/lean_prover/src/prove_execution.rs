@@ -50,7 +50,7 @@ pub fn prove_execution(
             .in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
-    let main_trace = &main_trace.base;
+    let main_trace_f = &main_trace.base;
 
     if memory.len() < 1 << MIN_LOG_MEMORY_SIZE {
         memory.resize(1 << MIN_LOG_MEMORY_SIZE, F::ZERO);
@@ -62,7 +62,11 @@ pub fn prove_execution(
     let log_public_memory = log2_strict_usize(public_memory.len());
 
     let log_n_cycles = log2_ceil_usize(n_cycles);
-    assert!(main_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
+    assert!(
+        main_trace_f
+            .iter()
+            .all(|col| col.len() == 1 << log_n_cycles)
+    );
 
     let log_n_p16 = log2_ceil_usize(traces[TABLE_POSEIDON_16].n_rows_non_padded())
         .max(MIN_LOG_N_ROWS_PER_TABLE);
@@ -154,11 +158,11 @@ pub fn prove_execution(
     let base_pols = [
         vec![
             memory.as_slice(),
-            main_trace[COL_INDEX_PC].as_slice(),
-            main_trace[COL_INDEX_FP].as_slice(),
-            main_trace[COL_INDEX_MEM_ADDRESS_A].as_slice(),
-            main_trace[COL_INDEX_MEM_ADDRESS_B].as_slice(),
-            main_trace[COL_INDEX_MEM_ADDRESS_C].as_slice(),
+            main_trace_f[COL_INDEX_PC].as_slice(),
+            main_trace_f[COL_INDEX_FP].as_slice(),
+            main_trace_f[COL_INDEX_MEM_ADDRESS_A].as_slice(),
+            main_trace_f[COL_INDEX_MEM_ADDRESS_B].as_slice(),
+            main_trace_f[COL_INDEX_MEM_ADDRESS_C].as_slice(),
         ],
         vec![
             &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_A],
@@ -202,7 +206,7 @@ pub fn prove_execution(
         let mut exec_bus_data = unsafe { uninitialized_vec::<EF>(n_cycles.next_power_of_two()) };
 
         exec_bus_data.par_iter_mut().enumerate().for_each(|(i, v)| {
-            let precompile_index = main_trace[COL_INDEX_PRECOMPILE_INDEX][i];
+            let precompile_index = main_trace_f[COL_INDEX_PRECOMPILE_INDEX][i];
 
             *v = bus_challenge
                 + finger_print(
@@ -211,13 +215,13 @@ pub fn prove_execution(
                         nu_columns[0][i],
                         nu_columns[1][i],
                         nu_columns[2][i],
-                        main_trace[COL_INDEX_AUX][i],
+                        main_trace_f[COL_INDEX_AUX][i],
                     ],
                     fingerprint_challenge,
                 )
         });
 
-        let exec_bus_selector = main_trace[COL_INDEX_IS_PRECOMPILE]
+        let exec_bus_selector = main_trace_f[COL_INDEX_IS_PRECOMPILE]
             .par_iter()
             .map(|&v| EF::from(v)) // TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             .collect::<Vec<_>>();
@@ -376,57 +380,25 @@ pub fn prove_execution(
     .map(|v| vec![Evaluation::new(p24_bus_point.clone(), *v)])
     .collect::<Vec<_>>();
 
-    let exec_air_extra_data = ExtraDataForBuses {
+    let (exec_air_point, exec_evals_to_prove) = prove_table_air(
+        &mut prover_state,
+        &ExecutionTable,
         bus_challenge,
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-        bus_beta: exec_bus_beta,
-        alpha_powers: vec![], // filled later
-    };
-    let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
-        prove_air(
-            &mut prover_state,
-            &ExecutionTable,
-            exec_air_extra_data,
-            UNIVARIATE_SKIPS,
-            &main_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
-            &[],
-            &vec![
-                EF::from_usize(ENDING_PC), // PC
-                EF::ZERO,                  // FP
-            ],
-            Some(exec_bus_virtual_statement),
-            true,
-        )
-    });
+        fingerprint_challenge,
+        exec_bus_beta,
+        &main_trace,
+        exec_bus_virtual_statement,
+    );
 
-    let dot_product_air_extra_data = ExtraDataForBuses {
+    let (dot_product_air_point, dot_product_evals_to_prove) = prove_table_air(
+        &mut prover_state,
+        &DotProductPrecompile,
         bus_challenge,
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-        bus_beta: dot_product_bus_beta,
-        alpha_powers: vec![], // filled later
-    };
-    let (dot_product_air_point, dot_product_evals_to_prove) = info_span!("DotProduct AIR proof")
-        .in_scope(|| {
-            prove_air(
-                &mut prover_state,
-                &DotProductPrecompile,
-                dot_product_air_extra_data,
-                UNIVARIATE_SKIPS,
-                &traces[TABLE_DOT_PRODUCT]
-                    .base
-                    .iter()
-                    .map(Vec::as_slice)
-                    .collect::<Vec<_>>(),
-                &traces[TABLE_DOT_PRODUCT]
-                    .ext
-                    .iter()
-                    .map(Vec::as_slice)
-                    .collect::<Vec<_>>(),
-                &Table::dot_product().air_padding_row(),
-                Some(dot_product_bus_virtual_statement),
-                true,
-            )
-        });
+        fingerprint_challenge,
+        dot_product_bus_beta,
+        &traces[TABLE_DOT_PRODUCT],
+        dot_product_bus_virtual_statement,
+    );
 
     let random_point_p16 = MultilinearPoint(prover_state.sample_vec(log_n_p16));
     let p16_gkr = prove_poseidon_gkr(
@@ -479,7 +451,7 @@ pub fn prove_execution(
     );
     let bytecode_poly_eq_point = eval_eq(&exec_air_point);
     let bytecode_pushforward = compute_pushforward(
-        &main_trace[COL_INDEX_PC],
+        &main_trace_f[COL_INDEX_PC],
         folded_bytecode.len(),
         &bytecode_poly_eq_point,
     );
@@ -489,9 +461,9 @@ pub fn prove_execution(
         &memory,
         [
             vec![
-                &main_trace[COL_INDEX_MEM_ADDRESS_A][..],
-                &main_trace[COL_INDEX_MEM_ADDRESS_B][..],
-                &main_trace[COL_INDEX_MEM_ADDRESS_C][..],
+                &main_trace_f[COL_INDEX_MEM_ADDRESS_A][..],
+                &main_trace_f[COL_INDEX_MEM_ADDRESS_B][..],
+                &main_trace_f[COL_INDEX_MEM_ADDRESS_C][..],
             ],
             DotProductPrecompile.normal_lookup_index_columns(&traces[TABLE_DOT_PRODUCT]),
         ]
@@ -513,9 +485,9 @@ pub fn prove_execution(
         .concat(), // TODO handle the case with non-zero default index
         [
             vec![
-                &main_trace[COL_INDEX_MEM_VALUE_A][..],
-                &main_trace[COL_INDEX_MEM_VALUE_B][..],
-                &main_trace[COL_INDEX_MEM_VALUE_C][..],
+                &main_trace_f[COL_INDEX_MEM_VALUE_A][..],
+                &main_trace_f[COL_INDEX_MEM_VALUE_B][..],
+                &main_trace_f[COL_INDEX_MEM_VALUE_C][..],
             ],
             Table::dot_product().normal_lookup_f_value_columns(&traces[TABLE_DOT_PRODUCT]),
         ]
@@ -598,7 +570,7 @@ pub fn prove_execution(
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &MleRef::Extension(&folded_bytecode),
-        &main_trace[COL_INDEX_PC],
+        &main_trace_f[COL_INDEX_PC],
         bytecode_lookup_claim_1.value,
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
@@ -850,4 +822,34 @@ fn prove_bus_for_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
         prover_state,
         &MleGroupRef::ExtensionPacked(vec![&bus_selector_packed, &bus_data_packed]),
     )
+}
+
+fn prove_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
+    prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
+    t: &T,
+    bus_challenge: EF,
+    fingerprint_challenge: EF,
+    bus_beta: EF,
+    trace: &TableTrace,
+    bus_virtual_statement: MultiEvaluation<EF>,
+) -> (MultilinearPoint<EF>, Vec<EF>) {
+    let dot_product_air_extra_data = ExtraDataForBuses {
+        bus_challenge,
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        bus_beta: bus_beta,
+        alpha_powers: vec![], // filled later
+    };
+    info_span!("Table AIR proof", table = t.name()).in_scope(|| {
+        prove_air(
+            prover_state,
+            t,
+            dot_product_air_extra_data,
+            UNIVARIATE_SKIPS,
+            &trace.base.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+            &trace.ext.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+            &t.air_padding_row(),
+            Some(bus_virtual_statement),
+            true,
+        )
+    })
 }
