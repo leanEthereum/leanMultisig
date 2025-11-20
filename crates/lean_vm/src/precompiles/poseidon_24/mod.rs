@@ -13,6 +13,7 @@ pub const POSEIDON_24_COL_INDEX_A_BIS: ColIndex = 1;
 pub const POSEIDON_24_COL_INDEX_B: ColIndex = 2;
 pub const POSEIDON_24_COL_INDEX_RES: ColIndex = 3;
 pub const POSEIDON_24_COL_INDEX_INPUT_START: ColIndex = 4;
+// intermediate columns ("commited cubes") and output are not handled here
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon24Precompile;
@@ -26,12 +27,17 @@ impl ModularPrecompile for Poseidon24Precompile {
         Table::poseidon24()
     }
 
+
     fn commited_columns_f(&self) -> Vec<ColIndex> {
-        unreachable!()
+        vec![
+            POSEIDON_24_COL_INDEX_A,
+            POSEIDON_24_COL_INDEX_B,
+            POSEIDON_24_COL_INDEX_RES,
+        ] // indexes only here (committed cubes are handled elsewhere)
     }
 
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        unreachable!()
+        vec![]
     }
 
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {

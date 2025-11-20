@@ -16,6 +16,7 @@ pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 2;
 pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 3; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
 pub const POSEIDON_16_COL_INDEX_COMPRESSION: ColIndex = 4;
 pub const POSEIDON_16_COL_INDEX_INPUT_START: ColIndex = 5;
+// intermediate columns ("commited cubes") and output are not handled here
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile;
@@ -30,14 +31,18 @@ impl ModularPrecompile for Poseidon16Precompile {
     }
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
-        unreachable!()
+        vec![
+            POSEIDON_16_COL_INDEX_A,
+            POSEIDON_16_COL_INDEX_B,
+            POSEIDON_16_COL_INDEX_RES,
+        ] // indexes only here (committed cubes are handled elsewhere)
     }
 
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        unreachable!()
+        vec![]
     }
 
-     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
+    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         unreachable!()
     }
 
@@ -46,7 +51,7 @@ impl ModularPrecompile for Poseidon16Precompile {
     }
 
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
-         unreachable!()
+        unreachable!()
     }
 
     fn buses(&self) -> Vec<Bus> {
@@ -62,7 +67,6 @@ impl ModularPrecompile for Poseidon16Precompile {
             ],
         }]
     }
-
 
     fn padding_row(&self) -> Vec<EF> {
         [
@@ -136,7 +140,6 @@ impl ModularPrecompile for Poseidon16Precompile {
         }
         Ok(())
     }
-
 }
 
 impl Air for Poseidon16Precompile {

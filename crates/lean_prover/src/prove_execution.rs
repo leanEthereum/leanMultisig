@@ -165,16 +165,16 @@ pub fn prove_execution(
             &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_B],
             &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES],
         ],
-        vec![
-            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A],
-            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_B],
-            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_RES],
-        ],
         p16_witness
             .committed_cubes
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
+        vec![
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_B],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_RES],
+        ],
         p24_witness
             .committed_cubes
             .iter()
@@ -365,16 +365,21 @@ pub fn prove_execution(
         EF::ZERO
     );
 
-    let mut poseidon_indexes_statements = [
-        (&p16_bus_point, p16_bus_eval_index_input_a),
-        (&p16_bus_point, p16_bus_eval_index_input_b),
-        (&p16_bus_point, p16_bus_eval_index_input_output),
-        (&p24_bus_point, p24_bus_eval_index_input_a),
-        (&p24_bus_point, p24_bus_eval_index_input_b),
-        (&p24_bus_point, p24_bus_eval_index_input_output),
+    let mut p16_indexes_statements = [
+        p16_bus_eval_index_input_a,
+        p16_bus_eval_index_input_b,
+        p16_bus_eval_index_input_output,
     ]
     .iter()
-    .map(|(p, v)| vec![Evaluation::new((*p).clone(), *v)])
+    .map(|v| vec![Evaluation::new(p16_bus_point.clone(), *v)])
+    .collect::<Vec<_>>();
+    let mut p24_indexes_statements = [
+        p24_bus_eval_index_input_a,
+        p24_bus_eval_index_input_b,
+        p24_bus_eval_index_input_output,
+    ]
+    .iter()
+    .map(|v| vec![Evaluation::new(p24_bus_point.clone(), *v)])
     .collect::<Vec<_>>();
 
     let exec_air_extra_data = ExtraDataForBuses {
@@ -611,18 +616,18 @@ pub fn prove_execution(
 
     {
         // index opening for poseidon lookup
-        poseidon_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[0].clone());
-        poseidon_indexes_statements[1].extend(vectorized_lookup_statements.on_indexes[1].clone());
-        poseidon_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[2].clone());
+        p16_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[0].clone());
+        p16_indexes_statements[1].extend(vectorized_lookup_statements.on_indexes[1].clone());
+        p16_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[2].clone());
         // vectorized_lookup_statements.on_indexes[3] is proven via sumcheck below
-        poseidon_indexes_statements[3].extend(vectorized_lookup_statements.on_indexes[4].clone());
-        poseidon_indexes_statements[3].extend(
+        p24_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[4].clone());
+        p24_indexes_statements[1].extend(
             vectorized_lookup_statements.on_indexes[5]
                 .iter()
                 .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
         );
-        poseidon_indexes_statements[4].extend(vectorized_lookup_statements.on_indexes[6].clone());
-        poseidon_indexes_statements[5].extend(vectorized_lookup_statements.on_indexes[7].clone());
+        p24_indexes_statements[1].extend(vectorized_lookup_statements.on_indexes[6].clone());
+        p24_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[7].clone());
 
         // prove this value via sumcheck: index_res_b = (index_res_a + 1) * (1 - compression)
         let p16_one_minus_compression = &p16_witness
@@ -667,7 +672,7 @@ pub fn prove_execution(
             false,
         );
         prover_state.add_extension_scalar(sc_values[2]);
-        poseidon_indexes_statements[2].push(Evaluation::new(sc_point, sc_values[2] - EF::ONE));
+        p16_indexes_statements[2].push(Evaluation::new(sc_point, sc_values[2] - EF::ONE));
     }
 
     let (initial_pc_statement, final_pc_statement) =
@@ -716,8 +721,9 @@ pub fn prove_execution(
             ]
             .concat(), // exec memory address C
         ],
-        poseidon_indexes_statements,
+        p16_indexes_statements,
         encapsulate_vec(p16_gkr.cubes_statements.split()),
+        p24_indexes_statements,
         encapsulate_vec(p24_gkr.cubes_statements.split()),
         dot_product_statements,
     ]
