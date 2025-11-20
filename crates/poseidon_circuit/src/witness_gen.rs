@@ -12,7 +12,7 @@ use crate::F;
 use crate::gkr_layers::BatchPartialRounds;
 use crate::gkr_layers::PoseidonGKRLayers;
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize> {
     pub input_layer: [Vec<A>; WIDTH], // input of the permutation
     pub initial_full_layers: Vec<[Vec<A>; WIDTH]>, // just before cubing

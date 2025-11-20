@@ -15,7 +15,7 @@ pub struct ExecutionTrace {
     pub n_poseidons_16: usize,
     pub n_poseidons_24: usize,
     pub n_compressions_16: usize,
-    pub poseidons_16: Vec<WitnessPoseidon16>, // padded with empty poseidons
+    pub poseidons_16: PrecompileTrace, // padded with empty poseidons
     pub poseidons_24: Vec<WitnessPoseidon24>, // padded with empty poseidons
     pub dot_product_trace: PrecompileTrace,
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
@@ -124,7 +124,7 @@ pub fn get_execution_trace(
         .collect::<Vec<F>>();
     memory_padded.resize(memory.0.len().next_power_of_two(), F::ZERO);
 
-    let n_poseidons_16 = execution_result.poseidons_16.len();
+    let n_poseidons_16 = execution_result.poseidons_16.base[0].len();
     let n_poseidons_24 = execution_result.poseidons_24.len();
 
     let ExecutionResult {
@@ -135,33 +135,13 @@ pub fn get_execution_trace(
         ..
     } = execution_result;
 
-    poseidons_16.resize(
-        n_poseidons_16
-            .next_power_of_two()
-            .max(MIN_N_ROWS_PER_TABLE),
-        WitnessPoseidon16::poseidon_of_zero(),
-    );
     poseidons_24.resize(
-        n_poseidons_24
-            .next_power_of_two()
-            .max(MIN_N_ROWS_PER_TABLE),
+        n_poseidons_24.next_power_of_two().max(MIN_N_ROWS_PER_TABLE),
         WitnessPoseidon24::poseidon_of_zero(),
     );
 
-    dot_product_trace.padding_len = dot_product_trace.base[0]
-        .len()
-        .next_power_of_two()
-        .max(MIN_N_ROWS_PER_TABLE)
-        - dot_product_trace.base[0].len();
-    for (i, col) in dot_product_trace.base.iter_mut().enumerate() {
-        let default_value: F = DotProductPrecompile::padding_row()[i].as_base().unwrap();
-        col.extend(repeat_n(default_value, dot_product_trace.padding_len));
-    }
-    for (i, col) in dot_product_trace.ext.iter_mut().enumerate() {
-        let default_value =
-            DotProductPrecompile::padding_row()[i + DotProductPrecompile::n_columns_f()];
-        col.extend(repeat_n(default_value, dot_product_trace.padding_len));
-    }
+    padd_precompile_table::<DotProductPrecompile>(&mut dot_product_trace);
+    padd_precompile_table::<Poseidon16Precompile>(&mut poseidons_16);
 
     let n_compressions_16;
     (poseidons_16, n_compressions_16) = put_poseidon16_compressions_at_the_end(&poseidons_16); // TODO avoid reallocation
@@ -184,18 +164,52 @@ pub fn get_execution_trace(
 }
 
 fn put_poseidon16_compressions_at_the_end(
-    poseidons_16: &[WitnessPoseidon16],
-) -> (Vec<WitnessPoseidon16>, usize) {
-    let no_compression = poseidons_16
-        .par_iter()
-        .filter(|p| !p.is_compression)
-        .cloned()
-        .collect::<Vec<_>>();
-    let compression = poseidons_16
-        .par_iter()
-        .filter(|p| p.is_compression)
-        .cloned()
-        .collect::<Vec<_>>();
-    let n_compressions = compression.len();
-    ([no_compression, compression].concat(), n_compressions)
+    poseidons_16: &PrecompileTrace,
+) -> (PrecompileTrace, usize) {
+    let n = poseidons_16.base[0].len();
+    assert_eq!(Poseidon16Precompile::n_columns_f(), poseidons_16.base.len());
+    assert_eq!(poseidons_16.ext.len(), 0);
+    let mut new_trace = vec![Vec::with_capacity(n); Poseidon16Precompile::n_columns_f()];
+    // TODO parallelize
+    for row in 0..n {
+        if poseidons_16.base[POSEIDON_16_COL_INDEX_COMPRESSION][row] == F::from_bool(false) {
+            for col in 0..Poseidon16Precompile::n_columns_f() {
+                new_trace[col].push(poseidons_16.base[col][row]);
+            }
+        }
+    }
+    let mut n_compressions = 0;
+    for row in 0..n {
+        if poseidons_16.base[POSEIDON_16_COL_INDEX_COMPRESSION][row] == F::from_bool(true) {
+            n_compressions += 1;
+            for col in 0..Poseidon16Precompile::n_columns_f() {
+                new_trace[col].push(poseidons_16.base[col][row]);
+            }
+        }
+    }
+
+    (
+        PrecompileTrace {
+            base: new_trace,
+            ext: vec![],
+            padding_len: poseidons_16.padding_len,
+        },
+        n_compressions,
+    )
+}
+
+fn padd_precompile_table<P: ModularPrecompile>(trace: &mut PrecompileTrace) {
+    trace.padding_len = trace.base[0]
+        .len()
+        .next_power_of_two()
+        .max(MIN_N_ROWS_PER_TABLE)
+        - trace.base[0].len();
+    for (i, col) in trace.base.iter_mut().enumerate() {
+        let default_value: F = P::padding_row()[i].as_base().unwrap();
+        col.extend(repeat_n(default_value, trace.padding_len));
+    }
+    for (i, col) in trace.ext.iter_mut().enumerate() {
+        let default_value = P::padding_row()[i + P::n_columns_f()];
+        col.extend(repeat_n(default_value, trace.padding_len));
+    }
 }

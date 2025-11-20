@@ -3,8 +3,12 @@ use std::{any::TypeId, mem::transmute_copy};
 use crate::{EF, F, Memory, RunnerError, Table};
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
+
 mod dot_product;
 pub use dot_product::*;
+
+mod poseidon_16;
+pub use poseidon_16::*;
 
 pub type ColIndex = usize;
 
@@ -32,11 +36,17 @@ pub enum BusDirection {
     Push,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BusSelector {
+    Column(ColIndex),
+    DenseOnes, // [1, 1, 1, ..., 1, 1, 0, 0, ..., 0] (padding in the end)
+}
+
 #[derive(Debug)]
 pub struct Bus {
     pub direction: BusDirection,
     pub table: Table,
-    pub selector: ColIndex,
+    pub selector: BusSelector,
     pub data: Vec<ColIndex>,
 }
 
@@ -118,7 +128,7 @@ pub trait ModularPrecompile: Air {
     fn simple_lookups() -> &'static [LookupIntoMemory];
     fn ext_field_lookups() -> &'static [ExtensionFieldLookupIntoMemory];
     fn vector_lookups() -> &'static [VectorLookupIntoMemory];
-    fn buses() -> &'static [Bus];
+    fn buses() -> Vec<Bus>;
     fn execute(
         arg_a: F,
         arg_b: F,
@@ -126,6 +136,7 @@ pub trait ModularPrecompile: Air {
         aux: usize,
         memory: &mut Memory,
         trace: &mut PrecompileTrace,
+        ctx: PrecompileExecutionContext<'_>,
     ) -> Result<(), RunnerError>;
     fn padding_row() -> Vec<EF>;
 
@@ -136,4 +147,10 @@ pub trait ModularPrecompile: Air {
             .map(|i| Self::padding_row()[i])
             .collect()
     }
+}
+
+#[derive(Debug)]
+pub struct PrecompileExecutionContext<'a> {
+    pub poseidon16_precomputed: &'a [([F; 16], [F; 16])],
+    pub n_poseidon16_precomputed_used: &'a mut usize,
 }

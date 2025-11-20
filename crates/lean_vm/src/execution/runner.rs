@@ -9,7 +9,7 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    CodeAddress, DotProductPrecompile, HintExecutionContext, PrecompileTrace, SourceLineNumber,
+    CodeAddress, DotProductPrecompile, HintExecutionContext, Poseidon16Precompile, PrecompileTrace, SourceLineNumber
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -201,7 +201,7 @@ fn execute_bytecode_helper(
     let mut n_poseidon24_precomputed_used = 0;
 
     // Events collected only in final execution
-    let mut poseidons_16 = Vec::new();
+    let mut poseidons_16 = PrecompileTrace::new::<Poseidon16Precompile>();
     let mut poseidons_24 = Vec::new();
     let mut dot_product_trace = PrecompileTrace::new::<DotProductPrecompile>();
     let mut multilinear_evals = Vec::new();
@@ -369,12 +369,12 @@ fn execute_bytecode_helper(
 
     summary.push('\n');
 
-    if poseidons_16.len() + poseidons_24.len() > 0 {
+    if poseidons_16.base[0].len() + poseidons_24.len() > 0 {
         summary.push_str(&format!(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
-            pretty_integer(poseidons_16.len()),
+            pretty_integer(poseidons_16.base[0].len()),
             pretty_integer(poseidons_24.len()),
-            cpu_cycles / (poseidons_16.len() + poseidons_24.len())
+            cpu_cycles / (poseidons_16.base[0].len() + poseidons_24.len())
         ));
     }
     // if !dot_products.is_empty() {

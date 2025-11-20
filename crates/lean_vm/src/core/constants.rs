@@ -2,7 +2,10 @@ use multilinear_toolkit::prelude::PrimeCharacteristicRing;
 use num_enum::TryFromPrimitive;
 use strum_macros::EnumIter;
 
-use crate::{DotProductPrecompile, F, Memory, ModularPrecompile, PrecompileTrace, RunnerError};
+use crate::{
+    DotProductPrecompile, F, Memory, ModularPrecompile, Poseidon16Precompile,
+    PrecompileExecutionContext, PrecompileTrace, RunnerError,
+};
 
 /// Vector dimension for field operations
 pub const DIMENSION: usize = 5;
@@ -81,14 +84,30 @@ impl Table {
         aux: usize,
         memory: &mut Memory,
         trace: &mut PrecompileTrace,
+        precompile_execution_context: PrecompileExecutionContext<'_>,
     ) -> Result<(), RunnerError> {
         match self {
-            Self::_UNUSED | Self::Poseidons16 | Self::Poseidons24 | Self::MultilinearEval => {
+            Self::_UNUSED | Self::Poseidons24 | Self::MultilinearEval => {
                 unreachable!()
             }
-            Self::DotProduct => {
-                DotProductPrecompile::execute(arg_a, arg_b, arg_c, aux, memory, trace)
-            }
+            Self::DotProduct => DotProductPrecompile::execute(
+                arg_a,
+                arg_b,
+                arg_c,
+                aux,
+                memory,
+                trace,
+                precompile_execution_context,
+            ),
+            Self::Poseidons16 => Poseidon16Precompile::execute(
+                arg_a,
+                arg_b,
+                arg_c,
+                aux,
+                memory,
+                trace,
+                precompile_execution_context,
+            ),
         }
     }
 }

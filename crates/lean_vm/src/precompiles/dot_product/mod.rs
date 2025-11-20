@@ -1,7 +1,6 @@
 use crate::precompiles::dot_product::vm_exec::exec_dot_product;
 use crate::{
-    Bus, ColIndex, EF, ExtensionFieldLookupIntoMemory, F, LookupIntoMemory, Memory,
-    ModularPrecompile, PrecompileTrace, RunnerError, Table, VectorLookupIntoMemory,
+    Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F, LookupIntoMemory, Memory, ModularPrecompile, PrecompileExecutionContext, PrecompileTrace, RunnerError, Table, VectorLookupIntoMemory
 };
 use multilinear_toolkit::prelude::*;
 
@@ -38,8 +37,18 @@ impl ModularPrecompile for DotProductPrecompile {
         &[]
     }
 
-    fn buses() -> &'static [Bus] {
-        &[]
+    fn buses() -> Vec<Bus> {
+        vec![Bus {
+            table: Table::DotProduct,
+            direction: BusDirection::Pull,
+            selector: BusSelector::Column(DOT_PRODUCT_AIR_COL_START_FLAG),
+            data: vec![
+                DOT_PRODUCT_AIR_COL_INDEX_A,
+                DOT_PRODUCT_AIR_COL_INDEX_B,
+                DOT_PRODUCT_AIR_COL_INDEX_RES,
+                DOT_PRODUCT_AIR_COL_LEN,
+            ],
+        }]
     }
 
     #[inline(always)]
@@ -50,6 +59,7 @@ impl ModularPrecompile for DotProductPrecompile {
         aux: usize,
         memory: &mut Memory,
         trace: &mut PrecompileTrace,
+         _: PrecompileExecutionContext<'_>,
     ) -> Result<(), RunnerError> {
         exec_dot_product(arg_a, arg_b, arg_c, aux, memory, trace)
     }

@@ -5,14 +5,12 @@ use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
 use crate::core::{DIMENSION, EF, F, Label, VECTOR_LEN};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
-use crate::witness::{
-    RowMultilinearEval, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
-};
-use crate::{PrecompileTrace, Table};
+use crate::witness::{RowMultilinearEval, WitnessMultilinearEval, WitnessPoseidon24};
+use crate::{PrecompileExecutionContext, PrecompileTrace, Table};
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
-use utils::{ToUsize, poseidon16_permute, poseidon24_permute};
+use utils::{ToUsize, poseidon24_permute};
 
 /// Complete set of VM instruction types with comprehensive operation support
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -67,7 +65,7 @@ pub struct InstructionContext<'a> {
     pub fp: &'a mut usize,
     pub pc: &'a mut usize,
     pub pcs: &'a Vec<usize>,
-    pub poseidons_16: &'a mut Vec<WitnessPoseidon16>,
+    pub poseidons_16: &'a mut PrecompileTrace,
     pub poseidons_24: &'a mut Vec<WitnessPoseidon24>,
     pub dot_product_trace: &'a mut PrecompileTrace,
     pub multilinear_evals: &'a mut Vec<WitnessMultilinearEval>,
@@ -168,63 +166,6 @@ impl Instruction {
                 }
 
                 *ctx.jump_counts += 1;
-                Ok(())
-            }
-            Self::Precompile {
-                table: Table::Poseidons16,
-                arg_a,
-                arg_b,
-                arg_c: res,
-                aux: is_compression,
-            } => {
-                assert!(*is_compression == 0 || *is_compression == 1);
-                let is_compression = *is_compression == 1;
-                let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
-                let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
-                let res_value = res.read_value(ctx.memory, *ctx.fp)?;
-
-                let arg0 = ctx.memory.get_vector(a_value.to_usize())?;
-                let arg1 = ctx.memory.get_vector(b_value.to_usize())?;
-
-                let mut input = [F::ZERO; VECTOR_LEN * 2];
-                input[..VECTOR_LEN].copy_from_slice(&arg0);
-                input[VECTOR_LEN..].copy_from_slice(&arg1);
-
-                let output = match ctx
-                    .poseidon16_precomputed
-                    .get(*ctx.n_poseidon16_precomputed_used)
-                {
-                    Some(precomputed) if precomputed.0 == input => {
-                        *ctx.n_poseidon16_precomputed_used += 1;
-                        precomputed.1
-                    }
-                    _ => poseidon16_permute(input),
-                };
-
-                let res0: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
-                let res1: [F; VECTOR_LEN] = output[VECTOR_LEN..].try_into().unwrap();
-
-                ctx.memory.set_vector(res_value.to_usize(), res0)?;
-                if !is_compression {
-                    ctx.memory.set_vector(1 + res_value.to_usize(), res1)?;
-                }
-
-                {
-                    let cycle = ctx.pcs.len() - 1;
-                    let addr_input_a = a_value.to_usize();
-                    let addr_input_b = b_value.to_usize();
-                    let addr_output = res_value.to_usize();
-                    ctx.poseidons_16.push(WitnessPoseidon16 {
-                        cycle: Some(cycle),
-                        addr_input_a,
-                        addr_input_b,
-                        addr_output,
-                        input,
-                        is_compression,
-                    });
-                }
-
-                *ctx.pc += 1;
                 Ok(())
             }
             Self::Precompile {
@@ -336,13 +277,24 @@ impl Instruction {
                 arg_c,
                 aux: size,
             } => {
+                let trace = match table {
+                    Table::Poseidons16 => &mut ctx.poseidons_16,
+                    Table::DotProduct => &mut ctx.dot_product_trace,
+                    Table::_UNUSED | Table::Poseidons24 | Table::MultilinearEval => {
+                        unreachable!()
+                    }
+                };
                 table.execute(
                     arg_a.read_value(ctx.memory, *ctx.fp)?,
                     arg_b.read_value(ctx.memory, *ctx.fp)?,
                     arg_c.read_value(ctx.memory, *ctx.fp)?,
                     *size,
                     ctx.memory,
-                    ctx.dot_product_trace,
+                    trace,
+                    PrecompileExecutionContext {
+                        poseidon16_precomputed: &ctx.poseidon16_precomputed,
+                        n_poseidon16_precomputed_used: &mut ctx.n_poseidon16_precomputed_used,
+                    },
                 )?;
 
                 *ctx.pc += 1;

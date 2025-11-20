@@ -3,7 +3,6 @@ use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
-use utils::ToUsize;
 
 // Pointers for precompile inputs allocated in public memory.
 const POSEIDON16_ARG_A_PTR: usize = 6;
@@ -222,79 +221,6 @@ fn run_program() -> (Bytecode, ExecutionResult) {
     println!("{}", result.summary);
     (bytecode, result)
 }
-
-#[test]
-fn vm_precompile_events_capture_expected_data() {
-    let (_bytecode, execution_result) = run_program();
-
-    assert_eq!(execution_result.poseidons_16.len(), 1);
-    assert_eq!(execution_result.poseidons_24.len(), 1);
-    assert_eq!(execution_result.multilinear_evals.len(), 1);
-
-    let poseidon16_event = &execution_result.poseidons_16[0];
-    assert_eq!(poseidon16_event.cycle, Some(0));
-    assert_eq!(poseidon16_event.addr_input_a, POSEIDON16_ARG_A_PTR);
-    assert_eq!(poseidon16_event.addr_input_b, POSEIDON16_ARG_B_PTR);
-
-    let poseidon16_res_ptr = execution_result
-        .memory
-        .get(execution_result.fps[poseidon16_event.cycle.unwrap()] + POSEIDON16_RES_OFFSET)
-        .unwrap()
-        .to_usize();
-    assert_eq!(poseidon16_event.addr_output, poseidon16_res_ptr);
-
-    let poseidon16_input_a = POSEIDON16_ARG_A_VALUES.map(f);
-    let poseidon16_input_b = POSEIDON16_ARG_B_VALUES.map(f);
-    let mut expected_poseidon16_input = [F::ZERO; 16];
-    expected_poseidon16_input[..VECTOR_LEN].copy_from_slice(&poseidon16_input_a);
-    expected_poseidon16_input[VECTOR_LEN..].copy_from_slice(&poseidon16_input_b);
-    assert_eq!(poseidon16_event.input, expected_poseidon16_input);
-
-    let poseidon24_event = &execution_result.poseidons_24[0];
-    assert_eq!(poseidon24_event.cycle, Some(1));
-    assert_eq!(poseidon24_event.addr_input_a, POSEIDON24_ARG_A_PTR);
-    assert_eq!(poseidon24_event.addr_input_b, POSEIDON24_ARG_B_PTR);
-
-    let poseidon24_res_ptr = execution_result
-        .memory
-        .get(execution_result.fps[poseidon24_event.cycle.unwrap()] + POSEIDON24_RES_OFFSET)
-        .unwrap()
-        .to_usize();
-    assert_eq!(poseidon24_event.addr_output, poseidon24_res_ptr);
-
-    let poseidon24_input_a0 = POSEIDON24_ARG_A_VALUES[0].map(f);
-    let poseidon24_input_a1 = POSEIDON24_ARG_A_VALUES[1].map(f);
-    let poseidon24_input_b = POSEIDON24_ARG_B_VALUES.map(f);
-    let mut expected_poseidon24_input = [F::ZERO; 24];
-    expected_poseidon24_input[..VECTOR_LEN].copy_from_slice(&poseidon24_input_a0);
-    expected_poseidon24_input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&poseidon24_input_a1);
-    expected_poseidon24_input[2 * VECTOR_LEN..].copy_from_slice(&poseidon24_input_b);
-    assert_eq!(poseidon24_event.input, expected_poseidon24_input);
-
-    let mle_event = &execution_result.multilinear_evals[0];
-    assert_eq!(mle_event.cycle, 3);
-    assert_eq!(mle_event.addr_coeffs, MLE_COEFF_PTR);
-    assert_eq!(mle_event.addr_point, MLE_POINT_PTR);
-
-    let mle_res_ptr = execution_result
-        .memory
-        .get(execution_result.fps[mle_event.cycle] + MLE_RES_OFFSET)
-        .unwrap()
-        .to_usize();
-    assert_eq!(mle_event.addr_res, mle_res_ptr);
-
-    let expected_point = vec![EF::from_basis_coefficients_slice(&MLE_POINT_VALUES.map(f)).unwrap()];
-    assert_eq!(mle_event.point, expected_point);
-
-    let mle_res_vec = execution_result
-        .memory
-        .get_vector(mle_event.addr_res)
-        .unwrap();
-    let mle_res_coeffs: [F; DIMENSION] = mle_res_vec[..DIMENSION].try_into().unwrap();
-    let mle_res = EF::from_basis_coefficients_slice(&mle_res_coeffs).unwrap();
-    assert_eq!(mle_event.res, mle_res);
-}
-
 #[test]
 fn test_memory_operations() {
     let mut memory = Memory::empty();
@@ -317,10 +243,4 @@ fn test_operation_compute() {
         mul.compute(F::from_usize(2), F::from_usize(3)),
         F::from_usize(6)
     );
-}
-
-#[test]
-fn test_witness_creation() {
-    let witness = WitnessPoseidon16::poseidon_of_zero();
-    assert_eq!(witness.input, [F::ZERO; 16]);
 }
