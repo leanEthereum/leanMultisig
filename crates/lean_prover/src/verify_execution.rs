@@ -442,7 +442,7 @@ pub fn verify_execution(
         p16_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[2].clone());
         // vectorized_lookup_statements.on_indexes[3] is proven via sumcheck below
         p24_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[4].clone());
-        p24_indexes_statements[1].extend(
+        p24_indexes_statements[0].extend(
             vectorized_lookup_statements.on_indexes[5]
                 .iter()
                 .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
