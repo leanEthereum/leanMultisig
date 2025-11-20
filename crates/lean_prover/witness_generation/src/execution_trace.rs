@@ -8,10 +8,10 @@ use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
-    pub full_trace: [Vec<F>; N_EXEC_AIR_COLUMNS],
     pub nu_columns: [Vec<F>; 3],
     pub n_cycles: usize, // before padding with the repeated final instruction
     pub n_compressions_16: usize,
+    pub main_trace: TableTrace,
     pub precompile_traces: [TableTrace; N_PRECOMPILES],
     pub multilinear_evals_witness: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
@@ -38,11 +38,16 @@ pub fn get_execution_trace(
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
-    let mut trace: [Vec<F>; N_EXEC_AIR_COLUMNS] =
+    let mut main_trace: [Vec<F>; N_EXEC_AIR_COLUMNS] =
         array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
+    for col in &mut main_trace {
+        unsafe {
+            col.set_len(n_cycles);
+        }
+    }
     let mut nu_columns: [Vec<F>; 3] = array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
 
-    transposed_par_iter_mut(&mut trace)
+    transposed_par_iter_mut(&mut main_trace)
         .zip(transposed_par_iter_mut(&mut nu_columns))
         .zip(execution_result.pcs.par_iter())
         .zip(execution_result.fps.par_iter())
@@ -98,13 +103,6 @@ pub fn get_execution_trace(
             *trace_row[COL_INDEX_MEM_ADDRESS_C] = addr_c;
         });
 
-    // repeat the last row to get to a power of two
-    trace.par_iter_mut().for_each(|column| {
-        let last_value = column[n_cycles - 1];
-        for cell in &mut column[n_cycles..] {
-            *cell = last_value;
-        }
-    });
     nu_columns.par_iter_mut().for_each(|column| {
         let last_value = column[n_cycles - 1];
         for cell in &mut column[n_cycles..] {
@@ -127,19 +125,25 @@ pub fn get_execution_trace(
 
     for (trace, precompile) in precompile_traces.iter_mut().zip(ALL_PRECOMPILES) {
         if precompile != Table::multilinear_eval() {
-            padd_precompile_trace(&precompile, trace);
+            padd_table(&precompile, trace);
         }
     }
+    let mut main_trace = TableTrace {
+        base: Vec::from(main_trace),
+        ext: vec![],
+        padding_len: 0,
+    };
+    padd_table(&ExecutionTable, &mut main_trace);
 
     let n_compressions_16;
     (precompile_traces[TABLE_POSEIDON_16], n_compressions_16) =
         put_poseidon16_compressions_at_the_end(&precompile_traces[TABLE_POSEIDON_16]); // TODO avoid reallocation
 
     ExecutionTrace {
-        full_trace: trace,
         nu_columns,
         n_cycles,
         n_compressions_16,
+        main_trace,
         precompile_traces,
         multilinear_evals_witness,
         public_memory_size: execution_result.public_memory_size,
@@ -148,9 +152,7 @@ pub fn get_execution_trace(
     }
 }
 
-fn put_poseidon16_compressions_at_the_end(
-    poseidons_16: &TableTrace,
-) -> (TableTrace, usize) {
+fn put_poseidon16_compressions_at_the_end(poseidons_16: &TableTrace) -> (TableTrace, usize) {
     let n = poseidons_16.base[0].len();
     assert_eq!(Poseidon16Precompile.n_columns_f(), poseidons_16.base.len());
     assert_eq!(poseidons_16.ext.len(), 0);
@@ -183,7 +185,8 @@ fn put_poseidon16_compressions_at_the_end(
     )
 }
 
-fn padd_precompile_trace<P: TableT>(p: &P, trace: &mut TableTrace) {
+fn padd_table<P: TableT>(p: &P, trace: &mut TableTrace) {
+    // TODO parallelize
     trace.padding_len = trace.base[0]
         .len()
         .next_power_of_two()

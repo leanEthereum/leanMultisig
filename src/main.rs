@@ -23,6 +23,7 @@ enum Cli {
 fn main() {
     let cli = Cli::parse();
 
+
     match cli {
         Cli::Xmss {
             n_signatures: count,
@@ -39,3 +40,5 @@ fn main() {
         }
     }
 }
+
+

@@ -17,17 +17,11 @@ impl TableT for ExecutionTable {
     }
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
-        vec![
-            DOT_PRODUCT_AIR_COL_START_FLAG,
-            DOT_PRODUCT_AIR_COL_LEN,
-            DOT_PRODUCT_AIR_COL_INDEX_A,
-            DOT_PRODUCT_AIR_COL_INDEX_B,
-            DOT_PRODUCT_AIR_COL_INDEX_RES,
-        ]
+        unreachable!()
     }
 
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![DOT_PRODUCT_AIR_COL_COMPUTATION]
+        unreachable!()
     }
 
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
@@ -35,20 +29,7 @@ impl TableT for ExecutionTable {
     }
 
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        vec![
-            ExtensionFieldLookupIntoMemory {
-                index: DOT_PRODUCT_AIR_COL_INDEX_A,
-                values: DOT_PRODUCT_AIR_COL_VALUE_A,
-            },
-            ExtensionFieldLookupIntoMemory {
-                index: DOT_PRODUCT_AIR_COL_INDEX_B,
-                values: DOT_PRODUCT_AIR_COL_VALUE_B,
-            },
-            ExtensionFieldLookupIntoMemory {
-                index: DOT_PRODUCT_AIR_COL_INDEX_RES,
-                values: DOT_PRODUCT_AIR_COL_VALUE_RES,
-            },
-        ]
+        unreachable!()
     }
 
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
@@ -56,22 +37,13 @@ impl TableT for ExecutionTable {
     }
 
     fn buses(&self) -> Vec<Bus> {
-        vec![Bus {
-            table: self.identifier(),
-            direction: BusDirection::Pull,
-            selector: BusSelector::Column(DOT_PRODUCT_AIR_COL_START_FLAG),
-            data: vec![
-                DOT_PRODUCT_AIR_COL_INDEX_A,
-                DOT_PRODUCT_AIR_COL_INDEX_B,
-                DOT_PRODUCT_AIR_COL_INDEX_RES,
-                DOT_PRODUCT_AIR_COL_LEN,
-            ],
-        }]
+        unreachable!()
     }
 
     fn padding_row(&self) -> Vec<EF> {
         let mut padding_row = vec![EF::ZERO; N_EXEC_AIR_COLUMNS];
-        padding_row[COL_INDEX_JUMP] = EF::from_usize(1);
+        padding_row[COL_INDEX_PC] = EF::from_usize(ENDING_PC);
+        padding_row[COL_INDEX_JUMP] = EF::ONE;
         padding_row[COL_INDEX_FLAG_A] = EF::ONE;
         padding_row[COL_INDEX_OPERAND_A] = EF::ONE;
         padding_row[COL_INDEX_FLAG_B] = EF::ONE;
