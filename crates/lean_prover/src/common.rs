@@ -56,20 +56,6 @@ pub(crate) fn get_base_dims(
     .concat()
 }
 
-pub(crate) fn exec_lookup_into_memory_initial_statements(
-    exec_air_point: &MultilinearPoint<EF>,
-    exec_evals: &[EF],
-) -> Vec<Vec<Evaluation<EF>>> {
-    [
-        COL_INDEX_MEM_VALUE_A,
-        COL_INDEX_MEM_VALUE_B,
-        COL_INDEX_MEM_VALUE_C,
-    ]
-    .into_iter()
-    .map(|index| vec![Evaluation::new(exec_air_point.clone(), exec_evals[index])])
-    .collect::<Vec<_>>()
-}
-
 pub(crate) fn fold_bytecode(
     bytecode: &Bytecode,
     folding_challenges: &MultilinearPoint<EF>,

@@ -25,11 +25,24 @@ impl TableT for ExecutionTable {
     }
 
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
-        vec![]
+        vec![
+            LookupIntoMemory {
+                index: COL_INDEX_MEM_ADDRESS_A,
+                values: COL_INDEX_MEM_VALUE_A,
+            },
+            LookupIntoMemory {
+                index: COL_INDEX_MEM_ADDRESS_B,
+                values: COL_INDEX_MEM_VALUE_B,
+            },
+            LookupIntoMemory {
+                index: COL_INDEX_MEM_ADDRESS_C,
+                values: COL_INDEX_MEM_VALUE_C,
+            },
+        ]
     }
 
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        unreachable!()
+        vec![]
     }
 
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {

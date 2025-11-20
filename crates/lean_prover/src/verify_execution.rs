@@ -347,13 +347,20 @@ pub fn verify_execution(
         &mut verifier_state,
         3,
         [
-            vec![n_cycles; 3],
-            vec![n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE); 3],
+            vec![n_cycles; Table::execution().num_normal_lookups()],
+            vec![
+                n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE);
+                Table::dot_product().num_normal_lookups()
+            ],
         ]
         .concat(),
-        [vec![0; 3], vec![0; 3]].concat(),
         [
-            exec_lookup_into_memory_initial_statements(&exec_air_point, &exec_evals_to_verify),
+            vec![0; Table::execution().num_normal_lookups()],
+            vec![0; Table::dot_product().num_normal_lookups()],
+        ]
+        .concat(),
+        [
+            Table::execution().normal_lookups_statements(&exec_air_point, &exec_evals_to_verify),
             DotProductPrecompile
                 .normal_lookups_statements(&dot_product_air_point, &dot_product_evals_to_verify),
         ]

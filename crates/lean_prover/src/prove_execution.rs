@@ -460,16 +460,12 @@ pub fn prove_execution(
         &mut prover_state,
         &memory,
         [
-            vec![
-                &main_trace_f[COL_INDEX_MEM_ADDRESS_A][..],
-                &main_trace_f[COL_INDEX_MEM_ADDRESS_B][..],
-                &main_trace_f[COL_INDEX_MEM_ADDRESS_C][..],
-            ],
+            ExecutionTable.normal_lookup_index_columns(&main_trace),
             DotProductPrecompile.normal_lookup_index_columns(&traces[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
         [
-            vec![n_cycles; 3],
+            vec![n_cycles; Table::execution().num_normal_lookups()],
             vec![
                 traces[TABLE_DOT_PRODUCT]
                     .n_rows_non_padded()
@@ -479,22 +475,22 @@ pub fn prove_execution(
         ]
         .concat(),
         [
-            vec![0; 3],
+            vec![0; Table::execution().num_normal_lookups()],
             vec![0; Table::dot_product().num_normal_lookups()],
         ]
         .concat(), // TODO handle the case with non-zero default index
         [
-            vec![
-                &main_trace_f[COL_INDEX_MEM_VALUE_A][..],
-                &main_trace_f[COL_INDEX_MEM_VALUE_B][..],
-                &main_trace_f[COL_INDEX_MEM_VALUE_C][..],
-            ],
+            Table::execution().normal_lookup_f_value_columns(&main_trace),
             Table::dot_product().normal_lookup_f_value_columns(&traces[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
-        [Table::dot_product().normal_lookup_ef_value_columns(&traces[TABLE_DOT_PRODUCT])].concat(),
         [
-            exec_lookup_into_memory_initial_statements(&exec_air_point, &exec_evals_to_prove),
+            Table::execution().normal_lookup_ef_value_columns(&main_trace),
+            Table::dot_product().normal_lookup_ef_value_columns(&traces[TABLE_DOT_PRODUCT]),
+        ]
+        .concat(),
+        [
+            Table::execution().normal_lookups_statements(&exec_air_point, &exec_evals_to_prove),
             Table::dot_product()
                 .normal_lookups_statements(&dot_product_air_point, &dot_product_evals_to_prove),
         ]
