@@ -477,7 +477,7 @@ fn compile_lines(
             }
 
             SimpleLine::Precompile { table, args, .. } => {
-                if *table == Table::Poseidons24 {
+                if *table == Table::Poseidon24 {
                     assert_eq!(args.len(), 3);
                 } else {
                     assert_eq!(args.len(), 4);

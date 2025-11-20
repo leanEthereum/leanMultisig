@@ -3,8 +3,7 @@ use num_enum::TryFromPrimitive;
 use strum_macros::EnumIter;
 
 use crate::{
-    DotProductPrecompile, F, Memory, ModularPrecompile, Poseidon16Precompile,
-    PrecompileExecutionContext, PrecompileTrace, RunnerError,
+    DotProductPrecompile, F, Memory, ModularPrecompile, Poseidon16Precompile, Poseidon24Precompile, PrecompileExecutionContext, PrecompileTrace, RunnerError
 };
 
 /// Vector dimension for field operations
@@ -52,8 +51,8 @@ pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * 8;
 #[repr(usize)]
 pub enum Table {
     _UNUSED,
-    Poseidons16,
-    Poseidons24,
+    Poseidon16,
+    Poseidon24,
     DotProduct,
     MultilinearEval,
 }
@@ -66,8 +65,8 @@ impl Table {
     pub fn name(&self) -> &'static str {
         match self {
             Table::_UNUSED => "u_n_u_s_e_d",
-            Table::Poseidons16 => "poseidon16",
-            Table::Poseidons24 => "poseidon24",
+            Table::Poseidon16 => "poseidon16",
+            Table::Poseidon24 => "poseidon24",
             Table::DotProduct => "dot_product",
             Table::MultilinearEval => "multilinear_eval",
         }
@@ -87,7 +86,7 @@ impl Table {
         precompile_execution_context: PrecompileExecutionContext<'_>,
     ) -> Result<(), RunnerError> {
         match self {
-            Self::_UNUSED | Self::Poseidons24 | Self::MultilinearEval => {
+            Self::_UNUSED | Self::MultilinearEval => {
                 unreachable!()
             }
             Self::DotProduct => DotProductPrecompile::execute(
@@ -99,7 +98,16 @@ impl Table {
                 trace,
                 precompile_execution_context,
             ),
-            Self::Poseidons16 => Poseidon16Precompile::execute(
+            Self::Poseidon16 => Poseidon16Precompile::execute(
+                arg_a,
+                arg_b,
+                arg_c,
+                aux,
+                memory,
+                trace,
+                precompile_execution_context,
+            ),
+            Self::Poseidon24 => Poseidon24Precompile::execute(
                 arg_a,
                 arg_b,
                 arg_c,

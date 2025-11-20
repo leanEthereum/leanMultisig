@@ -10,6 +10,9 @@ pub use dot_product::*;
 mod poseidon_16;
 pub use poseidon_16::*;
 
+mod poseidon_24;
+pub use poseidon_24::*;
+
 pub type ColIndex = usize;
 
 #[derive(Debug)]
@@ -153,4 +156,6 @@ pub trait ModularPrecompile: Air {
 pub struct PrecompileExecutionContext<'a> {
     pub poseidon16_precomputed: &'a [([F; 16], [F; 16])],
     pub n_poseidon16_precomputed_used: &'a mut usize,
+    pub poseidon24_precomputed: &'a [([F; 24], [F; 8])],
+    pub n_poseidon24_precomputed_used: &'a mut usize,
 }

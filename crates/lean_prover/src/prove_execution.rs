@@ -30,8 +30,6 @@ pub fn prove_execution(
         full_trace,
         nu_columns,
         n_cycles,
-        n_poseidons_16,
-        n_poseidons_24,
         poseidons_16,      // padded with empty poseidons
         poseidons_24,      // padded with empty poseidons
         n_compressions_16, // included the padding (that are compressions of zeros)
@@ -67,8 +65,8 @@ pub fn prove_execution(
     let log_n_cycles = log2_ceil_usize(n_cycles);
     assert!(full_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
 
-    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(MIN_LOG_N_ROWS_PER_TABLE);
-    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(MIN_LOG_N_ROWS_PER_TABLE);
+    let log_n_p16 = log2_ceil_usize(poseidons_16.n_rows_non_padded()).max(MIN_LOG_N_ROWS_PER_TABLE);
+    let log_n_p24 = log2_ceil_usize(poseidons_24.n_rows_non_padded()).max(MIN_LOG_N_ROWS_PER_TABLE);
 
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -77,9 +75,18 @@ pub fn prove_execution(
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
-    let p16_witness =
-        generate_poseidon_witness_16(&p16_gkr_layers, &poseidons_16, n_compressions_16);
-    let p24_witness = generate_poseidon_witness_24(&p24_gkr_layers, &poseidons_24);
+    let p16_witness = generate_poseidon_witness_helper(
+        &p16_gkr_layers,
+        &poseidons_16,
+        POSEIDON_16_COL_INDEX_INPUT_START,
+        Some(n_compressions_16),
+    );
+    let p24_witness = generate_poseidon_witness_helper(
+        &p24_gkr_layers,
+        &poseidons_24,
+        POSEIDON_24_COL_INDEX_INPUT_START,
+        None,
+    );
 
     let dot_product_computation_ext_to_base_helper =
         ExtensionCommitmentFromBaseProver::before_commitment(
@@ -90,9 +97,9 @@ pub fn prove_execution(
     prover_state.add_base_scalars(
         &[
             n_cycles,
-            n_poseidons_16,
+            poseidons_16.n_rows_non_padded(),
             n_compressions_16,
-            n_poseidons_24,
+            poseidons_24.n_rows_non_padded(),
             dot_product_trace.n_rows_non_padded(),
             private_memory.len(),
             vm_multilinear_evals.len(),
@@ -125,19 +132,15 @@ pub fn prove_execution(
         .unwrap();
     }
 
-    let [
-        p24_indexes_input_a,
-        p24_indexes_input_a_shifted, // = p24_indexes_input_a + 1
-        p24_indexes_input_b,
-        p24_indexes_output,
-    ] = all_poseidon_24_indexes(&poseidons_24);
-
     let base_dims = get_base_dims(
         n_cycles,
         log_public_memory,
         private_memory.len(),
         bytecode.ending_pc,
-        (n_poseidons_16, n_poseidons_24),
+        (
+            poseidons_16.n_rows_non_padded(),
+            poseidons_24.n_rows_non_padded(),
+        ),
         dot_product_trace.n_rows_non_padded(),
         (&p16_gkr_layers, &p24_gkr_layers),
     );
@@ -154,12 +157,12 @@ pub fn prove_execution(
         vec![
             &poseidons_16.base[POSEIDON_16_COL_INDEX_A],
             &poseidons_16.base[POSEIDON_16_COL_INDEX_B],
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES_A],
+            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES],
         ],
         vec![
-            &p24_indexes_input_a,
-            &p24_indexes_input_b,
-            &p24_indexes_output,
+            &poseidons_24.base[POSEIDON_24_COL_INDEX_A],
+            &poseidons_24.base[POSEIDON_24_COL_INDEX_B],
+            &poseidons_24.base[POSEIDON_24_COL_INDEX_RES],
         ],
         p16_witness
             .committed_cubes
@@ -252,7 +255,7 @@ pub fn prove_execution(
         let p16_bus_eval_index_input_b =
             poseidons_16.base[POSEIDON_16_COL_INDEX_B].evaluate(&p16_bus_point);
         let p16_bus_eval_index_input_output =
-            poseidons_16.base[POSEIDON_16_COL_INDEX_RES_A].evaluate(&p16_bus_point);
+            poseidons_16.base[POSEIDON_16_COL_INDEX_RES].evaluate(&p16_bus_point);
         prover_state.add_extension_scalars(&[
             p16_bus_eval_index_input_a,
             p16_bus_eval_index_input_b,
@@ -274,29 +277,19 @@ pub fn prove_execution(
         p24_bus_eval_index_input_b,
         p24_bus_eval_index_input_output,
     ) = {
-        let p24_bus_data = poseidons_24
-            .par_iter()
-            .map(|pos_24| {
-                bus_challenge
-                    + finger_print(
-                        Table::Poseidons24,
-                        &pos_24.addresses_field_repr(),
-                        fingerprint_challenge,
-                    )
-            })
-            .collect::<Vec<_>>();
-
-        let mut p24_bus_selector = vec![-EF::ONE; n_poseidons_24]; // TODO embedding overhead !!!!!!!!!!!!!!
-        p24_bus_selector.resize(1 << log_n_p24, EF::ZERO);
-        let p24_bus_selector_packed = pack_extension(&p24_bus_selector);
-        let p24_bus_data_packed = pack_extension(&p24_bus_data);
-        let (p24_bus_quotient, p24_bus_point, _, _) = prove_gkr_quotient::<_, 2>(
+        let (p24_bus_quotient, p24_bus_point, _, _) = prove_bus_for_table::<2>(
             &mut prover_state,
-            &MleGroupRef::ExtensionPacked(vec![&p24_bus_selector_packed, &p24_bus_data_packed]),
+            &poseidons_24,
+            bus_challenge,
+            fingerprint_challenge,
+            &Poseidon24Precompile::buses()[0], // TODO multiple buses
         );
-        let p24_bus_eval_index_input_a = p24_indexes_input_a.evaluate(&p24_bus_point);
-        let p24_bus_eval_index_input_b = p24_indexes_input_b.evaluate(&p24_bus_point);
-        let p24_bus_eval_index_input_output = p24_indexes_output.evaluate(&p24_bus_point);
+        let p24_bus_eval_index_input_a =
+            poseidons_24.base[POSEIDON_24_COL_INDEX_A].evaluate(&p24_bus_point);
+        let p24_bus_eval_index_input_b =
+            poseidons_24.base[POSEIDON_24_COL_INDEX_B].evaluate(&p24_bus_point);
+        let p24_bus_eval_index_input_output =
+            poseidons_24.base[POSEIDON_24_COL_INDEX_RES].evaluate(&p24_bus_point);
         prover_state.add_extension_scalars(&[
             p24_bus_eval_index_input_a,
             p24_bus_eval_index_input_b,
@@ -532,16 +525,16 @@ pub fn prove_execution(
         vec![
             &poseidons_16.base[POSEIDON_16_COL_INDEX_A],
             &poseidons_16.base[POSEIDON_16_COL_INDEX_B],
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES_A],
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES_B],
-            &p24_indexes_input_a,
-            &p24_indexes_input_a_shifted,
-            &p24_indexes_input_b,
-            &p24_indexes_output,
+            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES],
+            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES_BIS],
+            &poseidons_24.base[POSEIDON_24_COL_INDEX_A],
+            &poseidons_24.base[POSEIDON_24_COL_INDEX_A_BIS],
+            &poseidons_24.base[POSEIDON_24_COL_INDEX_B],
+            &poseidons_24.base[POSEIDON_24_COL_INDEX_RES],
         ],
         [
-            vec![n_poseidons_16.max(MIN_N_ROWS_PER_TABLE); 4],
-            vec![n_poseidons_24.max(MIN_N_ROWS_PER_TABLE); 4],
+            vec![poseidons_16.n_rows_non_padded().max(MIN_N_ROWS_PER_TABLE); 4],
+            vec![poseidons_24.n_rows_non_padded().max(MIN_N_ROWS_PER_TABLE); 4],
         ]
         .concat(),
         default_poseidon_indexes(),
@@ -619,7 +612,7 @@ pub fn prove_execution(
             .map(|c| EFPacking::<EF>::ONE - *c) // TODO embedding overhead
             .collect::<Vec<_>>();
         let p16_index_res_a_plus_one = pack_extension(
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES_A]
+            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES]
                 .par_iter()
                 .map(|c| EF::ONE + *c) // TODO embedding overhead
                 .collect::<Vec<_>>(),

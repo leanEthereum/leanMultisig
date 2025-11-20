@@ -1,5 +1,8 @@
 use crate::{
-    Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F, LookupIntoMemory, Memory, ModularPrecompile, POSEIDON_16_NULL_HASH_PTR, PrecompileExecutionContext, PrecompileTrace, RunnerError, Table, VECTOR_LEN, VectorLookupIntoMemory, ZERO_VEC_PTR
+    Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F,
+    LookupIntoMemory, Memory, ModularPrecompile, POSEIDON_16_NULL_HASH_PTR,
+    PrecompileExecutionContext, PrecompileTrace, RunnerError, Table, VECTOR_LEN,
+    VectorLookupIntoMemory, ZERO_VEC_PTR,
 };
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
@@ -9,11 +12,10 @@ pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 
 pub const POSEIDON_16_COL_INDEX_A: ColIndex = 0;
 pub const POSEIDON_16_COL_INDEX_B: ColIndex = 1;
-pub const POSEIDON_16_COL_INDEX_RES_A: ColIndex = 2;
-pub const POSEIDON_16_COL_INDEX_RES_B: ColIndex = 3;
-pub const POSEIDON_16_COL_INDEX_COMPRESSION: ColIndex = 4; // = if compressed { 0 } else { p16_indexes_output + 1 }
+pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 2;
+pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 3; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
+pub const POSEIDON_16_COL_INDEX_COMPRESSION: ColIndex = 4;
 pub const POSEIDON_16_COL_INDEX_INPUT_START: ColIndex = 5;
-pub const POSEIDON_16_COL_INDEX_INPUT_END: ColIndex = POSEIDON_16_COL_INDEX_INPUT_START + 16;
 
 #[derive(Debug)]
 pub struct Poseidon16Precompile;
@@ -24,7 +26,7 @@ impl ModularPrecompile for Poseidon16Precompile {
     }
 
     fn identifier() -> Table {
-        Table::Poseidons16
+        Table::Poseidon16
     }
 
     fn commited_columns() -> &'static [ColIndex] {
@@ -45,13 +47,13 @@ impl ModularPrecompile for Poseidon16Precompile {
 
     fn buses() -> Vec<Bus> {
         vec![Bus {
-            table: Table::Poseidons16,
+            table: Table::Poseidon16,
             direction: BusDirection::Pull,
             selector: BusSelector::DenseOnes,
             data: vec![
                 POSEIDON_16_COL_INDEX_A,
                 POSEIDON_16_COL_INDEX_B,
-                POSEIDON_16_COL_INDEX_RES_A,
+                POSEIDON_16_COL_INDEX_RES,
                 POSEIDON_16_COL_INDEX_COMPRESSION,
             ],
         }]
@@ -98,8 +100,8 @@ impl ModularPrecompile for Poseidon16Precompile {
 
         trace.base[POSEIDON_16_COL_INDEX_A].push(arg_a);
         trace.base[POSEIDON_16_COL_INDEX_B].push(arg_b);
-        trace.base[POSEIDON_16_COL_INDEX_RES_A].push(res);
-        trace.base[POSEIDON_16_COL_INDEX_RES_B].push(if is_compression {
+        trace.base[POSEIDON_16_COL_INDEX_RES].push(res);
+        trace.base[POSEIDON_16_COL_INDEX_RES_BIS].push(if is_compression {
             F::ZERO
         } else {
             res + F::ONE

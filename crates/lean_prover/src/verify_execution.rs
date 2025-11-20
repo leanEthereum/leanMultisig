@@ -152,7 +152,7 @@ pub fn verify_execution(
         if p16_bus_data_value
             != bus_challenge
                 + finger_print(
-                    Table::Poseidons16,
+                    Table::Poseidon16,
                     &[
                         p16_bus_eval_index_input_a,
                         p16_bus_eval_index_input_b,
@@ -198,7 +198,7 @@ pub fn verify_execution(
         if p24_bus_data_value
             != bus_challenge
                 + finger_print(
-                    Table::Poseidons24,
+                    Table::Poseidon24,
                     &[
                         p24_bus_eval_index_input_a,
                         p24_bus_eval_index_input_b,

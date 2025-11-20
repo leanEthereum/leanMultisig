@@ -160,7 +160,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
 
     let instructions = vec![
         Instruction::Precompile {
-            table: Table::Poseidons16,
+            table: Table::Poseidon16,
             arg_a: MemOrConstant::Constant(f(POSEIDON16_ARG_A_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(POSEIDON16_ARG_B_PTR as u64)),
             arg_c: MemOrFp::MemoryAfterFp {
@@ -169,7 +169,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
             aux: 0, // compression = false
         },
         Instruction::Precompile {
-            table: Table::Poseidons24,
+            table: Table::Poseidon24,
             arg_a: MemOrConstant::Constant(f(POSEIDON24_ARG_A_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(POSEIDON24_ARG_B_PTR as u64)),
             arg_c: MemOrFp::MemoryAfterFp {

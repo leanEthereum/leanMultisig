@@ -12,11 +12,9 @@ pub struct ExecutionTrace {
     pub full_trace: [Vec<F>; N_EXEC_AIR_COLUMNS],
     pub nu_columns: [Vec<F>; 3],
     pub n_cycles: usize, // before padding with the repeated final instruction
-    pub n_poseidons_16: usize,
-    pub n_poseidons_24: usize,
     pub n_compressions_16: usize,
     pub poseidons_16: PrecompileTrace, // padded with empty poseidons
-    pub poseidons_24: Vec<WitnessPoseidon24>, // padded with empty poseidons
+    pub poseidons_24: PrecompileTrace, // padded with empty poseidons
     pub dot_product_trace: PrecompileTrace,
     pub multilinear_evals: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
@@ -124,9 +122,6 @@ pub fn get_execution_trace(
         .collect::<Vec<F>>();
     memory_padded.resize(memory.0.len().next_power_of_two(), F::ZERO);
 
-    let n_poseidons_16 = execution_result.poseidons_16.base[0].len();
-    let n_poseidons_24 = execution_result.poseidons_24.len();
-
     let ExecutionResult {
         mut poseidons_16,
         mut poseidons_24,
@@ -135,13 +130,9 @@ pub fn get_execution_trace(
         ..
     } = execution_result;
 
-    poseidons_24.resize(
-        n_poseidons_24.next_power_of_two().max(MIN_N_ROWS_PER_TABLE),
-        WitnessPoseidon24::poseidon_of_zero(),
-    );
-
     padd_precompile_table::<DotProductPrecompile>(&mut dot_product_trace);
     padd_precompile_table::<Poseidon16Precompile>(&mut poseidons_16);
+    padd_precompile_table::<Poseidon24Precompile>(&mut poseidons_24);
 
     let n_compressions_16;
     (poseidons_16, n_compressions_16) = put_poseidon16_compressions_at_the_end(&poseidons_16); // TODO avoid reallocation
@@ -150,8 +141,6 @@ pub fn get_execution_trace(
         full_trace: trace,
         nu_columns,
         n_cycles,
-        n_poseidons_16,
-        n_poseidons_24,
         n_compressions_16,
         poseidons_16,
         poseidons_24,
