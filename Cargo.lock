@@ -385,7 +385,6 @@ dependencies = [
  "pest",
  "pest_derive",
  "rand",
- "strum",
  "sub_protocols",
  "tracing",
  "utils",
@@ -415,7 +414,6 @@ dependencies = [
  "sub_protocols",
  "tracing",
  "utils",
- "vm_air",
  "whir-p3",
  "witness_generation",
  "xmss",
@@ -440,8 +438,6 @@ dependencies = [
  "pest",
  "pest_derive",
  "rand",
- "strum",
- "strum_macros",
  "sub_protocols",
  "thiserror",
  "tracing",
@@ -1091,24 +1087,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
-name = "strum"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
-
-[[package]]
-name = "strum_macros"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "sub_protocols"
 version = "0.1.0"
 dependencies = [
@@ -1368,31 +1346,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "vm_air"
-version = "0.1.0"
-dependencies = [
- "air",
- "lean_compiler",
- "lean_vm",
- "lookup",
- "multilinear-toolkit",
- "p3-air",
- "p3-challenger",
- "p3-koala-bear",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util 0.3.0 (git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles)",
- "pest",
- "pest_derive",
- "rand",
- "sub_protocols",
- "tracing",
- "utils",
- "whir-p3",
- "xmss",
-]
-
-[[package]]
 name = "wasip2"
 version = "1.0.1+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1576,7 +1529,6 @@ dependencies = [
  "sub_protocols",
  "tracing",
  "utils",
- "vm_air",
  "whir-p3",
  "xmss",
 ]

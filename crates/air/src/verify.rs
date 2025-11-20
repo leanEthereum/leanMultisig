@@ -58,7 +58,8 @@ where
     let mut inner_sums = verifier_state
         .next_extension_scalars_vec(air.n_columns() + air.down_column_indexes().len())?;
 
-    let n_columns_down_f = air.down_column_indexes()
+    let n_columns_down_f = air
+        .down_column_indexes()
         .iter()
         .filter(|&&i| i < air.n_columns_f())
         .count();

@@ -29,4 +29,3 @@ derive_more.workspace = true
 multilinear-toolkit.workspace = true
 poseidon_circuit.workspace = true
 p3-monty-31.workspace = true
-vm_air.workspace = true

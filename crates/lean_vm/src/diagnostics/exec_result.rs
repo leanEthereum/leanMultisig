@@ -4,7 +4,6 @@ use crate::execution::Memory;
 use crate::{N_PRECOMPILES, PrecompileTrace, WitnessMultilinearEval};
 use thiserror::Error;
 
-
 #[derive(Debug)]
 pub struct ExecutionResult {
     pub no_vec_runtime_memory: usize,

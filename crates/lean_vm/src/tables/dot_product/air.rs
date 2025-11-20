@@ -1,4 +1,4 @@
-use crate::{DIMENSION, EF, ExtraDataForBuses, Table, precompiles::dot_product::DotProductPrecompile};
+use crate::{DIMENSION, EF, ExtraDataForBuses, Table, tables::dot_product::DotProductPrecompile};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
 

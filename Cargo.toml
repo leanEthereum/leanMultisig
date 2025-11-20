@@ -10,7 +10,6 @@ edition = "2024"
 [workspace]
 members = [
     "crates/*",
-    "crates/lean_prover/vm_air",
     "crates/lean_prover/witness_generation",
 ]
 
@@ -54,7 +53,6 @@ lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
 witness_generation = { path = "crates/lean_prover/witness_generation" }
-vm_air = { path = "crates/lean_prover/vm_air" }
 poseidon_circuit = { path = "crates/poseidon_circuit" }
 
 # External
@@ -69,8 +67,6 @@ itertools = "0.10.5"
 colored = "3.0.0"
 tracing = "0.1.26"
 serde_json = "1.0.145"
-strum = "0.27.2"
-strum_macros = "0.27.2"
 num_enum = "0.7.5"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }

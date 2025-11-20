@@ -5,7 +5,6 @@ use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use std::{array, iter::repeat_n};
 use utils::{ToUsize, transposed_par_iter_mut};
-use vm_air::*;
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
@@ -184,7 +183,7 @@ fn put_poseidon16_compressions_at_the_end(
     )
 }
 
-fn padd_precompile_trace<P: ModularPrecompile>(p: &P, trace: &mut PrecompileTrace) {
+fn padd_precompile_trace<P: TableT>(p: &P, trace: &mut PrecompileTrace) {
     trace.padding_len = trace.base[0]
         .len()
         .next_power_of_two()

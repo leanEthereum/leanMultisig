@@ -3,7 +3,6 @@ use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
 use p3_util::log2_ceil_usize;
 use poseidon_circuit::{GKRPoseidonResult, PoseidonGKRLayers, default_cube_layers};
 use sub_protocols::ColDims;
-use vm_air::*;
 
 use crate::*;
 use lean_vm::*;

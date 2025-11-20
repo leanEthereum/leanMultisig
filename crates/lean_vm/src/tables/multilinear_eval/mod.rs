@@ -1,11 +1,7 @@
 //! Multilinear polynomial evaluation witness
 
 use crate::core::{EF, F};
-use crate::{
-    Bus, BusDirection, BusSelector, ColIndex, DIMENSION, ExtensionFieldLookupIntoMemory,
-    LookupIntoMemory, Memory, ModularPrecompile, PrecompileExecutionContext, PrecompileTrace,
-    RunnerError, Table, VECTOR_LEN, VectorLookupIntoMemory,
-};
+use crate::*;
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use utils::ToUsize;
@@ -32,7 +28,7 @@ pub const MULTILINEAR_EVAL_COL_INDEX_POINT: ColIndex = 1;
 pub const MULTILINEAR_EVAL_COL_INDEX_RES: ColIndex = 2;
 pub const MULTILINEAR_EVAL_COL_INDEX_N_VARS: ColIndex = 3;
 
-impl ModularPrecompile for MultilinearEvalPrecompile {
+impl TableT for MultilinearEvalPrecompile {
     fn name(&self) -> &'static str {
         "multilinear_eval"
     }
@@ -86,18 +82,21 @@ impl ModularPrecompile for MultilinearEvalPrecompile {
         ptr_point: F,
         ptr_res: F,
         n_vars: usize,
-        memory: &mut Memory,
-        trace: &mut PrecompileTrace,
-        ctx: PrecompileExecutionContext<'_>,
+        ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
+        let trace = &mut ctx.precompile_traces[self.identifier().index()];
         let n_coeffs = 1 << n_vars;
-        let slice_coeffs = memory.slice(ptr_coeffs.to_usize() << n_vars, n_coeffs)?;
+        let slice_coeffs = ctx
+            .memory
+            .slice(ptr_coeffs.to_usize() << n_vars, n_coeffs)?;
 
         let log_point_size = log2_ceil_usize(n_vars * DIMENSION);
-        let point_slice =
-            memory.slice(ptr_point.to_usize() << log_point_size, n_vars * DIMENSION)?;
+        let point_slice = ctx
+            .memory
+            .slice(ptr_point.to_usize() << log_point_size, n_vars * DIMENSION)?;
         for i in n_vars * DIMENSION..(n_vars * DIMENSION).next_power_of_two() {
-            memory.set((ptr_point.to_usize() << log_point_size) + i, F::ZERO)?; // padding
+            ctx.memory
+                .set((ptr_point.to_usize() << log_point_size) + i, F::ZERO)?; // padding
         }
         let point = point_slice[..n_vars * DIMENSION]
             .chunks_exact(DIMENSION)
@@ -107,7 +106,8 @@ impl ModularPrecompile for MultilinearEvalPrecompile {
         let eval = slice_coeffs.evaluate(&MultilinearPoint(point.clone()));
         let mut res_vec = eval.as_basis_coefficients_slice().to_vec();
         res_vec.resize(VECTOR_LEN, F::ZERO);
-        memory.set_vector(ptr_res.to_usize(), res_vec.try_into().unwrap())?;
+        ctx.memory
+            .set_vector(ptr_res.to_usize(), res_vec.try_into().unwrap())?;
 
         trace.base[MULTILINEAR_EVAL_COL_INDEX_POLY].push(ptr_coeffs);
         trace.base[MULTILINEAR_EVAL_COL_INDEX_POINT].push(ptr_point);

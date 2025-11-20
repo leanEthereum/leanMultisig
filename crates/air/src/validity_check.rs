@@ -39,12 +39,14 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
         let up_ef = (0..air.n_columns_ef())
             .map(|j| columns_ef[j][row])
             .collect::<Vec<_>>();
-        let down_f = air.down_column_indexes()
+        let down_f = air
+            .down_column_indexes()
             .iter()
             .filter(|i| **i < air.n_columns_f())
             .map(|j| columns_f[*j][row + 1])
             .collect::<Vec<_>>();
-        let down_ef = air.down_column_indexes()
+        let down_ef = air
+            .down_column_indexes()
             .iter()
             .filter(|i| **i >= air.n_columns_f())
             .map(|j| columns_ef[*j - air.n_columns_f()][row + 1])
@@ -67,7 +69,8 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
     let up_ef = (0..air.n_columns_ef())
         .map(|j| columns_ef[j][n_rows - 1])
         .collect::<Vec<_>>();
-    let last_row_f_count = air.down_column_indexes()
+    let last_row_f_count = air
+        .down_column_indexes()
         .iter()
         .filter(|i| **i < air.n_columns_f())
         .count();

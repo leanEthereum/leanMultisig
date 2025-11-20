@@ -11,7 +11,6 @@ use poseidon_circuit::verify_poseidon_gkr;
 use sub_protocols::*;
 use utils::ToUsize;
 use utils::{build_challenger, padd_with_zero_to_next_power_of_two};
-use vm_air::*;
 use whir_p3::WhirConfig;
 use whir_p3::WhirConfigBuilder;
 use whir_p3::second_batched_whir_config_builder;
@@ -304,11 +303,14 @@ pub fn verify_execution(
     };
     let (exec_air_point, exec_evals_to_verify) = verify_air(
         &mut verifier_state,
-        &VMAir::default(),
+        &ExecutionTable,
         exec_air_extra_data,
         UNIVARIATE_SKIPS,
         log_n_cycles,
-        &execution_air_padding_row::<EF>(bytecode.ending_pc),
+        &vec![
+            EF::from_usize(bytecode.ending_pc), // PC
+            EF::ZERO,                           // FP
+        ],
         Some(exec_bus_virtual_statement),
     )?;
 

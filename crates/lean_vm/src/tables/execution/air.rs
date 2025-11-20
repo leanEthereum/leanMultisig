@@ -1,6 +1,7 @@
-use lean_vm::{EF, ExtraDataForBuses};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
+
+use crate::{EF, ExecutionTable, ExtraDataForBuses};
 
 pub const N_INSTRUCTION_COLUMNS: usize = 13;
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
@@ -33,12 +34,8 @@ pub const COL_INDEX_MEM_ADDRESS_A: usize = 18;
 pub const COL_INDEX_MEM_ADDRESS_B: usize = 19;
 pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
 
-#[derive(Debug, Default)]
-pub struct VMAir<EF> {
-    _marker: std::marker::PhantomData<EF>,
-}
 
-impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
+impl  Air for ExecutionTable {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f(&self) -> usize {
@@ -167,12 +164,4 @@ fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
     let aux_mul_challenge_4 = fingerprint_challenge_powers[4].clone() * aux;
     ((nu_sums + aux_mul_challenge_4 + precompile_index) + bus_challenge) * exec_bus_beta
         + is_precompile
-}
-
-pub fn execution_air_padding_row<F: Field>(ending_pc: usize) -> Vec<EF> {
-    // only the shifted columns
-    vec![
-        EF::from_usize(ending_pc), // PC
-        EF::ZERO,                  // FP
-    ]
 }

@@ -1,17 +1,11 @@
 use multilinear_toolkit::prelude::PrimeCharacteristicRing;
 use p3_air::Air;
-use strum_macros::EnumDiscriminants;
 
-use crate::{
-    Bus, ColIndex, EF, ExtensionFieldLookupIntoMemory, F, LookupIntoMemory, Memory,
-    ModularPrecompile, MultilinearEvalPrecompile, Poseidon16Precompile, Poseidon24Precompile,
-    PrecompileExecutionContext, PrecompileTrace, RunnerError, VectorLookupIntoMemory,
-    precompiles::dot_product::DotProductPrecompile,
-};
+use crate::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, EnumDiscriminants)]
-#[strum_discriminants(derive(strum_macros::EnumIter))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Table {
+    Execution(ExecutionTable),
     DotProduct(DotProductPrecompile),
     Poseidon16(Poseidon16Precompile),
     Poseidon24(Poseidon24Precompile),
@@ -22,6 +16,8 @@ pub const TABLE_DOT_PRODUCT: usize = 0;
 pub const TABLE_POSEIDON_16: usize = 1;
 pub const TABLE_POSEIDON_24: usize = 2;
 pub const TABLE_MULTILINEAR_EVAL: usize = 3;
+
+pub const TABLE_EXECUTION: usize = 1000;
 
 impl Table {
     pub const fn dot_product() -> Self {
@@ -36,11 +32,20 @@ impl Table {
     pub const fn multilinear_eval() -> Self {
         Self::MultilinearEval(MultilinearEvalPrecompile)
     }
+    pub const fn execution() -> Self {
+        Self::Execution(ExecutionTable)
+    }
     pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
         PF::from_usize(self.index())
     }
     pub fn index(&self) -> usize {
-        TableDiscriminants::from(self) as usize
+        match self {
+            Self::Execution(_) => TABLE_EXECUTION,
+            Self::DotProduct(_) => TABLE_DOT_PRODUCT,
+            Self::Poseidon16(_) => TABLE_POSEIDON_16,
+            Self::Poseidon24(_) => TABLE_POSEIDON_24,
+            Self::MultilinearEval(_) => TABLE_MULTILINEAR_EVAL,
+        }
     }
     pub fn from_index(index: usize) -> Self {
         match index {
@@ -53,13 +58,14 @@ impl Table {
     }
 }
 
-impl ModularPrecompile for Table {
+impl TableT for Table {
     fn name(&self) -> &'static str {
         match self {
             Self::DotProduct(p) => p.name(),
             Self::Poseidon16(p) => p.name(),
             Self::Poseidon24(p) => p.name(),
             Self::MultilinearEval(p) => p.name(),
+            Self::Execution(p) => p.name(),
         }
     }
     fn identifier(&self) -> Table {
@@ -68,6 +74,7 @@ impl ModularPrecompile for Table {
             Self::Poseidon16(p) => p.identifier(),
             Self::Poseidon24(p) => p.identifier(),
             Self::MultilinearEval(p) => p.identifier(),
+            Self::Execution(p) => p.identifier(),
         }
     }
     fn commited_columns_f(&self) -> Vec<ColIndex> {
@@ -76,6 +83,7 @@ impl ModularPrecompile for Table {
             Self::Poseidon16(p) => p.commited_columns_f(),
             Self::Poseidon24(p) => p.commited_columns_f(),
             Self::MultilinearEval(p) => p.commited_columns_f(),
+            Self::Execution(p) => p.commited_columns_f(),
         }
     }
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
@@ -84,6 +92,7 @@ impl ModularPrecompile for Table {
             Self::Poseidon16(p) => p.commited_columns_ef(),
             Self::Poseidon24(p) => p.commited_columns_ef(),
             Self::MultilinearEval(p) => p.commited_columns_ef(),
+            Self::Execution(p) => p.commited_columns_ef(),
         }
     }
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
@@ -92,6 +101,7 @@ impl ModularPrecompile for Table {
             Self::Poseidon16(p) => p.normal_lookups_f(),
             Self::Poseidon24(p) => p.normal_lookups_f(),
             Self::MultilinearEval(p) => p.normal_lookups_f(),
+            Self::Execution(p) => p.normal_lookups_f(),
         }
     }
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
@@ -100,6 +110,7 @@ impl ModularPrecompile for Table {
             Self::Poseidon16(p) => p.normal_lookups_ef(),
             Self::Poseidon24(p) => p.normal_lookups_ef(),
             Self::MultilinearEval(p) => p.normal_lookups_ef(),
+            Self::Execution(p) => p.normal_lookups_ef(),
         }
     }
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
@@ -108,6 +119,7 @@ impl ModularPrecompile for Table {
             Self::Poseidon16(p) => p.vector_lookups(),
             Self::Poseidon24(p) => p.vector_lookups(),
             Self::MultilinearEval(p) => p.vector_lookups(),
+            Self::Execution(p) => p.vector_lookups(),
         }
     }
     fn buses(&self) -> Vec<Bus> {
@@ -116,6 +128,7 @@ impl ModularPrecompile for Table {
             Self::Poseidon16(p) => p.buses(),
             Self::Poseidon24(p) => p.buses(),
             Self::MultilinearEval(p) => p.buses(),
+            Self::Execution(p) => p.buses(),
         }
     }
     fn padding_row(&self) -> Vec<EF> {
@@ -124,6 +137,7 @@ impl ModularPrecompile for Table {
             Self::Poseidon16(p) => p.padding_row(),
             Self::Poseidon24(p) => p.padding_row(),
             Self::MultilinearEval(p) => p.padding_row(),
+            Self::Execution(p) => p.padding_row(),
         }
     }
     fn execute(
@@ -132,15 +146,14 @@ impl ModularPrecompile for Table {
         arg_b: F,
         arg_c: F,
         aux: usize,
-        memory: &mut Memory,
-        trace: &mut PrecompileTrace,
-        ctx: PrecompileExecutionContext<'_>,
+        ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
         match self {
-            Self::DotProduct(p) => p.execute(arg_a, arg_b, arg_c, aux, memory, trace, ctx),
-            Self::Poseidon16(p) => p.execute(arg_a, arg_b, arg_c, aux, memory, trace, ctx),
-            Self::Poseidon24(p) => p.execute(arg_a, arg_b, arg_c, aux, memory, trace, ctx),
-            Self::MultilinearEval(p) => p.execute(arg_a, arg_b, arg_c, aux, memory, trace, ctx),
+            Self::DotProduct(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
+            Self::Poseidon16(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
+            Self::Poseidon24(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
+            Self::MultilinearEval(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
+            Self::Execution(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
         }
     }
 }
@@ -153,6 +166,7 @@ impl Air for Table {
             Self::Poseidon16(p) => p.degree(),
             Self::Poseidon24(p) => p.degree(),
             Self::MultilinearEval(p) => p.degree(),
+            Self::Execution(p) => p.degree(),
         }
     }
     fn n_columns_f(&self) -> usize {
@@ -161,6 +175,7 @@ impl Air for Table {
             Self::Poseidon16(p) => p.n_columns_f(),
             Self::Poseidon24(p) => p.n_columns_f(),
             Self::MultilinearEval(p) => p.n_columns_f(),
+            Self::Execution(p) => p.n_columns_f(),
         }
     }
     fn n_columns_ef(&self) -> usize {
@@ -169,6 +184,7 @@ impl Air for Table {
             Self::Poseidon16(p) => p.n_columns_ef(),
             Self::Poseidon24(p) => p.n_columns_ef(),
             Self::MultilinearEval(p) => p.n_columns_ef(),
+            Self::Execution(p) => p.n_columns_ef(),
         }
     }
     fn n_constraints(&self) -> usize {
@@ -177,6 +193,7 @@ impl Air for Table {
             Self::Poseidon16(p) => p.n_constraints(),
             Self::Poseidon24(p) => p.n_constraints(),
             Self::MultilinearEval(p) => p.n_constraints(),
+            Self::Execution(p) => p.n_constraints(),
         }
     }
     fn down_column_indexes(&self) -> Vec<usize> {
@@ -185,6 +202,7 @@ impl Air for Table {
             Self::Poseidon16(p) => p.down_column_indexes(),
             Self::Poseidon24(p) => p.down_column_indexes(),
             Self::MultilinearEval(p) => p.down_column_indexes(),
+            Self::Execution(p) => p.down_column_indexes(),
         }
     }
     fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {

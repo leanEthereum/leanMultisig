@@ -5,8 +5,7 @@ use crate::ONE_VEC_PTR;
 use crate::PrecompileTrace;
 use crate::RunnerError;
 use crate::VECTOR_LEN;
-use crate::precompiles::dot_product::*;
-use crate::*;
+use crate::tables::dot_product::*;
 use utils::ToUsize;
 
 pub(crate) fn exec_dot_product(

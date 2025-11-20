@@ -25,4 +25,3 @@ sub_protocols.workspace = true
 lookup.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true
-strum.workspace = true

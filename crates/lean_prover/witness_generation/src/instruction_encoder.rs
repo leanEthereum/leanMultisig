@@ -1,6 +1,5 @@
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
-use vm_air::*;
 
 pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
     let mut fields = [F::ZERO; N_INSTRUCTION_COLUMNS];

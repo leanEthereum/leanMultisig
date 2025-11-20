@@ -42,7 +42,7 @@ where
     *extra_data.alpha_powers_mut() = alpha
         .powers()
         .take(
-           air.n_constraints()
+            air.n_constraints()
                 + virtual_column_statements
                     .as_ref()
                     .map_or(0, |s| s.values.len()),
@@ -57,7 +57,8 @@ where
         .unwrap_or_else(|| prover_state.sample_vec(n_sc_rounds));
     assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
-    let shifted_rows_f = air.down_column_indexes()
+    let shifted_rows_f = air
+        .down_column_indexes()
         .par_iter()
         .zip_eq(last_row_shifted)
         .filter(|(i, _)| **i < air.n_columns_f())
@@ -65,7 +66,8 @@ where
             column_shifted(columns_f[col_index], final_value.as_base().unwrap())
         })
         .collect::<Vec<_>>();
-    let shifted_rows_ef = air.down_column_indexes()
+    let shifted_rows_ef = air
+        .down_column_indexes()
         .par_iter()
         .zip_eq(last_row_shifted)
         .filter(|(i, _)| **i >= air.n_columns_f())

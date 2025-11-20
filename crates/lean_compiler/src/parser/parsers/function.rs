@@ -10,7 +10,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{ALL_PRECOMPILES, LOG_VECTOR_LEN, ModularPrecompile};
+use lean_vm::{ALL_PRECOMPILES, LOG_VECTOR_LEN, TableT};
 
 /// Parser for complete function definitions.
 pub struct FunctionParser;

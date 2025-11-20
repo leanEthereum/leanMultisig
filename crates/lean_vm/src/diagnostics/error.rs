@@ -1,7 +1,7 @@
-use crate::{PrecompileTrace, WitnessMultilinearEval};
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
+use crate::{PrecompileTrace, WitnessMultilinearEval};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]

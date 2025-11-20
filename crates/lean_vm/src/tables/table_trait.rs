@@ -1,4 +1,4 @@
-use crate::{EF, F, Memory, RunnerError};
+use crate::{EF, F, InstructionContext, RunnerError, Table};
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use std::{any::TypeId, mem::transmute_copy};
@@ -7,21 +7,6 @@ use sub_protocols::{
     ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier,
     committed_dims_extension_from_base,
 };
-
-mod dot_product;
-pub use dot_product::*;
-
-mod poseidon_16;
-pub use poseidon_16::*;
-
-mod poseidon_24;
-pub use poseidon_24::*;
-
-mod multilinear_eval;
-pub use multilinear_eval::*;
-
-mod precompile_enum;
-pub use precompile_enum::*;
 
 pub type ColIndex = usize;
 
@@ -142,7 +127,7 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
     }
 }
 
-pub trait ModularPrecompile: Air {
+pub trait TableT: Air {
     fn name(&self) -> &'static str;
     fn identifier(&self) -> Table;
     fn commited_columns_f(&self) -> Vec<ColIndex>;
@@ -158,9 +143,7 @@ pub trait ModularPrecompile: Air {
         arg_b: F,
         arg_c: F,
         aux: usize,
-        memory: &mut Memory,
-        trace: &mut PrecompileTrace,
-        ctx: PrecompileExecutionContext<'_>,
+        ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError>;
     fn padding_row(&self) -> Vec<EF>;
 
@@ -324,13 +307,4 @@ pub trait ModularPrecompile: Air {
         }
         cols
     }
-}
-
-#[derive(Debug)]
-pub struct PrecompileExecutionContext<'a> {
-    pub poseidon16_precomputed: &'a [([F; 16], [F; 16])],
-    pub n_poseidon16_precomputed_used: &'a mut usize,
-    pub poseidon24_precomputed: &'a [([F; 24], [F; 8])],
-    pub n_poseidon24_precomputed_used: &'a mut usize,
-    pub multilinear_evals_witness: &'a mut Vec<WitnessMultilinearEval>,
 }

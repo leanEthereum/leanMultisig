@@ -1,9 +1,5 @@
-use crate::precompiles::dot_product::vm_exec::exec_dot_product;
-use crate::{
-    Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F,
-    LookupIntoMemory, Memory, ModularPrecompile, PrecompileExecutionContext, PrecompileTrace,
-    RunnerError, Table, VectorLookupIntoMemory,
-};
+use crate::tables::dot_product::vm_exec::exec_dot_product;
+use crate::*;
 use multilinear_toolkit::prelude::*;
 
 mod air;
@@ -14,7 +10,7 @@ mod vm_exec;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DotProductPrecompile;
 
-impl ModularPrecompile for DotProductPrecompile {
+impl TableT for DotProductPrecompile {
     fn name(&self) -> &'static str {
         "dot_product"
     }
@@ -75,7 +71,7 @@ impl ModularPrecompile for DotProductPrecompile {
             ],
         }]
     }
-    
+
     fn padding_row(&self) -> Vec<EF> {
         [
             vec![
@@ -94,10 +90,9 @@ impl ModularPrecompile for DotProductPrecompile {
         arg_b: F,
         arg_c: F,
         aux: usize,
-        memory: &mut Memory,
-        trace: &mut PrecompileTrace,
-        _: PrecompileExecutionContext<'_>,
+        ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
-        exec_dot_product(arg_a, arg_b, arg_c, aux, memory, trace)
+        let trace = &mut ctx.precompile_traces[self.identifier().index()];
+        exec_dot_product(arg_a, arg_b, arg_c, aux, ctx.memory, trace)
     }
 }

@@ -6,7 +6,7 @@ use crate::{
         Expression, Function, Line, Program, SimpleExpr, Var,
     },
 };
-use lean_vm::{ModularPrecompile, SourceLineNumber, Table};
+use lean_vm::{SourceLineNumber, Table, TableT};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},

@@ -4,10 +4,10 @@ mod core;
 mod diagnostics;
 mod execution;
 mod isa;
-mod precompiles;
+mod tables;
 
 pub use core::*;
 pub use diagnostics::*;
 pub use execution::*;
 pub use isa::*;
-pub use precompiles::*;
+pub use tables::*;

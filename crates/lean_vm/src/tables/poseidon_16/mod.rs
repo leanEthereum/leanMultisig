@@ -1,9 +1,4 @@
-use crate::{
-    Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F,
-    LookupIntoMemory, Memory, ModularPrecompile, POSEIDON_16_NULL_HASH_PTR,
-    PrecompileExecutionContext, PrecompileTrace, RunnerError, Table, VECTOR_LEN,
-    VectorLookupIntoMemory, ZERO_VEC_PTR,
-};
+use crate::*;
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use utils::{ToUsize, poseidon16_permute};
@@ -21,7 +16,7 @@ pub const POSEIDON_16_COL_INDEX_INPUT_START: ColIndex = 5;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile;
 
-impl ModularPrecompile for Poseidon16Precompile {
+impl TableT for Poseidon16Precompile {
     fn name(&self) -> &'static str {
         "poseidon16"
     }
@@ -93,15 +88,14 @@ impl ModularPrecompile for Poseidon16Precompile {
         arg_b: F,
         res: F,
         is_compression: usize,
-        memory: &mut Memory,
-        trace: &mut PrecompileTrace,
-        ctx: PrecompileExecutionContext<'_>,
+        ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
         assert!(is_compression == 0 || is_compression == 1);
         let is_compression = is_compression == 1;
+        let trace = &mut ctx.precompile_traces[self.identifier().index()];
 
-        let arg0 = memory.get_vector(arg_a.to_usize())?;
-        let arg1 = memory.get_vector(arg_b.to_usize())?;
+        let arg0 = ctx.memory.get_vector(arg_a.to_usize())?;
+        let arg1 = ctx.memory.get_vector(arg_b.to_usize())?;
 
         let mut input = [F::ZERO; VECTOR_LEN * 2];
         input[..VECTOR_LEN].copy_from_slice(&arg0);
@@ -121,9 +115,9 @@ impl ModularPrecompile for Poseidon16Precompile {
         let res0: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
         let res1: [F; VECTOR_LEN] = output[VECTOR_LEN..].try_into().unwrap();
 
-        memory.set_vector(res.to_usize(), res0)?;
+        ctx.memory.set_vector(res.to_usize(), res0)?;
         if !is_compression {
-            memory.set_vector(1 + res.to_usize(), res1)?;
+            ctx.memory.set_vector(1 + res.to_usize(), res1)?;
         }
 
         trace.base[POSEIDON_16_COL_INDEX_A].push(arg_a);

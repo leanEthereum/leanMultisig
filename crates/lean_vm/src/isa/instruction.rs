@@ -5,10 +5,8 @@ use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
 use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
-use crate::precompiles::ModularPrecompile;
-use crate::{
-    N_PRECOMPILES, PrecompileExecutionContext, PrecompileTrace, Table, WitnessMultilinearEval,
-};
+use crate::tables::TableT;
+use crate::{N_PRECOMPILES, PrecompileTrace, Table, WitnessMultilinearEval};
 use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
@@ -180,15 +178,7 @@ impl Instruction {
                     arg_b.read_value(ctx.memory, *ctx.fp)?,
                     arg_c.read_value(ctx.memory, *ctx.fp)?,
                     *size,
-                    ctx.memory,
-                    &mut ctx.precompile_traces[table.index()],
-                    PrecompileExecutionContext {
-                        poseidon16_precomputed: &ctx.poseidon16_precomputed,
-                        n_poseidon16_precomputed_used: &mut ctx.n_poseidon16_precomputed_used,
-                        n_poseidon24_precomputed_used: &mut ctx.n_poseidon24_precomputed_used,
-                        poseidon24_precomputed: &ctx.poseidon24_precomputed,
-                        multilinear_evals_witness: &mut ctx.multilinear_evals_witness,
-                    },
+                    ctx,
                 )?;
 
                 *ctx.pc += 1;

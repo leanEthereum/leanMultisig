@@ -1,4 +1,3 @@
-
 /// Vector dimension for field operations
 pub const DIMENSION: usize = 5;
 /// Logarithm of vector length

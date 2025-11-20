@@ -1,8 +1,7 @@
 use crate::{
     Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F,
-    LookupIntoMemory, Memory, ModularPrecompile, POSEIDON_24_NULL_HASH_PTR,
-    PrecompileExecutionContext, PrecompileTrace, RunnerError, Table, VECTOR_LEN,
-    VectorLookupIntoMemory, ZERO_VEC_PTR,
+    InstructionContext, LookupIntoMemory, POSEIDON_24_NULL_HASH_PTR, RunnerError, Table, TableT,
+    VECTOR_LEN, VectorLookupIntoMemory, ZERO_VEC_PTR,
 };
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
@@ -18,7 +17,7 @@ pub const POSEIDON_24_COL_INDEX_INPUT_START: ColIndex = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon24Precompile;
 
-impl ModularPrecompile for Poseidon24Precompile {
+impl TableT for Poseidon24Precompile {
     fn name(&self) -> &'static str {
         "poseidon24"
     }
@@ -26,7 +25,6 @@ impl ModularPrecompile for Poseidon24Precompile {
     fn identifier(&self) -> Table {
         Table::poseidon24()
     }
-
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
         vec![
@@ -85,15 +83,14 @@ impl ModularPrecompile for Poseidon24Precompile {
         arg_b: F,
         res: F,
         aux: usize,
-        memory: &mut Memory,
-        trace: &mut PrecompileTrace,
-        ctx: PrecompileExecutionContext<'_>,
+        ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
         assert_eq!(aux, 0); // no aux for poseidon24
+        let trace = &mut ctx.precompile_traces[self.identifier().index()];
 
-        let arg0 = memory.get_vector(arg_a.to_usize())?;
-        let arg1 = memory.get_vector(1 + arg_a.to_usize())?;
-        let arg2 = memory.get_vector(arg_b.to_usize())?;
+        let arg0 = ctx.memory.get_vector(arg_a.to_usize())?;
+        let arg1 = ctx.memory.get_vector(1 + arg_a.to_usize())?;
+        let arg2 = ctx.memory.get_vector(arg_b.to_usize())?;
 
         let mut input = [F::ZERO; VECTOR_LEN * 3];
         input[..VECTOR_LEN].copy_from_slice(&arg0);
@@ -114,7 +111,7 @@ impl ModularPrecompile for Poseidon24Precompile {
             }
         };
 
-        memory.set_vector(res.to_usize(), output)?;
+        ctx.memory.set_vector(res.to_usize(), output)?;
 
         trace.base[POSEIDON_24_COL_INDEX_A].push(arg_a);
         trace.base[POSEIDON_24_COL_INDEX_A_BIS].push(arg_a + F::ONE);

@@ -11,7 +11,6 @@ use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
-use vm_air::*;
 use whir_p3::{
     WhirConfig, WhirConfigBuilder, precompute_dft_twiddles, second_batched_whir_config_builder,
 };
@@ -391,12 +390,15 @@ pub fn prove_execution(
     let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
         prove_air(
             &mut prover_state,
-            &VMAir::default(),
+            &ExecutionTable,
             exec_air_extra_data,
             UNIVARIATE_SKIPS,
             &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &[],
-            &execution_air_padding_row::<EF>(bytecode.ending_pc),
+            &vec![
+                EF::from_usize(bytecode.ending_pc), // PC
+                EF::ZERO,                           // FP
+            ],
             Some(exec_bus_virtual_statement),
             true,
         )
