@@ -24,19 +24,19 @@ pub type ColIndex = usize;
 
 #[derive(Debug)]
 pub struct LookupIntoMemory {
-    pub index: ColIndex,
+    pub index: ColIndex, // should be in base field columns
     pub values: ColIndex,
 }
 
 #[derive(Debug)]
 pub struct ExtensionFieldLookupIntoMemory {
-    pub index: ColIndex,
+    pub index: ColIndex, // should be in base field columns
     pub values: ColIndex,
 }
 
 #[derive(Debug)]
 pub struct VectorLookupIntoMemory {
-    pub index: ColIndex,
+    pub index: ColIndex, // should be in base field columns
     pub values: [ColIndex; 8],
 }
 
@@ -178,6 +178,7 @@ pub trait ModularPrecompile: Air {
         air_point: &MultilinearPoint<EF>,
         air_values: &[EF],
         ext_commitment_helper: &ExtensionCommitmentFromBaseProver<EF>,
+        normal_lookup_statements_on_indexes: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> Vec<Vec<Evaluation<EF>>> {
         assert_eq!(air_values.len(), Self::n_columns());
 
@@ -187,12 +188,20 @@ pub trait ModularPrecompile: Air {
             .collect::<Vec<_>>();
         statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
 
+        for lookup in Self::normal_lookups_f() {
+            statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
+        }
+        for lookup in Self::normal_lookups_ef() {
+            statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
+        }
+
         statements
     }
     fn committed_statements_verifier(
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         air_point: &MultilinearPoint<EF>,
         air_values: &[EF],
+        normal_lookup_statements_on_indexes: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
         assert_eq!(air_values.len(), Self::n_columns());
 
@@ -211,6 +220,12 @@ pub trait ModularPrecompile: Air {
                     .collect::<Vec<_>>(),
             ),
         )?);
+        for lookup in Self::normal_lookups_f() {
+            statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
+        }
+        for lookup in Self::normal_lookups_ef() {
+            statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
+        }
 
         Ok(statements)
     }

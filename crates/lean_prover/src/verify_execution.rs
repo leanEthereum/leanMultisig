@@ -420,7 +420,7 @@ pub fn verify_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     )?;
 
-    let normal_lookup_statements =
+    let mut normal_lookup_statements =
         normal_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
 
     let vectorized_lookup_statements =
@@ -499,19 +499,19 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(bytecode, log_n_cycles);
 
+    let normal_lookup_statements_exec_indexes = normal_lookup_statements
+        .on_indexes
+        .drain(..3)
+        .collect::<Vec<_>>();
+
     let exec_air_statement =
         |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_verify[col_index]);
-    let mut dot_product_statements = DotProductPrecompile::committed_statements_verifier(
+    let dot_product_statements = DotProductPrecompile::committed_statements_verifier(
         &mut verifier_state,
         &dot_product_air_point,
         &dot_product_evals_to_verify,
+        &mut normal_lookup_statements.on_indexes,
     )?;
-    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_A]
-        .extend(normal_lookup_statements.on_indexes[3].clone());
-    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_B]
-        .extend(normal_lookup_statements.on_indexes[4].clone());
-    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_RES]
-        .extend(normal_lookup_statements.on_indexes[5].clone());
     let global_statements_base = packed_pcs_global_statements_for_verifier(
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -527,17 +527,17 @@ pub fn verify_execution(
                 vec![exec_air_statement(COL_INDEX_FP)], // fp
                 [
                     vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_A)],
-                    normal_lookup_statements.on_indexes[0].clone(),
+                    normal_lookup_statements_exec_indexes[0].clone(),
                 ]
                 .concat(), // exec memory address A
                 [
                     vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_B)],
-                    normal_lookup_statements.on_indexes[1].clone(),
+                    normal_lookup_statements_exec_indexes[1].clone(),
                 ]
                 .concat(), // exec memory address B
                 [
                     vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_C)],
-                    normal_lookup_statements.on_indexes[2].clone(),
+                    normal_lookup_statements_exec_indexes[2].clone(),
                 ]
                 .concat(), // exec memory address C
                 p16_indexes_a_statements,
