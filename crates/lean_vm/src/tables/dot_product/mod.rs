@@ -1,11 +1,11 @@
-use crate::tables::dot_product::vm_exec::exec_dot_product;
+use crate::tables::dot_product::exec::exec_dot_product;
 use crate::*;
 use multilinear_toolkit::prelude::*;
 
 mod air;
 pub use air::*;
 
-mod vm_exec;
+mod exec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DotProductPrecompile;
