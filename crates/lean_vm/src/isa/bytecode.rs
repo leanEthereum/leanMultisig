@@ -12,7 +12,6 @@ pub struct Bytecode {
     pub instructions: Vec<Instruction>,
     pub hints: BTreeMap<CodeAddress, Vec<Hint>>, // pc -> hints
     pub starting_frame_memory: usize,
-    pub ending_pc: CodeAddress,
     // debug
     pub program: String,
     pub function_locations: BTreeMap<usize, String>,

@@ -14,7 +14,6 @@ pub(crate) fn get_base_dims(
     n_cycles: usize,
     log_public_memory: usize,
     private_memory_len: usize,
-    bytecode_ending_pc: usize,
     (n_poseidons_16, n_poseidons_24): (usize, usize),
     n_rows_table_dot_products: usize,
     (p16_gkr_layers, p24_gkr_layers): (
@@ -32,11 +31,11 @@ pub(crate) fn get_base_dims(
     [
         vec![
             ColDims::padded_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
-            ColDims::padded(n_cycles, F::from_usize(bytecode_ending_pc)), // pc
-            ColDims::padded(n_cycles, F::ZERO),                           // fp
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_a
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_b
-            ColDims::padded(n_cycles, F::ZERO),                           // mem_addr_c
+            ColDims::padded(n_cycles, F::from_usize(ENDING_PC)), // pc
+            ColDims::padded(n_cycles, F::ZERO),                  // fp
+            ColDims::padded(n_cycles, F::ZERO),                  // mem_addr_a
+            ColDims::padded(n_cycles, F::ZERO),                  // mem_addr_b
+            ColDims::padded(n_cycles, F::ZERO),                  // mem_addr_c
         ],
         Table::poseidon16().committed_dims(n_poseidons_16),
         p16_default_cubes
@@ -86,14 +85,12 @@ pub(crate) fn fold_bytecode(
 }
 
 pub(crate) fn initial_and_final_pc_conditions(
-    bytecode: &Bytecode,
     log_n_cycles: usize,
 ) -> (Evaluation<EF>, Evaluation<EF>) {
-    let initial_pc_statement = Evaluation::new(EF::zero_vec(log_n_cycles), EF::ZERO);
-    let final_pc_statement = Evaluation::new(
-        vec![EF::ONE; log_n_cycles],
-        EF::from_usize(bytecode.ending_pc),
-    );
+    let initial_pc_statement =
+        Evaluation::new(EF::zero_vec(log_n_cycles), EF::from_usize(STARTING_PC));
+    let final_pc_statement =
+        Evaluation::new(vec![EF::ONE; log_n_cycles], EF::from_usize(ENDING_PC));
     (initial_pc_statement, final_pc_statement)
 }
 

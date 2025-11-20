@@ -95,7 +95,6 @@ pub fn verify_execution(
         n_cycles,
         log_public_memory,
         private_memory_len,
-        bytecode.ending_pc,
         (n_poseidons_16, n_poseidons_24),
         n_rows_table_dot_products,
         (&p16_gkr_layers, &p24_gkr_layers),
@@ -308,8 +307,8 @@ pub fn verify_execution(
         UNIVARIATE_SKIPS,
         log_n_cycles,
         &vec![
-            EF::from_usize(bytecode.ending_pc), // PC
-            EF::ZERO,                           // FP
+            EF::from_usize(ENDING_PC), // PC
+            EF::ZERO,                  // FP
         ],
         Some(exec_bus_virtual_statement),
     )?;
@@ -487,8 +486,7 @@ pub fn verify_execution(
         }
     }
 
-    let (initial_pc_statement, final_pc_statement) =
-        initial_and_final_pc_conditions(bytecode, log_n_cycles);
+    let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
 
     let normal_lookup_statements_exec_indexes = normal_lookup_statements
         .on_indexes

@@ -141,7 +141,6 @@ pub fn prove_execution(
         n_cycles,
         log_public_memory,
         private_memory.len(),
-        bytecode.ending_pc,
         (
             precompile_traces[TABLE_POSEIDON_16].n_rows_non_padded(),
             precompile_traces[TABLE_POSEIDON_24].n_rows_non_padded(),
@@ -396,8 +395,8 @@ pub fn prove_execution(
             &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &[],
             &vec![
-                EF::from_usize(bytecode.ending_pc), // PC
-                EF::ZERO,                           // FP
+                EF::from_usize(ENDING_PC), // PC
+                EF::ZERO,                  // FP
             ],
             Some(exec_bus_virtual_statement),
             true,
@@ -677,8 +676,7 @@ pub fn prove_execution(
         p16_indexes_statements[2].push(Evaluation::new(sc_point, sc_values[2] - EF::ONE));
     }
 
-    let (initial_pc_statement, final_pc_statement) =
-        initial_and_final_pc_conditions(bytecode, log_n_cycles);
+    let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
 
     let exec_air_statement =
         |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_prove[col_index]);

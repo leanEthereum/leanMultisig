@@ -200,7 +200,6 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
         instructions,
         hints,
         starting_frame_memory: 512,
-        ending_pc: 4,
         program: Default::default(),
         function_locations: Default::default(),
     };

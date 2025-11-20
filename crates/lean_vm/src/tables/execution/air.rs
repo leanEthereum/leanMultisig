@@ -34,8 +34,7 @@ pub const COL_INDEX_MEM_ADDRESS_A: usize = 18;
 pub const COL_INDEX_MEM_ADDRESS_B: usize = 19;
 pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
 
-
-impl  Air for ExecutionTable {
+impl Air for ExecutionTable {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f(&self) -> usize {

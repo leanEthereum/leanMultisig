@@ -9,8 +9,8 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    CodeAddress, HintExecutionContext, N_PRECOMPILES, PrecompileTrace, SourceLineNumber,
-    TABLE_POSEIDON_16, TABLE_POSEIDON_24, Table,
+    CodeAddress, ENDING_PC, HintExecutionContext, N_PRECOMPILES, PrecompileTrace, STARTING_PC,
+    SourceLineNumber, TABLE_POSEIDON_16, TABLE_POSEIDON_24, Table,
 };
 use multilinear_toolkit::prelude::*;
 use std::array;
@@ -186,7 +186,7 @@ fn execute_bytecode_helper(
     let initial_ap_vec =
         (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
 
-    let mut pc = 0;
+    let mut pc = STARTING_PC;
     let mut ap = initial_ap;
     let mut ap_vec = initial_ap_vec;
 
@@ -216,7 +216,7 @@ fn execute_bytecode_helper(
     let mut counter_hint = 0;
     let mut cpu_cycles_before_new_line = 0;
 
-    while pc != bytecode.ending_pc {
+    while pc != ENDING_PC {
         if pc >= bytecode.instructions.len() {
             return Err(RunnerError::PCOutOfBounds);
         }
@@ -294,7 +294,7 @@ fn execute_bytecode_helper(
         }
     );
 
-    assert_eq!(pc, bytecode.ending_pc);
+    assert_eq!(pc, ENDING_PC);
     pcs.push(pc);
     fps.push(fp);
 
