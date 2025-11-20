@@ -12,7 +12,7 @@ pub struct ExecutionTrace {
     pub nu_columns: [Vec<F>; 3],
     pub n_cycles: usize, // before padding with the repeated final instruction
     pub n_compressions_16: usize,
-    pub precompile_traces: [PrecompileTrace; N_PRECOMPILES],
+    pub precompile_traces: [TableTrace; N_PRECOMPILES],
     pub multilinear_evals_witness: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
@@ -149,8 +149,8 @@ pub fn get_execution_trace(
 }
 
 fn put_poseidon16_compressions_at_the_end(
-    poseidons_16: &PrecompileTrace,
-) -> (PrecompileTrace, usize) {
+    poseidons_16: &TableTrace,
+) -> (TableTrace, usize) {
     let n = poseidons_16.base[0].len();
     assert_eq!(Poseidon16Precompile.n_columns_f(), poseidons_16.base.len());
     assert_eq!(poseidons_16.ext.len(), 0);
@@ -174,7 +174,7 @@ fn put_poseidon16_compressions_at_the_end(
     }
 
     (
-        PrecompileTrace {
+        TableTrace {
             base: new_trace,
             ext: vec![],
             padding_len: poseidons_16.padding_len,
@@ -183,7 +183,7 @@ fn put_poseidon16_compressions_at_the_end(
     )
 }
 
-fn padd_precompile_trace<P: TableT>(p: &P, trace: &mut PrecompileTrace) {
+fn padd_precompile_trace<P: TableT>(p: &P, trace: &mut TableTrace) {
     trace.padding_len = trace.base[0]
         .len()
         .next_power_of_two()

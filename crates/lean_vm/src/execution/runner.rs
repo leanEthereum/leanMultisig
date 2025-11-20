@@ -9,7 +9,7 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    CodeAddress, ENDING_PC, HintExecutionContext, N_PRECOMPILES, PrecompileTrace, STARTING_PC,
+    CodeAddress, ENDING_PC, HintExecutionContext, N_PRECOMPILES, TableTrace, STARTING_PC,
     SourceLineNumber, TABLE_POSEIDON_16, TABLE_POSEIDON_24, Table,
 };
 use multilinear_toolkit::prelude::*;
@@ -203,8 +203,8 @@ fn execute_bytecode_helper(
     let mut n_poseidon24_precomputed_used = 0;
 
     // Events collected only in final execution
-    let mut precompile_traces: [PrecompileTrace; N_PRECOMPILES] =
-        array::from_fn(|i| PrecompileTrace::new(&Table::from_index(i)));
+    let mut precompile_traces: [TableTrace; N_PRECOMPILES] =
+        array::from_fn(|i| TableTrace::new(&Table::from_index(i)));
 
     let mut multilinear_evals_witness = Vec::new();
 

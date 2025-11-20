@@ -57,13 +57,13 @@ pub struct Bus {
 }
 
 #[derive(Debug)]
-pub struct PrecompileTrace {
+pub struct TableTrace {
     pub base: Vec<Vec<F>>,
     pub ext: Vec<Vec<EF>>,
     pub padding_len: usize,
 }
 
-impl PrecompileTrace {
+impl TableTrace {
     pub fn new<A: Air>(air: &A) -> Self {
         Self {
             base: vec![Vec::new(); air.n_columns_f()],
@@ -253,7 +253,7 @@ pub trait TableT: Air {
     }
     fn committed_columns<'a>(
         &self,
-        trace: &'a PrecompileTrace,
+        trace: &'a TableTrace,
         computation_ext_to_base_helper: &'a ExtensionCommitmentFromBaseProver<EF>,
     ) -> Vec<&'a [PF<EF>]> {
         // base field committed columns
@@ -271,7 +271,7 @@ pub trait TableT: Air {
         );
         cols
     }
-    fn normal_lookup_index_columns<'a>(&'a self, trace: &'a PrecompileTrace) -> Vec<&'a [PF<EF>]> {
+    fn normal_lookup_index_columns<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [PF<EF>]> {
         let mut cols = Vec::new();
         for lookup in self.normal_lookups_f() {
             cols.push(&trace.base[lookup.index][..]);
@@ -284,7 +284,7 @@ pub trait TableT: Air {
     fn num_normal_lookups(&self) -> usize {
         self.normal_lookups_f().len() + self.normal_lookups_ef().len()
     }
-    fn vector_lookup_index_columns<'a>(&self, trace: &'a PrecompileTrace) -> Vec<&'a [PF<EF>]> {
+    fn vector_lookup_index_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [PF<EF>]> {
         let mut cols = Vec::new();
         for lookup in self.vector_lookups() {
             for &value_col in &lookup.values {
@@ -293,14 +293,14 @@ pub trait TableT: Air {
         }
         cols
     }
-    fn normal_lookup_f_value_columns<'a>(&self, trace: &'a PrecompileTrace) -> Vec<&'a [PF<EF>]> {
+    fn normal_lookup_f_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [PF<EF>]> {
         let mut cols = Vec::new();
         for lookup in self.normal_lookups_f() {
             cols.push(&trace.base[lookup.values][..]);
         }
         cols
     }
-    fn normal_lookup_ef_value_columns<'a>(&self, trace: &'a PrecompileTrace) -> Vec<&'a [EF]> {
+    fn normal_lookup_ef_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [EF]> {
         let mut cols = Vec::new();
         for lookup in self.normal_lookups_ef() {
             cols.push(&trace.ext[lookup.values][..]);

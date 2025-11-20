@@ -96,7 +96,7 @@ pub(crate) fn initial_and_final_pc_conditions(
 
 pub(crate) fn add_memory_statements_for_multilinear_eval_precompile(
     entry: &WitnessMultilinearEval,
-    trace: &PrecompileTrace,
+    trace: &TableTrace,
     row: usize,
     log_memory: usize,
     log_public_memory: usize,

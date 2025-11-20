@@ -70,14 +70,13 @@ impl TableT for ExecutionTable {
     }
 
     fn padding_row(&self) -> Vec<EF> {
-        [
-            vec![
-                EF::ONE, // StartFlag
-                EF::ONE, // Len
-            ],
-            vec![EF::ZERO; DOT_PRODUCT_AIR_N_COLUMNS_TOTAL - 2],
-        ]
-        .concat()
+        let mut padding_row = vec![EF::ZERO; N_EXEC_AIR_COLUMNS];
+        padding_row[COL_INDEX_JUMP] = EF::from_usize(1);
+        padding_row[COL_INDEX_FLAG_A] = EF::ONE;
+        padding_row[COL_INDEX_OPERAND_A] = EF::ONE;
+        padding_row[COL_INDEX_FLAG_B] = EF::ONE;
+        padding_row[COL_INDEX_FLAG_C] = EF::ONE;
+        padding_row
     }
 
     #[inline(always)]

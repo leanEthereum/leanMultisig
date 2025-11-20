@@ -2,7 +2,7 @@ use crate::EF;
 use crate::F;
 use crate::Memory;
 use crate::ONE_VEC_PTR;
-use crate::PrecompileTrace;
+use crate::TableTrace;
 use crate::RunnerError;
 use crate::VECTOR_LEN;
 use crate::tables::dot_product::*;
@@ -14,7 +14,7 @@ pub(crate) fn exec_dot_product(
     ptr_res: F,
     size: usize,
     memory: &mut Memory,
-    trace: &mut PrecompileTrace,
+    trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     assert!(size > 0);
 

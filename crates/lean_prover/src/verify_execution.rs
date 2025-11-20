@@ -64,7 +64,7 @@ pub fn verify_execution(
         log2_ceil_usize(n_rows_table_dot_products).max(MIN_LOG_N_ROWS_PER_TABLE);
     let dot_product_padding_len = (1 << table_dot_products_log_n_rows) - n_rows_table_dot_products;
 
-    let mut vm_multilinear_evals = PrecompileTrace::new(&MultilinearEvalPrecompile);
+    let mut vm_multilinear_evals = TableTrace::new(&MultilinearEvalPrecompile);
     let mut multilinear_evals_witness = vec![];
     for _ in 0..n_vm_multilinear_evals {
         let [addr_coeffs, addr_point, addr_res, n_vars] =

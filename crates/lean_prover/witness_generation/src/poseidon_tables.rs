@@ -1,6 +1,6 @@
 use std::array;
 
-use lean_vm::{F, PrecompileTrace};
+use lean_vm::{F, TableTrace};
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
@@ -10,7 +10,7 @@ use tracing::instrument;
 #[instrument(skip_all)]
 pub fn generate_poseidon_witness_helper<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
-    trace: &PrecompileTrace,
+    trace: &TableTrace,
     start_index: usize,
     n_compressions: Option<usize>,
 ) -> PoseidonWitness<FPacking<F>, WIDTH, N_COMMITED_CUBES>

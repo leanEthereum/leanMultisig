@@ -773,7 +773,7 @@ pub fn prove_execution(
 
 fn prove_bus_for_air_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
     prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
-    trace: &PrecompileTrace,
+    trace: &TableTrace,
     bus_challenge: EF,
     fingerprint_challenge: EF,
     bus: &Bus,
@@ -801,7 +801,7 @@ fn prove_bus_for_air_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
 
 fn prove_bus_for_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
     prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
-    trace: &PrecompileTrace,
+    trace: &TableTrace,
     bus_challenge: EF,
     fingerprint_challenge: EF,
     bus: &Bus,
