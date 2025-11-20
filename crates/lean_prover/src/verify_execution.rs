@@ -497,10 +497,12 @@ pub fn verify_execution(
     let dot_product_computation_column_statements =
         ExtensionCommitmentFromBaseVerifier::after_commitment(
             &mut verifier_state,
-            &Evaluation::new(
+            &MultiEvaluation::new(
                 dot_product_air_point.clone(),
-                dot_product_evals_to_verify
-                    [DOT_PRODUCT_AIR_COL_COMPUTATION + DOT_PRODUCT_AIR_N_COLUMNS_F],
+                vec![
+                    dot_product_evals_to_verify
+                        [DOT_PRODUCT_AIR_COL_COMPUTATION + DOT_PRODUCT_AIR_N_COLUMNS_F],
+                ],
             ),
         )?;
 

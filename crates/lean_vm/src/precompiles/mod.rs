@@ -15,6 +15,7 @@ pub use poseidon_24::*;
 
 mod multilinear_eval;
 pub use multilinear_eval::*;
+use sub_protocols::{ColDims, ExtensionCommitmentFromBaseProver};
 
 pub type ColIndex = usize;
 
@@ -154,6 +155,28 @@ pub trait ModularPrecompile: Air {
             .into_iter()
             .map(|i| Self::padding_row()[i])
             .collect()
+    }
+    fn committed_dims_f(n_rows: usize) -> Vec<ColDims<F>> {
+        Self::commited_columns_f()
+            .iter()
+            .map(|&c| ColDims::padded(n_rows, Self::padding_row()[c].as_base().unwrap()))
+            .collect()
+    }
+    fn committed_statements(
+        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        air_point: &MultilinearPoint<EF>,
+        air_values: &[EF],
+        ext_commitment_helper: &ExtensionCommitmentFromBaseProver<EF>,
+    ) -> Vec<Vec<Evaluation<EF>>> {
+        assert_eq!(air_values.len(), Self::n_columns());
+
+        let mut statements = Self::commited_columns_f()
+            .iter()
+            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values[c].clone())])
+            .collect::<Vec<_>>();
+        statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
+
+        statements
     }
 }
 

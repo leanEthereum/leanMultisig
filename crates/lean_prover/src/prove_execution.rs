@@ -656,17 +656,21 @@ pub fn prove_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(bytecode, log_n_cycles);
 
-    let dot_product_computation_column_statements = dot_product_computation_ext_to_base_helper
-        .after_commitment(&mut prover_state, &[dot_product_air_point.clone()]);
-
     let exec_air_statement =
         |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_prove[col_index]);
-    let dot_product_air_statement = |col_index: usize| {
-        Evaluation::new(
-            dot_product_air_point.clone(),
-            dot_product_evals_to_prove[col_index],
-        )
-    };
+
+    let mut dot_product_statements = DotProductPrecompile::committed_statements(
+        &mut prover_state,
+        &dot_product_air_point,
+        &dot_product_evals_to_prove,
+        &dot_product_computation_ext_to_base_helper,
+    );
+    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_A]
+        .extend(normal_lookup_into_memory_statements.on_indexes[3].clone());
+    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_B]
+        .extend(normal_lookup_into_memory_statements.on_indexes[4].clone());
+    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_RES]
+        .extend(normal_lookup_into_memory_statements.on_indexes[5].clone());
 
     // First Opening
     let all_base_statements = [
@@ -703,26 +707,7 @@ pub fn prove_execution(
         ],
         encapsulate_vec(p16_gkr.cubes_statements.split()),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
-        vec![
-            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG)],
-            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN)],
-            [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A)],
-                normal_lookup_into_memory_statements.on_indexes[3].clone(),
-            ]
-            .concat(),
-            [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B)],
-                normal_lookup_into_memory_statements.on_indexes[4].clone(),
-            ]
-            .concat(),
-            [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES)],
-                normal_lookup_into_memory_statements.on_indexes[4].clone(),
-            ]
-            .concat(),
-        ],
-        dot_product_computation_column_statements,
+        dot_product_statements,
     ]
     .concat();
 

@@ -43,27 +43,19 @@ impl<EF: ExtensionField<PF<EF>>> ExtensionCommitmentFromBaseProver<EF> {
     pub fn after_commitment(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        evaluation_points: &[MultilinearPoint<EF>],
+        evaluation_point: &MultilinearPoint<EF>,
     ) -> Vec<Vec<Evaluation<EF>>> {
         let sub_evals = self
             .sub_columns_to_commit
             .par_iter()
-            .enumerate()
-            .map(|(i, sub_column)| {
-                let eval_point = &evaluation_points[i / EF::DIMENSION];
-                sub_column.evaluate(eval_point)
-            })
+            .map(|sub_column| sub_column.evaluate(evaluation_point))
             .collect::<Vec<_>>();
 
         prover_state.add_extension_scalars(&sub_evals);
 
         sub_evals
             .iter()
-            .enumerate()
-            .map(|(i, &sub_value)| {
-                let evaluation_point = &evaluation_points[i / EF::DIMENSION];
-                vec![Evaluation::new(evaluation_point.clone(), sub_value)]
-            })
+            .map(|sub_value| vec![Evaluation::new(evaluation_point.clone(), *sub_value)])
             .collect::<Vec<_>>()
     }
 }
@@ -74,17 +66,21 @@ pub struct ExtensionCommitmentFromBaseVerifier {}
 impl ExtensionCommitmentFromBaseVerifier {
     pub fn after_commitment<EF: ExtensionField<PF<EF>>>(
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-        claim: &Evaluation<EF>,
+        claim: &MultiEvaluation<EF>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
-        let sub_evals = verifier_state.next_extension_scalars_vec(EF::DIMENSION)?;
+        let sub_evals =
+            verifier_state.next_extension_scalars_vec(EF::DIMENSION * claim.num_values())?;
 
-        let statements_remaning_to_verify = sub_evals
-            .iter()
-            .map(|&sub_value| vec![Evaluation::new(claim.point.clone(), sub_value)])
-            .collect::<Vec<_>>();
-
-        if dot_product_with_base(&sub_evals) != claim.value {
-            return Err(ProofError::InvalidProof);
+        let mut statements_remaning_to_verify = Vec::new();
+        for (chunk, claim_value) in sub_evals.chunks_exact(EF::DIMENSION).zip(&claim.values) {
+            if dot_product_with_base(&sub_evals) != *claim_value {
+                return Err(ProofError::InvalidProof);
+            }
+            statements_remaning_to_verify.extend(
+                chunk
+                    .iter()
+                    .map(|&sub_value| vec![Evaluation::new(claim.point.clone(), sub_value)]),
+            );
         }
 
         Ok(statements_remaning_to_verify)

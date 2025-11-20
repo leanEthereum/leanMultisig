@@ -53,13 +53,7 @@ pub fn get_base_dims(
             .iter()
             .map(|&c| ColDims::padded(n_poseidons_24, c))
             .collect::<Vec<_>>(), // commited cubes for poseidon24
-        vec![
-            ColDims::padded(n_rows_table_dot_products, F::ONE), // dot product: (start) flag
-            ColDims::padded(n_rows_table_dot_products, F::ONE), // dot product: length
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index a
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index b
-            ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index res
-        ],
+        DotProductPrecompile::committed_dims_f(n_rows_table_dot_products),
         committed_dims_extension_from_base(vec![n_rows_table_dot_products], vec![EF::ZERO]), // dot product: computation
     ]
     .concat()
