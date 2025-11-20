@@ -375,12 +375,14 @@ pub fn verify_execution(
         ]
         .concat(),
         [vec![0; 3], vec![0; 3]].concat(),
-        normal_lookup_into_memory_initial_statements(
-            &exec_air_point,
-            &exec_evals_to_verify,
-            &dot_product_air_point,
-            &dot_product_evals_to_verify,
-        ),
+        [
+            exec_lookup_into_memory_initial_statements(&exec_air_point, &exec_evals_to_verify),
+            DotProductPrecompile::normal_lookups_statements(
+                &dot_product_air_point,
+                &dot_product_evals_to_verify,
+            ),
+        ]
+        .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &public_memory, // we need to pass the first few values of memory, public memory is enough
     )?;
@@ -497,27 +499,19 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(bytecode, log_n_cycles);
 
-    let dot_product_computation_column_statements =
-        ExtensionCommitmentFromBaseVerifier::after_commitment(
-            &mut verifier_state,
-            &MultiEvaluation::new(
-                dot_product_air_point.clone(),
-                vec![
-                    dot_product_evals_to_verify
-                        [DOT_PRODUCT_AIR_COL_COMPUTATION + DOT_PRODUCT_AIR_N_COLUMNS_F],
-                ],
-            ),
-        )?;
-
     let exec_air_statement =
         |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_verify[col_index]);
-    let dot_product_air_statement = |col_index: usize| {
-        Evaluation::new(
-            dot_product_air_point.clone(),
-            dot_product_evals_to_verify[col_index],
-        )
-    };
-
+    let mut dot_product_statements = DotProductPrecompile::committed_statements_verifier(
+        &mut verifier_state,
+        &dot_product_air_point,
+        &dot_product_evals_to_verify,
+    )?;
+    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_A]
+        .extend(normal_lookup_statements.on_indexes[3].clone());
+    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_B]
+        .extend(normal_lookup_statements.on_indexes[4].clone());
+    dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_RES]
+        .extend(normal_lookup_statements.on_indexes[5].clone());
     let global_statements_base = packed_pcs_global_statements_for_verifier(
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -555,26 +549,7 @@ pub fn verify_execution(
             ],
             encapsulate_vec(p16_gkr.cubes_statements.split()),
             encapsulate_vec(p24_gkr.cubes_statements.split()),
-            vec![
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG)], // dot product: (start) flag
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN)], // dot product: length
-                [
-                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A)],
-                    normal_lookup_statements.on_indexes[3].clone(),
-                ]
-                .concat(),
-                [
-                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B)],
-                    normal_lookup_statements.on_indexes[4].clone(),
-                ]
-                .concat(),
-                [
-                    vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES)],
-                    normal_lookup_statements.on_indexes[4].clone(),
-                ]
-                .concat(),
-            ],
-            dot_product_computation_column_statements,
+            dot_product_statements,
         ]
         .concat(),
         &mut verifier_state,

@@ -489,36 +489,49 @@ pub fn prove_execution(
     let normal_lookup_into_memory = NormalPackedLookupProver::step_1(
         &mut prover_state,
         &memory,
-        vec![
-            &full_trace[COL_INDEX_MEM_ADDRESS_A],
-            &full_trace[COL_INDEX_MEM_ADDRESS_B],
-            &full_trace[COL_INDEX_MEM_ADDRESS_C],
-            &dot_products.base[DOT_PRODUCT_AIR_COL_INDEX_A],
-            &dot_products.base[DOT_PRODUCT_AIR_COL_INDEX_B],
-            &dot_products.base[DOT_PRODUCT_AIR_COL_INDEX_RES],
-        ],
         [
-            vec![n_cycles; 3],
-            vec![dot_products.n_rows_non_padded().max(MIN_N_ROWS_PER_TABLE); 3],
+            vec![
+                &full_trace[COL_INDEX_MEM_ADDRESS_A][..],
+                &full_trace[COL_INDEX_MEM_ADDRESS_B][..],
+                &full_trace[COL_INDEX_MEM_ADDRESS_C][..],
+            ],
+            DotProductPrecompile::normal_lookup_index_columns(&dot_products),
         ]
         .concat(),
-        [vec![0; 3], vec![0; 3]].concat(),
-        vec![
-            &full_trace[COL_INDEX_MEM_VALUE_A],
-            &full_trace[COL_INDEX_MEM_VALUE_B],
-            &full_trace[COL_INDEX_MEM_VALUE_C],
-        ],
-        vec![
-            &dot_products.ext[DOT_PRODUCT_AIR_COL_VALUE_A],
-            &dot_products.ext[DOT_PRODUCT_AIR_COL_VALUE_B],
-            &dot_products.ext[DOT_PRODUCT_AIR_COL_VALUE_RES],
-        ],
-        normal_lookup_into_memory_initial_statements(
-            &exec_air_point,
-            &exec_evals_to_prove,
-            &dot_product_air_point,
-            &dot_product_evals_to_prove,
-        ),
+        [
+            vec![n_cycles; 3],
+            vec![
+                dot_products.n_rows_non_padded().max(MIN_N_ROWS_PER_TABLE);
+                DotProductPrecompile::num_normal_lookups()
+            ],
+        ]
+        .concat(),
+        [
+            vec![0; 3],
+            vec![0; DotProductPrecompile::num_normal_lookups()],
+        ]
+        .concat(), // TODO handle the case with non-zero default index
+        [
+            vec![
+                &full_trace[COL_INDEX_MEM_VALUE_A][..],
+                &full_trace[COL_INDEX_MEM_VALUE_B][..],
+                &full_trace[COL_INDEX_MEM_VALUE_C][..],
+            ],
+            DotProductPrecompile::normal_lookup_f_value_columns(&dot_products),
+        ]
+        .concat(),
+        [DotProductPrecompile::normal_lookup_ef_value_columns(
+            &dot_products,
+        )]
+        .concat(),
+        [
+            exec_lookup_into_memory_initial_statements(&exec_air_point, &exec_evals_to_prove),
+            DotProductPrecompile::normal_lookups_statements(
+                &dot_product_air_point,
+                &dot_product_evals_to_prove,
+            ),
+        ]
+        .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
@@ -571,7 +584,7 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let normal_lookup_into_memory_statements =
+    let normal_lookup_statements =
         normal_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
 
     let vectorized_lookup_statements =
@@ -587,7 +600,7 @@ pub fn prove_execution(
         Some(bytecode.instructions.len()),
     );
 
-    memory_statements.push(normal_lookup_into_memory_statements.on_table.clone());
+    memory_statements.push(normal_lookup_statements.on_table.clone());
     memory_statements.push(vectorized_lookup_statements.on_table.clone());
 
     {
@@ -657,18 +670,18 @@ pub fn prove_execution(
     let exec_air_statement =
         |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_prove[col_index]);
 
-    let mut dot_product_statements = DotProductPrecompile::committed_statements(
+    let mut dot_product_statements = DotProductPrecompile::committed_statements_prover(
         &mut prover_state,
         &dot_product_air_point,
         &dot_product_evals_to_prove,
         &dot_product_computation_ext_to_base_helper,
     );
     dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_A]
-        .extend(normal_lookup_into_memory_statements.on_indexes[3].clone());
+        .extend(normal_lookup_statements.on_indexes[3].clone());
     dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_B]
-        .extend(normal_lookup_into_memory_statements.on_indexes[4].clone());
+        .extend(normal_lookup_statements.on_indexes[4].clone());
     dot_product_statements[DOT_PRODUCT_AIR_COL_INDEX_RES]
-        .extend(normal_lookup_into_memory_statements.on_indexes[5].clone());
+        .extend(normal_lookup_statements.on_indexes[5].clone());
 
     // First Opening
     let all_base_statements = [
@@ -683,17 +696,17 @@ pub fn prove_execution(
             vec![exec_air_statement(COL_INDEX_FP)], // fp
             [
                 vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_A)],
-                normal_lookup_into_memory_statements.on_indexes[0].clone(),
+                normal_lookup_statements.on_indexes[0].clone(),
             ]
             .concat(), // exec memory address A
             [
                 vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_B)],
-                normal_lookup_into_memory_statements.on_indexes[1].clone(),
+                normal_lookup_statements.on_indexes[1].clone(),
             ]
             .concat(), // exec memory address B
             [
                 vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_C)],
-                normal_lookup_into_memory_statements.on_indexes[2].clone(),
+                normal_lookup_statements.on_indexes[2].clone(),
             ]
             .concat(), // exec memory address C
             p16_indexes_a_statements,
@@ -723,7 +736,7 @@ pub fn prove_execution(
         &extension_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &[
-            normal_lookup_into_memory_statements.on_pushforward,
+            normal_lookup_statements.on_pushforward,
             vectorized_lookup_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,
         ],

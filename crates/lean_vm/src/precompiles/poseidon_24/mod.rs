@@ -34,16 +34,16 @@ impl ModularPrecompile for Poseidon24Precompile {
         unreachable!()
     }
 
-    fn simple_lookups() -> &'static [LookupIntoMemory] {
-        &[]
+    fn normal_lookups_f() -> Vec<LookupIntoMemory> {
+        unreachable!()
     }
 
-    fn ext_field_lookups() -> &'static [ExtensionFieldLookupIntoMemory] {
-        &[]
+    fn normal_lookups_ef() -> Vec<ExtensionFieldLookupIntoMemory> {
+        unreachable!()
     }
 
-    fn vector_lookups() -> &'static [VectorLookupIntoMemory] {
-        &[]
+    fn vector_lookups() -> Vec<VectorLookupIntoMemory> {
+         unreachable!()
     }
 
     fn buses() -> Vec<Bus> {

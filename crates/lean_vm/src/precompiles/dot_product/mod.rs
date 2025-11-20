@@ -37,16 +37,29 @@ impl ModularPrecompile for DotProductPrecompile {
         vec![DOT_PRODUCT_AIR_COL_COMPUTATION]
     }
 
-    fn simple_lookups() -> &'static [LookupIntoMemory] {
-        &[]
+    fn normal_lookups_f() -> Vec<LookupIntoMemory> {
+        vec![]
     }
 
-    fn ext_field_lookups() -> &'static [ExtensionFieldLookupIntoMemory] {
-        &[]
+    fn normal_lookups_ef() -> Vec<ExtensionFieldLookupIntoMemory> {
+        vec![
+            ExtensionFieldLookupIntoMemory {
+                index: DOT_PRODUCT_AIR_COL_INDEX_A,
+                values: DOT_PRODUCT_AIR_COL_VALUE_A,
+            },
+            ExtensionFieldLookupIntoMemory {
+                index: DOT_PRODUCT_AIR_COL_INDEX_B,
+                values: DOT_PRODUCT_AIR_COL_VALUE_B,
+            },
+            ExtensionFieldLookupIntoMemory {
+                index: DOT_PRODUCT_AIR_COL_INDEX_RES,
+                values: DOT_PRODUCT_AIR_COL_VALUE_RES,
+            },
+        ]
     }
 
-    fn vector_lookups() -> &'static [VectorLookupIntoMemory] {
-        &[]
+    fn vector_lookups() -> Vec<VectorLookupIntoMemory> {
+        vec![]
     }
 
     fn buses() -> Vec<Bus> {

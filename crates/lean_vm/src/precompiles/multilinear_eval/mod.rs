@@ -32,7 +32,6 @@ pub const MULTILINEAR_EVAL_COL_INDEX_POINT: ColIndex = 1;
 pub const MULTILINEAR_EVAL_COL_INDEX_RES: ColIndex = 2;
 pub const MULTILINEAR_EVAL_COL_INDEX_N_VARS: ColIndex = 3;
 
-
 impl ModularPrecompile for MultilinearEvalPrecompile {
     fn name() -> &'static str {
         "multilinear_eval"
@@ -50,16 +49,16 @@ impl ModularPrecompile for MultilinearEvalPrecompile {
         unreachable!()
     }
 
-    fn simple_lookups() -> &'static [LookupIntoMemory] {
-        &[]
+    fn normal_lookups_f() -> Vec<LookupIntoMemory> {
+        unreachable!()
     }
 
-    fn ext_field_lookups() -> &'static [ExtensionFieldLookupIntoMemory] {
-        &[]
+    fn normal_lookups_ef() -> Vec<ExtensionFieldLookupIntoMemory> {
+        unreachable!()
     }
 
-    fn vector_lookups() -> &'static [VectorLookupIntoMemory] {
-        &[]
+    fn vector_lookups() -> Vec<VectorLookupIntoMemory> {
+        unreachable!()
     }
 
     fn buses() -> Vec<Bus> {
@@ -109,7 +108,7 @@ impl ModularPrecompile for MultilinearEvalPrecompile {
         trace.base[MULTILINEAR_EVAL_COL_INDEX_POINT].push(ptr_point);
         trace.base[MULTILINEAR_EVAL_COL_INDEX_RES].push(ptr_res);
         trace.base[MULTILINEAR_EVAL_COL_INDEX_N_VARS].push(F::from_usize(n_vars));
-        
+
         ctx.multilinear_evals_witness
             .push(WitnessMultilinearEval { point, res: eval });
 

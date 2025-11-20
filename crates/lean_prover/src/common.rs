@@ -58,39 +58,24 @@ pub(crate) fn get_base_dims(
     .concat()
 }
 
-pub(crate) fn normal_lookup_into_memory_initial_statements(
+pub(crate) fn exec_lookup_into_memory_initial_statements(
     exec_air_point: &MultilinearPoint<EF>,
     exec_evals: &[EF],
-    dot_product_air_point: &MultilinearPoint<EF>,
-    dot_product_evals: &[EF],
 ) -> Vec<Vec<Evaluation<EF>>> {
     [
-        [
-            COL_INDEX_MEM_VALUE_A,
-            COL_INDEX_MEM_VALUE_B,
-            COL_INDEX_MEM_VALUE_C,
-        ]
-        .into_iter()
-        .map(|index| vec![Evaluation::new(exec_air_point.clone(), exec_evals[index])])
-        .collect::<Vec<_>>(),
-        [
-            DOT_PRODUCT_AIR_COL_VALUE_A,
-            DOT_PRODUCT_AIR_COL_VALUE_B,
-            DOT_PRODUCT_AIR_COL_VALUE_RES,
-        ]
-        .into_iter()
-        .map(|index| {
-            vec![Evaluation::new(
-                dot_product_air_point.clone(),
-                dot_product_evals[index + DOT_PRODUCT_AIR_N_COLUMNS_F],
-            )]
-        })
-        .collect::<Vec<_>>(),
+        COL_INDEX_MEM_VALUE_A,
+        COL_INDEX_MEM_VALUE_B,
+        COL_INDEX_MEM_VALUE_C,
     ]
-    .concat()
+    .into_iter()
+    .map(|index| vec![Evaluation::new(exec_air_point.clone(), exec_evals[index])])
+    .collect::<Vec<_>>()
 }
 
-pub(crate) fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
+pub(crate) fn fold_bytecode(
+    bytecode: &Bytecode,
+    folding_challenges: &MultilinearPoint<EF>,
+) -> Vec<EF> {
     let encoded_bytecode = padd_with_zero_to_next_power_of_two(
         &bytecode
             .instructions
