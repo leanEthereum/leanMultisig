@@ -21,7 +21,7 @@ where
     *extra_data.alpha_powers_mut() = alpha
         .powers()
         .take(
-            A::n_constraints()
+            air.n_constraints()
                 + virtual_column_statements
                     .as_ref()
                     .map_or(0, |s| s.values.len()),
@@ -37,7 +37,7 @@ where
 
     let (sc_sum, outer_statement) = sumcheck_verify_with_univariate_skip::<EF>(
         verifier_state,
-        A::degree() + 1,
+        air.degree() + 1,
         log_n_rows,
         univariate_skips,
     )?;
@@ -56,16 +56,16 @@ where
         .collect::<Vec<_>>();
 
     let mut inner_sums = verifier_state
-        .next_extension_scalars_vec(A::n_columns() + A::down_column_indexes().len())?;
+        .next_extension_scalars_vec(air.n_columns() + air.down_column_indexes().len())?;
 
-    let n_columns_down_f = A::down_column_indexes()
+    let n_columns_down_f = air.down_column_indexes()
         .iter()
-        .filter(|&&i| i < A::n_columns_f())
+        .filter(|&&i| i < air.n_columns_f())
         .count();
     let constraint_evals = SumcheckComputation::eval_extension(
         air,
-        &inner_sums[..A::n_columns_f() + n_columns_down_f],
-        &inner_sums[A::n_columns_f() + n_columns_down_f..],
+        &inner_sums[..air.n_columns_f() + n_columns_down_f],
+        &inner_sums[air.n_columns_f() + n_columns_down_f..],
         &extra_data,
     );
 
@@ -80,18 +80,18 @@ where
     }
 
     inner_sums = [
-        inner_sums[..A::n_columns_f()].to_vec(),
-        inner_sums[A::n_columns_f() + n_columns_down_f..][..A::n_columns_ef()].to_vec(),
-        inner_sums[A::n_columns_f()..][..n_columns_down_f].to_vec(),
-        inner_sums[A::n_columns_f() + n_columns_down_f + A::n_columns_ef()..].to_vec(),
+        inner_sums[..air.n_columns_f()].to_vec(),
+        inner_sums[air.n_columns_f() + n_columns_down_f..][..air.n_columns_ef()].to_vec(),
+        inner_sums[air.n_columns_f()..][..n_columns_down_f].to_vec(),
+        inner_sums[air.n_columns_f() + n_columns_down_f + air.n_columns_ef()..].to_vec(),
     ]
     .concat();
 
     open_columns(
         verifier_state,
-        A::n_columns(),
+        air.n_columns(),
         univariate_skips,
-        &A::down_column_indexes(),
+        &air.down_column_indexes(),
         inner_sums,
         &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
         &outer_selector_evals,

@@ -10,7 +10,7 @@ use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use utils::ToUsize;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MultilinearEvalPrecompile;
 
 #[derive(Debug, Clone)]
@@ -33,37 +33,37 @@ pub const MULTILINEAR_EVAL_COL_INDEX_RES: ColIndex = 2;
 pub const MULTILINEAR_EVAL_COL_INDEX_N_VARS: ColIndex = 3;
 
 impl ModularPrecompile for MultilinearEvalPrecompile {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "multilinear_eval"
     }
 
-    fn identifier() -> Table {
-        Table::MultilinearEval
+    fn identifier(&self) -> Table {
+        Table::multilinear_eval()
     }
 
-    fn commited_columns_f() -> Vec<ColIndex> {
+    fn commited_columns_f(&self) -> Vec<ColIndex> {
         unreachable!()
     }
 
-    fn commited_columns_ef() -> Vec<ColIndex> {
+    fn commited_columns_ef(&self) -> Vec<ColIndex> {
         unreachable!()
     }
 
-    fn normal_lookups_f() -> Vec<LookupIntoMemory> {
+    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         unreachable!()
     }
 
-    fn normal_lookups_ef() -> Vec<ExtensionFieldLookupIntoMemory> {
+    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         unreachable!()
     }
 
-    fn vector_lookups() -> Vec<VectorLookupIntoMemory> {
+    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
         unreachable!()
     }
 
-    fn buses() -> Vec<Bus> {
+    fn buses(&self) -> Vec<Bus> {
         vec![Bus {
-            table: Table::MultilinearEval,
+            table: self.identifier(),
             direction: BusDirection::Pull,
             selector: BusSelector::DenseOnes,
             data: vec![
@@ -75,8 +75,13 @@ impl ModularPrecompile for MultilinearEvalPrecompile {
         }]
     }
 
+    fn padding_row(&self) -> Vec<EF> {
+        unreachable!()
+    }
+
     #[inline(always)]
     fn execute(
+        &self,
         ptr_coeffs: F,
         ptr_point: F,
         ptr_res: F,
@@ -114,27 +119,23 @@ impl ModularPrecompile for MultilinearEvalPrecompile {
 
         Ok(())
     }
-
-    fn padding_row() -> Vec<EF> {
-        unreachable!()
-    }
 }
 
 impl Air for MultilinearEvalPrecompile {
     type ExtraData = ();
-    fn n_columns_f() -> usize {
+    fn n_columns_f(&self) -> usize {
         4
     }
-    fn n_columns_ef() -> usize {
+    fn n_columns_ef(&self) -> usize {
         0
     }
-    fn degree() -> usize {
+    fn degree(&self) -> usize {
         unreachable!()
     }
-    fn down_column_indexes() -> Vec<usize> {
+    fn down_column_indexes(&self) -> Vec<usize> {
         unreachable!()
     }
-    fn n_constraints() -> usize {
+    fn n_constraints(&self) -> usize {
         unreachable!()
     }
     fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {

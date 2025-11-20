@@ -2,10 +2,13 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
-use crate::core::{ F, Label, };
+use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
-use crate::{PrecompileExecutionContext, PrecompileTrace, Table, WitnessMultilinearEval};
+use crate::precompiles::ModularPrecompile;
+use crate::{
+    N_PRECOMPILES, PrecompileExecutionContext, PrecompileTrace, Table, WitnessMultilinearEval,
+};
 use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
@@ -63,10 +66,7 @@ pub struct InstructionContext<'a> {
     pub fp: &'a mut usize,
     pub pc: &'a mut usize,
     pub pcs: &'a Vec<usize>,
-    pub poseidons_16: &'a mut PrecompileTrace,
-    pub poseidons_24: &'a mut PrecompileTrace,
-    pub dot_product_trace: &'a mut PrecompileTrace,
-    pub multilinear_evals: &'a mut PrecompileTrace,
+    pub precompile_traces: &'a mut [PrecompileTrace; N_PRECOMPILES],
     pub multilinear_evals_witness: &'a mut Vec<WitnessMultilinearEval>,
     pub add_counts: &'a mut usize,
     pub mul_counts: &'a mut usize,
@@ -175,22 +175,13 @@ impl Instruction {
                 arg_c,
                 aux: size,
             } => {
-                let trace = match table {
-                    Table::Poseidon16 => &mut ctx.poseidons_16,
-                    Table::DotProduct => &mut ctx.dot_product_trace,
-                    Table::Poseidon24 => &mut ctx.poseidons_24,
-                    Table::MultilinearEval => &mut ctx.multilinear_evals,
-                    Table::_UNUSED  => {
-                        unreachable!()
-                    }
-                };
                 table.execute(
                     arg_a.read_value(ctx.memory, *ctx.fp)?,
                     arg_b.read_value(ctx.memory, *ctx.fp)?,
                     arg_c.read_value(ctx.memory, *ctx.fp)?,
                     *size,
                     ctx.memory,
-                    trace,
+                    &mut ctx.precompile_traces[table.index()],
                     PrecompileExecutionContext {
                         poseidon16_precomputed: &ctx.poseidon16_precomputed,
                         n_poseidon16_precomputed_used: &mut ctx.n_poseidon16_precomputed_used,

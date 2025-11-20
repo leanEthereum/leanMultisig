@@ -10,8 +10,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{LOG_VECTOR_LEN, Table};
-use strum::IntoEnumIterator;
+use lean_vm::{ALL_PRECOMPILES, LOG_VECTOR_LEN, ModularPrecompile};
 
 /// Parser for complete function definitions.
 pub struct FunctionParser;
@@ -236,7 +235,10 @@ impl FunctionCallParser {
             }
             _ => {
                 // Check for special precompile functions
-                if let Some(table) = Table::iter().find(|p| p.name() == function_name) {
+                if let Some(table) = ALL_PRECOMPILES
+                    .into_iter()
+                    .find(|p| p.name() == function_name)
+                {
                     return Ok(Line::Precompile { table, args });
                 }
 

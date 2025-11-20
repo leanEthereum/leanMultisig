@@ -11,19 +11,19 @@ pub use air::*;
 
 mod vm_exec;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DotProductPrecompile;
 
 impl ModularPrecompile for DotProductPrecompile {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "dot_product"
     }
 
-    fn identifier() -> Table {
-        Table::DotProduct
+    fn identifier(&self) -> Table {
+        Table::dot_product()
     }
 
-    fn commited_columns_f() -> Vec<ColIndex> {
+    fn commited_columns_f(&self) -> Vec<ColIndex> {
         vec![
             DOT_PRODUCT_AIR_COL_START_FLAG,
             DOT_PRODUCT_AIR_COL_LEN,
@@ -33,15 +33,15 @@ impl ModularPrecompile for DotProductPrecompile {
         ]
     }
 
-    fn commited_columns_ef() -> Vec<ColIndex> {
+    fn commited_columns_ef(&self) -> Vec<ColIndex> {
         vec![DOT_PRODUCT_AIR_COL_COMPUTATION]
     }
 
-    fn normal_lookups_f() -> Vec<LookupIntoMemory> {
+    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![]
     }
 
-    fn normal_lookups_ef() -> Vec<ExtensionFieldLookupIntoMemory> {
+    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         vec![
             ExtensionFieldLookupIntoMemory {
                 index: DOT_PRODUCT_AIR_COL_INDEX_A,
@@ -58,13 +58,13 @@ impl ModularPrecompile for DotProductPrecompile {
         ]
     }
 
-    fn vector_lookups() -> Vec<VectorLookupIntoMemory> {
+    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
         vec![]
     }
 
-    fn buses() -> Vec<Bus> {
+    fn buses(&self) -> Vec<Bus> {
         vec![Bus {
-            table: Table::DotProduct,
+            table: self.identifier(),
             direction: BusDirection::Pull,
             selector: BusSelector::Column(DOT_PRODUCT_AIR_COL_START_FLAG),
             data: vec![
@@ -75,9 +75,21 @@ impl ModularPrecompile for DotProductPrecompile {
             ],
         }]
     }
+    
+    fn padding_row(&self) -> Vec<EF> {
+        [
+            vec![
+                EF::ONE, // StartFlag
+                EF::ONE, // Len
+            ],
+            vec![EF::ZERO; DOT_PRODUCT_AIR_N_COLUMNS_TOTAL - 2],
+        ]
+        .concat()
+    }
 
     #[inline(always)]
     fn execute(
+        &self,
         arg_a: F,
         arg_b: F,
         arg_c: F,
@@ -87,16 +99,5 @@ impl ModularPrecompile for DotProductPrecompile {
         _: PrecompileExecutionContext<'_>,
     ) -> Result<(), RunnerError> {
         exec_dot_product(arg_a, arg_b, arg_c, aux, memory, trace)
-    }
-
-    fn padding_row() -> Vec<EF> {
-        [
-            vec![
-                EF::ONE, // StartFlag
-                EF::ONE, // Len
-            ],
-            vec![EF::ZERO; DOT_PRODUCT_AIR_N_COLUMNS_TOTAL - 2],
-        ]
-        .concat()
     }
 }

@@ -1,7 +1,7 @@
 use super::operation::HighLevelOperation;
 use super::value::{IntermediaryMemOrFpOrConstant, IntermediateValue};
 use crate::lang::ConstExpression;
-use lean_vm::{Operation, SourceLineNumber, Table};
+use lean_vm::{ModularPrecompile, Operation, SourceLineNumber, Table};
 use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.

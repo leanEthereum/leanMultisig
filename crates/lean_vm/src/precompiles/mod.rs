@@ -1,8 +1,12 @@
-use std::{any::TypeId, mem::transmute_copy};
-
-use crate::{EF, F, Memory, RunnerError, Table};
+use crate::{EF, F, Memory, RunnerError};
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
+use std::{any::TypeId, mem::transmute_copy};
+
+use sub_protocols::{
+    ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier,
+    committed_dims_extension_from_base,
+};
 
 mod dot_product;
 pub use dot_product::*;
@@ -15,12 +19,19 @@ pub use poseidon_24::*;
 
 mod multilinear_eval;
 pub use multilinear_eval::*;
-use sub_protocols::{
-    ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier,
-    committed_dims_extension_from_base,
-};
+
+mod precompile_enum;
+pub use precompile_enum::*;
 
 pub type ColIndex = usize;
+
+pub const N_PRECOMPILES: usize = 4;
+pub const ALL_PRECOMPILES: [Table; N_PRECOMPILES] = [
+    Table::dot_product(),
+    Table::poseidon16(),
+    Table::poseidon24(),
+    Table::multilinear_eval(),
+];
 
 #[derive(Debug)]
 pub struct LookupIntoMemory {
@@ -68,10 +79,10 @@ pub struct PrecompileTrace {
 }
 
 impl PrecompileTrace {
-    pub fn new<A: Air>() -> Self {
+    pub fn new<A: Air>(air: &A) -> Self {
         Self {
-            base: vec![Vec::new(); A::n_columns_f()],
-            ext: vec![Vec::new(); A::n_columns_ef()],
+            base: vec![Vec::new(); air.n_columns_f()],
+            ext: vec![Vec::new(); air.n_columns_ef()],
             padding_len: 0,
         }
     }
@@ -132,16 +143,17 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
 }
 
 pub trait ModularPrecompile: Air {
-    fn name() -> &'static str;
-    fn identifier() -> Table;
-    fn commited_columns_f() -> Vec<ColIndex>;
+    fn name(&self) -> &'static str;
+    fn identifier(&self) -> Table;
+    fn commited_columns_f(&self) -> Vec<ColIndex>;
     /// the first committed column in the extension starts at index 0
-    fn commited_columns_ef() -> Vec<ColIndex>;
-    fn normal_lookups_f() -> Vec<LookupIntoMemory>;
-    fn normal_lookups_ef() -> Vec<ExtensionFieldLookupIntoMemory>;
-    fn vector_lookups() -> Vec<VectorLookupIntoMemory>;
-    fn buses() -> Vec<Bus>;
+    fn commited_columns_ef(&self) -> Vec<ColIndex>;
+    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory>;
+    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
+    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory>;
+    fn buses(&self) -> Vec<Bus>;
     fn execute(
+        &self,
         arg_a: F,
         arg_b: F,
         arg_c: F,
@@ -150,62 +162,67 @@ pub trait ModularPrecompile: Air {
         trace: &mut PrecompileTrace,
         ctx: PrecompileExecutionContext<'_>,
     ) -> Result<(), RunnerError>;
-    fn padding_row() -> Vec<EF>;
+    fn padding_row(&self) -> Vec<EF>;
 
-    fn air_padding_row() -> Vec<EF> {
+    fn air_padding_row(&self) -> Vec<EF> {
         // only the shited_columns
-        Self::down_column_indexes()
+        self.down_column_indexes()
             .into_iter()
-            .map(|i| Self::padding_row()[i])
+            .map(|i| self.padding_row()[i])
             .collect()
     }
-    fn committed_dims(n_rows: usize) -> Vec<ColDims<F>> {
-        let mut dims = Self::commited_columns_f()
+    fn committed_dims(&self, n_rows: usize) -> Vec<ColDims<F>> {
+        let mut dims = self
+            .commited_columns_f()
             .iter()
-            .map(|&c| ColDims::padded(n_rows, Self::padding_row()[c].as_base().unwrap()))
+            .map(|&c| ColDims::padded(n_rows, self.padding_row()[c].as_base().unwrap()))
             .collect::<Vec<_>>();
         dims.extend(committed_dims_extension_from_base(
             n_rows,
-            Self::commited_columns_ef()
+            self.commited_columns_ef()
                 .iter()
-                .map(|&c| Self::padding_row()[Self::n_columns_f() + c])
+                .map(|&c| self.padding_row()[self.n_columns_f() + c])
                 .collect(),
         ));
         dims
     }
     fn committed_statements_prover(
+        &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         air_point: &MultilinearPoint<EF>,
         air_values: &[EF],
         ext_commitment_helper: &ExtensionCommitmentFromBaseProver<EF>,
         normal_lookup_statements_on_indexes: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> Vec<Vec<Evaluation<EF>>> {
-        assert_eq!(air_values.len(), Self::n_columns());
+        assert_eq!(air_values.len(), self.n_columns());
 
-        let mut statements = Self::commited_columns_f()
+        let mut statements = self
+            .commited_columns_f()
             .iter()
             .map(|&c| vec![Evaluation::new(air_point.clone(), air_values[c].clone())])
             .collect::<Vec<_>>();
         statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
 
-        for lookup in Self::normal_lookups_f() {
+        for lookup in self.normal_lookups_f() {
             statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
         }
-        for lookup in Self::normal_lookups_ef() {
+        for lookup in self.normal_lookups_ef() {
             statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
         }
 
         statements
     }
     fn committed_statements_verifier(
+        &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         air_point: &MultilinearPoint<EF>,
         air_values: &[EF],
         normal_lookup_statements_on_indexes: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
-        assert_eq!(air_values.len(), Self::n_columns());
+        assert_eq!(air_values.len(), self.n_columns());
 
-        let mut statements = Self::commited_columns_f()
+        let mut statements = self
+            .commited_columns_f()
             .iter()
             .map(|&c| vec![Evaluation::new(air_point.clone(), air_values[c].clone())])
             .collect::<Vec<_>>();
@@ -214,48 +231,51 @@ pub trait ModularPrecompile: Air {
             verifier_state,
             &MultiEvaluation::new(
                 air_point.clone(),
-                Self::commited_columns_ef()
+                self.commited_columns_ef()
                     .iter()
-                    .map(|&c| air_values[Self::n_columns_f() + c].clone())
+                    .map(|&c| air_values[self.n_columns_f() + c].clone())
                     .collect::<Vec<_>>(),
             ),
         )?);
-        for lookup in Self::normal_lookups_f() {
+        for lookup in self.normal_lookups_f() {
             statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
         }
-        for lookup in Self::normal_lookups_ef() {
+        for lookup in self.normal_lookups_ef() {
             statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
         }
 
         Ok(statements)
     }
     fn normal_lookups_statements(
+        &self,
         air_point: &MultilinearPoint<EF>,
         air_values: &[EF],
     ) -> Vec<Vec<Evaluation<EF>>> {
-        assert_eq!(air_values.len(), Self::n_columns());
+        assert_eq!(air_values.len(), self.n_columns());
 
         let mut statements = Vec::new();
-        for lookup in Self::normal_lookups_f() {
+        for lookup in self.normal_lookups_f() {
             statements.push(vec![Evaluation::new(
                 air_point.clone(),
                 air_values[lookup.values].clone(),
             )]);
         }
-        for lookup in Self::normal_lookups_ef() {
+        for lookup in self.normal_lookups_ef() {
             statements.push(vec![Evaluation::new(
                 air_point.clone(),
-                air_values[lookup.values + Self::n_columns_f()].clone(),
+                air_values[lookup.values + self.n_columns_f()].clone(),
             )]);
         }
         statements
     }
     fn committed_columns<'a>(
+        &self,
         trace: &'a PrecompileTrace,
         computation_ext_to_base_helper: &'a ExtensionCommitmentFromBaseProver<EF>,
     ) -> Vec<&'a [PF<EF>]> {
         // base field committed columns
-        let mut cols = Self::commited_columns_f()
+        let mut cols = self
+            .commited_columns_f()
             .iter()
             .map(|&c| &trace.base[c][..])
             .collect::<Vec<_>>();
@@ -268,38 +288,38 @@ pub trait ModularPrecompile: Air {
         );
         cols
     }
-    fn normal_lookup_index_columns(trace: &PrecompileTrace) -> Vec<&[PF<EF>]> {
+    fn normal_lookup_index_columns<'a>(&'a self, trace: &'a PrecompileTrace) -> Vec<&'a [PF<EF>]> {
         let mut cols = Vec::new();
-        for lookup in Self::normal_lookups_f() {
+        for lookup in self.normal_lookups_f() {
             cols.push(&trace.base[lookup.index][..]);
         }
-        for lookup in Self::normal_lookups_ef() {
+        for lookup in self.normal_lookups_ef() {
             cols.push(&trace.base[lookup.index][..]);
         }
         cols
     }
-    fn num_normal_lookups() -> usize {
-        Self::normal_lookups_f().len() + Self::normal_lookups_ef().len()
+    fn num_normal_lookups(&self) -> usize {
+        self.normal_lookups_f().len() + self.normal_lookups_ef().len()
     }
-    fn vector_lookup_index_columns(trace: &PrecompileTrace) -> Vec<&[PF<EF>]> {
+    fn vector_lookup_index_columns<'a>(&self, trace: &'a PrecompileTrace) -> Vec<&'a [PF<EF>]> {
         let mut cols = Vec::new();
-        for lookup in Self::vector_lookups() {
+        for lookup in self.vector_lookups() {
             for &value_col in &lookup.values {
                 cols.push(&trace.base[value_col][..]);
             }
         }
         cols
     }
-    fn normal_lookup_f_value_columns(trace: &PrecompileTrace) -> Vec<&[PF<EF>]> {
+    fn normal_lookup_f_value_columns<'a>(&self, trace: &'a PrecompileTrace) -> Vec<&'a [PF<EF>]> {
         let mut cols = Vec::new();
-        for lookup in Self::normal_lookups_f() {
+        for lookup in self.normal_lookups_f() {
             cols.push(&trace.base[lookup.values][..]);
         }
         cols
     }
-    fn normal_lookup_ef_value_columns(trace: &PrecompileTrace) -> Vec<&[EF]> {
+    fn normal_lookup_ef_value_columns<'a>(&self, trace: &'a PrecompileTrace) -> Vec<&'a [EF]> {
         let mut cols = Vec::new();
-        for lookup in Self::normal_lookups_ef() {
+        for lookup in self.normal_lookups_ef() {
             cols.push(&trace.ext[lookup.values][..]);
         }
         cols

@@ -15,19 +15,19 @@ struct FibonacciAir;
 impl Air for FibonacciAir {
     type ExtraData = Vec<EF>;
 
-    fn n_columns_f() -> usize {
+    fn n_columns_f(&self) -> usize {
         1
     }
-    fn n_columns_ef() -> usize {
+    fn n_columns_ef(&self) -> usize {
         1
     }
-    fn degree() -> usize {
+    fn degree(&self) -> usize {
         1
     }
-    fn n_constraints() -> usize {
+    fn n_constraints(&self) -> usize {
         10 // too much, but ok for tests
     }
-    fn down_column_indexes() -> Vec<usize> {
+    fn down_column_indexes(&self) -> Vec<usize> {
         vec![0, 1]
     }
 

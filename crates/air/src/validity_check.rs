@@ -14,7 +14,7 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
     let n_rows = columns_f[0].len();
     assert!(columns_f.iter().all(|col| col.len() == n_rows));
     assert!(columns_ef.iter().all(|col| col.len() == n_rows));
-    if columns_f.len() + columns_ef.len() != A::n_columns() {
+    if columns_f.len() + columns_ef.len() != air.n_columns() {
         return Err("Invalid number of columns".to_string());
     }
     let handle_errors = |row: usize, constraint_checker: &ConstraintChecker<EF>| {
@@ -33,21 +33,21 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
         Ok(())
     };
     for row in 0..n_rows - 1 {
-        let up_f = (0..A::n_columns_f())
+        let up_f = (0..air.n_columns_f())
             .map(|j| columns_f[j][row])
             .collect::<Vec<_>>();
-        let up_ef = (0..A::n_columns_ef())
+        let up_ef = (0..air.n_columns_ef())
             .map(|j| columns_ef[j][row])
             .collect::<Vec<_>>();
-        let down_f = A::down_column_indexes()
+        let down_f = air.down_column_indexes()
             .iter()
-            .filter(|i| **i < A::n_columns_f())
+            .filter(|i| **i < air.n_columns_f())
             .map(|j| columns_f[*j][row + 1])
             .collect::<Vec<_>>();
-        let down_ef = A::down_column_indexes()
+        let down_ef = air.down_column_indexes()
             .iter()
-            .filter(|i| **i >= A::n_columns_f())
-            .map(|j| columns_ef[*j - A::n_columns_f()][row + 1])
+            .filter(|i| **i >= air.n_columns_f())
+            .map(|j| columns_ef[*j - air.n_columns_f()][row + 1])
             .collect::<Vec<_>>();
         let mut constraints_checker = ConstraintChecker {
             up_f,
@@ -61,15 +61,15 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
         handle_errors(row, &constraints_checker)?;
     }
     // last transition:
-    let up_f = (0..A::n_columns_f())
+    let up_f = (0..air.n_columns_f())
         .map(|j| columns_f[j][n_rows - 1])
         .collect::<Vec<_>>();
-    let up_ef = (0..A::n_columns_ef())
+    let up_ef = (0..air.n_columns_ef())
         .map(|j| columns_ef[j][n_rows - 1])
         .collect::<Vec<_>>();
-    let last_row_f_count = A::down_column_indexes()
+    let last_row_f_count = air.down_column_indexes()
         .iter()
-        .filter(|i| **i < A::n_columns_f())
+        .filter(|i| **i < air.n_columns_f())
         .count();
     let last_row_f = last_row[..last_row_f_count]
         .iter()

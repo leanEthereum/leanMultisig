@@ -42,7 +42,7 @@ where
     *extra_data.alpha_powers_mut() = alpha
         .powers()
         .take(
-            A::n_constraints()
+           air.n_constraints()
                 + virtual_column_statements
                     .as_ref()
                     .map_or(0, |s| s.values.len()),
@@ -57,20 +57,20 @@ where
         .unwrap_or_else(|| prover_state.sample_vec(n_sc_rounds));
     assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
-    let shifted_rows_f = A::down_column_indexes()
+    let shifted_rows_f = air.down_column_indexes()
         .par_iter()
         .zip_eq(last_row_shifted)
-        .filter(|(i, _)| **i < A::n_columns_f())
+        .filter(|(i, _)| **i < air.n_columns_f())
         .map(|(&col_index, &final_value)| {
             column_shifted(columns_f[col_index], final_value.as_base().unwrap())
         })
         .collect::<Vec<_>>();
-    let shifted_rows_ef = A::down_column_indexes()
+    let shifted_rows_ef = air.down_column_indexes()
         .par_iter()
         .zip_eq(last_row_shifted)
-        .filter(|(i, _)| **i >= A::n_columns_f())
+        .filter(|(i, _)| **i >= air.n_columns_f())
         .map(|(&col_index, &final_value)| {
-            column_shifted(columns_ef[col_index - A::n_columns_f()], final_value)
+            column_shifted(columns_ef[col_index - air.n_columns_f()], final_value)
         })
         .collect::<Vec<_>>();
 
@@ -111,7 +111,7 @@ where
     open_columns(
         prover_state,
         univariate_skips,
-        &A::down_column_indexes(),
+        &air.down_column_indexes(),
         columns_f,
         columns_ef,
         &outer_sumcheck_challenge,

@@ -41,19 +41,19 @@ pub struct VMAir<EF> {
 impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
     type ExtraData = ExtraDataForBuses<EF>;
 
-    fn n_columns_f() -> usize {
+    fn n_columns_f(&self) -> usize {
         N_EXEC_AIR_COLUMNS
     }
-    fn n_columns_ef() -> usize {
+    fn n_columns_ef(&self) -> usize {
         0
     }
-    fn degree() -> usize {
+    fn degree(&self) -> usize {
         5
     }
-    fn down_column_indexes() -> Vec<usize> {
+    fn down_column_indexes(&self) -> Vec<usize> {
         vec![COL_INDEX_PC, COL_INDEX_FP]
     }
-    fn n_constraints() -> usize {
+    fn n_constraints(&self) -> usize {
         16
     }
 
@@ -144,10 +144,6 @@ impl<EF: ExtensionField<PF<EF>>> Air for VMAir<EF> {
             jump.clone() * nu_a_minus_one.clone() * (next_pc.clone() - pc_plus_one.clone()),
         );
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
-    }
-
-    fn n_columns() -> usize {
-        Self::n_columns_f() + Self::n_columns_ef()
     }
 }
 

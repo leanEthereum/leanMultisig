@@ -1,16 +1,6 @@
-use multilinear_toolkit::prelude::PrimeCharacteristicRing;
-use num_enum::TryFromPrimitive;
-use strum_macros::EnumIter;
-
-use crate::{
-    DotProductPrecompile, F, Memory, ModularPrecompile, MultilinearEvalPrecompile,
-    Poseidon16Precompile, Poseidon24Precompile, PrecompileExecutionContext, PrecompileTrace,
-    RunnerError,
-};
 
 /// Vector dimension for field operations
 pub const DIMENSION: usize = 5;
-
 /// Logarithm of vector length
 pub const LOG_VECTOR_LEN: usize = 3;
 
@@ -48,51 +38,3 @@ pub const POSEIDON_24_NULL_HASH_PTR: usize = 5;
 
 /// Normal pointer to start of program input
 pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * 8;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive, PartialOrd, Ord, Hash, EnumIter)]
-#[repr(usize)]
-pub enum Table {
-    _UNUSED,
-    Poseidon16,
-    Poseidon24,
-    DotProduct,
-    MultilinearEval,
-}
-
-impl Table {
-    pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
-        PF::from_usize(*self as usize)
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            Table::_UNUSED => "u_n_u_s_e_d",
-            Table::Poseidon16 => "poseidon16",
-            Table::Poseidon24 => "poseidon24",
-            Table::DotProduct => "dot_product",
-            Table::MultilinearEval => "multilinear_eval",
-        }
-    }
-}
-
-impl Table {
-    #[inline(always)]
-    pub fn execute(
-        &self,
-        arg_a: F,
-        arg_b: F,
-        arg_c: F,
-        aux: usize,
-        memory: &mut Memory,
-        trace: &mut PrecompileTrace,
-        precompile_execution_context: PrecompileExecutionContext<'_>,
-    ) -> Result<(), RunnerError> {
-        match self {
-            #[rustfmt::skip] Self::_UNUSED => unreachable!(),
-            #[rustfmt::skip] Self::Poseidon16 => Poseidon16Precompile::execute(arg_a, arg_b, arg_c, aux, memory, trace, precompile_execution_context),
-            #[rustfmt::skip] Self::Poseidon24 => Poseidon24Precompile::execute(arg_a, arg_b, arg_c, aux, memory, trace, precompile_execution_context),
-            #[rustfmt::skip] Self::DotProduct => DotProductPrecompile::execute(arg_a, arg_b, arg_c, aux, memory, trace, precompile_execution_context),
-            #[rustfmt::skip] Self::MultilinearEval => MultilinearEvalPrecompile::execute(arg_a, arg_b, arg_c, aux, memory, trace, precompile_execution_context),
-        }
-    }
-}

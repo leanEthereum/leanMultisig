@@ -14,41 +14,41 @@ pub const POSEIDON_24_COL_INDEX_B: ColIndex = 2;
 pub const POSEIDON_24_COL_INDEX_RES: ColIndex = 3;
 pub const POSEIDON_24_COL_INDEX_INPUT_START: ColIndex = 4;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon24Precompile;
 
 impl ModularPrecompile for Poseidon24Precompile {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "poseidon24"
     }
 
-    fn identifier() -> Table {
-        Table::Poseidon24
+    fn identifier(&self) -> Table {
+        Table::poseidon24()
     }
 
-    fn commited_columns_f() -> Vec<ColIndex> {
+    fn commited_columns_f(&self) -> Vec<ColIndex> {
         unreachable!()
     }
 
-    fn commited_columns_ef() -> Vec<ColIndex> {
+    fn commited_columns_ef(&self) -> Vec<ColIndex> {
         unreachable!()
     }
 
-    fn normal_lookups_f() -> Vec<LookupIntoMemory> {
+    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         unreachable!()
     }
 
-    fn normal_lookups_ef() -> Vec<ExtensionFieldLookupIntoMemory> {
+    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         unreachable!()
     }
 
-    fn vector_lookups() -> Vec<VectorLookupIntoMemory> {
-         unreachable!()
+    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
+        unreachable!()
     }
 
-    fn buses() -> Vec<Bus> {
+    fn buses(&self) -> Vec<Bus> {
         vec![Bus {
-            table: Table::Poseidon24,
+            table: self.identifier(),
             direction: BusDirection::Pull,
             selector: BusSelector::DenseOnes,
             data: vec![
@@ -59,8 +59,22 @@ impl ModularPrecompile for Poseidon24Precompile {
         }]
     }
 
+    fn padding_row(&self) -> Vec<EF> {
+        [
+            vec![
+                EF::from_usize(ZERO_VEC_PTR),
+                EF::from_usize(ZERO_VEC_PTR + 1),
+                EF::from_usize(ZERO_VEC_PTR),
+                EF::from_usize(POSEIDON_24_NULL_HASH_PTR),
+            ],
+            vec![EF::ZERO; 24],
+        ]
+        .concat()
+    }
+
     #[inline(always)]
     fn execute(
+        &self,
         arg_a: F,
         arg_b: F,
         res: F,
@@ -106,36 +120,23 @@ impl ModularPrecompile for Poseidon24Precompile {
 
         Ok(())
     }
-
-    fn padding_row() -> Vec<EF> {
-        [
-            vec![
-                EF::from_usize(ZERO_VEC_PTR),
-                EF::from_usize(ZERO_VEC_PTR + 1),
-                EF::from_usize(ZERO_VEC_PTR),
-                EF::from_usize(POSEIDON_24_NULL_HASH_PTR),
-            ],
-            vec![EF::ZERO; 24],
-        ]
-        .concat()
-    }
 }
 
 impl Air for Poseidon24Precompile {
     type ExtraData = ();
-    fn n_columns_f() -> usize {
+    fn n_columns_f(&self) -> usize {
         4 + 24
     }
-    fn n_columns_ef() -> usize {
+    fn n_columns_ef(&self) -> usize {
         0
     }
-    fn degree() -> usize {
+    fn degree(&self) -> usize {
         unreachable!()
     }
-    fn down_column_indexes() -> Vec<usize> {
+    fn down_column_indexes(&self) -> Vec<usize> {
         unreachable!()
     }
-    fn n_constraints() -> usize {
+    fn n_constraints(&self) -> usize {
         unreachable!()
     }
     fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {

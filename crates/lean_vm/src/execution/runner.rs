@@ -9,9 +9,11 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    CodeAddress, DotProductPrecompile, HintExecutionContext, MultilinearEvalPrecompile, Poseidon16Precompile, Poseidon24Precompile, PrecompileTrace, SourceLineNumber
+    CodeAddress, HintExecutionContext, N_PRECOMPILES, PrecompileTrace, SourceLineNumber,
+    TABLE_POSEIDON_16, TABLE_POSEIDON_24, Table,
 };
 use multilinear_toolkit::prelude::*;
+use std::array;
 use std::collections::{BTreeMap, BTreeSet};
 use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
 use xmss::{Poseidon16History, Poseidon24History};
@@ -201,10 +203,9 @@ fn execute_bytecode_helper(
     let mut n_poseidon24_precomputed_used = 0;
 
     // Events collected only in final execution
-    let mut poseidons_16 = PrecompileTrace::new::<Poseidon16Precompile>();
-    let mut poseidons_24 = PrecompileTrace::new::<Poseidon24Precompile>();
-    let mut dot_products = PrecompileTrace::new::<DotProductPrecompile>();
-    let mut multilinear_evals = PrecompileTrace::new::<MultilinearEvalPrecompile>();
+    let mut precompile_traces: [PrecompileTrace; N_PRECOMPILES] =
+        array::from_fn(|i| PrecompileTrace::new(&Table::from_index(i)));
+
     let mut multilinear_evals_witness = Vec::new();
 
     let mut add_counts = 0;
@@ -252,10 +253,7 @@ fn execute_bytecode_helper(
             fp: &mut fp,
             pc: &mut pc,
             pcs: &pcs,
-            poseidons_16: &mut poseidons_16,
-            poseidons_24: &mut poseidons_24,
-            dot_product_trace: &mut dot_products,
-            multilinear_evals: &mut multilinear_evals,
+            precompile_traces: &mut precompile_traces,
             multilinear_evals_witness: &mut multilinear_evals_witness,
             add_counts: &mut add_counts,
             mul_counts: &mut mul_counts,
@@ -371,12 +369,17 @@ fn execute_bytecode_helper(
 
     summary.push('\n');
 
-    if poseidons_16.base[0].len() + poseidons_24.base[0].len() > 0 {
+    if precompile_traces[TABLE_POSEIDON_16].base[0].len()
+        + precompile_traces[TABLE_POSEIDON_24].base[0].len()
+        > 0
+    {
         summary.push_str(&format!(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
-            pretty_integer(poseidons_16.base[0].len()),
-            pretty_integer(poseidons_24.base[0].len()),
-            cpu_cycles / (poseidons_16.base[0].len() + poseidons_24.base[0].len())
+            pretty_integer(precompile_traces[TABLE_POSEIDON_16].base[0].len()),
+            pretty_integer(precompile_traces[TABLE_POSEIDON_24].base[0].len()),
+            cpu_cycles
+                / (precompile_traces[TABLE_POSEIDON_16].base[0].len()
+                    + precompile_traces[TABLE_POSEIDON_24].base[0].len())
         ));
     }
     // if !dot_products.is_empty() {
@@ -421,10 +424,7 @@ fn execute_bytecode_helper(
         memory,
         pcs,
         fps,
-        poseidons_16,
-        poseidons_24,
-        dot_products,
-        multilinear_evals,
+        precompile_traces,
         multilinear_evals_witness,
         summary,
         memory_profile: if profiling { Some(mem_profile) } else { None },

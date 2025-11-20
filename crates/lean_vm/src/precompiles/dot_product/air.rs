@@ -1,4 +1,4 @@
-use crate::{DIMENSION, DotProductPrecompile, EF, ExtraDataForBuses, Table};
+use crate::{DIMENSION, EF, ExtraDataForBuses, Table, precompiles::dot_product::DotProductPrecompile};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
 
@@ -38,19 +38,19 @@ pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize =
 impl Air for DotProductPrecompile {
     type ExtraData = ExtraDataForBuses<EF>;
 
-    fn n_columns_f() -> usize {
+    fn n_columns_f(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS_F
     }
-    fn n_columns_ef() -> usize {
+    fn n_columns_ef(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS_EF
     }
-    fn degree() -> usize {
+    fn degree(&self) -> usize {
         3
     }
-    fn n_constraints() -> usize {
+    fn n_constraints(&self) -> usize {
         8
     }
-    fn down_column_indexes() -> Vec<usize> {
+    fn down_column_indexes(&self) -> Vec<usize> {
         vec![
             DOT_PRODUCT_AIR_COL_START_FLAG,
             DOT_PRODUCT_AIR_COL_LEN,
@@ -134,6 +134,6 @@ fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
         + fingerprint_challenge_powers[3].clone() * index_res
         + fingerprint_challenge_powers[4].clone() * len;
 
-    ((data + Table::DotProduct.embed::<AB::F>()) + bus_challenge) * dot_product_bus_beta
+    ((data + Table::dot_product().embed::<AB::F>()) + bus_challenge) * dot_product_bus_beta
         + start_flag_up
 }

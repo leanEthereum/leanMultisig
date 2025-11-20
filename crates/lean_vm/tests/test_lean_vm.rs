@@ -159,7 +159,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
 
     let instructions = vec![
         Instruction::Precompile {
-            table: Table::Poseidon16,
+            table: Table::poseidon16(),
             arg_a: MemOrConstant::Constant(f(POSEIDON16_ARG_A_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(POSEIDON16_ARG_B_PTR as u64)),
             arg_c: MemOrFp::MemoryAfterFp {
@@ -168,7 +168,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
             aux: 0, // compression = false
         },
         Instruction::Precompile {
-            table: Table::Poseidon24,
+            table: Table::poseidon24(),
             arg_a: MemOrConstant::Constant(f(POSEIDON24_ARG_A_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(POSEIDON24_ARG_B_PTR as u64)),
             arg_c: MemOrFp::MemoryAfterFp {
@@ -177,7 +177,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
             aux: 0, // unused
         },
         Instruction::Precompile {
-            table: Table::DotProduct,
+            table: Table::dot_product(),
             arg_a: MemOrConstant::Constant(f(DOT_ARG0_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(DOT_ARG1_PTR as u64)),
             arg_c: MemOrFp::MemoryAfterFp {
@@ -186,7 +186,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
             aux: DOT_PRODUCT_LEN,
         },
         Instruction::Precompile {
-            table: Table::MultilinearEval,
+            table: Table::multilinear_eval(),
             arg_a: MemOrConstant::Constant(f(MLE_COEFF_PTR as u64)), // coeffs pointer
             arg_b: MemOrConstant::Constant(f(MLE_POINT_PTR as u64)), // point pointer
             arg_c: MemOrFp::MemoryAfterFp {

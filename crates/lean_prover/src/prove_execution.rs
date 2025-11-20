@@ -30,11 +30,8 @@ pub fn prove_execution(
         full_trace,
         nu_columns,
         n_cycles,
-        poseidons_16,      // padded with empty poseidons
-        poseidons_24,      // padded with empty poseidons
         n_compressions_16, // included the padding (that are compressions of zeros)
-        dot_products,
-        multilinear_evals: vm_multilinear_evals,
+        precompile_traces,
         multilinear_evals_witness,
         public_memory_size,
         mut non_zero_memory_size,
@@ -66,8 +63,10 @@ pub fn prove_execution(
     let log_n_cycles = log2_ceil_usize(n_cycles);
     assert!(full_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
 
-    let log_n_p16 = log2_ceil_usize(poseidons_16.n_rows_non_padded()).max(MIN_LOG_N_ROWS_PER_TABLE);
-    let log_n_p24 = log2_ceil_usize(poseidons_24.n_rows_non_padded()).max(MIN_LOG_N_ROWS_PER_TABLE);
+    let log_n_p16 = log2_ceil_usize(precompile_traces[TABLE_POSEIDON_16].n_rows_non_padded())
+        .max(MIN_LOG_N_ROWS_PER_TABLE);
+    let log_n_p24 = log2_ceil_usize(precompile_traces[TABLE_POSEIDON_24].n_rows_non_padded())
+        .max(MIN_LOG_N_ROWS_PER_TABLE);
 
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -78,22 +77,23 @@ pub fn prove_execution(
 
     let p16_witness = generate_poseidon_witness_helper(
         &p16_gkr_layers,
-        &poseidons_16,
+        &precompile_traces[TABLE_POSEIDON_16],
         POSEIDON_16_COL_INDEX_INPUT_START,
         Some(n_compressions_16),
     );
     let p24_witness = generate_poseidon_witness_helper(
         &p24_gkr_layers,
-        &poseidons_24,
+        &precompile_traces[TABLE_POSEIDON_24],
         POSEIDON_24_COL_INDEX_INPUT_START,
         None,
     );
 
     let dot_product_computation_ext_to_base_helper =
         ExtensionCommitmentFromBaseProver::before_commitment(
-            DotProductPrecompile::commited_columns_ef()
+            Table::dot_product()
+                .commited_columns_ef()
                 .iter()
-                .map(|&c| &dot_products.ext[c][..])
+                .map(|&c| &precompile_traces[TABLE_DOT_PRODUCT].ext[c][..])
                 .collect::<Vec<_>>(),
         );
 
@@ -101,10 +101,10 @@ pub fn prove_execution(
     prover_state.add_base_scalars(
         &[
             n_cycles,
-            poseidons_16.n_rows_non_padded(),
+            precompile_traces[TABLE_POSEIDON_16].n_rows_non_padded(),
             n_compressions_16,
-            poseidons_24.n_rows_non_padded(),
-            dot_products.n_rows_non_padded(),
+            precompile_traces[TABLE_POSEIDON_24].n_rows_non_padded(),
+            precompile_traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
             private_memory.len(),
             multilinear_evals_witness.len(),
         ]
@@ -115,10 +115,10 @@ pub fn prove_execution(
 
     for (i, vm_multilinear_eval) in multilinear_evals_witness.iter().enumerate() {
         prover_state.add_base_scalars(&[
-            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POLY][i],
-            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POINT][i],
-            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_RES][i],
-            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_N_VARS][i],
+            precompile_traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_POLY][i],
+            precompile_traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_POINT][i],
+            precompile_traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_RES][i],
+            precompile_traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_N_VARS][i],
         ]);
         prover_state.add_extension_scalars(&vm_multilinear_eval.point);
         prover_state.add_extension_scalar(vm_multilinear_eval.res);
@@ -128,7 +128,7 @@ pub fn prove_execution(
     for (row, entry) in multilinear_evals_witness.iter().enumerate() {
         add_memory_statements_for_multilinear_eval_precompile(
             entry,
-            &vm_multilinear_evals,
+            &precompile_traces[TABLE_MULTILINEAR_EVAL],
             row,
             log_memory,
             log_public_memory,
@@ -144,10 +144,10 @@ pub fn prove_execution(
         private_memory.len(),
         bytecode.ending_pc,
         (
-            poseidons_16.n_rows_non_padded(),
-            poseidons_24.n_rows_non_padded(),
+            precompile_traces[TABLE_POSEIDON_16].n_rows_non_padded(),
+            precompile_traces[TABLE_POSEIDON_24].n_rows_non_padded(),
         ),
-        dot_products.n_rows_non_padded(),
+        precompile_traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
         (&p16_gkr_layers, &p24_gkr_layers),
     );
 
@@ -161,14 +161,14 @@ pub fn prove_execution(
             full_trace[COL_INDEX_MEM_ADDRESS_C].as_slice(),
         ],
         vec![
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_A],
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_B],
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES],
+            &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_A],
+            &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_B],
+            &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES],
         ],
         vec![
-            &poseidons_24.base[POSEIDON_24_COL_INDEX_A],
-            &poseidons_24.base[POSEIDON_24_COL_INDEX_B],
-            &poseidons_24.base[POSEIDON_24_COL_INDEX_RES],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_B],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_RES],
         ],
         p16_witness
             .committed_cubes
@@ -180,8 +180,8 @@ pub fn prove_execution(
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        DotProductPrecompile::committed_columns(
-            &dot_products,
+        Table::dot_product().committed_columns(
+            &precompile_traces[TABLE_DOT_PRODUCT],
             &dot_product_computation_ext_to_base_helper,
         ),
     ]
@@ -206,7 +206,7 @@ pub fn prove_execution(
 
             *v = bus_challenge
                 + finger_print(
-                    Table::try_from(precompile_index.to_usize()).unwrap(),
+                    Table::from_index(precompile_index.to_usize()),
                     &[
                         nu_columns[0][i],
                         nu_columns[1][i],
@@ -249,17 +249,20 @@ pub fn prove_execution(
     ) = {
         let (p16_bus_quotient, p16_bus_point, _, _) = prove_bus_for_table::<2>(
             &mut prover_state,
-            &poseidons_16,
+            &precompile_traces[TABLE_POSEIDON_16],
             bus_challenge,
             fingerprint_challenge,
-            &Poseidon16Precompile::buses()[0], // TODO multiple buses
+            &Poseidon16Precompile.buses()[0], // TODO multiple buses
         );
-        let p16_bus_eval_index_input_a =
-            poseidons_16.base[POSEIDON_16_COL_INDEX_A].evaluate(&p16_bus_point);
-        let p16_bus_eval_index_input_b =
-            poseidons_16.base[POSEIDON_16_COL_INDEX_B].evaluate(&p16_bus_point);
-        let p16_bus_eval_index_input_output =
-            poseidons_16.base[POSEIDON_16_COL_INDEX_RES].evaluate(&p16_bus_point);
+        let p16_bus_eval_index_input_a = precompile_traces[TABLE_POSEIDON_16].base
+            [POSEIDON_16_COL_INDEX_A]
+            .evaluate(&p16_bus_point);
+        let p16_bus_eval_index_input_b = precompile_traces[TABLE_POSEIDON_16].base
+            [POSEIDON_16_COL_INDEX_B]
+            .evaluate(&p16_bus_point);
+        let p16_bus_eval_index_input_output = precompile_traces[TABLE_POSEIDON_16].base
+            [POSEIDON_16_COL_INDEX_RES]
+            .evaluate(&p16_bus_point);
         prover_state.add_extension_scalars(&[
             p16_bus_eval_index_input_a,
             p16_bus_eval_index_input_b,
@@ -283,17 +286,20 @@ pub fn prove_execution(
     ) = {
         let (p24_bus_quotient, p24_bus_point, _, _) = prove_bus_for_table::<2>(
             &mut prover_state,
-            &poseidons_24,
+            &precompile_traces[TABLE_POSEIDON_24],
             bus_challenge,
             fingerprint_challenge,
-            &Poseidon24Precompile::buses()[0], // TODO multiple buses
+            &Poseidon24Precompile.buses()[0], // TODO multiple buses
         );
-        let p24_bus_eval_index_input_a =
-            poseidons_24.base[POSEIDON_24_COL_INDEX_A].evaluate(&p24_bus_point);
-        let p24_bus_eval_index_input_b =
-            poseidons_24.base[POSEIDON_24_COL_INDEX_B].evaluate(&p24_bus_point);
-        let p24_bus_eval_index_input_output =
-            poseidons_24.base[POSEIDON_24_COL_INDEX_RES].evaluate(&p24_bus_point);
+        let p24_bus_eval_index_input_a = precompile_traces[TABLE_POSEIDON_24].base
+            [POSEIDON_24_COL_INDEX_A]
+            .evaluate(&p24_bus_point);
+        let p24_bus_eval_index_input_b = precompile_traces[TABLE_POSEIDON_24].base
+            [POSEIDON_24_COL_INDEX_B]
+            .evaluate(&p24_bus_point);
+        let p24_bus_eval_index_input_output = precompile_traces[TABLE_POSEIDON_24].base
+            [POSEIDON_24_COL_INDEX_RES]
+            .evaluate(&p24_bus_point);
         prover_state.add_extension_scalars(&[
             p24_bus_eval_index_input_a,
             p24_bus_eval_index_input_b,
@@ -311,10 +317,10 @@ pub fn prove_execution(
     let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
         prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
             &mut prover_state,
-            &dot_products,
+            &precompile_traces[TABLE_DOT_PRODUCT],
             bus_challenge,
             fingerprint_challenge,
-            &DotProductPrecompile::buses()[0], // TODO multiple buses
+            &Table::dot_product().buses()[0], // TODO multiple buses
         );
 
     let multilinear_eval_bus_quotient = (0..multilinear_evals_witness.len())
@@ -322,22 +328,26 @@ pub fn prove_execution(
             -EF::ONE
                 / (bus_challenge
                     + finger_print(
-                        Table::MultilinearEval,
+                        Table::multilinear_eval(),
                         &[
-                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POLY][row],
-                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POINT][row],
-                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_RES][row],
-                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_N_VARS][row],
+                            precompile_traces[TABLE_MULTILINEAR_EVAL].base
+                                [MULTILINEAR_EVAL_COL_INDEX_POLY][row],
+                            precompile_traces[TABLE_MULTILINEAR_EVAL].base
+                                [MULTILINEAR_EVAL_COL_INDEX_POINT][row],
+                            precompile_traces[TABLE_MULTILINEAR_EVAL].base
+                                [MULTILINEAR_EVAL_COL_INDEX_RES][row],
+                            precompile_traces[TABLE_MULTILINEAR_EVAL].base
+                                [MULTILINEAR_EVAL_COL_INDEX_N_VARS][row],
                         ],
                         fingerprint_challenge,
                     ))
         })
         .sum::<EF>();
 
-    dot_product_bus_quotient += EF::from_usize(dot_products.padding_len)
+    dot_product_bus_quotient += EF::from_usize(precompile_traces[TABLE_DOT_PRODUCT].padding_len)
         / (bus_challenge
             + finger_print(
-                Table::DotProduct,
+                Table::dot_product(),
                 &[
                     EF::ZERO, // IndexA
                     EF::ZERO, // IndexB
@@ -397,20 +407,20 @@ pub fn prove_execution(
         .in_scope(|| {
             prove_air(
                 &mut prover_state,
-                &DotProductPrecompile {},
+                &DotProductPrecompile,
                 dot_product_air_extra_data,
                 UNIVARIATE_SKIPS,
-                &dot_products
+                &precompile_traces[TABLE_DOT_PRODUCT]
                     .base
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),
-                &dot_products
+                &precompile_traces[TABLE_DOT_PRODUCT]
                     .ext
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),
-                &DotProductPrecompile::air_padding_row(),
+                &Table::dot_product().air_padding_row(),
                 Some(dot_product_bus_virtual_statement),
                 true,
             )
@@ -481,20 +491,22 @@ pub fn prove_execution(
                 &full_trace[COL_INDEX_MEM_ADDRESS_B][..],
                 &full_trace[COL_INDEX_MEM_ADDRESS_C][..],
             ],
-            DotProductPrecompile::normal_lookup_index_columns(&dot_products),
+            DotProductPrecompile.normal_lookup_index_columns(&precompile_traces[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
         [
             vec![n_cycles; 3],
             vec![
-                dot_products.n_rows_non_padded().max(MIN_N_ROWS_PER_TABLE);
-                DotProductPrecompile::num_normal_lookups()
+                precompile_traces[TABLE_DOT_PRODUCT]
+                    .n_rows_non_padded()
+                    .max(MIN_N_ROWS_PER_TABLE);
+                Table::dot_product().num_normal_lookups()
             ],
         ]
         .concat(),
         [
             vec![0; 3],
-            vec![0; DotProductPrecompile::num_normal_lookups()],
+            vec![0; Table::dot_product().num_normal_lookups()],
         ]
         .concat(), // TODO handle the case with non-zero default index
         [
@@ -503,19 +515,17 @@ pub fn prove_execution(
                 &full_trace[COL_INDEX_MEM_VALUE_B][..],
                 &full_trace[COL_INDEX_MEM_VALUE_C][..],
             ],
-            DotProductPrecompile::normal_lookup_f_value_columns(&dot_products),
+            Table::dot_product()
+                .normal_lookup_f_value_columns(&precompile_traces[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
-        [DotProductPrecompile::normal_lookup_ef_value_columns(
-            &dot_products,
-        )]
+        [Table::dot_product()
+            .normal_lookup_ef_value_columns(&precompile_traces[TABLE_DOT_PRODUCT])]
         .concat(),
         [
             exec_lookup_into_memory_initial_statements(&exec_air_point, &exec_evals_to_prove),
-            DotProductPrecompile::normal_lookups_statements(
-                &dot_product_air_point,
-                &dot_product_evals_to_prove,
-            ),
+            Table::dot_product()
+                .normal_lookups_statements(&dot_product_air_point, &dot_product_evals_to_prove),
         ]
         .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -525,18 +535,28 @@ pub fn prove_execution(
         &mut prover_state,
         &memory,
         vec![
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_A],
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_B],
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES],
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES_BIS],
-            &poseidons_24.base[POSEIDON_24_COL_INDEX_A],
-            &poseidons_24.base[POSEIDON_24_COL_INDEX_A_BIS],
-            &poseidons_24.base[POSEIDON_24_COL_INDEX_B],
-            &poseidons_24.base[POSEIDON_24_COL_INDEX_RES],
+            &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_A],
+            &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_B],
+            &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES],
+            &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES_BIS],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A_BIS],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_B],
+            &precompile_traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_RES],
         ],
         [
-            vec![poseidons_16.n_rows_non_padded().max(MIN_N_ROWS_PER_TABLE); 4],
-            vec![poseidons_24.n_rows_non_padded().max(MIN_N_ROWS_PER_TABLE); 4],
+            vec![
+                precompile_traces[TABLE_POSEIDON_16]
+                    .n_rows_non_padded()
+                    .max(MIN_N_ROWS_PER_TABLE);
+                4
+            ],
+            vec![
+                precompile_traces[TABLE_POSEIDON_24]
+                    .n_rows_non_padded()
+                    .max(MIN_N_ROWS_PER_TABLE);
+                4
+            ],
         ]
         .concat(),
         default_poseidon_indexes(),
@@ -614,7 +634,7 @@ pub fn prove_execution(
             .map(|c| EFPacking::<EF>::ONE - *c) // TODO embedding overhead
             .collect::<Vec<_>>();
         let p16_index_res_a_plus_one = pack_extension(
-            &poseidons_16.base[POSEIDON_16_COL_INDEX_RES]
+            &precompile_traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES]
                 .par_iter()
                 .map(|c| EF::ONE + *c) // TODO embedding overhead
                 .collect::<Vec<_>>(),
@@ -661,7 +681,7 @@ pub fn prove_execution(
         .drain(..3)
         .collect::<Vec<_>>();
 
-    let dot_product_statements = DotProductPrecompile::committed_statements_prover(
+    let dot_product_statements = Table::dot_product().committed_statements_prover(
         &mut prover_state,
         &dot_product_air_point,
         &dot_product_evals_to_prove,

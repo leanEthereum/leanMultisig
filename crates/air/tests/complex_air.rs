@@ -24,19 +24,19 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
 {
     type ExtraData = Vec<EF>;
 
-    fn n_columns_f() -> usize {
+    fn n_columns_f(&self) -> usize {
         N_COLS_F
     }
-    fn n_columns_ef() -> usize {
+    fn n_columns_ef(&self) -> usize {
         N_COLUMNS - N_COLS_F
     }
-    fn degree() -> usize {
+    fn degree(&self) -> usize {
         N_PREPROCESSED_COLUMNS
     }
-    fn n_constraints() -> usize {
+    fn n_constraints(&self) -> usize {
         50 // too much, but ok for tests
     }
-    fn down_column_indexes() -> Vec<usize> {
+    fn down_column_indexes(&self) -> Vec<usize> {
         (N_PREPROCESSED_COLUMNS..N_COLUMNS).collect::<Vec<_>>()
     }
 

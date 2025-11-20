@@ -65,7 +65,7 @@ pub fn verify_execution(
         log2_ceil_usize(n_rows_table_dot_products).max(MIN_LOG_N_ROWS_PER_TABLE);
     let dot_product_padding_len = (1 << table_dot_products_log_n_rows) - n_rows_table_dot_products;
 
-    let mut vm_multilinear_evals = PrecompileTrace::new::<MultilinearEvalPrecompile>();
+    let mut vm_multilinear_evals = PrecompileTrace::new(&MultilinearEvalPrecompile);
     let mut multilinear_evals_witness = vec![];
     for _ in 0..n_vm_multilinear_evals {
         let [addr_coeffs, addr_point, addr_res, n_vars] =
@@ -150,7 +150,7 @@ pub fn verify_execution(
         if p16_bus_data_value
             != bus_challenge
                 + finger_print(
-                    Table::Poseidon16,
+                    Table::poseidon16(),
                     &[
                         p16_bus_eval_index_input_a,
                         p16_bus_eval_index_input_b,
@@ -196,7 +196,7 @@ pub fn verify_execution(
         if p24_bus_data_value
             != bus_challenge
                 + finger_print(
-                    Table::Poseidon24,
+                    Table::poseidon24(),
                     &[
                         p24_bus_eval_index_input_a,
                         p24_bus_eval_index_input_b,
@@ -245,7 +245,7 @@ pub fn verify_execution(
             -EF::ONE
                 / (bus_challenge
                     + finger_print(
-                        Table::MultilinearEval,
+                        Table::multilinear_eval(),
                         &[
                             vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POLY][row],
                             vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POINT][row],
@@ -260,7 +260,7 @@ pub fn verify_execution(
     dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
         / (bus_challenge
             + finger_print(
-                Table::DotProduct,
+                Table::dot_product(),
                 &[
                     EF::ZERO, // IndexA
                     EF::ZERO, // IndexB
@@ -319,7 +319,7 @@ pub fn verify_execution(
         dot_product_air_extra_data,
         UNIVARIATE_SKIPS,
         table_dot_products_log_n_rows,
-        &DotProductPrecompile::air_padding_row(),
+        &DotProductPrecompile.air_padding_row(),
         Some(dot_product_bus_virtual_statement),
     )?;
 
@@ -363,7 +363,7 @@ pub fn verify_execution(
         [vec![0; 3], vec![0; 3]].concat(),
         [
             exec_lookup_into_memory_initial_statements(&exec_air_point, &exec_evals_to_verify),
-            DotProductPrecompile::normal_lookups_statements(
+            DotProductPrecompile.normal_lookups_statements(
                 &dot_product_air_point,
                 &dot_product_evals_to_verify,
             ),
@@ -492,7 +492,7 @@ pub fn verify_execution(
 
     let exec_air_statement =
         |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_verify[col_index]);
-    let dot_product_statements = DotProductPrecompile::committed_statements_verifier(
+    let dot_product_statements = DotProductPrecompile.committed_statements_verifier(
         &mut verifier_state,
         &dot_product_air_point,
         &dot_product_evals_to_verify,

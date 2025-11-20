@@ -13,10 +13,7 @@ pub struct ExecutionTrace {
     pub nu_columns: [Vec<F>; 3],
     pub n_cycles: usize, // before padding with the repeated final instruction
     pub n_compressions_16: usize,
-    pub poseidons_16: PrecompileTrace, // padded with empty poseidons
-    pub poseidons_24: PrecompileTrace, // padded with empty poseidons
-    pub dot_products: PrecompileTrace,
-    pub multilinear_evals: PrecompileTrace,
+    pub precompile_traces: [PrecompileTrace; N_PRECOMPILES],
     pub multilinear_evals_witness: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
@@ -124,30 +121,27 @@ pub fn get_execution_trace(
     memory_padded.resize(memory.0.len().next_power_of_two(), F::ZERO);
 
     let ExecutionResult {
-        mut poseidons_16,
-        mut poseidons_24,
-        mut dot_products,
-        multilinear_evals,
+        mut precompile_traces,
         multilinear_evals_witness,
         ..
     } = execution_result;
 
-    padd_precompile_table::<DotProductPrecompile>(&mut dot_products);
-    padd_precompile_table::<Poseidon16Precompile>(&mut poseidons_16);
-    padd_precompile_table::<Poseidon24Precompile>(&mut poseidons_24);
+    for (trace, precompile) in precompile_traces.iter_mut().zip(ALL_PRECOMPILES) {
+        if precompile != Table::multilinear_eval() {
+            padd_precompile_trace(&precompile, trace);
+        }
+    }
 
     let n_compressions_16;
-    (poseidons_16, n_compressions_16) = put_poseidon16_compressions_at_the_end(&poseidons_16); // TODO avoid reallocation
+    (precompile_traces[TABLE_POSEIDON_16], n_compressions_16) =
+        put_poseidon16_compressions_at_the_end(&precompile_traces[TABLE_POSEIDON_16]); // TODO avoid reallocation
 
     ExecutionTrace {
         full_trace: trace,
         nu_columns,
         n_cycles,
         n_compressions_16,
-        poseidons_16,
-        poseidons_24,
-        dot_products,
-        multilinear_evals,
+        precompile_traces,
         multilinear_evals_witness,
         public_memory_size: execution_result.public_memory_size,
         non_zero_memory_size: memory.0.len(),
@@ -159,13 +153,13 @@ fn put_poseidon16_compressions_at_the_end(
     poseidons_16: &PrecompileTrace,
 ) -> (PrecompileTrace, usize) {
     let n = poseidons_16.base[0].len();
-    assert_eq!(Poseidon16Precompile::n_columns_f(), poseidons_16.base.len());
+    assert_eq!(Poseidon16Precompile.n_columns_f(), poseidons_16.base.len());
     assert_eq!(poseidons_16.ext.len(), 0);
-    let mut new_trace = vec![Vec::with_capacity(n); Poseidon16Precompile::n_columns_f()];
+    let mut new_trace = vec![Vec::with_capacity(n); Poseidon16Precompile.n_columns_f()];
     // TODO parallelize
     for row in 0..n {
         if poseidons_16.base[POSEIDON_16_COL_INDEX_COMPRESSION][row] == F::from_bool(false) {
-            for col in 0..Poseidon16Precompile::n_columns_f() {
+            for col in 0..Poseidon16Precompile.n_columns_f() {
                 new_trace[col].push(poseidons_16.base[col][row]);
             }
         }
@@ -174,7 +168,7 @@ fn put_poseidon16_compressions_at_the_end(
     for row in 0..n {
         if poseidons_16.base[POSEIDON_16_COL_INDEX_COMPRESSION][row] == F::from_bool(true) {
             n_compressions += 1;
-            for col in 0..Poseidon16Precompile::n_columns_f() {
+            for col in 0..Poseidon16Precompile.n_columns_f() {
                 new_trace[col].push(poseidons_16.base[col][row]);
             }
         }
@@ -190,18 +184,18 @@ fn put_poseidon16_compressions_at_the_end(
     )
 }
 
-fn padd_precompile_table<P: ModularPrecompile>(trace: &mut PrecompileTrace) {
+fn padd_precompile_trace<P: ModularPrecompile>(p: &P, trace: &mut PrecompileTrace) {
     trace.padding_len = trace.base[0]
         .len()
         .next_power_of_two()
         .max(MIN_N_ROWS_PER_TABLE)
         - trace.base[0].len();
     for (i, col) in trace.base.iter_mut().enumerate() {
-        let default_value: F = P::padding_row()[i].as_base().unwrap();
+        let default_value: F = p.padding_row()[i].as_base().unwrap();
         col.extend(repeat_n(default_value, trace.padding_len));
     }
     for (i, col) in trace.ext.iter_mut().enumerate() {
-        let default_value = P::padding_row()[i + P::n_columns_f()];
+        let default_value = p.padding_row()[i + p.n_columns_f()];
         col.extend(repeat_n(default_value, trace.padding_len));
     }
 }

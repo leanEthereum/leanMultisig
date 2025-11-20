@@ -53,7 +53,7 @@ pub(crate) fn get_base_dims(
             .iter()
             .map(|&c| ColDims::padded(n_poseidons_24, c))
             .collect::<Vec<_>>(), // commited cubes for poseidon24
-        DotProductPrecompile::committed_dims(n_rows_table_dot_products),
+        Table::dot_product().committed_dims(n_rows_table_dot_products),
     ]
     .concat()
 }
