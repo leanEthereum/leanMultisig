@@ -29,8 +29,12 @@ impl ModularPrecompile for Poseidon16Precompile {
         Table::Poseidon16
     }
 
-    fn commited_columns() -> &'static [ColIndex] {
-        &[]
+    fn commited_columns_f() -> Vec<ColIndex> {
+        unreachable!()
+    }
+
+    fn commited_columns_ef() -> Vec<ColIndex> {
+        unreachable!()
     }
 
     fn simple_lookups() -> &'static [LookupIntoMemory] {

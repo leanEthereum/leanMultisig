@@ -91,7 +91,10 @@ pub fn prove_execution(
 
     let dot_product_computation_ext_to_base_helper =
         ExtensionCommitmentFromBaseProver::before_commitment(
-            &dot_products.ext[DOT_PRODUCT_AIR_COL_COMPUTATION],
+            DotProductPrecompile::commited_columns_ef()
+                .iter()
+                .map(|&c| &dot_products.ext[c][..])
+                .collect::<Vec<_>>(),
         );
 
     let mut prover_state = build_prover_state::<EF>();
@@ -654,7 +657,7 @@ pub fn prove_execution(
         initial_and_final_pc_conditions(bytecode, log_n_cycles);
 
     let dot_product_computation_column_statements = dot_product_computation_ext_to_base_helper
-        .after_commitment(&mut prover_state, &dot_product_air_point);
+        .after_commitment(&mut prover_state, &[dot_product_air_point.clone()]);
 
     let exec_air_statement =
         |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_prove[col_index]);

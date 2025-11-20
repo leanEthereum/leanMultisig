@@ -26,8 +26,12 @@ impl ModularPrecompile for Poseidon24Precompile {
         Table::Poseidon24
     }
 
-    fn commited_columns() -> &'static [ColIndex] {
-        &[]
+    fn commited_columns_f() -> Vec<ColIndex> {
+        unreachable!()
+    }
+
+    fn commited_columns_ef() -> Vec<ColIndex> {
+        unreachable!()
     }
 
     fn simple_lookups() -> &'static [LookupIntoMemory] {
@@ -108,7 +112,7 @@ impl ModularPrecompile for Poseidon24Precompile {
             vec![
                 EF::from_usize(ZERO_VEC_PTR),
                 EF::from_usize(ZERO_VEC_PTR + 1),
-                EF::from_usize(ZERO_VEC_PTR ),
+                EF::from_usize(ZERO_VEC_PTR),
                 EF::from_usize(POSEIDON_24_NULL_HASH_PTR),
             ],
             vec![EF::ZERO; 24],

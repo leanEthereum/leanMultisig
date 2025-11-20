@@ -60,7 +60,7 @@ pub fn get_base_dims(
             ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index b
             ColDims::padded(n_rows_table_dot_products, F::ZERO), // dot product: index res
         ],
-        committed_dims_extension_from_base(n_rows_table_dot_products, EF::ZERO), // dot product: computation
+        committed_dims_extension_from_base(vec![n_rows_table_dot_products], vec![EF::ZERO]), // dot product: computation
     ]
     .concat()
 }

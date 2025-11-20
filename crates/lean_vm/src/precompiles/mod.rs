@@ -130,7 +130,9 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
 pub trait ModularPrecompile: Air {
     fn name() -> &'static str;
     fn identifier() -> Table;
-    fn commited_columns() -> &'static [ColIndex];
+    fn commited_columns_f() -> Vec<ColIndex>;
+    /// the first committed column in the extension starts at index 0
+    fn commited_columns_ef() -> Vec<ColIndex>;
     fn simple_lookups() -> &'static [LookupIntoMemory];
     fn ext_field_lookups() -> &'static [ExtensionFieldLookupIntoMemory];
     fn vector_lookups() -> &'static [VectorLookupIntoMemory];

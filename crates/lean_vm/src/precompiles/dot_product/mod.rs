@@ -1,6 +1,8 @@
 use crate::precompiles::dot_product::vm_exec::exec_dot_product;
 use crate::{
-    Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F, LookupIntoMemory, Memory, ModularPrecompile, PrecompileExecutionContext, PrecompileTrace, RunnerError, Table, VectorLookupIntoMemory
+    Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F,
+    LookupIntoMemory, Memory, ModularPrecompile, PrecompileExecutionContext, PrecompileTrace,
+    RunnerError, Table, VectorLookupIntoMemory,
 };
 use multilinear_toolkit::prelude::*;
 
@@ -21,8 +23,18 @@ impl ModularPrecompile for DotProductPrecompile {
         Table::DotProduct
     }
 
-    fn commited_columns() -> &'static [ColIndex] {
-        &[]
+    fn commited_columns_f() -> Vec<ColIndex> {
+        vec![
+            DOT_PRODUCT_AIR_COL_START_FLAG,
+            DOT_PRODUCT_AIR_COL_LEN,
+            DOT_PRODUCT_AIR_COL_INDEX_A,
+            DOT_PRODUCT_AIR_COL_INDEX_B,
+            DOT_PRODUCT_AIR_COL_INDEX_RES,
+        ]
+    }
+
+    fn commited_columns_ef() -> Vec<ColIndex> {
+        vec![DOT_PRODUCT_AIR_COL_COMPUTATION]
     }
 
     fn simple_lookups() -> &'static [LookupIntoMemory] {
@@ -59,7 +71,7 @@ impl ModularPrecompile for DotProductPrecompile {
         aux: usize,
         memory: &mut Memory,
         trace: &mut PrecompileTrace,
-         _: PrecompileExecutionContext<'_>,
+        _: PrecompileExecutionContext<'_>,
     ) -> Result<(), RunnerError> {
         exec_dot_product(arg_a, arg_b, arg_c, aux, memory, trace)
     }

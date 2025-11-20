@@ -11,19 +11,30 @@ pub struct ExtensionCommitmentFromBaseProver<EF: ExtensionField<PF<EF>>> {
 }
 
 pub fn committed_dims_extension_from_base<EF: ExtensionField<PF<EF>>>(
-    non_zero_height: usize,
-    default_value: EF,
+    non_zero_heights: Vec<usize>,
+    default_values: Vec<EF>,
 ) -> Vec<ColDims<PF<EF>>> {
-    EF::as_basis_coefficients_slice(&default_value)
-        .iter()
-        .map(|&d| ColDims::padded(non_zero_height, d))
+    assert_eq!(non_zero_heights.len(), default_values.len());
+    non_zero_heights
+        .into_iter()
+        .zip(default_values)
+        .flat_map(|(non_zero_height, default_value)| {
+            EF::as_basis_coefficients_slice(&default_value)
+                .iter()
+                .map(|&d| ColDims::padded(non_zero_height, d))
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
 impl<EF: ExtensionField<PF<EF>>> ExtensionCommitmentFromBaseProver<EF> {
-    pub fn before_commitment(extension_column: &[EF]) -> Self {
-        let sub_columns_to_commit =
-            transpose_slice_to_basis_coefficients::<PF<EF>, EF>(extension_column);
+    pub fn before_commitment(extension_columns: Vec<&[EF]>) -> Self {
+        let mut sub_columns_to_commit = Vec::new();
+        for extension_column in extension_columns {
+            sub_columns_to_commit.extend(transpose_slice_to_basis_coefficients::<PF<EF>, EF>(
+                extension_column,
+            ));
+        }
         Self {
             sub_columns_to_commit,
         }
@@ -32,19 +43,27 @@ impl<EF: ExtensionField<PF<EF>>> ExtensionCommitmentFromBaseProver<EF> {
     pub fn after_commitment(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        evaluation_point: &MultilinearPoint<EF>,
+        evaluation_points: &[MultilinearPoint<EF>],
     ) -> Vec<Vec<Evaluation<EF>>> {
         let sub_evals = self
             .sub_columns_to_commit
             .par_iter()
-            .map(|slice| slice.evaluate(evaluation_point))
+            .enumerate()
+            .map(|(i, sub_column)| {
+                let eval_point = &evaluation_points[i / EF::DIMENSION];
+                sub_column.evaluate(eval_point)
+            })
             .collect::<Vec<_>>();
 
         prover_state.add_extension_scalars(&sub_evals);
 
         sub_evals
             .iter()
-            .map(|&sub_value| vec![Evaluation::new(evaluation_point.clone(), sub_value)])
+            .enumerate()
+            .map(|(i, &sub_value)| {
+                let evaluation_point = &evaluation_points[i / EF::DIMENSION];
+                vec![Evaluation::new(evaluation_point.clone(), sub_value)]
+            })
             .collect::<Vec<_>>()
     }
 }
