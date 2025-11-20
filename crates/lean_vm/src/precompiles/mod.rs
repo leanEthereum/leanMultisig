@@ -13,6 +13,9 @@ pub use poseidon_16::*;
 mod poseidon_24;
 pub use poseidon_24::*;
 
+mod multilinear_eval;
+pub use multilinear_eval::*;
+
 pub type ColIndex = usize;
 
 #[derive(Debug)]
@@ -158,4 +161,5 @@ pub struct PrecompileExecutionContext<'a> {
     pub n_poseidon16_precomputed_used: &'a mut usize,
     pub poseidon24_precomputed: &'a [([F; 24], [F; 8])],
     pub n_poseidon24_precomputed_used: &'a mut usize,
+    pub multilinear_evals_witness: &'a mut Vec<WitnessMultilinearEval>,
 }

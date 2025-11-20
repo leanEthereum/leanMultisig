@@ -15,8 +15,9 @@ pub struct ExecutionTrace {
     pub n_compressions_16: usize,
     pub poseidons_16: PrecompileTrace, // padded with empty poseidons
     pub poseidons_24: PrecompileTrace, // padded with empty poseidons
-    pub dot_product_trace: PrecompileTrace,
-    pub multilinear_evals: Vec<WitnessMultilinearEval>,
+    pub dot_products: PrecompileTrace,
+    pub multilinear_evals: PrecompileTrace,
+    pub multilinear_evals_witness: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
@@ -125,12 +126,13 @@ pub fn get_execution_trace(
     let ExecutionResult {
         mut poseidons_16,
         mut poseidons_24,
-        mut dot_product_trace,
+        mut dot_products,
         multilinear_evals,
+        multilinear_evals_witness,
         ..
     } = execution_result;
 
-    padd_precompile_table::<DotProductPrecompile>(&mut dot_product_trace);
+    padd_precompile_table::<DotProductPrecompile>(&mut dot_products);
     padd_precompile_table::<Poseidon16Precompile>(&mut poseidons_16);
     padd_precompile_table::<Poseidon24Precompile>(&mut poseidons_24);
 
@@ -144,8 +146,9 @@ pub fn get_execution_trace(
         n_compressions_16,
         poseidons_16,
         poseidons_24,
-        dot_product_trace,
+        dot_products,
         multilinear_evals,
+        multilinear_evals_witness,
         public_memory_size: execution_result.public_memory_size,
         non_zero_memory_size: memory.0.len(),
         memory: memory_padded,

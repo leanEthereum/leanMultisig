@@ -2,13 +2,11 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
-use crate::core::{DIMENSION, EF, F, Label, VECTOR_LEN};
+use crate::core::{ F, Label, };
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
-use crate::witness::{RowMultilinearEval, WitnessMultilinearEval};
-use crate::{PrecompileExecutionContext, PrecompileTrace, Table};
+use crate::{PrecompileExecutionContext, PrecompileTrace, Table, WitnessMultilinearEval};
 use multilinear_toolkit::prelude::*;
-use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
@@ -68,7 +66,8 @@ pub struct InstructionContext<'a> {
     pub poseidons_16: &'a mut PrecompileTrace,
     pub poseidons_24: &'a mut PrecompileTrace,
     pub dot_product_trace: &'a mut PrecompileTrace,
-    pub multilinear_evals: &'a mut Vec<WitnessMultilinearEval>,
+    pub multilinear_evals: &'a mut PrecompileTrace,
+    pub multilinear_evals_witness: &'a mut Vec<WitnessMultilinearEval>,
     pub add_counts: &'a mut usize,
     pub mul_counts: &'a mut usize,
     pub deref_counts: &'a mut usize,
@@ -168,54 +167,7 @@ impl Instruction {
                 *ctx.jump_counts += 1;
                 Ok(())
             }
-            Self::Precompile {
-                table: Table::MultilinearEval,
-                arg_a: coeffs,
-                arg_b: point,
-                arg_c: res,
-                aux: n_vars,
-            } => {
-                let ptr_coeffs = coeffs.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_point = point.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_res = res.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let n_coeffs = 1 << *n_vars;
-                let slice_coeffs = ctx.memory.slice(ptr_coeffs << *n_vars, n_coeffs)?;
 
-                let log_point_size = log2_ceil_usize(*n_vars * DIMENSION);
-                let point_slice = ctx
-                    .memory
-                    .slice(ptr_point << log_point_size, *n_vars * DIMENSION)?;
-                for i in *n_vars * DIMENSION..(*n_vars * DIMENSION).next_power_of_two() {
-                    ctx.memory.set((ptr_point << log_point_size) + i, F::ZERO)?; // padding
-                }
-                let point = point_slice[..*n_vars * DIMENSION]
-                    .chunks_exact(DIMENSION)
-                    .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
-                    .collect::<Vec<_>>();
-
-                let eval = slice_coeffs.evaluate(&MultilinearPoint(point.clone()));
-                let mut res_vec = eval.as_basis_coefficients_slice().to_vec();
-                res_vec.resize(VECTOR_LEN, F::ZERO);
-                ctx.memory
-                    .set_vector(ptr_res, res_vec.try_into().unwrap())?;
-
-                {
-                    let cycle = ctx.pcs.len() - 1;
-                    ctx.multilinear_evals.push(WitnessMultilinearEval {
-                        cycle,
-                        inner: RowMultilinearEval {
-                            addr_coeffs: ptr_coeffs,
-                            addr_point: ptr_point,
-                            addr_res: ptr_res,
-                            point,
-                            res: eval,
-                        },
-                    });
-                }
-
-                *ctx.pc += 1;
-                Ok(())
-            }
             Self::Precompile {
                 table,
                 arg_a,
@@ -227,7 +179,8 @@ impl Instruction {
                     Table::Poseidon16 => &mut ctx.poseidons_16,
                     Table::DotProduct => &mut ctx.dot_product_trace,
                     Table::Poseidon24 => &mut ctx.poseidons_24,
-                    Table::_UNUSED | Table::MultilinearEval => {
+                    Table::MultilinearEval => &mut ctx.multilinear_evals,
+                    Table::_UNUSED  => {
                         unreachable!()
                     }
                 };
@@ -243,6 +196,7 @@ impl Instruction {
                         n_poseidon16_precomputed_used: &mut ctx.n_poseidon16_precomputed_used,
                         n_poseidon24_precomputed_used: &mut ctx.n_poseidon24_precomputed_used,
                         poseidon24_precomputed: &ctx.poseidon24_precomputed,
+                        multilinear_evals_witness: &mut ctx.multilinear_evals_witness,
                     },
                 )?;
 

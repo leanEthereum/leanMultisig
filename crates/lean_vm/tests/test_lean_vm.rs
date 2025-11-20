@@ -1,4 +1,3 @@
-use lean_vm::error::ExecutionResult;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;

@@ -121,12 +121,18 @@ pub fn initial_and_final_pc_conditions(
 }
 
 pub fn add_memory_statements_for_dot_product_precompile(
-    entry: &RowMultilinearEval,
+    entry: &WitnessMultilinearEval,
+    trace: &PrecompileTrace,
+    row: usize,
     log_memory: usize,
     log_public_memory: usize,
     challenger: &mut impl ChallengeSampler<EF>,
     memory_statements: &mut Vec<Evaluation<EF>>,
 ) -> Result<(), ProofError> {
+    let addr_coeffs = trace.base[MULTILINEAR_EVAL_COL_INDEX_POLY][row].to_usize();
+    let addr_point = trace.base[MULTILINEAR_EVAL_COL_INDEX_POINT][row].to_usize();
+    let addr_res = trace.base[MULTILINEAR_EVAL_COL_INDEX_RES][row].to_usize();
+
     // point lookup into memory
     let log_point_len = log2_ceil_usize(entry.n_vars() * DIMENSION);
     let point_random_challenge = challenger.sample_vec(log_point_len);
@@ -137,7 +143,7 @@ pub fn add_memory_statements_for_dot_product_precompile(
     };
     memory_statements.push(Evaluation::new(
         [
-            to_big_endian_in_field(entry.addr_point, log_memory - log_point_len),
+            to_big_endian_in_field(addr_point, log_memory - log_point_len),
             point_random_challenge.clone(),
         ]
         .concat(),
@@ -153,7 +159,7 @@ pub fn add_memory_statements_for_dot_product_precompile(
     };
     memory_statements.push(Evaluation::new(
         [
-            to_big_endian_in_field(entry.addr_res, log_memory - LOG_VECTOR_LEN),
+            to_big_endian_in_field(addr_res, log_memory - LOG_VECTOR_LEN),
             random_challenge.clone(),
         ]
         .concat(),
@@ -164,13 +170,13 @@ pub fn add_memory_statements_for_dot_product_precompile(
         if entry.n_vars() > log_memory {
             return Err(ProofError::InvalidProof);
         }
-        if entry.addr_coeffs >= 1 << (log_memory - entry.n_vars()) {
+        if addr_coeffs >= 1 << (log_memory - entry.n_vars()) {
             return Err(ProofError::InvalidProof);
         }
         if entry.n_vars() >= log_public_memory {
             todo!("vm multilinear eval across multiple memory chunks")
         }
-        let addr_bits = to_big_endian_in_field(entry.addr_coeffs, log_memory - entry.n_vars());
+        let addr_bits = to_big_endian_in_field(addr_coeffs, log_memory - entry.n_vars());
         let statement = Evaluation::new([addr_bits, entry.point.clone()].concat(), entry.res);
         memory_statements.push(statement);
     }

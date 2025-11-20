@@ -9,7 +9,7 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    CodeAddress, DotProductPrecompile, HintExecutionContext, Poseidon16Precompile, Poseidon24Precompile, PrecompileTrace, SourceLineNumber
+    CodeAddress, DotProductPrecompile, HintExecutionContext, MultilinearEvalPrecompile, Poseidon16Precompile, Poseidon24Precompile, PrecompileTrace, SourceLineNumber
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -203,8 +203,9 @@ fn execute_bytecode_helper(
     // Events collected only in final execution
     let mut poseidons_16 = PrecompileTrace::new::<Poseidon16Precompile>();
     let mut poseidons_24 = PrecompileTrace::new::<Poseidon24Precompile>();
-    let mut dot_product_trace = PrecompileTrace::new::<DotProductPrecompile>();
-    let mut multilinear_evals = Vec::new();
+    let mut dot_products = PrecompileTrace::new::<DotProductPrecompile>();
+    let mut multilinear_evals = PrecompileTrace::new::<MultilinearEvalPrecompile>();
+    let mut multilinear_evals_witness = Vec::new();
 
     let mut add_counts = 0;
     let mut mul_counts = 0;
@@ -253,8 +254,9 @@ fn execute_bytecode_helper(
             pcs: &pcs,
             poseidons_16: &mut poseidons_16,
             poseidons_24: &mut poseidons_24,
-            dot_product_trace: &mut dot_product_trace,
+            dot_product_trace: &mut dot_products,
             multilinear_evals: &mut multilinear_evals,
+            multilinear_evals_witness: &mut multilinear_evals_witness,
             add_counts: &mut add_counts,
             mul_counts: &mut mul_counts,
             deref_counts: &mut deref_counts,
@@ -383,10 +385,10 @@ fn execute_bytecode_helper(
     //         pretty_integer(dot_products.len())
     //     ));
     // }
-    if !multilinear_evals.is_empty() {
+    if !multilinear_evals_witness.is_empty() {
         summary.push_str(&format!(
             "MultilinearEval calls: {}\n",
-            pretty_integer(multilinear_evals.len())
+            pretty_integer(multilinear_evals_witness.len())
         ));
     }
 
@@ -421,8 +423,9 @@ fn execute_bytecode_helper(
         fps,
         poseidons_16,
         poseidons_24,
-        dot_product_trace,
+        dot_products,
         multilinear_evals,
+        multilinear_evals_witness,
         summary,
         memory_profile: if profiling { Some(mem_profile) } else { None },
     })

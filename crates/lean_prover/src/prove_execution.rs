@@ -33,8 +33,9 @@ pub fn prove_execution(
         poseidons_16,      // padded with empty poseidons
         poseidons_24,      // padded with empty poseidons
         n_compressions_16, // included the padding (that are compressions of zeros)
-        dot_product_trace,
+        dot_products,
         multilinear_evals: vm_multilinear_evals,
+        multilinear_evals_witness,
         public_memory_size,
         mut non_zero_memory_size,
         mut memory, // padded with zeros to next power of two
@@ -90,7 +91,7 @@ pub fn prove_execution(
 
     let dot_product_computation_ext_to_base_helper =
         ExtensionCommitmentFromBaseProver::before_commitment(
-            &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_COMPUTATION],
+            &dot_products.ext[DOT_PRODUCT_AIR_COL_COMPUTATION],
         );
 
     let mut prover_state = build_prover_state::<EF>();
@@ -100,30 +101,32 @@ pub fn prove_execution(
             poseidons_16.n_rows_non_padded(),
             n_compressions_16,
             poseidons_24.n_rows_non_padded(),
-            dot_product_trace.n_rows_non_padded(),
+            dot_products.n_rows_non_padded(),
             private_memory.len(),
-            vm_multilinear_evals.len(),
+            multilinear_evals_witness.len(),
         ]
         .into_iter()
         .map(F::from_usize)
         .collect::<Vec<_>>(),
     );
 
-    for vm_multilinear_eval in &vm_multilinear_evals {
+    for (i, vm_multilinear_eval) in multilinear_evals_witness.iter().enumerate() {
         prover_state.add_base_scalars(&[
-            F::from_usize(vm_multilinear_eval.addr_coeffs),
-            F::from_usize(vm_multilinear_eval.addr_point),
-            F::from_usize(vm_multilinear_eval.addr_res),
-            F::from_usize(vm_multilinear_eval.n_vars()),
+            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POLY][i],
+            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POINT][i],
+            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_RES][i],
+            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_N_VARS][i],
         ]);
         prover_state.add_extension_scalars(&vm_multilinear_eval.point);
         prover_state.add_extension_scalar(vm_multilinear_eval.res);
     }
 
     let mut memory_statements = vec![];
-    for entry in &vm_multilinear_evals {
+    for (row, entry) in multilinear_evals_witness.iter().enumerate() {
         add_memory_statements_for_dot_product_precompile(
             entry,
+            &vm_multilinear_evals,
+            row,
             log_memory,
             log_public_memory,
             &mut prover_state,
@@ -141,7 +144,7 @@ pub fn prove_execution(
             poseidons_16.n_rows_non_padded(),
             poseidons_24.n_rows_non_padded(),
         ),
-        dot_product_trace.n_rows_non_padded(),
+        dot_products.n_rows_non_padded(),
         (&p16_gkr_layers, &p24_gkr_layers),
     );
 
@@ -174,7 +177,7 @@ pub fn prove_execution(
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        dot_product_trace.base.iter().map(Vec::as_slice).collect(),
+        dot_products.base.iter().map(Vec::as_slice).collect(),
         dot_product_computation_ext_to_base_helper
             .sub_columns_to_commit
             .iter()
@@ -307,26 +310,30 @@ pub fn prove_execution(
     let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
         prove_bus_for_air_table::<TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS>(
             &mut prover_state,
-            &dot_product_trace,
+            &dot_products,
             bus_challenge,
             fingerprint_challenge,
             &DotProductPrecompile::buses()[0], // TODO multiple buses
         );
 
-    let multilinear_eval_bus_quotient = vm_multilinear_evals
-        .par_iter()
-        .map(|vm_multilinear_eval| {
+    let multilinear_eval_bus_quotient = (0..multilinear_evals_witness.len())
+        .map(|row| {
             -EF::ONE
                 / (bus_challenge
                     + finger_print(
                         Table::MultilinearEval,
-                        &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
+                        &[
+                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POLY][row],
+                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POINT][row],
+                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_RES][row],
+                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_N_VARS][row],
+                        ],
                         fingerprint_challenge,
                     ))
         })
         .sum::<EF>();
 
-    dot_product_bus_quotient += EF::from_usize(dot_product_trace.padding_len)
+    dot_product_bus_quotient += EF::from_usize(dot_products.padding_len)
         / (bus_challenge
             + finger_print(
                 Table::DotProduct,
@@ -406,12 +413,12 @@ pub fn prove_execution(
                 &DotProductPrecompile {},
                 dot_product_air_extra_data,
                 DOT_PRODUCT_UNIVARIATE_SKIPS,
-                &dot_product_trace
+                &dot_products
                     .base
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>(),
-                &dot_product_trace
+                &dot_products
                     .ext
                     .iter()
                     .map(Vec::as_slice)
@@ -485,18 +492,13 @@ pub fn prove_execution(
             &full_trace[COL_INDEX_MEM_ADDRESS_A],
             &full_trace[COL_INDEX_MEM_ADDRESS_B],
             &full_trace[COL_INDEX_MEM_ADDRESS_C],
-            &dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_A],
-            &dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_B],
-            &dot_product_trace.base[DOT_PRODUCT_AIR_COL_INDEX_RES],
+            &dot_products.base[DOT_PRODUCT_AIR_COL_INDEX_A],
+            &dot_products.base[DOT_PRODUCT_AIR_COL_INDEX_B],
+            &dot_products.base[DOT_PRODUCT_AIR_COL_INDEX_RES],
         ],
         [
             vec![n_cycles; 3],
-            vec![
-                dot_product_trace
-                    .n_rows_non_padded()
-                    .max(MIN_N_ROWS_PER_TABLE);
-                3
-            ],
+            vec![dot_products.n_rows_non_padded().max(MIN_N_ROWS_PER_TABLE); 3],
         ]
         .concat(),
         [vec![0; 3], vec![0; 3]].concat(),
@@ -506,9 +508,9 @@ pub fn prove_execution(
             &full_trace[COL_INDEX_MEM_VALUE_C],
         ],
         vec![
-            &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_VALUE_A],
-            &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_VALUE_B],
-            &dot_product_trace.ext[DOT_PRODUCT_AIR_COL_VALUE_RES],
+            &dot_products.ext[DOT_PRODUCT_AIR_COL_VALUE_A],
+            &dot_products.ext[DOT_PRODUCT_AIR_COL_VALUE_B],
+            &dot_products.ext[DOT_PRODUCT_AIR_COL_VALUE_RES],
         ],
         normal_lookup_into_memory_initial_statements(
             &exec_air_point,

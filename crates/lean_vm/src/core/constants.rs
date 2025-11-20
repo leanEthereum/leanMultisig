@@ -3,7 +3,9 @@ use num_enum::TryFromPrimitive;
 use strum_macros::EnumIter;
 
 use crate::{
-    DotProductPrecompile, F, Memory, ModularPrecompile, Poseidon16Precompile, Poseidon24Precompile, PrecompileExecutionContext, PrecompileTrace, RunnerError
+    DotProductPrecompile, F, Memory, ModularPrecompile, MultilinearEvalPrecompile,
+    Poseidon16Precompile, Poseidon24Precompile, PrecompileExecutionContext, PrecompileTrace,
+    RunnerError,
 };
 
 /// Vector dimension for field operations
@@ -86,36 +88,11 @@ impl Table {
         precompile_execution_context: PrecompileExecutionContext<'_>,
     ) -> Result<(), RunnerError> {
         match self {
-            Self::_UNUSED | Self::MultilinearEval => {
-                unreachable!()
-            }
-            Self::DotProduct => DotProductPrecompile::execute(
-                arg_a,
-                arg_b,
-                arg_c,
-                aux,
-                memory,
-                trace,
-                precompile_execution_context,
-            ),
-            Self::Poseidon16 => Poseidon16Precompile::execute(
-                arg_a,
-                arg_b,
-                arg_c,
-                aux,
-                memory,
-                trace,
-                precompile_execution_context,
-            ),
-            Self::Poseidon24 => Poseidon24Precompile::execute(
-                arg_a,
-                arg_b,
-                arg_c,
-                aux,
-                memory,
-                trace,
-                precompile_execution_context,
-            ),
+            #[rustfmt::skip] Self::_UNUSED => unreachable!(),
+            #[rustfmt::skip] Self::Poseidon16 => Poseidon16Precompile::execute(arg_a, arg_b, arg_c, aux, memory, trace, precompile_execution_context),
+            #[rustfmt::skip] Self::Poseidon24 => Poseidon24Precompile::execute(arg_a, arg_b, arg_c, aux, memory, trace, precompile_execution_context),
+            #[rustfmt::skip] Self::DotProduct => DotProductPrecompile::execute(arg_a, arg_b, arg_c, aux, memory, trace, precompile_execution_context),
+            #[rustfmt::skip] Self::MultilinearEval => MultilinearEvalPrecompile::execute(arg_a, arg_b, arg_c, aux, memory, trace, precompile_execution_context),
         }
     }
 }
