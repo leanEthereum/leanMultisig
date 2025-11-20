@@ -279,31 +279,17 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let mut p16_indexes_a_statements = vec![Evaluation::new(
-        p16_bus_point.clone(),
-        p16_bus_eval_index_input_a,
-    )];
-    let mut p16_indexes_b_statements = vec![Evaluation::new(
-        p16_bus_point.clone(),
-        p16_bus_eval_index_input_b,
-    )];
-    let mut p16_indexes_res_statements = vec![Evaluation::new(
-        p16_bus_point.clone(),
-        p16_bus_eval_index_input_output,
-    )];
-
-    let mut p24_indexes_a_statements = vec![Evaluation::new(
-        p24_bus_point.clone(),
-        p24_bus_eval_index_input_a,
-    )];
-    let mut p24_indexes_b_statements = vec![Evaluation::new(
-        p24_bus_point.clone(),
-        p24_bus_eval_index_input_b,
-    )];
-    let mut p24_indexes_res_statements = vec![Evaluation::new(
-        p24_bus_point.clone(),
-        p24_bus_eval_index_input_output,
-    )];
+    let mut poseidon_indexes_statements = [
+        (&p16_bus_point, p16_bus_eval_index_input_a),
+        (&p16_bus_point, p16_bus_eval_index_input_b),
+        (&p16_bus_point, p16_bus_eval_index_input_output),
+        (&p24_bus_point, p24_bus_eval_index_input_a),
+        (&p24_bus_point, p24_bus_eval_index_input_b),
+        (&p24_bus_point, p24_bus_eval_index_input_output),
+    ]
+    .iter()
+    .map(|(p, v)| vec![Evaluation::new((*p).clone(), *v)])
+    .collect::<Vec<_>>();
 
     let exec_air_extra_data = ExtraDataForBuses {
         bus_challenge,
@@ -447,18 +433,18 @@ pub fn verify_execution(
         // index opening for poseidon lookup
 
         // index opening for poseidon lookup
-        p16_indexes_a_statements.extend(vectorized_lookup_statements.on_indexes[0].clone());
-        p16_indexes_b_statements.extend(vectorized_lookup_statements.on_indexes[1].clone());
-        p16_indexes_res_statements.extend(vectorized_lookup_statements.on_indexes[2].clone());
+        poseidon_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[0].clone());
+        poseidon_indexes_statements[1].extend(vectorized_lookup_statements.on_indexes[1].clone());
+        poseidon_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[2].clone());
         // vectorized_lookup_statements.on_indexes[3] is proven via sumcheck below
-        p24_indexes_a_statements.extend(vectorized_lookup_statements.on_indexes[4].clone());
-        p24_indexes_a_statements.extend(
+        poseidon_indexes_statements[3].extend(vectorized_lookup_statements.on_indexes[4].clone());
+        poseidon_indexes_statements[3].extend(
             vectorized_lookup_statements.on_indexes[5]
                 .iter()
                 .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
         );
-        p24_indexes_b_statements.extend(vectorized_lookup_statements.on_indexes[6].clone());
-        p24_indexes_res_statements.extend(vectorized_lookup_statements.on_indexes[7].clone());
+        poseidon_indexes_statements[4].extend(vectorized_lookup_statements.on_indexes[6].clone());
+        poseidon_indexes_statements[5].extend(vectorized_lookup_statements.on_indexes[7].clone());
 
         let alpha = verifier_state.sample();
 
@@ -481,7 +467,7 @@ pub fn verify_execution(
             return Err(ProofError::InvalidProof);
         }
         let sc_res_index_value = verifier_state.next_extension_scalar()?;
-        p16_indexes_res_statements.push(Evaluation::new(
+        poseidon_indexes_statements[2].push(Evaluation::new(
             sc_eval.point.clone(),
             sc_res_index_value - EF::ONE,
         ));
@@ -540,13 +526,8 @@ pub fn verify_execution(
                     normal_lookup_statements_exec_indexes[2].clone(),
                 ]
                 .concat(), // exec memory address C
-                p16_indexes_a_statements,
-                p16_indexes_b_statements,
-                p16_indexes_res_statements,
-                p24_indexes_a_statements,
-                p24_indexes_b_statements,
-                p24_indexes_res_statements,
             ],
+            poseidon_indexes_statements,
             encapsulate_vec(p16_gkr.cubes_statements.split()),
             encapsulate_vec(p24_gkr.cubes_statements.split()),
             dot_product_statements,
