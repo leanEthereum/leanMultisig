@@ -126,7 +126,7 @@ pub fn prove_execution(
 
     let mut memory_statements = vec![];
     for (row, entry) in multilinear_evals_witness.iter().enumerate() {
-        add_memory_statements_for_dot_product_precompile(
+        add_memory_statements_for_multilinear_eval_precompile(
             entry,
             &vm_multilinear_evals,
             row,
@@ -180,12 +180,10 @@ pub fn prove_execution(
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        dot_products.base.iter().map(Vec::as_slice).collect(),
-        dot_product_computation_ext_to_base_helper
-            .sub_columns_to_commit
-            .iter()
-            .map(Vec::as_slice)
-            .collect(),
+        DotProductPrecompile::committed_columns(
+            &dot_products,
+            &dot_product_computation_ext_to_base_helper,
+        ),
     ]
     .concat();
 
@@ -311,7 +309,7 @@ pub fn prove_execution(
     };
 
     let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
-        prove_bus_for_air_table::<TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS>(
+        prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
             &mut prover_state,
             &dot_products,
             bus_challenge,
@@ -415,7 +413,7 @@ pub fn prove_execution(
                 &mut prover_state,
                 &DotProductPrecompile {},
                 dot_product_air_extra_data,
-                DOT_PRODUCT_UNIVARIATE_SKIPS,
+                UNIVARIATE_SKIPS,
                 &dot_products
                     .base
                     .iter()

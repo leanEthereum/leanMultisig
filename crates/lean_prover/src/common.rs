@@ -2,7 +2,7 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
 use p3_util::log2_ceil_usize;
 use poseidon_circuit::{GKRPoseidonResult, PoseidonGKRLayers, default_cube_layers};
-use sub_protocols::{ColDims, committed_dims_extension_from_base};
+use sub_protocols::ColDims;
 use vm_air::*;
 
 use crate::*;
@@ -11,7 +11,7 @@ use lean_vm::*;
 pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2;
 pub(crate) const N_COMMITED_CUBES_P24: usize = KOALABEAR_RC24_INTERNAL.len() - 2;
 
-pub fn get_base_dims(
+pub(crate) fn get_base_dims(
     n_cycles: usize,
     log_public_memory: usize,
     private_memory_len: usize,
@@ -53,13 +53,12 @@ pub fn get_base_dims(
             .iter()
             .map(|&c| ColDims::padded(n_poseidons_24, c))
             .collect::<Vec<_>>(), // commited cubes for poseidon24
-        DotProductPrecompile::committed_dims_f(n_rows_table_dot_products),
-        committed_dims_extension_from_base(vec![n_rows_table_dot_products], vec![EF::ZERO]), // dot product: computation
+        DotProductPrecompile::committed_dims(n_rows_table_dot_products),
     ]
     .concat()
 }
 
-pub fn normal_lookup_into_memory_initial_statements(
+pub(crate) fn normal_lookup_into_memory_initial_statements(
     exec_air_point: &MultilinearPoint<EF>,
     exec_evals: &[EF],
     dot_product_air_point: &MultilinearPoint<EF>,
@@ -91,7 +90,7 @@ pub fn normal_lookup_into_memory_initial_statements(
     .concat()
 }
 
-pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
+pub(crate) fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
     let encoded_bytecode = padd_with_zero_to_next_power_of_two(
         &bytecode
             .instructions
@@ -102,7 +101,7 @@ pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<
     fold_multilinear_chunks(&encoded_bytecode, folding_challenges)
 }
 
-pub fn initial_and_final_pc_conditions(
+pub(crate) fn initial_and_final_pc_conditions(
     bytecode: &Bytecode,
     log_n_cycles: usize,
 ) -> (Evaluation<EF>, Evaluation<EF>) {
@@ -114,7 +113,7 @@ pub fn initial_and_final_pc_conditions(
     (initial_pc_statement, final_pc_statement)
 }
 
-pub fn add_memory_statements_for_dot_product_precompile(
+pub(crate) fn add_memory_statements_for_multilinear_eval_precompile(
     entry: &WitnessMultilinearEval,
     trace: &PrecompileTrace,
     row: usize,
@@ -178,7 +177,7 @@ pub fn add_memory_statements_for_dot_product_precompile(
     Ok(())
 }
 
-pub fn default_poseidon_indexes() -> Vec<usize> {
+pub(crate) fn default_poseidon_indexes() -> Vec<usize> {
     [
         vec![
             ZERO_VEC_PTR,
@@ -200,7 +199,7 @@ pub fn default_poseidon_indexes() -> Vec<usize> {
     .concat()
 }
 
-pub fn poseidon_lookup_statements(
+pub(crate) fn poseidon_lookup_statements(
     p16_gkr: &GKRPoseidonResult,
     p24_gkr: &GKRPoseidonResult,
 ) -> Vec<Vec<MultiEvaluation<EF>>> {
@@ -240,7 +239,7 @@ pub fn poseidon_lookup_statements(
     ]
 }
 
-pub fn finger_print<F: Field, EF: ExtensionField<F>>(
+pub(crate) fn finger_print<F: Field, EF: ExtensionField<F>>(
     table: Table,
     data: &[F],
     challenge: EF,

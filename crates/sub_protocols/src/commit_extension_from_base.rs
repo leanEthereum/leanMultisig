@@ -11,14 +11,12 @@ pub struct ExtensionCommitmentFromBaseProver<EF: ExtensionField<PF<EF>>> {
 }
 
 pub fn committed_dims_extension_from_base<EF: ExtensionField<PF<EF>>>(
-    non_zero_heights: Vec<usize>,
+    non_zero_height: usize,
     default_values: Vec<EF>,
 ) -> Vec<ColDims<PF<EF>>> {
-    assert_eq!(non_zero_heights.len(), default_values.len());
-    non_zero_heights
+    default_values
         .into_iter()
-        .zip(default_values)
-        .flat_map(|(non_zero_height, default_value)| {
+        .flat_map(|default_value| {
             EF::as_basis_coefficients_slice(&default_value)
                 .iter()
                 .map(|&d| ColDims::padded(non_zero_height, d))

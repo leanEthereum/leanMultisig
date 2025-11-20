@@ -81,7 +81,7 @@ pub fn verify_execution(
 
     let mut memory_statements = vec![];
     for (row, entry) in multilinear_evals_witness.iter().enumerate() {
-        add_memory_statements_for_dot_product_precompile(
+        add_memory_statements_for_multilinear_eval_precompile(
             entry,
             &vm_multilinear_evals,
             row,
@@ -223,7 +223,10 @@ pub fn verify_execution(
             dot_product_bus_point,
             dot_product_bus_selector_value,
             dot_product_bus_data_value,
-        ) = verify_gkr_quotient::<_, 2>(&mut verifier_state, table_dot_products_log_n_rows)?;
+        ) = verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
+            &mut verifier_state,
+            table_dot_products_log_n_rows,
+        )?;
         let dot_product_bus_beta = verifier_state.sample();
         let dot_product_bus_final_value =
             (-dot_product_bus_selector_value) + dot_product_bus_beta * dot_product_bus_data_value; // Note the "-" sign here !!
@@ -328,7 +331,7 @@ pub fn verify_execution(
         &mut verifier_state,
         &DotProductPrecompile {},
         dot_product_air_extra_data,
-        DOT_PRODUCT_UNIVARIATE_SKIPS,
+        UNIVARIATE_SKIPS,
         table_dot_products_log_n_rows,
         &DotProductPrecompile::air_padding_row(),
         Some(dot_product_bus_virtual_statement),

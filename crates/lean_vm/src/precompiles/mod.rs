@@ -15,7 +15,9 @@ pub use poseidon_24::*;
 
 mod multilinear_eval;
 pub use multilinear_eval::*;
-use sub_protocols::{ColDims, ExtensionCommitmentFromBaseProver};
+use sub_protocols::{
+    ColDims, ExtensionCommitmentFromBaseProver, committed_dims_extension_from_base,
+};
 
 pub type ColIndex = usize;
 
@@ -156,11 +158,19 @@ pub trait ModularPrecompile: Air {
             .map(|i| Self::padding_row()[i])
             .collect()
     }
-    fn committed_dims_f(n_rows: usize) -> Vec<ColDims<F>> {
-        Self::commited_columns_f()
+    fn committed_dims(n_rows: usize) -> Vec<ColDims<F>> {
+        let mut dims = Self::commited_columns_f()
             .iter()
             .map(|&c| ColDims::padded(n_rows, Self::padding_row()[c].as_base().unwrap()))
-            .collect()
+            .collect::<Vec<_>>();
+        dims.extend(committed_dims_extension_from_base(
+            n_rows,
+            Self::commited_columns_ef()
+                .iter()
+                .map(|&c| Self::padding_row()[Self::n_columns_f() + c])
+                .collect(),
+        ));
+        dims
     }
     fn committed_statements(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -177,6 +187,24 @@ pub trait ModularPrecompile: Air {
         statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
 
         statements
+    }
+    fn committed_columns<'a>(
+        trace: &'a PrecompileTrace,
+        computation_ext_to_base_helper: &'a ExtensionCommitmentFromBaseProver<EF>,
+    ) -> Vec<&'a [PF<EF>]> {
+        // base field committed columns
+        let mut cols = Self::commited_columns_f()
+            .iter()
+            .map(|&c| &trace.base[c][..])
+            .collect::<Vec<_>>();
+        // convert extension field committed columns to base field
+        cols.extend(
+            computation_ext_to_base_helper
+                .sub_columns_to_commit
+                .iter()
+                .map(Vec::as_slice),
+        );
+        cols
     }
 }
 
