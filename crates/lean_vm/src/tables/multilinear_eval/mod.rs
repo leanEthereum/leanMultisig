@@ -71,7 +71,11 @@ impl TableT for MultilinearEvalPrecompile {
         }]
     }
 
-    fn padding_row(&self) -> Vec<EF> {
+    fn padding_row_f(&self) -> Vec<PF<EF>> {
+        unreachable!()
+    }
+
+    fn padding_row_ef(&self) -> Vec<EF> {
         unreachable!()
     }
 
@@ -123,16 +127,19 @@ impl TableT for MultilinearEvalPrecompile {
 
 impl Air for MultilinearEvalPrecompile {
     type ExtraData = ();
-    fn n_columns_f(&self) -> usize {
+    fn n_columns_f_air(&self) -> usize {
         4
     }
-    fn n_columns_ef(&self) -> usize {
+    fn n_columns_ef_air(&self) -> usize {
         0
     }
     fn degree(&self) -> usize {
         unreachable!()
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
+    fn down_column_indexes_f(&self) -> Vec<usize> {
+        unreachable!()
+    }
+    fn down_column_indexes_ef(&self) -> Vec<usize> {
         unreachable!()
     }
     fn n_constraints(&self) -> usize {

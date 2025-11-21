@@ -9,8 +9,8 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    CodeAddress, ENDING_PC, HintExecutionContext, N_PRECOMPILES, TableTrace, STARTING_PC,
-    SourceLineNumber, TABLE_POSEIDON_16, TABLE_POSEIDON_24, Table,
+    CodeAddress, ENDING_PC, HintExecutionContext, N_PRECOMPILES, STARTING_PC, SourceLineNumber,
+    TABLE_POSEIDON_16, TABLE_POSEIDON_24, Table, TableTrace,
 };
 use multilinear_toolkit::prelude::*;
 use std::array;

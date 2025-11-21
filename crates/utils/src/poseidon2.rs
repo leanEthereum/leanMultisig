@@ -38,9 +38,7 @@ pub(crate) fn get_poseidon16() -> &'static Poseidon16 {
 
 #[inline(always)]
 pub fn get_poseidon_16_of_zero() -> &'static [KoalaBear; 16] {
-    POSEIDON_16_OF_ZERO.get_or_init(|| {
-        poseidon16_permute([KoalaBear::default(); 16])
-    })
+    POSEIDON_16_OF_ZERO.get_or_init(|| poseidon16_permute([KoalaBear::default(); 16]))
 }
 
 #[inline(always)]
@@ -79,7 +77,5 @@ pub(crate) fn get_poseidon24() -> &'static Poseidon24 {
 
 #[inline(always)]
 pub fn get_poseidon_24_of_zero() -> &'static [KoalaBear; 24] {
-    POSEIDON_24_OF_ZERO.get_or_init(|| {
-        poseidon24_permute([KoalaBear::default(); 24])
-    })
+    POSEIDON_24_OF_ZERO.get_or_init(|| poseidon24_permute([KoalaBear::default(); 24]))
 }

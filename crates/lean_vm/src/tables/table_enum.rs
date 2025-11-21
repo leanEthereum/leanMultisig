@@ -1,4 +1,4 @@
-use multilinear_toolkit::prelude::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::{PF, PrimeCharacteristicRing};
 use p3_air::Air;
 
 use crate::*;
@@ -40,11 +40,11 @@ impl Table {
     }
     pub fn index(&self) -> usize {
         match self {
-            Self::Execution(_) => TABLE_EXECUTION,
             Self::DotProduct(_) => TABLE_DOT_PRODUCT,
             Self::Poseidon16(_) => TABLE_POSEIDON_16,
             Self::Poseidon24(_) => TABLE_POSEIDON_24,
             Self::MultilinearEval(_) => TABLE_MULTILINEAR_EVAL,
+            Self::Execution(_) => TABLE_EXECUTION,
         }
     }
     pub fn from_index(index: usize) -> Self {
@@ -53,6 +53,7 @@ impl Table {
             TABLE_POSEIDON_16 => Self::poseidon16(),
             TABLE_POSEIDON_24 => Self::poseidon24(),
             TABLE_MULTILINEAR_EVAL => Self::multilinear_eval(),
+            TABLE_EXECUTION => Self::execution(),
             _ => panic!("Invalid table index: {}", index),
         }
     }
@@ -131,13 +132,22 @@ impl TableT for Table {
             Self::Execution(p) => p.buses(),
         }
     }
-    fn padding_row(&self) -> Vec<EF> {
+    fn padding_row_f(&self) -> Vec<PF<EF>> {
         match self {
-            Self::DotProduct(p) => p.padding_row(),
-            Self::Poseidon16(p) => p.padding_row(),
-            Self::Poseidon24(p) => p.padding_row(),
-            Self::MultilinearEval(p) => p.padding_row(),
-            Self::Execution(p) => p.padding_row(),
+            Self::DotProduct(p) => p.padding_row_f(),
+            Self::Poseidon16(p) => p.padding_row_f(),
+            Self::Poseidon24(p) => p.padding_row_f(),
+            Self::MultilinearEval(p) => p.padding_row_f(),
+            Self::Execution(p) => p.padding_row_f(),
+        }
+    }
+    fn padding_row_ef(&self) -> Vec<EF> {
+        match self {
+            Self::DotProduct(p) => p.padding_row_ef(),
+            Self::Poseidon16(p) => p.padding_row_ef(),
+            Self::Poseidon24(p) => p.padding_row_ef(),
+            Self::MultilinearEval(p) => p.padding_row_ef(),
+            Self::Execution(p) => p.padding_row_ef(),
         }
     }
     fn execute(
@@ -156,6 +166,24 @@ impl TableT for Table {
             Self::Execution(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
         }
     }
+    fn n_columns_f_total(&self) -> usize {
+        match self {
+            Self::DotProduct(p) => p.n_columns_f_total(),
+            Self::Poseidon16(p) => p.n_columns_f_total(),
+            Self::Poseidon24(p) => p.n_columns_f_total(),
+            Self::MultilinearEval(p) => p.n_columns_f_total(),
+            Self::Execution(p) => p.n_columns_f_total(),
+        }
+    }
+    fn n_columns_ef_total(&self) -> usize {
+        match self {
+            Self::DotProduct(p) => p.n_columns_ef_total(),
+            Self::Poseidon16(p) => p.n_columns_ef_total(),
+            Self::Poseidon24(p) => p.n_columns_ef_total(),
+            Self::MultilinearEval(p) => p.n_columns_ef_total(),
+            Self::Execution(p) => p.n_columns_ef_total(),
+        }
+    }
 }
 
 impl Air for Table {
@@ -169,22 +197,22 @@ impl Air for Table {
             Self::Execution(p) => p.degree(),
         }
     }
-    fn n_columns_f(&self) -> usize {
+    fn n_columns_f_air(&self) -> usize {
         match self {
-            Self::DotProduct(p) => p.n_columns_f(),
-            Self::Poseidon16(p) => p.n_columns_f(),
-            Self::Poseidon24(p) => p.n_columns_f(),
-            Self::MultilinearEval(p) => p.n_columns_f(),
-            Self::Execution(p) => p.n_columns_f(),
+            Self::DotProduct(p) => p.n_columns_f_air(),
+            Self::Poseidon16(p) => p.n_columns_f_air(),
+            Self::Poseidon24(p) => p.n_columns_f_air(),
+            Self::MultilinearEval(p) => p.n_columns_f_air(),
+            Self::Execution(p) => p.n_columns_f_air(),
         }
     }
-    fn n_columns_ef(&self) -> usize {
+    fn n_columns_ef_air(&self) -> usize {
         match self {
-            Self::DotProduct(p) => p.n_columns_ef(),
-            Self::Poseidon16(p) => p.n_columns_ef(),
-            Self::Poseidon24(p) => p.n_columns_ef(),
-            Self::MultilinearEval(p) => p.n_columns_ef(),
-            Self::Execution(p) => p.n_columns_ef(),
+            Self::DotProduct(p) => p.n_columns_ef_air(),
+            Self::Poseidon16(p) => p.n_columns_ef_air(),
+            Self::Poseidon24(p) => p.n_columns_ef_air(),
+            Self::MultilinearEval(p) => p.n_columns_ef_air(),
+            Self::Execution(p) => p.n_columns_ef_air(),
         }
     }
     fn n_constraints(&self) -> usize {
@@ -196,13 +224,22 @@ impl Air for Table {
             Self::Execution(p) => p.n_constraints(),
         }
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
+    fn down_column_indexes_f(&self) -> Vec<usize> {
         match self {
-            Self::DotProduct(p) => p.down_column_indexes(),
-            Self::Poseidon16(p) => p.down_column_indexes(),
-            Self::Poseidon24(p) => p.down_column_indexes(),
-            Self::MultilinearEval(p) => p.down_column_indexes(),
-            Self::Execution(p) => p.down_column_indexes(),
+            Self::DotProduct(p) => p.down_column_indexes_f(),
+            Self::Poseidon16(p) => p.down_column_indexes_f(),
+            Self::Poseidon24(p) => p.down_column_indexes_f(),
+            Self::MultilinearEval(p) => p.down_column_indexes_f(),
+            Self::Execution(p) => p.down_column_indexes_f(),
+        }
+    }
+    fn down_column_indexes_ef(&self) -> Vec<usize> {
+        match self {
+            Self::DotProduct(p) => p.down_column_indexes_ef(),
+            Self::Poseidon16(p) => p.down_column_indexes_ef(),
+            Self::Poseidon24(p) => p.down_column_indexes_ef(),
+            Self::MultilinearEval(p) => p.down_column_indexes_ef(),
+            Self::Execution(p) => p.down_column_indexes_ef(),
         }
     }
     fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {

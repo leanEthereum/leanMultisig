@@ -378,7 +378,7 @@ pub fn prove_execution(
     .map(|v| vec![Evaluation::new(p24_bus_point.clone(), *v)])
     .collect::<Vec<_>>();
 
-    let (exec_air_point, exec_evals_to_prove) = prove_table_air(
+    let (exec_air_point, exec_evals_to_prove_f, exec_evals_to_prove_ef) = prove_table_air(
         &mut prover_state,
         &ExecutionTable,
         bus_challenge,
@@ -388,15 +388,16 @@ pub fn prove_execution(
         exec_bus_virtual_statement,
     );
 
-    let (dot_product_air_point, dot_product_evals_to_prove) = prove_table_air(
-        &mut prover_state,
-        &DotProductPrecompile,
-        bus_challenge,
-        fingerprint_challenge,
-        dot_product_bus_beta,
-        &traces[TABLE_DOT_PRODUCT],
-        dot_product_bus_virtual_statement,
-    );
+    let (dot_product_air_point, dot_product_evals_to_prove_f, dot_product_evals_to_prove_ef) =
+        prove_table_air(
+            &mut prover_state,
+            &DotProductPrecompile,
+            bus_challenge,
+            fingerprint_challenge,
+            dot_product_bus_beta,
+            &traces[TABLE_DOT_PRODUCT],
+            dot_product_bus_virtual_statement,
+        );
 
     let random_point_p16 = MultilinearPoint(prover_state.sample_vec(log_n_p16));
     let p16_gkr = prove_poseidon_gkr(
@@ -423,7 +424,7 @@ pub fn prove_execution(
 
     let bytecode_lookup_claim_1 = Evaluation::new(
         exec_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(&exec_evals_to_prove[..N_INSTRUCTION_COLUMNS])
+        padd_with_zero_to_next_power_of_two(&exec_evals_to_prove_f[..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
     let bytecode_poly_eq_point = eval_eq(&exec_air_point);
@@ -467,9 +468,16 @@ pub fn prove_execution(
         ]
         .concat(),
         [
-            Table::execution().normal_lookups_statements(&exec_air_point, &exec_evals_to_prove),
-            Table::dot_product()
-                .normal_lookups_statements(&dot_product_air_point, &dot_product_evals_to_prove),
+            Table::execution().normal_lookups_statements(
+                &exec_air_point,
+                &exec_evals_to_prove_f,
+                &exec_evals_to_prove_ef,
+            ),
+            Table::dot_product().normal_lookups_statements(
+                &dot_product_air_point,
+                &dot_product_evals_to_prove_f,
+                &dot_product_evals_to_prove_ef,
+            ),
         ]
         .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -619,8 +627,9 @@ pub fn prove_execution(
 
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
 
-    let exec_air_statement =
-        |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_prove[col_index]);
+    let exec_air_statement = |col_index: usize| {
+        Evaluation::new(exec_air_point.clone(), exec_evals_to_prove_f[col_index])
+    };
 
     let normal_lookup_statements_exec_indexes = normal_lookup_statements
         .on_indexes
@@ -630,7 +639,7 @@ pub fn prove_execution(
     let dot_product_statements = Table::dot_product().committed_statements_prover(
         &mut prover_state,
         &dot_product_air_point,
-        &dot_product_evals_to_prove,
+        &dot_product_evals_to_prove_f,
         &dot_product_computation_ext_to_base_helper,
         &mut normal_lookup_statements.on_indexes,
     );
@@ -808,7 +817,7 @@ fn prove_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
     bus_beta: EF,
     trace: &TableTrace,
     bus_virtual_statement: MultiEvaluation<EF>,
-) -> (MultilinearPoint<EF>, Vec<EF>) {
+) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
     let dot_product_air_extra_data = ExtraDataForBuses {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
@@ -821,9 +830,10 @@ fn prove_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
             t,
             dot_product_air_extra_data,
             UNIVARIATE_SKIPS,
-            &trace.base.iter().map(Vec::as_slice).collect::<Vec<_>>(),
-            &trace.ext.iter().map(Vec::as_slice).collect::<Vec<_>>(),
-            &t.air_padding_row(),
+            &trace.base[..t.n_columns_f_air()],
+            &trace.ext[..t.n_columns_ef_air()],
+            &t.air_padding_row_f(),
+            &t.air_padding_row_ef(),
             Some(bus_virtual_statement),
             true,
         )

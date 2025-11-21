@@ -65,10 +65,10 @@ pub struct TableTrace {
 }
 
 impl TableTrace {
-    pub fn new<A: Air>(air: &A) -> Self {
+    pub fn new<A: TableT>(air: &A) -> Self {
         Self {
-            base: vec![Vec::new(); air.n_columns_f()],
-            ext: vec![Vec::new(); air.n_columns_ef()],
+            base: vec![Vec::new(); air.n_columns_f_total()],
+            ext: vec![Vec::new(); air.n_columns_ef_total()],
             padding_len: 0,
         }
     }
@@ -128,6 +128,8 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
     }
 }
 
+/// Convention: The "AIR" columns are at the start (both for base and extension columns).
+/// (Some columns may not appear in the AIR)
 pub trait TableT: Air {
     fn name(&self) -> &'static str;
     fn identifier(&self) -> Table;
@@ -138,6 +140,8 @@ pub trait TableT: Air {
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory>;
     fn buses(&self) -> Vec<Bus>;
+    fn padding_row_f(&self) -> Vec<F>;
+    fn padding_row_ef(&self) -> Vec<EF>;
     fn execute(
         &self,
         arg_a: F,
@@ -146,26 +150,41 @@ pub trait TableT: Air {
         aux: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError>;
-    fn padding_row(&self) -> Vec<EF>;
 
-    fn air_padding_row(&self) -> Vec<EF> {
+    fn n_columns_f_total(&self) -> usize {
+        // by default, we assume all the columns are used in AIR
+        self.n_columns_f_air()
+    }
+    fn n_columns_ef_total(&self) -> usize {
+        // by default, we assume all the columns are used in AIR
+        self.n_columns_ef_air()
+    }
+
+    fn air_padding_row_f(&self) -> Vec<F> {
         // only the shited_columns
-        self.down_column_indexes()
+        self.down_column_indexes_f()
             .into_iter()
-            .map(|i| self.padding_row()[i])
+            .map(|i| self.padding_row_f()[i])
+            .collect()
+    }
+    fn air_padding_row_ef(&self) -> Vec<EF> {
+        // only the shited_columns
+        self.down_column_indexes_ef()
+            .into_iter()
+            .map(|i| self.padding_row_ef()[i])
             .collect()
     }
     fn committed_dims(&self, n_rows: usize) -> Vec<ColDims<F>> {
         let mut dims = self
             .commited_columns_f()
             .iter()
-            .map(|&c| ColDims::padded(n_rows, self.padding_row()[c].as_base().unwrap()))
+            .map(|&c| ColDims::padded(n_rows, self.padding_row_f()[c].as_base().unwrap()))
             .collect::<Vec<_>>();
         dims.extend(committed_dims_extension_from_base(
             n_rows,
             self.commited_columns_ef()
                 .iter()
-                .map(|&c| self.padding_row()[self.n_columns_f() + c])
+                .map(|&c| self.padding_row_ef()[c])
                 .collect(),
         ));
         dims
@@ -174,16 +193,16 @@ pub trait TableT: Air {
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         air_point: &MultilinearPoint<EF>,
-        air_values: &[EF],
+        air_values_f: &[EF],
         ext_commitment_helper: &ExtensionCommitmentFromBaseProver<EF>,
         normal_lookup_statements_on_indexes: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> Vec<Vec<Evaluation<EF>>> {
-        assert_eq!(air_values.len(), self.n_columns());
+        assert_eq!(air_values_f.len(), self.n_columns_f_air());
 
         let mut statements = self
             .commited_columns_f()
             .iter()
-            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values[c].clone())])
+            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c].clone())])
             .collect::<Vec<_>>();
         statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
 
@@ -200,15 +219,17 @@ pub trait TableT: Air {
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         air_point: &MultilinearPoint<EF>,
-        air_values: &[EF],
+        air_values_f: &[EF],
+        air_values_ef: &[EF],
         normal_lookup_statements_on_indexes: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
-        assert_eq!(air_values.len(), self.n_columns());
+        assert_eq!(air_values_f.len(), self.n_columns_f_air());
+        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
 
         let mut statements = self
             .commited_columns_f()
             .iter()
-            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values[c].clone())])
+            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c].clone())])
             .collect::<Vec<_>>();
 
         statements.extend(ExtensionCommitmentFromBaseVerifier::after_commitment(
@@ -217,7 +238,7 @@ pub trait TableT: Air {
                 air_point.clone(),
                 self.commited_columns_ef()
                     .iter()
-                    .map(|&c| air_values[self.n_columns_f() + c].clone())
+                    .map(|&c| air_values_ef[c].clone())
                     .collect::<Vec<_>>(),
             ),
         )?);
@@ -233,21 +254,23 @@ pub trait TableT: Air {
     fn normal_lookups_statements(
         &self,
         air_point: &MultilinearPoint<EF>,
-        air_values: &[EF],
+        air_values_f: &[EF],
+        air_values_ef: &[EF],
     ) -> Vec<Vec<Evaluation<EF>>> {
-        assert_eq!(air_values.len(), self.n_columns());
+        assert_eq!(air_values_f.len(), self.n_columns_f_air());
+        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
 
         let mut statements = Vec::new();
         for lookup in self.normal_lookups_f() {
             statements.push(vec![Evaluation::new(
                 air_point.clone(),
-                air_values[lookup.values].clone(),
+                air_values_f[lookup.values].clone(),
             )]);
         }
         for lookup in self.normal_lookups_ef() {
             statements.push(vec![Evaluation::new(
                 air_point.clone(),
-                air_values[lookup.values + self.n_columns_f()].clone(),
+                air_values_ef[lookup.values].clone(),
             )]);
         }
         statements
@@ -322,11 +345,7 @@ pub trait TableT: Air {
     fn vector_lookup_default_indexes(&self) -> Vec<usize> {
         let mut default_indexes = Vec::new();
         for lookup in self.vector_lookups() {
-            default_indexes.push(
-                <EF as ExtensionField<F>>::as_base(&self.padding_row()[lookup.index])
-                    .unwrap()
-                    .to_usize(),
-            );
+            default_indexes.push(self.padding_row_f()[lookup.index].to_usize());
         }
         default_indexes
     }

@@ -83,27 +83,31 @@ impl TableT for Poseidon16Precompile {
         }]
     }
 
-    fn padding_row(&self) -> Vec<EF> {
+    fn padding_row_f(&self) -> Vec<F> {
         let mut poseidon_of_zero = *get_poseidon_16_of_zero();
         if POSEIDON_16_DEFAULT_COMPRESSION {
             poseidon_of_zero[8..].fill(F::ZERO);
         }
         [
             vec![
-                EF::from_usize(ZERO_VEC_PTR),
-                EF::from_usize(ZERO_VEC_PTR),
-                EF::from_usize(POSEIDON_16_NULL_HASH_PTR),
-                EF::from_usize(if POSEIDON_16_DEFAULT_COMPRESSION {
+                F::from_usize(ZERO_VEC_PTR),
+                F::from_usize(ZERO_VEC_PTR),
+                F::from_usize(POSEIDON_16_NULL_HASH_PTR),
+                F::from_usize(if POSEIDON_16_DEFAULT_COMPRESSION {
                     ZERO_VEC_PTR
                 } else {
                     1 + POSEIDON_16_NULL_HASH_PTR
                 }),
-                EF::from_bool(POSEIDON_16_DEFAULT_COMPRESSION),
+                F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION),
             ],
-            vec![EF::ZERO; 16],
-            poseidon_of_zero.iter().map(|&x| EF::from(x)).collect(),
+            vec![F::ZERO; 16],
+            poseidon_of_zero.to_vec(),
         ]
         .concat()
+    }
+
+    fn padding_row_ef(&self) -> Vec<EF> {
+        vec![]
     }
 
     #[inline(always)]
@@ -170,16 +174,19 @@ impl TableT for Poseidon16Precompile {
 
 impl Air for Poseidon16Precompile {
     type ExtraData = ();
-    fn n_columns_f(&self) -> usize {
+    fn n_columns_f_air(&self) -> usize {
         5 + 16 * 2
     }
-    fn n_columns_ef(&self) -> usize {
+    fn n_columns_ef_air(&self) -> usize {
         0
     }
     fn degree(&self) -> usize {
         unreachable!()
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
+    fn down_column_indexes_f(&self) -> Vec<usize> {
+        unreachable!()
+    }
+    fn down_column_indexes_ef(&self) -> Vec<usize> {
         unreachable!()
     }
     fn n_constraints(&self) -> usize {

@@ -83,21 +83,22 @@ impl TableT for Poseidon24Precompile {
         }]
     }
 
-    fn padding_row(&self) -> Vec<EF> {
+    fn padding_row_f(&self) -> Vec<F> {
         [
             vec![
-                EF::from_usize(ZERO_VEC_PTR),
-                EF::from_usize(ZERO_VEC_PTR + 1),
-                EF::from_usize(ZERO_VEC_PTR),
-                EF::from_usize(POSEIDON_24_NULL_HASH_PTR),
+                F::from_usize(ZERO_VEC_PTR),
+                F::from_usize(ZERO_VEC_PTR + 1),
+                F::from_usize(ZERO_VEC_PTR),
+                F::from_usize(POSEIDON_24_NULL_HASH_PTR),
             ],
-            vec![EF::ZERO; 24],
-            get_poseidon_24_of_zero()[16..]
-                .iter()
-                .map(|&x| EF::from(x))
-                .collect(),
+            vec![F::ZERO; 24],
+            get_poseidon_24_of_zero()[16..].to_vec(),
         ]
         .concat()
+    }
+
+    fn padding_row_ef(&self) -> Vec<EF> {
+        vec![]
     }
 
     #[inline(always)]
@@ -154,16 +155,19 @@ impl TableT for Poseidon24Precompile {
 
 impl Air for Poseidon24Precompile {
     type ExtraData = ();
-    fn n_columns_f(&self) -> usize {
+    fn n_columns_f_air(&self) -> usize {
         4 + 24 + 8
     }
-    fn n_columns_ef(&self) -> usize {
+    fn n_columns_ef_air(&self) -> usize {
         0
     }
     fn degree(&self) -> usize {
         unreachable!()
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
+    fn down_column_indexes_f(&self) -> Vec<usize> {
+        unreachable!()
+    }
+    fn down_column_indexes_ef(&self) -> Vec<usize> {
         unreachable!()
     }
     fn n_constraints(&self) -> usize {

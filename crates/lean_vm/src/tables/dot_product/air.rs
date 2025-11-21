@@ -38,10 +38,10 @@ pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize =
 impl Air for DotProductPrecompile {
     type ExtraData = ExtraDataForBuses<EF>;
 
-    fn n_columns_f(&self) -> usize {
+    fn n_columns_f_air(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS_F
     }
-    fn n_columns_ef(&self) -> usize {
+    fn n_columns_ef_air(&self) -> usize {
         DOT_PRODUCT_AIR_N_COLUMNS_EF
     }
     fn degree(&self) -> usize {
@@ -50,14 +50,16 @@ impl Air for DotProductPrecompile {
     fn n_constraints(&self) -> usize {
         8
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
+    fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![
             DOT_PRODUCT_AIR_COL_START_FLAG,
             DOT_PRODUCT_AIR_COL_LEN,
             DOT_PRODUCT_AIR_COL_INDEX_A,
             DOT_PRODUCT_AIR_COL_INDEX_B,
-            DOT_PRODUCT_AIR_N_COLUMNS_F + DOT_PRODUCT_AIR_COL_COMPUTATION,
         ]
+    }
+    fn down_column_indexes_ef(&self) -> Vec<usize> {
+        vec![DOT_PRODUCT_AIR_COL_COMPUTATION]
     }
 
     #[inline]

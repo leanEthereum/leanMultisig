@@ -37,17 +37,20 @@ pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
 impl Air for ExecutionTable {
     type ExtraData = ExtraDataForBuses<EF>;
 
-    fn n_columns_f(&self) -> usize {
+    fn n_columns_f_air(&self) -> usize {
         N_EXEC_AIR_COLUMNS
     }
-    fn n_columns_ef(&self) -> usize {
+    fn n_columns_ef_air(&self) -> usize {
         0
     }
     fn degree(&self) -> usize {
         5
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
+    fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![COL_INDEX_PC, COL_INDEX_FP]
+    }
+    fn down_column_indexes_ef(&self) -> Vec<usize> {
+        vec![]
     }
     fn n_constraints(&self) -> usize {
         16

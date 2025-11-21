@@ -10,9 +10,10 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     mut extra_data: A::ExtraData,
     univariate_skips: usize,
     log_n_rows: usize,
-    last_row: &[EF],
+    last_row_f: &[PF<EF>],
+    last_row_ef: &[EF],
     virtual_column_statements: Option<MultiEvaluation<EF>>, // point should be randomness generated after committing to the columns
-) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError>
+) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError>
 where
     A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
 {
@@ -55,18 +56,17 @@ where
         .map(|s| s.evaluate(outer_statement.point[0]))
         .collect::<Vec<_>>();
 
-    let mut inner_sums = verifier_state
-        .next_extension_scalars_vec(air.n_columns() + air.down_column_indexes().len())?;
+    let mut inner_sums = verifier_state.next_extension_scalars_vec(
+        air.n_columns_air()
+            + air.down_column_indexes_f().len()
+            + air.down_column_indexes_ef().len(),
+    )?;
 
-    let n_columns_down_f = air
-        .down_column_indexes()
-        .iter()
-        .filter(|&&i| i < air.n_columns_f())
-        .count();
+    let n_columns_down_f = air.down_column_indexes_f().len();
     let constraint_evals = SumcheckComputation::eval_extension(
         air,
-        &inner_sums[..air.n_columns_f() + n_columns_down_f],
-        &inner_sums[air.n_columns_f() + n_columns_down_f..],
+        &inner_sums[..air.n_columns_f_air() + n_columns_down_f],
+        &inner_sums[air.n_columns_f_air() + n_columns_down_f..],
         &extra_data,
     );
 
@@ -81,51 +81,70 @@ where
     }
 
     inner_sums = [
-        inner_sums[..air.n_columns_f()].to_vec(),
-        inner_sums[air.n_columns_f() + n_columns_down_f..][..air.n_columns_ef()].to_vec(),
-        inner_sums[air.n_columns_f()..][..n_columns_down_f].to_vec(),
-        inner_sums[air.n_columns_f() + n_columns_down_f + air.n_columns_ef()..].to_vec(),
+        inner_sums[..air.n_columns_f_air()].to_vec(),
+        inner_sums[air.n_columns_f_air() + n_columns_down_f..][..air.n_columns_ef_air()].to_vec(),
+        inner_sums[air.n_columns_f_air()..][..n_columns_down_f].to_vec(),
+        inner_sums[air.n_columns_f_air() + n_columns_down_f + air.n_columns_ef_air()..].to_vec(),
     ]
     .concat();
 
     open_columns(
         verifier_state,
-        air.n_columns(),
+        air.n_columns_f_air(),
+        air.n_columns_ef_air(),
         univariate_skips,
-        &air.down_column_indexes(),
+        &air.down_column_indexes_f(),
+        &air.down_column_indexes_ef(),
         inner_sums,
         &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
         &outer_selector_evals,
         log_n_rows,
-        last_row,
+        last_row_f,
+        last_row_ef,
     )
 }
 
 #[allow(clippy::too_many_arguments)] // TODO
 fn open_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    n_columns: usize,
+    n_columns_f: usize,
+    n_columns_ef: usize,
     univariate_skips: usize,
-    columns_with_shift: &[usize],
+    columns_with_shift_f: &[usize],
+    columns_with_shift_ef: &[usize],
     mut evals_up_and_down: Vec<EF>,
     outer_sumcheck_challenge: &Evaluation<EF>,
     outer_selector_evals: &[EF],
     log_n_rows: usize,
-    last_row: &[EF],
-) -> Result<(MultilinearPoint<EF>, Vec<EF>), ProofError> {
-    assert_eq!(n_columns + last_row.len(), evals_up_and_down.len());
+    last_row_f: &[PF<EF>],
+    last_row_ef: &[EF],
+) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError> {
+    let n_columns = n_columns_f + n_columns_ef;
+    assert_eq!(
+        n_columns + last_row_f.len() + last_row_ef.len(),
+        evals_up_and_down.len()
+    );
     let last_row_selector = outer_selector_evals[(1 << univariate_skips) - 1]
         * outer_sumcheck_challenge
             .point
             .iter()
             .copied()
             .product::<EF>();
-    for (&last_row_value, down_col_eval) in last_row.iter().zip(&mut evals_up_and_down[n_columns..])
+    for (&last_row_value, down_col_eval) in
+        last_row_f.iter().zip(&mut evals_up_and_down[n_columns..])
     {
-        *down_col_eval -= last_row_value * last_row_selector;
+        *down_col_eval -= last_row_selector * last_row_value;
+    }
+    for (&last_row_value, down_col_eval) in last_row_ef
+        .iter()
+        .zip(&mut evals_up_and_down[n_columns + last_row_f.len()..])
+    {
+        *down_col_eval -= last_row_selector * last_row_value;
     }
 
-    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns + last_row.len()));
+    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(
+        n_columns + last_row_f.len() + last_row_ef.len(),
+    ));
 
     let eval_eq_batching_scalars = eval_eq(&batching_scalars);
     let batching_scalars_up = &eval_eq_batching_scalars[..n_columns];
@@ -163,11 +182,26 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
         .concat(),
     );
 
-    let evaluations_remaining_to_verify = verifier_state.next_extension_scalars_vec(n_columns)?;
-
+    let evaluations_remaining_to_verify_f =
+        verifier_state.next_extension_scalars_vec(n_columns_f)?;
+    let evaluations_remaining_to_verify_ef =
+        verifier_state.next_extension_scalars_vec(n_columns_ef)?;
+    let evaluations_remaining_to_verify = [
+        evaluations_remaining_to_verify_f.clone(),
+        evaluations_remaining_to_verify_ef.clone(),
+    ]
+    .concat();
     let batched_col_up_sc_eval = dot_product::<EF, _, _>(
         batching_scalars_up.iter().copied(),
         evaluations_remaining_to_verify.iter().copied(),
+    );
+    let mut columns_with_shift = columns_with_shift_f.to_vec();
+    columns_with_shift.extend_from_slice(
+        columns_with_shift_ef
+            .iter()
+            .map(|&x| x + n_columns_f)
+            .collect::<Vec<_>>()
+            .as_slice(),
     );
     let batched_col_down_sc_eval = (0..columns_with_shift.len())
         .map(|i| evaluations_remaining_to_verify[columns_with_shift[i]] * batching_scalars_down[i])
@@ -181,6 +215,7 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     }
     Ok((
         inner_sumcheck_stement.point.clone(),
-        evaluations_remaining_to_verify,
+        evaluations_remaining_to_verify_f,
+        evaluations_remaining_to_verify_ef,
     ))
 }

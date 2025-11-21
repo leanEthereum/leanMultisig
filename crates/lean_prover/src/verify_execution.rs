@@ -294,7 +294,7 @@ pub fn verify_execution(
     .map(|v| vec![Evaluation::new(p24_bus_point.clone(), *v)])
     .collect::<Vec<_>>();
 
-    let (exec_air_point, exec_evals_to_verify) = verify_table_air(
+    let (exec_air_point, exec_evals_to_verify_f, exec_evals_to_verify_ef) = verify_table_air(
         &mut verifier_state,
         &ExecutionTable,
         log_n_cycles,
@@ -304,15 +304,16 @@ pub fn verify_execution(
         exec_bus_virtual_statement,
     )?;
 
-    let (dot_product_air_point, dot_product_evals_to_verify) = verify_table_air(
-        &mut verifier_state,
-        &DotProductPrecompile,
-        table_dot_products_log_n_rows,
-        bus_challenge,
-        fingerprint_challenge,
-        dot_product_bus_beta,
-        dot_product_bus_virtual_statement,
-    )?;
+    let (dot_product_air_point, dot_product_evals_to_verify_f, dot_product_evals_to_verify_ef) =
+        verify_table_air(
+            &mut verifier_state,
+            &DotProductPrecompile,
+            table_dot_products_log_n_rows,
+            bus_challenge,
+            fingerprint_challenge,
+            dot_product_bus_beta,
+            dot_product_bus_virtual_statement,
+        )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
     let p16_gkr = verify_poseidon_gkr(
@@ -339,7 +340,7 @@ pub fn verify_execution(
 
     let bytecode_lookup_claim_1 = Evaluation::new(
         exec_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(&exec_evals_to_verify[..N_INSTRUCTION_COLUMNS])
+        padd_with_zero_to_next_power_of_two(&exec_evals_to_verify_f[..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
 
@@ -360,9 +361,16 @@ pub fn verify_execution(
         ]
         .concat(),
         [
-            Table::execution().normal_lookups_statements(&exec_air_point, &exec_evals_to_verify),
-            DotProductPrecompile
-                .normal_lookups_statements(&dot_product_air_point, &dot_product_evals_to_verify),
+            Table::execution().normal_lookups_statements(
+                &exec_air_point,
+                &exec_evals_to_verify_f,
+                &exec_evals_to_verify_ef,
+            ),
+            DotProductPrecompile.normal_lookups_statements(
+                &dot_product_air_point,
+                &dot_product_evals_to_verify_f,
+                &dot_product_evals_to_verify_ef,
+            ),
         ]
         .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -495,12 +503,14 @@ pub fn verify_execution(
         .drain(..3)
         .collect::<Vec<_>>();
 
-    let exec_air_statement =
-        |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_verify[col_index]);
+    let exec_air_statement = |col_index: usize| {
+        Evaluation::new(exec_air_point.clone(), exec_evals_to_verify_f[col_index])
+    };
     let dot_product_statements = DotProductPrecompile.committed_statements_verifier(
         &mut verifier_state,
         &dot_product_air_point,
-        &dot_product_evals_to_verify,
+        &dot_product_evals_to_verify_f,
+        &dot_product_evals_to_verify_ef,
         &mut normal_lookup_statements.on_indexes,
     )?;
     let global_statements_base = packed_pcs_global_statements_for_verifier(
@@ -574,7 +584,7 @@ fn verify_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
     fingerprint_challenge: EF,
     bus_beta: EF,
     bus_virtual_statement: MultiEvaluation<EF>,
-) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)> {
+) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>)> {
     let air_extra_data = ExtraDataForBuses {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
@@ -587,7 +597,8 @@ fn verify_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
         air_extra_data,
         UNIVARIATE_SKIPS,
         log_n_rows,
-        &t.air_padding_row(),
+        &t.air_padding_row_f(),
+        &t.air_padding_row_ef(),
         Some(bus_virtual_statement),
     )
 }

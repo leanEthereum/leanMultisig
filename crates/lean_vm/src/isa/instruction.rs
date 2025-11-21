@@ -6,7 +6,7 @@ use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
 use crate::tables::TableT;
-use crate::{N_PRECOMPILES, TableTrace, Table, WitnessMultilinearEval};
+use crate::{N_PRECOMPILES, Table, TableTrace, WitnessMultilinearEval};
 use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;

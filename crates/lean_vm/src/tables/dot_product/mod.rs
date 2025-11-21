@@ -72,15 +72,19 @@ impl TableT for DotProductPrecompile {
         }]
     }
 
-    fn padding_row(&self) -> Vec<EF> {
+    fn padding_row_f(&self) -> Vec<F> {
         [
             vec![
-                EF::ONE, // StartFlag
-                EF::ONE, // Len
+                F::ONE, // StartFlag
+                F::ONE, // Len
             ],
-            vec![EF::ZERO; DOT_PRODUCT_AIR_N_COLUMNS_TOTAL - 2],
+            vec![F::ZERO; DOT_PRODUCT_AIR_N_COLUMNS_F - 2],
         ]
         .concat()
+    }
+
+    fn padding_row_ef(&self) -> Vec<EF> {
+        vec![EF::ZERO; DOT_PRODUCT_AIR_N_COLUMNS_EF]
     }
 
     #[inline(always)]

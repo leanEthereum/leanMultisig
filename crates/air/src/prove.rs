@@ -19,15 +19,18 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     air: &A,
     mut extra_data: A::ExtraData,
     univariate_skips: usize,
-    columns_f: &[&[PF<EF>]],
-    columns_ef: &[&[EF]],
-    last_row_shifted: &[EF],
+    columns_f: &[impl AsRef<[PF<EF>]>],
+    columns_ef: &[impl AsRef<[EF]>],
+    last_row_shifted_f: &[PF<EF>],
+    last_row_shifted_ef: &[EF],
     virtual_column_statements: Option<MultiEvaluation<EF>>, // point should be randomness generated after committing to the columns
     store_intermediate_foldings: bool,
-) -> (MultilinearPoint<EF>, Vec<EF>)
+) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>)
 where
     A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
 {
+    let columns_f: Vec<_> = columns_f.iter().map(|c| c.as_ref()).collect();
+    let columns_ef: Vec<_> = columns_ef.iter().map(|c| c.as_ref()).collect();
     let n_rows = columns_f[0].len();
     assert!(columns_f.iter().all(|col| col.len() == n_rows));
     assert!(columns_ef.iter().all(|col| col.len() == n_rows));
@@ -58,22 +61,18 @@ where
     assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
     let shifted_rows_f = air
-        .down_column_indexes()
+        .down_column_indexes_f()
         .par_iter()
-        .zip_eq(last_row_shifted)
-        .filter(|(i, _)| **i < air.n_columns_f())
+        .zip_eq(last_row_shifted_f)
         .map(|(&col_index, &final_value)| {
             column_shifted(columns_f[col_index], final_value.as_base().unwrap())
         })
         .collect::<Vec<_>>();
     let shifted_rows_ef = air
-        .down_column_indexes()
+        .down_column_indexes_ef()
         .par_iter()
-        .zip_eq(last_row_shifted)
-        .filter(|(i, _)| **i >= air.n_columns_f())
-        .map(|(&col_index, &final_value)| {
-            column_shifted(columns_ef[col_index - air.n_columns_f()], final_value)
-        })
+        .zip_eq(last_row_shifted_ef)
+        .map(|(&col_index, &final_value)| column_shifted(columns_ef[col_index], final_value))
         .collect::<Vec<_>>();
 
     let mut columns_up_down_f = columns_f.to_vec(); // orginal columns, followed by shifted ones
@@ -113,9 +112,10 @@ where
     open_columns(
         prover_state,
         univariate_skips,
-        &air.down_column_indexes(),
-        columns_f,
-        columns_ef,
+        &air.down_column_indexes_f(),
+        &air.down_column_indexes_ef(),
+        &columns_f,
+        &columns_ef,
         &outer_sumcheck_challenge,
     )
 }
@@ -124,12 +124,16 @@ where
 fn open_columns<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
-    columns_with_shift: &[usize],
+    columns_with_shift_f: &[usize],
+    columns_with_shift_ef: &[usize],
     columns_f: &[&[PF<EF>]],
     columns_ef: &[&[EF]],
     outer_sumcheck_challenge: &[EF],
-) -> (MultilinearPoint<EF>, Vec<EF>) {
-    let n_up_down_columns = columns_f.len() + columns_ef.len() + columns_with_shift.len();
+) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
+    let n_up_down_columns = columns_f.len()
+        + columns_ef.len()
+        + columns_with_shift_f.len()
+        + columns_with_shift_ef.len();
     let batching_scalars = prover_state.sample_vec(log2_ceil_usize(n_up_down_columns));
 
     let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_up_down_columns].to_vec();
@@ -149,15 +153,13 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
             });
     }
 
-    let columns_shifted_f = &columns_with_shift
+    let columns_shifted_f = &columns_with_shift_f
         .iter()
-        .filter(|&&i| i < columns_f.len())
         .map(|&i| columns_f[i])
         .collect::<Vec<_>>();
-    let columns_shifted_ef = &columns_with_shift
+    let columns_shifted_ef = &columns_with_shift_ef
         .iter()
-        .filter(|&&i| i >= columns_f.len())
-        .map(|&i| columns_ef[i - columns_f.len()])
+        .map(|&i| columns_ef[i])
         .collect::<Vec<_>>();
 
     let mut batched_column_down = if columns_shifted_f.is_empty() {
@@ -235,22 +237,27 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
         )
     });
 
-    let evaluations_remaining_to_prove = info_span!("final evals").in_scope(|| {
-        let mut evals = columns_f
-            .par_iter()
-            .map(|col| col.evaluate(&inner_challenges))
-            .collect::<Vec<_>>();
-        evals.extend(
-            columns_ef
-                .par_iter()
-                .map(|col| col.evaluate(&inner_challenges))
-                .collect::<Vec<_>>(),
-        );
-        evals
-    });
-    prover_state.add_extension_scalars(&evaluations_remaining_to_prove);
+    let (evaluations_remaining_to_prove_f, evaluations_remaining_to_prove_ef) =
+        info_span!("final evals").in_scope(|| {
+            (
+                columns_f
+                    .par_iter()
+                    .map(|col| col.evaluate(&inner_challenges))
+                    .collect::<Vec<_>>(),
+                columns_ef
+                    .par_iter()
+                    .map(|col| col.evaluate(&inner_challenges))
+                    .collect::<Vec<_>>(),
+            )
+        });
+    prover_state.add_extension_scalars(&evaluations_remaining_to_prove_f);
+    prover_state.add_extension_scalars(&evaluations_remaining_to_prove_ef);
 
-    (inner_challenges, evaluations_remaining_to_prove)
+    (
+        inner_challenges,
+        evaluations_remaining_to_prove_f,
+        evaluations_remaining_to_prove_ef,
+    )
 }
 
 struct MySumcheck;

@@ -15,10 +15,10 @@ struct FibonacciAir;
 impl Air for FibonacciAir {
     type ExtraData = Vec<EF>;
 
-    fn n_columns_f(&self) -> usize {
+    fn n_columns_f_air(&self) -> usize {
         1
     }
-    fn n_columns_ef(&self) -> usize {
+    fn n_columns_ef_air(&self) -> usize {
         1
     }
     fn degree(&self) -> usize {
@@ -27,10 +27,12 @@ impl Air for FibonacciAir {
     fn n_constraints(&self) -> usize {
         10 // too much, but ok for tests
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
-        vec![0, 1]
+    fn down_column_indexes_f(&self) -> Vec<usize> {
+        vec![0]
     }
-
+    fn down_column_indexes_ef(&self) -> Vec<usize> {
+        vec![0]
+    }
     #[inline]
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
         let a_up = builder.up_f()[0].clone();
@@ -63,49 +65,63 @@ fn test_air_fibonacci() {
     let (columns_plus_one_f, columns_plus_one_ef) = generate_trace(n_rows + 1);
     let columns_ref_f = vec![&columns_plus_one_f[..n_rows]];
     let columns_ref_ef = vec![&columns_plus_one_ef[..n_rows]];
-    let last_row = vec![
-        EF::from(columns_plus_one_f[n_rows]),
-        columns_plus_one_ef[n_rows],
-    ];
+    let last_row_f = vec![columns_plus_one_f[n_rows]];
+    let last_row_ef = vec![columns_plus_one_ef[n_rows]];
 
     let air = FibonacciAir {};
 
-    check_air_validity(&air, &vec![], &columns_ref_f, &columns_ref_ef, &last_row).unwrap();
-
-    let (point_prover, evaluations_remaining_to_prove) = prove_air(
-        &mut prover_state,
+    check_air_validity(
         &air,
-        vec![],
-        UNIVARIATE_SKIPS,
+        &vec![],
         &columns_ref_f,
         &columns_ref_ef,
-        &last_row,
-        None,
-        true,
-    );
-    let mut verifier_state = build_verifier_state(&prover_state);
-
-    let (point_verifier, evaluations_remaining_to_verify) = verify_air(
-        &mut verifier_state,
-        &air,
-        vec![],
-        UNIVARIATE_SKIPS,
-        log_n_rows,
-        &last_row,
-        None,
+        &last_row_f,
+        &last_row_ef,
     )
     .unwrap();
+
+    let (point_prover, evaluations_remaining_to_prove_f, evaluations_remaining_to_prove_ef) =
+        prove_air(
+            &mut prover_state,
+            &air,
+            vec![],
+            UNIVARIATE_SKIPS,
+            &columns_ref_f,
+            &columns_ref_ef,
+            &last_row_f,
+            &last_row_ef,
+            None,
+            true,
+        );
+    let mut verifier_state = build_verifier_state(&prover_state);
+
+    let (point_verifier, evaluations_remaining_to_verify_f, evaluations_remaining_to_verify_ef) =
+        verify_air(
+            &mut verifier_state,
+            &air,
+            vec![],
+            UNIVARIATE_SKIPS,
+            log_n_rows,
+            &last_row_f,
+            &last_row_ef,
+            None,
+        )
+        .unwrap();
     assert_eq!(point_prover, point_verifier);
     assert_eq!(
-        &evaluations_remaining_to_prove,
-        &evaluations_remaining_to_verify
+        &evaluations_remaining_to_prove_f,
+        &evaluations_remaining_to_verify_f
+    );
+    assert_eq!(
+        &evaluations_remaining_to_prove_ef,
+        &evaluations_remaining_to_verify_ef
     );
     assert_eq!(
         columns_ref_f[0].evaluate(&point_prover),
-        evaluations_remaining_to_verify[0]
+        evaluations_remaining_to_verify_f[0]
     );
     assert_eq!(
         columns_ref_ef[0].evaluate(&point_prover),
-        evaluations_remaining_to_verify[1]
+        evaluations_remaining_to_verify_ef[0]
     );
 }

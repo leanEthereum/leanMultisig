@@ -2,7 +2,6 @@ use crate::instruction_encoder::field_representation;
 use crate::*;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
-use p3_air::Air;
 use std::{array, iter::repeat_n};
 use utils::{ToUsize, transposed_par_iter_mut};
 
@@ -154,13 +153,21 @@ pub fn get_execution_trace(
 
 fn put_poseidon16_compressions_at_the_end(poseidons_16: &TableTrace) -> (TableTrace, usize) {
     let n = poseidons_16.base[0].len();
-    assert_eq!(Poseidon16Precompile.n_columns_f(), poseidons_16.base.len());
+    assert_eq!(
+        Poseidon16Precompile.n_columns_f_total(),
+        poseidons_16.base.len()
+    );
+    poseidons_16
+        .base
+        .iter()
+        .enumerate()
+        .for_each(|(i, col)| assert_eq!(col.len(), n, "column {}", i));
     assert_eq!(poseidons_16.ext.len(), 0);
-    let mut new_trace = vec![Vec::with_capacity(n); Poseidon16Precompile.n_columns_f()];
+    let mut new_trace = vec![Vec::with_capacity(n); Poseidon16Precompile.n_columns_f_total()];
     // TODO parallelize
     for row in 0..n {
         if poseidons_16.base[POSEIDON_16_COL_INDEX_COMPRESSION][row] == F::from_bool(false) {
-            for col in 0..Poseidon16Precompile.n_columns_f() {
+            for col in 0..Poseidon16Precompile.n_columns_f_total() {
                 new_trace[col].push(poseidons_16.base[col][row]);
             }
         }
@@ -169,7 +176,7 @@ fn put_poseidon16_compressions_at_the_end(poseidons_16: &TableTrace) -> (TableTr
     for row in 0..n {
         if poseidons_16.base[POSEIDON_16_COL_INDEX_COMPRESSION][row] == F::from_bool(true) {
             n_compressions += 1;
-            for col in 0..Poseidon16Precompile.n_columns_f() {
+            for col in 0..Poseidon16Precompile.n_columns_f_total() {
                 new_trace[col].push(poseidons_16.base[col][row]);
             }
         }
@@ -186,19 +193,20 @@ fn put_poseidon16_compressions_at_the_end(poseidons_16: &TableTrace) -> (TableTr
 }
 
 fn padd_table<P: TableT>(p: &P, trace: &mut TableTrace) {
-    trace.padding_len = trace.base[0]
-        .len()
-        .next_power_of_two()
-        .max(MIN_N_ROWS_PER_TABLE)
-        - trace.base[0].len();
+    let n = trace.base[0].len();
+    trace
+        .base
+        .iter()
+        .enumerate()
+        .for_each(|(i, col)| assert_eq!(col.len(), n, "column {}, table {}", i, p.name()));
+
+    trace.padding_len = n.next_power_of_two().max(MIN_N_ROWS_PER_TABLE) - trace.base[0].len();
 
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
-        let default_value: F = p.padding_row()[i].as_base().unwrap();
-        col.extend(repeat_n(default_value, trace.padding_len));
+        col.extend(repeat_n(p.padding_row_f()[i], trace.padding_len));
     });
 
     trace.ext.par_iter_mut().enumerate().for_each(|(i, col)| {
-        let default_value = p.padding_row()[i + p.n_columns_f()];
-        col.extend(repeat_n(default_value, trace.padding_len));
+        col.extend(repeat_n(p.padding_row_ef()[i], trace.padding_len));
     });
 }
