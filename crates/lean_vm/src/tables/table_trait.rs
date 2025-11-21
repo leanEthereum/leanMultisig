@@ -2,6 +2,7 @@ use crate::{EF, F, InstructionContext, RunnerError, Table, VECTOR_LEN};
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use std::{any::TypeId, array, mem::transmute_copy};
+use utils::ToUsize;
 
 use sub_protocols::{
     ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier,
@@ -284,12 +285,13 @@ pub trait TableT: Air {
     fn num_normal_lookups(&self) -> usize {
         self.normal_lookups_f().len() + self.normal_lookups_ef().len()
     }
+    fn num_vector_lookups(&self) -> usize {
+        self.vector_lookups().len()
+    }
     fn vector_lookup_index_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [PF<EF>]> {
         let mut cols = Vec::new();
         for lookup in self.vector_lookups() {
-            for &value_col in &lookup.values {
-                cols.push(&trace.base[value_col][..]);
-            }
+            cols.push(&trace.base[lookup.index][..]);
         }
         cols
     }
@@ -316,5 +318,16 @@ pub trait TableT: Air {
             cols.push(array::from_fn(|i| &trace.base[lookup.values[i]][..]));
         }
         cols
+    }
+    fn vector_lookup_default_indexes(&self) -> Vec<usize> {
+        let mut default_indexes = Vec::new();
+        for lookup in self.vector_lookups() {
+            default_indexes.push(
+                <EF as ExtensionField<F>>::as_base(&self.padding_row()[lookup.index])
+                    .unwrap()
+                    .to_usize(),
+            );
+        }
+        default_indexes
     }
 }

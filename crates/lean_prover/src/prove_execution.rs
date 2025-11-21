@@ -475,41 +475,39 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let poseidon_value_columns = [
-        Table::poseidon16().vector_lookup_values_columns(&traces[TABLE_POSEIDON_16]),
-        Table::poseidon24().vector_lookup_values_columns(&traces[TABLE_POSEIDON_24]),
-    ]
-    .concat();
     let vectorized_lookup_into_memory = VectorizedPackedLookupProver::<_, VECTOR_LEN>::step_1(
         &mut prover_state,
         &memory,
-        vec![
-            &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_A],
-            &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_B],
-            &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES],
-            &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES_BIS],
-            &traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A],
-            &traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A_BIS],
-            &traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_B],
-            &traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_RES],
-        ],
+        [
+            Table::poseidon16().vector_lookup_index_columns(&traces[TABLE_POSEIDON_16]),
+            Table::poseidon24().vector_lookup_index_columns(&traces[TABLE_POSEIDON_24]),
+        ]
+        .concat(),
         [
             vec![
                 traces[TABLE_POSEIDON_16]
                     .n_rows_non_padded()
                     .max(MIN_N_ROWS_PER_TABLE);
-                4
+                Table::poseidon16().num_vector_lookups()
             ],
             vec![
                 traces[TABLE_POSEIDON_24]
                     .n_rows_non_padded()
                     .max(MIN_N_ROWS_PER_TABLE);
-                4
+                Table::poseidon24().num_vector_lookups()
             ],
         ]
         .concat(),
-        default_poseidon_indexes(),
-        poseidon_value_columns,
+        [
+            Table::poseidon16().vector_lookup_default_indexes(),
+            Table::poseidon24().vector_lookup_default_indexes(),
+        ]
+        .concat(),
+        [
+            Table::poseidon16().vector_lookup_values_columns(&traces[TABLE_POSEIDON_16]),
+            Table::poseidon24().vector_lookup_values_columns(&traces[TABLE_POSEIDON_24]),
+        ]
+        .concat(),
         poseidon_lookup_statements(&p16_gkr, &p24_gkr),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );

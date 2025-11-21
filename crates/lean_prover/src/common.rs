@@ -136,28 +136,6 @@ pub(crate) fn add_memory_statements_for_multilinear_eval_precompile(
     Ok(())
 }
 
-pub(crate) fn default_poseidon_indexes() -> Vec<usize> {
-    [
-        vec![
-            ZERO_VEC_PTR,
-            ZERO_VEC_PTR,
-            POSEIDON_16_NULL_HASH_PTR,
-            if POSEIDON_16_DEFAULT_COMPRESSION {
-                ZERO_VEC_PTR
-            } else {
-                POSEIDON_16_NULL_HASH_PTR + 1
-            },
-        ],
-        vec![
-            ZERO_VEC_PTR,
-            ZERO_VEC_PTR,
-            ZERO_VEC_PTR,
-            POSEIDON_24_NULL_HASH_PTR,
-        ],
-    ]
-    .concat()
-}
-
 pub(crate) fn poseidon_lookup_statements(
     p16_gkr: &GKRPoseidonResult,
     p24_gkr: &GKRPoseidonResult,

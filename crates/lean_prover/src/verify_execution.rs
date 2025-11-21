@@ -372,11 +372,21 @@ pub fn verify_execution(
     let vectorized_lookup_into_memory = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
         &mut verifier_state,
         [
-            vec![n_poseidons_16.max(MIN_N_ROWS_PER_TABLE); 4],
-            vec![n_poseidons_24.max(MIN_N_ROWS_PER_TABLE); 4],
+            vec![
+                n_poseidons_16.max(MIN_N_ROWS_PER_TABLE);
+                Table::poseidon16().num_vector_lookups()
+            ],
+            vec![
+                n_poseidons_24.max(MIN_N_ROWS_PER_TABLE);
+                Table::poseidon24().num_vector_lookups()
+            ],
         ]
         .concat(),
-        default_poseidon_indexes(),
+        [
+            Table::poseidon16().vector_lookup_default_indexes(),
+            Table::poseidon24().vector_lookup_default_indexes(),
+        ]
+        .concat(),
         poseidon_lookup_statements(&p16_gkr, &p24_gkr),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &public_memory, // we need to pass the first few values of memory, public memory is enough
