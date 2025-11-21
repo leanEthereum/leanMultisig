@@ -3,7 +3,7 @@ use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sub_protocols::{NormalPackedLookupProver, NormalPackedLookupVerifier};
-use utils::{ToUsize, assert_eq_many, build_prover_state, build_verifier_state};
+use utils::{ToUsize, build_prover_state, build_verifier_state, collect_refs};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -12,15 +12,12 @@ const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 #[test]
 fn test_normal_packed_lookup() {
     let non_zero_memory_size: usize = 37412;
-    let base_cols_heights: Vec<usize> = vec![785, 1022, 4751];
-    let extension_cols_heights: Vec<usize> = vec![2088, 110];
-    let default_indexes = vec![7, 11, 0, 2, 3];
-    let n_statements = vec![1, 5, 2, 1, 8];
-    assert_eq_many!(
-        base_cols_heights.len() + extension_cols_heights.len(),
-        default_indexes.len(),
-        n_statements.len()
-    );
+    let cols_heights_f: Vec<usize> = vec![785, 1022, 4751];
+    let cols_heights_ef: Vec<usize> = vec![2088, 110];
+    let default_indexes_f = vec![7, 11, 0];
+    let default_indexes_ef = vec![2, 3];
+    let n_statements_f = vec![1, 5, 2];
+    let n_statements_ef = vec![3, 4];
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(non_zero_memory_size.next_power_of_two());
@@ -28,69 +25,65 @@ fn test_normal_packed_lookup() {
         *mem = rng.random();
     }
 
-    let mut all_indexe_columns = vec![];
-    for (i, height) in base_cols_heights.iter().enumerate() {
-        let mut indexes = vec![F::from_usize(default_indexes[i]); height.next_power_of_two()];
+    let mut all_indexe_columns_f = vec![];
+    let mut all_indexe_columns_ef = vec![];
+    for (i, height) in cols_heights_f.iter().enumerate() {
+        let mut indexes = vec![F::from_usize(default_indexes_f[i]); height.next_power_of_two()];
         for idx in indexes.iter_mut().take(*height) {
             *idx = F::from_usize(rng.random_range(0..non_zero_memory_size));
         }
-        all_indexe_columns.push(indexes);
+        all_indexe_columns_f.push(indexes);
     }
-    for (i, height) in extension_cols_heights.iter().enumerate() {
-        let mut indexes = vec![
-            F::from_usize(default_indexes[i + base_cols_heights.len()]);
-            height.next_power_of_two()
-        ];
+    for (i, height) in cols_heights_ef.iter().enumerate() {
+        let mut indexes = vec![F::from_usize(default_indexes_ef[i]); height.next_power_of_two()];
         for idx in indexes.iter_mut().take(*height) {
             *idx = F::from_usize(rng.random_range(
                 0..non_zero_memory_size - <EF as BasedVectorSpace<PF<EF>>>::DIMENSION,
             ));
         }
-        all_indexe_columns.push(indexes);
+        all_indexe_columns_ef.push(indexes);
     }
 
-    let mut base_value_columns = vec![];
-    for base_col in &all_indexe_columns[..base_cols_heights.len()] {
+    let mut value_columns_f = vec![];
+    for base_col in &all_indexe_columns_f {
         let mut values = vec![];
         for index in base_col {
             values.push(memory[index.to_usize()]);
         }
-        base_value_columns.push(values);
+        value_columns_f.push(values);
     }
-    let mut extension_value_columns = vec![];
-    for ext_col in &all_indexe_columns[base_cols_heights.len()..] {
+    let mut value_columns_ef = vec![];
+    for ext_col in &all_indexe_columns_ef {
         let mut values = vec![];
         for index in ext_col {
             values.push(QuinticExtensionFieldKB::from_basis_coefficients_fn(|i| {
                 memory[index.to_usize() + i]
             }));
         }
-        extension_value_columns.push(values);
+        value_columns_ef.push(values);
     }
 
-    let mut all_statements = vec![];
-    for (value_col_base, n_statements) in base_value_columns.iter().zip(&n_statements) {
+    let mut all_statements_f = vec![];
+    for (value_col_f, n_statements) in value_columns_f.iter().zip(&n_statements_f) {
         let mut statements = vec![];
         for _ in 0..*n_statements {
             let point =
-                MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_col_base.len()));
-            let value = value_col_base.evaluate(&point);
+                MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_col_f.len()));
+            let value = value_col_f.evaluate(&point);
             statements.push(Evaluation::new(point, value));
         }
-        all_statements.push(statements);
+        all_statements_f.push(statements);
     }
-    for (value_col_ext, n_statements) in extension_value_columns
-        .iter()
-        .zip(&n_statements[base_cols_heights.len()..])
-    {
+    let mut all_statements_ef = vec![];
+    for (value_col_ef, n_statements) in value_columns_ef.iter().zip(&n_statements_ef) {
         let mut statements = vec![];
         for _ in 0..*n_statements {
             let point =
-                MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_col_ext.len()));
-            let value = value_col_ext.evaluate(&point);
+                MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_col_ef.len()));
+            let value = value_col_ef.evaluate(&point);
             statements.push(Evaluation::new(point, value));
         }
-        all_statements.push(statements);
+        all_statements_ef.push(statements);
     }
 
     let mut prover_state = build_prover_state();
@@ -98,12 +91,16 @@ fn test_normal_packed_lookup() {
     let packed_lookup_prover = NormalPackedLookupProver::step_1(
         &mut prover_state,
         &memory,
-        all_indexe_columns.iter().map(Vec::as_slice).collect(),
-        [base_cols_heights.clone(), extension_cols_heights.clone()].concat(),
-        default_indexes.clone(),
-        base_value_columns.iter().map(Vec::as_slice).collect(),
-        extension_value_columns.iter().map(Vec::as_slice).collect(),
-        all_statements.clone(),
+        collect_refs(&all_indexe_columns_f),
+        collect_refs(&all_indexe_columns_ef),
+        cols_heights_f.clone(),
+        cols_heights_ef.clone(),
+        default_indexes_f.clone(),
+        default_indexes_ef.clone(),
+        collect_refs(&value_columns_f),
+        collect_refs(&value_columns_ef),
+        all_statements_f.clone(),
+        all_statements_ef.clone(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
@@ -117,10 +114,12 @@ fn test_normal_packed_lookup() {
 
     let packed_lookup_verifier = NormalPackedLookupVerifier::step_1(
         &mut verifier_state,
-        base_cols_heights.len(),
-        [base_cols_heights, extension_cols_heights].concat(),
-        default_indexes,
-        all_statements,
+        cols_heights_f,
+        cols_heights_ef,
+        default_indexes_f,
+        default_indexes_ef,
+        all_statements_f,
+        all_statements_ef,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &memory[..100],
     )
@@ -147,9 +146,17 @@ fn test_normal_packed_lookup() {
             pusforward_statement.value
         );
     }
-    for (index_col, index_statements) in all_indexe_columns
+    for (index_col, index_statements) in all_indexe_columns_f
         .iter()
-        .zip(remaining_claims_to_verify.on_indexes.iter())
+        .zip(remaining_claims_to_verify.on_indexes_f.iter())
+    {
+        for statement in index_statements {
+            assert_eq!(index_col.evaluate(&statement.point), statement.value);
+        }
+    }
+    for (index_col, index_statements) in all_indexe_columns_ef
+        .iter()
+        .zip(remaining_claims_to_verify.on_indexes_ef.iter())
     {
         for statement in index_statements {
             assert_eq!(index_col.evaluate(&statement.point), statement.value);

@@ -195,7 +195,8 @@ pub trait TableT: Air {
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
         ext_commitment_helper: &ExtensionCommitmentFromBaseProver<EF>,
-        normal_lookup_statements_on_indexes: &mut Vec<Vec<Evaluation<EF>>>,
+        normal_lookup_statements_on_indexes_f: &mut Vec<Vec<Evaluation<EF>>>,
+        normal_lookup_statements_on_indexes_ef: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> Vec<Vec<Evaluation<EF>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
 
@@ -207,10 +208,10 @@ pub trait TableT: Air {
         statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
 
         for lookup in self.normal_lookups_f() {
-            statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
+            statements[lookup.index].extend(normal_lookup_statements_on_indexes_f.remove(0));
         }
         for lookup in self.normal_lookups_ef() {
-            statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
+            statements[lookup.index].extend(normal_lookup_statements_on_indexes_ef.remove(0));
         }
 
         statements
@@ -221,7 +222,8 @@ pub trait TableT: Air {
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
         air_values_ef: &[EF],
-        normal_lookup_statements_on_indexes: &mut Vec<Vec<Evaluation<EF>>>,
+        normal_lookup_statements_on_indexes_f: &mut Vec<Vec<Evaluation<EF>>>,
+        normal_lookup_statements_on_indexes_ef: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
         assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
@@ -243,23 +245,20 @@ pub trait TableT: Air {
             ),
         )?);
         for lookup in self.normal_lookups_f() {
-            statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
+            statements[lookup.index].extend(normal_lookup_statements_on_indexes_f.remove(0));
         }
         for lookup in self.normal_lookups_ef() {
-            statements[lookup.index].extend(normal_lookup_statements_on_indexes.remove(0));
+            statements[lookup.index].extend(normal_lookup_statements_on_indexes_ef.remove(0));
         }
 
         Ok(statements)
     }
-    fn normal_lookups_statements(
+    fn normal_lookups_statements_f(
         &self,
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
-        air_values_ef: &[EF],
     ) -> Vec<Vec<Evaluation<EF>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
-        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
-
         let mut statements = Vec::new();
         for lookup in self.normal_lookups_f() {
             statements.push(vec![Evaluation::new(
@@ -267,6 +266,15 @@ pub trait TableT: Air {
                 air_values_f[lookup.values].clone(),
             )]);
         }
+        statements
+    }
+    fn normal_lookups_statements_ef(
+        &self,
+        air_point: &MultilinearPoint<EF>,
+        air_values_ef: &[EF],
+    ) -> Vec<Vec<Evaluation<EF>>> {
+        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
+        let mut statements = Vec::new();
         for lookup in self.normal_lookups_ef() {
             statements.push(vec![Evaluation::new(
                 air_point.clone(),
@@ -279,7 +287,7 @@ pub trait TableT: Air {
         &self,
         trace: &'a TableTrace,
         computation_ext_to_base_helper: Option<&'a ExtensionCommitmentFromBaseProver<EF>>,
-    ) -> Vec<&'a [PF<EF>]> {
+    ) -> Vec<&'a [F]> {
         // base field committed columns
         let mut cols = self
             .commited_columns_f()
@@ -297,30 +305,35 @@ pub trait TableT: Air {
         }
         cols
     }
-    fn normal_lookup_index_columns<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [PF<EF>]> {
-        let mut cols = Vec::new();
-        for lookup in self.normal_lookups_f() {
-            cols.push(&trace.base[lookup.index][..]);
-        }
-        for lookup in self.normal_lookups_ef() {
-            cols.push(&trace.base[lookup.index][..]);
-        }
-        cols
+    fn normal_lookup_index_columns_f<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
+        self.normal_lookups_f()
+            .iter()
+            .map(|lookup| &trace.base[lookup.index][..])
+            .collect()
     }
-    fn num_normal_lookups(&self) -> usize {
-        self.normal_lookups_f().len() + self.normal_lookups_ef().len()
+    fn normal_lookup_index_columns_ef<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
+        self.normal_lookups_ef()
+            .iter()
+            .map(|lookup| &trace.base[lookup.index][..])
+            .collect()
+    }
+    fn num_normal_lookups_f(&self) -> usize {
+        self.normal_lookups_f().len()
+    }
+    fn num_normal_lookups_ef(&self) -> usize {
+        self.normal_lookups_ef().len()
     }
     fn num_vector_lookups(&self) -> usize {
         self.vector_lookups().len()
     }
-    fn vector_lookup_index_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [PF<EF>]> {
+    fn vector_lookup_index_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [F]> {
         let mut cols = Vec::new();
         for lookup in self.vector_lookups() {
             cols.push(&trace.base[lookup.index][..]);
         }
         cols
     }
-    fn normal_lookup_f_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [PF<EF>]> {
+    fn normal_lookup_f_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [F]> {
         let mut cols = Vec::new();
         for lookup in self.normal_lookups_f() {
             cols.push(&trace.base[lookup.values][..]);
@@ -337,7 +350,7 @@ pub trait TableT: Air {
     fn vector_lookup_values_columns<'a>(
         &self,
         trace: &'a TableTrace,
-    ) -> Vec<[&'a [PF<EF>]; VECTOR_LEN]> {
+    ) -> Vec<[&'a [F]; VECTOR_LEN]> {
         let mut cols = Vec::new();
         for lookup in self.vector_lookups() {
             cols.push(array::from_fn(|i| &trace.base[lookup.values[i]][..]));

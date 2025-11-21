@@ -356,29 +356,46 @@ pub fn verify_execution(
 
     let normal_lookup_into_memory = NormalPackedLookupVerifier::step_1(
         &mut verifier_state,
-        3, // TODO !!!!!!
         [
-            vec![n_cycles; Table::execution().num_normal_lookups()],
+            vec![n_cycles; Table::execution().num_normal_lookups_f()],
             vec![
                 n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE);
-                Table::dot_product().num_normal_lookups()
+                Table::dot_product().num_normal_lookups_f()
             ],
         ]
         .concat(),
         [
-            vec![0; Table::execution().num_normal_lookups()],
-            vec![0; Table::dot_product().num_normal_lookups()],
+            vec![n_cycles; Table::execution().num_normal_lookups_ef()],
+            vec![
+                n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE);
+                Table::dot_product().num_normal_lookups_ef()
+            ],
         ]
         .concat(),
         [
-            Table::execution().normal_lookups_statements(
-                &exec_air_point,
-                &exec_evals_to_verify_f,
-                &exec_evals_to_verify_ef,
-            ),
-            DotProductPrecompile.normal_lookups_statements(
+            vec![0; Table::execution().num_normal_lookups_f()],
+            vec![0; Table::dot_product().num_normal_lookups_f()],
+        ]
+        .concat(), // TODO handle the case with non-zero default index
+        [
+            vec![0; Table::execution().num_normal_lookups_ef()],
+            vec![0; Table::dot_product().num_normal_lookups_ef()],
+        ]
+        .concat(), // TODO handle the case with non-zero default index
+        [
+            Table::execution()
+                .normal_lookups_statements_f(&exec_air_point, &exec_evals_to_verify_f),
+            Table::dot_product().normal_lookups_statements_f(
                 &dot_product_air_point,
                 &dot_product_evals_to_verify_f,
+            ),
+        ]
+        .concat(),
+        [
+            Table::execution()
+                .normal_lookups_statements_ef(&exec_air_point, &exec_evals_to_verify_ef),
+            Table::dot_product().normal_lookups_statements_ef(
+                &dot_product_air_point,
                 &dot_product_evals_to_verify_ef,
             ),
         ]
@@ -478,9 +495,17 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
 
     let normal_lookup_statements_exec_indexes = normal_lookup_statements
-        .on_indexes
+        .on_indexes_f
         .drain(..3)
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>(); // TODO more general
+    let dot_product_statements = DotProductPrecompile.committed_statements_verifier(
+        &mut verifier_state,
+        &dot_product_air_point,
+        &dot_product_evals_to_verify_f,
+        &dot_product_evals_to_verify_ef,
+        &mut normal_lookup_statements.on_indexes_f,
+        &mut normal_lookup_statements.on_indexes_ef,
+    )?;
 
     let exec_air_statement = |col_index: usize| {
         Evaluation::new(exec_air_point.clone(), exec_evals_to_verify_f[col_index])
@@ -527,13 +552,7 @@ pub fn verify_execution(
                 .map(|c| p24_indexes_statements[c].clone())
                 .collect::<Vec<_>>(),
             encapsulate_vec(p24_gkr.cubes_statements.split()),
-            DotProductPrecompile.committed_statements_verifier(
-                &mut verifier_state,
-                &dot_product_air_point,
-                &dot_product_evals_to_verify_f,
-                &dot_product_evals_to_verify_ef,
-                &mut normal_lookup_statements.on_indexes,
-            )?,
+            dot_product_statements,
         ]
         .concat(),
         &mut verifier_state,
