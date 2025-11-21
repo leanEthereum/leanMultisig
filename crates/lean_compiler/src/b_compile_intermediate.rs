@@ -835,38 +835,75 @@ where
     F: Fn(&Var) -> bool,
 {
     let mut internal_vars: Vec<InternalVars> = Vec::new();
+
+    // Scan outside of conditional statements first, so that any variables shared
+    // between branches of conditional statements and also outside of the conditional
+    // statement will be assigned a consistent stack location.
     for line in lines {
         match line {
-            SimpleLine::Match { arms, .. } => {
-                let mut branch_vars: Vec<InternalVars> = Vec::new();
-                for arm in arms {
-                    branch_vars.push(find_internal_vars(arm, exclude));
+            SimpleLine::Match { value, .. } => {
+                if let SimpleExpr::Var(var) = value && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
                 }
-                internal_vars.push(InternalVars::OneOf(branch_vars));
             }
-            SimpleLine::Assignment { var, .. } => {
+            SimpleLine::Assignment { var, arg0, arg1, .. } => {
                 if let VarOrConstMallocAccess::Var(var) = var
                     && !exclude(var)
                 {
                     internal_vars.push(InternalVars::One(var.clone()));
                 }
-            }
-            SimpleLine::TestZero { .. } => {}
-            SimpleLine::HintMAlloc { var, .. }
-            | SimpleLine::ConstMalloc { var, .. }
-            | SimpleLine::DecomposeBits { var, .. }
-            | SimpleLine::DecomposeCustom { var, .. }
-            | SimpleLine::CounterHint { var } => {
-                internal_vars.push(InternalVars::One(var.clone()));
-            }
-            SimpleLine::RawAccess { res, .. } => {
-                if let SimpleExpr::Var(var) = res
-                    && !exclude(var)
-                {
+                if let SimpleExpr::Var(var) = arg0 && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+                if let SimpleExpr::Var(var) = arg1 && !exclude(var) {
                     internal_vars.push(InternalVars::One(var.clone()));
                 }
             }
-            SimpleLine::FunctionCall { return_data, .. } => {
+            SimpleLine::TestZero { arg0, arg1, .. } => {
+                if let SimpleExpr::Var(var) = arg0 && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+                if let SimpleExpr::Var(var) = arg1 && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+            }
+            SimpleLine::HintMAlloc { var, size, vectorized_len, .. } => {
+                if !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+                if let SimpleExpr::Var(var) = size && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+                if let SimpleExpr::Var(var) = vectorized_len && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+            }
+            SimpleLine::DecomposeBits { var, to_decompose, .. }
+            | SimpleLine::DecomposeCustom { var, to_decompose, .. } => {
+                if !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+                for expr in to_decompose {
+                    if let SimpleExpr::Var(var) = expr && !exclude(var) {
+                        internal_vars.push(InternalVars::One(var.clone()));
+                    }
+                }
+            }
+            SimpleLine::ConstMalloc { var, .. }
+            | SimpleLine::CounterHint { var } => {
+                if !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+            }
+            SimpleLine::RawAccess { res, index, .. } => {
+                if let SimpleExpr::Var(var) = res && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+                if let SimpleExpr::Var(var) = index && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+            }
+            SimpleLine::FunctionCall { return_data, args, .. } => {
                 internal_vars.extend(
                     return_data
                         .iter()
@@ -874,7 +911,46 @@ where
                         .cloned()
                         .map(InternalVars::One),
                 );
+                for arg in args {
+                    if let SimpleExpr::Var(var) = arg && !exclude(var) {
+                        internal_vars.push(InternalVars::One(var.clone()));
+                    }
+                }
             }
+            SimpleLine::FunctionRet { return_data } => {
+                for expr in return_data {
+                    if let SimpleExpr::Var(var) = expr && !exclude(var) {
+                        internal_vars.push(InternalVars::One(var.clone()));
+                    }
+                }
+            }
+            SimpleLine::Precompile { args, .. } => {
+                for arg in args {
+                    if let SimpleExpr::Var(var) = arg && !exclude(var) {
+                        internal_vars.push(InternalVars::One(var.clone()));
+                    }
+                }
+            }
+            SimpleLine::Print { content, .. } => {
+                for expr in content {
+                    if let SimpleExpr::Var(var) = expr && !exclude(var) {
+                        internal_vars.push(InternalVars::One(var.clone()));
+                    }
+                }
+            }
+            SimpleLine::IfNotZero { condition, .. } => {
+                if let SimpleExpr::Var(var) = condition && !exclude(var) {
+                    internal_vars.push(InternalVars::One(var.clone()));
+                }
+            }
+            SimpleLine::Panic
+            | SimpleLine::LocationReport { .. } => {}
+        }
+    }
+
+    // Having scanned outside of conditional statements, scan inside conditional statements.
+    for line in lines {
+        match line {
             SimpleLine::IfNotZero {
                 then_branch,
                 else_branch,
@@ -885,12 +961,29 @@ where
                     find_internal_vars(else_branch, exclude),
                 ]));
             }
-            SimpleLine::Panic
+            SimpleLine::Match { arms, .. } => {
+                let mut branch_vars: Vec<InternalVars> = Vec::new();
+                for arm in arms {
+                    branch_vars.push(find_internal_vars(arm, exclude));
+                }
+                internal_vars.push(InternalVars::OneOf(branch_vars));
+            }
+            SimpleLine::Assignment { .. }
+            | SimpleLine::TestZero { .. }
+            | SimpleLine::HintMAlloc { .. }
+            | SimpleLine::ConstMalloc { .. }
+            | SimpleLine::DecomposeBits { .. }
+            | SimpleLine::DecomposeCustom { .. }
+            | SimpleLine::CounterHint { .. }
+            | SimpleLine::RawAccess { .. }
+            | SimpleLine::FunctionCall { .. }
+            | SimpleLine::Panic
             | SimpleLine::Print { .. }
             | SimpleLine::FunctionRet { .. }
             | SimpleLine::Precompile { .. }
             | SimpleLine::LocationReport { .. } => {}
         }
     }
+
     InternalVars::AllOf(internal_vars)
 }
