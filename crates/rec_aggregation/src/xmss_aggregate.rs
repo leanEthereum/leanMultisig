@@ -4,9 +4,9 @@ use lean_prover::{prove_execution::prove_execution, verify_execution::verify_exe
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use whir_p3::precompute_dft_twiddles;
 use std::time::Instant;
 use tracing::instrument;
+use whir_p3::precompute_dft_twiddles;
 use xmss::{
     PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature,
 };

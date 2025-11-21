@@ -43,17 +43,11 @@ pub enum BusDirection {
     Push,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BusSelector {
-    Column(ColIndex),
-    DenseOnes, // [1, 1, 1, ..., 1, 1, 0, 0, ..., 0] (padding in the end)
-}
-
 #[derive(Debug)]
 pub struct Bus {
     pub direction: BusDirection,
     pub table: Table,
-    pub selector: BusSelector,
+    pub selector: ColIndex,
     pub data: Vec<ColIndex>,
 }
 

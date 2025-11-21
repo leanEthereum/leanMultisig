@@ -62,7 +62,7 @@ impl TableT for DotProductPrecompile {
         vec![Bus {
             table: self.identifier(),
             direction: BusDirection::Pull,
-            selector: BusSelector::Column(DOT_PRODUCT_AIR_COL_START_FLAG),
+            selector: DOT_PRODUCT_AIR_COL_START_FLAG,
             data: vec![
                 DOT_PRODUCT_AIR_COL_INDEX_A,
                 DOT_PRODUCT_AIR_COL_INDEX_B,

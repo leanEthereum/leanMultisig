@@ -4,11 +4,12 @@ use p3_air::Air;
 use std::array;
 use utils::{ToUsize, get_poseidon_24_of_zero, poseidon24_permute};
 
-pub const POSEIDON_24_COL_INDEX_A: ColIndex = 0;
-pub const POSEIDON_24_COL_INDEX_A_BIS: ColIndex = 1;
-pub const POSEIDON_24_COL_INDEX_B: ColIndex = 2;
-pub const POSEIDON_24_COL_INDEX_RES: ColIndex = 3;
-pub const POSEIDON_24_COL_INDEX_INPUT_START: ColIndex = 4;
+pub const POSEIDON_24_COL_FLAG: ColIndex = 0;
+pub const POSEIDON_24_COL_INDEX_A: ColIndex = 1;
+pub const POSEIDON_24_COL_INDEX_A_BIS: ColIndex = 2;
+pub const POSEIDON_24_COL_INDEX_B: ColIndex = 3;
+pub const POSEIDON_24_COL_INDEX_RES: ColIndex = 4;
+pub const POSEIDON_24_COL_INDEX_INPUT_START: ColIndex = 5;
 pub const POSEIDON_24_COL_INDEX_OUTPUT_START: ColIndex = POSEIDON_24_COL_INDEX_INPUT_START + 24;
 // intermediate columns ("commited cubes") are not handled here
 
@@ -25,11 +26,12 @@ impl TableT for Poseidon24Precompile {
     }
 
     fn n_columns_f_total(&self) -> usize {
-        4 + 24 + 8
+        5 + 24 + 8
     }
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
         vec![
+            POSEIDON_24_COL_FLAG,
             POSEIDON_24_COL_INDEX_A,
             POSEIDON_24_COL_INDEX_A_BIS,
             POSEIDON_24_COL_INDEX_B,
@@ -74,7 +76,7 @@ impl TableT for Poseidon24Precompile {
         vec![Bus {
             table: self.identifier(),
             direction: BusDirection::Pull,
-            selector: BusSelector::DenseOnes,
+            selector: POSEIDON_24_COL_FLAG,
             data: vec![
                 POSEIDON_24_COL_INDEX_A,
                 POSEIDON_24_COL_INDEX_B,
@@ -86,6 +88,7 @@ impl TableT for Poseidon24Precompile {
     fn padding_row_f(&self) -> Vec<F> {
         [
             vec![
+                F::ZERO,
                 F::from_usize(ZERO_VEC_PTR),
                 F::from_usize(ZERO_VEC_PTR + 1),
                 F::from_usize(ZERO_VEC_PTR),
@@ -138,6 +141,7 @@ impl TableT for Poseidon24Precompile {
 
         ctx.memory.set_vector(res.to_usize(), output)?;
 
+        trace.base[POSEIDON_24_COL_FLAG].push(F::ONE);
         trace.base[POSEIDON_24_COL_INDEX_A].push(arg_a);
         trace.base[POSEIDON_24_COL_INDEX_A_BIS].push(arg_a + F::ONE);
         trace.base[POSEIDON_24_COL_INDEX_B].push(arg_b);
@@ -156,13 +160,13 @@ impl TableT for Poseidon24Precompile {
 impl Air for Poseidon24Precompile {
     type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns_f_air(&self) -> usize {
-        2
+        5
     }
     fn n_columns_ef_air(&self) -> usize {
         0
     }
     fn degree(&self) -> usize {
-        1
+        2
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
@@ -171,11 +175,26 @@ impl Air for Poseidon24Precompile {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        1
+        3
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
-        let input_index_a = builder.up_f()[POSEIDON_24_COL_INDEX_A].clone();
-        let input_index_a_bis = builder.up_f()[POSEIDON_24_COL_INDEX_A_BIS].clone();
-        builder.assert_eq(input_index_a_bis, input_index_a + AB::F::ONE);
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+        let up = builder.up_f();
+        let flag = up[POSEIDON_24_COL_FLAG].clone();
+        let index_res = up[POSEIDON_24_COL_INDEX_RES].clone();
+        let index_input_a = up[POSEIDON_24_COL_INDEX_A].clone();
+        let index_input_a_bis = up[POSEIDON_24_COL_INDEX_A_BIS].clone();
+        let index_b = up[POSEIDON_24_COL_INDEX_B].clone();
+
+        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            extra_data,
+            AB::F::from_usize(self.identifier().index()),
+            flag.clone(),
+            index_input_a.clone(),
+            index_b,
+            index_res,
+            AB::F::ZERO,
+        ));
+        builder.assert_bool(flag);
+        builder.assert_eq(index_input_a_bis, index_input_a + AB::F::ONE);
     }
 }

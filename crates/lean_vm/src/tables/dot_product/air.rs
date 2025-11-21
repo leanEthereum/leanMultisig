@@ -1,4 +1,7 @@
-use crate::{DIMENSION, EF, ExtraDataForBuses, Table, tables::dot_product::DotProductPrecompile};
+use crate::{
+    DIMENSION, EF, ExtraDataForBuses, TableT, eval_virtual_bus_column,
+    tables::dot_product::DotProductPrecompile,
+};
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
 
@@ -89,8 +92,9 @@ impl Air for DotProductPrecompile {
 
         // TODO we could do most of the following computation in the base field
 
-        builder.eval_virtual_column(eval_virtual_col::<AB, EF>(
+        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
             extra_data,
+            AB::F::from_usize(self.identifier().index()),
             start_flag_up.clone(),
             index_a_up.clone(),
             index_b_up.clone(),
@@ -119,24 +123,4 @@ impl Air for DotProductPrecompile {
 
         builder.assert_zero_ef((computation_up - res_up) * start_flag_up);
     }
-}
-
-fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
-    extra_data: &ExtraDataForBuses<EF>,
-    start_flag_up: AB::F,
-    index_a: AB::F,
-    index_b: AB::F,
-    index_res: AB::F,
-    len: AB::F,
-) -> AB::EF {
-    let (bus_challenge, fingerprint_challenge_powers, dot_product_bus_beta) =
-        extra_data.transmute_bus_data::<AB::EF>();
-
-    let data = fingerprint_challenge_powers[1].clone() * index_a
-        + fingerprint_challenge_powers[2].clone() * index_b
-        + fingerprint_challenge_powers[3].clone() * index_res
-        + fingerprint_challenge_powers[4].clone() * len;
-
-    ((data + Table::dot_product().embed::<AB::F>()) + bus_challenge) * dot_product_bus_beta
-        + start_flag_up
 }

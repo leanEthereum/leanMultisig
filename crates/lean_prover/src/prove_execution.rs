@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::common::*;
 use crate::*;
 use air::prove_air;
@@ -242,73 +240,23 @@ pub fn prove_execution(
         (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement)
     };
 
-    let (p16_bus_quotient, mut p16_indexes_statements) = {
-        let (p16_bus_quotient, p16_bus_point, _, _) = prove_bus_for_table::<2>(
+    let (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement) =
+        prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
             &mut prover_state,
             &traces[TABLE_POSEIDON_16],
             bus_challenge,
             fingerprint_challenge,
-            &Poseidon16Precompile.buses()[0], // TODO multiple buses
+            &Table::poseidon16().buses()[0], // TODO multiple buses
         );
-        let p16_bus_eval_index_input_a =
-            traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_A].evaluate(&p16_bus_point);
-        let p16_bus_eval_index_input_b =
-            traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_B].evaluate(&p16_bus_point);
-        let p16_bus_eval_index_input_output =
-            traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES].evaluate(&p16_bus_point);
-        let p16_bus_eval_compress = traces[TABLE_POSEIDON_16].base
-            [POSEIDON_16_COL_INDEX_COMPRESSION]
-            .evaluate(&p16_bus_point);
 
-        prover_state.add_extension_scalars(&[
-            p16_bus_eval_index_input_a,
-            p16_bus_eval_index_input_b,
-            p16_bus_eval_index_input_output,
-            p16_bus_eval_compress,
-        ]);
-        #[rustfmt::skip]
-        let statements = BTreeMap::from_iter([
-            (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
-            (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
-            (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
-            (POSEIDON_16_COL_INDEX_RES_BIS, vec![]),
-            (POSEIDON_16_COL_INDEX_COMPRESSION,
-                vec![
-                    Evaluation::new(p16_bus_point.clone(), p16_bus_eval_compress),
-                    p16_gkr.on_compression_selector.clone().unwrap(),
-                ]),
-        ]);
-        (p16_bus_quotient, statements)
-    };
-
-    let (p24_bus_quotient, mut p24_indexes_statements) = {
-        let (p24_bus_quotient, p24_bus_point, _, _) = prove_bus_for_table::<2>(
+    let (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement) =
+        prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
             &mut prover_state,
             &traces[TABLE_POSEIDON_24],
             bus_challenge,
             fingerprint_challenge,
-            &Poseidon24Precompile.buses()[0], // TODO multiple buses
+            &Table::poseidon24().buses()[0], // TODO multiple buses
         );
-        let p24_bus_eval_index_input_a =
-            traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A].evaluate(&p24_bus_point);
-        let p24_bus_eval_index_input_b =
-            traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_B].evaluate(&p24_bus_point);
-        let p24_bus_eval_index_input_output =
-            traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_RES].evaluate(&p24_bus_point);
-        prover_state.add_extension_scalars(&[
-            p24_bus_eval_index_input_a,
-            p24_bus_eval_index_input_b,
-            p24_bus_eval_index_input_output,
-        ]);
-        #[rustfmt::skip]
-        let statements = BTreeMap::from_iter([
-            (POSEIDON_24_COL_INDEX_A, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_a)]),
-            (POSEIDON_24_COL_INDEX_B, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_b)]),
-            (POSEIDON_24_COL_INDEX_RES, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_output)]),
-            (POSEIDON_24_COL_INDEX_A_BIS, vec![]),
-        ]);
-        (p24_bus_quotient, statements)
-    };
 
     let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
         prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
@@ -361,7 +309,7 @@ pub fn prove_execution(
         EF::ZERO
     );
 
-    let (exec_air_point, exec_evals_to_prove_f, exec_evals_to_prove_ef) = prove_table_air(
+    let (exec_air_point, exec_evals_to_prove_f, exec_evals_to_prove_ef) = prove_air_helper(
         &mut prover_state,
         &ExecutionTable,
         bus_challenge,
@@ -372,7 +320,7 @@ pub fn prove_execution(
     );
 
     let (dot_product_air_point, dot_product_evals_to_prove_f, dot_product_evals_to_prove_ef) =
-        prove_table_air(
+        prove_air_helper(
             &mut prover_state,
             &DotProductPrecompile,
             bus_challenge,
@@ -382,41 +330,25 @@ pub fn prove_execution(
             Some(dot_product_bus_virtual_statement),
         );
 
-    let (p16_air_point, p16_air_evals_to_prove_f, p16_air_evals_to_prove_ef) = prove_table_air(
+    let (p16_air_point, p16_evals_to_prove_f, _p16_evals_to_prove_ef) = prove_air_helper(
         &mut prover_state,
         &Poseidon16Precompile,
-        EF::ZERO, // not used
-        EF::ZERO, // not used
-        EF::ZERO, // not used
+        bus_challenge,
+        fingerprint_challenge,
+        p16_bus_beta,
         &traces[TABLE_POSEIDON_16],
-        None,
+        Some(p16_bus_virtual_statement),
     );
-    //  TODO be more general
-    for (c, value) in p16_air_evals_to_prove_f.iter().enumerate() {
-        p16_indexes_statements
-            .get_mut(&c)
-            .unwrap()
-            .push(Evaluation::new(p16_air_point.clone(), *value));
-    }
-    assert!(p16_air_evals_to_prove_ef.is_empty());
 
-    let (p24_air_point, p24_air_evals_to_prove_f, p24_air_evals_to_prove_ef) = prove_table_air(
+    let (p24_air_point, p24_evals_to_prove_f, _p24_evals_to_prove_ef) = prove_air_helper(
         &mut prover_state,
         &Poseidon24Precompile,
-        EF::ZERO, // not used
-        EF::ZERO, // not used
-        EF::ZERO, // not used
+        bus_challenge,
+        fingerprint_challenge,
+        p24_bus_beta,
         &traces[TABLE_POSEIDON_24],
-        None,
+        Some(p24_bus_virtual_statement),
     );
-    //  TODO be more general
-    for (c, value) in p24_air_evals_to_prove_f.iter().enumerate() {
-        p24_indexes_statements
-            .get_mut(&c)
-            .unwrap()
-            .push(Evaluation::new(p24_air_point.clone(), *value));
-    }
-    assert!(p24_air_evals_to_prove_ef.is_empty());
 
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -587,24 +519,39 @@ pub fn prove_execution(
     memory_statements.push(normal_lookup_statements.on_table.clone());
     memory_statements.push(vectorized_lookup_statements.on_table.clone());
 
+    let mut p16_statements = Table::poseidon16().committed_statements_prover(
+        &mut prover_state,
+        &p16_air_point,
+        &p16_evals_to_prove_f,
+        None,
+        &mut vec![],
+        &mut vec![],
+    );
+    let mut p24_statements = Table::poseidon24().committed_statements_prover(
+        &mut prover_state,
+        &p24_air_point,
+        &p24_evals_to_prove_f,
+        None,
+        &mut vec![],
+        &mut vec![],
+    );
+
     {
         // index opening for poseidon lookup
         for (i, statement) in vectorized_lookup_statements.on_indexes[..4]
             .iter()
             .enumerate()
         {
-            p16_indexes_statements
-                .get_mut(&Poseidon16Precompile.vector_lookups()[i].index)
-                .unwrap()
+            // TODO be more general
+            p16_statements[Poseidon16Precompile.vector_lookups()[i].index]
                 .extend(statement.clone());
         }
         for (i, statement) in vectorized_lookup_statements.on_indexes[4..]
             .iter()
             .enumerate()
         {
-            p24_indexes_statements
-                .get_mut(&Poseidon24Precompile.vector_lookups()[i].index)
-                .unwrap()
+            // TODO be more general
+            p24_statements[Poseidon24Precompile.vector_lookups()[i].index]
                 .extend(statement.clone());
         }
     }
@@ -640,17 +587,9 @@ pub fn prove_execution(
     let all_base_statements = [
         vec![memory_statements],
         exec_statements,
-        Poseidon16Precompile
-            .commited_columns_f()
-            .iter()
-            .map(|c| p16_indexes_statements[c].clone())
-            .collect::<Vec<_>>(),
+        p16_statements,
         encapsulate_vec(p16_gkr.cubes_statements.split()),
-        Poseidon24Precompile
-            .commited_columns_f()
-            .iter()
-            .map(|c| p24_indexes_statements[c].clone())
-            .collect::<Vec<_>>(),
+        p24_statements,
         encapsulate_vec(p24_gkr.cubes_statements.split()),
         dot_product_statements,
     ]
@@ -705,34 +644,6 @@ fn prove_bus_for_air_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
     fingerprint_challenge: EF,
     bus: &Bus,
 ) -> (EF, EF, MultiEvaluation<EF>) {
-    let (bus_quotient, bus_point, bus_selector_value, bus_data_value) =
-        prove_bus_for_table::<TABLE_TWO_POW_UNIVARIATE_SKIP>(
-            prover_state,
-            trace,
-            bus_challenge,
-            fingerprint_challenge,
-            bus,
-        );
-
-    let bus_beta = prover_state.sample();
-    let bus_final_value = bus_selector_value
-        * match bus.direction {
-            BusDirection::Pull => EF::NEG_ONE,
-            BusDirection::Push => EF::ONE,
-        }
-        + bus_beta * bus_data_value;
-
-    let bus_virtual_statement = MultiEvaluation::new(bus_point, vec![bus_final_value]);
-    (bus_quotient, bus_beta, bus_virtual_statement)
-}
-
-fn prove_bus_for_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
-    prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
-    trace: &TableTrace,
-    bus_challenge: EF,
-    fingerprint_challenge: EF,
-    bus: &Bus,
-) -> (EF, MultilinearPoint<EF>, EF, EF) {
     let bus_data = (0..trace.n_rows_padded())
         .into_par_iter()
         .map(|i| {
@@ -750,43 +661,39 @@ fn prove_bus_for_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
         .collect::<Vec<_>>();
 
     // TODO embedding overhead !!!
-    let bus_selector = match bus.selector {
-        BusSelector::Column(selector_column) => {
-            assert!(selector_column < trace.base.len());
-            match bus.direction {
-                BusDirection::Pull => trace.base[selector_column]
-                    .par_iter()
-                    .map(|&x| EF::from(-x))
-                    .collect::<Vec<_>>(),
-                BusDirection::Push => trace.base[selector_column]
-                    .par_iter()
-                    .map(|&x| EF::from(x))
-                    .collect::<Vec<_>>(),
-            }
-        }
-        BusSelector::DenseOnes => {
-            let mut selector = EF::zero_vec(trace.n_rows_padded());
-            selector[..trace.n_rows_non_padded()]
-                .par_iter_mut()
-                .for_each(|v| {
-                    *v = match bus.direction {
-                        BusDirection::Pull => EF::NEG_ONE,
-                        BusDirection::Push => EF::ONE,
-                    }
-                });
-            selector
-        }
+    assert!(bus.selector < trace.base.len());
+    let bus_selector = match bus.direction {
+        BusDirection::Pull => trace.base[bus.selector]
+            .par_iter()
+            .map(|&x| EF::from(-x))
+            .collect::<Vec<_>>(),
+        BusDirection::Push => trace.base[bus.selector]
+            .par_iter()
+            .map(|&x| EF::from(x))
+            .collect::<Vec<_>>(),
     };
 
     let bus_selector_packed = pack_extension(&bus_selector);
     let bus_data_packed = pack_extension(&bus_data);
-    prove_gkr_quotient::<_, TABLE_TWO_POW_UNIVARIATE_SKIP>(
-        prover_state,
-        &MleGroupRef::ExtensionPacked(vec![&bus_selector_packed, &bus_data_packed]),
-    )
+    let (bus_quotient, bus_point, bus_selector_value, bus_data_value) =
+        prove_gkr_quotient::<_, TABLE_TWO_POW_UNIVARIATE_SKIP>(
+            prover_state,
+            &MleGroupRef::ExtensionPacked(vec![&bus_selector_packed, &bus_data_packed]),
+        );
+
+    let bus_beta = prover_state.sample();
+    let bus_final_value = bus_selector_value
+        * match bus.direction {
+            BusDirection::Pull => EF::NEG_ONE,
+            BusDirection::Push => EF::ONE,
+        }
+        + bus_beta * bus_data_value;
+
+    let bus_virtual_statement = MultiEvaluation::new(bus_point, vec![bus_final_value]);
+    (bus_quotient, bus_beta, bus_virtual_statement)
 }
 
-fn prove_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
+fn prove_air_helper<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
     prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
     t: &T,
     bus_challenge: EF,

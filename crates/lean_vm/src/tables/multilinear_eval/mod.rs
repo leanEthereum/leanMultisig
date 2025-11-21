@@ -58,17 +58,7 @@ impl TableT for MultilinearEvalPrecompile {
     }
 
     fn buses(&self) -> Vec<Bus> {
-        vec![Bus {
-            table: self.identifier(),
-            direction: BusDirection::Pull,
-            selector: BusSelector::DenseOnes,
-            data: vec![
-                MULTILINEAR_EVAL_COL_INDEX_POLY,
-                MULTILINEAR_EVAL_COL_INDEX_POINT,
-                MULTILINEAR_EVAL_COL_INDEX_RES,
-                MULTILINEAR_EVAL_COL_INDEX_N_VARS,
-            ],
-        }]
+        unreachable!()
     }
 
     fn padding_row_f(&self) -> Vec<PF<EF>> {

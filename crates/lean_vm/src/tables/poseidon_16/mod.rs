@@ -7,12 +7,13 @@ use utils::{ToUsize, get_poseidon_16_of_zero, poseidon16_permute};
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 
-pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 0;
-pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 1; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
-pub const POSEIDON_16_COL_INDEX_COMPRESSION: ColIndex = 2;
-pub const POSEIDON_16_COL_INDEX_A: ColIndex = 3;
-pub const POSEIDON_16_COL_INDEX_B: ColIndex = 4;
-pub const POSEIDON_16_COL_INDEX_INPUT_START: ColIndex = 5;
+pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
+pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 1;
+pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 2; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
+pub const POSEIDON_16_COL_INDEX_COMPRESSION: ColIndex = 3;
+pub const POSEIDON_16_COL_INDEX_A: ColIndex = 4;
+pub const POSEIDON_16_COL_INDEX_B: ColIndex = 5;
+pub const POSEIDON_16_COL_INDEX_INPUT_START: ColIndex = 6;
 pub const POSEIDON_16_COL_INDEX_OUTPUT_START: ColIndex = POSEIDON_16_COL_INDEX_INPUT_START + 16;
 // intermediate columns ("commited cubes") are not handled here
 
@@ -29,11 +30,12 @@ impl TableT for Poseidon16Precompile {
     }
 
     fn n_columns_f_total(&self) -> usize {
-        5 + 16 * 2
+        6 + 16 * 2
     }
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
         vec![
+            POSEIDON_16_COL_FLAG,
             POSEIDON_16_COL_INDEX_RES,
             POSEIDON_16_COL_INDEX_RES_BIS,
             POSEIDON_16_COL_INDEX_COMPRESSION,
@@ -79,7 +81,7 @@ impl TableT for Poseidon16Precompile {
         vec![Bus {
             table: self.identifier(),
             direction: BusDirection::Pull,
-            selector: BusSelector::DenseOnes,
+            selector: POSEIDON_16_COL_FLAG,
             data: vec![
                 POSEIDON_16_COL_INDEX_A,
                 POSEIDON_16_COL_INDEX_B,
@@ -96,6 +98,7 @@ impl TableT for Poseidon16Precompile {
         }
         [
             vec![
+                F::ZERO,
                 F::from_usize(POSEIDON_16_NULL_HASH_PTR),
                 F::from_usize(if POSEIDON_16_DEFAULT_COMPRESSION {
                     ZERO_VEC_PTR
@@ -160,6 +163,7 @@ impl TableT for Poseidon16Precompile {
         ctx.memory.set_vector(index_res_a.to_usize(), res_a)?;
         ctx.memory.set_vector(index_res_b.to_usize(), res_b)?;
 
+        trace.base[POSEIDON_16_COL_FLAG].push(F::ONE);
         trace.base[POSEIDON_16_COL_INDEX_A].push(arg_a);
         trace.base[POSEIDON_16_COL_INDEX_B].push(arg_b);
         trace.base[POSEIDON_16_COL_INDEX_RES].push(index_res_a);
@@ -181,7 +185,7 @@ impl TableT for Poseidon16Precompile {
 impl Air for Poseidon16Precompile {
     type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns_f_air(&self) -> usize {
-        3
+        6
     }
     fn n_columns_ef_air(&self) -> usize {
         0
@@ -196,13 +200,28 @@ impl Air for Poseidon16Precompile {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        2
+        4
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
+        let flag = up[POSEIDON_16_COL_FLAG].clone();
         let index_res = up[POSEIDON_16_COL_INDEX_RES].clone();
         let index_res_bis = up[POSEIDON_16_COL_INDEX_RES_BIS].clone();
         let compression = up[POSEIDON_16_COL_INDEX_COMPRESSION].clone();
+        let index_a = up[POSEIDON_16_COL_INDEX_A].clone();
+        let index_b = up[POSEIDON_16_COL_INDEX_B].clone();
+
+        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            extra_data,
+            AB::F::from_usize(self.identifier().index()),
+            flag.clone(),
+            index_a.clone(),
+            index_b.clone(),
+            index_res.clone(),
+            compression.clone(),
+        ));
+
+        builder.assert_bool(flag.clone());
         builder.assert_bool(compression.clone());
         builder.assert_eq(
             index_res_bis,

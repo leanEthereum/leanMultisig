@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::common::*;
 use crate::*;
 use air::verify_air;
@@ -139,91 +137,26 @@ pub fn verify_execution(
         (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement)
     };
 
-    let (p16_bus_quotient, mut p16_indexes_statements) = {
+    let (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement) = {
         let (p16_bus_quotient, p16_bus_point, p16_bus_selector_value, p16_bus_data_value) =
-            verify_gkr_quotient::<_, 2>(&mut verifier_state, log_n_p16)?;
-        let [
-            p16_bus_eval_index_input_a,
-            p16_bus_eval_index_input_b,
-            p16_bus_eval_index_input_output,
-            p16_bus_eval_compress,
-        ] = verifier_state.next_extension_scalars_const()?;
+            verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(&mut verifier_state, log_n_p16)?;
+        let p16_bus_beta = verifier_state.sample();
+        let p16_bus_final_value = (-p16_bus_selector_value) + p16_bus_beta * p16_bus_data_value; // Note the "-" sign here !!
 
-        if p16_bus_selector_value
-            != mle_of_zeros_then_ones(n_poseidons_16, &p16_bus_point) - EF::ONE
-        {
-            return Err(ProofError::InvalidProof);
-        }
-
-        if p16_bus_data_value
-            != bus_challenge
-                + finger_print(
-                    Table::poseidon16(),
-                    &[
-                        p16_bus_eval_index_input_a,
-                        p16_bus_eval_index_input_b,
-                        p16_bus_eval_index_input_output,
-                        p16_bus_eval_compress,
-                    ],
-                    fingerprint_challenge,
-                )
-        {
-            return Err(ProofError::InvalidProof);
-        }
-
-        #[rustfmt::skip]
-        let statements = BTreeMap::from_iter([
-            (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
-            (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
-            (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
-            (POSEIDON_16_COL_INDEX_COMPRESSION,
-                vec![
-                    Evaluation::new(p16_bus_point.clone(), p16_bus_eval_compress),
-                    p16_gkr.on_compression_selector.clone().unwrap(),
-                ]),
-            (POSEIDON_16_COL_INDEX_RES_BIS, vec![]),
-        ]);
-        (p16_bus_quotient, statements)
+        let p16_bus_virtual_statement =
+            MultiEvaluation::new(p16_bus_point, vec![p16_bus_final_value]);
+        (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement)
     };
 
-    let (p24_bus_quotient, mut p24_indexes_statements) = {
+    let (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement) = {
         let (p24_bus_quotient, p24_bus_point, p24_bus_selector_value, p24_bus_data_value) =
-            verify_gkr_quotient::<_, 2>(&mut verifier_state, log_n_p24)?;
-        let [
-            p24_bus_eval_index_input_a,
-            p24_bus_eval_index_input_b,
-            p24_bus_eval_index_input_output,
-        ] = verifier_state.next_extension_scalars_const::<3>()?;
+            verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(&mut verifier_state, log_n_p24)?;
+        let p24_bus_beta = verifier_state.sample();
+        let p24_bus_final_value = (-p24_bus_selector_value) + p24_bus_beta * p24_bus_data_value; // Note the "-" sign here !!
 
-        if p24_bus_selector_value
-            != mle_of_zeros_then_ones(n_poseidons_24, &p24_bus_point) - EF::ONE
-        {
-            return Err(ProofError::InvalidProof);
-        }
-
-        if p24_bus_data_value
-            != bus_challenge
-                + finger_print(
-                    Table::poseidon24(),
-                    &[
-                        p24_bus_eval_index_input_a,
-                        p24_bus_eval_index_input_b,
-                        p24_bus_eval_index_input_output,
-                    ],
-                    fingerprint_challenge,
-                )
-        {
-            return Err(ProofError::InvalidProof);
-        }
-
-        #[rustfmt::skip]
-        let statements = BTreeMap::from_iter([
-            (POSEIDON_24_COL_INDEX_A, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_a)]),
-            (POSEIDON_24_COL_INDEX_B, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_b)]),
-            (POSEIDON_24_COL_INDEX_RES, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_output)]),
-            (POSEIDON_24_COL_INDEX_A_BIS, vec![]),
-        ]);
-        (p24_bus_quotient, statements)
+        let p24_bus_virtual_statement =
+            MultiEvaluation::new(p24_bus_point, vec![p24_bus_final_value]);
+        (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement)
     };
 
     let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) = {
@@ -309,41 +242,24 @@ pub fn verify_execution(
             Some(dot_product_bus_virtual_statement),
         )?;
 
-    let (p16_air_point, p16_air_evals_to_prove_f, p16_air_evals_to_prove_ef) = verify_table_air(
+    let (p16_air_point, p16_evals_to_prove_f, p16_evals_to_prove_ef) = verify_table_air(
         &mut verifier_state,
         &Poseidon16Precompile,
         log_n_p16,
-        EF::ZERO, // not used
-        EF::ZERO, // not used
-        EF::ZERO, // not used
-        None,
+        bus_challenge,
+        fingerprint_challenge,
+        p16_bus_beta,
+        Some(p16_bus_virtual_statement),
     )?;
-    //  TODO be more general
-    for (c, value) in p16_air_evals_to_prove_f.iter().enumerate() {
-        p16_indexes_statements
-            .get_mut(&c)
-            .unwrap()
-            .push(Evaluation::new(p16_air_point.clone(), *value));
-    }
-    assert!(p16_air_evals_to_prove_ef.is_empty());
-
-    let (p24_air_point, p24_air_evals_to_prove_f, p24_air_evals_to_prove_ef) = verify_table_air(
+    let (p24_air_point, p24_evals_to_prove_f, p24_evals_to_prove_ef) = verify_table_air(
         &mut verifier_state,
         &Poseidon24Precompile,
         log_n_p24,
-        EF::ZERO, // not used
-        EF::ZERO, // not used
-        EF::ZERO, // not used
-        None,
+        bus_challenge,
+        fingerprint_challenge,
+        p24_bus_beta,
+        Some(p24_bus_virtual_statement),
     )?;
-    //  TODO be more general
-    for (c, value) in p24_air_evals_to_prove_f.iter().enumerate() {
-        p24_indexes_statements
-            .get_mut(&c)
-            .unwrap()
-            .push(Evaluation::new(p24_air_point.clone(), *value));
-    }
-    assert!(p24_air_evals_to_prove_ef.is_empty());
 
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -470,24 +386,38 @@ pub fn verify_execution(
     memory_statements.push(normal_lookup_statements.on_table.clone());
     memory_statements.push(vectorized_lookup_statements.on_table.clone());
 
+    let mut p16_statements = Table::poseidon16().committed_statements_verifier(
+        &mut verifier_state,
+        &p16_air_point,
+        &p16_evals_to_prove_f,
+        &p16_evals_to_prove_ef,
+        &mut vec![],
+        &mut vec![],
+    )?;
+    let mut p24_statements = Table::poseidon24().committed_statements_verifier(
+        &mut verifier_state,
+        &p24_air_point,
+        &p24_evals_to_prove_f,
+        &p24_evals_to_prove_ef,
+        &mut vec![],
+        &mut vec![],
+    )?;
     {
         // index opening for poseidon lookup
         for (i, statement) in vectorized_lookup_statements.on_indexes[..4]
             .iter()
             .enumerate()
         {
-            p16_indexes_statements
-                .get_mut(&Poseidon16Precompile.vector_lookups()[i].index)
-                .unwrap()
+            // TODO be more general
+            p16_statements[Poseidon16Precompile.vector_lookups()[i].index]
                 .extend(statement.clone());
         }
         for (i, statement) in vectorized_lookup_statements.on_indexes[4..]
             .iter()
             .enumerate()
         {
-            p24_indexes_statements
-                .get_mut(&Poseidon24Precompile.vector_lookups()[i].index)
-                .unwrap()
+            // TODO be more general
+            p24_statements[Poseidon24Precompile.vector_lookups()[i].index]
                 .extend(statement.clone());
         }
     }
@@ -523,17 +453,9 @@ pub fn verify_execution(
         &[
             vec![memory_statements],
             exec_statements,
-            Poseidon16Precompile
-                .commited_columns_f()
-                .iter()
-                .map(|c| p16_indexes_statements[c].clone())
-                .collect::<Vec<_>>(),
+            p16_statements,
             encapsulate_vec(p16_gkr.cubes_statements.split()),
-            Poseidon24Precompile
-                .commited_columns_f()
-                .iter()
-                .map(|c| p24_indexes_statements[c].clone())
-                .collect::<Vec<_>>(),
+            p24_statements,
             encapsulate_vec(p24_gkr.cubes_statements.split()),
             dot_product_statements,
         ]

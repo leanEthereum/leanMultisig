@@ -1,7 +1,7 @@
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
 
-use crate::{EF, ExecutionTable, ExtraDataForBuses};
+use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 
 pub const N_INSTRUCTION_COLUMNS: usize = 13;
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
@@ -109,14 +109,14 @@ impl Air for ExecutionTable {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.eval_virtual_column(eval_virtual_col::<AB, EF>(
+        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
             extra_data,
+            precompile_index.clone(),
+            is_precompile.clone(),
             nu_a.clone(),
             nu_b.clone(),
             nu_c.clone(),
             aux.clone(),
-            is_precompile.clone(),
-            precompile_index.clone(),
         ));
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
@@ -144,26 +144,4 @@ impl Air for ExecutionTable {
         );
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
-}
-
-fn eval_virtual_col<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
-    extra_data: &ExtraDataForBuses<EF>,
-    nu_a: AB::F,
-    nu_b: AB::F,
-    nu_c: AB::F,
-    aux: AB::F,
-    is_precompile: AB::F,
-    precompile_index: AB::F,
-) -> AB::EF {
-    let (bus_challenge, fingerprint_challenge_powers, exec_bus_beta) =
-        extra_data.transmute_bus_data::<AB::EF>();
-
-    let nu_a_mul_challenge_1 = fingerprint_challenge_powers[1].clone() * nu_a;
-    let nu_b_mul_challenge_2 = fingerprint_challenge_powers[2].clone() * nu_b;
-    let nu_c_mul_challenge_3 = fingerprint_challenge_powers[3].clone() * nu_c;
-
-    let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
-    let aux_mul_challenge_4 = fingerprint_challenge_powers[4].clone() * aux;
-    ((nu_sums + aux_mul_challenge_4 + precompile_index) + bus_challenge) * exec_bus_beta
-        + is_precompile
 }
