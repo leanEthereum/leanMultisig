@@ -109,8 +109,8 @@ poseidon_circuit.workspace = true
 # [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
 # multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
 
-[profile.release]
-opt-level = 1
-
 # [profile.release]
-# lto = "thin"
+# opt-level = 1
+
+[profile.release]
+lto = "thin"

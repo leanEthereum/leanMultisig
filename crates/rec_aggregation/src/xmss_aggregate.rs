@@ -4,6 +4,7 @@ use lean_prover::{prove_execution::prove_execution, verify_execution::verify_exe
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use whir_p3::precompute_dft_twiddles;
 use std::time::Instant;
 use tracing::instrument;
 use xmss::{
@@ -266,6 +267,9 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     .no_vec_runtime_memory;
 
     utils::init_tracing();
+
+    precompute_dft_twiddles::<F>(1 << 24);
+
     let time = Instant::now();
 
     let (poseidons_16_precomputed, poseidons_24_precomputed) =

@@ -147,7 +147,6 @@ pub fn verify_execution(
             p16_bus_eval_index_input_b,
             p16_bus_eval_index_input_output,
             p16_bus_eval_compress,
-            TODO_REMOVE
         ] = verifier_state.next_extension_scalars_const()?;
 
         if p16_bus_selector_value
@@ -177,12 +176,12 @@ pub fn verify_execution(
             (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
             (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
             (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
-            (POSEIDON_16_COL_INDEX_COMPRESSION, 
+            (POSEIDON_16_COL_INDEX_COMPRESSION,
                 vec![
                     Evaluation::new(p16_bus_point.clone(), p16_bus_eval_compress),
                     p16_gkr.on_compression_selector.clone().unwrap(),
                 ]),
-            (POSEIDON_16_COL_INDEX_RES_BIS, vec![Evaluation::new(p16_bus_point.clone(), TODO_REMOVE)]),
+            (POSEIDON_16_COL_INDEX_RES_BIS, vec![]),
         ]);
         (p16_bus_quotient, statements)
     };
@@ -295,7 +294,7 @@ pub fn verify_execution(
         bus_challenge,
         fingerprint_challenge,
         exec_bus_beta,
-        exec_bus_virtual_statement,
+        Some(exec_bus_virtual_statement),
     )?;
 
     let (dot_product_air_point, dot_product_evals_to_verify_f, dot_product_evals_to_verify_ef) =
@@ -306,8 +305,26 @@ pub fn verify_execution(
             bus_challenge,
             fingerprint_challenge,
             dot_product_bus_beta,
-            dot_product_bus_virtual_statement,
+            Some(dot_product_bus_virtual_statement),
         )?;
+
+    let (p16_air_point, p16_air_evals_to_prove_f, p16_air_evals_to_prove_ef) = verify_table_air(
+        &mut verifier_state,
+        &Poseidon16Precompile,
+        log_n_p16,
+        EF::ZERO, // not used
+        EF::ZERO, // not used
+        EF::ZERO, // not used
+        None,
+    )?;
+    //  TODO be more general
+    for (c, value) in p16_air_evals_to_prove_f.iter().enumerate() {
+        p16_indexes_statements
+            .get_mut(&c)
+            .unwrap()
+            .push(Evaluation::new(p16_air_point.clone(), *value));
+    }
+    assert!(p16_air_evals_to_prove_ef.is_empty());
 
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -320,7 +337,7 @@ pub fn verify_execution(
 
     let normal_lookup_into_memory = NormalPackedLookupVerifier::step_1(
         &mut verifier_state,
-        3,
+        3, // TODO !!!!!!
         [
             vec![n_cycles; Table::execution().num_normal_lookups()],
             vec![
@@ -419,7 +436,10 @@ pub fn verify_execution(
 
     {
         // index opening for poseidon lookup
-        for (i, statement) in vectorized_lookup_statements.on_indexes[..4].iter().enumerate() {
+        for (i, statement) in vectorized_lookup_statements.on_indexes[..4]
+            .iter()
+            .enumerate()
+        {
             p16_indexes_statements
                 .get_mut(&Poseidon16Precompile.vector_lookups()[i].index)
                 .unwrap()
@@ -445,7 +465,7 @@ pub fn verify_execution(
         p24_indexes_statements
             .get_mut(&POSEIDON_24_COL_INDEX_RES)
             .unwrap()
-            .extend(vectorized_lookup_statements.on_indexes[7].clone());       
+            .extend(vectorized_lookup_statements.on_indexes[7].clone());
     }
 
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
@@ -458,13 +478,7 @@ pub fn verify_execution(
     let exec_air_statement = |col_index: usize| {
         Evaluation::new(exec_air_point.clone(), exec_evals_to_verify_f[col_index])
     };
-    let dot_product_statements = DotProductPrecompile.committed_statements_verifier(
-        &mut verifier_state,
-        &dot_product_air_point,
-        &dot_product_evals_to_verify_f,
-        &dot_product_evals_to_verify_ef,
-        &mut normal_lookup_statements.on_indexes,
-    )?;
+
     let global_statements_base = packed_pcs_global_statements_for_verifier(
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -506,7 +520,13 @@ pub fn verify_execution(
                 .map(|c| p24_indexes_statements[c].clone())
                 .collect::<Vec<_>>(),
             encapsulate_vec(p24_gkr.cubes_statements.split()),
-            dot_product_statements,
+            DotProductPrecompile.committed_statements_verifier(
+                &mut verifier_state,
+                &dot_product_air_point,
+                &dot_product_evals_to_verify_f,
+                &dot_product_evals_to_verify_ef,
+                &mut normal_lookup_statements.on_indexes,
+            )?,
         ]
         .concat(),
         &mut verifier_state,
@@ -543,7 +563,7 @@ fn verify_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
     bus_challenge: EF,
     fingerprint_challenge: EF,
     bus_beta: EF,
-    bus_virtual_statement: MultiEvaluation<EF>,
+    bus_virtual_statement: Option<MultiEvaluation<EF>>,
 ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>)> {
     let air_extra_data = ExtraDataForBuses {
         bus_challenge,
@@ -559,6 +579,6 @@ fn verify_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
         log_n_rows,
         &t.air_padding_row_f(),
         &t.air_padding_row_ef(),
-        Some(bus_virtual_statement),
+        bus_virtual_statement,
     )
 }

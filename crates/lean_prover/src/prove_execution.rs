@@ -11,9 +11,7 @@ use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
-use whir_p3::{
-    WhirConfig, WhirConfigBuilder, precompute_dft_twiddles, second_batched_whir_config_builder,
-};
+use whir_p3::{WhirConfig, WhirConfigBuilder, second_batched_whir_config_builder};
 use xmss::{Poseidon16History, Poseidon24History};
 
 pub fn prove_execution(
@@ -262,23 +260,19 @@ pub fn prove_execution(
             [POSEIDON_16_COL_INDEX_COMPRESSION]
             .evaluate(&p16_bus_point);
 
-        let TODO_REMOVE = traces[TABLE_POSEIDON_16].base
-            [POSEIDON_16_COL_INDEX_RES_BIS]
-            .evaluate(&p16_bus_point);
         prover_state.add_extension_scalars(&[
             p16_bus_eval_index_input_a,
             p16_bus_eval_index_input_b,
             p16_bus_eval_index_input_output,
             p16_bus_eval_compress,
-            TODO_REMOVE
         ]);
         #[rustfmt::skip]
         let statements = BTreeMap::from_iter([
             (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
             (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
             (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
-            (POSEIDON_16_COL_INDEX_RES_BIS, vec![Evaluation::new(p16_bus_point.clone(), TODO_REMOVE)]),
-            (POSEIDON_16_COL_INDEX_COMPRESSION, 
+            (POSEIDON_16_COL_INDEX_RES_BIS, vec![]),
+            (POSEIDON_16_COL_INDEX_COMPRESSION,
                 vec![
                     Evaluation::new(p16_bus_point.clone(), p16_bus_eval_compress),
                     p16_gkr.on_compression_selector.clone().unwrap(),
@@ -373,7 +367,7 @@ pub fn prove_execution(
         fingerprint_challenge,
         exec_bus_beta,
         &main_trace,
-        exec_bus_virtual_statement,
+        Some(exec_bus_virtual_statement),
     );
 
     let (dot_product_air_point, dot_product_evals_to_prove_f, dot_product_evals_to_prove_ef) =
@@ -384,8 +378,26 @@ pub fn prove_execution(
             fingerprint_challenge,
             dot_product_bus_beta,
             &traces[TABLE_DOT_PRODUCT],
-            dot_product_bus_virtual_statement,
+            Some(dot_product_bus_virtual_statement),
         );
+
+    let (p16_air_point, p16_air_evals_to_prove_f, p16_air_evals_to_prove_ef) = prove_table_air(
+        &mut prover_state,
+        &Poseidon16Precompile,
+        EF::ZERO, // not used
+        EF::ZERO, // not used
+        EF::ZERO, // not used
+        &traces[TABLE_POSEIDON_16],
+        None,
+    );
+    //  TODO be more general
+    for (c, value) in p16_air_evals_to_prove_f.iter().enumerate() {
+        p16_indexes_statements
+            .get_mut(&c)
+            .unwrap()
+            .push(Evaluation::new(p16_air_point.clone(), *value));
+    }
+    assert!(p16_air_evals_to_prove_ef.is_empty());
 
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -536,7 +548,10 @@ pub fn prove_execution(
 
     {
         // index opening for poseidon lookup
-        for (i, statement) in vectorized_lookup_statements.on_indexes[..4].iter().enumerate() {
+        for (i, statement) in vectorized_lookup_statements.on_indexes[..4]
+            .iter()
+            .enumerate()
+        {
             p16_indexes_statements
                 .get_mut(&Poseidon16Precompile.vector_lookups()[i].index)
                 .unwrap()
@@ -764,7 +779,7 @@ fn prove_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
     fingerprint_challenge: EF,
     bus_beta: EF,
     trace: &TableTrace,
-    bus_virtual_statement: MultiEvaluation<EF>,
+    bus_virtual_statement: Option<MultiEvaluation<EF>>,
 ) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
     let dot_product_air_extra_data = ExtraDataForBuses {
         bus_challenge,
@@ -782,8 +797,8 @@ fn prove_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
             &trace.ext[..t.n_columns_ef_air()],
             &t.air_padding_row_f(),
             &t.air_padding_row_ef(),
-            Some(bus_virtual_statement),
-            true,
+            bus_virtual_statement,
+            t.n_columns_air() + t.total_n_down_columns_air() > 5, // heuristic
         )
     })
 }
