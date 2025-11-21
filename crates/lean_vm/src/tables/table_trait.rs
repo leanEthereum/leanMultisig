@@ -1,7 +1,7 @@
-use crate::{EF, F, InstructionContext, RunnerError, Table};
+use crate::{EF, F, InstructionContext, RunnerError, Table, VECTOR_LEN};
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use std::{any::TypeId, mem::transmute_copy};
+use std::{any::TypeId, array, mem::transmute_copy};
 
 use sub_protocols::{
     ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier,
@@ -304,6 +304,16 @@ pub trait TableT: Air {
         let mut cols = Vec::new();
         for lookup in self.normal_lookups_ef() {
             cols.push(&trace.ext[lookup.values][..]);
+        }
+        cols
+    }
+    fn vector_lookup_values_columns<'a>(
+        &self,
+        trace: &'a TableTrace,
+    ) -> Vec<[&'a [PF<EF>]; VECTOR_LEN]> {
+        let mut cols = Vec::new();
+        for lookup in self.vector_lookups() {
+            cols.push(array::from_fn(|i| &trace.base[lookup.values[i]][..]));
         }
         cols
     }

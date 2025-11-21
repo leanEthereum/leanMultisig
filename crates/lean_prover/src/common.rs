@@ -31,22 +31,14 @@ pub(crate) fn get_base_dims(
     [
         vec![
             ColDims::padded_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
-            ColDims::padded(n_cycles, F::from_usize(ENDING_PC)), // pc
-            ColDims::padded(n_cycles, F::ZERO),                  // fp
-            ColDims::padded(n_cycles, F::ZERO),                  // mem_addr_a
-            ColDims::padded(n_cycles, F::ZERO),                  // mem_addr_b
-            ColDims::padded(n_cycles, F::ZERO),                  // mem_addr_c
         ],
+        Table::execution().committed_dims(n_cycles),
         Table::poseidon16().committed_dims(n_poseidons_16),
         p16_default_cubes
             .iter()
             .map(|&c| ColDims::padded(n_poseidons_16, c))
             .collect::<Vec<_>>(), // commited cubes for poseidon16
-        vec![
-            ColDims::padded(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index a
-            ColDims::padded(n_poseidons_24, F::from_usize(ZERO_VEC_PTR)), // poseidon24 index b
-            ColDims::padded(n_poseidons_24, F::from_usize(POSEIDON_24_NULL_HASH_PTR)), // poseidon24 index res
-        ],
+        Table::poseidon24().committed_dims(n_poseidons_24),
         p24_default_cubes
             .iter()
             .map(|&c| ColDims::padded(n_poseidons_24, c))

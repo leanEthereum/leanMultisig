@@ -1,7 +1,9 @@
+use std::array;
+
 use crate::*;
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use utils::{ToUsize, poseidon16_permute};
+use utils::{ToUsize, get_poseidon_16_of_zero, poseidon16_permute};
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 
@@ -11,7 +13,8 @@ pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 2;
 pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 3; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
 pub const POSEIDON_16_COL_INDEX_COMPRESSION: ColIndex = 4;
 pub const POSEIDON_16_COL_INDEX_INPUT_START: ColIndex = 5;
-// intermediate columns ("commited cubes") and output are not handled here
+pub const POSEIDON_16_COL_INDEX_OUTPUT_START: ColIndex = POSEIDON_16_COL_INDEX_INPUT_START + 16;
+// intermediate columns ("commited cubes") are not handled here
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile;
@@ -38,15 +41,32 @@ impl TableT for Poseidon16Precompile {
     }
 
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
-        unreachable!()
+        vec![]
     }
 
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        unreachable!()
+        vec![]
     }
 
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
-        unreachable!()
+        vec![
+            VectorLookupIntoMemory {
+                index: POSEIDON_16_COL_INDEX_A,
+                values: array::from_fn(|i| POSEIDON_16_COL_INDEX_INPUT_START + i),
+            },
+            VectorLookupIntoMemory {
+                index: POSEIDON_16_COL_INDEX_B,
+                values: array::from_fn(|i| POSEIDON_16_COL_INDEX_INPUT_START + VECTOR_LEN + i),
+            },
+            VectorLookupIntoMemory {
+                index: POSEIDON_16_COL_INDEX_RES,
+                values: array::from_fn(|i| POSEIDON_16_COL_INDEX_OUTPUT_START + i),
+            },
+            VectorLookupIntoMemory {
+                index: POSEIDON_16_COL_INDEX_RES_BIS,
+                values: array::from_fn(|i| POSEIDON_16_COL_INDEX_OUTPUT_START + VECTOR_LEN + i),
+            },
+        ]
     }
 
     fn buses(&self) -> Vec<Bus> {
@@ -64,6 +84,10 @@ impl TableT for Poseidon16Precompile {
     }
 
     fn padding_row(&self) -> Vec<EF> {
+        let mut poseidon_of_zero = *get_poseidon_16_of_zero();
+        if POSEIDON_16_DEFAULT_COMPRESSION {
+            poseidon_of_zero[8..].fill(F::ZERO);
+        }
         [
             vec![
                 EF::from_usize(ZERO_VEC_PTR),
@@ -77,6 +101,7 @@ impl TableT for Poseidon16Precompile {
                 EF::from_bool(POSEIDON_16_DEFAULT_COMPRESSION),
             ],
             vec![EF::ZERO; 16],
+            poseidon_of_zero.iter().map(|&x| EF::from(x)).collect(),
         ]
         .concat()
     }
@@ -86,7 +111,7 @@ impl TableT for Poseidon16Precompile {
         &self,
         arg_a: F,
         arg_b: F,
-        res: F,
+        index_res_a: F,
         is_compression: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
@@ -112,25 +137,32 @@ impl TableT for Poseidon16Precompile {
             _ => poseidon16_permute(input),
         };
 
-        let res0: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
-        let res1: [F; VECTOR_LEN] = output[VECTOR_LEN..].try_into().unwrap();
+        let res_a: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
+        let (index_res_b, res_b): (F, [F; VECTOR_LEN]) = if is_compression {
+            (F::from_usize(ZERO_VEC_PTR), [F::ZERO; VECTOR_LEN])
+        } else {
+            (
+                index_res_a + F::ONE,
+                output[VECTOR_LEN..].try_into().unwrap(),
+            )
+        };
 
-        ctx.memory.set_vector(res.to_usize(), res0)?;
-        if !is_compression {
-            ctx.memory.set_vector(1 + res.to_usize(), res1)?;
-        }
+        ctx.memory.set_vector(index_res_a.to_usize(), res_a)?;
+        ctx.memory.set_vector(index_res_b.to_usize(), res_b)?;
 
         trace.base[POSEIDON_16_COL_INDEX_A].push(arg_a);
         trace.base[POSEIDON_16_COL_INDEX_B].push(arg_b);
-        trace.base[POSEIDON_16_COL_INDEX_RES].push(res);
-        trace.base[POSEIDON_16_COL_INDEX_RES_BIS].push(if is_compression {
-            F::ZERO
-        } else {
-            res + F::ONE
-        });
+        trace.base[POSEIDON_16_COL_INDEX_RES].push(index_res_a);
+        trace.base[POSEIDON_16_COL_INDEX_RES_BIS].push(index_res_b);
         trace.base[POSEIDON_16_COL_INDEX_COMPRESSION].push(F::from_bool(is_compression));
         for i in 0..16 {
             trace.base[POSEIDON_16_COL_INDEX_INPUT_START + i].push(input[i]);
+        }
+        for i in 0..8 {
+            trace.base[POSEIDON_16_COL_INDEX_OUTPUT_START + i].push(res_a[i]);
+        }
+        for i in 0..8 {
+            trace.base[POSEIDON_16_COL_INDEX_OUTPUT_START + 8 + i].push(res_b[i]);
         }
         Ok(())
     }
@@ -139,7 +171,7 @@ impl TableT for Poseidon16Precompile {
 impl Air for Poseidon16Precompile {
     type ExtraData = ();
     fn n_columns_f(&self) -> usize {
-        5 + 16
+        5 + 16 * 2
     }
     fn n_columns_ef(&self) -> usize {
         0

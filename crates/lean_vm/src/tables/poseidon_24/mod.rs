@@ -1,3 +1,5 @@
+use std::array;
+
 use crate::{
     Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F,
     InstructionContext, LookupIntoMemory, POSEIDON_24_NULL_HASH_PTR, RunnerError, Table, TableT,
@@ -5,14 +7,15 @@ use crate::{
 };
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use utils::{ToUsize, poseidon24_permute};
+use utils::{ToUsize, get_poseidon_24_of_zero, poseidon24_permute};
 
 pub const POSEIDON_24_COL_INDEX_A: ColIndex = 0;
 pub const POSEIDON_24_COL_INDEX_A_BIS: ColIndex = 1;
 pub const POSEIDON_24_COL_INDEX_B: ColIndex = 2;
 pub const POSEIDON_24_COL_INDEX_RES: ColIndex = 3;
 pub const POSEIDON_24_COL_INDEX_INPUT_START: ColIndex = 4;
-// intermediate columns ("commited cubes") and output are not handled here
+pub const POSEIDON_24_COL_INDEX_OUTPUT_START: ColIndex = POSEIDON_24_COL_INDEX_INPUT_START + 24;
+// intermediate columns ("commited cubes") are not handled here
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon24Precompile;
@@ -39,15 +42,32 @@ impl TableT for Poseidon24Precompile {
     }
 
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
-        unreachable!()
+        vec![]
     }
 
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        unreachable!()
+        vec![]
     }
 
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
-        unreachable!()
+        vec![
+            VectorLookupIntoMemory {
+                index: POSEIDON_24_COL_INDEX_A,
+                values: array::from_fn(|i| POSEIDON_24_COL_INDEX_INPUT_START + i),
+            },
+            VectorLookupIntoMemory {
+                index: POSEIDON_24_COL_INDEX_A_BIS,
+                values: array::from_fn(|i| POSEIDON_24_COL_INDEX_INPUT_START + VECTOR_LEN + i),
+            },
+            VectorLookupIntoMemory {
+                index: POSEIDON_24_COL_INDEX_B,
+                values: array::from_fn(|i| POSEIDON_24_COL_INDEX_INPUT_START + 2 * VECTOR_LEN + i),
+            },
+            VectorLookupIntoMemory {
+                index: POSEIDON_24_COL_INDEX_RES,
+                values: array::from_fn(|i| POSEIDON_24_COL_INDEX_OUTPUT_START + i),
+            },
+        ]
     }
 
     fn buses(&self) -> Vec<Bus> {
@@ -72,6 +92,10 @@ impl TableT for Poseidon24Precompile {
                 EF::from_usize(POSEIDON_24_NULL_HASH_PTR),
             ],
             vec![EF::ZERO; 24],
+            get_poseidon_24_of_zero()[16..]
+                .iter()
+                .map(|&x| EF::from(x))
+                .collect(),
         ]
         .concat()
     }
@@ -120,6 +144,9 @@ impl TableT for Poseidon24Precompile {
         for i in 0..24 {
             trace.base[POSEIDON_24_COL_INDEX_INPUT_START + i].push(input[i]);
         }
+        for i in 0..8 {
+            trace.base[POSEIDON_24_COL_INDEX_OUTPUT_START + i].push(output[i]);
+        }
 
         Ok(())
     }
@@ -128,7 +155,7 @@ impl TableT for Poseidon24Precompile {
 impl Air for Poseidon24Precompile {
     type ExtraData = ();
     fn n_columns_f(&self) -> usize {
-        4 + 24
+        4 + 24 + 8
     }
     fn n_columns_ef(&self) -> usize {
         0

@@ -1,5 +1,3 @@
-use std::array;
-
 use crate::common::*;
 use crate::*;
 use air::prove_air;
@@ -418,27 +416,6 @@ pub fn prove_execution(
         &p24_gkr_layers,
     );
 
-    let poseidon_value_columns = vec![
-        array::from_fn(|i| FPacking::<F>::unpack_slice(&p16_witness.input_layer[i])),
-        array::from_fn(|i| FPacking::<F>::unpack_slice(&p16_witness.input_layer[i + VECTOR_LEN])),
-        array::from_fn(|i| {
-            FPacking::<F>::unpack_slice(&p16_witness.compression.as_ref().unwrap().2[i])
-        }),
-        array::from_fn(|i| {
-            FPacking::<F>::unpack_slice(
-                &p16_witness.compression.as_ref().unwrap().2[i + VECTOR_LEN],
-            )
-        }),
-        array::from_fn(|i| FPacking::<F>::unpack_slice(&p24_witness.input_layer[i])),
-        array::from_fn(|i| FPacking::<F>::unpack_slice(&p24_witness.input_layer[i + VECTOR_LEN])),
-        array::from_fn(|i| {
-            FPacking::<F>::unpack_slice(&p24_witness.input_layer[i + VECTOR_LEN * 2])
-        }),
-        array::from_fn(|i| {
-            FPacking::<F>::unpack_slice(&p24_witness.output_layer[i + VECTOR_LEN * 2])
-        }),
-    ];
-
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
@@ -498,6 +475,11 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
+    let poseidon_value_columns = [
+        Table::poseidon16().vector_lookup_values_columns(&traces[TABLE_POSEIDON_16]),
+        Table::poseidon24().vector_lookup_values_columns(&traces[TABLE_POSEIDON_24]),
+    ]
+    .concat();
     let vectorized_lookup_into_memory = VectorizedPackedLookupProver::<_, VECTOR_LEN>::step_1(
         &mut prover_state,
         &memory,
