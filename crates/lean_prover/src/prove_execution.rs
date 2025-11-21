@@ -305,6 +305,7 @@ pub fn prove_execution(
             (POSEIDON_24_COL_INDEX_A, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_a)]),
             (POSEIDON_24_COL_INDEX_B, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_b)]),
             (POSEIDON_24_COL_INDEX_RES, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_output)]),
+            (POSEIDON_24_COL_INDEX_A_BIS, vec![]),
         ]);
         (p24_bus_quotient, statements)
     };
@@ -398,6 +399,24 @@ pub fn prove_execution(
             .push(Evaluation::new(p16_air_point.clone(), *value));
     }
     assert!(p16_air_evals_to_prove_ef.is_empty());
+
+    let (p24_air_point, p24_air_evals_to_prove_f, p24_air_evals_to_prove_ef) = prove_table_air(
+        &mut prover_state,
+        &Poseidon24Precompile,
+        EF::ZERO, // not used
+        EF::ZERO, // not used
+        EF::ZERO, // not used
+        &traces[TABLE_POSEIDON_24],
+        None,
+    );
+    //  TODO be more general
+    for (c, value) in p24_air_evals_to_prove_f.iter().enumerate() {
+        p24_indexes_statements
+            .get_mut(&c)
+            .unwrap()
+            .push(Evaluation::new(p24_air_point.clone(), *value));
+    }
+    assert!(p24_air_evals_to_prove_ef.is_empty());
 
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -557,27 +576,15 @@ pub fn prove_execution(
                 .unwrap()
                 .extend(statement.clone());
         }
-        // vectorized_lookup_statements.on_indexes[3] is proven via sumcheck below
-        p24_indexes_statements
-            .get_mut(&POSEIDON_24_COL_INDEX_A)
-            .unwrap()
-            .extend(vectorized_lookup_statements.on_indexes[4].clone());
-        p24_indexes_statements
-            .get_mut(&POSEIDON_24_COL_INDEX_A)
-            .unwrap()
-            .extend(
-                vectorized_lookup_statements.on_indexes[5]
-                    .iter()
-                    .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
-            );
-        p24_indexes_statements
-            .get_mut(&POSEIDON_24_COL_INDEX_B)
-            .unwrap()
-            .extend(vectorized_lookup_statements.on_indexes[6].clone());
-        p24_indexes_statements
-            .get_mut(&POSEIDON_24_COL_INDEX_RES)
-            .unwrap()
-            .extend(vectorized_lookup_statements.on_indexes[7].clone());
+        for (i, statement) in vectorized_lookup_statements.on_indexes[4..]
+            .iter()
+            .enumerate()
+        {
+            p24_indexes_statements
+                .get_mut(&Poseidon24Precompile.vector_lookups()[i].index)
+                .unwrap()
+                .extend(statement.clone());
+        }
     }
 
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);

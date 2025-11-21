@@ -1,12 +1,7 @@
-use std::array;
-
-use crate::{
-    Bus, BusDirection, BusSelector, ColIndex, EF, ExtensionFieldLookupIntoMemory, F,
-    InstructionContext, LookupIntoMemory, POSEIDON_24_NULL_HASH_PTR, RunnerError, Table, TableT,
-    VECTOR_LEN, VectorLookupIntoMemory, ZERO_VEC_PTR,
-};
+use crate::*;
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
+use std::array;
 use utils::{ToUsize, get_poseidon_24_of_zero, poseidon24_permute};
 
 pub const POSEIDON_24_COL_INDEX_A: ColIndex = 0;
@@ -29,9 +24,14 @@ impl TableT for Poseidon24Precompile {
         Table::poseidon24()
     }
 
+    fn n_columns_f_total(&self) -> usize {
+        4 + 24 + 8
+    }
+
     fn commited_columns_f(&self) -> Vec<ColIndex> {
         vec![
             POSEIDON_24_COL_INDEX_A,
+            POSEIDON_24_COL_INDEX_A_BIS,
             POSEIDON_24_COL_INDEX_B,
             POSEIDON_24_COL_INDEX_RES,
         ] // indexes only here (committed cubes are handled elsewhere)
@@ -154,26 +154,28 @@ impl TableT for Poseidon24Precompile {
 }
 
 impl Air for Poseidon24Precompile {
-    type ExtraData = ();
+    type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns_f_air(&self) -> usize {
-        4 + 24 + 8
+        2
     }
     fn n_columns_ef_air(&self) -> usize {
         0
     }
     fn degree(&self) -> usize {
-        unreachable!()
+        1
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        unreachable!()
+        vec![]
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
-        unreachable!()
+        vec![]
     }
     fn n_constraints(&self) -> usize {
-        unreachable!()
+        1
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
-        unreachable!()
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
+        let input_index_a = builder.up_f()[POSEIDON_24_COL_INDEX_A].clone();
+        let input_index_a_bis = builder.up_f()[POSEIDON_24_COL_INDEX_A_BIS].clone();
+        builder.assert_eq(input_index_a_bis, input_index_a + AB::F::ONE);
     }
 }
