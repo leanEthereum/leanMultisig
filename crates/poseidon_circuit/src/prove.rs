@@ -205,7 +205,7 @@ where
     }
 }
 
-#[instrument(skip_all)]
+// #[instrument(skip_all)]
 fn prove_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>> + 'static>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     computation: &SC,

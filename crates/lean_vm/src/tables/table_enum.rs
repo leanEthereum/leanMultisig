@@ -16,8 +16,19 @@ pub const TABLE_DOT_PRODUCT: usize = 0;
 pub const TABLE_POSEIDON_16: usize = 1;
 pub const TABLE_POSEIDON_24: usize = 2;
 pub const TABLE_MULTILINEAR_EVAL: usize = 3;
-
 pub const TABLE_EXECUTION: usize = 1000;
+
+macro_rules! delegate_to_inner {
+    ($self:expr, $method:ident $(, $($arg:expr),*)?) => {
+        match $self {
+            Self::DotProduct(p) => p.$method($($($arg),*)?),
+            Self::Poseidon16(p) => p.$method($($($arg),*)?),
+            Self::Poseidon24(p) => p.$method($($($arg),*)?),
+            Self::MultilinearEval(p) => p.$method($($($arg),*)?),
+            Self::Execution(p) => p.$method($($($arg),*)?),
+        }
+    };
+}
 
 impl Table {
     pub const fn dot_product() -> Self {
@@ -61,94 +72,34 @@ impl Table {
 
 impl TableT for Table {
     fn name(&self) -> &'static str {
-        match self {
-            Self::DotProduct(p) => p.name(),
-            Self::Poseidon16(p) => p.name(),
-            Self::Poseidon24(p) => p.name(),
-            Self::MultilinearEval(p) => p.name(),
-            Self::Execution(p) => p.name(),
-        }
+        delegate_to_inner!(self, name)
     }
     fn identifier(&self) -> Table {
-        match self {
-            Self::DotProduct(p) => p.identifier(),
-            Self::Poseidon16(p) => p.identifier(),
-            Self::Poseidon24(p) => p.identifier(),
-            Self::MultilinearEval(p) => p.identifier(),
-            Self::Execution(p) => p.identifier(),
-        }
+        delegate_to_inner!(self, identifier)
     }
     fn commited_columns_f(&self) -> Vec<ColIndex> {
-        match self {
-            Self::DotProduct(p) => p.commited_columns_f(),
-            Self::Poseidon16(p) => p.commited_columns_f(),
-            Self::Poseidon24(p) => p.commited_columns_f(),
-            Self::MultilinearEval(p) => p.commited_columns_f(),
-            Self::Execution(p) => p.commited_columns_f(),
-        }
+        delegate_to_inner!(self, commited_columns_f)
     }
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        match self {
-            Self::DotProduct(p) => p.commited_columns_ef(),
-            Self::Poseidon16(p) => p.commited_columns_ef(),
-            Self::Poseidon24(p) => p.commited_columns_ef(),
-            Self::MultilinearEval(p) => p.commited_columns_ef(),
-            Self::Execution(p) => p.commited_columns_ef(),
-        }
+        delegate_to_inner!(self, commited_columns_ef)
     }
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
-        match self {
-            Self::DotProduct(p) => p.normal_lookups_f(),
-            Self::Poseidon16(p) => p.normal_lookups_f(),
-            Self::Poseidon24(p) => p.normal_lookups_f(),
-            Self::MultilinearEval(p) => p.normal_lookups_f(),
-            Self::Execution(p) => p.normal_lookups_f(),
-        }
+        delegate_to_inner!(self, normal_lookups_f)
     }
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        match self {
-            Self::DotProduct(p) => p.normal_lookups_ef(),
-            Self::Poseidon16(p) => p.normal_lookups_ef(),
-            Self::Poseidon24(p) => p.normal_lookups_ef(),
-            Self::MultilinearEval(p) => p.normal_lookups_ef(),
-            Self::Execution(p) => p.normal_lookups_ef(),
-        }
+        delegate_to_inner!(self, normal_lookups_ef)
     }
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
-        match self {
-            Self::DotProduct(p) => p.vector_lookups(),
-            Self::Poseidon16(p) => p.vector_lookups(),
-            Self::Poseidon24(p) => p.vector_lookups(),
-            Self::MultilinearEval(p) => p.vector_lookups(),
-            Self::Execution(p) => p.vector_lookups(),
-        }
+        delegate_to_inner!(self, vector_lookups)
     }
     fn buses(&self) -> Vec<Bus> {
-        match self {
-            Self::DotProduct(p) => p.buses(),
-            Self::Poseidon16(p) => p.buses(),
-            Self::Poseidon24(p) => p.buses(),
-            Self::MultilinearEval(p) => p.buses(),
-            Self::Execution(p) => p.buses(),
-        }
+        delegate_to_inner!(self, buses)
     }
     fn padding_row_f(&self) -> Vec<PF<EF>> {
-        match self {
-            Self::DotProduct(p) => p.padding_row_f(),
-            Self::Poseidon16(p) => p.padding_row_f(),
-            Self::Poseidon24(p) => p.padding_row_f(),
-            Self::MultilinearEval(p) => p.padding_row_f(),
-            Self::Execution(p) => p.padding_row_f(),
-        }
+        delegate_to_inner!(self, padding_row_f)
     }
     fn padding_row_ef(&self) -> Vec<EF> {
-        match self {
-            Self::DotProduct(p) => p.padding_row_ef(),
-            Self::Poseidon16(p) => p.padding_row_ef(),
-            Self::Poseidon24(p) => p.padding_row_ef(),
-            Self::MultilinearEval(p) => p.padding_row_ef(),
-            Self::Execution(p) => p.padding_row_ef(),
-        }
+        delegate_to_inner!(self, padding_row_ef)
     }
     fn execute(
         &self,
@@ -158,89 +109,35 @@ impl TableT for Table {
         aux: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
-        match self {
-            Self::DotProduct(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
-            Self::Poseidon16(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
-            Self::Poseidon24(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
-            Self::MultilinearEval(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
-            Self::Execution(p) => p.execute(arg_a, arg_b, arg_c, aux, ctx),
-        }
+        delegate_to_inner!(self, execute, arg_a, arg_b, arg_c, aux, ctx)
     }
     fn n_columns_f_total(&self) -> usize {
-        match self {
-            Self::DotProduct(p) => p.n_columns_f_total(),
-            Self::Poseidon16(p) => p.n_columns_f_total(),
-            Self::Poseidon24(p) => p.n_columns_f_total(),
-            Self::MultilinearEval(p) => p.n_columns_f_total(),
-            Self::Execution(p) => p.n_columns_f_total(),
-        }
+        delegate_to_inner!(self, n_columns_f_total)
     }
     fn n_columns_ef_total(&self) -> usize {
-        match self {
-            Self::DotProduct(p) => p.n_columns_ef_total(),
-            Self::Poseidon16(p) => p.n_columns_ef_total(),
-            Self::Poseidon24(p) => p.n_columns_ef_total(),
-            Self::MultilinearEval(p) => p.n_columns_ef_total(),
-            Self::Execution(p) => p.n_columns_ef_total(),
-        }
+        delegate_to_inner!(self, n_columns_ef_total)
     }
 }
 
 impl Air for Table {
     type ExtraData = ();
     fn degree(&self) -> usize {
-        match self {
-            Self::DotProduct(p) => p.degree(),
-            Self::Poseidon16(p) => p.degree(),
-            Self::Poseidon24(p) => p.degree(),
-            Self::MultilinearEval(p) => p.degree(),
-            Self::Execution(p) => p.degree(),
-        }
+        delegate_to_inner!(self, degree)
     }
     fn n_columns_f_air(&self) -> usize {
-        match self {
-            Self::DotProduct(p) => p.n_columns_f_air(),
-            Self::Poseidon16(p) => p.n_columns_f_air(),
-            Self::Poseidon24(p) => p.n_columns_f_air(),
-            Self::MultilinearEval(p) => p.n_columns_f_air(),
-            Self::Execution(p) => p.n_columns_f_air(),
-        }
+        delegate_to_inner!(self, n_columns_f_air)
     }
     fn n_columns_ef_air(&self) -> usize {
-        match self {
-            Self::DotProduct(p) => p.n_columns_ef_air(),
-            Self::Poseidon16(p) => p.n_columns_ef_air(),
-            Self::Poseidon24(p) => p.n_columns_ef_air(),
-            Self::MultilinearEval(p) => p.n_columns_ef_air(),
-            Self::Execution(p) => p.n_columns_ef_air(),
-        }
+        delegate_to_inner!(self, n_columns_ef_air)
     }
     fn n_constraints(&self) -> usize {
-        match self {
-            Self::DotProduct(p) => p.n_constraints(),
-            Self::Poseidon16(p) => p.n_constraints(),
-            Self::Poseidon24(p) => p.n_constraints(),
-            Self::MultilinearEval(p) => p.n_constraints(),
-            Self::Execution(p) => p.n_constraints(),
-        }
+        delegate_to_inner!(self, n_constraints)
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        match self {
-            Self::DotProduct(p) => p.down_column_indexes_f(),
-            Self::Poseidon16(p) => p.down_column_indexes_f(),
-            Self::Poseidon24(p) => p.down_column_indexes_f(),
-            Self::MultilinearEval(p) => p.down_column_indexes_f(),
-            Self::Execution(p) => p.down_column_indexes_f(),
-        }
+        delegate_to_inner!(self, down_column_indexes_f)
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
-        match self {
-            Self::DotProduct(p) => p.down_column_indexes_ef(),
-            Self::Poseidon16(p) => p.down_column_indexes_ef(),
-            Self::Poseidon24(p) => p.down_column_indexes_ef(),
-            Self::MultilinearEval(p) => p.down_column_indexes_ef(),
-            Self::Execution(p) => p.down_column_indexes_ef(),
-        }
+        delegate_to_inner!(self, down_column_indexes_ef)
     }
     fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()

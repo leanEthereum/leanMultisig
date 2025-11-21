@@ -99,6 +99,7 @@ impl Air for DotProductPrecompile {
         ));
 
         builder.assert_bool(start_flag_down.clone());
+        // TODO: should we assert_bool on start_flag_up too?
 
         let product_up = value_a_up * value_b_up;
         let not_flag_down = AB::F::ONE - start_flag_down.clone();
