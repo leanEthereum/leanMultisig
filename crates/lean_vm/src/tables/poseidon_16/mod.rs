@@ -7,11 +7,11 @@ use utils::{ToUsize, get_poseidon_16_of_zero, poseidon16_permute};
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 
-pub const POSEIDON_16_COL_INDEX_A: ColIndex = 0;
-pub const POSEIDON_16_COL_INDEX_B: ColIndex = 1;
-pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 2;
-pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 3; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
-pub const POSEIDON_16_COL_INDEX_COMPRESSION: ColIndex = 4;
+pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 0;
+pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 1; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
+pub const POSEIDON_16_COL_INDEX_COMPRESSION: ColIndex = 2;
+pub const POSEIDON_16_COL_INDEX_A: ColIndex = 3;
+pub const POSEIDON_16_COL_INDEX_B: ColIndex = 4;
 pub const POSEIDON_16_COL_INDEX_INPUT_START: ColIndex = 5;
 pub const POSEIDON_16_COL_INDEX_OUTPUT_START: ColIndex = POSEIDON_16_COL_INDEX_INPUT_START + 16;
 // intermediate columns ("commited cubes") are not handled here
@@ -28,12 +28,18 @@ impl TableT for Poseidon16Precompile {
         Table::poseidon16()
     }
 
+    fn n_columns_f_total(&self) -> usize {
+        5 + 16 * 2
+    }
+
     fn commited_columns_f(&self) -> Vec<ColIndex> {
         vec![
+            // POSEIDON_16_COL_INDEX_RES_BIS,
+            // POSEIDON_16_COL_INDEX_COMPRESSION,
+            POSEIDON_16_COL_INDEX_RES,
             POSEIDON_16_COL_INDEX_A,
             POSEIDON_16_COL_INDEX_B,
-            POSEIDON_16_COL_INDEX_RES,
-        ] // indexes only here (committed cubes are handled elsewhere)
+        ] // (committed cubes are handled elsewhere)
     }
 
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
@@ -90,8 +96,6 @@ impl TableT for Poseidon16Precompile {
         }
         [
             vec![
-                F::from_usize(ZERO_VEC_PTR),
-                F::from_usize(ZERO_VEC_PTR),
                 F::from_usize(POSEIDON_16_NULL_HASH_PTR),
                 F::from_usize(if POSEIDON_16_DEFAULT_COMPRESSION {
                     ZERO_VEC_PTR
@@ -99,6 +103,8 @@ impl TableT for Poseidon16Precompile {
                     1 + POSEIDON_16_NULL_HASH_PTR
                 }),
                 F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION),
+                F::from_usize(ZERO_VEC_PTR),
+                F::from_usize(ZERO_VEC_PTR),
             ],
             vec![F::ZERO; 16],
             poseidon_of_zero.to_vec(),
@@ -175,24 +181,24 @@ impl TableT for Poseidon16Precompile {
 impl Air for Poseidon16Precompile {
     type ExtraData = ();
     fn n_columns_f_air(&self) -> usize {
-        5 + 16 * 2
+        3
     }
     fn n_columns_ef_air(&self) -> usize {
         0
     }
     fn degree(&self) -> usize {
-        unreachable!()
+        2
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        unreachable!()
+        vec![]
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
-        unreachable!()
+        vec![]
     }
     fn n_constraints(&self) -> usize {
-        unreachable!()
+        1
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, point: &mut AB, _: &Self::ExtraData) {
         unreachable!()
     }
 }

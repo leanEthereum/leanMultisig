@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::common::*;
 use crate::*;
 use air::verify_air;
@@ -121,13 +123,7 @@ pub fn verify_execution(
         (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement)
     };
 
-    let (
-        p16_bus_quotient,
-        p16_bus_point,
-        p16_bus_eval_index_input_a,
-        p16_bus_eval_index_input_b,
-        p16_bus_eval_index_input_output,
-    ) = {
+    let (p16_bus_quotient, mut p16_indexes_statements) = {
         let (p16_bus_quotient, p16_bus_point, p16_bus_selector_value, p16_bus_data_value) =
             verify_gkr_quotient::<_, 2>(&mut verifier_state, log_n_p16)?;
         let [
@@ -161,22 +157,16 @@ pub fn verify_execution(
             return Err(ProofError::InvalidProof);
         }
 
-        (
-            p16_bus_quotient,
-            p16_bus_point,
-            p16_bus_eval_index_input_a,
-            p16_bus_eval_index_input_b,
-            p16_bus_eval_index_input_output,
-        )
+        #[rustfmt::skip]
+        let statements = BTreeMap::from_iter([
+                (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
+                (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
+                (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
+            ]);
+        (p16_bus_quotient, statements)
     };
 
-    let (
-        p24_bus_quotient,
-        p24_bus_point,
-        p24_bus_eval_index_input_a,
-        p24_bus_eval_index_input_b,
-        p24_bus_eval_index_input_output,
-    ) = {
+    let (p24_bus_quotient, mut p24_indexes_statements) = {
         let (p24_bus_quotient, p24_bus_point, p24_bus_selector_value, p24_bus_data_value) =
             verify_gkr_quotient::<_, 2>(&mut verifier_state, log_n_p24)?;
         let [
@@ -206,13 +196,13 @@ pub fn verify_execution(
             return Err(ProofError::InvalidProof);
         }
 
-        (
-            p24_bus_quotient,
-            p24_bus_point,
-            p24_bus_eval_index_input_a,
-            p24_bus_eval_index_input_b,
-            p24_bus_eval_index_input_output,
-        )
+        #[rustfmt::skip]
+        let statements = BTreeMap::from_iter([
+            (POSEIDON_24_COL_INDEX_A, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_a)]),
+            (POSEIDON_24_COL_INDEX_B, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_b)]),
+            (POSEIDON_24_COL_INDEX_RES, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_output)]),
+        ]);
+        (p24_bus_quotient, statements)
     };
 
     let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) = {
@@ -276,23 +266,6 @@ pub fn verify_execution(
     {
         return Err(ProofError::InvalidProof);
     }
-
-    let mut p16_indexes_statements = [
-        p16_bus_eval_index_input_a,
-        p16_bus_eval_index_input_b,
-        p16_bus_eval_index_input_output,
-    ]
-    .iter()
-    .map(|v| vec![Evaluation::new(p16_bus_point.clone(), *v)])
-    .collect::<Vec<_>>();
-    let mut p24_indexes_statements = [
-        p24_bus_eval_index_input_a,
-        p24_bus_eval_index_input_b,
-        p24_bus_eval_index_input_output,
-    ]
-    .iter()
-    .map(|v| vec![Evaluation::new(p24_bus_point.clone(), *v)])
-    .collect::<Vec<_>>();
 
     let (exec_air_point, exec_evals_to_verify_f, exec_evals_to_verify_ef) = verify_table_air(
         &mut verifier_state,
@@ -445,20 +418,37 @@ pub fn verify_execution(
 
     {
         // index opening for poseidon lookup
-
-        // index opening for poseidon lookup
-        p16_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[0].clone());
-        p16_indexes_statements[1].extend(vectorized_lookup_statements.on_indexes[1].clone());
-        p16_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[2].clone());
+        for (i, statement) in vectorized_lookup_statements.on_indexes[..3]
+            .iter()
+            .enumerate()
+        {
+            // TODO cleaner
+            p16_indexes_statements
+                .get_mut(&Poseidon16Precompile.vector_lookups()[i].index)
+                .unwrap()
+                .extend(statement.clone());
+        }
         // vectorized_lookup_statements.on_indexes[3] is proven via sumcheck below
-        p24_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[4].clone());
-        p24_indexes_statements[0].extend(
-            vectorized_lookup_statements.on_indexes[5]
-                .iter()
-                .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
-        );
-        p24_indexes_statements[1].extend(vectorized_lookup_statements.on_indexes[6].clone());
-        p24_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[7].clone());
+        p24_indexes_statements
+            .get_mut(&POSEIDON_24_COL_INDEX_A)
+            .unwrap()
+            .extend(vectorized_lookup_statements.on_indexes[4].clone());
+        p24_indexes_statements
+            .get_mut(&POSEIDON_24_COL_INDEX_A)
+            .unwrap()
+            .extend(
+                vectorized_lookup_statements.on_indexes[5]
+                    .iter()
+                    .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
+            );
+        p24_indexes_statements
+            .get_mut(&POSEIDON_24_COL_INDEX_B)
+            .unwrap()
+            .extend(vectorized_lookup_statements.on_indexes[6].clone());
+        p24_indexes_statements
+            .get_mut(&POSEIDON_24_COL_INDEX_RES)
+            .unwrap()
+            .extend(vectorized_lookup_statements.on_indexes[7].clone());
 
         let alpha = verifier_state.sample();
 
@@ -481,10 +471,13 @@ pub fn verify_execution(
             return Err(ProofError::InvalidProof);
         }
         let sc_res_index_value = verifier_state.next_extension_scalar()?;
-        p16_indexes_statements[2].push(Evaluation::new(
-            sc_eval.point.clone(),
-            sc_res_index_value - EF::ONE,
-        ));
+        p16_indexes_statements
+            .get_mut(&POSEIDON_16_COL_INDEX_RES)
+            .unwrap()
+            .push(Evaluation::new(
+                sc_eval.point.clone(),
+                sc_res_index_value - EF::ONE,
+            ));
 
         if sc_res_index_value
             * (EF::ONE
@@ -542,9 +535,17 @@ pub fn verify_execution(
                 ]
                 .concat(), // exec memory address C
             ],
-            p16_indexes_statements,
+            Poseidon16Precompile
+                .commited_columns_f()
+                .iter()
+                .map(|c| p16_indexes_statements[c].clone())
+                .collect::<Vec<_>>(),
             encapsulate_vec(p16_gkr.cubes_statements.split()),
-            p24_indexes_statements,
+            Poseidon24Precompile
+                .commited_columns_f()
+                .iter()
+                .map(|c| p24_indexes_statements[c].clone())
+                .collect::<Vec<_>>(),
             encapsulate_vec(p24_gkr.cubes_statements.split()),
             dot_product_statements,
         ]

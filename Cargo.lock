@@ -92,6 +92,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -175,6 +176,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -490,6 +492,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -574,6 +577,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "p3-air"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "p3-field",
  "p3-matrix",
@@ -582,10 +586,10 @@ dependencies = [
 [[package]]
 name = "p3-baby-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#73616c857f204e52de708b616f21d3587db13441"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "p3-field",
- "p3-mds 0.3.0 (git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles)",
+ "p3-mds",
  "p3-monty-31",
  "p3-poseidon2",
  "p3-symmetric",
@@ -595,6 +599,7 @@ dependencies = [
 [[package]]
 name = "p3-challenger"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "p3-field",
  "p3-maybe-rayon",
@@ -606,6 +611,7 @@ dependencies = [
 [[package]]
 name = "p3-commit"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "itertools",
  "p3-challenger",
@@ -619,6 +625,7 @@ dependencies = [
 [[package]]
 name = "p3-dft"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "itertools",
  "p3-field",
@@ -631,6 +638,7 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -645,7 +653,7 @@ dependencies = [
 [[package]]
 name = "p3-interpolation"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#73616c857f204e52de708b616f21d3587db13441"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "p3-field",
  "p3-matrix",
@@ -656,6 +664,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -671,6 +680,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "itertools",
  "p3-field",
@@ -685,6 +695,7 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "rayon",
 ]
@@ -692,18 +703,7 @@ dependencies = [
 [[package]]
 name = "p3-mds"
 version = "0.3.0"
-dependencies = [
- "p3-dft",
- "p3-field",
- "p3-symmetric",
- "p3-util",
- "rand",
-]
-
-[[package]]
-name = "p3-mds"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#73616c857f204e52de708b616f21d3587db13441"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "p3-dft",
  "p3-field",
@@ -715,6 +715,7 @@ dependencies = [
 [[package]]
 name = "p3-merkle-tree"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "itertools",
  "p3-commit",
@@ -731,6 +732,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -738,7 +740,7 @@ dependencies = [
  "p3-field",
  "p3-matrix",
  "p3-maybe-rayon",
- "p3-mds 0.3.0",
+ "p3-mds",
  "p3-poseidon2",
  "p3-symmetric",
  "p3-util",
@@ -752,9 +754,10 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "p3-field",
- "p3-mds 0.3.0",
+ "p3-mds",
  "p3-symmetric",
  "p3-util",
  "rand",
@@ -763,6 +766,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "itertools",
  "p3-field",
@@ -772,6 +776,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.3.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#0e42e4ee35fe1562967ecb6ec468c62b7a81a8e3"
 dependencies = [
  "rayon",
  "serde",
@@ -1091,6 +1096,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1344,6 +1350,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=modular-precompiles#7fce025a3e6eac0879f3aa6d353255e1fa665652"
 dependencies = [
  "itertools",
  "multilinear-toolkit",

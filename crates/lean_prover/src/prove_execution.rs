@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::common::*;
 use crate::*;
 use air::prove_air;
@@ -154,29 +156,15 @@ pub fn prove_execution(
     );
 
     let base_pols = [
-        vec![
-            memory.as_slice(),
-            main_trace_f[COL_INDEX_PC].as_slice(),
-            main_trace_f[COL_INDEX_FP].as_slice(),
-            main_trace_f[COL_INDEX_MEM_ADDRESS_A].as_slice(),
-            main_trace_f[COL_INDEX_MEM_ADDRESS_B].as_slice(),
-            main_trace_f[COL_INDEX_MEM_ADDRESS_C].as_slice(),
-        ],
-        vec![
-            &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_A],
-            &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_B],
-            &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES],
-        ],
+        vec![memory.as_slice()],
+        Table::execution().committed_columns(&main_trace, None),
+        Table::poseidon16().committed_columns(&traces[TABLE_POSEIDON_16], None),
         p16_witness
             .committed_cubes
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        vec![
-            &traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_A],
-            &traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_B],
-            &traces[TABLE_POSEIDON_24].base[POSEIDON_24_COL_INDEX_RES],
-        ],
+        Table::poseidon24().committed_columns(&traces[TABLE_POSEIDON_24], None),
         p24_witness
             .committed_cubes
             .iter()
@@ -184,7 +172,7 @@ pub fn prove_execution(
             .collect::<Vec<_>>(),
         Table::dot_product().committed_columns(
             &traces[TABLE_DOT_PRODUCT],
-            &dot_product_computation_ext_to_base_helper,
+            Some(&dot_product_computation_ext_to_base_helper),
         ),
     ]
     .concat();
@@ -242,13 +230,7 @@ pub fn prove_execution(
         (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement)
     };
 
-    let (
-        p16_bus_quotient,
-        p16_bus_point,
-        p16_bus_eval_index_input_a,
-        p16_bus_eval_index_input_b,
-        p16_bus_eval_index_input_output,
-    ) = {
+    let (p16_bus_quotient, mut p16_indexes_statements) = {
         let (p16_bus_quotient, p16_bus_point, _, _) = prove_bus_for_table::<2>(
             &mut prover_state,
             &traces[TABLE_POSEIDON_16],
@@ -267,22 +249,16 @@ pub fn prove_execution(
             p16_bus_eval_index_input_b,
             p16_bus_eval_index_input_output,
         ]);
-        (
-            p16_bus_quotient,
-            p16_bus_point,
-            p16_bus_eval_index_input_a,
-            p16_bus_eval_index_input_b,
-            p16_bus_eval_index_input_output,
-        )
+        #[rustfmt::skip]
+        let statements = BTreeMap::from_iter([
+            (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
+            (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
+            (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
+        ]);
+        (p16_bus_quotient, statements)
     };
 
-    let (
-        p24_bus_quotient,
-        p24_bus_point,
-        p24_bus_eval_index_input_a,
-        p24_bus_eval_index_input_b,
-        p24_bus_eval_index_input_output,
-    ) = {
+    let (p24_bus_quotient, mut p24_indexes_statements) = {
         let (p24_bus_quotient, p24_bus_point, _, _) = prove_bus_for_table::<2>(
             &mut prover_state,
             &traces[TABLE_POSEIDON_24],
@@ -301,13 +277,13 @@ pub fn prove_execution(
             p24_bus_eval_index_input_b,
             p24_bus_eval_index_input_output,
         ]);
-        (
-            p24_bus_quotient,
-            p24_bus_point,
-            p24_bus_eval_index_input_a,
-            p24_bus_eval_index_input_b,
-            p24_bus_eval_index_input_output,
-        )
+        #[rustfmt::skip]
+        let statements = BTreeMap::from_iter([
+            (POSEIDON_24_COL_INDEX_A, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_a)]),
+            (POSEIDON_24_COL_INDEX_B, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_b)]),
+            (POSEIDON_24_COL_INDEX_RES, vec![Evaluation::new(p24_bus_point.clone(), p24_bus_eval_index_input_output)]),
+        ]);
+        (p24_bus_quotient, statements)
     };
 
     let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
@@ -360,23 +336,6 @@ pub fn prove_execution(
             + multilinear_eval_bus_quotient,
         EF::ZERO
     );
-
-    let mut p16_indexes_statements = [
-        p16_bus_eval_index_input_a,
-        p16_bus_eval_index_input_b,
-        p16_bus_eval_index_input_output,
-    ]
-    .iter()
-    .map(|v| vec![Evaluation::new(p16_bus_point.clone(), *v)])
-    .collect::<Vec<_>>();
-    let mut p24_indexes_statements = [
-        p24_bus_eval_index_input_a,
-        p24_bus_eval_index_input_b,
-        p24_bus_eval_index_input_output,
-    ]
-    .iter()
-    .map(|v| vec![Evaluation::new(p24_bus_point.clone(), *v)])
-    .collect::<Vec<_>>();
 
     let (exec_air_point, exec_evals_to_prove_f, exec_evals_to_prove_ef) = prove_table_air(
         &mut prover_state,
@@ -566,18 +525,37 @@ pub fn prove_execution(
 
     {
         // index opening for poseidon lookup
-        p16_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[0].clone());
-        p16_indexes_statements[1].extend(vectorized_lookup_statements.on_indexes[1].clone());
-        p16_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[2].clone());
+        for (i, statement) in vectorized_lookup_statements.on_indexes[..3]
+            .iter()
+            .enumerate()
+        {
+            // TODO cleaner
+            p16_indexes_statements
+                .get_mut(&Poseidon16Precompile.vector_lookups()[i].index)
+                .unwrap()
+                .extend(statement.clone());
+        }
         // vectorized_lookup_statements.on_indexes[3] is proven via sumcheck below
-        p24_indexes_statements[0].extend(vectorized_lookup_statements.on_indexes[4].clone());
-        p24_indexes_statements[0].extend(
-            vectorized_lookup_statements.on_indexes[5]
-                .iter()
-                .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
-        );
-        p24_indexes_statements[1].extend(vectorized_lookup_statements.on_indexes[6].clone());
-        p24_indexes_statements[2].extend(vectorized_lookup_statements.on_indexes[7].clone());
+        p24_indexes_statements
+            .get_mut(&POSEIDON_24_COL_INDEX_A)
+            .unwrap()
+            .extend(vectorized_lookup_statements.on_indexes[4].clone());
+        p24_indexes_statements
+            .get_mut(&POSEIDON_24_COL_INDEX_A)
+            .unwrap()
+            .extend(
+                vectorized_lookup_statements.on_indexes[5]
+                    .iter()
+                    .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
+            );
+        p24_indexes_statements
+            .get_mut(&POSEIDON_24_COL_INDEX_B)
+            .unwrap()
+            .extend(vectorized_lookup_statements.on_indexes[6].clone());
+        p24_indexes_statements
+            .get_mut(&POSEIDON_24_COL_INDEX_RES)
+            .unwrap()
+            .extend(vectorized_lookup_statements.on_indexes[7].clone());
 
         // prove this value via sumcheck: index_res_b = (index_res_a + 1) * (1 - compression)
         let p16_one_minus_compression = &p16_witness
@@ -622,7 +600,10 @@ pub fn prove_execution(
             false,
         );
         prover_state.add_extension_scalar(sc_values[2]);
-        p16_indexes_statements[2].push(Evaluation::new(sc_point, sc_values[2] - EF::ONE));
+        p16_indexes_statements
+            .get_mut(&POSEIDON_16_COL_INDEX_RES)
+            .unwrap()
+            .push(Evaluation::new(sc_point, sc_values[2] - EF::ONE));
     }
 
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
@@ -671,9 +652,17 @@ pub fn prove_execution(
             ]
             .concat(), // exec memory address C
         ],
-        p16_indexes_statements,
+        Poseidon16Precompile
+            .commited_columns_f()
+            .iter()
+            .map(|c| p16_indexes_statements[c].clone())
+            .collect::<Vec<_>>(),
         encapsulate_vec(p16_gkr.cubes_statements.split()),
-        p24_indexes_statements,
+        Poseidon24Precompile
+            .commited_columns_f()
+            .iter()
+            .map(|c| p24_indexes_statements[c].clone())
+            .collect::<Vec<_>>(),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
         dot_product_statements,
     ]

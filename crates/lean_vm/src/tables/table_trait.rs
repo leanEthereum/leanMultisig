@@ -278,7 +278,7 @@ pub trait TableT: Air {
     fn committed_columns<'a>(
         &self,
         trace: &'a TableTrace,
-        computation_ext_to_base_helper: &'a ExtensionCommitmentFromBaseProver<EF>,
+        computation_ext_to_base_helper: Option<&'a ExtensionCommitmentFromBaseProver<EF>>,
     ) -> Vec<&'a [PF<EF>]> {
         // base field committed columns
         let mut cols = self
@@ -287,12 +287,14 @@ pub trait TableT: Air {
             .map(|&c| &trace.base[c][..])
             .collect::<Vec<_>>();
         // convert extension field committed columns to base field
-        cols.extend(
-            computation_ext_to_base_helper
-                .sub_columns_to_commit
-                .iter()
-                .map(Vec::as_slice),
-        );
+        if let Some(computation_ext_to_base_helper) = computation_ext_to_base_helper {
+            cols.extend(
+                computation_ext_to_base_helper
+                    .sub_columns_to_commit
+                    .iter()
+                    .map(Vec::as_slice),
+            );
+        }
         cols
     }
     fn normal_lookup_index_columns<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [PF<EF>]> {
