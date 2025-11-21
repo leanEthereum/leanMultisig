@@ -34,6 +34,12 @@ pub const COL_INDEX_MEM_ADDRESS_A: usize = 18;
 pub const COL_INDEX_MEM_ADDRESS_B: usize = 19;
 pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
 
+// Temporary columns (stored to avoid duplicate computations)
+pub const N_TEMPORARY_EXEC_COLUMNS: usize = 3;
+pub const COL_INDEX_EXEC_NU_A: usize = 21;
+pub const COL_INDEX_EXEC_NU_B: usize = 22;
+pub const COL_INDEX_EXEC_NU_C: usize = 23;
+
 impl Air for ExecutionTable {
     type ExtraData = ExtraDataForBuses<EF>;
 

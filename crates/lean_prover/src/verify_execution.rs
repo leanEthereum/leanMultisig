@@ -126,68 +126,39 @@ pub fn verify_execution(
     let bus_challenge = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
 
-    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) = {
-        let (exec_bus_quotient, exec_bus_point, exec_bus_selector_value, exec_bus_data_value) =
-            verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(&mut verifier_state, log_n_cycles)?;
-        let exec_bus_beta = verifier_state.sample();
-        let exec_bus_final_value = exec_bus_selector_value + exec_bus_beta * exec_bus_data_value;
+    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) =
+        process_bus_quotient::<TWO_POW_UNIVARIATE_SKIPS>(
+            &mut verifier_state,
+            log_n_cycles,
+            Table::execution().buses()[0].direction,
+        )?; // TODO multiple buses
 
-        let exec_bus_virtual_statement =
-            MultiEvaluation::new(exec_bus_point, vec![exec_bus_final_value]);
-        (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement)
-    };
+    let (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement) =
+        process_bus_quotient::<TWO_POW_UNIVARIATE_SKIPS>(
+            &mut verifier_state,
+            log_n_p16,
+            Table::poseidon16().buses()[0].direction,
+        )?; // TODO multiple buses
 
-    let (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement) = {
-        let (p16_bus_quotient, p16_bus_point, p16_bus_selector_value, p16_bus_data_value) =
-            verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(&mut verifier_state, log_n_p16)?;
-        let p16_bus_beta = verifier_state.sample();
-        let p16_bus_final_value = (-p16_bus_selector_value) + p16_bus_beta * p16_bus_data_value; // Note the "-" sign here !!
-
-        let p16_bus_virtual_statement =
-            MultiEvaluation::new(p16_bus_point, vec![p16_bus_final_value]);
-        (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement)
-    };
-
-    let (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement) = {
-        let (p24_bus_quotient, p24_bus_point, p24_bus_selector_value, p24_bus_data_value) =
-            verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(&mut verifier_state, log_n_p24)?;
-        let p24_bus_beta = verifier_state.sample();
-        let p24_bus_final_value = (-p24_bus_selector_value) + p24_bus_beta * p24_bus_data_value; // Note the "-" sign here !!
-
-        let p24_bus_virtual_statement =
-            MultiEvaluation::new(p24_bus_point, vec![p24_bus_final_value]);
-        (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement)
-    };
-
-    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) = {
-        let (
-            dot_product_bus_quotient,
-            dot_product_bus_point,
-            dot_product_bus_selector_value,
-            dot_product_bus_data_value,
-        ) = verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
+    let (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement) =
+        process_bus_quotient::<TWO_POW_UNIVARIATE_SKIPS>(
+            &mut verifier_state,
+            log_n_p24,
+            Table::poseidon24().buses()[0].direction,
+        )?; // TODO multiple buses
+    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
+        process_bus_quotient::<TWO_POW_UNIVARIATE_SKIPS>(
             &mut verifier_state,
             table_dot_products_log_n_rows,
-        )?;
-        let dot_product_bus_beta = verifier_state.sample();
-        let dot_product_bus_final_value =
-            (-dot_product_bus_selector_value) + dot_product_bus_beta * dot_product_bus_data_value; // Note the "-" sign here !!
-
-        let dot_product_bus_virtual_statement =
-            MultiEvaluation::new(dot_product_bus_point, vec![dot_product_bus_final_value]);
-        (
-            dot_product_bus_quotient,
-            dot_product_bus_beta,
-            dot_product_bus_virtual_statement,
-        )
-    };
+            Table::dot_product().buses()[0].direction,
+        )?; // TODO multiple buses
 
     let multilinear_eval_bus_quotient = (0..multilinear_evals_witness.len())
         .map(|row| {
             -EF::ONE
                 / (bus_challenge
                     + finger_print(
-                        Table::multilinear_eval(),
+                        Table::multilinear_eval().embed(),
                         &[
                             vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POLY][row],
                             vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POINT][row],
@@ -202,7 +173,7 @@ pub fn verify_execution(
     dot_product_bus_quotient += EF::from_usize(dot_product_padding_len)
         / (bus_challenge
             + finger_print(
-                Table::dot_product(),
+                Table::dot_product().embed(),
                 &[
                     EF::ZERO, // IndexA
                     EF::ZERO, // IndexB
@@ -485,6 +456,23 @@ pub fn verify_execution(
     )?;
 
     Ok(())
+}
+
+fn process_bus_quotient<const TWO_POW_UNIVARIATE_SKIPS: usize>(
+    verifier_state: &mut VerifierState<PF<EF>, EF, impl FSChallenger<EF>>,
+    log_n: usize,
+    bus_direction: BusDirection,
+) -> ProofResult<(EF, EF, MultiEvaluation<EF>)> {
+    let (quotient, point, selector_value, data_value) =
+        verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(verifier_state, log_n)?;
+
+    let beta = verifier_state.sample();
+
+    let final_value = selector_value * bus_direction.to_field_flag() + beta * data_value;
+
+    let virtual_statement = MultiEvaluation::new(point, vec![final_value]);
+
+    Ok((quotient, beta, virtual_statement))
 }
 
 fn verify_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(

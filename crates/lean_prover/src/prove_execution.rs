@@ -23,7 +23,6 @@ pub fn prove_execution(
     let mut exec_summary = String::new();
     let ExecutionTrace {
         main_trace,
-        nu_columns,
         n_cycles,
         precompile_traces: traces,
         multilinear_evals_witness,
@@ -198,47 +197,15 @@ pub fn prove_execution(
 
     let bus_challenge = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
-    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) = {
-        let mut exec_bus_data = unsafe { uninitialized_vec::<EF>(n_cycles.next_power_of_two()) };
 
-        exec_bus_data.par_iter_mut().enumerate().for_each(|(i, v)| {
-            let precompile_index = main_trace_f[COL_INDEX_PRECOMPILE_INDEX][i];
-
-            *v = bus_challenge
-                + finger_print(
-                    Table::from_index(precompile_index.to_usize()),
-                    &[
-                        nu_columns[0][i],
-                        nu_columns[1][i],
-                        nu_columns[2][i],
-                        main_trace_f[COL_INDEX_AUX][i],
-                    ],
-                    fingerprint_challenge,
-                )
-        });
-
-        let exec_bus_selector = main_trace_f[COL_INDEX_IS_PRECOMPILE]
-            .par_iter()
-            .map(|&v| EF::from(v)) // TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            .collect::<Vec<_>>();
-        let exec_bus_selector_packed = pack_extension(&exec_bus_selector);
-        let exec_bus_data_packed = pack_extension(&exec_bus_data);
-        let (exec_bus_quotient, exec_bus_point, exec_bus_selector_value, exec_bus_data_value) =
-            prove_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
-                &mut prover_state,
-                &MleGroupRef::ExtensionPacked(vec![
-                    &exec_bus_selector_packed,
-                    &exec_bus_data_packed,
-                ]),
-            );
-
-        let exec_bus_beta = prover_state.sample();
-        let exec_bus_final_value = exec_bus_selector_value + exec_bus_beta * exec_bus_data_value;
-
-        let exec_bus_virtual_statement =
-            MultiEvaluation::new(exec_bus_point, vec![exec_bus_final_value]);
-        (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement)
-    };
+    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) =
+        prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
+            &mut prover_state,
+            &main_trace,
+            bus_challenge,
+            fingerprint_challenge,
+            &Table::execution().buses()[0], // TODO multiple buses
+        );
 
     let (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement) =
         prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
@@ -272,7 +239,7 @@ pub fn prove_execution(
             -EF::ONE
                 / (bus_challenge
                     + finger_print(
-                        Table::multilinear_eval(),
+                        Table::multilinear_eval().embed(),
                         &[
                             traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_POLY]
                                 [row],
@@ -291,7 +258,7 @@ pub fn prove_execution(
     dot_product_bus_quotient += EF::from_usize(traces[TABLE_DOT_PRODUCT].padding_len)
         / (bus_challenge
             + finger_print(
-                Table::dot_product(),
+                Table::dot_product().embed(),
                 &[
                     EF::ZERO, // IndexA
                     EF::ZERO, // IndexB
@@ -649,7 +616,10 @@ fn prove_bus_for_air_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
         .map(|i| {
             bus_challenge
                 + finger_print(
-                    bus.table,
+                    match &bus.table {
+                        BusTable::Constant(table) => table.embed(),
+                        BusTable::Variable(col) => trace.base[*col][i],
+                    },
                     bus.data
                         .iter()
                         .map(|col| trace.base[*col][i])

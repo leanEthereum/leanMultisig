@@ -37,18 +37,33 @@ pub struct VectorLookupIntoMemory {
     pub values: [ColIndex; 8],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BusDirection {
     Pull,
     Push,
 }
 
+impl BusDirection {
+    pub fn to_field_flag(self) -> F {
+        match self {
+            BusDirection::Pull => F::NEG_ONE,
+            BusDirection::Push => F::ONE,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Bus {
     pub direction: BusDirection,
-    pub table: Table,
+    pub table: BusTable,
     pub selector: ColIndex,
     pub data: Vec<ColIndex>,
+}
+
+#[derive(Debug)]
+pub enum BusTable {
+    Constant(Table),
+    Variable(ColIndex),
 }
 
 #[derive(Debug)]

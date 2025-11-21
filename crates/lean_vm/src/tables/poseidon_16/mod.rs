@@ -79,7 +79,7 @@ impl TableT for Poseidon16Precompile {
 
     fn buses(&self) -> Vec<Bus> {
         vec![Bus {
-            table: self.identifier(),
+            table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
             data: vec![

@@ -60,7 +60,7 @@ impl TableT for DotProductPrecompile {
 
     fn buses(&self) -> Vec<Bus> {
         vec![Bus {
-            table: self.identifier(),
+            table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
             selector: DOT_PRODUCT_AIR_COL_START_FLAG,
             data: vec![

@@ -16,6 +16,10 @@ impl TableT for ExecutionTable {
         Table::execution()
     }
 
+    fn n_columns_f_total(&self) -> usize {
+        N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS
+    }
+
     fn commited_columns_f(&self) -> Vec<ColIndex> {
         vec![
             COL_INDEX_PC,
@@ -56,17 +60,28 @@ impl TableT for ExecutionTable {
     }
 
     fn buses(&self) -> Vec<Bus> {
-        unreachable!()
+        vec![Bus {
+            table: BusTable::Variable(COL_INDEX_PRECOMPILE_INDEX),
+            direction: BusDirection::Push,
+            selector: COL_INDEX_IS_PRECOMPILE,
+            data: vec![
+                COL_INDEX_EXEC_NU_A,
+                COL_INDEX_EXEC_NU_B,
+                COL_INDEX_EXEC_NU_C,
+                COL_INDEX_AUX,
+            ],
+        }]
     }
 
     fn padding_row_f(&self) -> Vec<F> {
-        let mut padding_row = vec![F::ZERO; N_EXEC_AIR_COLUMNS];
+        let mut padding_row = vec![F::ZERO; N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS];
         padding_row[COL_INDEX_PC] = F::from_usize(ENDING_PC);
         padding_row[COL_INDEX_JUMP] = F::ONE;
         padding_row[COL_INDEX_FLAG_A] = F::ONE;
         padding_row[COL_INDEX_OPERAND_A] = F::ONE;
         padding_row[COL_INDEX_FLAG_B] = F::ONE;
         padding_row[COL_INDEX_FLAG_C] = F::ONE;
+        padding_row[COL_INDEX_EXEC_NU_A] = F::ONE; // because at the end of program, we always jump (looping at pc=0, so condition = nu_a = 1)
         padding_row
     }
 

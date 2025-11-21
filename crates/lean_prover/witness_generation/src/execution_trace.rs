@@ -7,7 +7,6 @@ use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
-    pub nu_columns: [Vec<F>; 3],
     pub n_cycles: usize, // before padding with the repeated final instruction
     pub main_trace: TableTrace,
     pub precompile_traces: [TableTrace; N_PRECOMPILES],
@@ -36,20 +35,18 @@ pub fn get_execution_trace(
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
-    let mut main_trace: [Vec<F>; N_EXEC_AIR_COLUMNS] =
+    let mut main_trace: [Vec<F>; N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS] =
         array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
     for col in &mut main_trace {
         unsafe {
             col.set_len(n_cycles);
         }
     }
-    let mut nu_columns: [Vec<F>; 3] = array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
 
     transposed_par_iter_mut(&mut main_trace)
-        .zip(transposed_par_iter_mut(&mut nu_columns))
         .zip(execution_result.pcs.par_iter())
         .zip(execution_result.fps.par_iter())
-        .for_each(|(((trace_row, nu_row), &pc), &fp)| {
+        .for_each(|((trace_row, &pc), &fp)| {
             let instruction = &bytecode.instructions[pc];
             let field_repr = field_representation(instruction);
 
@@ -87,9 +84,9 @@ pub fn get_execution_trace(
                 + (F::ONE - field_repr[COL_INDEX_FLAG_B]) * value_b;
             let nu_c = field_repr[COL_INDEX_FLAG_C] * F::from_usize(fp)
                 + (F::ONE - field_repr[COL_INDEX_FLAG_C]) * value_c;
-            *nu_row[0] = nu_a;
-            *nu_row[1] = nu_b;
-            *nu_row[2] = nu_c;
+            *trace_row[COL_INDEX_EXEC_NU_A] = nu_a;
+            *trace_row[COL_INDEX_EXEC_NU_B] = nu_b;
+            *trace_row[COL_INDEX_EXEC_NU_C] = nu_c;
 
             *trace_row[COL_INDEX_MEM_VALUE_A] = value_a;
             *trace_row[COL_INDEX_MEM_VALUE_B] = value_b;
@@ -100,13 +97,6 @@ pub fn get_execution_trace(
             *trace_row[COL_INDEX_MEM_ADDRESS_B] = addr_b;
             *trace_row[COL_INDEX_MEM_ADDRESS_C] = addr_c;
         });
-
-    nu_columns.par_iter_mut().for_each(|column| {
-        let last_value = column[n_cycles - 1];
-        for cell in &mut column[n_cycles..] {
-            *cell = last_value;
-        }
-    });
 
     let mut memory_padded = memory
         .0
@@ -134,7 +124,6 @@ pub fn get_execution_trace(
     padd_table(&ExecutionTable, &mut main_trace);
 
     ExecutionTrace {
-        nu_columns,
         n_cycles,
         main_trace,
         precompile_traces,
