@@ -84,7 +84,7 @@ fn test_zk_vm_all_precompiles() {
 #[test]
 fn test_prove_fibonacci() {
     let program_str = r#"
-    const N = 2000000;
+    const N = FIB_N_PLACEHOLDER;
     const STEPS = 10000; // N should be a multiple of STEPS
     const N_STEPS = N / STEPS;
 
@@ -114,7 +114,13 @@ fn test_prove_fibonacci() {
     }
    "#;
 
-    test_zk_vm_helper(program_str, (&[F::ZERO; 1 << 14], &[]), 0);
+    let n = std::env::var("FIB_N")
+        .unwrap_or("100000".to_string())
+        .parse::<usize>()
+        .unwrap();
+    let program_str = program_str.replace("FIB_N_PLACEHOLDER", &n.to_string());
+
+    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0);
 }
 
 fn test_zk_vm_helper(

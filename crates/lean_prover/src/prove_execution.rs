@@ -611,20 +611,25 @@ pub fn prove_execution(
 
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
 
-    let exec_air_statement = |col_index: usize| {
-        Evaluation::new(exec_air_point.clone(), exec_evals_to_prove_f[col_index])
-    };
-
-    let normal_lookup_statements_exec_indexes = normal_lookup_statements
-        .on_indexes_f
-        .drain(..3)
-        .collect::<Vec<_>>(); // TODO more general
+    let mut exec_statements = Table::execution().committed_statements_prover(
+        &mut prover_state,
+        &exec_air_point,
+        &exec_evals_to_prove_f,
+        None,
+        &mut normal_lookup_statements.on_indexes_f,
+        &mut normal_lookup_statements.on_indexes_ef,
+    );
+    exec_statements[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)].extend(vec![
+        bytecode_logup_star_statements.on_indexes.clone(),
+        initial_pc_statement,
+        final_pc_statement,
+    ]);
 
     let dot_product_statements = Table::dot_product().committed_statements_prover(
         &mut prover_state,
         &dot_product_air_point,
         &dot_product_evals_to_prove_f,
-        &dot_product_computation_ext_to_base_helper,
+        Some(&dot_product_computation_ext_to_base_helper),
         &mut normal_lookup_statements.on_indexes_f,
         &mut normal_lookup_statements.on_indexes_ef,
     );
@@ -633,31 +638,8 @@ pub fn prove_execution(
 
     // First Opening
     let all_base_statements = [
-        vec![
-            memory_statements,
-            vec![
-                exec_air_statement(COL_INDEX_PC),
-                bytecode_logup_star_statements.on_indexes.clone(),
-                initial_pc_statement,
-                final_pc_statement,
-            ], // pc
-            vec![exec_air_statement(COL_INDEX_FP)], // fp
-            [
-                vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_A)],
-                normal_lookup_statements_exec_indexes[0].clone(),
-            ]
-            .concat(), // exec memory address A
-            [
-                vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_B)],
-                normal_lookup_statements_exec_indexes[1].clone(),
-            ]
-            .concat(), // exec memory address B
-            [
-                vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_C)],
-                normal_lookup_statements_exec_indexes[2].clone(),
-            ]
-            .concat(), // exec memory address C
-        ],
+        vec![memory_statements],
+        exec_statements,
         Poseidon16Precompile
             .commited_columns_f()
             .iter()

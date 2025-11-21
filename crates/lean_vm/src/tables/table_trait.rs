@@ -194,7 +194,7 @@ pub trait TableT: Air {
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
-        ext_commitment_helper: &ExtensionCommitmentFromBaseProver<EF>,
+        ext_commitment_helper: Option<&ExtensionCommitmentFromBaseProver<EF>>,
         normal_lookup_statements_on_indexes_f: &mut Vec<Vec<Evaluation<EF>>>,
         normal_lookup_statements_on_indexes_ef: &mut Vec<Vec<Evaluation<EF>>>,
     ) -> Vec<Vec<Evaluation<EF>>> {
@@ -205,13 +205,17 @@ pub trait TableT: Air {
             .iter()
             .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c].clone())])
             .collect::<Vec<_>>();
-        statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
+        if let Some(ext_commitment_helper) = ext_commitment_helper {
+            statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
+        }
 
         for lookup in self.normal_lookups_f() {
-            statements[lookup.index].extend(normal_lookup_statements_on_indexes_f.remove(0));
+            statements[self.find_committed_column_index_f(lookup.index)]
+                .extend(normal_lookup_statements_on_indexes_f.remove(0));
         }
         for lookup in self.normal_lookups_ef() {
-            statements[lookup.index].extend(normal_lookup_statements_on_indexes_ef.remove(0));
+            statements[self.find_committed_column_index_f(lookup.index)]
+                .extend(normal_lookup_statements_on_indexes_ef.remove(0));
         }
 
         statements
@@ -234,21 +238,25 @@ pub trait TableT: Air {
             .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c].clone())])
             .collect::<Vec<_>>();
 
-        statements.extend(ExtensionCommitmentFromBaseVerifier::after_commitment(
-            verifier_state,
-            &MultiEvaluation::new(
-                air_point.clone(),
-                self.commited_columns_ef()
-                    .iter()
-                    .map(|&c| air_values_ef[c].clone())
-                    .collect::<Vec<_>>(),
-            ),
-        )?);
+        if self.commited_columns_ef().len() > 0 {
+            statements.extend(ExtensionCommitmentFromBaseVerifier::after_commitment(
+                verifier_state,
+                &MultiEvaluation::new(
+                    air_point.clone(),
+                    self.commited_columns_ef()
+                        .iter()
+                        .map(|&c| air_values_ef[c].clone())
+                        .collect::<Vec<_>>(),
+                ),
+            )?);
+        }
         for lookup in self.normal_lookups_f() {
-            statements[lookup.index].extend(normal_lookup_statements_on_indexes_f.remove(0));
+            statements[self.find_committed_column_index_f(lookup.index)]
+                .extend(normal_lookup_statements_on_indexes_f.remove(0));
         }
         for lookup in self.normal_lookups_ef() {
-            statements[lookup.index].extend(normal_lookup_statements_on_indexes_ef.remove(0));
+            statements[self.find_committed_column_index_f(lookup.index)]
+                .extend(normal_lookup_statements_on_indexes_ef.remove(0));
         }
 
         Ok(statements)
@@ -363,5 +371,11 @@ pub trait TableT: Air {
             default_indexes.push(self.padding_row_f()[lookup.index].to_usize());
         }
         default_indexes
+    }
+    fn find_committed_column_index_f(&self, col: ColIndex) -> usize {
+        self.commited_columns_f()
+            .iter()
+            .position(|&c| c == col)
+            .unwrap()
     }
 }
