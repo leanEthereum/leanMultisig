@@ -34,9 +34,9 @@ impl TableT for Poseidon16Precompile {
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
         vec![
-            // POSEIDON_16_COL_INDEX_RES_BIS,
-            // POSEIDON_16_COL_INDEX_COMPRESSION,
             POSEIDON_16_COL_INDEX_RES,
+            POSEIDON_16_COL_INDEX_RES_BIS,
+            POSEIDON_16_COL_INDEX_COMPRESSION,
             POSEIDON_16_COL_INDEX_A,
             POSEIDON_16_COL_INDEX_B,
         ] // (committed cubes are handled elsewhere)
@@ -179,7 +179,7 @@ impl TableT for Poseidon16Precompile {
 }
 
 impl Air for Poseidon16Precompile {
-    type ExtraData = ();
+    type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns_f_air(&self) -> usize {
         3
     }
@@ -196,9 +196,17 @@ impl Air for Poseidon16Precompile {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        1
+        2
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, point: &mut AB, _: &Self::ExtraData) {
-        unreachable!()
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
+        let up = builder.up_f();
+        let index_res = up[POSEIDON_16_COL_INDEX_RES].clone();
+        let index_res_bis = up[POSEIDON_16_COL_INDEX_RES_BIS].clone();
+        let compression = up[POSEIDON_16_COL_INDEX_COMPRESSION].clone();
+        builder.assert_bool(compression.clone());
+        builder.assert_eq(
+            index_res_bis,
+            (index_res + AB::F::ONE) * (AB::F::ONE - compression),
+        );
     }
 }

@@ -29,7 +29,6 @@ pub fn prove_execution(
         main_trace,
         nu_columns,
         n_cycles,
-        n_compressions_16, // included the padding (that are compressions of zeros)
         precompile_traces: traces,
         multilinear_evals_witness,
         public_memory_size,
@@ -73,8 +72,6 @@ pub fn prove_execution(
     let log_n_p24 = log2_ceil_usize(traces[TABLE_POSEIDON_24].n_rows_non_padded())
         .max(MIN_LOG_N_ROWS_PER_TABLE);
 
-    precompute_dft_twiddles::<F>(1 << 24);
-
     let _validity_proof_span = info_span!("Validity proof generation").entered();
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
@@ -84,7 +81,7 @@ pub fn prove_execution(
         &p16_gkr_layers,
         &traces[TABLE_POSEIDON_16],
         POSEIDON_16_COL_INDEX_INPUT_START,
-        Some(n_compressions_16),
+        Some(&traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_COMPRESSION].clone()),
     );
     let p24_witness = generate_poseidon_witness_helper(
         &p24_gkr_layers,
@@ -107,7 +104,6 @@ pub fn prove_execution(
         &[
             n_cycles,
             traces[TABLE_POSEIDON_16].n_rows_non_padded(),
-            n_compressions_16,
             traces[TABLE_POSEIDON_24].n_rows_non_padded(),
             traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
             private_memory.len(),
@@ -186,6 +182,24 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
+    let random_point_p16 = MultilinearPoint(prover_state.sample_vec(log_n_p16));
+    let p16_gkr = prove_poseidon_gkr(
+        &mut prover_state,
+        &p16_witness,
+        random_point_p16.0.clone(),
+        UNIVARIATE_SKIPS,
+        &p16_gkr_layers,
+    );
+
+    let random_point_p24 = MultilinearPoint(prover_state.sample_vec(log_n_p24));
+    let p24_gkr = prove_poseidon_gkr(
+        &mut prover_state,
+        &p24_witness,
+        random_point_p24.0.clone(),
+        UNIVARIATE_SKIPS,
+        &p24_gkr_layers,
+    );
+
     let bus_challenge = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
     let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) = {
@@ -244,16 +258,31 @@ pub fn prove_execution(
             traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_B].evaluate(&p16_bus_point);
         let p16_bus_eval_index_input_output =
             traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES].evaluate(&p16_bus_point);
+        let p16_bus_eval_compress = traces[TABLE_POSEIDON_16].base
+            [POSEIDON_16_COL_INDEX_COMPRESSION]
+            .evaluate(&p16_bus_point);
+
+        let TODO_REMOVE = traces[TABLE_POSEIDON_16].base
+            [POSEIDON_16_COL_INDEX_RES_BIS]
+            .evaluate(&p16_bus_point);
         prover_state.add_extension_scalars(&[
             p16_bus_eval_index_input_a,
             p16_bus_eval_index_input_b,
             p16_bus_eval_index_input_output,
+            p16_bus_eval_compress,
+            TODO_REMOVE
         ]);
         #[rustfmt::skip]
         let statements = BTreeMap::from_iter([
             (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
             (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
             (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
+            (POSEIDON_16_COL_INDEX_RES_BIS, vec![Evaluation::new(p16_bus_point.clone(), TODO_REMOVE)]),
+            (POSEIDON_16_COL_INDEX_COMPRESSION, 
+                vec![
+                    Evaluation::new(p16_bus_point.clone(), p16_bus_eval_compress),
+                    p16_gkr.on_compression_selector.clone().unwrap(),
+                ]),
         ]);
         (p16_bus_quotient, statements)
     };
@@ -357,24 +386,6 @@ pub fn prove_execution(
             &traces[TABLE_DOT_PRODUCT],
             dot_product_bus_virtual_statement,
         );
-
-    let random_point_p16 = MultilinearPoint(prover_state.sample_vec(log_n_p16));
-    let p16_gkr = prove_poseidon_gkr(
-        &mut prover_state,
-        &p16_witness,
-        random_point_p16.0.clone(),
-        UNIVARIATE_SKIPS,
-        &p16_gkr_layers,
-    );
-
-    let random_point_p24 = MultilinearPoint(prover_state.sample_vec(log_n_p24));
-    let p24_gkr = prove_poseidon_gkr(
-        &mut prover_state,
-        &p24_witness,
-        random_point_p24.0.clone(),
-        UNIVARIATE_SKIPS,
-        &p24_gkr_layers,
-    );
 
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -525,11 +536,7 @@ pub fn prove_execution(
 
     {
         // index opening for poseidon lookup
-        for (i, statement) in vectorized_lookup_statements.on_indexes[..3]
-            .iter()
-            .enumerate()
-        {
-            // TODO cleaner
+        for (i, statement) in vectorized_lookup_statements.on_indexes[..4].iter().enumerate() {
             p16_indexes_statements
                 .get_mut(&Poseidon16Precompile.vector_lookups()[i].index)
                 .unwrap()
@@ -556,54 +563,6 @@ pub fn prove_execution(
             .get_mut(&POSEIDON_24_COL_INDEX_RES)
             .unwrap()
             .extend(vectorized_lookup_statements.on_indexes[7].clone());
-
-        // prove this value via sumcheck: index_res_b = (index_res_a + 1) * (1 - compression)
-        let p16_one_minus_compression = &p16_witness
-            .compression
-            .as_ref()
-            .unwrap()
-            .1
-            .par_iter()
-            .map(|c| EFPacking::<EF>::ONE - *c) // TODO embedding overhead
-            .collect::<Vec<_>>();
-        let p16_index_res_a_plus_one = pack_extension(
-            &traces[TABLE_POSEIDON_16].base[POSEIDON_16_COL_INDEX_RES]
-                .par_iter()
-                .map(|c| EF::ONE + *c) // TODO embedding overhead
-                .collect::<Vec<_>>(),
-        );
-        let alpha = prover_state.sample();
-        let mut poly_eq = EFPacking::<EF>::zero_vec(1 << (log_n_p16 - packing_log_width::<EF>()));
-        let mut sum = EF::ZERO;
-        for (statement, alpha_power) in vectorized_lookup_statements.on_indexes[3]
-            .iter()
-            .zip(alpha.powers())
-        {
-            sum += statement.value * alpha_power;
-            compute_sparse_eval_eq_packed(&statement.point, &mut poly_eq, alpha_power);
-        }
-        // TODO there is a lot of embedding overhead in this sumcheck
-        let (sc_point, sc_values, _) = sumcheck_prove(
-            1,
-            MleGroupRef::ExtensionPacked(vec![
-                &poly_eq,
-                &p16_one_minus_compression,
-                &p16_index_res_a_plus_one,
-            ]),
-            None,
-            &CubeComputation {},
-            &vec![],
-            None,
-            false,
-            &mut prover_state,
-            sum,
-            false,
-        );
-        prover_state.add_extension_scalar(sc_values[2]);
-        p16_indexes_statements
-            .get_mut(&POSEIDON_16_COL_INDEX_RES)
-            .unwrap()
-            .push(Evaluation::new(sc_point, sc_values[2] - EF::ONE));
     }
 
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);

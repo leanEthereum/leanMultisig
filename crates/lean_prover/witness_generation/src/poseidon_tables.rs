@@ -12,7 +12,7 @@ pub fn generate_poseidon_witness_helper<const WIDTH: usize, const N_COMMITED_CUB
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
     trace: &TableTrace,
     start_index: usize,
-    n_compressions: Option<usize>,
+    compressions: Option<&[F]>,
 ) -> PoseidonWitness<FPacking<F>, WIDTH, N_COMMITED_CUBES>
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
@@ -25,18 +25,6 @@ where
     generate_poseidon_witness::<FPacking<F>, WIDTH, N_COMMITED_CUBES>(
         inputs_packed,
         layers,
-        n_compressions.map(|n_compressions| {
-            (
-                n_compressions,
-                PFPacking::<F>::pack_slice(
-                    &[
-                        vec![F::ZERO; n_poseidons.checked_sub(n_compressions).unwrap()],
-                        vec![F::ONE; n_compressions],
-                    ]
-                    .concat(),
-                )
-                .to_vec(),
-            )
-        }),
+        compressions.map(|c| FPacking::<F>::pack_slice(c).to_vec()), // TODO avoid cloning
     )
 }

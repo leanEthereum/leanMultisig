@@ -9,7 +9,6 @@ use utils::{ToUsize, transposed_par_iter_mut};
 pub struct ExecutionTrace {
     pub nu_columns: [Vec<F>; 3],
     pub n_cycles: usize, // before padding with the repeated final instruction
-    pub n_compressions_16: usize,
     pub main_trace: TableTrace,
     pub precompile_traces: [TableTrace; N_PRECOMPILES],
     pub multilinear_evals_witness: Vec<WitnessMultilinearEval>,
@@ -134,14 +133,9 @@ pub fn get_execution_trace(
     };
     padd_table(&ExecutionTable, &mut main_trace);
 
-    let n_compressions_16;
-    (precompile_traces[TABLE_POSEIDON_16], n_compressions_16) =
-        put_poseidon16_compressions_at_the_end(&precompile_traces[TABLE_POSEIDON_16]); // TODO avoid reallocation
-
     ExecutionTrace {
         nu_columns,
         n_cycles,
-        n_compressions_16,
         main_trace,
         precompile_traces,
         multilinear_evals_witness,
@@ -149,47 +143,6 @@ pub fn get_execution_trace(
         non_zero_memory_size: memory.0.len(),
         memory: memory_padded,
     }
-}
-
-fn put_poseidon16_compressions_at_the_end(poseidons_16: &TableTrace) -> (TableTrace, usize) {
-    let n = poseidons_16.base[0].len();
-    assert_eq!(
-        Poseidon16Precompile.n_columns_f_total(),
-        poseidons_16.base.len()
-    );
-    poseidons_16
-        .base
-        .iter()
-        .enumerate()
-        .for_each(|(i, col)| assert_eq!(col.len(), n, "column {}", i));
-    assert_eq!(poseidons_16.ext.len(), 0);
-    let mut new_trace = vec![Vec::with_capacity(n); Poseidon16Precompile.n_columns_f_total()];
-    // TODO parallelize
-    for row in 0..n {
-        if poseidons_16.base[POSEIDON_16_COL_INDEX_COMPRESSION][row] == F::from_bool(false) {
-            for col in 0..Poseidon16Precompile.n_columns_f_total() {
-                new_trace[col].push(poseidons_16.base[col][row]);
-            }
-        }
-    }
-    let mut n_compressions = 0;
-    for row in 0..n {
-        if poseidons_16.base[POSEIDON_16_COL_INDEX_COMPRESSION][row] == F::from_bool(true) {
-            n_compressions += 1;
-            for col in 0..Poseidon16Precompile.n_columns_f_total() {
-                new_trace[col].push(poseidons_16.base[col][row]);
-            }
-        }
-    }
-
-    (
-        TableTrace {
-            base: new_trace,
-            ext: vec![],
-            padding_len: poseidons_16.padding_len,
-        },
-        n_compressions,
-    )
 }
 
 fn padd_table<P: TableT>(p: &P, trace: &mut TableTrace) {

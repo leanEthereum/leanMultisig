@@ -31,22 +31,19 @@ pub fn verify_execution(
     let [
         n_cycles,
         n_poseidons_16,
-        n_compressions_16,
         n_poseidons_24,
         n_rows_table_dot_products,
         private_memory_len,
         n_vm_multilinear_evals,
     ] = verifier_state
-        .next_base_scalars_const::<7>()?
+        .next_base_scalars_const::<6>()?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
 
-    if n_compressions_16 > n_poseidons_16.next_power_of_two().max(MIN_N_ROWS_PER_TABLE)
-        || n_vm_multilinear_evals > 1 << 10
-    {
+    if n_vm_multilinear_evals > 1 << 10 {
         return Err(ProofError::InvalidProof);
     }
 
@@ -101,13 +98,32 @@ pub fn verify_execution(
         n_rows_table_dot_products,
         (&p16_gkr_layers, &p24_gkr_layers),
     );
-
     let parsed_commitment_base = packed_pcs_parse_commitment(
         &whir_config_builder,
         &mut verifier_state,
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     )?;
+
+    let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
+    let p16_gkr = verify_poseidon_gkr(
+        &mut verifier_state,
+        log_n_p16,
+        &random_point_p16,
+        &p16_gkr_layers,
+        UNIVARIATE_SKIPS,
+        true,
+    );
+
+    let random_point_p24 = MultilinearPoint(verifier_state.sample_vec(log_n_p24));
+    let p24_gkr = verify_poseidon_gkr(
+        &mut verifier_state,
+        log_n_p24,
+        &random_point_p24,
+        &p24_gkr_layers,
+        UNIVARIATE_SKIPS,
+        false,
+    );
 
     let bus_challenge = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
@@ -130,16 +146,15 @@ pub fn verify_execution(
             p16_bus_eval_index_input_a,
             p16_bus_eval_index_input_b,
             p16_bus_eval_index_input_output,
-        ] = verifier_state.next_extension_scalars_const::<3>()?;
+            p16_bus_eval_compress,
+            TODO_REMOVE
+        ] = verifier_state.next_extension_scalars_const()?;
 
         if p16_bus_selector_value
             != mle_of_zeros_then_ones(n_poseidons_16, &p16_bus_point) - EF::ONE
         {
             return Err(ProofError::InvalidProof);
         }
-
-        let p16_eval_on_compression =
-            mle_of_zeros_then_ones((1 << log_n_p16) - n_compressions_16, &p16_bus_point);
 
         if p16_bus_data_value
             != bus_challenge
@@ -149,7 +164,7 @@ pub fn verify_execution(
                         p16_bus_eval_index_input_a,
                         p16_bus_eval_index_input_b,
                         p16_bus_eval_index_input_output,
-                        p16_eval_on_compression,
+                        p16_bus_eval_compress,
                     ],
                     fingerprint_challenge,
                 )
@@ -159,10 +174,16 @@ pub fn verify_execution(
 
         #[rustfmt::skip]
         let statements = BTreeMap::from_iter([
-                (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
-                (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
-                (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
-            ]);
+            (POSEIDON_16_COL_INDEX_A, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_a)]),
+            (POSEIDON_16_COL_INDEX_B, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_b)]),
+            (POSEIDON_16_COL_INDEX_RES, vec![Evaluation::new(p16_bus_point.clone(), p16_bus_eval_index_input_output)]),
+            (POSEIDON_16_COL_INDEX_COMPRESSION, 
+                vec![
+                    Evaluation::new(p16_bus_point.clone(), p16_bus_eval_compress),
+                    p16_gkr.on_compression_selector.clone().unwrap(),
+                ]),
+            (POSEIDON_16_COL_INDEX_RES_BIS, vec![Evaluation::new(p16_bus_point.clone(), TODO_REMOVE)]),
+        ]);
         (p16_bus_quotient, statements)
     };
 
@@ -288,26 +309,6 @@ pub fn verify_execution(
             dot_product_bus_virtual_statement,
         )?;
 
-    let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
-    let p16_gkr = verify_poseidon_gkr(
-        &mut verifier_state,
-        log_n_p16,
-        &random_point_p16,
-        &p16_gkr_layers,
-        UNIVARIATE_SKIPS,
-        Some(n_compressions_16),
-    );
-
-    let random_point_p24 = MultilinearPoint(verifier_state.sample_vec(log_n_p24));
-    let p24_gkr = verify_poseidon_gkr(
-        &mut verifier_state,
-        log_n_p24,
-        &random_point_p24,
-        &p24_gkr_layers,
-        UNIVARIATE_SKIPS,
-        None,
-    );
-
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
@@ -418,11 +419,7 @@ pub fn verify_execution(
 
     {
         // index opening for poseidon lookup
-        for (i, statement) in vectorized_lookup_statements.on_indexes[..3]
-            .iter()
-            .enumerate()
-        {
-            // TODO cleaner
+        for (i, statement) in vectorized_lookup_statements.on_indexes[..4].iter().enumerate() {
             p16_indexes_statements
                 .get_mut(&Poseidon16Precompile.vector_lookups()[i].index)
                 .unwrap()
@@ -448,45 +445,7 @@ pub fn verify_execution(
         p24_indexes_statements
             .get_mut(&POSEIDON_24_COL_INDEX_RES)
             .unwrap()
-            .extend(vectorized_lookup_statements.on_indexes[7].clone());
-
-        let alpha = verifier_state.sample();
-
-        let (p16_value_index_res_b, sc_eval) = sumcheck_verify_with_univariate_skip(
-            &mut verifier_state,
-            3,
-            log_n_p16,
-            1, // TODO univariate skip
-        )?;
-        let mut eq_poly_eval = EF::ZERO;
-        let mut p16_value_index_res_b_expected = EF::ZERO;
-        for (statement, alpha_power) in vectorized_lookup_statements.on_indexes[3]
-            .iter()
-            .zip(alpha.powers())
-        {
-            p16_value_index_res_b_expected += statement.value * alpha_power;
-            eq_poly_eval += alpha_power * statement.point.eq_poly_outside(&sc_eval.point);
-        }
-        if p16_value_index_res_b_expected != p16_value_index_res_b {
-            return Err(ProofError::InvalidProof);
-        }
-        let sc_res_index_value = verifier_state.next_extension_scalar()?;
-        p16_indexes_statements
-            .get_mut(&POSEIDON_16_COL_INDEX_RES)
-            .unwrap()
-            .push(Evaluation::new(
-                sc_eval.point.clone(),
-                sc_res_index_value - EF::ONE,
-            ));
-
-        if sc_res_index_value
-            * (EF::ONE
-                - mle_of_zeros_then_ones((1 << log_n_p16) - n_compressions_16, &sc_eval.point))
-            * eq_poly_eval
-            != sc_eval.value
-        {
-            return Err(ProofError::InvalidProof);
-        }
+            .extend(vectorized_lookup_statements.on_indexes[7].clone());       
     }
 
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);

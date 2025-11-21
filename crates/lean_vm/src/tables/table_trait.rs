@@ -178,7 +178,7 @@ pub trait TableT: Air {
         let mut dims = self
             .commited_columns_f()
             .iter()
-            .map(|&c| ColDims::padded(n_rows, self.padding_row_f()[c].as_base().unwrap()))
+            .map(|&c| ColDims::padded(n_rows, self.padding_row_f()[c]))
             .collect::<Vec<_>>();
         dims.extend(committed_dims_extension_from_base(
             n_rows,
