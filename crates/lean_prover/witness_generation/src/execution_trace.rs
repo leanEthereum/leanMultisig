@@ -186,18 +186,19 @@ fn put_poseidon16_compressions_at_the_end(poseidons_16: &TableTrace) -> (TableTr
 }
 
 fn padd_table<P: TableT>(p: &P, trace: &mut TableTrace) {
-    // TODO parallelize
     trace.padding_len = trace.base[0]
         .len()
         .next_power_of_two()
         .max(MIN_N_ROWS_PER_TABLE)
         - trace.base[0].len();
-    for (i, col) in trace.base.iter_mut().enumerate() {
+
+    trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
         let default_value: F = p.padding_row()[i].as_base().unwrap();
         col.extend(repeat_n(default_value, trace.padding_len));
-    }
-    for (i, col) in trace.ext.iter_mut().enumerate() {
+    });
+
+    trace.ext.par_iter_mut().enumerate().for_each(|(i, col)| {
         let default_value = p.padding_row()[i + p.n_columns_f()];
         col.extend(repeat_n(default_value, trace.padding_len));
-    }
+    });
 }
