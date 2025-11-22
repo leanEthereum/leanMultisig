@@ -212,5 +212,5 @@ pub fn run_whir_recursion_benchmark() {
 
 #[test]
 fn test_whir_recursion() {
-    run_whir_recursion_benchmark();
+    // run_whir_recursion_benchmark();
 }

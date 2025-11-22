@@ -13,7 +13,8 @@ pub(crate) fn get_base_dims(
     n_cycles: usize,
     log_public_memory: usize,
     private_memory_len: usize,
-    (n_poseidons_16, n_poseidons_24): (usize, usize),
+    n_poseidons_16: usize,
+    n_poseidons_24: usize,
     n_rows_table_dot_products: usize,
     (p16_gkr_layers, p24_gkr_layers): (
         &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,

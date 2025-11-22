@@ -10,7 +10,7 @@ use poseidon_circuit::PoseidonGKRLayers;
 use poseidon_circuit::verify_poseidon_gkr;
 use sub_protocols::*;
 use utils::ToUsize;
-use utils::{build_challenger, padd_with_zero_to_next_power_of_two};
+use utils::build_challenger;
 use whir_p3::WhirConfig;
 use whir_p3::WhirConfigBuilder;
 use whir_p3::second_batched_whir_config_builder;
@@ -33,7 +33,8 @@ pub fn verify_execution(
         n_rows_table_dot_products,
         private_memory_len,
     ] = verifier_state
-        .next_base_scalars_const::<5>()?
+        .next_base_scalars_const::<5>()
+        .unwrap()
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>()
@@ -60,7 +61,8 @@ pub fn verify_execution(
         n_cycles,
         log_public_memory,
         private_memory_len,
-        (n_poseidons_16, n_poseidons_24),
+        n_poseidons_16,
+        n_poseidons_24,
         n_rows_table_dot_products,
         (&p16_gkr_layers, &p24_gkr_layers),
     );
@@ -69,7 +71,8 @@ pub fn verify_execution(
         &mut verifier_state,
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    )?;
+    )
+    .unwrap();
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
     let p16_gkr = verify_poseidon_gkr(
@@ -94,45 +97,49 @@ pub fn verify_execution(
     let bus_challenge = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
 
-    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) = process_bus_quotient(
+    let (exec_bus_quotient, exec_air_point, exec_evals_f, exec_evals_ef) = verify_bus_and_air(
         &mut verifier_state,
-        &Table::execution(),
+        &ExecutionTable,
         log_n_cycles,
-        &Table::execution().buses()[0], // TODO multiple buses
         n_cycles.next_power_of_two() - n_cycles,
         bus_challenge,
         fingerprint_challenge,
-    )?;
+    )
+    .unwrap();
 
-    let (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement) = process_bus_quotient(
+    let (p16_bus_quotient, p16_air_point, p16_evals_f, p16_evals_ef) = verify_bus_and_air(
         &mut verifier_state,
-        &Table::poseidon16(),
+        &Poseidon16Precompile,
         log_n_p16,
-        &Table::poseidon16().buses()[0], // TODO multiple buses
         (1 << log_n_p16) - n_poseidons_16,
         bus_challenge,
         fingerprint_challenge,
-    )?;
+    )
+    .unwrap();
 
-    let (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement) = process_bus_quotient(
+    let (p24_bus_quotient, p24_air_point, p24_evals_f, p24_evals_ef) = verify_bus_and_air(
         &mut verifier_state,
-        &Table::poseidon24(),
+        &Poseidon24Precompile,
         log_n_p24,
-        &Table::poseidon24().buses()[0], // TODO multiple buses
         (1 << log_n_p24) - n_poseidons_24,
         bus_challenge,
         fingerprint_challenge,
-    )?;
-    let (dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
-        process_bus_quotient(
-            &mut verifier_state,
-            &Table::dot_product(),
-            table_dot_products_log_n_rows,
-            &Table::dot_product().buses()[0], // TODO multiple buses
-            dot_product_padding_len,
-            bus_challenge,
-            fingerprint_challenge,
-        )?;
+    )
+    .unwrap();
+    let (
+        dot_product_bus_quotient,
+        dot_product_air_point,
+        dot_product_evals_f,
+        dot_product_evals_ef,
+    ) = verify_bus_and_air(
+        &mut verifier_state,
+        &DotProductPrecompile,
+        table_dot_products_log_n_rows,
+        dot_product_padding_len,
+        bus_challenge,
+        fingerprint_challenge,
+    )
+    .unwrap();
 
     if exec_bus_quotient + p16_bus_quotient + p24_bus_quotient + dot_product_bus_quotient
         != EF::ZERO
@@ -140,52 +147,12 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let (exec_air_point, exec_evals_to_verify_f, exec_evals_to_verify_ef) = verify_table_air(
-        &mut verifier_state,
-        &ExecutionTable,
-        log_n_cycles,
-        bus_challenge,
-        fingerprint_challenge,
-        exec_bus_beta,
-        Some(exec_bus_virtual_statement),
-    )?;
-
-    let (dot_product_air_point, dot_product_evals_to_verify_f, dot_product_evals_to_verify_ef) =
-        verify_table_air(
-            &mut verifier_state,
-            &DotProductPrecompile,
-            table_dot_products_log_n_rows,
-            bus_challenge,
-            fingerprint_challenge,
-            dot_product_bus_beta,
-            Some(dot_product_bus_virtual_statement),
-        )?;
-
-    let (p16_air_point, p16_evals_to_prove_f, p16_evals_to_prove_ef) = verify_table_air(
-        &mut verifier_state,
-        &Poseidon16Precompile,
-        log_n_p16,
-        bus_challenge,
-        fingerprint_challenge,
-        p16_bus_beta,
-        Some(p16_bus_virtual_statement),
-    )?;
-    let (p24_air_point, p24_evals_to_prove_f, p24_evals_to_prove_ef) = verify_table_air(
-        &mut verifier_state,
-        &Poseidon24Precompile,
-        log_n_p24,
-        bus_challenge,
-        fingerprint_challenge,
-        p24_bus_beta,
-        Some(p24_bus_virtual_statement),
-    )?;
-
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
     let bytecode_lookup_claim_1 = Evaluation::new(
         exec_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(&exec_evals_to_verify_f[..N_INSTRUCTION_COLUMNS])
+        padd_with_zero_to_next_power_of_two(&exec_evals_f[..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
 
@@ -218,26 +185,21 @@ pub fn verify_execution(
         ]
         .concat(), // TODO handle the case with non-zero default index
         [
-            Table::execution()
-                .normal_lookups_statements_f(&exec_air_point, &exec_evals_to_verify_f),
-            Table::dot_product().normal_lookups_statements_f(
-                &dot_product_air_point,
-                &dot_product_evals_to_verify_f,
-            ),
+            Table::execution().normal_lookups_statements_f(&exec_air_point, &exec_evals_f),
+            Table::dot_product()
+                .normal_lookups_statements_f(&dot_product_air_point, &dot_product_evals_f),
         ]
         .concat(),
         [
-            Table::execution()
-                .normal_lookups_statements_ef(&exec_air_point, &exec_evals_to_verify_ef),
-            Table::dot_product().normal_lookups_statements_ef(
-                &dot_product_air_point,
-                &dot_product_evals_to_verify_ef,
-            ),
+            Table::execution().normal_lookups_statements_ef(&exec_air_point, &exec_evals_ef),
+            Table::dot_product()
+                .normal_lookups_statements_ef(&dot_product_air_point, &dot_product_evals_ef),
         ]
         .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &public_memory, // we need to pass the first few values of memory, public memory is enough
-    )?;
+    )
+    .unwrap();
 
     let vectorized_lookup_into_memory = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
         &mut verifier_state,
@@ -260,7 +222,8 @@ pub fn verify_execution(
         poseidon_lookup_statements(&p16_gkr, &p24_gkr),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &public_memory, // we need to pass the first few values of memory, public memory is enough
-    )?;
+    )
+    .unwrap();
 
     let extension_dims = vec![
         ColDims::padded(public_memory.len() + private_memory_len, EF::ZERO), // memory pushwordard
@@ -280,13 +243,16 @@ pub fn verify_execution(
         &mut verifier_state,
         &extension_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    )?;
+    )
+    .unwrap();
 
-    let mut normal_lookup_statements =
-        normal_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
+    let mut normal_lookup_statements = normal_lookup_into_memory
+        .step_2(&mut verifier_state, log_memory)
+        .unwrap();
 
-    let vectorized_lookup_statements =
-        vectorized_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
+    let vectorized_lookup_statements = vectorized_lookup_into_memory
+        .step_2(&mut verifier_state, log_memory)
+        .unwrap();
 
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
@@ -294,7 +260,8 @@ pub fn verify_execution(
         log_n_cycles,
         &[bytecode_lookup_claim_1],
         EF::ONE,
-    )?;
+    )
+    .unwrap();
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
     if folded_bytecode.evaluate(&bytecode_logup_star_statements.on_table.point)
         != bytecode_logup_star_statements.on_table.value
@@ -306,22 +273,26 @@ pub fn verify_execution(
         vectorized_lookup_statements.on_table.clone(),
     ];
 
-    let mut p16_statements = Table::poseidon16().committed_statements_verifier(
-        &mut verifier_state,
-        &p16_air_point,
-        &p16_evals_to_prove_f,
-        &p16_evals_to_prove_ef,
-        &mut vec![],
-        &mut vec![],
-    )?;
-    let mut p24_statements = Table::poseidon24().committed_statements_verifier(
-        &mut verifier_state,
-        &p24_air_point,
-        &p24_evals_to_prove_f,
-        &p24_evals_to_prove_ef,
-        &mut vec![],
-        &mut vec![],
-    )?;
+    let mut p16_statements = Table::poseidon16()
+        .committed_statements_verifier(
+            &mut verifier_state,
+            &p16_air_point,
+            &p16_evals_f,
+            &p16_evals_ef,
+            &mut vec![],
+            &mut vec![],
+        )
+        .unwrap();
+    let mut p24_statements = Table::poseidon24()
+        .committed_statements_verifier(
+            &mut verifier_state,
+            &p24_air_point,
+            &p24_evals_f,
+            &p24_evals_ef,
+            &mut vec![],
+            &mut vec![],
+        )
+        .unwrap();
     {
         // index opening for poseidon lookup
         for (i, statement) in vectorized_lookup_statements.on_indexes[..4]
@@ -344,23 +315,27 @@ pub fn verify_execution(
 
     let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
 
-    let dot_product_statements = DotProductPrecompile.committed_statements_verifier(
-        &mut verifier_state,
-        &dot_product_air_point,
-        &dot_product_evals_to_verify_f,
-        &dot_product_evals_to_verify_ef,
-        &mut normal_lookup_statements.on_indexes_f,
-        &mut normal_lookup_statements.on_indexes_ef,
-    )?;
+    let dot_product_statements = DotProductPrecompile
+        .committed_statements_verifier(
+            &mut verifier_state,
+            &dot_product_air_point,
+            &dot_product_evals_f,
+            &dot_product_evals_ef,
+            &mut normal_lookup_statements.on_indexes_f,
+            &mut normal_lookup_statements.on_indexes_ef,
+        )
+        .unwrap();
 
-    let mut exec_statements = Table::execution().committed_statements_verifier(
-        &mut verifier_state,
-        &exec_air_point,
-        &exec_evals_to_verify_f,
-        &exec_evals_to_verify_ef,
-        &mut normal_lookup_statements.on_indexes_f,
-        &mut normal_lookup_statements.on_indexes_ef,
-    )?;
+    let mut exec_statements = Table::execution()
+        .committed_statements_verifier(
+            &mut verifier_state,
+            &exec_air_point,
+            &exec_evals_f,
+            &exec_evals_ef,
+            &mut normal_lookup_statements.on_indexes_f,
+            &mut normal_lookup_statements.on_indexes_ef,
+        )
+        .unwrap();
     exec_statements[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)].extend(vec![
         bytecode_logup_star_statements.on_indexes.clone(),
         initial_pc_statement,
@@ -382,7 +357,8 @@ pub fn verify_execution(
         .concat(),
         &mut verifier_state,
         &[(0, public_memory.clone())].into_iter().collect(),
-    )?;
+    )
+    .unwrap();
 
     let global_statements_extension = packed_pcs_global_statements_for_verifier(
         &extension_dims,
@@ -394,65 +370,63 @@ pub fn verify_execution(
         ],
         &mut verifier_state,
         &Default::default(),
-    )?;
+    )
+    .unwrap();
 
-    WhirConfig::new(whir_config_builder, parsed_commitment_base.num_variables).batch_verify(
-        &mut verifier_state,
-        &parsed_commitment_base,
-        global_statements_base,
-        &parsed_commitment_extension,
-        global_statements_extension,
-    )?;
+    WhirConfig::new(whir_config_builder, parsed_commitment_base.num_variables)
+        .batch_verify(
+            &mut verifier_state,
+            &parsed_commitment_base,
+            global_statements_base,
+            &parsed_commitment_extension,
+            global_statements_extension,
+        )
+        .unwrap();
 
     Ok(())
 }
 
-fn process_bus_quotient<T: TableT>(
+fn verify_bus_and_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
     verifier_state: &mut VerifierState<PF<EF>, EF, impl FSChallenger<EF>>,
     t: &T,
     log_n: usize,
-    bus: &Bus,
     padding_len: usize,
     bus_challenge: EF,
     fingerprint_challenge: EF,
-) -> ProofResult<(EF, EF, MultiEvaluation<EF>)> {
+) -> ProofResult<(EF, MultilinearPoint<EF>, Vec<EF>, Vec<EF>)> {
+    if t.buses().len() != 1 {
+        panic!("Multiple buses not yet supported");
+    }
+    let bus = &t.buses()[0];
+
     let (mut quotient, point, selector_value, data_value) =
-        verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(verifier_state, log_n)?;
+        verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(verifier_state, log_n).unwrap();
 
-    let beta = verifier_state.sample();
+    let bus_beta = verifier_state.sample();
 
-    let final_value = selector_value * bus.direction.to_field_flag() + beta * data_value;
+    let final_value = selector_value * bus.direction.to_field_flag() + bus_beta * data_value;
 
-    let virtual_statement = MultiEvaluation::new(point, vec![final_value]);
+    let bus_virtual_statement = MultiEvaluation::new(point, vec![final_value]);
 
     quotient -= bus.padding_contribution(t, padding_len, bus_challenge, fingerprint_challenge);
 
-    Ok((quotient, beta, virtual_statement))
-}
-
-fn verify_table_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
-    verifier_state: &mut VerifierState<PF<EF>, EF, impl FSChallenger<EF>>,
-    t: &T,
-    log_n_rows: usize,
-    bus_challenge: EF,
-    fingerprint_challenge: EF,
-    bus_beta: EF,
-    bus_virtual_statement: Option<MultiEvaluation<EF>>,
-) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>)> {
     let air_extra_data = ExtraDataForBuses {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         bus_beta,
         alpha_powers: vec![], // filled later
     };
-    verify_air(
+
+    let (air_point, evals_f, evals_ef) = verify_air(
         verifier_state,
         t,
         air_extra_data,
         UNIVARIATE_SKIPS,
-        log_n_rows,
+        log_n,
         &t.air_padding_row_f(),
         &t.air_padding_row_ef(),
-        bus_virtual_statement,
-    )
+        Some(bus_virtual_statement),
+    )?;
+
+    Ok((quotient, air_point, evals_f, evals_ef))
 }
