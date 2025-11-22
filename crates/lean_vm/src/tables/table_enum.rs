@@ -5,10 +5,10 @@ use crate::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Table {
-    Execution(ExecutionTable),
     DotProduct(DotProductPrecompile),
     Poseidon16(Poseidon16Precompile),
     Poseidon24(Poseidon24Precompile),
+    Execution(ExecutionTable),
 }
 
 pub const TABLE_DOT_PRODUCT: usize = 0;
@@ -16,13 +16,25 @@ pub const TABLE_POSEIDON_16: usize = 1;
 pub const TABLE_POSEIDON_24: usize = 2;
 pub const TABLE_EXECUTION: usize = 3;
 
+
+#[macro_export]
 macro_rules! delegate_to_inner {
+    // Existing pattern for method calls
     ($self:expr, $method:ident $(, $($arg:expr),*)?) => {
         match $self {
             Self::DotProduct(p) => p.$method($($($arg),*)?),
             Self::Poseidon16(p) => p.$method($($($arg),*)?),
             Self::Poseidon24(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
+        }
+    };
+    // New pattern for applying a macro to the inner value
+    ($self:expr => $macro_name:ident) => {
+        match $self {
+            Table::DotProduct(p) => $macro_name!(p),
+            Table::Poseidon16(p) => $macro_name!(p),
+            Table::Poseidon24(p) => $macro_name!(p),
+            Table::Execution(p) => $macro_name!(p),
         }
     };
 }

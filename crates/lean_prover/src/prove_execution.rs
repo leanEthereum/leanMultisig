@@ -4,6 +4,7 @@ use air::prove_air;
 use lean_vm::*;
 use lookup::{compute_pushforward, prove_gkr_quotient, prove_logup_star};
 use multilinear_toolkit::prelude::*;
+use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
 use sub_protocols::*;
@@ -166,47 +167,23 @@ pub fn prove_execution(
     let bus_challenge = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
 
-    let (exec_bus_quotient, exec_air_point, exec_evals_f, exec_evals_ef) = prove_bus_and_air(
-        &mut prover_state,
-        &ExecutionTable,
-        &traces[TABLE_EXECUTION],
-        bus_challenge,
-        fingerprint_challenge,
-    );
+    let mut bus_quotients: [EF; N_TABLES] = Default::default();
+    let mut air_points: [MultilinearPoint<EF>; N_TABLES] = Default::default();
+    let mut evals_f: [Vec<EF>; N_TABLES] = Default::default();
+    let mut evals_ef: [Vec<EF>; N_TABLES] = Default::default();
 
-    let (p16_bus_quotient, p16_air_point, p16_evals_f, p16_evals_ef) = prove_bus_and_air(
-        &mut prover_state,
-        &Poseidon16Precompile,
-        &traces[TABLE_POSEIDON_16],
-        bus_challenge,
-        fingerprint_challenge,
-    );
+    for table in ALL_TABLES {
+        let i = table.index();
+        (bus_quotients[i], air_points[i], evals_f[i], evals_ef[i]) = prove_bus_and_air(
+            &mut prover_state,
+            &table,
+            &traces[i],
+            bus_challenge,
+            fingerprint_challenge,
+        );
+    }
 
-    let (p24_bus_quotient, p24_air_point, p24_evals_f, p24_evals_ef) = prove_bus_and_air(
-        &mut prover_state,
-        &Poseidon24Precompile,
-        &traces[TABLE_POSEIDON_24],
-        bus_challenge,
-        fingerprint_challenge,
-    );
-
-    let (
-        dot_product_bus_quotient,
-        dot_product_air_point,
-        dot_product_evals_f,
-        dot_product_evals_ef,
-    ) = prove_bus_and_air(
-        &mut prover_state,
-        &DotProductPrecompile,
-        &traces[TABLE_DOT_PRODUCT],
-        bus_challenge,
-        fingerprint_challenge,
-    );
-
-    assert_eq!(
-        exec_bus_quotient + p16_bus_quotient + p24_bus_quotient + dot_product_bus_quotient,
-        EF::ZERO
-    );
+    assert_eq!(bus_quotients.iter().copied().sum::<EF>(), EF::ZERO);
 
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -214,11 +191,11 @@ pub fn prove_execution(
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
 
     let bytecode_lookup_claim_1 = Evaluation::new(
-        exec_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(&exec_evals_f[..N_INSTRUCTION_COLUMNS])
+        air_points[TABLE_EXECUTION].clone(),
+        padd_with_zero_to_next_power_of_two(&evals_f[TABLE_EXECUTION][..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
-    let bytecode_poly_eq_point = eval_eq(&exec_air_point);
+    let bytecode_poly_eq_point = eval_eq(&air_points[TABLE_EXECUTION]);
     let bytecode_pushforward = compute_pushforward(
         &traces[TABLE_EXECUTION].base[COL_INDEX_PC],
         folded_bytecode.len(),
@@ -279,15 +256,15 @@ pub fn prove_execution(
         ]
         .concat(),
         [
-            Table::execution().normal_lookups_statements_f(&exec_air_point, &exec_evals_f),
+            Table::execution().normal_lookups_statements_f(&air_points[TABLE_EXECUTION], &evals_f[TABLE_EXECUTION]),
             Table::dot_product()
-                .normal_lookups_statements_f(&dot_product_air_point, &dot_product_evals_f),
+                .normal_lookups_statements_f(&air_points[TABLE_DOT_PRODUCT], &evals_f[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
         [
-            Table::execution().normal_lookups_statements_ef(&exec_air_point, &exec_evals_ef),
+            Table::execution().normal_lookups_statements_ef(&air_points[TABLE_EXECUTION], &evals_ef[TABLE_EXECUTION]),
             Table::dot_product()
-                .normal_lookups_statements_ef(&dot_product_air_point, &dot_product_evals_ef),
+                .normal_lookups_statements_ef(&air_points[TABLE_DOT_PRODUCT], &evals_ef[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -378,16 +355,16 @@ pub fn prove_execution(
 
     let mut p16_statements = Table::poseidon16().committed_statements_prover(
         &mut prover_state,
-        &p16_air_point,
-        &p16_evals_f,
+        &air_points[TABLE_POSEIDON_16],
+        &evals_f[TABLE_POSEIDON_16],
         None,
         &mut vec![],
         &mut vec![],
     );
     let mut p24_statements = Table::poseidon24().committed_statements_prover(
         &mut prover_state,
-        &p24_air_point,
-        &p24_evals_f,
+        &air_points[TABLE_POSEIDON_24],
+        &evals_f[TABLE_POSEIDON_24],
         None,
         &mut vec![],
         &mut vec![],
@@ -417,8 +394,8 @@ pub fn prove_execution(
 
     let mut exec_statements = Table::execution().committed_statements_prover(
         &mut prover_state,
-        &exec_air_point,
-        &exec_evals_f,
+        &air_points[TABLE_EXECUTION],
+        &evals_f[TABLE_EXECUTION],
         None,
         &mut normal_lookup_statements.on_indexes_f,
         &mut normal_lookup_statements.on_indexes_ef,
@@ -431,8 +408,8 @@ pub fn prove_execution(
 
     let dot_product_statements = Table::dot_product().committed_statements_prover(
         &mut prover_state,
-        &dot_product_air_point,
-        &dot_product_evals_f,
+        &air_points[TABLE_DOT_PRODUCT],
+        &evals_f[TABLE_DOT_PRODUCT],
         Some(&dot_product_computation_ext_base_helper),
         &mut normal_lookup_statements.on_indexes_f,
         &mut normal_lookup_statements.on_indexes_ef,
@@ -494,9 +471,9 @@ pub fn prove_execution(
     )
 }
 
-fn prove_bus_and_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
+fn prove_bus_and_air(
     prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
-    t: &T,
+    t: &Table,
     trace: &TableTrace,
     bus_challenge: EF,
     fingerprint_challenge: EF,
@@ -559,7 +536,7 @@ fn prove_bus_and_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
     bus_quotient -=
         bus.padding_contribution(t, trace.padding_len, bus_challenge, fingerprint_challenge);
 
-    let dot_product_air_extra_data = ExtraDataForBuses {
+    let extra_data = ExtraDataForBuses {
         bus_challenge,
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
         bus_beta: bus_beta,
@@ -567,18 +544,23 @@ fn prove_bus_and_air<T: TableT<ExtraData = ExtraDataForBuses<EF>>>(
     };
     let (air_point, evals_f, evals_ef) =
         info_span!("Table AIR proof", table = t.name()).in_scope(|| {
-            prove_air(
-                prover_state,
-                t,
-                dot_product_air_extra_data,
-                UNIVARIATE_SKIPS,
-                &trace.base[..t.n_columns_f_air()],
-                &trace.ext[..t.n_columns_ef_air()],
-                &t.air_padding_row_f(),
-                &t.air_padding_row_ef(),
-                Some(bus_virtual_statement),
-                t.n_columns_air() + t.total_n_down_columns_air() > 5, // heuristic
-            )
+            macro_rules! prove_air_for_table {
+                ($t:expr) => {
+                    prove_air(
+                        prover_state,
+                        $t,
+                        extra_data,
+                        UNIVARIATE_SKIPS,
+                        &trace.base[..$t.n_columns_f_air()],
+                        &trace.ext[..$t.n_columns_ef_air()],
+                        &$t.air_padding_row_f(),
+                        &$t.air_padding_row_ef(),
+                        Some(bus_virtual_statement),
+                        $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
+                    )
+                };
+            }
+            delegate_to_inner!(t => prove_air_for_table)
         });
 
     (bus_quotient, air_point, evals_f, evals_ef)

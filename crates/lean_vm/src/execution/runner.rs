@@ -9,8 +9,8 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    CodeAddress, ENDING_PC, HintExecutionContext, N_PRECOMPILES, STARTING_PC, SourceLineNumber,
-    TABLE_POSEIDON_16, TABLE_POSEIDON_24, Table, TableTrace,
+    ALL_PRECOMPILES, CodeAddress, ENDING_PC, HintExecutionContext, N_PRECOMPILES, STARTING_PC,
+    SourceLineNumber, TABLE_POSEIDON_16, TABLE_POSEIDON_24, TableTrace,
 };
 use multilinear_toolkit::prelude::*;
 use std::array;
@@ -204,7 +204,7 @@ fn execute_bytecode_helper(
 
     // Events collected only in final execution
     let mut precompile_traces: [TableTrace; N_PRECOMPILES] =
-        array::from_fn(|i| TableTrace::new(&Table::from_index(i)));
+        array::from_fn(|i| TableTrace::new(&ALL_PRECOMPILES[i]));
 
     let mut add_counts = 0;
     let mut mul_counts = 0;
