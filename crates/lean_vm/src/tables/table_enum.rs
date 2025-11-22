@@ -14,7 +14,7 @@ pub enum Table {
 pub const TABLE_DOT_PRODUCT: usize = 0;
 pub const TABLE_POSEIDON_16: usize = 1;
 pub const TABLE_POSEIDON_24: usize = 2;
-pub const TABLE_EXECUTION: usize = 1000;
+pub const TABLE_EXECUTION: usize = 3;
 
 macro_rules! delegate_to_inner {
     ($self:expr, $method:ident $(, $($arg:expr),*)?) => {

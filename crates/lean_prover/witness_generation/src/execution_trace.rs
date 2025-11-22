@@ -8,8 +8,7 @@ use utils::{ToUsize, transposed_par_iter_mut};
 #[derive(Debug)]
 pub struct ExecutionTrace {
     pub n_cycles: usize, // before padding with the repeated final instruction
-    pub main_trace: TableTrace,
-    pub precompile_traces: [TableTrace; N_PRECOMPILES],
+    pub traces: [TableTrace; N_TABLES],
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
@@ -119,10 +118,15 @@ pub fn get_execution_trace(
     };
     padd_table(&ExecutionTable, &mut main_trace);
 
+    let mut traces: [_; N_TABLES] = array::from_fn(|_| TableTrace::default());
+    for i in 0..N_PRECOMPILES {
+        traces[i] = std::mem::take(&mut precompile_traces[i]);
+    }
+    traces[TABLE_EXECUTION] = main_trace;
+
     ExecutionTrace {
         n_cycles,
-        main_trace,
-        precompile_traces,
+        traces,
         public_memory_size: execution_result.public_memory_size,
         non_zero_memory_size: memory.0.len(),
         memory: memory_padded,

@@ -11,12 +11,23 @@ use sub_protocols::{
 
 pub type ColIndex = usize;
 
-pub const N_PRECOMPILES: usize = 3;
+pub const N_PRECOMPILES: usize = 3; // excluding execution table
 pub const ALL_PRECOMPILES: [Table; N_PRECOMPILES] = [
     Table::dot_product(),
     Table::poseidon16(),
     Table::poseidon24(),
 ];
+
+pub const N_TABLES: usize = N_PRECOMPILES + 1;
+pub const ALL_TABLES: [Table; N_TABLES] = {
+    let mut tables = [Table::execution(); N_TABLES];
+    let mut i = 0;
+    while i < N_PRECOMPILES {
+        tables[i] = ALL_PRECOMPILES[i];
+        i += 1;
+    }
+    tables
+};
 
 #[derive(Debug)]
 pub struct LookupIntoMemory {
@@ -65,7 +76,7 @@ pub enum BusTable {
     Variable(ColIndex),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TableTrace {
     pub base: Vec<Vec<F>>,
     pub ext: Vec<Vec<EF>>,

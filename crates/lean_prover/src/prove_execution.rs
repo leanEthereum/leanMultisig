@@ -22,9 +22,8 @@ pub fn prove_execution(
 ) -> (Vec<PF<EF>>, usize, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
-        main_trace,
         n_cycles,
-        precompile_traces: traces,
+        traces,
         public_memory_size,
         mut non_zero_memory_size,
         mut memory, // padded with zeros to next power of two
@@ -43,8 +42,6 @@ pub fn prove_execution(
             .in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
-    let main_trace_f = &main_trace.base;
-
     if memory.len() < 1 << MIN_LOG_MEMORY_SIZE {
         memory.resize(1 << MIN_LOG_MEMORY_SIZE, F::ZERO);
         non_zero_memory_size = 1 << MIN_LOG_MEMORY_SIZE;
@@ -55,7 +52,8 @@ pub fn prove_execution(
 
     let log_n_cycles = log2_ceil_usize(n_cycles);
     assert!(
-        main_trace_f
+        traces[TABLE_EXECUTION]
+            .base
             .iter()
             .all(|col| col.len() == 1 << log_n_cycles)
     );
@@ -118,7 +116,7 @@ pub fn prove_execution(
 
     let base_pols = [
         vec![memory.as_slice()],
-        Table::execution().committed_columns(&main_trace, None),
+        Table::execution().committed_columns(&traces[TABLE_EXECUTION], None),
         Table::poseidon16().committed_columns(&traces[TABLE_POSEIDON_16], None),
         p16_witness
             .committed_cubes
@@ -171,7 +169,7 @@ pub fn prove_execution(
     let (exec_bus_quotient, exec_air_point, exec_evals_f, exec_evals_ef) = prove_bus_and_air(
         &mut prover_state,
         &ExecutionTable,
-        &main_trace,
+        &traces[TABLE_EXECUTION],
         bus_challenge,
         fingerprint_challenge,
     );
@@ -222,7 +220,7 @@ pub fn prove_execution(
     );
     let bytecode_poly_eq_point = eval_eq(&exec_air_point);
     let bytecode_pushforward = compute_pushforward(
-        &main_trace_f[COL_INDEX_PC],
+        &traces[TABLE_EXECUTION].base[COL_INDEX_PC],
         folded_bytecode.len(),
         &bytecode_poly_eq_point,
     );
@@ -231,12 +229,12 @@ pub fn prove_execution(
         &mut prover_state,
         &memory,
         [
-            ExecutionTable.normal_lookup_index_columns_f(&main_trace),
+            ExecutionTable.normal_lookup_index_columns_f(&traces[TABLE_EXECUTION]),
             DotProductPrecompile.normal_lookup_index_columns_f(&traces[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
         [
-            ExecutionTable.normal_lookup_index_columns_ef(&main_trace),
+            ExecutionTable.normal_lookup_index_columns_ef(&traces[TABLE_EXECUTION]),
             DotProductPrecompile.normal_lookup_index_columns_ef(&traces[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
@@ -271,12 +269,12 @@ pub fn prove_execution(
         ]
         .concat(), // TODO handle the case with non-zero default index
         [
-            Table::execution().normal_lookup_f_value_columns(&main_trace),
+            Table::execution().normal_lookup_f_value_columns(&traces[TABLE_EXECUTION]),
             Table::dot_product().normal_lookup_f_value_columns(&traces[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
         [
-            Table::execution().normal_lookup_ef_value_columns(&main_trace),
+            Table::execution().normal_lookup_ef_value_columns(&traces[TABLE_EXECUTION]),
             Table::dot_product().normal_lookup_ef_value_columns(&traces[TABLE_DOT_PRODUCT]),
         ]
         .concat(),
@@ -366,7 +364,7 @@ pub fn prove_execution(
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &MleRef::Extension(&folded_bytecode),
-        &main_trace_f[COL_INDEX_PC],
+        &traces[TABLE_EXECUTION].base[COL_INDEX_PC],
         bytecode_lookup_claim_1.value,
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
