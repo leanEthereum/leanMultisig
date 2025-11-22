@@ -185,15 +185,6 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
             },
             aux: DOT_PRODUCT_LEN,
         },
-        Instruction::Precompile {
-            table: Table::multilinear_eval(),
-            arg_a: MemOrConstant::Constant(f(MLE_COEFF_PTR as u64)), // coeffs pointer
-            arg_b: MemOrConstant::Constant(f(MLE_POINT_PTR as u64)), // point pointer
-            arg_c: MemOrFp::MemoryAfterFp {
-                offset: MLE_RES_OFFSET,
-            }, // result pointer
-            aux: MLE_N_VARS,                                         // n_vars
-        },
     ];
 
     let bytecode = Bytecode {

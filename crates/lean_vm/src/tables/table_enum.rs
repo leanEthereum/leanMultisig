@@ -9,13 +9,11 @@ pub enum Table {
     DotProduct(DotProductPrecompile),
     Poseidon16(Poseidon16Precompile),
     Poseidon24(Poseidon24Precompile),
-    MultilinearEval(MultilinearEvalPrecompile),
 }
 
 pub const TABLE_DOT_PRODUCT: usize = 0;
 pub const TABLE_POSEIDON_16: usize = 1;
 pub const TABLE_POSEIDON_24: usize = 2;
-pub const TABLE_MULTILINEAR_EVAL: usize = 3;
 pub const TABLE_EXECUTION: usize = 1000;
 
 macro_rules! delegate_to_inner {
@@ -24,7 +22,6 @@ macro_rules! delegate_to_inner {
             Self::DotProduct(p) => p.$method($($($arg),*)?),
             Self::Poseidon16(p) => p.$method($($($arg),*)?),
             Self::Poseidon24(p) => p.$method($($($arg),*)?),
-            Self::MultilinearEval(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
         }
     };
@@ -40,9 +37,6 @@ impl Table {
     pub const fn poseidon24() -> Self {
         Self::Poseidon24(Poseidon24Precompile)
     }
-    pub const fn multilinear_eval() -> Self {
-        Self::MultilinearEval(MultilinearEvalPrecompile)
-    }
     pub const fn execution() -> Self {
         Self::Execution(ExecutionTable)
     }
@@ -54,7 +48,6 @@ impl Table {
             Self::DotProduct(_) => TABLE_DOT_PRODUCT,
             Self::Poseidon16(_) => TABLE_POSEIDON_16,
             Self::Poseidon24(_) => TABLE_POSEIDON_24,
-            Self::MultilinearEval(_) => TABLE_MULTILINEAR_EVAL,
             Self::Execution(_) => TABLE_EXECUTION,
         }
     }
@@ -63,7 +56,6 @@ impl Table {
             TABLE_DOT_PRODUCT => Self::dot_product(),
             TABLE_POSEIDON_16 => Self::poseidon16(),
             TABLE_POSEIDON_24 => Self::poseidon24(),
-            TABLE_MULTILINEAR_EVAL => Self::multilinear_eval(),
             TABLE_EXECUTION => Self::execution(),
             _ => panic!("Invalid table index: {}", index),
         }

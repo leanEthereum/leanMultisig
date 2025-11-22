@@ -24,37 +24,6 @@ fn test_zk_vm_all_precompiles() {
             dot_product(i*2, i, (x + 3) * 8, 1);
             dot_product(i*3, i + 7, (x + 4) * 8, 2);
         }
-        
-        point_1 = malloc_vec(1, log2_ceil(10 * DIM));
-        point_1_ptr = point_1 * (2 ** log2_ceil(10 * DIM));
-        for i in 0..10 {
-            point_1_ptr[i*5 + 0] = 785 + i;
-            point_1_ptr[i*5 + 1] = 4152 - i;
-            point_1_ptr[i*5 + 2] = 471*82 + i*i;
-            point_1_ptr[i*5 + 3] = 7577 + i;
-            point_1_ptr[i*5 + 4] = 676 - i;
-        }
-
-        res1 = malloc_vec(1);
-        multilinear_eval(2**3, point_1, res1, 10);
-
-        res2 = malloc_vec(1);
-        multilinear_eval(10, SECOND_POINT, res2, SECOND_N_VARS);
-
-        res3 = malloc_vec(1);
-        multilinear_eval(11, SECOND_POINT, res3, SECOND_N_VARS);
-
-        res2_ptr = res2 * 8;
-        res3_ptr = res3 * 8;
-
-        print(res3_ptr[0], res2_ptr[0]);
-
-        assert res3_ptr[0] == res2_ptr[0] + 2**SECOND_N_VARS;
-
-        for i in 0..1000 {
-            assert i != 1000;
-        }
-
         return;
     }
    "#;

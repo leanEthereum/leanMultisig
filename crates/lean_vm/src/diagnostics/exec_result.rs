@@ -1,7 +1,7 @@
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
-use crate::{N_PRECOMPILES, TableTrace, WitnessMultilinearEval};
+use crate::{N_PRECOMPILES, TableTrace};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -12,7 +12,6 @@ pub struct ExecutionResult {
     pub pcs: Vec<usize>,
     pub fps: Vec<usize>,
     pub precompile_traces: [TableTrace; N_PRECOMPILES],
-    pub multilinear_evals_witness: Vec<WitnessMultilinearEval>,
     pub summary: String,
     pub memory_profile: Option<MemoryProfile>,
 }

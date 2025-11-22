@@ -10,7 +10,6 @@ pub struct ExecutionTrace {
     pub n_cycles: usize, // before padding with the repeated final instruction
     pub main_trace: TableTrace,
     pub precompile_traces: [TableTrace; N_PRECOMPILES],
-    pub multilinear_evals_witness: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
@@ -107,14 +106,11 @@ pub fn get_execution_trace(
 
     let ExecutionResult {
         mut precompile_traces,
-        multilinear_evals_witness,
         ..
     } = execution_result;
 
     for (trace, precompile) in precompile_traces.iter_mut().zip(ALL_PRECOMPILES) {
-        if precompile != Table::multilinear_eval() {
-            padd_table(&precompile, trace);
-        }
+        padd_table(&precompile, trace);
     }
     let mut main_trace = TableTrace {
         base: Vec::from(main_trace),
@@ -127,7 +123,6 @@ pub fn get_execution_trace(
         n_cycles,
         main_trace,
         precompile_traces,
-        multilinear_evals_witness,
         public_memory_size: execution_result.public_memory_size,
         non_zero_memory_size: memory.0.len(),
         memory: memory_padded,

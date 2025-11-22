@@ -7,9 +7,6 @@ pub use poseidon_16::*;
 mod poseidon_24;
 pub use poseidon_24::*;
 
-mod multilinear_eval;
-pub use multilinear_eval::*;
-
 mod table_enum;
 pub use table_enum::*;
 

@@ -11,12 +11,11 @@ use sub_protocols::{
 
 pub type ColIndex = usize;
 
-pub const N_PRECOMPILES: usize = 4;
+pub const N_PRECOMPILES: usize = 3;
 pub const ALL_PRECOMPILES: [Table; N_PRECOMPILES] = [
     Table::dot_product(),
     Table::poseidon16(),
     Table::poseidon24(),
-    Table::multilinear_eval(),
 ];
 
 #[derive(Debug)]

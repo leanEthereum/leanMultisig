@@ -206,8 +206,6 @@ fn execute_bytecode_helper(
     let mut precompile_traces: [TableTrace; N_PRECOMPILES] =
         array::from_fn(|i| TableTrace::new(&Table::from_index(i)));
 
-    let mut multilinear_evals_witness = Vec::new();
-
     let mut add_counts = 0;
     let mut mul_counts = 0;
     let mut deref_counts = 0;
@@ -254,7 +252,6 @@ fn execute_bytecode_helper(
             pc: &mut pc,
             pcs: &pcs,
             precompile_traces: &mut precompile_traces,
-            multilinear_evals_witness: &mut multilinear_evals_witness,
             add_counts: &mut add_counts,
             mul_counts: &mut mul_counts,
             deref_counts: &mut deref_counts,
@@ -388,12 +385,6 @@ fn execute_bytecode_helper(
     //         pretty_integer(dot_products.len())
     //     ));
     // }
-    if !multilinear_evals_witness.is_empty() {
-        summary.push_str(&format!(
-            "MultilinearEval calls: {}\n",
-            pretty_integer(multilinear_evals_witness.len())
-        ));
-    }
 
     if false {
         summary.push_str("Low level instruction counts:\n");
@@ -425,7 +416,6 @@ fn execute_bytecode_helper(
         pcs,
         fps,
         precompile_traces,
-        multilinear_evals_witness,
         summary,
         memory_profile: if profiling { Some(mem_profile) } else { None },
     })

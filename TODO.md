@@ -98,8 +98,6 @@ Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed ch
 - bounddary condition on dot_product table: first flag = 1
 - verify correctness of the Grand Product check
 - Proof size: replace all equality checks in the verifier algo by value deduction
-- WIR recursion: batch the multilinear_eval calls on initial merkle leaves
-- multilinear_eval precompile: we can reduce the number of sparse equality constraints required to verify the correctness of point / res into the memory
 
 - KoalaBear extension of degree 5: the current implem (in a fork of Plonky3) has not been been optimized
 - KoalaBear extension of degree 6: in order to use the (proven) Johnson bound in WHIR

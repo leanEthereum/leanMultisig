@@ -6,7 +6,7 @@ use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
 use crate::tables::TableT;
-use crate::{N_PRECOMPILES, Table, TableTrace, WitnessMultilinearEval};
+use crate::{N_PRECOMPILES, Table, TableTrace};
 use multilinear_toolkit::prelude::*;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
@@ -65,7 +65,6 @@ pub struct InstructionContext<'a> {
     pub pc: &'a mut usize,
     pub pcs: &'a Vec<usize>,
     pub precompile_traces: &'a mut [TableTrace; N_PRECOMPILES],
-    pub multilinear_evals_witness: &'a mut Vec<WitnessMultilinearEval>,
     pub add_counts: &'a mut usize,
     pub mul_counts: &'a mut usize,
     pub deref_counts: &'a mut usize,

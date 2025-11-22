@@ -1,7 +1,7 @@
+use crate::TableTrace;
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
-use crate::{TableTrace, WitnessMultilinearEval};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]
@@ -26,9 +26,6 @@ pub enum RunnerError {
 
     #[error("Program counter out of bounds")]
     PCOutOfBounds,
-
-    #[error("Point for multilinear eval not padded with zeros")]
-    MultilinearEvalPointNotPadded,
 }
 
 pub type VMResult<T> = Result<T, RunnerError>;

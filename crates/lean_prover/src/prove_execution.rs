@@ -25,7 +25,6 @@ pub fn prove_execution(
         main_trace,
         n_cycles,
         precompile_traces: traces,
-        multilinear_evals_witness,
         public_memory_size,
         mut non_zero_memory_size,
         mut memory, // padded with zeros to next power of two
@@ -52,7 +51,6 @@ pub fn prove_execution(
     }
     let public_memory = &memory[..public_memory_size];
     let private_memory = &memory[public_memory_size..non_zero_memory_size];
-    let log_memory = log2_strict_usize(memory.len());
     let log_public_memory = log2_strict_usize(public_memory.len());
 
     let log_n_cycles = log2_ceil_usize(n_cycles);
@@ -102,37 +100,11 @@ pub fn prove_execution(
             traces[TABLE_POSEIDON_24].n_rows_non_padded(),
             traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
             private_memory.len(),
-            multilinear_evals_witness.len(),
         ]
         .into_iter()
         .map(F::from_usize)
         .collect::<Vec<_>>(),
     );
-
-    for (i, vm_multilinear_eval) in multilinear_evals_witness.iter().enumerate() {
-        prover_state.add_base_scalars(&[
-            traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_POLY][i],
-            traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_POINT][i],
-            traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_RES][i],
-            traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_N_VARS][i],
-        ]);
-        prover_state.add_extension_scalars(&vm_multilinear_eval.point);
-        prover_state.add_extension_scalar(vm_multilinear_eval.res);
-    }
-
-    let mut memory_statements = vec![];
-    for (row, entry) in multilinear_evals_witness.iter().enumerate() {
-        add_memory_statements_for_multilinear_eval_precompile(
-            entry,
-            &traces[TABLE_MULTILINEAR_EVAL],
-            row,
-            log_memory,
-            log_public_memory,
-            &mut prover_state,
-            &mut memory_statements,
-        )
-        .unwrap();
-    }
 
     let base_dims = get_base_dims(
         n_cycles,
@@ -235,33 +207,8 @@ pub fn prove_execution(
             &Table::dot_product().buses()[0], // TODO multiple buses
         );
 
-    let multilinear_eval_bus_quotient = (0..multilinear_evals_witness.len())
-        .map(|row| {
-            -EF::ONE
-                / (bus_challenge
-                    + finger_print(
-                        Table::multilinear_eval().embed(),
-                        &[
-                            traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_POLY]
-                                [row],
-                            traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_POINT]
-                                [row],
-                            traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_RES]
-                                [row],
-                            traces[TABLE_MULTILINEAR_EVAL].base[MULTILINEAR_EVAL_COL_INDEX_N_VARS]
-                                [row],
-                        ],
-                        fingerprint_challenge,
-                    ))
-        })
-        .sum::<EF>();
-
     assert_eq!(
-        exec_bus_quotient
-            + p16_bus_quotient
-            + p24_bus_quotient
-            + dot_product_bus_quotient
-            + multilinear_eval_bus_quotient,
+        exec_bus_quotient + p16_bus_quotient + p24_bus_quotient + dot_product_bus_quotient,
         EF::ZERO
     );
 
@@ -472,8 +419,10 @@ pub fn prove_execution(
         Some(bytecode.instructions.len()),
     );
 
-    memory_statements.push(normal_lookup_statements.on_table.clone());
-    memory_statements.push(vectorized_lookup_statements.on_table.clone());
+    let memory_statements = vec![
+        normal_lookup_statements.on_table.clone(),
+        vectorized_lookup_statements.on_table.clone(),
+    ];
 
     let mut p16_statements = Table::poseidon16().committed_statements_prover(
         &mut prover_state,

@@ -1,6 +1,5 @@
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
-use p3_util::log2_ceil_usize;
 use poseidon_circuit::{GKRPoseidonResult, PoseidonGKRLayers, default_cube_layers};
 use sub_protocols::ColDims;
 
@@ -72,70 +71,6 @@ pub(crate) fn initial_and_final_pc_conditions(
     (initial_pc_statement, final_pc_statement)
 }
 
-pub(crate) fn add_memory_statements_for_multilinear_eval_precompile(
-    entry: &WitnessMultilinearEval,
-    trace: &TableTrace,
-    row: usize,
-    log_memory: usize,
-    log_public_memory: usize,
-    challenger: &mut impl ChallengeSampler<EF>,
-    memory_statements: &mut Vec<Evaluation<EF>>,
-) -> Result<(), ProofError> {
-    let addr_coeffs = trace.base[MULTILINEAR_EVAL_COL_INDEX_POLY][row].to_usize();
-    let addr_point = trace.base[MULTILINEAR_EVAL_COL_INDEX_POINT][row].to_usize();
-    let addr_res = trace.base[MULTILINEAR_EVAL_COL_INDEX_RES][row].to_usize();
-
-    // point lookup into memory
-    let log_point_len = log2_ceil_usize(entry.n_vars() * DIMENSION);
-    let point_random_challenge = challenger.sample_vec(log_point_len);
-    let point_random_value = {
-        let mut point_mle = flatten_scalars_to_base::<PF<EF>, EF>(&entry.point);
-        point_mle.resize(point_mle.len().next_power_of_two(), F::ZERO);
-        point_mle.evaluate(&MultilinearPoint(point_random_challenge.clone()))
-    };
-    memory_statements.push(Evaluation::new(
-        [
-            to_big_endian_in_field(addr_point, log_memory - log_point_len),
-            point_random_challenge.clone(),
-        ]
-        .concat(),
-        point_random_value,
-    ));
-
-    // result lookup into memory
-    let random_challenge = challenger.sample_vec(LOG_VECTOR_LEN);
-    let res_random_value = {
-        let mut res_mle = entry.res.as_basis_coefficients_slice().to_vec();
-        res_mle.resize(VECTOR_LEN, F::ZERO);
-        res_mle.evaluate(&MultilinearPoint(random_challenge.clone()))
-    };
-    memory_statements.push(Evaluation::new(
-        [
-            to_big_endian_in_field(addr_res, log_memory - LOG_VECTOR_LEN),
-            random_challenge.clone(),
-        ]
-        .concat(),
-        res_random_value,
-    ));
-
-    {
-        if entry.n_vars() > log_memory {
-            return Err(ProofError::InvalidProof);
-        }
-        if addr_coeffs >= 1 << (log_memory - entry.n_vars()) {
-            return Err(ProofError::InvalidProof);
-        }
-        if entry.n_vars() >= log_public_memory {
-            todo!("vm multilinear eval across multiple memory chunks")
-        }
-        let addr_bits = to_big_endian_in_field(addr_coeffs, log_memory - entry.n_vars());
-        let statement = Evaluation::new([addr_bits, entry.point.clone()].concat(), entry.res);
-        memory_statements.push(statement);
-    }
-
-    Ok(())
-}
-
 pub(crate) fn poseidon_lookup_statements(
     p16_gkr: &GKRPoseidonResult,
     p24_gkr: &GKRPoseidonResult,
@@ -175,4 +110,3 @@ pub(crate) fn poseidon_lookup_statements(
         )],
     ]
 }
-

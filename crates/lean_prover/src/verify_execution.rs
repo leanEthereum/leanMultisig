@@ -32,18 +32,13 @@ pub fn verify_execution(
         n_poseidons_24,
         n_rows_table_dot_products,
         private_memory_len,
-        n_vm_multilinear_evals,
     ] = verifier_state
-        .next_base_scalars_const::<6>()?
+        .next_base_scalars_const::<5>()?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
-
-    if n_vm_multilinear_evals > 1 << 10 {
-        return Err(ProofError::InvalidProof);
-    }
 
     let public_memory = build_public_memory(public_input);
 
@@ -60,33 +55,6 @@ pub fn verify_execution(
     let table_dot_products_log_n_rows =
         log2_ceil_usize(n_rows_table_dot_products).max(MIN_LOG_N_ROWS_PER_TABLE);
     let dot_product_padding_len = (1 << table_dot_products_log_n_rows) - n_rows_table_dot_products;
-
-    let mut vm_multilinear_evals = TableTrace::new(&MultilinearEvalPrecompile);
-    let mut multilinear_evals_witness = vec![];
-    for _ in 0..n_vm_multilinear_evals {
-        let [addr_coeffs, addr_point, addr_res, n_vars] =
-            verifier_state.next_base_scalars_const::<4>()?;
-        let point = verifier_state.next_extension_scalars_vec(n_vars.to_usize())?;
-        let res = verifier_state.next_extension_scalar()?;
-        vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POLY].push(addr_coeffs);
-        vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POINT].push(addr_point);
-        vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_RES].push(addr_res);
-        vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_N_VARS].push(n_vars);
-        multilinear_evals_witness.push(WitnessMultilinearEval { point, res });
-    }
-
-    let mut memory_statements = vec![];
-    for (row, entry) in multilinear_evals_witness.iter().enumerate() {
-        add_memory_statements_for_multilinear_eval_precompile(
-            entry,
-            &vm_multilinear_evals,
-            row,
-            log_memory,
-            log_public_memory,
-            &mut verifier_state,
-            &mut memory_statements,
-        )?;
-    }
 
     let base_dims = get_base_dims(
         n_cycles,
@@ -166,28 +134,7 @@ pub fn verify_execution(
             fingerprint_challenge,
         )?;
 
-    let multilinear_eval_bus_quotient = (0..multilinear_evals_witness.len())
-        .map(|row| {
-            -EF::ONE
-                / (bus_challenge
-                    + finger_print(
-                        Table::multilinear_eval().embed(),
-                        &[
-                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POLY][row],
-                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_POINT][row],
-                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_RES][row],
-                            vm_multilinear_evals.base[MULTILINEAR_EVAL_COL_INDEX_N_VARS][row],
-                        ],
-                        fingerprint_challenge,
-                    ))
-        })
-        .sum::<EF>();
-
-    if exec_bus_quotient
-        + p16_bus_quotient
-        + p24_bus_quotient
-        + dot_product_bus_quotient
-        + multilinear_eval_bus_quotient
+    if exec_bus_quotient + p16_bus_quotient + p24_bus_quotient + dot_product_bus_quotient
         != EF::ZERO
     {
         return Err(ProofError::InvalidProof);
@@ -354,9 +301,10 @@ pub fn verify_execution(
     {
         return Err(ProofError::InvalidProof);
     }
-
-    memory_statements.push(normal_lookup_statements.on_table.clone());
-    memory_statements.push(vectorized_lookup_statements.on_table.clone());
+    let memory_statements = vec![
+        normal_lookup_statements.on_table.clone(),
+        vectorized_lookup_statements.on_table.clone(),
+    ];
 
     let mut p16_statements = Table::poseidon16().committed_statements_verifier(
         &mut verifier_state,
