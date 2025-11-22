@@ -29,8 +29,7 @@ pub fn verify_execution(
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
     let dims = verifier_state
-        .next_base_scalars_vec(1 + N_TABLES)
-        .unwrap()
+        .next_base_scalars_vec(1 + N_TABLES)?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>();
@@ -57,8 +56,7 @@ pub fn verify_execution(
         &mut verifier_state,
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    )
-    .unwrap();
+    )?;
 
     let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(table_heights[TABLE_POSEIDON_16].log_padded()));
     let p16_gkr = verify_poseidon_gkr(
@@ -96,8 +94,7 @@ pub fn verify_execution(
             table_heights[i].padding_len(),
             bus_challenge,
             fingerprint_challenge,
-        )
-        .unwrap();
+        )?;
     }
 
     if bus_quotients.iter().copied().sum::<EF>() != EF::ZERO {
@@ -115,66 +112,40 @@ pub fn verify_execution(
 
     let normal_lookup_into_memory = NormalPackedLookupVerifier::step_1(
         &mut verifier_state,
-        [
-            vec![
-                table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
-                Table::dot_product().num_normal_lookups_f()
-            ],
-            vec![table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed(); Table::execution().num_normal_lookups_f()],
-        ]
-        .concat(),
-        [
-            vec![
-                table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
-                Table::dot_product().num_normal_lookups_ef()
-            ],
-            vec![table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed(); Table::execution().num_normal_lookups_ef()],
-        ]
-        .concat(),
-        [
-            vec![0; Table::dot_product().num_normal_lookups_f()],
-            vec![0; Table::execution().num_normal_lookups_f()],
-        ]
-        .concat(), // TODO handle the case with non-zero default index
-        [
-            vec![0; Table::dot_product().num_normal_lookups_ef()],
-            vec![0; Table::execution().num_normal_lookups_ef()],
-        ]
-        .concat(), // TODO handle the case with non-zero default index
-        [
-            Table::dot_product()
-                .normal_lookups_statements_f(&air_points[TABLE_DOT_PRODUCT], &evals_f[TABLE_DOT_PRODUCT]),
-            Table::execution().normal_lookups_statements_f(&air_points[TABLE_EXECUTION], &evals_f[TABLE_EXECUTION]),
-        ]
-        .concat(),
-        [
-            Table::dot_product()
-                .normal_lookups_statements_ef(&air_points[TABLE_DOT_PRODUCT], &evals_ef[TABLE_DOT_PRODUCT]),
-            Table::execution().normal_lookups_statements_ef(&air_points[TABLE_EXECUTION], &evals_ef[TABLE_EXECUTION]),
-        ]
-        .concat(),
+        (0..N_TABLES)
+            .flat_map(|i| vec![table_heights[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()])
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| vec![table_heights[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()])
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_f())
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_ef())
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookups_statements_f(&air_points[i], &evals_f[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookups_statements_ef(&air_points[i], &evals_ef[i]))
+            .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &public_memory, // we need to pass the first few values of memory, public memory is enough
-    )
-    .unwrap();
+    )?;
 
     let vectorized_lookup_into_memory = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
         &mut verifier_state,
-        [
-            vec![table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed(); Table::poseidon16().num_vector_lookups()],
-            vec![table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed(); Table::poseidon24().num_vector_lookups()],
-        ]
-        .concat(),
-        [
-            Table::poseidon16().vector_lookup_default_indexes(),
-            Table::poseidon24().vector_lookup_default_indexes(),
-        ]
-        .concat(),
+        (0..N_TABLES)
+            .flat_map(|i| vec![table_heights[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_vector_lookups()])
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].vector_lookup_default_indexes())
+            .collect(),
         poseidon_lookup_statements(&p16_gkr, &p24_gkr),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &public_memory, // we need to pass the first few values of memory, public memory is enough
-    )
-    .unwrap();
+    )?;
 
     let extension_dims = vec![
         ColDims::padded(public_memory.len() + private_memory_len, EF::ZERO), // memory pushwordard
@@ -194,16 +165,11 @@ pub fn verify_execution(
         &mut verifier_state,
         &extension_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    )
-    .unwrap();
+    )?;
 
-    let mut normal_lookup_statements = normal_lookup_into_memory
-        .step_2(&mut verifier_state, log_memory)
-        .unwrap();
+    let mut normal_lookup_statements = normal_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
 
-    let vectorized_lookup_statements = vectorized_lookup_into_memory
-        .step_2(&mut verifier_state, log_memory)
-        .unwrap();
+    let vectorized_lookup_statements = vectorized_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
 
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
@@ -211,8 +177,7 @@ pub fn verify_execution(
         table_heights[TABLE_EXECUTION].log_padded(),
         &[bytecode_lookup_claim_1],
         EF::ONE,
-    )
-    .unwrap();
+    )?;
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
     if folded_bytecode.evaluate(&bytecode_logup_star_statements.on_table.point)
         != bytecode_logup_star_statements.on_table.value
@@ -224,26 +189,22 @@ pub fn verify_execution(
         vectorized_lookup_statements.on_table.clone(),
     ];
 
-    let mut p16_statements = Table::poseidon16()
-        .committed_statements_verifier(
-            &mut verifier_state,
-            &air_points[TABLE_POSEIDON_16],
-            &evals_f[TABLE_POSEIDON_16],
-            &evals_ef[TABLE_POSEIDON_16],
-            &mut vec![],
-            &mut vec![],
-        )
-        .unwrap();
-    let mut p24_statements = Table::poseidon24()
-        .committed_statements_verifier(
-            &mut verifier_state,
-            &air_points[TABLE_POSEIDON_24],
-            &evals_f[TABLE_POSEIDON_24],
-            &evals_ef[TABLE_POSEIDON_24],
-            &mut vec![],
-            &mut vec![],
-        )
-        .unwrap();
+    let mut p16_statements = Table::poseidon16().committed_statements_verifier(
+        &mut verifier_state,
+        &air_points[TABLE_POSEIDON_16],
+        &evals_f[TABLE_POSEIDON_16],
+        &evals_ef[TABLE_POSEIDON_16],
+        &mut vec![],
+        &mut vec![],
+    )?;
+    let mut p24_statements = Table::poseidon24().committed_statements_verifier(
+        &mut verifier_state,
+        &air_points[TABLE_POSEIDON_24],
+        &evals_f[TABLE_POSEIDON_24],
+        &evals_ef[TABLE_POSEIDON_24],
+        &mut vec![],
+        &mut vec![],
+    )?;
     {
         // index opening for poseidon lookup
         for (i, statement) in vectorized_lookup_statements.on_indexes[..4].iter().enumerate() {
@@ -259,27 +220,23 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_heights[TABLE_EXECUTION].log_padded());
 
-    let dot_product_statements = DotProductPrecompile
-        .committed_statements_verifier(
-            &mut verifier_state,
-            &air_points[TABLE_DOT_PRODUCT],
-            &evals_f[TABLE_DOT_PRODUCT],
-            &evals_ef[TABLE_DOT_PRODUCT],
-            &mut normal_lookup_statements.on_indexes_f,
-            &mut normal_lookup_statements.on_indexes_ef,
-        )
-        .unwrap();
+    let dot_product_statements = DotProductPrecompile.committed_statements_verifier(
+        &mut verifier_state,
+        &air_points[TABLE_DOT_PRODUCT],
+        &evals_f[TABLE_DOT_PRODUCT],
+        &evals_ef[TABLE_DOT_PRODUCT],
+        &mut normal_lookup_statements.on_indexes_f,
+        &mut normal_lookup_statements.on_indexes_ef,
+    )?;
 
-    let mut exec_statements = Table::execution()
-        .committed_statements_verifier(
-            &mut verifier_state,
-            &air_points[TABLE_EXECUTION],
-            &evals_f[TABLE_EXECUTION],
-            &evals_ef[TABLE_EXECUTION],
-            &mut normal_lookup_statements.on_indexes_f,
-            &mut normal_lookup_statements.on_indexes_ef,
-        )
-        .unwrap();
+    let mut exec_statements = Table::execution().committed_statements_verifier(
+        &mut verifier_state,
+        &air_points[TABLE_EXECUTION],
+        &evals_f[TABLE_EXECUTION],
+        &evals_ef[TABLE_EXECUTION],
+        &mut normal_lookup_statements.on_indexes_f,
+        &mut normal_lookup_statements.on_indexes_ef,
+    )?;
     exec_statements[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)].extend(vec![
         bytecode_logup_star_statements.on_indexes.clone(),
         initial_pc_statement,
@@ -301,8 +258,7 @@ pub fn verify_execution(
         .concat(),
         &mut verifier_state,
         &[(0, public_memory.clone())].into_iter().collect(),
-    )
-    .unwrap();
+    )?;
 
     let global_statements_extension = packed_pcs_global_statements_for_verifier(
         &extension_dims,
@@ -314,18 +270,15 @@ pub fn verify_execution(
         ],
         &mut verifier_state,
         &Default::default(),
-    )
-    .unwrap();
+    )?;
 
-    WhirConfig::new(whir_config_builder, parsed_commitment_base.num_variables)
-        .batch_verify(
-            &mut verifier_state,
-            &parsed_commitment_base,
-            global_statements_base,
-            &parsed_commitment_extension,
-            global_statements_extension,
-        )
-        .unwrap();
+    WhirConfig::new(whir_config_builder, parsed_commitment_base.num_variables).batch_verify(
+        &mut verifier_state,
+        &parsed_commitment_base,
+        global_statements_base,
+        &parsed_commitment_extension,
+        global_statements_extension,
+    )?;
 
     Ok(())
 }
@@ -344,7 +297,7 @@ fn verify_bus_and_air(
     let bus = &t.buses()[0];
 
     let (mut quotient, point, selector_value, data_value) =
-        verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(verifier_state, log_n).unwrap();
+        verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(verifier_state, log_n)?;
 
     let bus_beta = verifier_state.sample();
 

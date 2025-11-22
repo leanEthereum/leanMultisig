@@ -394,6 +394,20 @@ pub trait TableT: Air {
         }
         cols
     }
+    fn normal_lookup_default_indexes_f(&self) -> Vec<usize> {
+        let mut default_indexes = Vec::new();
+        for lookup in self.normal_lookups_f() {
+            default_indexes.push(self.padding_row_f()[lookup.index].to_usize());
+        }
+        default_indexes
+    }
+    fn normal_lookup_default_indexes_ef(&self) -> Vec<usize> {
+        let mut default_indexes = Vec::new();
+        for lookup in self.normal_lookups_ef() {
+            default_indexes.push(self.padding_row_f()[lookup.index].to_usize());
+        }
+        default_indexes
+    }
     fn vector_lookup_default_indexes(&self) -> Vec<usize> {
         let mut default_indexes = Vec::new();
         for lookup in self.vector_lookups() {

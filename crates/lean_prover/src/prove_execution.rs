@@ -199,11 +199,11 @@ pub fn prove_execution(
             .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()])
             .collect(),
         (0..N_TABLES)
-            .flat_map(|i| vec![0; ALL_TABLES[i].num_normal_lookups_f()])
-            .collect(), // TODO handle the case with non-zero default index
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_f())
+            .collect(),
         (0..N_TABLES)
-            .flat_map(|i| vec![0; ALL_TABLES[i].num_normal_lookups_ef()])
-            .collect(), // TODO handle the case with non-zero default index
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_ef())
+            .collect(),
         (0..N_TABLES)
             .flat_map(|i| ALL_TABLES[i].normal_lookup_f_value_columns(&traces[i]))
             .collect(),
@@ -222,27 +222,28 @@ pub fn prove_execution(
     let vectorized_lookup_into_memory = VectorizedPackedLookupProver::<_, VECTOR_LEN>::step_1(
         &mut prover_state,
         &memory,
-        [
-            Table::poseidon16().vector_lookup_index_columns(&traces[TABLE_POSEIDON_16]),
-            Table::poseidon24().vector_lookup_index_columns(&traces[TABLE_POSEIDON_24]),
-        ]
-        .concat(),
-        [
-            vec![traces[TABLE_POSEIDON_16].n_rows_non_padded_maxed(); Table::poseidon16().num_vector_lookups()],
-            vec![traces[TABLE_POSEIDON_24].n_rows_non_padded_maxed(); Table::poseidon24().num_vector_lookups()],
-        ]
-        .concat(),
-        [
-            Table::poseidon16().vector_lookup_default_indexes(),
-            Table::poseidon24().vector_lookup_default_indexes(),
-        ]
-        .concat(),
-        [
-            Table::poseidon16().vector_lookup_values_columns(&traces[TABLE_POSEIDON_16]),
-            Table::poseidon24().vector_lookup_values_columns(&traces[TABLE_POSEIDON_24]),
-        ]
-        .concat(),
-        poseidon_lookup_statements(&p16_gkr, &p24_gkr),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].vector_lookup_index_columns(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_vector_lookups()])
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].vector_lookup_default_indexes())
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].vector_lookup_values_columns(&traces[i]))
+            .collect(),
+        {
+            assert!(
+                ALL_TABLES
+                    .iter()
+                    .filter(|&&t| t != Table::poseidon16() && t != Table::poseidon24())
+                    .all(|t| t.vector_lookups().is_empty()),
+                "unimplemented"
+            );
+            poseidon_lookup_statements(&p16_gkr, &p24_gkr)
+        },
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
