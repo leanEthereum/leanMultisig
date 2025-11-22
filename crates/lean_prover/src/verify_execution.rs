@@ -27,10 +27,10 @@ pub fn verify_execution(
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
     let [
-        n_cycles,
+        n_rows_table_dot_products,
         n_poseidons_16,
         n_poseidons_24,
-        n_rows_table_dot_products,
+        n_cycles,
         private_memory_len,
     ] = verifier_state
         .next_base_scalars_const::<5>()
@@ -58,13 +58,13 @@ pub fn verify_execution(
     let dot_product_padding_len = (1 << table_dot_products_log_n_rows) - n_rows_table_dot_products;
 
     let base_dims = get_base_dims(
-        n_cycles,
         log_public_memory,
         private_memory_len,
+        (&p16_gkr_layers, &p24_gkr_layers),
+        n_rows_table_dot_products,
         n_poseidons_16,
         n_poseidons_24,
-        n_rows_table_dot_products,
-        (&p16_gkr_layers, &p24_gkr_layers),
+        n_cycles,
     );
     let parsed_commitment_base = packed_pcs_parse_commitment(
         &whir_config_builder,
@@ -341,12 +341,12 @@ pub fn verify_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &[
             vec![memory_statements],
-            exec_statements,
-            p16_statements,
             encapsulate_vec(p16_gkr.cubes_statements.split()),
-            p24_statements,
             encapsulate_vec(p24_gkr.cubes_statements.split()),
             dot_product_statements,
+            p16_statements,
+            p24_statements,
+            exec_statements,
         ]
         .concat(),
         &mut verifier_state,

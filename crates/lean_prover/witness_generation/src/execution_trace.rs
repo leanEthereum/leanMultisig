@@ -7,7 +7,6 @@ use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
-    pub n_cycles: usize, // before padding with the repeated final instruction
     pub traces: [TableTrace; N_TABLES],
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
@@ -125,7 +124,6 @@ pub fn get_execution_trace(
     traces[TABLE_EXECUTION] = main_trace;
 
     ExecutionTrace {
-        n_cycles,
         traces,
         public_memory_size: execution_result.public_memory_size,
         non_zero_memory_size: memory.0.len(),

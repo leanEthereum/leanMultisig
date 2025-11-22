@@ -10,20 +10,20 @@ pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2
 pub(crate) const N_COMMITED_CUBES_P24: usize = KOALABEAR_RC24_INTERNAL.len() - 2;
 
 pub(crate) fn get_base_dims(
-    n_cycles: usize,
     log_public_memory: usize,
     private_memory_len: usize,
-    n_poseidons_16: usize,
-    n_poseidons_24: usize,
-    n_rows_table_dot_products: usize,
     (p16_gkr_layers, p24_gkr_layers): (
         &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
         &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
     ),
+    n_rows_table_dot_products: usize,
+    n_poseidons_16: usize,
+    n_poseidons_24: usize,
+    n_cycles: usize,
 ) -> Vec<ColDims<F>> {
+    let n_rows_table_dot_products = n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE);
     let n_poseidons_16 = n_poseidons_16.max(MIN_N_ROWS_PER_TABLE);
     let n_poseidons_24 = n_poseidons_24.max(MIN_N_ROWS_PER_TABLE);
-    let n_rows_table_dot_products = n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE);
 
     let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(p16_gkr_layers);
     let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(p24_gkr_layers);
@@ -32,18 +32,18 @@ pub(crate) fn get_base_dims(
         vec![
             ColDims::padded_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
         ],
-        Table::execution().committed_dims(n_cycles),
-        Table::poseidon16().committed_dims(n_poseidons_16),
         p16_default_cubes
             .iter()
             .map(|&c| ColDims::padded(n_poseidons_16, c))
             .collect::<Vec<_>>(), // commited cubes for poseidon16
-        Table::poseidon24().committed_dims(n_poseidons_24),
         p24_default_cubes
             .iter()
             .map(|&c| ColDims::padded(n_poseidons_24, c))
             .collect::<Vec<_>>(), // commited cubes for poseidon24
         Table::dot_product().committed_dims(n_rows_table_dot_products),
+        Table::poseidon16().committed_dims(n_poseidons_16),
+        Table::poseidon24().committed_dims(n_poseidons_24),
+        Table::execution().committed_dims(n_cycles),
     ]
     .concat()
 }

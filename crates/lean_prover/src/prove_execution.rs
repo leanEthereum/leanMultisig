@@ -23,7 +23,6 @@ pub fn prove_execution(
 ) -> (Vec<PF<EF>>, usize, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
-        n_cycles,
         traces,
         public_memory_size,
         mut non_zero_memory_size,
@@ -50,14 +49,6 @@ pub fn prove_execution(
     let public_memory = &memory[..public_memory_size];
     let private_memory = &memory[public_memory_size..non_zero_memory_size];
     let log_public_memory = log2_strict_usize(public_memory.len());
-
-    let log_n_cycles = log2_ceil_usize(n_cycles);
-    assert!(
-        traces[TABLE_EXECUTION]
-            .base
-            .iter()
-            .all(|col| col.len() == 1 << log_n_cycles)
-    );
 
     let log_n_p16 = log2_ceil_usize(traces[TABLE_POSEIDON_16].n_rows_non_padded())
         .max(MIN_LOG_N_ROWS_PER_TABLE);
@@ -94,10 +85,10 @@ pub fn prove_execution(
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
         &[
-            n_cycles,
+            traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
             traces[TABLE_POSEIDON_16].n_rows_non_padded(),
             traces[TABLE_POSEIDON_24].n_rows_non_padded(),
-            traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
+            traces[TABLE_EXECUTION].n_rows_non_padded(),
             private_memory.len(),
         ]
         .into_iter()
@@ -106,25 +97,22 @@ pub fn prove_execution(
     );
 
     let base_dims = get_base_dims(
-        n_cycles,
         log_public_memory,
         private_memory.len(),
+        (&p16_gkr_layers, &p24_gkr_layers),
+        traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
         traces[TABLE_POSEIDON_16].n_rows_non_padded(),
         traces[TABLE_POSEIDON_24].n_rows_non_padded(),
-        traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
-        (&p16_gkr_layers, &p24_gkr_layers),
+        traces[TABLE_EXECUTION].n_rows_non_padded(),
     );
 
     let base_pols = [
         vec![memory.as_slice()],
-        Table::execution().committed_columns(&traces[TABLE_EXECUTION], None),
-        Table::poseidon16().committed_columns(&traces[TABLE_POSEIDON_16], None),
         p16_witness
             .committed_cubes
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        Table::poseidon24().committed_columns(&traces[TABLE_POSEIDON_24], None),
         p24_witness
             .committed_cubes
             .iter()
@@ -134,6 +122,9 @@ pub fn prove_execution(
             &traces[TABLE_DOT_PRODUCT],
             Some(&dot_product_computation_ext_base_helper),
         ),
+        Table::poseidon16().committed_columns(&traces[TABLE_POSEIDON_16], None),
+        Table::poseidon24().committed_columns(&traces[TABLE_POSEIDON_24], None),
+        Table::execution().committed_columns(&traces[TABLE_EXECUTION], None),
     ]
     .concat();
 
@@ -216,7 +207,12 @@ pub fn prove_execution(
         ]
         .concat(),
         [
-            vec![n_cycles; Table::execution().num_normal_lookups_f()],
+            vec![
+                traces[TABLE_EXECUTION]
+                    .n_rows_non_padded()
+                    .max(MIN_N_ROWS_PER_TABLE);
+                Table::execution().num_normal_lookups_f()
+            ],
             vec![
                 traces[TABLE_DOT_PRODUCT]
                     .n_rows_non_padded()
@@ -226,7 +222,12 @@ pub fn prove_execution(
         ]
         .concat(),
         [
-            vec![n_cycles; Table::execution().num_normal_lookups_ef()],
+            vec![
+                traces[TABLE_EXECUTION]
+                    .n_rows_non_padded()
+                    .max(MIN_N_ROWS_PER_TABLE);
+                Table::execution().num_normal_lookups_ef()
+            ],
             vec![
                 traces[TABLE_DOT_PRODUCT]
                     .n_rows_non_padded()
@@ -256,15 +257,25 @@ pub fn prove_execution(
         ]
         .concat(),
         [
-            Table::execution().normal_lookups_statements_f(&air_points[TABLE_EXECUTION], &evals_f[TABLE_EXECUTION]),
-            Table::dot_product()
-                .normal_lookups_statements_f(&air_points[TABLE_DOT_PRODUCT], &evals_f[TABLE_DOT_PRODUCT]),
+            Table::execution().normal_lookups_statements_f(
+                &air_points[TABLE_EXECUTION],
+                &evals_f[TABLE_EXECUTION],
+            ),
+            Table::dot_product().normal_lookups_statements_f(
+                &air_points[TABLE_DOT_PRODUCT],
+                &evals_f[TABLE_DOT_PRODUCT],
+            ),
         ]
         .concat(),
         [
-            Table::execution().normal_lookups_statements_ef(&air_points[TABLE_EXECUTION], &evals_ef[TABLE_EXECUTION]),
-            Table::dot_product()
-                .normal_lookups_statements_ef(&air_points[TABLE_DOT_PRODUCT], &evals_ef[TABLE_DOT_PRODUCT]),
+            Table::execution().normal_lookups_statements_ef(
+                &air_points[TABLE_EXECUTION],
+                &evals_ef[TABLE_EXECUTION],
+            ),
+            Table::dot_product().normal_lookups_statements_ef(
+                &air_points[TABLE_DOT_PRODUCT],
+                &evals_ef[TABLE_DOT_PRODUCT],
+            ),
         ]
         .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -390,7 +401,12 @@ pub fn prove_execution(
         }
     }
 
-    let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
+    let (initial_pc_statement, final_pc_statement) =
+        initial_and_final_pc_conditions(log2_ceil_usize(
+            traces[TABLE_EXECUTION]
+                .n_rows_non_padded()
+                .max(MIN_N_ROWS_PER_TABLE),
+        ));
 
     let mut exec_statements = Table::execution().committed_statements_prover(
         &mut prover_state,
@@ -420,12 +436,12 @@ pub fn prove_execution(
     // First Opening
     let all_base_statements = [
         vec![memory_statements],
-        exec_statements,
-        p16_statements,
         encapsulate_vec(p16_gkr.cubes_statements.split()),
-        p24_statements,
         encapsulate_vec(p24_gkr.cubes_statements.split()),
         dot_product_statements,
+        p16_statements,
+        p24_statements,
+        exec_statements,
     ]
     .concat();
 
