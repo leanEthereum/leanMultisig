@@ -26,8 +26,8 @@ pub(crate) type EF = QuinticExtensionFieldKB;
 /// remain to be proven
 #[derive(Debug, Clone)]
 pub struct GKRPoseidonResult {
-    pub output_statements: MultiEvaluation<EF>, // of length width
-    pub input_statements: MultiEvaluation<EF>,  // of length width
-    pub cubes_statements: MultiEvaluation<EF>,  // of length n_committed_cubes
+    pub output_statements: MultiEvaluation<EF>,          // of length width
+    pub input_statements: MultiEvaluation<EF>,           // of length width
+    pub cubes_statements: MultiEvaluation<EF>,           // of length n_committed_cubes
     pub on_compression_selector: Option<Evaluation<EF>>, // univariate_skips = 1 here (TODO dont do this)
 }

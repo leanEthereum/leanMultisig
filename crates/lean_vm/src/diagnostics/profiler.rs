@@ -33,9 +33,7 @@ pub(crate) fn profiling_report(
             } else {
                 // New function call
                 call_stack.push(current_function_name.clone());
-                let stats = function_stats
-                    .entry(current_function_name.clone())
-                    .or_default();
+                let stats = function_stats.entry(current_function_name.clone()).or_default();
                 stats.call_count += 1;
             }
             prev_function_name = current_function_name.clone();
@@ -58,14 +56,9 @@ pub(crate) fn profiling_report(
 
     let mut report = String::new();
 
-    report.push_str(
-        "\n╔═════════════════════════════════════════════════════════════════════════╗\n",
-    );
-    report
-        .push_str("║                              PROFILING REPORT                           ║\n");
-    report.push_str(
-        "╚═════════════════════════════════════════════════════════════════════════╝\n\n",
-    );
+    report.push_str("\n╔═════════════════════════════════════════════════════════════════════════╗\n");
+    report.push_str("║                              PROFILING REPORT                           ║\n");
+    report.push_str("╚═════════════════════════════════════════════════════════════════════════╝\n\n");
 
     report.push_str("──────────────────────────────────────────────────────────────────────────\n");
     report.push_str("      │      Exclusive      │      Inclusive      │                       \n");
@@ -155,10 +148,7 @@ pub(crate) fn memory_profiling_report(profile: &MemoryProfile) -> String {
     report.push_str("=        DETAILED MEMORY PROFILING         =\n");
     report.push_str("============================================\n");
     report.push('\n');
-    report.push_str(&format!(
-        "Total memory footprint: {}\n",
-        pretty_integer(footprint)
-    ));
+    report.push_str(&format!("Total memory footprint: {}\n", pretty_integer(footprint)));
     report.push_str(&format!(
         "Total allocated memory: {} ({:.2}% of footprint)\n",
         pretty_integer(allocated),
@@ -218,9 +208,7 @@ pub(crate) fn memory_profiling_report(profile: &MemoryProfile) -> String {
     report
 }
 
-fn function_allocations(
-    profile: &MemoryProfile,
-) -> BTreeMap<Label, BTreeMap<MemoryAddress, MemoryObject>> {
+fn function_allocations(profile: &MemoryProfile) -> BTreeMap<Label, BTreeMap<MemoryAddress, MemoryObject>> {
     let mut allocations = BTreeMap::new();
 
     for (addr, object) in profile.objects.iter() {
@@ -306,10 +294,7 @@ fn all_allocated_memory(profile: &MemoryProfile) -> BTreeSet<MemoryAddress> {
 }
 
 /// Get the number of used memory addresses which are not allocated.
-fn count_used_but_not_allocated(
-    used: &BTreeSet<MemoryAddress>,
-    allocated: &BTreeSet<MemoryAddress>,
-) -> usize {
+fn count_used_but_not_allocated(used: &BTreeSet<MemoryAddress>, allocated: &BTreeSet<MemoryAddress>) -> usize {
     let diff = BTreeSet::from_iter(used.difference(allocated));
     let len = diff.len();
     if len > 0 {
@@ -322,9 +307,6 @@ fn count_used_but_not_allocated(
 }
 
 /// Get the number of allocated memory addresses which are not used.
-fn count_allocated_but_not_used(
-    used: &BTreeSet<MemoryAddress>,
-    allocated: &BTreeSet<MemoryAddress>,
-) -> usize {
+fn count_allocated_but_not_used(used: &BTreeSet<MemoryAddress>, allocated: &BTreeSet<MemoryAddress>) -> usize {
     allocated.difference(used).count()
 }

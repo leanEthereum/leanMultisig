@@ -1,9 +1,7 @@
 use std::array;
 
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::{
-    GenericPoseidon2LinearLayersKoalaBear, KoalaBearInternalLayerParameters, KoalaBearParameters,
-};
+use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 

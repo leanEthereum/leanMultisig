@@ -1,6 +1,5 @@
 use crate::{
-    DIMENSION, EF, ExtraDataForBuses, TableT, eval_virtual_bus_column,
-    tables::dot_product::DotProductPrecompile,
+    DIMENSION, EF, ExtraDataForBuses, TableT, eval_virtual_bus_column, tables::dot_product::DotProductPrecompile,
 };
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
@@ -35,8 +34,7 @@ pub const DOT_PRODUCT_AIR_COL_COMPUTATION: usize = 3;
 
 pub const DOT_PRODUCT_AIR_N_COLUMNS_F: usize = 5;
 pub const DOT_PRODUCT_AIR_N_COLUMNS_EF: usize = 4;
-pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize =
-    DOT_PRODUCT_AIR_N_COLUMNS_F + DOT_PRODUCT_AIR_N_COLUMNS_EF;
+pub const DOT_PRODUCT_AIR_N_COLUMNS_TOTAL: usize = DOT_PRODUCT_AIR_N_COLUMNS_F + DOT_PRODUCT_AIR_N_COLUMNS_EF;
 
 impl Air for DotProductPrecompile {
     type ExtraData = ExtraDataForBuses<EF>;
@@ -113,12 +111,8 @@ impl Air for DotProductPrecompile {
         );
         builder.assert_zero(not_flag_down.clone() * (len_up.clone() - (len_down + AB::F::ONE)));
         builder.assert_zero(start_flag_down * (len_up - AB::F::ONE));
-        builder.assert_zero(
-            not_flag_down.clone() * (index_a_up - (index_a_down - AB::F::from_usize(DIMENSION))),
-        );
-        builder.assert_zero(
-            not_flag_down * (index_b_up - (index_b_down - AB::F::from_usize(DIMENSION))),
-        );
+        builder.assert_zero(not_flag_down.clone() * (index_a_up - (index_a_down - AB::F::from_usize(DIMENSION))));
+        builder.assert_zero(not_flag_down * (index_b_up - (index_b_down - AB::F::from_usize(DIMENSION))));
 
         builder.assert_zero_ef((computation_up - res_up) * start_flag_up);
     }

@@ -13,8 +13,7 @@ pub struct VectorizedPackedLookupProver<'a, EF: ExtensionField<PF<EF>>, const VE
     folding_scalars: MultilinearPoint<EF>,
 }
 
-impl<'a, EF: ExtensionField<PF<EF>>, const VECTOR_LEN: usize>
-    VectorizedPackedLookupProver<'a, EF, VECTOR_LEN>
+impl<'a, EF: ExtensionField<PF<EF>>, const VECTOR_LEN: usize> VectorizedPackedLookupProver<'a, EF, VECTOR_LEN>
 where
     PF<EF>: PrimeField64,
 {
@@ -34,8 +33,7 @@ where
         statements: Vec<Vec<MultiEvaluation<EF>>>,
         log_smallest_decomposition_chunk: usize,
     ) -> Self {
-        let folding_scalars =
-            MultilinearPoint(prover_state.sample_vec(log2_strict_usize(VECTOR_LEN)));
+        let folding_scalars = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(VECTOR_LEN)));
         let folded_table = fold_multilinear_chunks(table, &folding_scalars);
 
         let folding_poly_eq = eval_eq(&folding_scalars);
@@ -86,10 +84,7 @@ where
         let mut statements = self
             .generic
             .step_2(prover_state, non_zero_memory_size.div_ceil(VECTOR_LEN));
-        statements
-            .on_table
-            .point
-            .extend(self.folding_scalars.0.clone());
+        statements.on_table.point.extend(self.folding_scalars.0.clone());
         statements
     }
 }
@@ -100,8 +95,7 @@ pub struct VectorizedPackedLookupVerifier<EF: ExtensionField<PF<EF>>, const VECT
     folding_scalars: MultilinearPoint<EF>,
 }
 
-impl<EF: ExtensionField<PF<EF>>, const VECTOR_LEN: usize>
-    VectorizedPackedLookupVerifier<EF, VECTOR_LEN>
+impl<EF: ExtensionField<PF<EF>>, const VECTOR_LEN: usize> VectorizedPackedLookupVerifier<EF, VECTOR_LEN>
 where
     PF<EF>: PrimeField64,
 {
@@ -114,8 +108,7 @@ where
         log_smallest_decomposition_chunk: usize,
         table_initial_values: &[PF<EF>],
     ) -> ProofResult<Self> {
-        let folding_scalars =
-            MultilinearPoint(verifier_state.sample_vec(log2_strict_usize(VECTOR_LEN)));
+        let folding_scalars = MultilinearPoint(verifier_state.sample_vec(log2_strict_usize(VECTOR_LEN)));
         let folded_table_initial_values = fold_multilinear_chunks(
             &table_initial_values[..(table_initial_values.len() / VECTOR_LEN) * VECTOR_LEN],
             &folding_scalars,
@@ -142,14 +135,10 @@ where
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         log_memory_size: usize,
     ) -> ProofResult<PackedLookupStatements<EF>> {
-        let mut statements = self.generic.step_2(
-            verifier_state,
-            log_memory_size - log2_strict_usize(VECTOR_LEN),
-        )?;
-        statements
-            .on_table
-            .point
-            .extend(self.folding_scalars.0.clone());
+        let mut statements = self
+            .generic
+            .step_2(verifier_state, log_memory_size - log2_strict_usize(VECTOR_LEN))?;
+        statements.on_table.point.extend(self.folding_scalars.0.clone());
         Ok(statements)
     }
 }
@@ -163,12 +152,7 @@ fn get_folded_statements<EF: Field>(
         .map(|sub_statements| {
             sub_statements
                 .iter()
-                .map(|meval| {
-                    MultiEvaluation::new(
-                        meval.point.clone(),
-                        vec![meval.values.evaluate(folding_scalars)],
-                    )
-                })
+                .map(|meval| MultiEvaluation::new(meval.point.clone(), vec![meval.values.evaluate(folding_scalars)]))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>()

@@ -60,8 +60,7 @@ pub fn verify_execution(
     )
     .unwrap();
 
-    let random_point_p16 =
-        MultilinearPoint(verifier_state.sample_vec(table_heights[TABLE_POSEIDON_16].log_padded()));
+    let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(table_heights[TABLE_POSEIDON_16].log_padded()));
     let p16_gkr = verify_poseidon_gkr(
         &mut verifier_state,
         table_heights[TABLE_POSEIDON_16].log_padded(),
@@ -71,8 +70,7 @@ pub fn verify_execution(
         true,
     );
 
-    let random_point_p24 =
-        MultilinearPoint(verifier_state.sample_vec(table_heights[TABLE_POSEIDON_24].log_padded()));
+    let random_point_p24 = MultilinearPoint(verifier_state.sample_vec(table_heights[TABLE_POSEIDON_24].log_padded()));
     let p24_gkr = verify_poseidon_gkr(
         &mut verifier_state,
         table_heights[TABLE_POSEIDON_24].log_padded(),
@@ -122,10 +120,7 @@ pub fn verify_execution(
                 table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
                 Table::dot_product().num_normal_lookups_f()
             ],
-            vec![
-                table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed();
-                Table::execution().num_normal_lookups_f()
-            ],
+            vec![table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed(); Table::execution().num_normal_lookups_f()],
         ]
         .concat(),
         [
@@ -133,10 +128,7 @@ pub fn verify_execution(
                 table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
                 Table::dot_product().num_normal_lookups_ef()
             ],
-            vec![
-                table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed();
-                Table::execution().num_normal_lookups_ef()
-            ],
+            vec![table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed(); Table::execution().num_normal_lookups_ef()],
         ]
         .concat(),
         [
@@ -150,25 +142,15 @@ pub fn verify_execution(
         ]
         .concat(), // TODO handle the case with non-zero default index
         [
-            Table::dot_product().normal_lookups_statements_f(
-                &air_points[TABLE_DOT_PRODUCT],
-                &evals_f[TABLE_DOT_PRODUCT],
-            ),
-            Table::execution().normal_lookups_statements_f(
-                &air_points[TABLE_EXECUTION],
-                &evals_f[TABLE_EXECUTION],
-            ),
+            Table::dot_product()
+                .normal_lookups_statements_f(&air_points[TABLE_DOT_PRODUCT], &evals_f[TABLE_DOT_PRODUCT]),
+            Table::execution().normal_lookups_statements_f(&air_points[TABLE_EXECUTION], &evals_f[TABLE_EXECUTION]),
         ]
         .concat(),
         [
-            Table::dot_product().normal_lookups_statements_ef(
-                &air_points[TABLE_DOT_PRODUCT],
-                &evals_ef[TABLE_DOT_PRODUCT],
-            ),
-            Table::execution().normal_lookups_statements_ef(
-                &air_points[TABLE_EXECUTION],
-                &evals_ef[TABLE_EXECUTION],
-            ),
+            Table::dot_product()
+                .normal_lookups_statements_ef(&air_points[TABLE_DOT_PRODUCT], &evals_ef[TABLE_DOT_PRODUCT]),
+            Table::execution().normal_lookups_statements_ef(&air_points[TABLE_EXECUTION], &evals_ef[TABLE_EXECUTION]),
         ]
         .concat(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -179,14 +161,8 @@ pub fn verify_execution(
     let vectorized_lookup_into_memory = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
         &mut verifier_state,
         [
-            vec![
-                table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed();
-                Table::poseidon16().num_vector_lookups()
-            ],
-            vec![
-                table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed();
-                Table::poseidon24().num_vector_lookups()
-            ],
+            vec![table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed(); Table::poseidon16().num_vector_lookups()],
+            vec![table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed(); Table::poseidon24().num_vector_lookups()],
         ]
         .concat(),
         [
@@ -270,21 +246,13 @@ pub fn verify_execution(
         .unwrap();
     {
         // index opening for poseidon lookup
-        for (i, statement) in vectorized_lookup_statements.on_indexes[..4]
-            .iter()
-            .enumerate()
-        {
+        for (i, statement) in vectorized_lookup_statements.on_indexes[..4].iter().enumerate() {
             // TODO be more general
-            p16_statements[Poseidon16Precompile.vector_lookups()[i].index]
-                .extend(statement.clone());
+            p16_statements[Poseidon16Precompile.vector_lookups()[i].index].extend(statement.clone());
         }
-        for (i, statement) in vectorized_lookup_statements.on_indexes[4..]
-            .iter()
-            .enumerate()
-        {
+        for (i, statement) in vectorized_lookup_statements.on_indexes[4..].iter().enumerate() {
             // TODO be more general
-            p24_statements[Poseidon24Precompile.vector_lookups()[i].index]
-                .extend(statement.clone());
+            p24_statements[Poseidon24Precompile.vector_lookups()[i].index].extend(statement.clone());
         }
     }
 

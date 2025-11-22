@@ -44,10 +44,7 @@ pub fn compile_to_low_level_bytecode(
         }],
     );
 
-    let starting_frame_memory = *intermediate_bytecode
-        .memory_size_per_function
-        .get("main")
-        .unwrap();
+    let starting_frame_memory = *intermediate_bytecode.memory_size_per_function.get("main").unwrap();
 
     let mut hints = BTreeMap::new();
     let mut label_to_pc = BTreeMap::new();
@@ -81,16 +78,13 @@ pub fn compile_to_low_level_bytecode(
     for (label, instructions) in &intermediate_bytecode.bytecode {
         label_to_pc.insert(label.clone(), pc);
         if let Label::Function(function_name) = label {
-            hints
-                .entry(pc)
-                .or_insert_with(Vec::new)
-                .push(Hint::StackFrame {
-                    label: label.clone(),
-                    size: *intermediate_bytecode
-                        .memory_size_per_function
-                        .get(function_name)
-                        .unwrap(),
-                });
+            hints.entry(pc).or_insert_with(Vec::new).push(Hint::StackFrame {
+                label: label.clone(),
+                size: *intermediate_bytecode
+                    .memory_size_per_function
+                    .get(function_name)
+                    .unwrap(),
+            });
         }
         code_blocks.push((label.clone(), pc, instructions.clone()));
         pc += count_real_instructions(instructions);
@@ -125,10 +119,7 @@ pub fn compile_to_low_level_bytecode(
     let mut low_level_bytecode = Vec::new();
 
     for (label, pc) in label_to_pc.clone() {
-        hints
-            .entry(pc)
-            .or_insert_with(Vec::new)
-            .push(Hint::Label { label });
+        hints.entry(pc).or_insert_with(Vec::new).push(Hint::Label { label });
     }
 
     let compiler = Compiler {
@@ -191,8 +182,7 @@ fn compile_block(
                         condition: IntermediateValue,
                         dest: IntermediateValue,
                         updated_fp: Option<IntermediateValue>| {
-        let dest =
-            try_as_mem_or_constant(&dest).expect("Fatal: Could not materialize jump destination");
+        let dest = try_as_mem_or_constant(&dest).expect("Fatal: Could not materialize jump destination");
         let label = match dest {
             MemOrConstant::Constant(dest) => hints
                 .get(&usize::try_from(dest.as_canonical_u32()).unwrap())
@@ -265,20 +255,14 @@ fn compile_block(
                     res: MemOrConstant::one(),
                 });
             }
-            IntermediateInstruction::Deref {
-                shift_0,
-                shift_1,
-                res,
-            } => {
+            IntermediateInstruction::Deref { shift_0, shift_1, res } => {
                 low_level_bytecode.push(Instruction::Deref {
                     shift_0: eval_const_expression(&shift_0, compiler).to_usize(),
                     shift_1: eval_const_expression(&shift_1, compiler).to_usize(),
                     res: match res {
-                        IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset } => {
-                            MemOrFpOrConstant::MemoryAfterFp {
-                                offset: eval_const_expression_usize(&offset, compiler),
-                            }
-                        }
+                        IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset } => MemOrFpOrConstant::MemoryAfterFp {
+                            offset: eval_const_expression_usize(&offset, compiler),
+                        },
                         IntermediaryMemOrFpOrConstant::Fp => MemOrFpOrConstant::Fp,
                         IntermediaryMemOrFpOrConstant::Constant(c) => {
                             MemOrFpOrConstant::Constant(eval_const_expression(&c, compiler))
@@ -292,8 +276,7 @@ fn compile_block(
                 updated_fp,
             } => codegen_jump(hints, low_level_bytecode, condition, dest, updated_fp),
             IntermediateInstruction::Jump { dest, updated_fp } => {
-                let one =
-                    IntermediateValue::Constant(ConstExpression::Value(ConstantValue::Scalar(1)));
+                let one = IntermediateValue::Constant(ConstExpression::Value(ConstantValue::Scalar(1)));
                 codegen_jump(hints, low_level_bytecode, one, dest, updated_fp)
             }
             IntermediateInstruction::Precompile {
@@ -355,9 +338,7 @@ fn compile_block(
                 vectorized_len,
             } => {
                 let size = try_as_mem_or_constant(&size).unwrap();
-                let vectorized_len = try_as_constant(&vectorized_len, compiler)
-                    .unwrap()
-                    .to_usize();
+                let vectorized_len = try_as_constant(&vectorized_len, compiler).unwrap().to_usize();
                 let hint = Hint::RequestMemory {
                     function_name: function_name.clone(),
                     offset: eval_const_expression_usize(&offset, compiler),
@@ -411,9 +392,7 @@ fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
         }
         ConstantValue::Label(label) => compiler.label_to_pc.get(label).copied().unwrap(),
         ConstantValue::MatchBlockSize { match_index } => compiler.match_block_sizes[*match_index],
-        ConstantValue::MatchFirstBlockStart { match_index } => {
-            compiler.match_first_block_starts[*match_index]
-        }
+        ConstantValue::MatchFirstBlockStart { match_index } => compiler.match_first_block_starts[*match_index],
     }
 }
 

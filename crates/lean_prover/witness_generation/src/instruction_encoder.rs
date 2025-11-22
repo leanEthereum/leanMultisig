@@ -23,11 +23,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             set_nu_b(&mut fields, res);
             set_nu_c(&mut fields, arg_c);
         }
-        Instruction::Deref {
-            shift_0,
-            shift_1,
-            res,
-        } => {
+        Instruction::Deref { shift_0, shift_1, res } => {
             fields[COL_INDEX_DEREF] = F::ONE;
             fields[COL_INDEX_FLAG_A] = F::ZERO;
             fields[COL_INDEX_OPERAND_A] = F::from_usize(*shift_0);

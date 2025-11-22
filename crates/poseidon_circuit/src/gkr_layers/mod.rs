@@ -31,8 +31,7 @@ impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH,
         match WIDTH {
             16 => unsafe {
                 Self::build_generic(
-                    &*(&KOALABEAR_RC16_EXTERNAL_INITIAL as *const [[F; 16]]
-                        as *const [[F; WIDTH]]),
+                    &*(&KOALABEAR_RC16_EXTERNAL_INITIAL as *const [[F; 16]] as *const [[F; WIDTH]]),
                     &KOALABEAR_RC16_INTERNAL,
                     &*(&KOALABEAR_RC16_EXTERNAL_FINAL as *const [[F; 16]] as *const [[F; WIDTH]]),
                     compressed_output,
@@ -40,8 +39,7 @@ impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonGKRLayers<WIDTH,
             },
             24 => unsafe {
                 Self::build_generic(
-                    &*(&KOALABEAR_RC24_EXTERNAL_INITIAL as *const [[F; 24]]
-                        as *const [[F; WIDTH]]),
+                    &*(&KOALABEAR_RC24_EXTERNAL_INITIAL as *const [[F; 24]] as *const [[F; WIDTH]]),
                     &KOALABEAR_RC24_INTERNAL,
                     &*(&KOALABEAR_RC24_EXTERNAL_FINAL as *const [[F; 24]] as *const [[F; WIDTH]]),
                     compressed_output,

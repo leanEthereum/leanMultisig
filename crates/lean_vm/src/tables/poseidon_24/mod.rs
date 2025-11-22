@@ -125,10 +125,7 @@ impl TableT for Poseidon24Precompile {
         input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&arg1);
         input[2 * VECTOR_LEN..].copy_from_slice(&arg2);
 
-        let output = match ctx
-            .poseidon24_precomputed
-            .get(*ctx.n_poseidon24_precomputed_used)
-        {
+        let output = match ctx.poseidon24_precomputed.get(*ctx.n_poseidon24_precomputed_used) {
             Some(precomputed) if precomputed.0 == input => {
                 *ctx.n_poseidon24_precomputed_used += 1;
                 precomputed.1

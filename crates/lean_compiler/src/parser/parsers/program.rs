@@ -14,10 +14,7 @@ use std::collections::BTreeMap;
 pub struct ProgramParser;
 
 impl Parse<(Program, BTreeMap<usize, String>)> for ProgramParser {
-    fn parse(
-        pair: ParsePair<'_>,
-        _ctx: &mut ParseContext,
-    ) -> ParseResult<(Program, BTreeMap<usize, String>)> {
+    fn parse(pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<(Program, BTreeMap<usize, String>)> {
         let mut ctx = ParseContext::new();
         let mut functions = BTreeMap::new();
         let mut function_locations = BTreeMap::new();

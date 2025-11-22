@@ -13,9 +13,7 @@ fn test_wots_signature() {
     let message_hash: [F; 8] = rng.random();
     let signature = sk.sign(&message_hash, &mut rng);
     assert_eq!(
-        signature
-            .recover_public_key(&message_hash, &signature,)
-            .unwrap(),
+        signature.recover_public_key(&message_hash, &signature,).unwrap(),
         *sk.public_key()
     );
 }

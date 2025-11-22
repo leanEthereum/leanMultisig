@@ -5,16 +5,11 @@ use std::{any::TypeId, array, mem::transmute_copy};
 use utils::ToUsize;
 
 use sub_protocols::{
-    ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier,
-    committed_dims_extension_from_base,
+    ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier, committed_dims_extension_from_base,
 };
 
 pub const N_PRECOMPILES: usize = 3; // excluding execution table
-pub const ALL_PRECOMPILES: [Table; N_PRECOMPILES] = [
-    Table::dot_product(),
-    Table::poseidon16(),
-    Table::poseidon24(),
-];
+pub const ALL_PRECOMPILES: [Table; N_PRECOMPILES] = [Table::dot_product(), Table::poseidon16(), Table::poseidon24()];
 
 pub const N_TABLES: usize = N_PRECOMPILES + 1;
 pub const ALL_TABLES: [Table; N_TABLES] = {
@@ -145,20 +140,13 @@ impl AlphaPowers<EF> for ExtraDataForBuses<EF> {
 impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
     pub fn transmute_bus_data<NewEF: 'static>(&self) -> (NewEF, [NewEF; 5], NewEF) {
         if TypeId::of::<NewEF>() == TypeId::of::<EF>() {
-            unsafe {
-                transmute_copy::<_, _>(&(
-                    self.bus_challenge,
-                    self.fingerprint_challenge_powers,
-                    self.bus_beta,
-                ))
-            }
+            unsafe { transmute_copy::<_, _>(&(self.bus_challenge, self.fingerprint_challenge_powers, self.bus_beta)) }
         } else {
             assert_eq!(TypeId::of::<NewEF>(), TypeId::of::<EFPacking<EF>>());
             unsafe {
                 transmute_copy::<_, _>(&(
                     EFPacking::<EF>::from(self.bus_challenge),
-                    self.fingerprint_challenge_powers
-                        .map(|c| EFPacking::<EF>::from(c)),
+                    self.fingerprint_challenge_powers.map(|c| EFPacking::<EF>::from(c)),
                     EFPacking::<EF>::from(self.bus_beta),
                 ))
             }
@@ -399,10 +387,7 @@ pub trait TableT: Air {
         }
         cols
     }
-    fn vector_lookup_values_columns<'a>(
-        &self,
-        trace: &'a TableTrace,
-    ) -> Vec<[&'a [F]; VECTOR_LEN]> {
+    fn vector_lookup_values_columns<'a>(&self, trace: &'a TableTrace) -> Vec<[&'a [F]; VECTOR_LEN]> {
         let mut cols = Vec::new();
         for lookup in self.vector_lookups() {
             cols.push(array::from_fn(|i| &trace.base[lookup.values[i]][..]));
@@ -417,10 +402,7 @@ pub trait TableT: Air {
         default_indexes
     }
     fn find_committed_column_index_f(&self, col: ColIndex) -> usize {
-        self.commited_columns_f()
-            .iter()
-            .position(|&c| c == col)
-            .unwrap()
+        self.commited_columns_f().iter().position(|&c| c == col).unwrap()
     }
 }
 
@@ -442,11 +424,7 @@ impl Bus {
             BusTable::Constant(t) => F::from_usize(t.index()),
             BusTable::Variable(col) => padding_row_f[*col],
         };
-        let default_data = self
-            .data
-            .iter()
-            .map(|&col| padding_row_f[col])
-            .collect::<Vec<_>>();
+        let default_data = self.data.iter().map(|&col| padding_row_f[col]).collect::<Vec<_>>();
         EF::from(default_selector * self.direction.to_field_flag() * F::from_usize(padding))
             / (bus_challenge + finger_print(default_table, &default_data, fingerprint_challenge))
     }

@@ -44,12 +44,7 @@ where
 
     *extra_data.alpha_powers_mut() = alpha
         .powers()
-        .take(
-            air.n_constraints()
-                + virtual_column_statements
-                    .as_ref()
-                    .map_or(0, |s| s.values.len()),
-        )
+        .take(air.n_constraints() + virtual_column_statements.as_ref().map_or(0, |s| s.values.len()))
         .collect();
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
@@ -64,9 +59,7 @@ where
         .down_column_indexes_f()
         .par_iter()
         .zip_eq(last_row_shifted_f)
-        .map(|(&col_index, &final_value)| {
-            column_shifted(columns_f[col_index], final_value.as_base().unwrap())
-        })
+        .map(|(&col_index, &final_value)| column_shifted(columns_f[col_index], final_value.as_base().unwrap()))
         .collect::<Vec<_>>();
     let shifted_rows_ef = air
         .down_column_indexes_ef()
@@ -81,10 +74,8 @@ where
     let mut columns_up_down_ef = columns_ef.to_vec(); // orginal columns, followed by shifted ones
     columns_up_down_ef.extend(shifted_rows_ef.iter().map(Vec::as_slice));
 
-    let columns_up_down_group_f: MleGroupRef<'_, EF> =
-        MleGroupRef::<'_, EF>::Base(columns_up_down_f);
-    let columns_up_down_group_ef: MleGroupRef<'_, EF> =
-        MleGroupRef::<'_, EF>::Extension(columns_up_down_ef);
+    let columns_up_down_group_f: MleGroupRef<'_, EF> = MleGroupRef::<'_, EF>::Base(columns_up_down_f);
+    let columns_up_down_group_ef: MleGroupRef<'_, EF> = MleGroupRef::<'_, EF>::Extension(columns_up_down_ef);
 
     let columns_up_down_group_f_packed = columns_up_down_group_f.pack();
     let columns_up_down_group_ef_packed = columns_up_down_group_ef.pack();
@@ -130,10 +121,8 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     columns_ef: &[&[EF]],
     outer_sumcheck_challenge: &[EF],
 ) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
-    let n_up_down_columns = columns_f.len()
-        + columns_ef.len()
-        + columns_with_shift_f.len()
-        + columns_with_shift_ef.len();
+    let n_up_down_columns =
+        columns_f.len() + columns_ef.len() + columns_with_shift_f.len() + columns_with_shift_ef.len();
     let batching_scalars = prover_state.sample_vec(log2_ceil_usize(n_up_down_columns));
 
     let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_up_down_columns].to_vec();
@@ -153,14 +142,8 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
             });
     }
 
-    let columns_shifted_f = &columns_with_shift_f
-        .iter()
-        .map(|&i| columns_f[i])
-        .collect::<Vec<_>>();
-    let columns_shifted_ef = &columns_with_shift_ef
-        .iter()
-        .map(|&i| columns_ef[i])
-        .collect::<Vec<_>>();
+    let columns_shifted_f = &columns_with_shift_f.iter().map(|&i| columns_f[i]).collect::<Vec<_>>();
+    let columns_shifted_ef = &columns_with_shift_ef.iter().map(|&i| columns_ef[i]).collect::<Vec<_>>();
 
     let mut batched_column_down = if columns_shifted_f.is_empty() {
         tracing::warn!("TODO optimize open_columns when no shifted F columns");
@@ -168,16 +151,14 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     } else {
         multilinears_linear_combination(
             columns_shifted_f,
-            &eval_eq_batching_scalars[columns_f.len() + columns_ef.len()..]
-                [..columns_shifted_f.len()],
+            &eval_eq_batching_scalars[columns_f.len() + columns_ef.len()..][..columns_shifted_f.len()],
         )
     };
 
     if !columns_shifted_ef.is_empty() {
         let batched_column_down_ef = multilinears_linear_combination(
             columns_shifted_ef,
-            &eval_eq_batching_scalars
-                [columns_f.len() + columns_ef.len() + columns_shifted_f.len()..],
+            &eval_eq_batching_scalars[columns_f.len() + columns_ef.len() + columns_shifted_f.len()..],
         );
         batched_column_down
             .par_iter_mut()
@@ -277,12 +258,7 @@ impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for MySumcheck {
         point[0] * point[1] + point[2] * point[3]
     }
     #[inline(always)]
-    fn eval_packed_base(
-        &self,
-        _: &[PFPacking<EF>],
-        _: &[EFPacking<EF>],
-        _: &Self::ExtraData,
-    ) -> EFPacking<EF> {
+    fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EFPacking<EF>], _: &Self::ExtraData) -> EFPacking<EF> {
         unreachable!()
     }
     #[inline(always)]

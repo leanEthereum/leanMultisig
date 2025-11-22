@@ -12,8 +12,7 @@ pub(crate) fn eval_virtual_bus_column<AB: AirBuilder, EF: ExtensionField<PF<EF>>
     arg_c: AB::F,
     aux: AB::F,
 ) -> AB::EF {
-    let (bus_challenge, fingerprint_challenge_powers, bus_beta) =
-        extra_data.transmute_bus_data::<AB::EF>();
+    let (bus_challenge, fingerprint_challenge_powers, bus_beta) = extra_data.transmute_bus_data::<AB::EF>();
 
     let data = fingerprint_challenge_powers[1].clone() * arg_a
         + fingerprint_challenge_powers[2].clone() * arg_b

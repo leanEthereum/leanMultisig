@@ -27,8 +27,7 @@ pub(crate) fn exec_dot_product(
         (vec![EF::ONE], slice_0[0])
     } else {
         let slice_1 = memory.get_continuous_slice_of_ef_elements(ptr_arg_1.to_usize(), size)?;
-        let dot_product_result =
-            dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
+        let dot_product_result = dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
         (slice_1, dot_product_result)
     };
 
@@ -53,8 +52,7 @@ pub(crate) fn exec_dot_product(
             .extend((0..size).map(|i| F::from_usize(ptr_arg_0.to_usize() + i * DIMENSION)));
         trace.base[DOT_PRODUCT_AIR_COL_INDEX_B]
             .extend((0..size).map(|i| F::from_usize(ptr_arg_1.to_usize() + i * DIMENSION)));
-        trace.base[DOT_PRODUCT_AIR_COL_INDEX_RES]
-            .extend(vec![F::from_usize(ptr_res.to_usize()); size]);
+        trace.base[DOT_PRODUCT_AIR_COL_INDEX_RES].extend(vec![F::from_usize(ptr_res.to_usize()); size]);
         trace.ext[DOT_PRODUCT_AIR_COL_VALUE_A].extend(slice_0.clone());
         trace.ext[DOT_PRODUCT_AIR_COL_VALUE_B].extend(slice_1.clone());
         trace.ext[DOT_PRODUCT_AIR_COL_VALUE_RES].extend(vec![dot_product_result; size]);

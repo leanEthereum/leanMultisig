@@ -1,7 +1,5 @@
 use lean_compiler::*;
-use lean_prover::{
-    prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder,
-};
+use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder};
 use lean_vm::{F, execute_bytecode};
 use multilinear_toolkit::prelude::*;
 use std::time::Instant;
@@ -50,10 +48,7 @@ fn benchmark_poseidon_chain() {
     const LOG_CHAIN_LENGTH: usize = 17;
     const CHAIN_LENGTH: usize = 1 << LOG_CHAIN_LENGTH;
 
-    let program_str = program_str.replace(
-        "LOG_CHAIN_LENGTH_PLACEHOLDER",
-        &LOG_CHAIN_LENGTH.to_string(),
-    );
+    let program_str = program_str.replace("LOG_CHAIN_LENGTH_PLACEHOLDER", &LOG_CHAIN_LENGTH.to_string());
 
     let mut public_input = F::zero_vec(1 << 13);
     public_input[0..8].copy_from_slice(&iterate_hash(&Default::default(), CHAIN_LENGTH));

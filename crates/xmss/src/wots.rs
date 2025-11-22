@@ -39,20 +39,14 @@ impl WotsSecretKey {
     pub fn sign(&self, message_hash: &Digest, rng: &mut impl Rng) -> WotsSignature {
         let (randomness, encoding) = find_randomness_for_wots_encoding(message_hash, rng);
         WotsSignature {
-            chain_tips: std::array::from_fn(|i| {
-                iterate_hash(&self.pre_images[i], encoding[i] as usize)
-            }),
+            chain_tips: std::array::from_fn(|i| iterate_hash(&self.pre_images[i], encoding[i] as usize)),
             randomness,
         }
     }
 }
 
 impl WotsSignature {
-    pub fn recover_public_key(
-        &self,
-        message_hash: &Digest,
-        signature: &Self,
-    ) -> Option<WotsPublicKey> {
+    pub fn recover_public_key(&self, message_hash: &Digest, signature: &Self) -> Option<WotsPublicKey> {
         self.recover_public_key_with_poseidon_trace(message_hash, signature, &mut Vec::new())
     }
 
@@ -62,17 +56,9 @@ impl WotsSignature {
         signature: &Self,
         poseidon_16_trace: &mut Vec<([F; 16], [F; 16])>,
     ) -> Option<WotsPublicKey> {
-        let encoding = wots_encode_with_poseidon_trace(
-            message_hash,
-            &signature.randomness,
-            poseidon_16_trace,
-        )?;
+        let encoding = wots_encode_with_poseidon_trace(message_hash, &signature.randomness, poseidon_16_trace)?;
         Some(WotsPublicKey(std::array::from_fn(|i| {
-            iterate_hash_with_poseidon_trace(
-                &self.chain_tips[i],
-                W - 1 - encoding[i] as usize,
-                poseidon_16_trace,
-            )
+            iterate_hash_with_poseidon_trace(&self.chain_tips[i], W - 1 - encoding[i] as usize, poseidon_16_trace)
         })))
     }
 }
@@ -84,11 +70,9 @@ impl WotsPublicKey {
 
     pub fn hash_with_poseidon_trace(&self, poseidon_24_trace: &mut Poseidon24History) -> Digest {
         assert!(V.is_multiple_of(2), "V must be even for hashing pairs.");
-        self.0
-            .chunks_exact(2)
-            .fold(Digest::default(), |digest, chunk| {
-                poseidon24_compress_with_trace(&chunk[0], &chunk[1], &digest, poseidon_24_trace)
-            })
+        self.0.chunks_exact(2).fold(Digest::default(), |digest, chunk| {
+            poseidon24_compress_with_trace(&chunk[0], &chunk[1], &digest, poseidon_24_trace)
+        })
     }
 }
 
@@ -106,10 +90,7 @@ pub fn iterate_hash_with_poseidon_trace(
     })
 }
 
-pub fn find_randomness_for_wots_encoding(
-    message: &Digest,
-    rng: &mut impl Rng,
-) -> (Digest, [u8; V]) {
+pub fn find_randomness_for_wots_encoding(message: &Digest, rng: &mut impl Rng) -> (Digest, [u8; V]) {
     loop {
         let randomness = rng.random();
         if let Some(encoding) = wots_encode(message, &randomness) {

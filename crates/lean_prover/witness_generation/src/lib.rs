@@ -8,4 +8,3 @@ pub use instruction_encoder::*;
 
 mod poseidon_tables;
 pub use poseidon_tables::*;
-

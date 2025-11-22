@@ -6,8 +6,8 @@ pub fn matrix_next_mle_folded<F: ExtensionField<PF<F>>>(outer_challenges: &[F]) 
     let n = outer_challenges.len();
     let mut res = F::zero_vec(1 << n);
     for k in 0..n {
-        let outer_challenges_prod = (F::ONE - outer_challenges[n - k - 1])
-            * outer_challenges[n - k..].iter().copied().product::<F>();
+        let outer_challenges_prod =
+            (F::ONE - outer_challenges[n - k - 1]) * outer_challenges[n - k..].iter().copied().product::<F>();
         let mut eq_mle = eval_eq_scaled(&outer_challenges[0..n - k - 1], outer_challenges_prod);
         for (mut i, v) in eq_mle.iter_mut().enumerate() {
             i <<= k + 1;
@@ -36,10 +36,7 @@ mod tests {
             for y in 0..1 << n_vars {
                 let y_bools = to_big_endian_in_field::<F>(y, n_vars);
                 let expected = F::from_bool(x + 1 == y);
-                assert_eq!(
-                    matrix.evaluate(&MultilinearPoint(y_bools.clone())),
-                    expected
-                );
+                assert_eq!(matrix.evaluate(&MultilinearPoint(y_bools.clone())), expected);
                 assert_eq!(next_mle(&[x_bools.clone(), y_bools].concat()), expected);
             }
         }

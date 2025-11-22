@@ -1,7 +1,5 @@
 use lean_compiler::*;
-use lean_prover::{
-    prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder,
-};
+use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 
@@ -35,17 +33,13 @@ fn test_zk_vm_all_precompiles() {
         .map(F::from_usize)
         .collect::<Vec<_>>();
 
-    public_input[SECOND_POINT * (SECOND_N_VARS * DIMENSION).next_power_of_two()
-        + SECOND_N_VARS * DIMENSION
+    public_input[SECOND_POINT * (SECOND_N_VARS * DIMENSION).next_power_of_two() + SECOND_N_VARS * DIMENSION
         - NONRESERVED_PROGRAM_INPUT_START
-        ..(SECOND_POINT + 1) * (SECOND_N_VARS * DIMENSION).next_power_of_two()
-            - NONRESERVED_PROGRAM_INPUT_START]
+        ..(SECOND_POINT + 1) * (SECOND_N_VARS * DIMENSION).next_power_of_two() - NONRESERVED_PROGRAM_INPUT_START]
         .iter_mut()
         .for_each(|x| *x = F::ZERO);
 
-    let private_input = (0..1 << 13)
-        .map(|i| F::from_usize(i).square())
-        .collect::<Vec<_>>();
+    let private_input = (0..1 << 13).map(|i| F::from_usize(i).square()).collect::<Vec<_>>();
 
     test_zk_vm_helper(program_str, (&public_input, &private_input), 1 << 20);
 }
@@ -92,11 +86,7 @@ fn test_prove_fibonacci() {
     test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0);
 }
 
-fn test_zk_vm_helper(
-    program_str: &str,
-    (public_input, private_input): (&[F], &[F]),
-    no_vec_runtime_memory: usize,
-) {
+fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F]), no_vec_runtime_memory: usize) {
     utils::init_tracing();
     let bytecode = compile_program(program_str.to_string());
     let time = std::time::Instant::now();

@@ -90,14 +90,7 @@ impl TableT for ExecutionTable {
     }
 
     #[inline(always)]
-    fn execute(
-        &self,
-        _: F,
-        _: F,
-        _: F,
-        _: usize,
-        _: &mut InstructionContext<'_>,
-    ) -> Result<(), RunnerError> {
+    fn execute(&self, _: F, _: F, _: F, _: usize, _: &mut InstructionContext<'_>) -> Result<(), RunnerError> {
         unreachable!()
     }
 }

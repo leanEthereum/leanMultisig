@@ -19,10 +19,7 @@ pub fn get_location(pair: &ParsePair<'_>) -> (usize, usize) {
 }
 
 /// Utility function to safely get the next inner element from a parser.
-pub fn next_inner<'i>(
-    mut pairs: impl Iterator<Item = ParsePair<'i>>,
-    expected: &str,
-) -> Option<ParsePair<'i>> {
+pub fn next_inner<'i>(mut pairs: impl Iterator<Item = ParsePair<'i>>, expected: &str) -> Option<ParsePair<'i>> {
     pairs.next().or_else(|| {
         eprintln!("Warning: Expected {expected} but found nothing");
         None

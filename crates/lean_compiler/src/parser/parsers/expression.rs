@@ -19,30 +19,14 @@ impl Parse<Expression> for ExpressionParser {
                 let inner = next_inner_pair(&mut pair.into_inner(), "expression body")?;
                 Self::parse(inner, ctx)
             }
-            Rule::neq_expr => {
-                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::NotEqual)
-            }
-            Rule::eq_expr => {
-                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Equal)
-            }
-            Rule::add_expr => {
-                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Add)
-            }
-            Rule::sub_expr => {
-                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Sub)
-            }
-            Rule::mul_expr => {
-                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Mul)
-            }
-            Rule::mod_expr => {
-                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Mod)
-            }
-            Rule::div_expr => {
-                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Div)
-            }
-            Rule::exp_expr => {
-                BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Exp)
-            }
+            Rule::neq_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::NotEqual),
+            Rule::eq_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Equal),
+            Rule::add_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Add),
+            Rule::sub_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Sub),
+            Rule::mul_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Mul),
+            Rule::mod_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Mod),
+            Rule::div_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Div),
+            Rule::exp_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Exp),
             Rule::primary => PrimaryExpressionParser::parse(pair, ctx),
             other_rule => Err(ParseError::SemanticError(SemanticError::new(format!(
                 "ExpressionParser: Unexpected rule {other_rule:?}"
@@ -102,9 +86,7 @@ pub struct ArrayAccessParser;
 impl Parse<Expression> for ArrayAccessParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
-        let array = next_inner_pair(&mut inner, "array name")?
-            .as_str()
-            .to_string();
+        let array = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
         let index = ExpressionParser::parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
 
         Ok(Expression::ArrayAccess {
@@ -122,8 +104,6 @@ impl Parse<Expression> for Log2CeilParser {
         let mut inner = pair.into_inner();
         let expr = ExpressionParser::parse(next_inner_pair(&mut inner, "log2_ceil value")?, ctx)?;
 
-        Ok(Expression::Log2Ceil {
-            value: Box::new(expr),
-        })
+        Ok(Expression::Log2Ceil { value: Box::new(expr) })
     }
 }

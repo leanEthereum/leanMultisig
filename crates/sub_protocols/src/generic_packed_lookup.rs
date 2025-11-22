@@ -9,8 +9,7 @@ use utils::{FSProver, assert_eq_many};
 use crate::{ColDims, MultilinearChunks, packed_pcs_global_statements_for_prover};
 
 #[derive(Debug)]
-pub struct GenericPackedLookupProver<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>>
-{
+pub struct GenericPackedLookupProver<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>> {
     // inputs
     pub(crate) table: VecOrSlice<'a, TF>,
     pub(crate) index_columns: Vec<&'a [PF<EF>]>,
@@ -31,8 +30,7 @@ pub struct PackedLookupStatements<EF> {
     pub on_indexes: Vec<Vec<Evaluation<EF>>>, // contain sparse points (TODO take advantage of it)
 }
 
-impl<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>>
-    GenericPackedLookupProver<'a, TF, EF>
+impl<'a, TF: Field, EF: ExtensionField<TF> + ExtensionField<PF<EF>>> GenericPackedLookupProver<'a, TF, EF>
 where
     PF<EF>: PrimeField64,
 {
@@ -62,17 +60,11 @@ where
             value_columns.len(),
             statements.len()
         );
-        value_columns
-            .iter()
-            .zip(&statements)
-            .for_each(|(cols, evals)| {
-                assert_eq!(cols.len(), evals[0].num_values());
-            });
+        value_columns.iter().zip(&statements).for_each(|(cols, evals)| {
+            assert_eq!(cols.len(), evals[0].num_values());
+        });
         let n_groups = value_columns.len();
-        let n_cols_per_group = value_columns
-            .iter()
-            .map(|cols| cols.len())
-            .collect::<Vec<usize>>();
+        let n_cols_per_group = value_columns.iter().map(|cols| cols.len()).collect::<Vec<usize>>();
 
         let flatened_value_columns = value_columns
             .iter()
@@ -82,10 +74,7 @@ where
         let mut all_dims = vec![];
         for (i, (default_index, height)) in default_indexes.iter().zip(heights.iter()).enumerate() {
             for col_index in 0..n_cols_per_group[i] {
-                all_dims.push(ColDims::padded(
-                    *height,
-                    table_ref[col_index + default_index],
-                ));
+                all_dims.push(ColDims::padded(*height, table_ref[col_index + default_index]));
             }
         }
 
@@ -129,8 +118,7 @@ where
         for (alpha_power, statement) in batching_scalar.powers().zip(&packed_statements) {
             compute_sparse_eval_eq(&statement.point, &mut poly_eq_point, alpha_power);
         }
-        let pushforward =
-            compute_pushforward(&packed_lookup_indexes, table_ref.len(), &poly_eq_point);
+        let pushforward = compute_pushforward(&packed_lookup_indexes, table_ref.len(), &poly_eq_point);
 
         let batched_value: EF = batching_scalar
             .powers()
@@ -181,9 +169,10 @@ where
             offset += n_cols;
 
             assert!(my_chunks.iter().all(|col_chunks| {
-                col_chunks.iter().zip(my_chunks[0].iter()).all(|(c1, c2)| {
-                    c1.offset_in_original == c2.offset_in_original && c1.n_vars == c2.n_vars
-                })
+                col_chunks
+                    .iter()
+                    .zip(my_chunks[0].iter())
+                    .all(|(c1, c2)| c1.offset_in_original == c2.offset_in_original && c1.n_vars == c2.n_vars)
             }));
             let mut inner_statements = vec![];
             let mut inner_evals = vec![];
@@ -191,9 +180,7 @@ where
                 let sparse_point = MultilinearPoint(
                     [
                         chunk.bits_offset_in_original(),
-                        logup_star_statements.on_indexes.point
-                            [self.chunks.packed_n_vars - chunk.n_vars..]
-                            .to_vec(),
+                        logup_star_statements.on_indexes.point[self.chunks.packed_n_vars - chunk.n_vars..].to_vec(),
                     ]
                     .concat(),
                 );
@@ -208,20 +195,15 @@ where
                 for (&inner_eval, chunk) in inner_evals.iter().zip(chunks_for_col) {
                     let missing_vars = self.chunks.packed_n_vars - chunk.n_vars;
                     value_on_packed_indexes += (inner_eval + PF::<EF>::from_usize(col_index))
-                        * MultilinearPoint(
-                            logup_star_statements.on_indexes.point[..missing_vars].to_vec(),
-                        )
-                        .eq_poly_outside(&MultilinearPoint(
-                            chunk.bits_offset_in_packed(self.chunks.packed_n_vars),
-                        ));
+                        * MultilinearPoint(logup_star_statements.on_indexes.point[..missing_vars].to_vec())
+                            .eq_poly_outside(&MultilinearPoint(
+                                chunk.bits_offset_in_packed(self.chunks.packed_n_vars),
+                            ));
                 }
             }
         }
         // sanity check
-        assert_eq!(
-            value_on_packed_indexes,
-            logup_star_statements.on_indexes.value
-        );
+        assert_eq!(value_on_packed_indexes, logup_star_statements.on_indexes.value);
 
         PackedLookupStatements {
             on_table: logup_star_statements.on_table,
@@ -312,9 +294,10 @@ where
 
             // sanity check
             assert!(my_chunks.iter().all(|col_chunks| {
-                col_chunks.iter().zip(my_chunks[0].iter()).all(|(c1, c2)| {
-                    c1.offset_in_original == c2.offset_in_original && c1.n_vars == c2.n_vars
-                })
+                col_chunks
+                    .iter()
+                    .zip(my_chunks[0].iter())
+                    .all(|(c1, c2)| c1.offset_in_original == c2.offset_in_original && c1.n_vars == c2.n_vars)
             }));
             let mut inner_statements = vec![];
             let inner_evals = verifier_state.next_extension_scalars_vec(my_chunks[0].len())?;
@@ -322,9 +305,7 @@ where
                 let sparse_point = MultilinearPoint(
                     [
                         chunk.bits_offset_in_original(),
-                        logup_star_statements.on_indexes.point
-                            [self.chunks.packed_n_vars - chunk.n_vars..]
-                            .to_vec(),
+                        logup_star_statements.on_indexes.point[self.chunks.packed_n_vars - chunk.n_vars..].to_vec(),
                     ]
                     .concat(),
                 );
@@ -336,12 +317,10 @@ where
                 for (&inner_eval, chunk) in inner_evals.iter().zip(chunks_for_col) {
                     let missing_vars = self.chunks.packed_n_vars - chunk.n_vars;
                     value_on_packed_indexes += (inner_eval + PF::<EF>::from_usize(col_index))
-                        * MultilinearPoint(
-                            logup_star_statements.on_indexes.point[..missing_vars].to_vec(),
-                        )
-                        .eq_poly_outside(&MultilinearPoint(
-                            chunk.bits_offset_in_packed(self.chunks.packed_n_vars),
-                        ));
+                        * MultilinearPoint(logup_star_statements.on_indexes.point[..missing_vars].to_vec())
+                            .eq_poly_outside(&MultilinearPoint(
+                                chunk.bits_offset_in_packed(self.chunks.packed_n_vars),
+                            ));
                 }
             }
         }
@@ -357,9 +336,7 @@ where
     }
 }
 
-fn expand_multi_evals<EF: Field>(
-    statements: &[Vec<MultiEvaluation<EF>>],
-) -> Vec<Vec<Evaluation<EF>>> {
+fn expand_multi_evals<EF: Field>(statements: &[Vec<MultiEvaluation<EF>>]) -> Vec<Vec<Evaluation<EF>>> {
     statements
         .iter()
         .flat_map(|multi_evals| {

@@ -80,42 +80,34 @@ fn test_air_fibonacci() {
     )
     .unwrap();
 
-    let (point_prover, evaluations_remaining_to_prove_f, evaluations_remaining_to_prove_ef) =
-        prove_air(
-            &mut prover_state,
-            &air,
-            vec![],
-            UNIVARIATE_SKIPS,
-            &columns_ref_f,
-            &columns_ref_ef,
-            &last_row_f,
-            &last_row_ef,
-            None,
-            true,
-        );
+    let (point_prover, evaluations_remaining_to_prove_f, evaluations_remaining_to_prove_ef) = prove_air(
+        &mut prover_state,
+        &air,
+        vec![],
+        UNIVARIATE_SKIPS,
+        &columns_ref_f,
+        &columns_ref_ef,
+        &last_row_f,
+        &last_row_ef,
+        None,
+        true,
+    );
     let mut verifier_state = build_verifier_state(&prover_state);
 
-    let (point_verifier, evaluations_remaining_to_verify_f, evaluations_remaining_to_verify_ef) =
-        verify_air(
-            &mut verifier_state,
-            &air,
-            vec![],
-            UNIVARIATE_SKIPS,
-            log_n_rows,
-            &last_row_f,
-            &last_row_ef,
-            None,
-        )
-        .unwrap();
+    let (point_verifier, evaluations_remaining_to_verify_f, evaluations_remaining_to_verify_ef) = verify_air(
+        &mut verifier_state,
+        &air,
+        vec![],
+        UNIVARIATE_SKIPS,
+        log_n_rows,
+        &last_row_f,
+        &last_row_ef,
+        None,
+    )
+    .unwrap();
     assert_eq!(point_prover, point_verifier);
-    assert_eq!(
-        &evaluations_remaining_to_prove_f,
-        &evaluations_remaining_to_verify_f
-    );
-    assert_eq!(
-        &evaluations_remaining_to_prove_ef,
-        &evaluations_remaining_to_verify_ef
-    );
+    assert_eq!(&evaluations_remaining_to_prove_f, &evaluations_remaining_to_verify_f);
+    assert_eq!(&evaluations_remaining_to_prove_ef, &evaluations_remaining_to_verify_ef);
     assert_eq!(
         columns_ref_f[0].evaluate(&point_prover),
         evaluations_remaining_to_verify_f[0]

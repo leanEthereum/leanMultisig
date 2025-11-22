@@ -4,8 +4,7 @@ use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::instrument;
 use utils::{
-    FSProver, FSVerifier, from_end, multilinear_eval_constants_at_right, to_big_endian_bits,
-    to_big_endian_in_field,
+    FSProver, FSVerifier, from_end, multilinear_eval_constants_at_right, to_big_endian_bits, to_big_endian_in_field,
 };
 use whir_p3::*;
 
@@ -32,11 +31,7 @@ impl Chunk {
             packed_n_vars - self.n_vars,
         )
     }
-    fn global_point_for_statement<F: Field>(
-        &self,
-        point: &[F],
-        packed_n_vars: usize,
-    ) -> MultilinearPoint<F> {
+    fn global_point_for_statement<F: Field>(&self, point: &[F], packed_n_vars: usize) -> MultilinearPoint<F> {
         MultilinearPoint([self.bits_offset_in_packed(packed_n_vars), point.to_vec()].concat())
     }
 }
@@ -107,12 +102,11 @@ fn split_in_chunks<F: Field>(
     let mut remaining = dims.committed_size;
 
     loop {
-        let mut chunk_size =
-            if remaining.next_power_of_two() - remaining <= 1 << log_smallest_decomposition_chunk {
-                log2_ceil_usize(remaining)
-            } else {
-                remaining.ilog2() as usize
-            };
+        let mut chunk_size = if remaining.next_power_of_two() - remaining <= 1 << log_smallest_decomposition_chunk {
+            log2_ceil_usize(remaining)
+        } else {
+            remaining.ilog2() as usize
+        };
         if let Some(log_public) = dims.log_public_data_size {
             chunk_size = chunk_size.min(log_public);
         }
@@ -133,10 +127,7 @@ fn split_in_chunks<F: Field>(
     }
 }
 
-pub fn num_packed_vars_for_dims<F: Field>(
-    dims: &[ColDims<F>],
-    log_smallest_decomposition_chunk: usize,
-) -> usize {
+pub fn num_packed_vars_for_dims<F: Field>(dims: &[ColDims<F>], log_smallest_decomposition_chunk: usize) -> usize {
     MultilinearChunks::compute(dims, log_smallest_decomposition_chunk).packed_n_vars
 }
 
@@ -203,13 +194,10 @@ impl MultilinearChunks {
                 let end = start + (1 << chunk.n_vars);
                 let original_poly = &polynomials[chunk.original_poly_index];
                 unsafe {
-                    let slice = std::slice::from_raw_parts_mut(
-                        (packed_polynomial.as_ptr() as *mut F).add(start),
-                        end - start,
-                    );
+                    let slice =
+                        std::slice::from_raw_parts_mut((packed_polynomial.as_ptr() as *mut F).add(start), end - start);
                     slice.copy_from_slice(
-                        &original_poly[chunk.offset_in_original
-                            ..chunk.offset_in_original + (1 << chunk.n_vars)],
+                        &original_poly[chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)],
                     );
                 }
             });
@@ -277,11 +265,8 @@ where
     PF<EF>: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField + ExtensionField<PF<EF>>,
 {
-    let (packed_polynomial, _chunks_decomposition) = compute_multilinear_chunks_and_apply::<F>(
-        polynomials,
-        dims,
-        log_smallest_decomposition_chunk,
-    );
+    let (packed_polynomial, _chunks_decomposition) =
+        compute_multilinear_chunks_and_apply::<F>(polynomials, dims, log_smallest_decomposition_chunk);
     let packed_n_vars = log2_strict_usize(packed_polynomial.len());
 
     let mle = if TypeId::of::<F>() == TypeId::of::<PF<EF>>() {
@@ -291,14 +276,10 @@ where
             std::mem::transmute::<Vec<F>, Vec<EF>>(packed_polynomial)
         })) // TODO this is innefficient (this transposes everything...)
     } else {
-        panic!(
-            "Unsupported field type for packed PCS: {}",
-            std::any::type_name::<F>()
-        );
+        panic!("Unsupported field type for packed PCS: {}", std::any::type_name::<F>());
     };
 
-    let inner_witness =
-        WhirConfig::new(whir_config_builder.clone(), packed_n_vars).commit(prover_state, &mle);
+    let inner_witness = WhirConfig::new(whir_config_builder.clone(), packed_n_vars).commit(prover_state, &mle);
     MultiCommitmentWitness {
         inner_witness,
         packed_polynomial: mle,
@@ -306,10 +287,7 @@ where
 }
 
 #[instrument(skip_all)]
-pub fn packed_pcs_global_statements_for_prover<
-    F: Field,
-    EF: ExtensionField<F> + ExtensionField<PF<EF>>,
->(
+pub fn packed_pcs_global_statements_for_prover<F: Field, EF: ExtensionField<F> + ExtensionField<PF<EF>>>(
     polynomials: &[&[F]],
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
@@ -325,11 +303,7 @@ pub fn packed_pcs_global_statements_for_prover<
     let statements_flattened = statements_per_polynomial
         .iter()
         .enumerate()
-        .flat_map(|(poly_index, poly_statements)| {
-            poly_statements
-                .iter()
-                .map(move |statement| (poly_index, statement))
-        })
+        .flat_map(|(poly_index, poly_statements)| poly_statements.iter().map(move |statement| (poly_index, statement)))
         .collect::<Vec<_>>();
 
     let sub_packed_statements_and_evals_to_send = statements_flattened
@@ -344,11 +318,7 @@ pub fn packed_pcs_global_statements_for_prover<
             let mut evals_to_send = Vec::new();
             if chunks.len() == 1 {
                 assert!(!chunks[0].public_data, "TODO");
-                assert_eq!(
-                    chunks[0].n_vars,
-                    statement.point.0.len(),
-                    "poly: {poly_index}"
-                );
+                assert_eq!(chunks[0].n_vars, statement.point.0.len(), "poly: {poly_index}");
                 assert!(
                     chunks[0]
                         .offset_in_packed
@@ -357,8 +327,7 @@ pub fn packed_pcs_global_statements_for_prover<
                 );
 
                 sub_packed_statements.push(Evaluation::new(
-                    chunks[0]
-                        .global_point_for_statement(&statement.point, all_chunks.packed_n_vars),
+                    chunks[0].global_point_for_statement(&statement.point, all_chunks.packed_n_vars),
                     statement.value,
                 ));
             } else {
@@ -377,15 +346,12 @@ pub fn packed_pcs_global_statements_for_prover<
                     .map(|chunk| {
                         let missing_vars = statement.point.0.len() - chunk.n_vars;
 
-                        let offset_in_original_booleans = to_big_endian_bits(
-                            chunk.offset_in_original >> chunk.n_vars,
-                            missing_vars,
-                        );
+                        let offset_in_original_booleans =
+                            to_big_endian_bits(chunk.offset_in_original >> chunk.n_vars, missing_vars);
 
                         if !initial_booleans.is_empty()
                             && initial_booleans.len() < offset_in_original_booleans.len()
-                            && initial_booleans
-                                == offset_in_original_booleans[..initial_booleans.len()]
+                            && initial_booleans == offset_in_original_booleans[..initial_booleans.len()]
                         {
                             tracing::warn!("TODO: sparse statement accroos mutiple chunks");
                         }
@@ -400,17 +366,13 @@ pub fn packed_pcs_global_statements_for_prover<
                             }
                         }
 
-                        let sub_point =
-                            MultilinearPoint(statement.point.0[missing_vars..].to_vec());
-                        let sub_value = (&pol[chunk.offset_in_original
-                            ..chunk.offset_in_original + (1 << chunk.n_vars)])
+                        let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
+                        let sub_value = (&pol
+                            [chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)])
                             .evaluate_sparse(&sub_point); // `evaluate_sparse` because sometime (typically due to packed lookup protocol, the original statement is already sparse)
                         (
                             Some(Evaluation::new(
-                                chunk.global_point_for_statement(
-                                    &sub_point,
-                                    all_chunks.packed_n_vars,
-                                ),
+                                chunk.global_point_for_statement(&sub_point, all_chunks.packed_n_vars),
                                 sub_value,
                             )),
                             sub_value,
@@ -427,10 +389,8 @@ pub fn packed_pcs_global_statements_for_prover<
                     });
 
                 let initial_missing_vars = statement.point.0.len() - chunks[0].n_vars;
-                let initial_offset_in_original_booleans = to_big_endian_bits(
-                    chunks[0].offset_in_original >> chunks[0].n_vars,
-                    initial_missing_vars,
-                );
+                let initial_offset_in_original_booleans =
+                    to_big_endian_bits(chunks[0].offset_in_original >> chunks[0].n_vars, initial_missing_vars);
                 if initial_booleans.len() < initial_offset_in_original_booleans.len() // if the statement only concern the first chunk, no need to send more data
                     && dim.log_public_data_size.is_none()
                 // if the first value is public, no need to recompute it
@@ -446,16 +406,12 @@ pub fn packed_pcs_global_statements_for_prover<
                     let initial_missing_vars = statement.point.0.len() - chunks[0].n_vars;
                     let initial_sub_value = (statement.value - retrieved_eval)
                         / MultilinearPoint(statement.point.0[..initial_missing_vars].to_vec())
-                            .eq_poly_outside(&MultilinearPoint(
-                                chunks[0].bits_offset_in_original(),
-                            ));
-                    let initial_sub_point =
-                        MultilinearPoint(statement.point.0[initial_missing_vars..].to_vec());
+                            .eq_poly_outside(&MultilinearPoint(chunks[0].bits_offset_in_original()));
+                    let initial_sub_point = MultilinearPoint(statement.point.0[initial_missing_vars..].to_vec());
 
-                    let initial_packed_point = chunks[0]
-                        .global_point_for_statement(&initial_sub_point, all_chunks.packed_n_vars);
-                    sub_packed_statements
-                        .insert(0, Evaluation::new(initial_packed_point, initial_sub_value));
+                    let initial_packed_point =
+                        chunks[0].global_point_for_statement(&initial_sub_point, all_chunks.packed_n_vars);
+                    sub_packed_statements.insert(0, Evaluation::new(initial_packed_point, initial_sub_value));
                     evals_to_send.insert(0, initial_sub_value);
                 }
             }
@@ -484,14 +440,10 @@ where
     PF<EF>: TwoAdicField,
 {
     let all_chunks = MultilinearChunks::compute(dims, log_smallest_decomposition_chunk);
-    WhirConfig::new(whir_config_builder.clone(), all_chunks.packed_n_vars)
-        .parse_commitment(verifier_state)
+    WhirConfig::new(whir_config_builder.clone(), all_chunks.packed_n_vars).parse_commitment(verifier_state)
 }
 
-pub fn packed_pcs_global_statements_for_verifier<
-    F: Field,
-    EF: ExtensionField<F> + ExtensionField<PF<EF>>,
->(
+pub fn packed_pcs_global_statements_for_verifier<F: Field, EF: ExtensionField<F> + ExtensionField<PF<EF>>>(
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
@@ -517,8 +469,7 @@ pub fn packed_pcs_global_statements_for_verifier<
                         .is_multiple_of(1 << chunks[0].n_vars)
                 );
                 packed_statements.push(Evaluation::new(
-                    chunks[0]
-                        .global_point_for_statement(&statement.point, all_chunks.packed_n_vars),
+                    chunks[0].global_point_for_statement(&statement.point, all_chunks.packed_n_vars),
                     statement.value,
                 ));
             } else {
@@ -530,9 +481,10 @@ pub fn packed_pcs_global_statements_for_verifier<
                     .collect::<Vec<_>>();
                 let mut sub_values = vec![];
                 if has_public_data {
-                    sub_values.push(public_data[&poly_index].evaluate(&MultilinearPoint(
-                        from_end(&statement.point, chunks[0].n_vars).to_vec(),
-                    )));
+                    sub_values.push(
+                        public_data[&poly_index]
+                            .evaluate(&MultilinearPoint(from_end(&statement.point, chunks[0].n_vars).to_vec())),
+                    );
                 }
                 for chunk in chunks {
                     if chunk.public_data {
@@ -553,8 +505,7 @@ pub fn packed_pcs_global_statements_for_verifier<
                     } else {
                         let sub_value = verifier_state.next_extension_scalar()?;
                         sub_values.push(sub_value);
-                        let sub_point =
-                            MultilinearPoint(statement.point.0[missing_vars..].to_vec());
+                        let sub_point = MultilinearPoint(statement.point.0[missing_vars..].to_vec());
                         packed_statements.push(Evaluation::new(
                             chunk.global_point_for_statement(&sub_point, all_chunks.packed_n_vars),
                             sub_value,
@@ -627,11 +578,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
         let log_smallest_decomposition_chunk = 4;
-        let committed_length_lengths_and_default_value_and_log_public_data: [(
-            usize,
-            F,
-            Option<usize>,
-        ); _] = [
+        let committed_length_lengths_and_default_value_and_log_public_data: [(usize, F, Option<usize>); _] = [
             (916, F::from_usize(8), Some(5)),
             (854, F::from_usize(0), Some(7)),
             (854, F::from_usize(1), Some(5)),
@@ -678,8 +625,7 @@ mod tests {
             let n_points = rng.random_range(1..5);
             let mut statements = Vec::new();
             for _ in 0..n_points {
-                let point =
-                    MultilinearPoint((0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>());
+                let point = MultilinearPoint((0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>());
                 let value = poly.evaluate(&point);
                 statements.push(Evaluation { point, value });
             }

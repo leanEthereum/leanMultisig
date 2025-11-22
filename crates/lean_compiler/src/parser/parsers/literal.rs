@@ -17,9 +17,7 @@ pub struct ConstantDeclarationParser;
 impl Parse<(String, usize)> for ConstantDeclarationParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<(String, usize)> {
         let mut inner = pair.into_inner();
-        let name = next_inner_pair(&mut inner, "constant name")?
-            .as_str()
-            .to_string();
+        let name = next_inner_pair(&mut inner, "constant name")?.as_str().to_string();
         let value_pair = next_inner_pair(&mut inner, "constant value")?;
 
         // Parse the expression and evaluate it
@@ -35,10 +33,7 @@ impl Parse<(String, usize)> for ConstantDeclarationParser {
                 &|_, _| None,
             )
             .ok_or_else(|| {
-                SemanticError::with_context(
-                    format!("Failed to evaluate constant: {name}"),
-                    "constant declaration",
-                )
+                SemanticError::with_context(format!("Failed to evaluate constant: {name}"), "constant declaration")
             })?
             .to_usize();
 
@@ -58,9 +53,7 @@ impl Parse<SimpleExpr> for VarOrConstantParser {
                 let inner = pair.into_inner().next().unwrap();
                 Self::parse(inner, ctx)
             }
-            Rule::identifier | Rule::constant_value => {
-                Self::parse_identifier_or_constant(text, ctx)
-            }
+            Rule::identifier | Rule::constant_value => Self::parse_identifier_or_constant(text, ctx),
             _ => Err(SemanticError::new("Expected identifier or constant").into()),
         }
     }
@@ -82,15 +75,15 @@ impl VarOrConstantParser {
             _ => {
                 // Try to resolve as defined constant
                 if let Some(value) = ctx.get_constant(text) {
-                    Ok(SimpleExpr::Constant(ConstExpression::Value(
-                        ConstantValue::Scalar(value),
-                    )))
+                    Ok(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(
+                        value,
+                    ))))
                 }
                 // Try to parse as numeric literal
                 else if let Ok(value) = text.parse::<usize>() {
-                    Ok(SimpleExpr::Constant(ConstExpression::Value(
-                        ConstantValue::Scalar(value),
-                    )))
+                    Ok(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(
+                        value,
+                    ))))
                 }
                 // Otherwise treat as variable reference
                 else {
@@ -112,10 +105,9 @@ impl Parse<usize> for ConstExprParser {
             Rule::constant_value => {
                 let text = inner.as_str();
                 match text {
-                    "public_input_start" => Err(SemanticError::new(
-                        "public_input_start cannot be used as match pattern",
-                    )
-                    .into()),
+                    "public_input_start" => {
+                        Err(SemanticError::new("public_input_start cannot be used as match pattern").into())
+                    }
                     _ => {
                         if let Some(value) = ctx.get_constant(text) {
                             Ok(value)
@@ -132,10 +124,7 @@ impl Parse<usize> for ConstExprParser {
                 }
             }
             _ => Err(SemanticError::with_context(
-                format!(
-                    "Only constant values are allowed in match patterns: {}",
-                    inner.as_str()
-                ),
+                format!("Only constant values are allowed in match patterns: {}", inner.as_str()),
                 "match pattern",
             )
             .into()),

@@ -59,11 +59,7 @@ pub enum AuxKind {
     /// @inlined_var_{count}_{var}
     InlinedVar { count: usize, var: String },
     /// @unrolled_{index}_{value}_{var}
-    UnrolledVar {
-        index: usize,
-        value: usize,
-        var: String,
-    },
+    UnrolledVar { index: usize, value: usize, var: String },
     /// @incremented_{var}
     Incremented(String),
     /// @trash_{id}
@@ -75,11 +71,7 @@ impl std::fmt::Display for Label {
         match self {
             Self::Function(name) => write!(f, "@function_{name}"),
             Self::EndProgram => write!(f, "@end_program"),
-            Self::If {
-                id,
-                kind,
-                line_number,
-            } => match kind {
+            Self::If { id, kind, line_number } => match kind {
                 IfKind::If => write!(f, "@if_{id}_line_{line_number}"),
                 IfKind::Else => write!(f, "@else_{id}_line_{line_number}"),
                 IfKind::End => write!(f, "@if_else_end_{id}_line_{line_number}"),
@@ -180,10 +172,7 @@ impl Label {
 
     pub fn inlined_var(count: usize, var: impl Into<String>) -> Self {
         Self::AuxVar {
-            kind: AuxKind::InlinedVar {
-                count,
-                var: var.into(),
-            },
+            kind: AuxKind::InlinedVar { count, var: var.into() },
             id: 0, // Not used for this variant
         }
     }

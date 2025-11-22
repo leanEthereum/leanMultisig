@@ -126,11 +126,7 @@ impl Instruction {
                 *ctx.pc += 1;
                 Ok(())
             }
-            Self::Deref {
-                shift_0,
-                shift_1,
-                res,
-            } => {
+            Self::Deref { shift_0, shift_1, res } => {
                 if res.is_value_unknown(ctx.memory, *ctx.fp) {
                     let memory_address_res = res.memory_address(*ctx.fp)?;
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
@@ -198,11 +194,7 @@ impl Display for Instruction {
             } => {
                 write!(f, "{res} = {arg_a} {operation} {arg_c}")
             }
-            Self::Deref {
-                shift_0,
-                shift_1,
-                res,
-            } => {
+            Self::Deref { shift_0, shift_1, res } => {
                 write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]")
             }
             Self::Jump {

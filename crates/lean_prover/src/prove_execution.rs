@@ -40,8 +40,7 @@ pub fn prove_execution(
             )
         });
         exec_summary = std::mem::take(&mut execution_result.summary);
-        info_span!("Building execution trace")
-            .in_scope(|| get_execution_trace(bytecode, execution_result))
+        info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
     if memory.len() < 1 << MIN_LOG_MEMORY_SIZE {
@@ -86,10 +85,7 @@ pub fn prove_execution(
     prover_state.add_base_scalars(
         &[
             vec![private_memory.len()],
-            traces
-                .iter()
-                .map(|t| t.n_rows_non_padded())
-                .collect::<Vec<_>>(),
+            traces.iter().map(|t| t.n_rows_non_padded()).collect::<Vec<_>>(),
         ]
         .concat()
         .into_iter()
@@ -119,9 +115,7 @@ pub fn prove_execution(
     ]
     .concat();
     for i in 0..N_TABLES {
-        base_pols.extend(
-            ALL_TABLES[i].committed_columns(&traces[i], commitmenent_extension_helper[i].as_ref()),
-        );
+        base_pols.extend(ALL_TABLES[i].committed_columns(&traces[i], commitmenent_extension_helper[i].as_ref()));
     }
 
     // 1st Commitment
@@ -133,8 +127,7 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let random_point_p16 =
-        MultilinearPoint(prover_state.sample_vec(traces[TABLE_POSEIDON_16].log_padded()));
+    let random_point_p16 = MultilinearPoint(prover_state.sample_vec(traces[TABLE_POSEIDON_16].log_padded()));
     let p16_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p16_witness,
@@ -143,8 +136,7 @@ pub fn prove_execution(
         &p16_gkr_layers,
     );
 
-    let random_point_p24 =
-        MultilinearPoint(prover_state.sample_vec(traces[TABLE_POSEIDON_24].log_padded()));
+    let random_point_p24 = MultilinearPoint(prover_state.sample_vec(traces[TABLE_POSEIDON_24].log_padded()));
     let p24_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p24_witness,
@@ -201,14 +193,10 @@ pub fn prove_execution(
             .flat_map(|i| ALL_TABLES[i].normal_lookup_index_columns_ef(&traces[i]))
             .collect(),
         (0..N_TABLES)
-            .flat_map(|i| {
-                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()]
-            })
+            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()])
             .collect(),
         (0..N_TABLES)
-            .flat_map(|i| {
-                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()]
-            })
+            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()])
             .collect(),
         (0..N_TABLES)
             .flat_map(|i| vec![0; ALL_TABLES[i].num_normal_lookups_f()])
@@ -240,14 +228,8 @@ pub fn prove_execution(
         ]
         .concat(),
         [
-            vec![
-                traces[TABLE_POSEIDON_16].n_rows_non_padded_maxed();
-                Table::poseidon16().num_vector_lookups()
-            ],
-            vec![
-                traces[TABLE_POSEIDON_24].n_rows_non_padded_maxed();
-                Table::poseidon24().num_vector_lookups()
-            ],
+            vec![traces[TABLE_POSEIDON_16].n_rows_non_padded_maxed(); Table::poseidon16().num_vector_lookups()],
+            vec![traces[TABLE_POSEIDON_24].n_rows_non_padded_maxed(); Table::poseidon24().num_vector_lookups()],
         ]
         .concat(),
         [
@@ -289,11 +271,9 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let mut normal_lookup_statements =
-        normal_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
+    let mut normal_lookup_statements = normal_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
 
-    let vectorized_lookup_statements =
-        vectorized_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
+    let vectorized_lookup_statements = vectorized_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
 
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
@@ -329,21 +309,13 @@ pub fn prove_execution(
 
     {
         // index opening for poseidon lookup
-        for (i, statement) in vectorized_lookup_statements.on_indexes[..4]
-            .iter()
-            .enumerate()
-        {
+        for (i, statement) in vectorized_lookup_statements.on_indexes[..4].iter().enumerate() {
             // TODO be more general
-            p16_statements[Poseidon16Precompile.vector_lookups()[i].index]
-                .extend(statement.clone());
+            p16_statements[Poseidon16Precompile.vector_lookups()[i].index].extend(statement.clone());
         }
-        for (i, statement) in vectorized_lookup_statements.on_indexes[4..]
-            .iter()
-            .enumerate()
-        {
+        for (i, statement) in vectorized_lookup_statements.on_indexes[4..].iter().enumerate() {
             // TODO be more general
-            p24_statements[Poseidon24Precompile.vector_lookups()[i].index]
-                .extend(statement.clone());
+            p24_statements[Poseidon24Precompile.vector_lookups()[i].index].extend(statement.clone());
         }
     }
 
@@ -491,8 +463,7 @@ fn prove_bus_and_air(
 
     let bus_virtual_statement = MultiEvaluation::new(bus_point, vec![bus_final_value]);
 
-    bus_quotient -=
-        bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
+    bus_quotient -= bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
 
     let extra_data = ExtraDataForBuses {
         bus_challenge,
@@ -500,26 +471,25 @@ fn prove_bus_and_air(
         bus_beta: bus_beta,
         alpha_powers: vec![], // filled later
     };
-    let (air_point, evals_f, evals_ef) =
-        info_span!("Table AIR proof", table = t.name()).in_scope(|| {
-            macro_rules! prove_air_for_table {
-                ($t:expr) => {
-                    prove_air(
-                        prover_state,
-                        $t,
-                        extra_data,
-                        UNIVARIATE_SKIPS,
-                        &trace.base[..$t.n_columns_f_air()],
-                        &trace.ext[..$t.n_columns_ef_air()],
-                        &$t.air_padding_row_f(),
-                        &$t.air_padding_row_ef(),
-                        Some(bus_virtual_statement),
-                        $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
-                    )
-                };
-            }
-            delegate_to_inner!(t => prove_air_for_table)
-        });
+    let (air_point, evals_f, evals_ef) = info_span!("Table AIR proof", table = t.name()).in_scope(|| {
+        macro_rules! prove_air_for_table {
+            ($t:expr) => {
+                prove_air(
+                    prover_state,
+                    $t,
+                    extra_data,
+                    UNIVARIATE_SKIPS,
+                    &trace.base[..$t.n_columns_f_air()],
+                    &trace.ext[..$t.n_columns_ef_air()],
+                    &$t.air_padding_row_f(),
+                    &$t.air_padding_row_ef(),
+                    Some(bus_virtual_statement),
+                    $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
+                )
+            };
+        }
+        delegate_to_inner!(t => prove_air_for_table)
+    });
 
     (bus_quotient, air_point, evals_f, evals_ef)
 }

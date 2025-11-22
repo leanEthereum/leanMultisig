@@ -16,7 +16,6 @@ pub const TABLE_POSEIDON_16: usize = 1;
 pub const TABLE_POSEIDON_24: usize = 2;
 pub const TABLE_EXECUTION: usize = 3;
 
-
 #[macro_export]
 macro_rules! delegate_to_inner {
     // Existing pattern for method calls

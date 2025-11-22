@@ -28,10 +28,7 @@ impl Compiler {
                 .get(var)
                 .unwrap_or_else(|| panic!("Variable {var} not in scope")))
             .into(),
-            VarOrConstMallocAccess::ConstMallocAccess {
-                malloc_label,
-                offset,
-            } => ConstExpression::Binary {
+            VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset } => ConstExpression::Binary {
                 left: Box::new(
                     self.const_mallocs
                         .get(malloc_label)
@@ -53,10 +50,7 @@ impl SimpleExpr {
                 offset: compiler.get_offset(&var.clone().into()),
             },
             Self::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
-            Self::ConstMallocAccess {
-                malloc_label,
-                offset,
-            } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+            Self::ConstMallocAccess { malloc_label, offset } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                 offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
                     malloc_label: *malloc_label,
                     offset: offset.clone(),
@@ -73,10 +67,7 @@ impl IntermediateValue {
                 offset: compiler.get_offset(&var.clone().into()),
             },
             SimpleExpr::Constant(c) => Self::Constant(c.clone()),
-            SimpleExpr::ConstMallocAccess {
-                malloc_label,
-                offset,
-            } => Self::MemoryAfterFp {
+            SimpleExpr::ConstMallocAccess { malloc_label, offset } => Self::MemoryAfterFp {
                 offset: ConstExpression::Binary {
                     left: Box::new(
                         compiler
@@ -93,25 +84,18 @@ impl IntermediateValue {
         }
     }
 
-    fn from_var_or_const_malloc_access(
-        var_or_const: &VarOrConstMallocAccess,
-        compiler: &Compiler,
-    ) -> Self {
+    fn from_var_or_const_malloc_access(var_or_const: &VarOrConstMallocAccess, compiler: &Compiler) -> Self {
         Self::from_simple_expr(&var_or_const.clone().into(), compiler)
     }
 }
 
-pub fn compile_to_intermediate_bytecode(
-    simple_program: SimpleProgram,
-) -> Result<IntermediateBytecode, String> {
+pub fn compile_to_intermediate_bytecode(simple_program: SimpleProgram) -> Result<IntermediateBytecode, String> {
     let mut compiler = Compiler::default();
     let mut memory_sizes = BTreeMap::new();
 
     for function in simple_program.functions.values() {
         let instructions = compile_function(function, &mut compiler)?;
-        compiler
-            .bytecode
-            .insert(Label::function(&function.name), instructions);
+        compiler.bytecode.insert(Label::function(&function.name), instructions);
         memory_sizes.insert(function.name.clone(), compiler.stack_size);
     }
 
@@ -191,11 +175,7 @@ fn compile_lines(
                 }
             }
 
-            SimpleLine::TestZero {
-                operation,
-                arg0,
-                arg1,
-            } => {
+            SimpleLine::TestZero { operation, arg0, arg1 } => {
                 instructions.push(IntermediateInstruction::computation(
                     *operation,
                     IntermediateValue::from_simple_expr(arg0, compiler),
@@ -230,10 +210,7 @@ fn compile_lines(
                     *declared_vars = if i == 0 {
                         arm_declared_vars
                     } else {
-                        declared_vars
-                            .intersection(&arm_declared_vars)
-                            .cloned()
-                            .collect()
+                        declared_vars.intersection(&arm_declared_vars).cloned().collect()
                     };
                 }
                 compiler.stack_size = new_stack_size;
@@ -249,8 +226,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Mul,
                     arg_a: value_simplified,
-                    arg_c: ConstExpression::Value(ConstantValue::MatchBlockSize { match_index })
-                        .into(),
+                    arg_c: ConstExpression::Value(ConstantValue::MatchBlockSize { match_index }).into(),
                     res: value_scaled_offset.clone(),
                 });
 
@@ -261,10 +237,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Add,
                     arg_a: value_scaled_offset,
-                    arg_c: ConstExpression::Value(ConstantValue::MatchFirstBlockStart {
-                        match_index,
-                    })
-                    .into(),
+                    arg_c: ConstExpression::Value(ConstantValue::MatchFirstBlockStart { match_index }).into(),
                     res: jump_dest_offset.clone(),
                 });
                 instructions.push(IntermediateInstruction::Jump {
@@ -272,13 +245,7 @@ fn compile_lines(
                     updated_fp: None,
                 });
 
-                let remaining = compile_lines(
-                    function_name,
-                    &lines[i + 1..],
-                    compiler,
-                    final_jump,
-                    declared_vars,
-                )?;
+                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump, declared_vars)?;
                 compiler.bytecode.insert(end_label, remaining);
 
                 return Ok(instructions);
@@ -386,21 +353,12 @@ fn compile_lines(
                 let else_stack = compiler.stack_size;
 
                 compiler.stack_size = then_stack.max(else_stack);
-                *declared_vars = then_declared_vars
-                    .intersection(&else_declared_vars)
-                    .cloned()
-                    .collect();
+                *declared_vars = then_declared_vars.intersection(&else_declared_vars).cloned().collect();
 
                 compiler.bytecode.insert(if_label, then_instructions);
                 compiler.bytecode.insert(else_label, else_instructions);
 
-                let remaining = compile_lines(
-                    function_name,
-                    &lines[i + 1..],
-                    compiler,
-                    final_jump,
-                    declared_vars,
-                )?;
+                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump, declared_vars)?;
                 compiler.bytecode.insert(end_label, remaining);
 
                 return Ok(instructions);
@@ -487,11 +445,7 @@ fn compile_lines(
                     arg_a: IntermediateValue::from_simple_expr(&args[0], compiler),
                     arg_b: IntermediateValue::from_simple_expr(&args[1], compiler),
                     arg_c: IntermediateValue::from_simple_expr(&args[2], compiler),
-                    aux: args
-                        .get(3)
-                        .unwrap_or(&SimpleExpr::zero())
-                        .as_constant()
-                        .unwrap(),
+                    aux: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
                 });
             }
 
@@ -599,9 +553,7 @@ fn compile_lines(
                 });
             }
             SimpleLine::LocationReport { location } => {
-                instructions.push(IntermediateInstruction::LocationReport {
-                    location: *location,
-                });
+                instructions.push(IntermediateInstruction::LocationReport { location: *location });
             }
         }
     }
@@ -646,10 +598,7 @@ fn mark_vars_as_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &mut B
     }
 }
 
-fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(
-    vocs: &[VoC],
-    declared: &BTreeSet<Var>,
-) -> Result<(), String> {
+fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &BTreeSet<Var>) -> Result<(), String> {
     for voc in vocs {
         if let SimpleExpr::Var(v) = voc.borrow()
             && !declared.contains(v)
@@ -677,9 +626,7 @@ fn setup_function_call(
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
             shift_1: ConstExpression::zero(),
-            res: IntermediaryMemOrFpOrConstant::Constant(ConstExpression::label(
-                return_label.clone(),
-            )),
+            res: IntermediaryMemOrFpOrConstant::Constant(ConstExpression::label(return_label.clone())),
         },
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),

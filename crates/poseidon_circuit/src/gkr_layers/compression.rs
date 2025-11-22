@@ -41,9 +41,7 @@ where
             res += EFPacking::<EF>::from(alpha_powers[i]) * point[i];
         }
         for i in self.compressed_output..WIDTH {
-            res += EFPacking::<EF>::from(alpha_powers[i])
-                * point[i]
-                * (PFPacking::<EF>::ONE - compressed);
+            res += EFPacking::<EF>::from(alpha_powers[i]) * point[i] * (PFPacking::<EF>::ONE - compressed);
         }
 
         res

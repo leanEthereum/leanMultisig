@@ -28,11 +28,7 @@ fn poseidon16_compress(a: &Digest, b: &Digest) -> Digest {
         .unwrap()
 }
 
-fn poseidon16_compress_with_trace(
-    a: &Digest,
-    b: &Digest,
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 16])>,
-) -> Digest {
+fn poseidon16_compress_with_trace(a: &Digest, b: &Digest, poseidon_16_trace: &mut Vec<([F; 16], [F; 16])>) -> Digest {
     let input: [F; 16] = [*a, *b].concat().try_into().unwrap();
     let output = poseidon16_permute(input);
     poseidon_16_trace.push((input, output));

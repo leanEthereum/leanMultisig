@@ -25,10 +25,7 @@ fn test_memory_already_set_error() {
     memory.set(0, F::ONE).unwrap();
 
     // Setting different value should fail
-    assert!(matches!(
-        memory.set(0, F::ZERO),
-        Err(RunnerError::MemoryAlreadySet)
-    ));
+    assert!(matches!(memory.set(0, F::ZERO), Err(RunnerError::MemoryAlreadySet)));
 }
 
 #[test]

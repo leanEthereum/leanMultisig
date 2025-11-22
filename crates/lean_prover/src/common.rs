@@ -27,37 +27,21 @@ pub(crate) fn get_base_dims(
         ],
         p16_default_cubes
             .iter()
-            .map(|&c| {
-                ColDims::padded(
-                    table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed(),
-                    c,
-                )
-            })
+            .map(|&c| ColDims::padded(table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(), // commited cubes for poseidon16
         p24_default_cubes
             .iter()
-            .map(|&c| {
-                ColDims::padded(
-                    table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed(),
-                    c,
-                )
-            })
+            .map(|&c| ColDims::padded(table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(), // commited cubes for poseidon24
-        Table::dot_product()
-            .committed_dims(table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed()),
-        Table::poseidon16()
-            .committed_dims(table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed()),
-        Table::poseidon24()
-            .committed_dims(table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed()),
+        Table::dot_product().committed_dims(table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed()),
+        Table::poseidon16().committed_dims(table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed()),
+        Table::poseidon24().committed_dims(table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed()),
         Table::execution().committed_dims(table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed()),
     ]
     .concat()
 }
 
-pub(crate) fn fold_bytecode(
-    bytecode: &Bytecode,
-    folding_challenges: &MultilinearPoint<EF>,
-) -> Vec<EF> {
+pub(crate) fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
     let encoded_bytecode = padd_with_zero_to_next_power_of_two(
         &bytecode
             .instructions
@@ -68,13 +52,9 @@ pub(crate) fn fold_bytecode(
     fold_multilinear_chunks(&encoded_bytecode, folding_challenges)
 }
 
-pub(crate) fn initial_and_final_pc_conditions(
-    log_n_cycles: usize,
-) -> (Evaluation<EF>, Evaluation<EF>) {
-    let initial_pc_statement =
-        Evaluation::new(EF::zero_vec(log_n_cycles), EF::from_usize(STARTING_PC));
-    let final_pc_statement =
-        Evaluation::new(vec![EF::ONE; log_n_cycles], EF::from_usize(ENDING_PC));
+pub(crate) fn initial_and_final_pc_conditions(log_n_cycles: usize) -> (Evaluation<EF>, Evaluation<EF>) {
+    let initial_pc_statement = Evaluation::new(EF::zero_vec(log_n_cycles), EF::from_usize(STARTING_PC));
+    let final_pc_statement = Evaluation::new(vec![EF::ONE; log_n_cycles], EF::from_usize(ENDING_PC));
     (initial_pc_statement, final_pc_statement)
 }
 

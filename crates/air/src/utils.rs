@@ -36,11 +36,7 @@ use multilinear_toolkit::prelude::*;
 /// Field element: 1 if y = x + 1, 0 otherwise.
 pub(crate) fn next_mle<F: Field>(point: &[F]) -> F {
     // Check that the point length is even: we split into x and y of equal length.
-    assert_eq!(
-        point.len() % 2,
-        0,
-        "Input point must have an even number of variables."
-    );
+    assert_eq!(point.len() % 2, 0, "Input point must have an even number of variables.");
     let n = point.len() / 2;
 
     // Split point into x (first n) and y (last n).
@@ -56,9 +52,7 @@ pub(crate) fn next_mle<F: Field>(point: &[F]) -> F {
             //
             // Indices are reversed because bits are big-endian.
             let eq_high_bits = (k + 1..n)
-                .map(|i| {
-                    x[n - 1 - i] * y[n - 1 - i] + (F::ONE - x[n - 1 - i]) * (F::ONE - y[n - 1 - i])
-                })
+                .map(|i| x[n - 1 - i] * y[n - 1 - i] + (F::ONE - x[n - 1 - i]) * (F::ONE - y[n - 1 - i]))
                 .product::<F>();
 
             // Term 2: carry bit at position k
@@ -71,9 +65,7 @@ pub(crate) fn next_mle<F: Field>(point: &[F]) -> F {
             //
             // For i < k, enforce x_i = 1 and y_i = 0.
             // Condition: x_i * (1 - y_i).
-            let low_bits_are_one_zero = (0..k)
-                .map(|i| x[n - 1 - i] * (F::ONE - y[n - 1 - i]))
-                .product::<F>();
+            let low_bits_are_one_zero = (0..k).map(|i| x[n - 1 - i] * (F::ONE - y[n - 1 - i])).product::<F>();
 
             // Multiply the three terms for this k, representing one "carry pattern".
             eq_high_bits * carry_bit * low_bits_are_one_zero
