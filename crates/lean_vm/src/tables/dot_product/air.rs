@@ -109,8 +109,7 @@ impl Air for DotProductPrecompile {
         let not_flag_down = AB::F::ONE - start_flag_down.clone();
         builder.assert_eq_ef(
             computation_up.clone(),
-            product_up.clone() * start_flag_down.clone()
-                + (product_up + computation_down) * not_flag_down.clone(),
+            product_up.clone() + computation_down * not_flag_down.clone(),
         );
         builder.assert_zero(not_flag_down.clone() * (len_up.clone() - (len_down + AB::F::ONE)));
         builder.assert_zero(start_flag_down * (len_up - AB::F::ONE));

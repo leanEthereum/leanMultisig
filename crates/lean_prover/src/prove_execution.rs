@@ -198,36 +198,37 @@ pub fn prove_execution(
     let bus_challenge = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
 
-    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) =
-        prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
-            &mut prover_state,
-            &main_trace,
-            bus_challenge,
-            fingerprint_challenge,
-            &Table::execution().buses()[0], // TODO multiple buses
-        );
+    let (exec_bus_quotient, exec_bus_beta, exec_bus_virtual_statement) = prove_bus_for_air_table(
+        &mut prover_state,
+        &Table::execution(),
+        &main_trace,
+        bus_challenge,
+        fingerprint_challenge,
+        &Table::execution().buses()[0], // TODO multiple buses
+    );
 
-    let (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement) =
-        prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
-            &mut prover_state,
-            &traces[TABLE_POSEIDON_16],
-            bus_challenge,
-            fingerprint_challenge,
-            &Table::poseidon16().buses()[0], // TODO multiple buses
-        );
+    let (p16_bus_quotient, p16_bus_beta, p16_bus_virtual_statement) = prove_bus_for_air_table(
+        &mut prover_state,
+        &Table::poseidon16(),
+        &traces[TABLE_POSEIDON_16],
+        bus_challenge,
+        fingerprint_challenge,
+        &Table::poseidon16().buses()[0], // TODO multiple buses
+    );
 
-    let (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement) =
-        prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
-            &mut prover_state,
-            &traces[TABLE_POSEIDON_24],
-            bus_challenge,
-            fingerprint_challenge,
-            &Table::poseidon24().buses()[0], // TODO multiple buses
-        );
+    let (p24_bus_quotient, p24_bus_beta, p24_bus_virtual_statement) = prove_bus_for_air_table(
+        &mut prover_state,
+        &Table::poseidon24(),
+        &traces[TABLE_POSEIDON_24],
+        bus_challenge,
+        fingerprint_challenge,
+        &Table::poseidon24().buses()[0], // TODO multiple buses
+    );
 
-    let (mut dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
-        prove_bus_for_air_table::<TWO_POW_UNIVARIATE_SKIPS>(
+    let (dot_product_bus_quotient, dot_product_bus_beta, dot_product_bus_virtual_statement) =
+        prove_bus_for_air_table(
             &mut prover_state,
+            &Table::dot_product(),
             &traces[TABLE_DOT_PRODUCT],
             bus_challenge,
             fingerprint_challenge,
@@ -255,18 +256,6 @@ pub fn prove_execution(
         })
         .sum::<EF>();
 
-    dot_product_bus_quotient += EF::from_usize(traces[TABLE_DOT_PRODUCT].padding_len)
-        / (bus_challenge
-            + finger_print(
-                Table::dot_product().embed(),
-                &[
-                    EF::ZERO, // IndexA
-                    EF::ZERO, // IndexB
-                    EF::ZERO, // IndexRes
-                    EF::ONE,  // Len
-                ],
-                fingerprint_challenge,
-            ));
     assert_eq!(
         exec_bus_quotient
             + p16_bus_quotient
@@ -604,8 +593,9 @@ pub fn prove_execution(
     )
 }
 
-fn prove_bus_for_air_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
+fn prove_bus_for_air_table<T: TableT>(
     prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
+    t: &T,
     trace: &TableTrace,
     bus_challenge: EF,
     fingerprint_challenge: EF,
@@ -645,8 +635,8 @@ fn prove_bus_for_air_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
 
     let bus_selector_packed = pack_extension(&bus_selector);
     let bus_data_packed = pack_extension(&bus_data);
-    let (bus_quotient, bus_point, bus_selector_value, bus_data_value) =
-        prove_gkr_quotient::<_, TABLE_TWO_POW_UNIVARIATE_SKIP>(
+    let (mut bus_quotient, bus_point, bus_selector_value, bus_data_value) =
+        prove_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
             prover_state,
             &MleGroupRef::ExtensionPacked(vec![&bus_selector_packed, &bus_data_packed]),
         );
@@ -660,6 +650,10 @@ fn prove_bus_for_air_table<const TABLE_TWO_POW_UNIVARIATE_SKIP: usize>(
         + bus_beta * bus_data_value;
 
     let bus_virtual_statement = MultiEvaluation::new(bus_point, vec![bus_final_value]);
+
+    bus_quotient -=
+        bus.padding_contribution(t, trace.padding_len, bus_challenge, fingerprint_challenge);
+
     (bus_quotient, bus_beta, bus_virtual_statement)
 }
 

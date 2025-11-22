@@ -176,10 +176,3 @@ pub(crate) fn poseidon_lookup_statements(
     ]
 }
 
-pub(crate) fn finger_print<F: Field, EF: ExtensionField<F>>(
-    table: F,
-    data: &[F],
-    challenge: EF,
-) -> EF {
-    dot_product::<EF, _, _>(challenge.powers().skip(1), data.iter().copied()) + table
-}
