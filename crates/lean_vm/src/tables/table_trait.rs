@@ -9,8 +9,6 @@ use sub_protocols::{
     committed_dims_extension_from_base,
 };
 
-pub type ColIndex = usize;
-
 pub const N_PRECOMPILES: usize = 3; // excluding execution table
 pub const ALL_PRECOMPILES: [Table; N_PRECOMPILES] = [
     Table::dot_product(),
@@ -28,6 +26,14 @@ pub const ALL_TABLES: [Table; N_TABLES] = {
     }
     tables
 };
+
+// Zero padding will be added to each at least, if this minimum is not reached
+// (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)
+// Long term, we should find a more elegant solution.
+pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8;
+pub const MIN_N_ROWS_PER_TABLE: usize = 1 << MIN_LOG_N_ROWS_PER_TABLE;
+
+pub type ColIndex = usize;
 
 #[derive(Debug)]
 pub struct LookupIntoMemory {
@@ -76,11 +82,33 @@ pub enum BusTable {
     Variable(ColIndex),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TableHeight(pub usize);
+
+impl TableHeight {
+    pub fn n_rows_non_padded(self) -> usize {
+        self.0
+    }
+    pub fn n_rows_non_padded_maxed(self) -> usize {
+        self.0.max(MIN_N_ROWS_PER_TABLE)
+    }
+    pub fn n_rows_padded(self) -> usize {
+        self.0.next_power_of_two().max(MIN_N_ROWS_PER_TABLE)
+    }
+    pub fn padding_len(self) -> usize {
+        self.n_rows_padded() - self.0
+    }
+    pub fn log_padded(self) -> usize {
+        log2_strict_usize(self.n_rows_padded())
+    }
+}
+
+#[derive(Debug, Default, derive_more::Deref)]
 pub struct TableTrace {
     pub base: Vec<Vec<F>>,
     pub ext: Vec<Vec<EF>>,
-    pub padding_len: usize,
+    #[deref]
+    pub height: TableHeight,
 }
 
 impl TableTrace {
@@ -88,17 +116,8 @@ impl TableTrace {
         Self {
             base: vec![Vec::new(); air.n_columns_f_total()],
             ext: vec![Vec::new(); air.n_columns_ef_total()],
-            padding_len: 0,
+            height: TableHeight::default(), // filled later
         }
-    }
-
-    pub fn n_rows_non_padded(&self) -> usize {
-        self.base[0].len() - self.padding_len
-    }
-
-    pub fn n_rows_padded(&self) -> usize {
-        assert!(self.base[0].len().is_power_of_two());
-        self.base[0].len()
     }
 }
 

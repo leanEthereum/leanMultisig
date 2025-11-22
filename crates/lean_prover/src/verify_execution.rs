@@ -1,3 +1,5 @@
+use std::array;
+
 use crate::common::*;
 use crate::*;
 use air::verify_air;
@@ -26,45 +28,29 @@ pub fn verify_execution(
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
-    let [
-        n_rows_table_dot_products,
-        n_poseidons_16,
-        n_poseidons_24,
-        n_cycles,
-        private_memory_len,
-    ] = verifier_state
-        .next_base_scalars_const::<5>()
+    let dims = verifier_state
+        .next_base_scalars_vec(1 + N_TABLES)
         .unwrap()
         .into_iter()
         .map(|x| x.to_usize())
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+        .collect::<Vec<_>>();
+    let private_memory_len = dims[0];
+    let table_heights: [TableHeight; N_TABLES] = array::from_fn(|i| TableHeight(dims[i + 1]));
 
     let public_memory = build_public_memory(public_input);
 
     let log_public_memory = log2_strict_usize(public_memory.len());
     let log_memory = log2_ceil_usize(public_memory.len() + private_memory_len);
-    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(MIN_LOG_N_ROWS_PER_TABLE);
-    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(MIN_LOG_N_ROWS_PER_TABLE);
-    let log_n_cycles = log2_ceil_usize(n_cycles);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
         return Err(ProofError::InvalidProof);
     }
 
-    let table_dot_products_log_n_rows =
-        log2_ceil_usize(n_rows_table_dot_products).max(MIN_LOG_N_ROWS_PER_TABLE);
-    let dot_product_padding_len = (1 << table_dot_products_log_n_rows) - n_rows_table_dot_products;
-
     let base_dims = get_base_dims(
         log_public_memory,
         private_memory_len,
         (&p16_gkr_layers, &p24_gkr_layers),
-        n_rows_table_dot_products,
-        n_poseidons_16,
-        n_poseidons_24,
-        n_cycles,
+        table_heights,
     );
     let parsed_commitment_base = packed_pcs_parse_commitment(
         &whir_config_builder,
@@ -74,20 +60,22 @@ pub fn verify_execution(
     )
     .unwrap();
 
-    let random_point_p16 = MultilinearPoint(verifier_state.sample_vec(log_n_p16));
+    let random_point_p16 =
+        MultilinearPoint(verifier_state.sample_vec(table_heights[TABLE_POSEIDON_16].log_padded()));
     let p16_gkr = verify_poseidon_gkr(
         &mut verifier_state,
-        log_n_p16,
+        table_heights[TABLE_POSEIDON_16].log_padded(),
         &random_point_p16,
         &p16_gkr_layers,
         UNIVARIATE_SKIPS,
         true,
     );
 
-    let random_point_p24 = MultilinearPoint(verifier_state.sample_vec(log_n_p24));
+    let random_point_p24 =
+        MultilinearPoint(verifier_state.sample_vec(table_heights[TABLE_POSEIDON_24].log_padded()));
     let p24_gkr = verify_poseidon_gkr(
         &mut verifier_state,
-        log_n_p24,
+        table_heights[TABLE_POSEIDON_24].log_padded(),
         &random_point_p24,
         &p24_gkr_layers,
         UNIVARIATE_SKIPS,
@@ -102,25 +90,12 @@ pub fn verify_execution(
     let mut evals_f: [Vec<EF>; N_TABLES] = Default::default();
     let mut evals_ef: [Vec<EF>; N_TABLES] = Default::default();
 
-    let log_n_rows_per_table = [
-        table_dot_products_log_n_rows,
-        log_n_p16,
-        log_n_p24,
-        log_n_cycles,
-    ];
-    let padding_per_table = [
-        dot_product_padding_len,
-        (1 << log_n_p16) - n_poseidons_16,
-        (1 << log_n_p24) - n_poseidons_24,
-        n_cycles.next_power_of_two() - n_cycles,
-    ];
-
     for i in 0..N_TABLES {
         (bus_quotients[i], air_points[i], evals_f[i], evals_ef[i]) = verify_bus_and_air(
             &mut verifier_state,
             &ALL_TABLES[i],
-            log_n_rows_per_table[i],
-            padding_per_table[i],
+            table_heights[i].log_padded(),
+            table_heights[i].padding_len(),
             bus_challenge,
             fingerprint_challenge,
         )
@@ -143,17 +118,23 @@ pub fn verify_execution(
     let normal_lookup_into_memory = NormalPackedLookupVerifier::step_1(
         &mut verifier_state,
         [
-            vec![n_cycles; Table::execution().num_normal_lookups_f()],
             vec![
-                n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE);
+                table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed();
+                Table::execution().num_normal_lookups_f()
+            ],
+            vec![
+                table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
                 Table::dot_product().num_normal_lookups_f()
             ],
         ]
         .concat(),
         [
-            vec![n_cycles; Table::execution().num_normal_lookups_ef()],
             vec![
-                n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE);
+                table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed();
+                Table::execution().num_normal_lookups_ef()
+            ],
+            vec![
+                table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
                 Table::dot_product().num_normal_lookups_ef()
             ],
         ]
@@ -199,11 +180,11 @@ pub fn verify_execution(
         &mut verifier_state,
         [
             vec![
-                n_poseidons_16.max(MIN_N_ROWS_PER_TABLE);
+                table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed();
                 Table::poseidon16().num_vector_lookups()
             ],
             vec![
-                n_poseidons_24.max(MIN_N_ROWS_PER_TABLE);
+                table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed();
                 Table::poseidon24().num_vector_lookups()
             ],
         ]
@@ -251,7 +232,7 @@ pub fn verify_execution(
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
         log2_ceil_usize(bytecode.instructions.len()),
-        log_n_cycles,
+        table_heights[TABLE_EXECUTION].log_padded(),
         &[bytecode_lookup_claim_1],
         EF::ONE,
     )
@@ -307,7 +288,8 @@ pub fn verify_execution(
         }
     }
 
-    let (initial_pc_statement, final_pc_statement) = initial_and_final_pc_conditions(log_n_cycles);
+    let (initial_pc_statement, final_pc_statement) =
+        initial_and_final_pc_conditions(table_heights[TABLE_EXECUTION].log_padded());
 
     let dot_product_statements = DotProductPrecompile
         .committed_statements_verifier(

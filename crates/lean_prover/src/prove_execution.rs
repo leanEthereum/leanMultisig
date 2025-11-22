@@ -1,3 +1,5 @@
+use std::array;
+
 use crate::common::*;
 use crate::*;
 use air::prove_air;
@@ -50,11 +52,6 @@ pub fn prove_execution(
     let private_memory = &memory[public_memory_size..non_zero_memory_size];
     let log_public_memory = log2_strict_usize(public_memory.len());
 
-    let log_n_p16 = log2_ceil_usize(traces[TABLE_POSEIDON_16].n_rows_non_padded())
-        .max(MIN_LOG_N_ROWS_PER_TABLE);
-    let log_n_p24 = log2_ceil_usize(traces[TABLE_POSEIDON_24].n_rows_non_padded())
-        .max(MIN_LOG_N_ROWS_PER_TABLE);
-
     let _validity_proof_span = info_span!("Validity proof generation").entered();
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
@@ -85,12 +82,13 @@ pub fn prove_execution(
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
         &[
-            traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
-            traces[TABLE_POSEIDON_16].n_rows_non_padded(),
-            traces[TABLE_POSEIDON_24].n_rows_non_padded(),
-            traces[TABLE_EXECUTION].n_rows_non_padded(),
-            private_memory.len(),
+            vec![private_memory.len()],
+            traces
+                .iter()
+                .map(|t| t.n_rows_non_padded())
+                .collect::<Vec<_>>(),
         ]
+        .concat()
         .into_iter()
         .map(F::from_usize)
         .collect::<Vec<_>>(),
@@ -100,10 +98,7 @@ pub fn prove_execution(
         log_public_memory,
         private_memory.len(),
         (&p16_gkr_layers, &p24_gkr_layers),
-        traces[TABLE_DOT_PRODUCT].n_rows_non_padded(),
-        traces[TABLE_POSEIDON_16].n_rows_non_padded(),
-        traces[TABLE_POSEIDON_24].n_rows_non_padded(),
-        traces[TABLE_EXECUTION].n_rows_non_padded(),
+        array::from_fn(|i| traces[i].height),
     );
 
     let base_pols = [
@@ -137,7 +132,8 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let random_point_p16 = MultilinearPoint(prover_state.sample_vec(log_n_p16));
+    let random_point_p16 =
+        MultilinearPoint(prover_state.sample_vec(traces[TABLE_POSEIDON_16].log_padded()));
     let p16_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p16_witness,
@@ -146,7 +142,8 @@ pub fn prove_execution(
         &p16_gkr_layers,
     );
 
-    let random_point_p24 = MultilinearPoint(prover_state.sample_vec(log_n_p24));
+    let random_point_p24 =
+        MultilinearPoint(prover_state.sample_vec(traces[TABLE_POSEIDON_24].log_padded()));
     let p24_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p24_witness,
@@ -208,30 +205,22 @@ pub fn prove_execution(
         .concat(),
         [
             vec![
-                traces[TABLE_EXECUTION]
-                    .n_rows_non_padded()
-                    .max(MIN_N_ROWS_PER_TABLE);
+                traces[TABLE_EXECUTION].n_rows_non_padded_maxed();
                 Table::execution().num_normal_lookups_f()
             ],
             vec![
-                traces[TABLE_DOT_PRODUCT]
-                    .n_rows_non_padded()
-                    .max(MIN_N_ROWS_PER_TABLE);
+                traces[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
                 Table::dot_product().num_normal_lookups_f()
             ],
         ]
         .concat(),
         [
             vec![
-                traces[TABLE_EXECUTION]
-                    .n_rows_non_padded()
-                    .max(MIN_N_ROWS_PER_TABLE);
+                traces[TABLE_EXECUTION].n_rows_non_padded_maxed();
                 Table::execution().num_normal_lookups_ef()
             ],
             vec![
-                traces[TABLE_DOT_PRODUCT]
-                    .n_rows_non_padded()
-                    .max(MIN_N_ROWS_PER_TABLE);
+                traces[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
                 Table::dot_product().num_normal_lookups_ef()
             ],
         ]
@@ -291,15 +280,11 @@ pub fn prove_execution(
         .concat(),
         [
             vec![
-                traces[TABLE_POSEIDON_16]
-                    .n_rows_non_padded()
-                    .max(MIN_N_ROWS_PER_TABLE);
+                traces[TABLE_POSEIDON_16].n_rows_non_padded_maxed();
                 Table::poseidon16().num_vector_lookups()
             ],
             vec![
-                traces[TABLE_POSEIDON_24]
-                    .n_rows_non_padded()
-                    .max(MIN_N_ROWS_PER_TABLE);
+                traces[TABLE_POSEIDON_24].n_rows_non_padded_maxed();
                 Table::poseidon24().num_vector_lookups()
             ],
         ]
@@ -402,11 +387,7 @@ pub fn prove_execution(
     }
 
     let (initial_pc_statement, final_pc_statement) =
-        initial_and_final_pc_conditions(log2_ceil_usize(
-            traces[TABLE_EXECUTION]
-                .n_rows_non_padded()
-                .max(MIN_N_ROWS_PER_TABLE),
-        ));
+        initial_and_final_pc_conditions(traces[TABLE_EXECUTION].log_padded());
 
     let mut exec_statements = Table::execution().committed_statements_prover(
         &mut prover_state,
@@ -550,7 +531,7 @@ fn prove_bus_and_air(
     let bus_virtual_statement = MultiEvaluation::new(bus_point, vec![bus_final_value]);
 
     bus_quotient -=
-        bus.padding_contribution(t, trace.padding_len, bus_challenge, fingerprint_challenge);
+        bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
 
     let extra_data = ExtraDataForBuses {
         bus_challenge,

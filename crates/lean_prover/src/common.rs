@@ -16,15 +16,8 @@ pub(crate) fn get_base_dims(
         &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
         &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
     ),
-    n_rows_table_dot_products: usize,
-    n_poseidons_16: usize,
-    n_poseidons_24: usize,
-    n_cycles: usize,
+    table_heights: [TableHeight; N_TABLES],
 ) -> Vec<ColDims<F>> {
-    let n_rows_table_dot_products = n_rows_table_dot_products.max(MIN_N_ROWS_PER_TABLE);
-    let n_poseidons_16 = n_poseidons_16.max(MIN_N_ROWS_PER_TABLE);
-    let n_poseidons_24 = n_poseidons_24.max(MIN_N_ROWS_PER_TABLE);
-
     let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(p16_gkr_layers);
     let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(p24_gkr_layers);
 
@@ -34,16 +27,29 @@ pub(crate) fn get_base_dims(
         ],
         p16_default_cubes
             .iter()
-            .map(|&c| ColDims::padded(n_poseidons_16, c))
+            .map(|&c| {
+                ColDims::padded(
+                    table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed(),
+                    c,
+                )
+            })
             .collect::<Vec<_>>(), // commited cubes for poseidon16
         p24_default_cubes
             .iter()
-            .map(|&c| ColDims::padded(n_poseidons_24, c))
+            .map(|&c| {
+                ColDims::padded(
+                    table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed(),
+                    c,
+                )
+            })
             .collect::<Vec<_>>(), // commited cubes for poseidon24
-        Table::dot_product().committed_dims(n_rows_table_dot_products),
-        Table::poseidon16().committed_dims(n_poseidons_16),
-        Table::poseidon24().committed_dims(n_poseidons_24),
-        Table::execution().committed_dims(n_cycles),
+        Table::dot_product()
+            .committed_dims(table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed()),
+        Table::poseidon16()
+            .committed_dims(table_heights[TABLE_POSEIDON_16].n_rows_non_padded_maxed()),
+        Table::poseidon24()
+            .committed_dims(table_heights[TABLE_POSEIDON_24].n_rows_non_padded_maxed()),
+        Table::execution().committed_dims(table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed()),
     ]
     .concat()
 }
