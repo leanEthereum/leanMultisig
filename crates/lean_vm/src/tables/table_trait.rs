@@ -227,6 +227,12 @@ pub trait TableT: Air {
         ));
         dims
     }
+    fn num_commited_columns_f(&self) -> usize {
+        self.commited_columns_f().len()
+    }
+    fn n_commited_columns_ef(&self) -> usize {
+        self.commited_columns_ef().len()
+    }
     fn committed_statements_prover(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -276,7 +282,7 @@ pub trait TableT: Air {
             .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c].clone())])
             .collect::<Vec<_>>();
 
-        if self.commited_columns_ef().len() > 0 {
+        if self.n_commited_columns_ef() > 0 {
             statements.extend(ExtensionCommitmentFromBaseVerifier::after_commitment(
                 verifier_state,
                 &MultiEvaluation::new(

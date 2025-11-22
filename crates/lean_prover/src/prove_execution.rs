@@ -70,14 +70,17 @@ pub fn prove_execution(
         None,
     );
 
-    let dot_product_computation_ext_base_helper =
-        ExtensionCommitmentFromBaseProver::before_commitment(
-            Table::dot_product()
-                .commited_columns_ef()
-                .iter()
-                .map(|&c| &traces[TABLE_DOT_PRODUCT].ext[c][..])
-                .collect::<Vec<_>>(),
-        );
+    let commitmenent_extension_helper: [_; N_TABLES] = array::from_fn(|i| {
+        (ALL_TABLES[i].n_commited_columns_ef() > 0).then(|| {
+            ExtensionCommitmentFromBaseProver::before_commitment(
+                ALL_TABLES[i]
+                    .commited_columns_ef()
+                    .iter()
+                    .map(|&c| &traces[i].ext[c][..])
+                    .collect::<Vec<_>>(),
+            )
+        })
+    });
 
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
@@ -101,7 +104,7 @@ pub fn prove_execution(
         array::from_fn(|i| traces[i].height),
     );
 
-    let base_pols = [
+    let mut base_pols = [
         vec![memory.as_slice()],
         p16_witness
             .committed_cubes
@@ -113,15 +116,13 @@ pub fn prove_execution(
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        Table::dot_product().committed_columns(
-            &traces[TABLE_DOT_PRODUCT],
-            Some(&dot_product_computation_ext_base_helper),
-        ),
-        Table::poseidon16().committed_columns(&traces[TABLE_POSEIDON_16], None),
-        Table::poseidon24().committed_columns(&traces[TABLE_POSEIDON_24], None),
-        Table::execution().committed_columns(&traces[TABLE_EXECUTION], None),
     ]
     .concat();
+    for i in 0..N_TABLES {
+        base_pols.extend(
+            ALL_TABLES[i].committed_columns(&traces[i], commitmenent_extension_helper[i].as_ref()),
+        );
+    }
 
     // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
@@ -193,80 +194,40 @@ pub fn prove_execution(
     let normal_lookup_into_memory = NormalPackedLookupProver::step_1(
         &mut prover_state,
         &memory,
-        [
-            ExecutionTable.normal_lookup_index_columns_f(&traces[TABLE_EXECUTION]),
-            DotProductPrecompile.normal_lookup_index_columns_f(&traces[TABLE_DOT_PRODUCT]),
-        ]
-        .concat(),
-        [
-            ExecutionTable.normal_lookup_index_columns_ef(&traces[TABLE_EXECUTION]),
-            DotProductPrecompile.normal_lookup_index_columns_ef(&traces[TABLE_DOT_PRODUCT]),
-        ]
-        .concat(),
-        [
-            vec![
-                traces[TABLE_EXECUTION].n_rows_non_padded_maxed();
-                Table::execution().num_normal_lookups_f()
-            ],
-            vec![
-                traces[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
-                Table::dot_product().num_normal_lookups_f()
-            ],
-        ]
-        .concat(),
-        [
-            vec![
-                traces[TABLE_EXECUTION].n_rows_non_padded_maxed();
-                Table::execution().num_normal_lookups_ef()
-            ],
-            vec![
-                traces[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
-                Table::dot_product().num_normal_lookups_ef()
-            ],
-        ]
-        .concat(),
-        [
-            vec![0; Table::execution().num_normal_lookups_f()],
-            vec![0; Table::dot_product().num_normal_lookups_f()],
-        ]
-        .concat(), // TODO handle the case with non-zero default index
-        [
-            vec![0; Table::execution().num_normal_lookups_ef()],
-            vec![0; Table::dot_product().num_normal_lookups_ef()],
-        ]
-        .concat(), // TODO handle the case with non-zero default index
-        [
-            Table::execution().normal_lookup_f_value_columns(&traces[TABLE_EXECUTION]),
-            Table::dot_product().normal_lookup_f_value_columns(&traces[TABLE_DOT_PRODUCT]),
-        ]
-        .concat(),
-        [
-            Table::execution().normal_lookup_ef_value_columns(&traces[TABLE_EXECUTION]),
-            Table::dot_product().normal_lookup_ef_value_columns(&traces[TABLE_DOT_PRODUCT]),
-        ]
-        .concat(),
-        [
-            Table::execution().normal_lookups_statements_f(
-                &air_points[TABLE_EXECUTION],
-                &evals_f[TABLE_EXECUTION],
-            ),
-            Table::dot_product().normal_lookups_statements_f(
-                &air_points[TABLE_DOT_PRODUCT],
-                &evals_f[TABLE_DOT_PRODUCT],
-            ),
-        ]
-        .concat(),
-        [
-            Table::execution().normal_lookups_statements_ef(
-                &air_points[TABLE_EXECUTION],
-                &evals_ef[TABLE_EXECUTION],
-            ),
-            Table::dot_product().normal_lookups_statements_ef(
-                &air_points[TABLE_DOT_PRODUCT],
-                &evals_ef[TABLE_DOT_PRODUCT],
-            ),
-        ]
-        .concat(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_index_columns_f(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_index_columns_ef(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| {
+                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()]
+            })
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| {
+                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()]
+            })
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| vec![0; ALL_TABLES[i].num_normal_lookups_f()])
+            .collect(), // TODO handle the case with non-zero default index
+        (0..N_TABLES)
+            .flat_map(|i| vec![0; ALL_TABLES[i].num_normal_lookups_ef()])
+            .collect(), // TODO handle the case with non-zero default index
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_f_value_columns(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_ef_value_columns(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookups_statements_f(&air_points[i], &evals_f[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookups_statements_ef(&air_points[i], &evals_ef[i]))
+            .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
@@ -353,7 +314,7 @@ pub fn prove_execution(
         &mut prover_state,
         &air_points[TABLE_POSEIDON_16],
         &evals_f[TABLE_POSEIDON_16],
-        None,
+        commitmenent_extension_helper[TABLE_POSEIDON_16].as_ref(),
         &mut vec![],
         &mut vec![],
     );
@@ -361,7 +322,7 @@ pub fn prove_execution(
         &mut prover_state,
         &air_points[TABLE_POSEIDON_24],
         &evals_f[TABLE_POSEIDON_24],
-        None,
+        commitmenent_extension_helper[TABLE_POSEIDON_24].as_ref(),
         &mut vec![],
         &mut vec![],
     );
@@ -393,7 +354,7 @@ pub fn prove_execution(
         &mut prover_state,
         &air_points[TABLE_EXECUTION],
         &evals_f[TABLE_EXECUTION],
-        None,
+        commitmenent_extension_helper[TABLE_EXECUTION].as_ref(),
         &mut normal_lookup_statements.on_indexes_f,
         &mut normal_lookup_statements.on_indexes_ef,
     );
@@ -407,7 +368,7 @@ pub fn prove_execution(
         &mut prover_state,
         &air_points[TABLE_DOT_PRODUCT],
         &evals_f[TABLE_DOT_PRODUCT],
-        Some(&dot_product_computation_ext_base_helper),
+        commitmenent_extension_helper[TABLE_DOT_PRODUCT].as_ref(),
         &mut normal_lookup_statements.on_indexes_f,
         &mut normal_lookup_statements.on_indexes_ef,
     );

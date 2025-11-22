@@ -119,55 +119,55 @@ pub fn verify_execution(
         &mut verifier_state,
         [
             vec![
-                table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed();
-                Table::execution().num_normal_lookups_f()
-            ],
-            vec![
                 table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
                 Table::dot_product().num_normal_lookups_f()
+            ],
+            vec![
+                table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed();
+                Table::execution().num_normal_lookups_f()
             ],
         ]
         .concat(),
         [
-            vec![
-                table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed();
-                Table::execution().num_normal_lookups_ef()
-            ],
             vec![
                 table_heights[TABLE_DOT_PRODUCT].n_rows_non_padded_maxed();
                 Table::dot_product().num_normal_lookups_ef()
             ],
+            vec![
+                table_heights[TABLE_EXECUTION].n_rows_non_padded_maxed();
+                Table::execution().num_normal_lookups_ef()
+            ],
         ]
         .concat(),
         [
-            vec![0; Table::execution().num_normal_lookups_f()],
             vec![0; Table::dot_product().num_normal_lookups_f()],
+            vec![0; Table::execution().num_normal_lookups_f()],
         ]
         .concat(), // TODO handle the case with non-zero default index
         [
-            vec![0; Table::execution().num_normal_lookups_ef()],
             vec![0; Table::dot_product().num_normal_lookups_ef()],
+            vec![0; Table::execution().num_normal_lookups_ef()],
         ]
         .concat(), // TODO handle the case with non-zero default index
         [
-            Table::execution().normal_lookups_statements_f(
-                &air_points[TABLE_EXECUTION],
-                &evals_f[TABLE_EXECUTION],
-            ),
             Table::dot_product().normal_lookups_statements_f(
                 &air_points[TABLE_DOT_PRODUCT],
                 &evals_f[TABLE_DOT_PRODUCT],
             ),
+            Table::execution().normal_lookups_statements_f(
+                &air_points[TABLE_EXECUTION],
+                &evals_f[TABLE_EXECUTION],
+            ),
         ]
         .concat(),
         [
-            Table::execution().normal_lookups_statements_ef(
-                &air_points[TABLE_EXECUTION],
-                &evals_ef[TABLE_EXECUTION],
-            ),
             Table::dot_product().normal_lookups_statements_ef(
                 &air_points[TABLE_DOT_PRODUCT],
                 &evals_ef[TABLE_DOT_PRODUCT],
+            ),
+            Table::execution().normal_lookups_statements_ef(
+                &air_points[TABLE_EXECUTION],
+                &evals_ef[TABLE_EXECUTION],
             ),
         ]
         .concat(),
