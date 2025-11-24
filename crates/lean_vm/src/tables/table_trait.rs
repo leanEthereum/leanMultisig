@@ -221,7 +221,7 @@ pub trait TableT: Air {
         let mut statements = self
             .commited_columns_f()
             .iter()
-            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c].clone())])
+            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c])])
             .collect::<Vec<_>>();
         if let Some(ext_commitment_helper) = ext_commitment_helper {
             statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
@@ -253,7 +253,7 @@ pub trait TableT: Air {
         let mut statements = self
             .commited_columns_f()
             .iter()
-            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c].clone())])
+            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c])])
             .collect::<Vec<_>>();
 
         if self.n_commited_columns_ef() > 0 {
@@ -263,7 +263,7 @@ pub trait TableT: Air {
                     air_point.clone(),
                     self.commited_columns_ef()
                         .iter()
-                        .map(|&c| air_values_ef[c].clone())
+                        .map(|&c| air_values_ef[c])
                         .collect::<Vec<_>>(),
                 ),
             )?);
@@ -289,7 +289,7 @@ pub trait TableT: Air {
         for lookup in self.normal_lookups_f() {
             statements.push(vec![Evaluation::new(
                 air_point.clone(),
-                air_values_f[lookup.values].clone(),
+                air_values_f[lookup.values],
             )]);
         }
         statements
@@ -304,7 +304,7 @@ pub trait TableT: Air {
         for lookup in self.normal_lookups_ef() {
             statements.push(vec![Evaluation::new(
                 air_point.clone(),
-                air_values_ef[lookup.values].clone(),
+                air_values_ef[lookup.values],
             )]);
         }
         statements

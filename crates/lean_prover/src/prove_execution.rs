@@ -538,7 +538,7 @@ fn prove_bus_and_air(
             .chunks_exact(1 << UNIVARIATE_SKIPS)
             .map(|chunk| {
                 evaluate_univariate_multilinear::<_, _, _, false>(
-                    &chunk,
+                    chunk,
                     &[epsilon],
                     &uni_selectors,
                     None,
@@ -549,7 +549,7 @@ fn prove_bus_and_air(
             .chunks_exact(1 << UNIVARIATE_SKIPS)
             .map(|chunk| {
                 evaluate_univariate_multilinear::<_, _, _, false>(
-                    &chunk,
+                    chunk,
                     &[epsilon],
                     &uni_selectors,
                     None,
@@ -585,7 +585,7 @@ fn prove_bus_and_air(
 
     let extra_data = ExtraDataForBuses {
         fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-        bus_beta: bus_beta,
+        bus_beta,
         alpha_powers: vec![], // filled later
     };
     let (air_point, evals_f, evals_ef) =

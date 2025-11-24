@@ -21,7 +21,7 @@ where
     let n_poseidons = inputs[0].len();
     assert!(n_poseidons.is_power_of_two());
     let inputs_packed: [_; WIDTH] =
-        array::from_fn(|i| PFPacking::<F>::pack_slice(&inputs[i]).to_vec()); // TODO avoid cloning
+        array::from_fn(|i| PFPacking::<F>::pack_slice(inputs[i]).to_vec()); // TODO avoid cloning
     generate_poseidon_witness::<FPacking<F>, WIDTH, N_COMMITED_CUBES>(
         inputs_packed,
         layers,

@@ -142,6 +142,6 @@ pub fn encapsulate_vec<T>(v: Vec<T>) -> Vec<Vec<T>> {
     v.into_iter().map(|x| vec![x]).collect()
 }
 
-pub fn collect_refs<'a, T>(vecs: &'a [Vec<T>]) -> Vec<&'a [T]> {
+pub fn collect_refs<T>(vecs: &[Vec<T>]) -> Vec<&[T]> {
     vecs.iter().map(Vec::as_slice).collect()
 }

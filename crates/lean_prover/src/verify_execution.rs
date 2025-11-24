@@ -264,7 +264,7 @@ pub fn verify_execution(
         final_pc_statement,
     ]);
 
-    let mut all_base_statements = vec![
+    let mut all_base_statements = [
         vec![memory_statements],
         encapsulate_vec(p16_gkr.cubes_statements.split()),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
@@ -302,6 +302,7 @@ pub fn verify_execution(
     Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 fn verify_bus_and_air(
     verifier_state: &mut VerifierState<PF<EF>, EF, impl FSChallenger<EF>>,
     t: &Table,
@@ -363,7 +364,7 @@ fn verify_bus_and_air(
             .chunks_exact(1 << UNIVARIATE_SKIPS)
             .map(|chunk| {
                 evaluate_univariate_multilinear::<_, _, _, false>(
-                    &chunk,
+                    chunk,
                     &[epsilon],
                     &uni_selectors,
                     None,
@@ -374,7 +375,7 @@ fn verify_bus_and_air(
             .chunks_exact(1 << UNIVARIATE_SKIPS)
             .map(|chunk| {
                 evaluate_univariate_multilinear::<_, _, _, false>(
-                    &chunk,
+                    chunk,
                     &[epsilon],
                     &uni_selectors,
                     None,

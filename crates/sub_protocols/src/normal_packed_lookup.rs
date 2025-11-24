@@ -150,6 +150,7 @@ where
     PF<EF>: PrimeField64,
 {
     // before receiving the commitment to the pushforward
+    #[allow(clippy::too_many_arguments)]
     pub fn step_1<TF: ExtensionField<PF<EF>>>(
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         heights_f: Vec<usize>,

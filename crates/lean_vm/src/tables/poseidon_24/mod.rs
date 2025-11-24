@@ -146,11 +146,11 @@ impl TableT for Poseidon24Precompile {
         trace.base[POSEIDON_24_COL_INDEX_A_BIS].push(arg_a + F::ONE);
         trace.base[POSEIDON_24_COL_INDEX_B].push(arg_b);
         trace.base[POSEIDON_24_COL_INDEX_RES].push(res);
-        for i in 0..24 {
-            trace.base[POSEIDON_24_COL_INDEX_INPUT_START + i].push(input[i]);
+        for (i, value) in input.iter().enumerate() {
+            trace.base[POSEIDON_24_COL_INDEX_INPUT_START + i].push(*value);
         }
-        for i in 0..8 {
-            trace.base[POSEIDON_24_COL_INDEX_OUTPUT_START + i].push(output[i]);
+        for (i, value) in output.iter().enumerate() {
+            trace.base[POSEIDON_24_COL_INDEX_OUTPUT_START + i].push(*value);
         }
 
         Ok(())

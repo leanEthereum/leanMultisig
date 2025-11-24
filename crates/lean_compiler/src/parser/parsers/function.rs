@@ -235,10 +235,10 @@ impl FunctionCallParser {
             }
             _ => {
                 // Check for special precompile functions
-                if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name) {
-                    if table != Table::execution() {
-                        return Ok(Line::Precompile { table, args });
-                    }
+                if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name)
+                    && table != Table::execution()
+                {
+                    return Ok(Line::Precompile { table, args });
                 }
 
                 // fall back to regular function call

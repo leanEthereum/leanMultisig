@@ -169,14 +169,14 @@ impl TableT for Poseidon16Precompile {
         trace.base[POSEIDON_16_COL_INDEX_RES].push(index_res_a);
         trace.base[POSEIDON_16_COL_INDEX_RES_BIS].push(index_res_b);
         trace.base[POSEIDON_16_COL_COMPRESSION].push(F::from_bool(is_compression));
-        for i in 0..16 {
-            trace.base[POSEIDON_16_COL_INDEX_INPUT_START + i].push(input[i]);
+        for (i, value) in input.iter().enumerate() {
+            trace.base[POSEIDON_16_COL_INDEX_INPUT_START + i].push(*value);
         }
-        for i in 0..8 {
-            trace.base[POSEIDON_16_COL_INDEX_OUTPUT_START + i].push(res_a[i]);
+        for (i, value) in res_a.iter().enumerate() {
+            trace.base[POSEIDON_16_COL_INDEX_OUTPUT_START + i].push(*value);
         }
-        for i in 0..8 {
-            trace.base[POSEIDON_16_COL_INDEX_OUTPUT_START + 8 + i].push(res_b[i]);
+        for (i, value) in res_b.iter().enumerate() {
+            trace.base[POSEIDON_16_COL_INDEX_OUTPUT_START + 8 + i].push(*value);
         }
         Ok(())
     }
