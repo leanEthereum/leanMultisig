@@ -1,3 +1,5 @@
+use std::array;
+
 use crate::common::*;
 use crate::*;
 use air::prove_air;
@@ -8,7 +10,6 @@ use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
-use std::array;
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};

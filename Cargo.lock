@@ -371,15 +371,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
-name = "lean-multisig"
-version = "0.1.0"
-dependencies = [
- "clap",
- "poseidon_circuit",
- "rec_aggregation",
-]
-
-[[package]]
 name = "lean_compiler"
 version = "0.1.0"
 dependencies = [
@@ -498,6 +489,15 @@ name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
+
+[[package]]
+name = "modular-precompiles"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "poseidon_circuit",
+ "rec_aggregation",
+]
 
 [[package]]
 name = "multilinear-toolkit"

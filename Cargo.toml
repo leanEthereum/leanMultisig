@@ -1,5 +1,5 @@
 [package]
-name = "lean-multisig"
+name = "modular-precompiles"
 version.workspace = true
 edition.workspace = true
 
