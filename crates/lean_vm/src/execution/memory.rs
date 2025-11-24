@@ -107,7 +107,6 @@ impl Memory {
         Ok(())
     }
 
-    /// Get a slice from memory for multilinear evaluation
     pub fn slice(&self, start: usize, len: usize) -> Result<Vec<F>, RunnerError> {
         (0..len).map(|i| self.get(start + i)).collect()
     }

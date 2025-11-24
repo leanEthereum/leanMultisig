@@ -1,6 +1,5 @@
 /// Vector dimension for field operations
 pub const DIMENSION: usize = 5;
-
 /// Logarithm of vector length
 pub const LOG_VECTOR_LEN: usize = 3;
 
@@ -9,6 +8,12 @@ pub const VECTOR_LEN: usize = 1 << LOG_VECTOR_LEN;
 
 /// Maximum memory size for VM runner
 pub const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
+
+/// Starting program counter
+pub const STARTING_PC: usize = 1;
+
+/// Ending program counter (the final block is a looping block of 1 instruction)
+pub const ENDING_PC: usize = 0;
 
 /// Memory layout:
 ///
@@ -38,9 +43,3 @@ pub const POSEIDON_24_NULL_HASH_PTR: usize = 5;
 
 /// Normal pointer to start of program input
 pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * 8;
-
-/// Precompiles Indexes
-pub const TABLE_INDEX_POSEIDONS_16: usize = 1; // should be != 0
-pub const TABLE_INDEX_POSEIDONS_24: usize = 2;
-pub const TABLE_INDEX_DOT_PRODUCTS: usize = 3;
-pub const TABLE_INDEX_MULTILINEAR_EVAL: usize = 4;

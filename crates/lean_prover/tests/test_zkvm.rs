@@ -4,87 +4,85 @@ use lean_prover::{
 };
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
+use rand::{Rng, SeedableRng, rngs::StdRng};
+use utils::{poseidon16_permute, poseidon24_permute};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
     let program_str = r#"
     const DIM = 5;
-    const SECOND_POINT = 2;
-    const SECOND_N_VARS = 7;
     const COMPRESSION = 1;
     const PERMUTATION = 0;
-    
+    const N = 11;
     fn main() {
-        for i in 0..1000 {  if 1 == 0 { } }
+        pub_start = public_input_start;
+        pub_start_vec = pub_start / 8;
 
-        for i in 10..500 {
-            x = malloc_vec(6);
-            poseidon16(i + 3, i, x, PERMUTATION);
-            poseidon24(i + 3, i, x + 2);
-            dot_product(i*2, i, (x + 3) * 8, 1);
-            dot_product(i*3, i + 7, (x + 4) * 8, 2);
-        }
+        poseidon16(pub_start_vec, pub_start_vec + 1, pub_start_vec + 2, PERMUTATION);
+        poseidon16(pub_start_vec + 4, pub_start_vec + 5, pub_start_vec + 6, COMPRESSION);
+        poseidon24(pub_start_vec + 7, pub_start_vec + 9, pub_start_vec + 10);
+        dot_product_be(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N);
+        dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
         
-        point_1 = malloc_vec(1, log2_ceil(10 * DIM));
-        point_1_ptr = point_1 * (2 ** log2_ceil(10 * DIM));
-        for i in 0..10 {
-            point_1_ptr[i*5 + 0] = 785 + i;
-            point_1_ptr[i*5 + 1] = 4152 - i;
-            point_1_ptr[i*5 + 2] = 471*82 + i*i;
-            point_1_ptr[i*5 + 3] = 7577 + i;
-            point_1_ptr[i*5 + 4] = 676 - i;
-        }
-
-        res1 = malloc_vec(1);
-        multilinear_eval(2**3, point_1, res1, 10);
-
-        res2 = malloc_vec(1);
-        multilinear_eval(10, SECOND_POINT, res2, SECOND_N_VARS);
-
-        res3 = malloc_vec(1);
-        multilinear_eval(11, SECOND_POINT, res3, SECOND_N_VARS);
-
-        res2_ptr = res2 * 8;
-        res3_ptr = res3 * 8;
-
-        print(res3_ptr[0], res2_ptr[0]);
-
-        assert res3_ptr[0] == res2_ptr[0] + 2**SECOND_N_VARS;
-
-        for i in 0..1000 {
-            assert i != 1000;
-        }
-
         return;
     }
    "#;
 
-    const SECOND_POINT: usize = 2;
-    const SECOND_N_VARS: usize = 7;
+    const N: usize = 11;
 
-    let mut public_input = (0..(1 << 13) - NONRESERVED_PROGRAM_INPUT_START)
-        .map(F::from_usize)
-        .collect::<Vec<_>>();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut public_input = F::zero_vec(1 << 13);
 
-    public_input[SECOND_POINT * (SECOND_N_VARS * DIMENSION).next_power_of_two()
-        + SECOND_N_VARS * DIMENSION
-        - NONRESERVED_PROGRAM_INPUT_START
-        ..(SECOND_POINT + 1) * (SECOND_N_VARS * DIMENSION).next_power_of_two()
-            - NONRESERVED_PROGRAM_INPUT_START]
-        .iter_mut()
-        .for_each(|x| *x = F::ZERO);
+    let poseidon_16_perm_input: [F; 16] = rng.random();
+    public_input[..16].copy_from_slice(&poseidon_16_perm_input);
+    public_input[16..32].copy_from_slice(&poseidon16_permute(poseidon_16_perm_input));
 
-    let private_input = (0..1 << 13)
-        .map(|i| F::from_usize(i).square())
-        .collect::<Vec<_>>();
+    let poseidon_16_compress_input: [F; 16] = rng.random();
+    public_input[32..48].copy_from_slice(&poseidon_16_compress_input);
+    public_input[48..56].copy_from_slice(&poseidon16_permute(poseidon_16_compress_input)[..8]);
 
-    test_zk_vm_helper(program_str, (&public_input, &private_input), 1 << 20);
+    let poseidon_24_input: [F; 24] = rng.random();
+    public_input[56..80].copy_from_slice(&poseidon_24_input);
+    public_input[80..88].copy_from_slice(&poseidon24_permute(poseidon_24_input)[16..]);
+
+    let dot_product_slice_base: [F; N] = rng.random();
+    let dot_product_slice_ext_a: [EF; N] = rng.random();
+    let dot_product_slice_ext_b: [EF; N] = rng.random();
+
+    public_input[88..][..N].copy_from_slice(&dot_product_slice_base);
+    public_input[88 + N..][..N * DIMENSION].copy_from_slice(
+        &dot_product_slice_ext_a
+            .iter()
+            .flat_map(|&x| x.as_basis_coefficients_slice().to_vec())
+            .collect::<Vec<F>>(),
+    );
+    public_input[88 + N + N * DIMENSION..][..N * DIMENSION].copy_from_slice(
+        &dot_product_slice_ext_b
+            .iter()
+            .flat_map(|&x| x.as_basis_coefficients_slice().to_vec())
+            .collect::<Vec<F>>(),
+    );
+    let dot_product_base_ext: EF = dot_product(
+        dot_product_slice_ext_a.into_iter(),
+        dot_product_slice_base.into_iter(),
+    );
+    let dot_product_ext_ext: EF = dot_product(
+        dot_product_slice_ext_a.into_iter(),
+        dot_product_slice_ext_b.into_iter(),
+    );
+
+    public_input[1000..][..DIMENSION]
+        .copy_from_slice(dot_product_base_ext.as_basis_coefficients_slice());
+    public_input[1000 + DIMENSION..][..DIMENSION]
+        .copy_from_slice(dot_product_ext_ext.as_basis_coefficients_slice());
+
+    test_zk_vm_helper(program_str, (&public_input, &[]), 0);
 }
 
 #[test]
 fn test_prove_fibonacci() {
     let program_str = r#"
-    const N = 2000000;
+    const N = FIB_N_PLACEHOLDER;
     const STEPS = 10000; // N should be a multiple of STEPS
     const N_STEPS = N / STEPS;
 
@@ -114,7 +112,13 @@ fn test_prove_fibonacci() {
     }
    "#;
 
-    test_zk_vm_helper(program_str, (&[F::ZERO; 1 << 14], &[]), 0);
+    let n = std::env::var("FIB_N")
+        .unwrap_or("100000".to_string())
+        .parse::<usize>()
+        .unwrap();
+    let program_str = program_str.replace("FIB_N_PLACEHOLDER", &n.to_string());
+
+    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0);
 }
 
 fn test_zk_vm_helper(

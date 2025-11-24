@@ -1,5 +1,5 @@
 [package]
-name = "modular-precompiles"
+name = "lean-multisig"
 version.workspace = true
 edition.workspace = true
 
@@ -10,7 +10,6 @@ edition = "2024"
 [workspace]
 members = [
     "crates/*",
-    "crates/lean_prover/vm_air",
     "crates/lean_prover/witness_generation",
 ]
 
@@ -54,12 +53,11 @@ lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
 witness_generation = { path = "crates/lean_prover/witness_generation" }
-vm_air = { path = "crates/lean_prover/vm_air" }
 poseidon_circuit = { path = "crates/poseidon_circuit" }
 
 # External
 thiserror = "2.0"
-clap = { version = "4.3.10", features = ["derive"] }
+clap = { version = "4.5.52", features = ["derive"] }
 rand = "0.9.2"
 sha3 = "0.10.8"
 derive_more = { version = "2.0.1", features = ["full"] }
@@ -68,15 +66,15 @@ pest_derive = "2.7"
 itertools = "0.10.5"
 colored = "3.0.0"
 tracing = "0.1.26"
-serde_json = "*"
+serde_json = "1.0.145"
+num_enum = "0.7.5"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
-tracing-forest = { version = "0.2.0", features = ["ansi", "smallvec"] }
+tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }
 p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 p3-baby-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 p3-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
-p3-uni-stark = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
@@ -96,19 +94,23 @@ poseidon_circuit.workspace = true
 # p3-poseidon2 = { path = "../zk/Plonky3/poseidon2" }
 # p3-symmetric = { path = "../zk/Plonky3/symmetric" }
 # p3-air = { path = "../zk/Plonky3/air" }
-# p3-uni-stark = { path = "../zk/Plonky3/uni-stark" }
 # p3-merkle-tree = { path = "../zk/Plonky3/merkle-tree" }
 # p3-commit = { path = "../zk/Plonky3/commit" }
 # p3-matrix = { path = "../zk/Plonky3/matrix" }
 # p3-dft = { path = "../zk/Plonky3/dft" }
 # p3-challenger = { path = "../zk/Plonky3/challenger" }
 # p3-monty-31 = { path = "../zk/Plonky3/monty-31" }
+# p3-maybe-rayon = { path = "../zk/Plonky3/maybe-rayon" }
+# p3-util = { path = "../zk/Plonky3/util" }
 
 # [patch."https://github.com/TomWambsgans/whir-p3.git"]
 # whir-p3 = { path = "../zk/whir/fork-whir-p3" }
 
-[patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
-multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
+# [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
+# multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
+
+# [profile.release]
+# opt-level = 1
 
 [profile.release]
 lto = "thin"

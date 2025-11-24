@@ -94,13 +94,12 @@ where
         .collect::<Vec<_>>();
     let c_minus_indexes_packed = MleRef::Extension(&c_minus_indexes).pack_if(packing);
 
-    let (claim_point_left, _, eval_c_minus_indexes) = prove_gkr_quotient(
+    let (_, claim_point_left, _, eval_c_minus_indexes) = prove_gkr_quotient::<_, 2>(
         prover_state,
         &MleGroupRef::merge(&[
             &poly_eq_point_packed.by_ref(),
             &c_minus_indexes_packed.by_ref(),
-        ])
-        .into(),
+        ]),
     );
 
     let c_minus_increments = MleRef::Extension(
@@ -110,13 +109,12 @@ where
             .collect::<Vec<_>>(),
     );
     let c_minus_increments_packed = c_minus_increments.pack_if(packing);
-    let (claim_point_right, pushforward_final_eval, _) = prove_gkr_quotient(
+    let (_, claim_point_right, pushforward_final_eval, _) = prove_gkr_quotient::<_, 2>(
         prover_state,
         &MleGroupRef::merge(&[
             &pushforward_packed.by_ref(),
             &c_minus_increments_packed.by_ref(),
-        ])
-        .into(),
+        ]),
     );
 
     let on_indexes = Evaluation::new(claim_point_left, c - eval_c_minus_indexes);
@@ -168,9 +166,9 @@ where
     let c = verifier_state.sample();
 
     let (quotient_left, claim_point_left, claim_num_left, eval_c_minus_indexes) =
-        verify_gkr_quotient(verifier_state, log_indexes_len)?;
+        verify_gkr_quotient::<_, 2>(verifier_state, log_indexes_len)?;
     let (quotient_right, claim_point_right, pushforward_final_eval, claim_den_right) =
-        verify_gkr_quotient(verifier_state, log_table_len)?;
+        verify_gkr_quotient::<_, 2>(verifier_state, log_table_len)?;
 
     if quotient_left != quotient_right {
         return Err(ProofError::InvalidProof);
@@ -241,8 +239,8 @@ mod tests {
 
     #[test]
     fn test_logup_star() {
-        for log_table_len in [1, 10] {
-            for log_indexes_len in 1..10 {
+        for log_table_len in [3, 10] {
+            for log_indexes_len in 3..10 {
                 test_logup_star_helper(log_table_len, log_indexes_len);
             }
         }

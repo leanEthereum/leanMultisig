@@ -61,7 +61,7 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 990
 n = 2,000,000
 
 ```
-RUSTFLAGS='-C target-cpu=native' cargo test --release --package lean_prover --test test_zkvm -- --nocapture -- test_prove_fibonacci --exact --nocapture
+FIB_N=2000000 RUSTFLAGS='-C target-cpu=native' cargo test --release --package lean_prover --test test_zkvm -- --nocapture -- test_prove_fibonacci --exact --nocapture
 ```
 
 Proving time:

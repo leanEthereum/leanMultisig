@@ -7,6 +7,7 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 use tracing::{info_span, instrument};
+use utils::fold_multilinear_chunks;
 
 #[instrument(skip_all)]
 pub fn prove_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
@@ -28,7 +29,7 @@ where
     let (output_claims, mut claims) = info_span!("computing output claims").in_scope(|| {
         let eq_poly = eval_eq(&point[univariate_skips..]);
         let inner_evals = match &witness.compression {
-            Some((_, _, compressed_output)) => compressed_output,
+            Some((_, compressed_output)) => compressed_output,
             None => &witness.output_layer,
         }
         .par_iter()
@@ -62,7 +63,7 @@ where
         (output_claims, claims)
     });
 
-    if let Some((_, compression_indicator, _)) = &witness.compression {
+    let on_compression_selector = if let Some((compression_indicator, _)) = &witness.compression {
         (point, claims) = prove_gkr_round(
             prover_state,
             &CompressionComputation::<WIDTH> {
@@ -79,8 +80,20 @@ where
             univariate_skips,
         );
 
-        let _ = claims.pop().unwrap(); // the claim on the compression indicator columns can be evaluated by the verifier directly
-    }
+        let inner_evals = fold_multilinear_chunks(
+            FPacking::<F>::unpack_slice(compression_indicator),
+            &MultilinearPoint(point[1..].to_vec()),
+        );
+        prover_state.add_extension_scalars(&inner_evals);
+        let _ = claims.pop().unwrap(); // remove compression claim
+        let epsilons = prover_state.sample_vec(univariate_skips);
+        let new_point = MultilinearPoint([epsilons.clone(), point[1..].to_vec()].concat());
+        let new_eval = inner_evals.evaluate(&MultilinearPoint(epsilons));
+
+        Some(Evaluation::new(new_point, new_eval))
+    } else {
+        None
+    };
 
     for (layer, full_round_constants) in witness
         .final_full_layers
@@ -188,11 +201,12 @@ where
         output_statements,
         input_statements,
         cubes_statements,
+        on_compression_selector,
     }
 }
 
-#[instrument(skip_all)]
-fn prove_gkr_round<SC: SumcheckComputation<EF> + 'static>(
+// #[instrument(skip_all)]
+fn prove_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>> + 'static>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     computation: &SC,
     input_layers: &[impl AsRef<[PFPacking<EF>]>],
@@ -210,6 +224,7 @@ fn prove_gkr_round<SC: SumcheckComputation<EF> + 'static>(
     let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
         univariate_skips,
         MleGroupRef::BasePacked(input_layers.iter().map(|l| l.as_ref()).collect()),
+        None,
         computation,
         &batching_scalars_powers,
         Some((claim_point.to_vec(), None)),
@@ -221,7 +236,7 @@ fn prove_gkr_round<SC: SumcheckComputation<EF> + 'static>(
 
     // sanity check
     debug_assert_eq!(
-        computation.eval_extension(&sumcheck_inner_evals, &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &[], &batching_scalars_powers)
             * eq_poly_with_skip(&sumcheck_point, claim_point, univariate_skips),
         sumcheck_final_sum
     );
@@ -277,6 +292,7 @@ where
                 .map(Vec::as_slice)
                 .collect(),
         ),
+        None,
         computation,
         &batching_scalars_powers,
         Some((claim_point.to_vec(), None)),
@@ -288,7 +304,7 @@ where
 
     // sanity check
     debug_assert_eq!(
-        computation.eval_extension(&sumcheck_inner_evals, &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &[], &batching_scalars_powers)
             * eq_poly_with_skip(&sumcheck_point, claim_point, univariate_skips),
         sumcheck_final_sum
     );

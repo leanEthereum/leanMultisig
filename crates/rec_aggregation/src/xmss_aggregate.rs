@@ -1,11 +1,12 @@
 use lean_compiler::*;
-use lean_prover::whir_config_builder;
+use lean_prover::{LOG_SMALLEST_DECOMPOSITION_CHUNK, whir_config_builder};
 use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::time::Instant;
 use tracing::instrument;
+use whir_p3::precompute_dft_twiddles;
 use xmss::{
     PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature,
 };
@@ -140,8 +141,8 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
                     var_2 = public_key_ptr + (i * 8);
                     var_3 = var_1 + 3;
                     var_4 = var_2 + 3;
-                    dot_product(var_1, pointer_to_one_vector * 8, var_2, 1);
-                    dot_product(var_3, pointer_to_one_vector * 8, var_4, 1);
+                    dot_product_ee(var_1, pointer_to_one_vector * 8, var_2, 1);
+                    dot_product_ee(var_3, pointer_to_one_vector * 8, var_4, 1);
                 }
             }
         }
@@ -177,8 +178,8 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
         // x and y are vectorized pointer of len 1 each
         ptr_x = x * 8;
         ptr_y = y * 8;
-        dot_product(ptr_x, pointer_to_one_vector * 8, ptr_y, 1);
-        dot_product(ptr_x + 3, pointer_to_one_vector * 8, ptr_y + 3, 1);
+        dot_product_ee(ptr_x, pointer_to_one_vector * 8, ptr_y, 1);
+        dot_product_ee(ptr_x + 3, pointer_to_one_vector * 8, ptr_y + 3, 1);
         return;
     }
    "#.to_string();
@@ -219,6 +220,11 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     for bit in bitfield {
         public_input.push(F::from_bool(bit));
     }
+    let min_public_input_size =
+        (1 << LOG_SMALLEST_DECOMPOSITION_CHUNK) - NONRESERVED_PROGRAM_INPUT_START;
+    public_input.extend(F::zero_vec(
+        min_public_input_size.saturating_sub(public_input.len()),
+    ));
     public_input.insert(
         0,
         F::from_usize(
@@ -266,6 +272,9 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     .no_vec_runtime_memory;
 
     utils::init_tracing();
+
+    precompute_dft_twiddles::<F>(1 << 24);
+
     let time = Instant::now();
 
     let (poseidons_16_precomputed, poseidons_24_precomputed) =

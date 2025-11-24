@@ -2,18 +2,14 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
-use crate::ONE_VEC_PTR;
-use crate::core::{DIMENSION, EF, F, Label, VECTOR_LEN};
+use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
-use crate::witness::{
-    RowMultilinearEval, WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16,
-    WitnessPoseidon24,
-};
+use crate::tables::TableT;
+use crate::{N_TABLES, Table, TableTrace};
 use multilinear_toolkit::prelude::*;
-use p3_util::log2_ceil_usize;
 use std::fmt::{Display, Formatter};
-use utils::{ToUsize, poseidon16_permute, poseidon24_permute};
+use utils::ToUsize;
 
 /// Complete set of VM instruction types with comprehensive operation support
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -52,50 +48,12 @@ pub enum Instruction {
         updated_fp: MemOrFp,
     },
 
-    /// Poseidon2 cryptographic hash with 16-element input
-    Poseidon2_16 {
-        /// First input vector (vectorized pointer, size 1)
+    Precompile {
+        table: Table,
         arg_a: MemOrConstant,
-        /// Second input vector (vectorized pointer, size 1)
         arg_b: MemOrConstant,
-        /// Output hash result (vectorized pointer, size 1 or 2 depending on compression)
-        res: MemOrFp,
-        /// Whether to perform compression (output size 1) or not (output size 2)
-        is_compression: bool,
-    },
-
-    /// Poseidon2 cryptographic hash with 24-element input
-    Poseidon2_24 {
-        /// First input vector (vectorized pointer, size 2)
-        arg_a: MemOrConstant,
-        /// Second input vector (vectorized pointer, size 1)
-        arg_b: MemOrConstant,
-        /// Output hash result (vectorized pointer, size 1)
-        res: MemOrFp,
-    },
-
-    /// Dot product computation between extension field element vectors
-    DotProduct {
-        /// First vector pointer (normal pointer, size `size`)
-        arg0: MemOrConstant,
-        /// Second vector pointer (normal pointer, size `size`)
-        arg1: MemOrConstant,
-        /// Result destination (normal pointer, size 1)
-        res: MemOrFp,
-        /// Vector length for the dot product
-        size: usize,
-    },
-
-    /// Multilinear polynomial evaluation instruction
-    MultilinearEval {
-        /// Polynomial coefficients (vectorized pointer, chunk size = 2^n_vars)
-        coeffs: MemOrConstant,
-        /// Evaluation point (normal pointer to `n_vars` continuous EF elements)
-        point: MemOrConstant,
-        /// Evaluation result (vectorized pointer to 1 EF element)
-        res: MemOrFp,
-        /// Number of variables in the multilinear polynomial
-        n_vars: usize,
+        arg_c: MemOrFp,
+        aux: usize,
     },
 }
 
@@ -106,10 +64,7 @@ pub struct InstructionContext<'a> {
     pub fp: &'a mut usize,
     pub pc: &'a mut usize,
     pub pcs: &'a Vec<usize>,
-    pub poseidons_16: &'a mut Vec<WitnessPoseidon16>,
-    pub poseidons_24: &'a mut Vec<WitnessPoseidon24>,
-    pub dot_products: &'a mut Vec<WitnessDotProduct>,
-    pub multilinear_evals: &'a mut Vec<WitnessMultilinearEval>,
+    pub traces: &'a mut [TableTrace; N_TABLES],
     pub add_counts: &'a mut usize,
     pub mul_counts: &'a mut usize,
     pub deref_counts: &'a mut usize,
@@ -209,197 +164,21 @@ impl Instruction {
                 *ctx.jump_counts += 1;
                 Ok(())
             }
-            Self::Poseidon2_16 {
+
+            Self::Precompile {
+                table,
                 arg_a,
                 arg_b,
-                res,
-                is_compression,
+                arg_c,
+                aux: size,
             } => {
-                let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
-                let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
-                let res_value = res.read_value(ctx.memory, *ctx.fp)?;
-
-                let arg0 = ctx.memory.get_vector(a_value.to_usize())?;
-                let arg1 = ctx.memory.get_vector(b_value.to_usize())?;
-
-                let mut input = [F::ZERO; VECTOR_LEN * 2];
-                input[..VECTOR_LEN].copy_from_slice(&arg0);
-                input[VECTOR_LEN..].copy_from_slice(&arg1);
-
-                let output = match ctx
-                    .poseidon16_precomputed
-                    .get(*ctx.n_poseidon16_precomputed_used)
-                {
-                    Some(precomputed) if precomputed.0 == input => {
-                        *ctx.n_poseidon16_precomputed_used += 1;
-                        precomputed.1
-                    }
-                    _ => poseidon16_permute(input),
-                };
-
-                let res0: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
-                let res1: [F; VECTOR_LEN] = output[VECTOR_LEN..].try_into().unwrap();
-
-                ctx.memory.set_vector(res_value.to_usize(), res0)?;
-                if !is_compression {
-                    ctx.memory.set_vector(1 + res_value.to_usize(), res1)?;
-                }
-
-                {
-                    let cycle = ctx.pcs.len() - 1;
-                    let addr_input_a = a_value.to_usize();
-                    let addr_input_b = b_value.to_usize();
-                    let addr_output = res_value.to_usize();
-                    ctx.poseidons_16.push(WitnessPoseidon16 {
-                        cycle: Some(cycle),
-                        addr_input_a,
-                        addr_input_b,
-                        addr_output,
-                        input,
-                        is_compression: *is_compression,
-                    });
-                }
-
-                *ctx.pc += 1;
-                Ok(())
-            }
-            Self::Poseidon2_24 { arg_a, arg_b, res } => {
-                let a_value = arg_a.read_value(ctx.memory, *ctx.fp)?;
-                let b_value = arg_b.read_value(ctx.memory, *ctx.fp)?;
-                let res_value = res.read_value(ctx.memory, *ctx.fp)?;
-
-                let arg0 = ctx.memory.get_vector(a_value.to_usize())?;
-                let arg1 = ctx.memory.get_vector(1 + a_value.to_usize())?;
-                let arg2 = ctx.memory.get_vector(b_value.to_usize())?;
-
-                let mut input = [F::ZERO; VECTOR_LEN * 3];
-                input[..VECTOR_LEN].copy_from_slice(&arg0);
-                input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&arg1);
-                input[2 * VECTOR_LEN..].copy_from_slice(&arg2);
-
-                let output = match ctx
-                    .poseidon24_precomputed
-                    .get(*ctx.n_poseidon24_precomputed_used)
-                {
-                    Some(precomputed) if precomputed.0 == input => {
-                        *ctx.n_poseidon24_precomputed_used += 1;
-                        precomputed.1
-                    }
-                    _ => {
-                        let output = poseidon24_permute(input);
-                        output[2 * VECTOR_LEN..].try_into().unwrap()
-                    }
-                };
-
-                ctx.memory.set_vector(res_value.to_usize(), output)?;
-
-                {
-                    let cycle = ctx.pcs.len() - 1;
-                    let addr_input_a = a_value.to_usize();
-                    let addr_input_b = b_value.to_usize();
-                    let addr_output = res_value.to_usize();
-                    ctx.poseidons_24.push(WitnessPoseidon24 {
-                        cycle: Some(cycle),
-                        addr_input_a,
-                        addr_input_b,
-                        addr_output,
-                        input,
-                    });
-                }
-
-                *ctx.pc += 1;
-                Ok(())
-            }
-            Self::DotProduct {
-                arg0,
-                arg1,
-                res,
-                size,
-            } => {
-                let ptr_arg_0 = arg0.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_arg_1 = arg1.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_res = res.read_value(ctx.memory, *ctx.fp)?.to_usize();
-
-                let slice_0 = ctx
-                    .memory
-                    .get_continuous_slice_of_ef_elements(ptr_arg_0, *size)?;
-
-                let (slice_1, dot_product_result) = if ptr_arg_1 == ONE_VEC_PTR * VECTOR_LEN {
-                    if *size != 1 {
-                        unimplemented!("weird use case");
-                    }
-                    (vec![EF::ONE], slice_0[0])
-                } else {
-                    let slice_1 = ctx
-                        .memory
-                        .get_continuous_slice_of_ef_elements(ptr_arg_1, *size)?;
-                    let dot_product_result =
-                        dot_product::<EF, _, _>(slice_0.iter().copied(), slice_1.iter().copied());
-                    (slice_1, dot_product_result)
-                };
-
-                ctx.memory.set_ef_element(ptr_res, dot_product_result)?;
-
-                {
-                    let cycle = ctx.pcs.len() - 1;
-                    ctx.dot_products.push(WitnessDotProduct {
-                        cycle,
-                        addr_0: ptr_arg_0,
-                        addr_1: ptr_arg_1,
-                        addr_res: ptr_res,
-                        len: *size,
-                        slice_0: slice_0.clone(),
-                        slice_1: slice_1.clone(),
-                        res: dot_product_result,
-                    });
-                }
-
-                *ctx.pc += 1;
-                Ok(())
-            }
-            Self::MultilinearEval {
-                coeffs,
-                point,
-                res,
-                n_vars,
-            } => {
-                let ptr_coeffs = coeffs.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_point = point.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let ptr_res = res.read_value(ctx.memory, *ctx.fp)?.to_usize();
-                let n_coeffs = 1 << *n_vars;
-                let slice_coeffs = ctx.memory.slice(ptr_coeffs << *n_vars, n_coeffs)?;
-
-                let log_point_size = log2_ceil_usize(*n_vars * DIMENSION);
-                let point_slice = ctx
-                    .memory
-                    .slice(ptr_point << log_point_size, *n_vars * DIMENSION)?;
-                for i in *n_vars * DIMENSION..(*n_vars * DIMENSION).next_power_of_two() {
-                    ctx.memory.set((ptr_point << log_point_size) + i, F::ZERO)?; // padding
-                }
-                let point = point_slice[..*n_vars * DIMENSION]
-                    .chunks_exact(DIMENSION)
-                    .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
-                    .collect::<Vec<_>>();
-
-                let eval = slice_coeffs.evaluate(&MultilinearPoint(point.clone()));
-                let mut res_vec = eval.as_basis_coefficients_slice().to_vec();
-                res_vec.resize(VECTOR_LEN, F::ZERO);
-                ctx.memory
-                    .set_vector(ptr_res, res_vec.try_into().unwrap())?;
-
-                {
-                    let cycle = ctx.pcs.len() - 1;
-                    ctx.multilinear_evals.push(WitnessMultilinearEval {
-                        cycle,
-                        inner: RowMultilinearEval {
-                            addr_coeffs: ptr_coeffs,
-                            addr_point: ptr_point,
-                            addr_res: ptr_res,
-                            point,
-                            res: eval,
-                        },
-                    });
-                }
+                table.execute(
+                    arg_a.read_value(ctx.memory, *ctx.fp)?,
+                    arg_b.read_value(ctx.memory, *ctx.fp)?,
+                    arg_c.read_value(ctx.memory, *ctx.fp)?,
+                    *size,
+                    ctx,
+                )?;
 
                 *ctx.pc += 1;
                 Ok(())
@@ -426,22 +205,6 @@ impl Display for Instruction {
             } => {
                 write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]")
             }
-            Self::DotProduct {
-                arg0,
-                arg1,
-                res,
-                size,
-            } => {
-                write!(f, "dot_product({arg0}, {arg1}, {res}, {size})")
-            }
-            Self::MultilinearEval {
-                coeffs,
-                point,
-                res,
-                n_vars,
-            } => {
-                write!(f, "multilinear_eval({coeffs}, {point}, {res}, {n_vars})")
-            }
             Self::Jump {
                 condition,
                 label,
@@ -453,19 +216,14 @@ impl Display for Instruction {
                     "if {condition} != 0 jump to {label} = {dest} with next(fp) = {updated_fp}"
                 )
             }
-            Self::Poseidon2_16 {
+            Self::Precompile {
+                table,
                 arg_a,
                 arg_b,
-                res,
-                is_compression,
+                arg_c,
+                aux,
             } => {
-                write!(
-                    f,
-                    "{res} = poseidon2_16({arg_a}, {arg_b}, compression={is_compression})"
-                )
-            }
-            Self::Poseidon2_24 { arg_a, arg_b, res } => {
-                write!(f, "{res} = poseidon2_24({arg_a}, {arg_b})")
+                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux})", table.name())
             }
         }
     }

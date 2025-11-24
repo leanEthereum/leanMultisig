@@ -13,7 +13,7 @@ pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     output_claim_point: &[EF],
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
     univariate_skips: usize,
-    n_compressions: Option<usize>,
+    compression: bool,
 ) -> GKRPoseidonResult
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
@@ -49,7 +49,7 @@ where
         [vec![alpha], output_claim_point[univariate_skips..].to_vec()].concat()
     };
 
-    if let Some(n_compressions) = n_compressions {
+    let on_compression_selector = if compression {
         (point, claims) = verify_gkr_round(
             verifier_state,
             &CompressionComputation::<WIDTH> {
@@ -62,17 +62,24 @@ where
             WIDTH + 1,
         );
 
-        assert!(n_compressions <= 1 << log_n_poseidons);
-        let compression_eval = claims.pop().unwrap();
-        assert_eq!(
-            compression_eval,
-            skipped_mle_of_zeros_then_ones(
-                (1 << log_n_poseidons) - n_compressions,
-                &point,
-                &selectors
-            )
+        let inner_evals = verifier_state
+            .next_extension_scalars_vec(1 << univariate_skips)
+            .unwrap();
+        let recomputed_value = evaluate_univariate_multilinear::<_, _, _, false>(
+            &inner_evals,
+            &[point[0]],
+            &selectors,
+            None,
         );
-    }
+        assert_eq!(claims.pop().unwrap(), recomputed_value);
+        let epsilons = verifier_state.sample_vec(univariate_skips);
+        let new_point = MultilinearPoint([epsilons.clone(), point[1..].to_vec()].concat());
+        let new_eval = inner_evals.evaluate(&MultilinearPoint(epsilons));
+
+        Some(Evaluation::new(new_point, new_eval))
+    } else {
+        None
+    };
 
     for full_round_constants in layers.final_full_rounds.iter().rev() {
         claims = apply_matrix(&inv_mds_matrix, &claims);
@@ -178,10 +185,11 @@ where
         output_statements,
         input_statements,
         cubes_statements,
+        on_compression_selector,
     }
 }
 
-fn verify_gkr_round<SC: SumcheckComputation<EF>>(
+fn verify_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     computation: &SC,
     log_n_poseidons: usize,
@@ -206,7 +214,7 @@ fn verify_gkr_round<SC: SumcheckComputation<EF>>(
 
     let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(n_inputs).unwrap();
     assert_eq!(
-        computation.eval_extension(&sumcheck_inner_evals, &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &[], &batching_scalars_powers)
             * eq_poly_with_skip(
                 &sumcheck_postponed_claim.point,
                 claim_point,

@@ -11,8 +11,6 @@ mod c_compile_final;
 pub mod ir;
 mod lang;
 mod parser;
-mod precompiles;
-pub use precompiles::PRECOMPILES;
 
 pub fn compile_program(program: String) -> Bytecode {
     let (parsed_program, function_locations) = parse_program(&program).unwrap();

@@ -1,4 +1,4 @@
-use crate::{F, a_simplify_lang::*, ir::*, lang::*, precompiles::*};
+use crate::{F, a_simplify_lang::*, ir::*, lang::*};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::{
@@ -476,57 +476,22 @@ fn compile_lines(
                 return Ok(instructions);
             }
 
-            SimpleLine::Precompile {
-                precompile:
-                    Precompile {
-                        name: PrecompileName::Poseidon16,
-                        ..
-                    },
-                args,
-            } => {
-                compile_poseidon(&mut instructions, args, compiler, true)?;
-            }
-
-            SimpleLine::Precompile {
-                precompile:
-                    Precompile {
-                        name: PrecompileName::Poseidon24,
-                        ..
-                    },
-                args,
-            } => {
-                compile_poseidon(&mut instructions, args, compiler, false)?;
-            }
-            SimpleLine::Precompile {
-                precompile:
-                    Precompile {
-                        name: PrecompileName::DotProduct,
-                        ..
-                    },
-                args,
-                ..
-            } => {
-                instructions.push(IntermediateInstruction::DotProduct {
-                    arg0: IntermediateValue::from_simple_expr(&args[0], compiler),
-                    arg1: IntermediateValue::from_simple_expr(&args[1], compiler),
-                    res: IntermediateValue::from_simple_expr(&args[2], compiler),
-                    size: args[3].as_constant().unwrap(),
-                });
-            }
-            SimpleLine::Precompile {
-                precompile:
-                    Precompile {
-                        name: PrecompileName::MultilinearEval,
-                        ..
-                    },
-                args,
-                ..
-            } => {
-                instructions.push(IntermediateInstruction::MultilinearEval {
-                    coeffs: IntermediateValue::from_simple_expr(&args[0], compiler),
-                    point: IntermediateValue::from_simple_expr(&args[1], compiler),
-                    res: IntermediateValue::from_simple_expr(&args[2], compiler),
-                    n_vars: args[3].as_constant().unwrap(),
+            SimpleLine::Precompile { table, args, .. } => {
+                if *table == Table::poseidon24() {
+                    assert_eq!(args.len(), 3);
+                } else {
+                    assert_eq!(args.len(), 4);
+                }
+                instructions.push(IntermediateInstruction::Precompile {
+                    table: *table,
+                    arg_a: IntermediateValue::from_simple_expr(&args[0], compiler),
+                    arg_b: IntermediateValue::from_simple_expr(&args[1], compiler),
+                    arg_c: IntermediateValue::from_simple_expr(&args[2], compiler),
+                    aux: args
+                        .get(3)
+                        .unwrap_or(&SimpleExpr::zero())
+                        .as_constant()
+                        .unwrap(),
                 });
             }
 
@@ -740,40 +705,6 @@ fn setup_function_call(
     });
 
     Ok(instructions)
-}
-
-fn compile_poseidon(
-    instructions: &mut Vec<IntermediateInstruction>,
-    args: &[SimpleExpr],
-    compiler: &Compiler,
-    over_16: bool, // otherwise over_24
-) -> Result<(), String> {
-    let low_level_arg_a = IntermediateValue::from_simple_expr(&args[0], compiler);
-    let low_level_arg_b = IntermediateValue::from_simple_expr(&args[1], compiler);
-    let low_level_res = IntermediateValue::from_simple_expr(&args[2], compiler);
-
-    if over_16 {
-        assert_eq!(args.len(), 4);
-        let is_compression = args[3].as_constant().unwrap().naive_eval().unwrap();
-        assert!(is_compression.is_zero() || is_compression.is_one());
-        let is_compression = is_compression.is_one();
-
-        instructions.push(IntermediateInstruction::Poseidon2_16 {
-            arg_a: low_level_arg_a,
-            arg_b: low_level_arg_b,
-            res: low_level_res,
-            is_compression,
-        });
-    } else {
-        assert_eq!(args.len(), 3);
-        instructions.push(IntermediateInstruction::Poseidon2_24 {
-            arg_a: low_level_arg_a,
-            arg_b: low_level_arg_b,
-            res: low_level_res,
-        });
-    }
-
-    Ok(())
 }
 
 fn compile_function_ret(

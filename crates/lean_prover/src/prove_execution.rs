@@ -1,23 +1,18 @@
-use std::array;
-
 use crate::common::*;
 use crate::*;
-use ::air::AirTable;
 use air::prove_air;
+use itertools::Itertools;
 use lean_vm::*;
-use lookup::prove_gkr_product;
-use lookup::{compute_pushforward, prove_logup_star};
+use lookup::{compute_pushforward, prove_gkr_quotient, prove_logup_star};
 use multilinear_toolkit::prelude::*;
+use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
+use std::array;
 use sub_protocols::*;
 use tracing::info_span;
-use utils::field_slice_as_base;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
-use vm_air::*;
-use whir_p3::{
-    WhirConfig, WhirConfigBuilder, precompute_dft_twiddles, second_batched_whir_config_builder,
-};
+use whir_p3::{WhirConfig, WhirConfigBuilder, second_batched_whir_config_builder};
 use xmss::{Poseidon16History, Poseidon24History};
 
 pub fn prove_execution(
@@ -30,15 +25,7 @@ pub fn prove_execution(
 ) -> (Vec<PF<EF>>, usize, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
-        full_trace,
-        n_cycles,
-        n_poseidons_16,
-        n_poseidons_24,
-        poseidons_16,      // padded with empty poseidons
-        poseidons_24,      // padded with empty poseidons
-        n_compressions_16, // included the padding (that are compressions of zeros)
-        dot_products,
-        multilinear_evals: vm_multilinear_evals,
+        traces,
         public_memory_size,
         mut non_zero_memory_size,
         mut memory, // padded with zeros to next power of two
@@ -63,128 +50,62 @@ pub fn prove_execution(
     }
     let public_memory = &memory[..public_memory_size];
     let private_memory = &memory[public_memory_size..non_zero_memory_size];
-    let log_memory = log2_strict_usize(memory.len());
     let log_public_memory = log2_strict_usize(public_memory.len());
-
-    let log_n_cycles = log2_ceil_usize(n_cycles);
-    assert!(full_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
-
-    let log_n_p16 = log2_ceil_usize(n_poseidons_16).max(LOG_MIN_POSEIDONS_16);
-    let log_n_p24 = log2_ceil_usize(n_poseidons_24).max(LOG_MIN_POSEIDONS_24);
-
-    precompute_dft_twiddles::<F>(1 << 24);
 
     let _validity_proof_span = info_span!("Validity proof generation").entered();
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
-    let p16_witness =
-        generate_poseidon_witness_helper(&p16_gkr_layers, &poseidons_16, Some(n_compressions_16));
-    let p24_witness = generate_poseidon_witness_helper(&p24_gkr_layers, &poseidons_24, None);
+    let p16_witness = generate_poseidon_witness_helper(
+        &p16_gkr_layers,
+        &traces[Table::poseidon16().index()],
+        POSEIDON_16_COL_INDEX_INPUT_START,
+        Some(&traces[Table::poseidon16().index()].base[POSEIDON_16_COL_COMPRESSION].clone()),
+    );
+    let p24_witness = generate_poseidon_witness_helper(
+        &p24_gkr_layers,
+        &traces[Table::poseidon24().index()],
+        POSEIDON_24_COL_INDEX_INPUT_START,
+        None,
+    );
 
-    let (dot_product_columns, dot_product_padding_len) =
-        build_dot_product_columns(&dot_products, 1 << LOG_MIN_DOT_PRODUCT_ROWS);
-
-    let dot_product_col_index_a =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_A]).unwrap();
-    let dot_product_col_index_b =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_B]).unwrap();
-    let dot_product_col_index_res =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_INDEX_RES]).unwrap();
-    let dot_product_flags: Vec<PF<EF>> =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_START_FLAG]).unwrap();
-    let dot_product_lengths: Vec<PF<EF>> =
-        field_slice_as_base(&dot_product_columns[DOT_PRODUCT_AIR_COL_LEN]).unwrap();
-
-    let dot_product_computations: &[EF] = &dot_product_columns[DOT_PRODUCT_AIR_COL_COMPUTATION];
-    let dot_product_computation_ext_to_base_helper =
-        ExtensionCommitmentFromBaseProver::before_commitment(dot_product_computations);
-
-    let n_rows_table_dot_products = dot_product_flags.len() - dot_product_padding_len;
-    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_flags.len());
+    let commitmenent_extension_helper: [_; N_TABLES] = array::from_fn(|i| {
+        (ALL_TABLES[i].n_commited_columns_ef() > 0).then(|| {
+            ExtensionCommitmentFromBaseProver::before_commitment(
+                ALL_TABLES[i]
+                    .commited_columns_ef()
+                    .iter()
+                    .map(|&c| &traces[i].ext[c][..])
+                    .collect::<Vec<_>>(),
+            )
+        })
+    });
 
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
         &[
-            n_cycles,
-            n_poseidons_16,
-            n_compressions_16,
-            n_poseidons_24,
-            dot_products.len(),
-            n_rows_table_dot_products,
-            private_memory.len(),
-            vm_multilinear_evals.len(),
+            vec![private_memory.len()],
+            traces
+                .iter()
+                .map(|t| t.n_rows_non_padded())
+                .collect::<Vec<_>>(),
         ]
+        .concat()
         .into_iter()
         .map(F::from_usize)
         .collect::<Vec<_>>(),
     );
 
-    for vm_multilinear_eval in &vm_multilinear_evals {
-        prover_state.add_base_scalars(&[
-            F::from_usize(vm_multilinear_eval.addr_coeffs),
-            F::from_usize(vm_multilinear_eval.addr_point),
-            F::from_usize(vm_multilinear_eval.addr_res),
-            F::from_usize(vm_multilinear_eval.n_vars()),
-        ]);
-        prover_state.add_extension_scalars(&vm_multilinear_eval.point);
-        prover_state.add_extension_scalar(vm_multilinear_eval.res);
-    }
-
-    let mut memory_statements = vec![];
-    for entry in &vm_multilinear_evals {
-        add_memory_statements_for_dot_product_precompile(
-            entry,
-            log_memory,
-            log_public_memory,
-            &mut prover_state,
-            &mut memory_statements,
-        )
-        .unwrap();
-    }
-    let [
-        p16_indexes_input_a,
-        p16_indexes_input_b,
-        p16_indexes_output,
-        p16_indexes_output_shifted, // = if compressed { 0 } else { p16_indexes_output + 1 }
-    ] = all_poseidon_16_indexes(&poseidons_16);
-    let [
-        p24_indexes_input_a,
-        p24_indexes_input_a_shifted, // = p24_indexes_input_a + 1
-        p24_indexes_input_b,
-        p24_indexes_output,
-    ] = all_poseidon_24_indexes(&poseidons_24);
-
     let base_dims = get_base_dims(
-        n_cycles,
         log_public_memory,
         private_memory.len(),
-        bytecode.ending_pc,
-        (n_poseidons_16, n_poseidons_24),
-        n_rows_table_dot_products,
         (&p16_gkr_layers, &p24_gkr_layers),
+        array::from_fn(|i| traces[i].height),
     );
 
-    let base_pols = [
-        vec![
-            memory.as_slice(),
-            full_trace[COL_INDEX_PC].as_slice(),
-            full_trace[COL_INDEX_FP].as_slice(),
-            full_trace[COL_INDEX_MEM_ADDRESS_A].as_slice(),
-            full_trace[COL_INDEX_MEM_ADDRESS_B].as_slice(),
-            full_trace[COL_INDEX_MEM_ADDRESS_C].as_slice(),
-        ],
-        vec![
-            &p16_indexes_input_a,
-            &p16_indexes_input_b,
-            &p16_indexes_output,
-        ],
-        vec![
-            &p24_indexes_input_a,
-            &p24_indexes_input_b,
-            &p24_indexes_output,
-        ],
+    let mut base_pols = [
+        vec![memory.as_slice()],
         p16_witness
             .committed_cubes
             .iter()
@@ -195,20 +116,13 @@ pub fn prove_execution(
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
             .collect::<Vec<_>>(),
-        vec![
-            dot_product_flags.as_slice(),
-            dot_product_lengths.as_slice(),
-            dot_product_col_index_a.as_slice(),
-            dot_product_col_index_b.as_slice(),
-            dot_product_col_index_res.as_slice(),
-        ],
-        dot_product_computation_ext_to_base_helper
-            .sub_columns_to_commit
-            .iter()
-            .map(Vec::as_slice)
-            .collect(),
     ]
     .concat();
+    for i in 0..N_TABLES {
+        base_pols.extend(
+            ALL_TABLES[i].committed_columns(&traces[i], commitmenent_extension_helper[i].as_ref()),
+        );
+    }
 
     // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
@@ -219,266 +133,8 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    // Grand Product for consistency with precompiles
-    let grand_product_challenge_global = prover_state.sample();
-    let fingerprint_challenge = prover_state.sample();
-    let mut exec_column_for_grand_product = vec![grand_product_challenge_global; 1 << log_n_cycles];
-    for pos_16 in &poseidons_16 {
-        let Some(cycle) = pos_16.cycle else {
-            break;
-        };
-        exec_column_for_grand_product[cycle] = grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_POSEIDONS_16,
-                &pos_16.addresses_field_repr(),
-                fingerprint_challenge,
-            );
-    }
-    for pos_24 in &poseidons_24 {
-        let Some(cycle) = pos_24.cycle else {
-            break;
-        };
-        exec_column_for_grand_product[cycle] = grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_POSEIDONS_24,
-                &pos_24.addresses_field_repr(),
-                fingerprint_challenge,
-            );
-    }
-    for dot_product in &dot_products {
-        exec_column_for_grand_product[dot_product.cycle] = grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_DOT_PRODUCTS,
-                &dot_product.addresses_and_len_field_repr(),
-                fingerprint_challenge,
-            );
-    }
-    for multilinear_eval in &vm_multilinear_evals {
-        exec_column_for_grand_product[multilinear_eval.cycle] = grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_MULTILINEAR_EVAL,
-                &multilinear_eval.addresses_and_n_vars_field_repr(),
-                fingerprint_challenge,
-            );
-    }
-
-    let (grand_product_exec_res, grand_product_exec_statement) =
-        prove_gkr_product::<_, TWO_POW_UNIVARIATE_SKIPS>(
-            &mut prover_state,
-            &exec_column_for_grand_product,
-        );
-
-    let p16_column_for_grand_product = poseidons_16
-        .par_iter()
-        .map(|pos_16| {
-            grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_POSEIDONS_16,
-                    &pos_16.addresses_field_repr(),
-                    fingerprint_challenge,
-                )
-        })
-        .collect::<Vec<_>>();
-
-    let (grand_product_p16_res, grand_product_p16_statement) =
-        prove_gkr_product::<_, 2>(&mut prover_state, &p16_column_for_grand_product);
-
-    let p24_column_for_grand_product = poseidons_24
-        .par_iter()
-        .map(|pos_24| {
-            grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_POSEIDONS_24,
-                    &pos_24.addresses_field_repr(),
-                    fingerprint_challenge,
-                )
-        })
-        .collect::<Vec<_>>();
-
-    let (grand_product_p24_res, grand_product_p24_statement) =
-        prove_gkr_product::<_, 2>(&mut prover_state, &p24_column_for_grand_product);
-
-    let dot_product_column_for_grand_product = (0..1 << log_n_rows_dot_product_table)
-        .into_par_iter()
-        .map(|i| {
-            grand_product_challenge_global
-                + if dot_product_columns[0][i].is_zero() {
-                    EF::from_usize(TABLE_INDEX_DOT_PRODUCTS)
-                } else {
-                    finger_print(
-                        TABLE_INDEX_DOT_PRODUCTS,
-                        &[
-                            dot_product_columns[2][i],
-                            dot_product_columns[3][i],
-                            dot_product_columns[4][i],
-                            dot_product_columns[1][i],
-                        ],
-                        fingerprint_challenge,
-                    )
-                }
-        })
-        .collect::<Vec<_>>();
-
-    let vm_multilinear_eval_grand_product_res = vm_multilinear_evals
-        .par_iter()
-        .map(|vm_multilinear_eval| {
-            grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_MULTILINEAR_EVAL,
-                    &vm_multilinear_eval.addresses_and_n_vars_field_repr(),
-                    fingerprint_challenge,
-                )
-        })
-        .product::<EF>();
-
-    let (grand_product_dot_product_res, grand_product_dot_product_statement) =
-        prove_gkr_product::<_, TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS>(
-            &mut prover_state,
-            &dot_product_column_for_grand_product,
-        );
-
-    let corrected_prod_exec = grand_product_exec_res
-        / grand_product_challenge_global.exp_u64(
-            ((1 << log_n_cycles)
-                - n_poseidons_16
-                - n_poseidons_24
-                - dot_products.len()
-                - vm_multilinear_evals.len()) as u64,
-        );
-    let corrected_prod_p16 = grand_product_p16_res
-        / (grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_POSEIDONS_16,
-                &WitnessPoseidon16::default_addresses_field_repr(POSEIDON_16_NULL_HASH_PTR),
-                fingerprint_challenge,
-            ))
-        .exp_u64(((1 << log_n_p16) - n_poseidons_16) as u64);
-
-    let corrected_prod_p24 = grand_product_p24_res
-        / (grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_POSEIDONS_24,
-                &WitnessPoseidon24::default_addresses_field_repr(POSEIDON_24_NULL_HASH_PTR),
-                fingerprint_challenge,
-            ))
-        .exp_u64(((1 << log_n_p24) - n_poseidons_24) as u64);
-
-    let corrected_dot_product = grand_product_dot_product_res
-        / ((grand_product_challenge_global
-            + finger_print(
-                TABLE_INDEX_DOT_PRODUCTS,
-                &[F::ZERO, F::ZERO, F::ZERO, F::ONE],
-                fingerprint_challenge,
-            ))
-        .exp_u64(dot_product_padding_len as u64)
-            * (grand_product_challenge_global
-                + finger_print(
-                    TABLE_INDEX_DOT_PRODUCTS,
-                    &[F::ZERO, F::ZERO, F::ZERO, F::ZERO],
-                    fingerprint_challenge,
-                ))
-            .exp_u64(
-                ((1 << log_n_rows_dot_product_table) - dot_product_padding_len - dot_products.len())
-                    as u64,
-            ));
-
-    assert_eq!(
-        corrected_prod_exec,
-        corrected_prod_p16
-            * corrected_prod_p24
-            * corrected_dot_product
-            * vm_multilinear_eval_grand_product_res
-    );
-
-    let p16_grand_product_evals_on_indexes_a =
-        p16_indexes_input_a.evaluate(&grand_product_p16_statement.point);
-    let p16_grand_product_evals_on_indexes_b =
-        p16_indexes_input_b.evaluate(&grand_product_p16_statement.point);
-    let p16_grand_product_evals_on_indexes_res =
-        p16_indexes_output.evaluate(&grand_product_p16_statement.point);
-
-    prover_state.add_extension_scalars(&[
-        p16_grand_product_evals_on_indexes_a,
-        p16_grand_product_evals_on_indexes_b,
-        p16_grand_product_evals_on_indexes_res,
-    ]);
-
-    let mut p16_indexes_a_statements = vec![Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_a,
-    )];
-    let mut p16_indexes_b_statements = vec![Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_b,
-    )];
-    let mut p16_indexes_res_statements = vec![Evaluation::new(
-        grand_product_p16_statement.point.clone(),
-        p16_grand_product_evals_on_indexes_res,
-    )];
-
-    let p24_grand_product_evals_on_indexes_a =
-        p24_indexes_input_a.evaluate(&grand_product_p24_statement.point);
-    let p24_grand_product_evals_on_indexes_b =
-        p24_indexes_input_b.evaluate(&grand_product_p24_statement.point);
-    let p24_grand_product_evals_on_indexes_res =
-        p24_indexes_output.evaluate(&grand_product_p24_statement.point);
-    prover_state.add_extension_scalars(&[
-        p24_grand_product_evals_on_indexes_a,
-        p24_grand_product_evals_on_indexes_b,
-        p24_grand_product_evals_on_indexes_res,
-    ]);
-
-    let mut p24_indexes_a_statements = vec![Evaluation::new(
-        grand_product_p24_statement.point.clone(),
-        p24_grand_product_evals_on_indexes_a,
-    )];
-    let mut p24_indexes_b_statements = vec![Evaluation::new(
-        grand_product_p24_statement.point.clone(),
-        p24_grand_product_evals_on_indexes_b,
-    )];
-    let mut p24_indexes_res_statements = vec![Evaluation::new(
-        grand_product_p24_statement.point.clone(),
-        p24_grand_product_evals_on_indexes_res,
-    )];
-
-    let exec_table = AirTable::<EF, _>::new(VMAir {
-        global_challenge: grand_product_challenge_global,
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-    });
-    let (exec_air_point, exec_evals_to_prove) = info_span!("Execution AIR proof").in_scope(|| {
-        prove_air(
-            &mut prover_state,
-            &exec_table,
-            UNIVARIATE_SKIPS,
-            &full_trace.iter().map(Vec::as_slice).collect::<Vec<_>>(),
-            &execution_air_padding_row(bytecode.ending_pc),
-            Some(grand_product_exec_statement),
-            true,
-        )
-    });
-
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir {
-        global_challenge: grand_product_challenge_global,
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
-    });
-    let dot_product_columns_ref = dot_product_columns
-        .iter()
-        .map(Vec::as_slice)
-        .collect::<Vec<_>>();
-    let (dot_product_air_point, dot_product_evals_to_prove) = info_span!("DotProduct AIR proof")
-        .in_scope(|| {
-            prove_air(
-                &mut prover_state,
-                &dot_product_table,
-                DOT_PRODUCT_UNIVARIATE_SKIPS,
-                &dot_product_columns_ref,
-                &dot_product_air_padding_row(),
-                Some(grand_product_dot_product_statement),
-                true,
-            )
-        });
-
-    let random_point_p16 = MultilinearPoint(prover_state.sample_vec(log_n_p16));
+    let random_point_p16 =
+        MultilinearPoint(prover_state.sample_vec(traces[Table::poseidon16().index()].log_padded()));
     let p16_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p16_witness,
@@ -487,7 +143,8 @@ pub fn prove_execution(
         &p16_gkr_layers,
     );
 
-    let random_point_p24 = MultilinearPoint(prover_state.sample_vec(log_n_p24));
+    let random_point_p24 =
+        MultilinearPoint(prover_state.sample_vec(traces[Table::poseidon24().index()].log_padded()));
     let p24_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p24_witness,
@@ -496,26 +153,26 @@ pub fn prove_execution(
         &p24_gkr_layers,
     );
 
-    let poseidon_value_columns = vec![
-        array::from_fn(|i| FPacking::<F>::unpack_slice(&p16_witness.input_layer[i])),
-        array::from_fn(|i| FPacking::<F>::unpack_slice(&p16_witness.input_layer[i + VECTOR_LEN])),
-        array::from_fn(|i| {
-            FPacking::<F>::unpack_slice(&p16_witness.compression.as_ref().unwrap().2[i])
-        }),
-        array::from_fn(|i| {
-            FPacking::<F>::unpack_slice(
-                &p16_witness.compression.as_ref().unwrap().2[i + VECTOR_LEN],
-            )
-        }),
-        array::from_fn(|i| FPacking::<F>::unpack_slice(&p24_witness.input_layer[i])),
-        array::from_fn(|i| FPacking::<F>::unpack_slice(&p24_witness.input_layer[i + VECTOR_LEN])),
-        array::from_fn(|i| {
-            FPacking::<F>::unpack_slice(&p24_witness.input_layer[i + VECTOR_LEN * 2])
-        }),
-        array::from_fn(|i| {
-            FPacking::<F>::unpack_slice(&p24_witness.output_layer[i + VECTOR_LEN * 2])
-        }),
-    ];
+    let bus_challenge = prover_state.sample();
+    let fingerprint_challenge = prover_state.sample();
+
+    let mut bus_quotients: [EF; N_TABLES] = Default::default();
+    let mut air_points: [MultilinearPoint<EF>; N_TABLES] = Default::default();
+    let mut evals_f: [Vec<EF>; N_TABLES] = Default::default();
+    let mut evals_ef: [Vec<EF>; N_TABLES] = Default::default();
+
+    for table in ALL_TABLES {
+        let i = table.index();
+        (bus_quotients[i], air_points[i], evals_f[i], evals_ef[i]) = prove_bus_and_air(
+            &mut prover_state,
+            &table,
+            &traces[i],
+            bus_challenge,
+            fingerprint_challenge,
+        );
+    }
+
+    assert_eq!(bus_quotients.iter().copied().sum::<EF>(), EF::ZERO);
 
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -523,13 +180,15 @@ pub fn prove_execution(
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
 
     let bytecode_lookup_claim_1 = Evaluation::new(
-        exec_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(&exec_evals_to_prove[..N_INSTRUCTION_COLUMNS])
-            .evaluate(&bytecode_compression_challenges),
+        air_points[Table::execution().index()].clone(),
+        padd_with_zero_to_next_power_of_two(
+            &evals_f[Table::execution().index()][..N_INSTRUCTION_COLUMNS],
+        )
+        .evaluate(&bytecode_compression_challenges),
     );
-    let bytecode_poly_eq_point = eval_eq(&exec_air_point);
+    let bytecode_poly_eq_point = eval_eq(&air_points[Table::execution().index()]);
     let bytecode_pushforward = compute_pushforward(
-        &full_trace[COL_INDEX_PC],
+        &traces[Table::execution().index()].base[COL_INDEX_PC],
         folded_bytecode.len(),
         &bytecode_poly_eq_point,
     );
@@ -537,60 +196,78 @@ pub fn prove_execution(
     let normal_lookup_into_memory = NormalPackedLookupProver::step_1(
         &mut prover_state,
         &memory,
-        vec![
-            &full_trace[COL_INDEX_MEM_ADDRESS_A],
-            &full_trace[COL_INDEX_MEM_ADDRESS_B],
-            &full_trace[COL_INDEX_MEM_ADDRESS_C],
-            &dot_product_col_index_a,
-            &dot_product_col_index_b,
-            &dot_product_col_index_res,
-        ],
-        [
-            vec![n_cycles; 3],
-            vec![n_rows_table_dot_products.max(1 << LOG_MIN_DOT_PRODUCT_ROWS); 3],
-        ]
-        .concat(),
-        [vec![0; 3], vec![0; 3]].concat(),
-        vec![
-            &full_trace[COL_INDEX_MEM_VALUE_A],
-            &full_trace[COL_INDEX_MEM_VALUE_B],
-            &full_trace[COL_INDEX_MEM_VALUE_C],
-        ],
-        vec![
-            &dot_product_columns[DOT_PRODUCT_AIR_COL_VALUE_A],
-            &dot_product_columns[DOT_PRODUCT_AIR_COL_VALUE_B],
-            &dot_product_columns[DOT_PRODUCT_AIR_COL_VALUE_RES],
-        ],
-        normal_lookup_into_memory_initial_statements(
-            &exec_air_point,
-            &exec_evals_to_prove,
-            &dot_product_air_point,
-            &dot_product_evals_to_prove,
-        ),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_index_columns_f(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_index_columns_ef(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| {
+                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()]
+            })
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| {
+                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()]
+            })
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_f())
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_ef())
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_f_value_columns(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookup_ef_value_columns(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookups_statements_f(&air_points[i], &evals_f[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].normal_lookups_statements_ef(&air_points[i], &evals_ef[i]))
+            .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
     let vectorized_lookup_into_memory = VectorizedPackedLookupProver::<_, VECTOR_LEN>::step_1(
         &mut prover_state,
         &memory,
-        vec![
-            &p16_indexes_input_a,
-            &p16_indexes_input_b,
-            &p16_indexes_output,
-            &p16_indexes_output_shifted,
-            &p24_indexes_input_a,
-            &p24_indexes_input_a_shifted,
-            &p24_indexes_input_b,
-            &p24_indexes_output,
-        ],
-        [
-            vec![n_poseidons_16.max(1 << LOG_MIN_POSEIDONS_16); 4],
-            vec![n_poseidons_24.max(1 << LOG_MIN_POSEIDONS_24); 4],
-        ]
-        .concat(),
-        default_poseidon_indexes(),
-        poseidon_value_columns,
-        poseidon_lookup_statements(&p16_gkr, &p24_gkr),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].vector_lookup_index_columns(&traces[i]))
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| {
+                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_vector_lookups()]
+            })
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].vector_lookup_default_indexes())
+            .collect(),
+        (0..N_TABLES)
+            .flat_map(|i| ALL_TABLES[i].vector_lookup_values_columns(&traces[i]))
+            .collect(),
+        {
+            let mut statements = vec![];
+            for table in ALL_TABLES {
+                if table.identifier() == Table::poseidon16() {
+                    statements.extend(poseidon_16_vectorized_lookup_statements(&p16_gkr)); // special case
+                    continue;
+                }
+                if table.identifier() == Table::poseidon24() {
+                    statements.extend(poseidon_24_vectorized_lookup_statements(&p24_gkr)); // special case
+                    continue;
+                }
+                statements.extend(table.vectorized_lookups_statements(
+                    &air_points[table.index()],
+                    &evals_f[table.index()],
+                ));
+            }
+            statements
+        },
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
@@ -619,7 +296,7 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let normal_lookup_into_memory_statements =
+    let mut normal_lookup_statements =
         normal_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
 
     let vectorized_lookup_statements =
@@ -628,148 +305,64 @@ pub fn prove_execution(
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &MleRef::Extension(&folded_bytecode),
-        &full_trace[COL_INDEX_PC],
+        &traces[Table::execution().index()].base[COL_INDEX_PC],
         bytecode_lookup_claim_1.value,
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
         Some(bytecode.instructions.len()),
     );
 
-    memory_statements.push(normal_lookup_into_memory_statements.on_table.clone());
-    memory_statements.push(vectorized_lookup_statements.on_table.clone());
+    let memory_statements = vec![
+        normal_lookup_statements.on_table.clone(),
+        vectorized_lookup_statements.on_table.clone(),
+    ];
+
+    let mut final_statements: [Vec<_>; N_TABLES] = Default::default();
+    for i in 0..N_TABLES {
+        final_statements[i] = ALL_TABLES[i].committed_statements_prover(
+            &mut prover_state,
+            &air_points[i],
+            &evals_f[i],
+            commitmenent_extension_helper[i].as_ref(),
+            &mut normal_lookup_statements.on_indexes_f,
+            &mut normal_lookup_statements.on_indexes_ef,
+        );
+    }
+    assert!(normal_lookup_statements.on_indexes_f.is_empty());
+    assert!(normal_lookup_statements.on_indexes_ef.is_empty());
 
     {
-        // index opening for poseidon lookup
-        p16_indexes_a_statements.extend(vectorized_lookup_statements.on_indexes[0].clone());
-        p16_indexes_b_statements.extend(vectorized_lookup_statements.on_indexes[1].clone());
-        p16_indexes_res_statements.extend(vectorized_lookup_statements.on_indexes[2].clone());
-        // vectorized_lookup_statements.on_indexes[3] is proven via sumcheck below
-        p24_indexes_a_statements.extend(vectorized_lookup_statements.on_indexes[4].clone());
-        p24_indexes_a_statements.extend(
-            vectorized_lookup_statements.on_indexes[5]
+        let mut cursor = 0;
+        for t in 0..N_TABLES {
+            for (statement, lookup) in vectorized_lookup_statements.on_indexes[cursor..]
                 .iter()
-                .map(|eval| Evaluation::new(eval.point.clone(), eval.value - EF::ONE)),
-        );
-        p24_indexes_b_statements.extend(vectorized_lookup_statements.on_indexes[6].clone());
-        p24_indexes_res_statements.extend(vectorized_lookup_statements.on_indexes[7].clone());
-
-        // prove this value via sumcheck: index_res_b = (index_res_a + 1) * (1 - compression)
-        let p16_one_minus_compression = &p16_witness
-            .compression
-            .as_ref()
-            .unwrap()
-            .1
-            .par_iter()
-            .map(|c| EFPacking::<EF>::ONE - *c) // TODO embedding overhead
-            .collect::<Vec<_>>();
-        let p16_index_res_a_plus_one = pack_extension(
-            &p16_indexes_output
-                .par_iter()
-                .map(|c| EF::ONE + *c) // TODO embedding overhead
-                .collect::<Vec<_>>(),
-        );
-        let alpha = prover_state.sample();
-        let mut poly_eq = EFPacking::<EF>::zero_vec(1 << (log_n_p16 - packing_log_width::<EF>()));
-        let mut sum = EF::ZERO;
-        for (statement, alpha_power) in vectorized_lookup_statements.on_indexes[3]
-            .iter()
-            .zip(alpha.powers())
-        {
-            sum += statement.value * alpha_power;
-            compute_sparse_eval_eq_packed(&statement.point, &mut poly_eq, alpha_power);
+                .zip(ALL_TABLES[t].vector_lookups())
+            {
+                final_statements[t][lookup.index].extend(statement.clone());
+            }
+            cursor += ALL_TABLES[t].num_vector_lookups();
         }
-        // TODO there is a lot of embedding overhead in this sumcheck
-        let (sc_point, sc_values, _) = sumcheck_prove(
-            1,
-            MleGroupRef::ExtensionPacked(vec![
-                &poly_eq,
-                &p16_one_minus_compression,
-                &p16_index_res_a_plus_one,
-            ]),
-            &CubeComputation {},
-            &[],
-            None,
-            false,
-            &mut prover_state,
-            sum,
-            false,
-        );
-        prover_state.add_extension_scalar(sc_values[2]);
-        p16_indexes_res_statements.push(Evaluation::new(sc_point, sc_values[2] - EF::ONE));
     }
 
     let (initial_pc_statement, final_pc_statement) =
-        initial_and_final_pc_conditions(bytecode, log_n_cycles);
+        initial_and_final_pc_conditions(traces[Table::execution().index()].log_padded());
 
-    let dot_product_computation_column_statements = dot_product_computation_ext_to_base_helper
-        .after_commitment(&mut prover_state, &dot_product_air_point);
-
-    let exec_air_statement =
-        |col_index: usize| Evaluation::new(exec_air_point.clone(), exec_evals_to_prove[col_index]);
-    let dot_product_air_statement = |col_index: usize| {
-        Evaluation::new(
-            dot_product_air_point.clone(),
-            dot_product_evals_to_prove[col_index],
-        )
-    };
+    final_statements[Table::execution().index()]
+        [ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
+    .extend(vec![
+        bytecode_logup_star_statements.on_indexes.clone(),
+        initial_pc_statement,
+        final_pc_statement,
+    ]);
 
     // First Opening
-    let all_base_statements = [
-        vec![
-            memory_statements,
-            vec![
-                exec_air_statement(COL_INDEX_PC),
-                bytecode_logup_star_statements.on_indexes.clone(),
-                initial_pc_statement,
-                final_pc_statement,
-            ], // pc
-            vec![exec_air_statement(COL_INDEX_FP)], // fp
-            [
-                vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_A)],
-                normal_lookup_into_memory_statements.on_indexes[0].clone(),
-            ]
-            .concat(), // exec memory address A
-            [
-                vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_B)],
-                normal_lookup_into_memory_statements.on_indexes[1].clone(),
-            ]
-            .concat(), // exec memory address B
-            [
-                vec![exec_air_statement(COL_INDEX_MEM_ADDRESS_C)],
-                normal_lookup_into_memory_statements.on_indexes[2].clone(),
-            ]
-            .concat(), // exec memory address C
-            p16_indexes_a_statements,
-            p16_indexes_b_statements,
-            p16_indexes_res_statements,
-            p24_indexes_a_statements,
-            p24_indexes_b_statements,
-            p24_indexes_res_statements,
-        ],
+    let mut all_base_statements = [
+        vec![memory_statements],
         encapsulate_vec(p16_gkr.cubes_statements.split()),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
-        vec![
-            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_START_FLAG)],
-            vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_LEN)],
-            [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_A)],
-                normal_lookup_into_memory_statements.on_indexes[3].clone(),
-            ]
-            .concat(),
-            [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_B)],
-                normal_lookup_into_memory_statements.on_indexes[4].clone(),
-            ]
-            .concat(),
-            [
-                vec![dot_product_air_statement(DOT_PRODUCT_AIR_COL_INDEX_RES)],
-                normal_lookup_into_memory_statements.on_indexes[4].clone(),
-            ]
-            .concat(),
-        ],
-        dot_product_computation_column_statements,
     ]
     .concat();
+    all_base_statements.extend(final_statements.into_iter().flatten());
 
     let global_statements_base = packed_pcs_global_statements_for_prover(
         &base_pols,
@@ -785,7 +378,7 @@ pub fn prove_execution(
         &extension_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &[
-            normal_lookup_into_memory_statements.on_pushforward,
+            normal_lookup_statements.on_pushforward,
             vectorized_lookup_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,
         ],
@@ -811,4 +404,209 @@ pub fn prove_execution(
         prover_state.proof_size(),
         exec_summary,
     )
+}
+
+fn prove_bus_and_air(
+    prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
+    t: &Table,
+    trace: &TableTrace,
+    bus_challenge: EF,
+    fingerprint_challenge: EF,
+) -> (EF, MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
+    let n_buses = t.buses().len();
+    let n_buses_padded = n_buses.next_power_of_two();
+    let log_n_buses = log2_ceil_usize(n_buses);
+    let n_rows = trace.n_rows_padded();
+    let log_n_rows = trace.log_padded();
+
+    assert!(n_buses > 0, "Table {} has no buses", t.name());
+
+    let mut numerators = F::zero_vec(n_buses_padded * n_rows);
+    for (bus, numerators_chunk) in t.buses().iter().zip(numerators.chunks_mut(n_rows)) {
+        assert!(bus.selector < trace.base.len());
+        trace.base[bus.selector]
+            .par_iter()
+            .zip(numerators_chunk)
+            .for_each(|(&selector, v)| {
+                *v = match bus.direction {
+                    BusDirection::Pull => -selector,
+                    BusDirection::Push => selector,
+                }
+            });
+    }
+
+    let mut denominators = unsafe { uninitialized_vec(n_buses_padded * n_rows) };
+    for (bus, denomniators_chunk) in t.buses().iter().zip(denominators.chunks_exact_mut(n_rows)) {
+        denomniators_chunk
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, v)| {
+                *v = bus_challenge
+                    + finger_print(
+                        match &bus.table {
+                            BusTable::Constant(table) => table.embed(),
+                            BusTable::Variable(col) => trace.base[*col][i],
+                        },
+                        bus.data
+                            .iter()
+                            .map(|col| trace.base[*col][i])
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                        fingerprint_challenge,
+                    );
+            });
+    }
+    denominators[n_rows * n_buses..]
+        .par_iter_mut()
+        .for_each(|v| *v = EF::ONE);
+
+    // TODO avoid embedding !!
+    let numerators_embedded = numerators
+        .par_iter()
+        .copied()
+        .map(EF::from)
+        .collect::<Vec<_>>();
+
+    // TODO avoid reallocation due to packing (pack directly when constructing)
+    let numerators_packed = pack_extension(&numerators_embedded);
+    let denominators_packed = pack_extension(&denominators);
+    let (mut quotient, bus_point_global, numerator_value_global, denominator_value_global) =
+        prove_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
+            prover_state,
+            &MleGroupRef::ExtensionPacked(vec![&numerators_packed, &denominators_packed]),
+        );
+
+    let (bus_point, bus_selector_values, bus_data_values) = if n_buses == 1 {
+        // easy case
+        (
+            bus_point_global,
+            vec![numerator_value_global],
+            vec![denominator_value_global],
+        )
+    } else {
+        let uni_selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
+
+        let sub_numerators_evals = numerators
+            .par_chunks_exact(1 << (log_n_rows - UNIVARIATE_SKIPS))
+            .take(n_buses << UNIVARIATE_SKIPS)
+            .map(|chunk| {
+                chunk.evaluate(&MultilinearPoint(
+                    bus_point_global[1 + log_n_buses..].to_vec(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        prover_state.add_extension_scalars(&sub_numerators_evals);
+        // sanity check:
+        assert_eq!(
+            numerator_value_global,
+            evaluate_univariate_multilinear::<_, _, _, false>(
+                &padd_with_zero_to_next_power_of_two(&sub_numerators_evals),
+                &bus_point_global[..1 + log_n_buses],
+                &uni_selectors,
+                None
+            ),
+        );
+
+        let sub_denominators_evals = denominators
+            .par_chunks_exact(1 << (log_n_rows - UNIVARIATE_SKIPS))
+            .take(n_buses << UNIVARIATE_SKIPS)
+            .map(|chunk| {
+                chunk.evaluate(&MultilinearPoint(
+                    bus_point_global[1 + log_n_buses..].to_vec(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        prover_state.add_extension_scalars(&sub_denominators_evals);
+        // sanity check:
+        assert_eq!(
+            denominator_value_global,
+            evaluate_univariate_multilinear::<_, _, _, false>(
+                &padd_to_next_power_of_two(&sub_denominators_evals, EF::ONE),
+                &bus_point_global[..1 + log_n_buses],
+                &uni_selectors,
+                None
+            ),
+        );
+
+        let epsilon = prover_state.sample();
+        let bus_point = MultilinearPoint(
+            [vec![epsilon], bus_point_global[1 + log_n_buses..].to_vec()].concat(),
+        );
+
+        let bus_selector_values = sub_numerators_evals
+            .chunks_exact(1 << UNIVARIATE_SKIPS)
+            .map(|chunk| {
+                evaluate_univariate_multilinear::<_, _, _, false>(
+                    &chunk,
+                    &[epsilon],
+                    &uni_selectors,
+                    None,
+                )
+            })
+            .collect();
+        let bus_data_values = sub_denominators_evals
+            .chunks_exact(1 << UNIVARIATE_SKIPS)
+            .map(|chunk| {
+                evaluate_univariate_multilinear::<_, _, _, false>(
+                    &chunk,
+                    &[epsilon],
+                    &uni_selectors,
+                    None,
+                )
+            })
+            .collect();
+
+        (bus_point, bus_selector_values, bus_data_values)
+    };
+
+    let bus_beta = prover_state.sample();
+
+    let bus_final_values = bus_selector_values
+        .iter()
+        .zip_eq(&bus_data_values)
+        .zip_eq(&t.buses())
+        .map(|((&bus_selector_value, &bus_data_value), bus)| {
+            bus_selector_value
+                * match bus.direction {
+                    BusDirection::Pull => EF::NEG_ONE,
+                    BusDirection::Push => EF::ONE,
+                }
+                + bus_beta * (bus_data_value - bus_challenge)
+        })
+        .collect::<Vec<_>>();
+
+    let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
+
+    for bus in t.buses() {
+        quotient -=
+            bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
+    }
+
+    let extra_data = ExtraDataForBuses {
+        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        bus_beta: bus_beta,
+        alpha_powers: vec![], // filled later
+    };
+    let (air_point, evals_f, evals_ef) =
+        info_span!("Table AIR proof", table = t.name()).in_scope(|| {
+            macro_rules! prove_air_for_table {
+                ($t:expr) => {
+                    prove_air(
+                        prover_state,
+                        $t,
+                        extra_data,
+                        UNIVARIATE_SKIPS,
+                        &trace.base[..$t.n_columns_f_air()],
+                        &trace.ext[..$t.n_columns_ef_air()],
+                        &$t.air_padding_row_f(),
+                        &$t.air_padding_row_ef(),
+                        Some(bus_virtual_statement),
+                        $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
+                    )
+                };
+            }
+            delegate_to_inner!(t => prove_air_for_table)
+        });
+
+    (quotient, air_point, evals_f, evals_ef)
 }

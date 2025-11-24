@@ -8,13 +8,3 @@ pub use instruction_encoder::*;
 
 mod poseidon_tables;
 pub use poseidon_tables::*;
-
-mod dot_product;
-pub use dot_product::*;
-
-// Zero padding will be added to each at least, if this minimum is not reached
-// (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)
-// Long term, we should find a more elegant solution.
-pub const LOG_MIN_POSEIDONS_16: usize = 8;
-pub const LOG_MIN_POSEIDONS_24: usize = 8;
-pub const LOG_MIN_DOT_PRODUCT_ROWS: usize = 8;

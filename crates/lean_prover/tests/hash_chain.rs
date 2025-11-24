@@ -23,7 +23,7 @@ fn benchmark_poseidon_chain() {
         zero = 0;
         for i in 0..2**9 {
             poseidon24(0, 0, poseidon_24_null_hash_ptr);
-            dot_product(0, 0, zero, 1);
+            dot_product_ee(0, 0, zero, 1);
         }
 
         buff = malloc_vec(CHAIN_LENGTH + 1);

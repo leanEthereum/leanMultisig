@@ -21,22 +21,29 @@ where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
     EF: ExtensionField<PF<EF>>,
 {
+    type ExtraData = Vec<EF>;
+
     fn degree(&self) -> usize {
         3
     }
 
     #[inline(always)]
-    fn eval_base(&self, point: &[PF<EF>], alpha_powers: &[EF]) -> EF {
+    fn eval_base(&self, point: &[PF<EF>], _: &[EF], alpha_powers: &Self::ExtraData) -> EF {
         self.my_eval::<PF<EF>>(point, alpha_powers)
     }
 
     #[inline(always)]
-    fn eval_extension(&self, point: &[EF], alpha_powers: &[EF]) -> EF {
+    fn eval_extension(&self, point: &[EF], _: &[EF], alpha_powers: &Self::ExtraData) -> EF {
         self.my_eval::<EF>(point, alpha_powers)
     }
 
     #[inline(always)]
-    fn eval_packed_base(&self, point: &[FPacking<F>], alpha_powers: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_base(
+        &self,
+        point: &[FPacking<F>],
+        _: &[EFPacking<EF>],
+        alpha_powers: &Self::ExtraData,
+    ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + N_COMMITED_CUBES);
         debug_assert_eq!(alpha_powers.len(), WIDTH + N_COMMITED_CUBES);
 
@@ -58,7 +65,12 @@ where
     }
 
     #[inline(always)]
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
+    fn eval_packed_extension(
+        &self,
+        point: &[EFPacking<EF>],
+        _: &[EFPacking<EF>],
+        alpha_powers: &Self::ExtraData,
+    ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + N_COMMITED_CUBES);
         debug_assert_eq!(alpha_powers.len(), WIDTH + N_COMMITED_CUBES);
 
