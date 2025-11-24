@@ -14,8 +14,7 @@ pub fn build_challenger() -> MyChallenger {
     MyChallenger::new(get_poseidon16().clone())
 }
 
-pub fn build_prover_state<EF: ExtensionField<KoalaBear>>()
--> ProverState<KoalaBear, EF, MyChallenger> {
+pub fn build_prover_state<EF: ExtensionField<KoalaBear>>() -> ProverState<KoalaBear, EF, MyChallenger> {
     ProverState::new(build_challenger())
 }
 

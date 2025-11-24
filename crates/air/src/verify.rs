@@ -23,12 +23,7 @@ where
 
     *extra_data.alpha_powers_mut() = alpha
         .powers()
-        .take(
-            air.n_constraints()
-                + virtual_column_statements
-                    .as_ref()
-                    .map_or(0, |s| s.values.len()),
-        )
+        .take(air.n_constraints() + virtual_column_statements.as_ref().map_or(0, |s| s.values.len()))
         .collect();
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
@@ -38,12 +33,8 @@ where
         .unwrap_or_else(|| verifier_state.sample_vec(n_sc_rounds));
     assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
-    let (sc_sum, outer_statement) = sumcheck_verify_with_univariate_skip::<EF>(
-        verifier_state,
-        air.degree() + 1,
-        log_n_rows,
-        univariate_skips,
-    )?;
+    let (sc_sum, outer_statement) =
+        sumcheck_verify_with_univariate_skip::<EF>(verifier_state, air.degree() + 1, log_n_rows, univariate_skips)?;
     if sc_sum
         != virtual_column_statements
             .as_ref()
@@ -59,9 +50,7 @@ where
         .collect::<Vec<_>>();
 
     let mut inner_sums = verifier_state.next_extension_scalars_vec(
-        air.n_columns_air()
-            + air.down_column_indexes_f().len()
-            + air.down_column_indexes_ef().len(),
+        air.n_columns_air() + air.down_column_indexes_f().len() + air.down_column_indexes_ef().len(),
     )?;
 
     let n_columns_down_f = air.down_column_indexes_f().len();
@@ -72,11 +61,7 @@ where
         &extra_data,
     );
 
-    if eq_poly_with_skip(
-        &zerocheck_challenges,
-        &outer_statement.point,
-        univariate_skips,
-    ) * constraint_evals
+    if eq_poly_with_skip(&zerocheck_challenges, &outer_statement.point, univariate_skips) * constraint_evals
         != outer_statement.value
     {
         return Err(ProofError::InvalidProof);
@@ -128,14 +113,8 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
         evals_up_and_down.len()
     );
     let last_row_selector = outer_selector_evals[(1 << univariate_skips) - 1]
-        * outer_sumcheck_challenge
-            .point
-            .iter()
-            .copied()
-            .product::<EF>();
-    for (&last_row_value, down_col_eval) in
-        last_row_f.iter().zip(&mut evals_up_and_down[n_columns..])
-    {
+        * outer_sumcheck_challenge.point.iter().copied().product::<EF>();
+    for (&last_row_value, down_col_eval) in last_row_f.iter().zip(&mut evals_up_and_down[n_columns..]) {
         *down_col_eval -= last_row_selector * last_row_value;
     }
     for (&last_row_value, down_col_eval) in last_row_ef
@@ -145,9 +124,7 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
         *down_col_eval -= last_row_selector * last_row_value;
     }
 
-    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(
-        n_columns + last_row_f.len() + last_row_ef.len(),
-    ));
+    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns + last_row_f.len() + last_row_ef.len()));
 
     let eval_eq_batching_scalars = eval_eq(&batching_scalars);
     let batching_scalars_up = &eval_eq_batching_scalars[..n_columns];
@@ -155,13 +132,12 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
 
     let sub_evals = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
 
-    if dot_product::<EF, _, _>(
-        sub_evals.iter().copied(),
-        outer_selector_evals.iter().copied(),
-    ) != dot_product::<EF, _, _>(
-        evals_up_and_down.iter().copied(),
-        eval_eq_batching_scalars.iter().copied(),
-    ) {
+    if dot_product::<EF, _, _>(sub_evals.iter().copied(), outer_selector_evals.iter().copied())
+        != dot_product::<EF, _, _>(
+            evals_up_and_down.iter().copied(),
+            eval_eq_batching_scalars.iter().copied(),
+        )
+    {
         return Err(ProofError::InvalidProof);
     }
 
@@ -173,9 +149,8 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
         return Err(ProofError::InvalidProof);
     }
 
-    let matrix_up_sc_eval =
-        MultilinearPoint([epsilons.0.clone(), outer_sumcheck_challenge.point.0.clone()].concat())
-            .eq_poly_outside(&inner_sumcheck_stement.point);
+    let matrix_up_sc_eval = MultilinearPoint([epsilons.0.clone(), outer_sumcheck_challenge.point.0.clone()].concat())
+        .eq_poly_outside(&inner_sumcheck_stement.point);
     let matrix_down_sc_eval = next_mle(
         &[
             epsilons.0,
@@ -185,10 +160,8 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
         .concat(),
     );
 
-    let evaluations_remaining_to_verify_f =
-        verifier_state.next_extension_scalars_vec(n_columns_f)?;
-    let evaluations_remaining_to_verify_ef =
-        verifier_state.next_extension_scalars_vec(n_columns_ef)?;
+    let evaluations_remaining_to_verify_f = verifier_state.next_extension_scalars_vec(n_columns_f)?;
+    let evaluations_remaining_to_verify_ef = verifier_state.next_extension_scalars_vec(n_columns_ef)?;
     let evaluations_remaining_to_verify = [
         evaluations_remaining_to_verify_f.clone(),
         evaluations_remaining_to_verify_ef.clone(),
@@ -211,8 +184,7 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
         .sum::<EF>();
 
     if inner_sumcheck_stement.value
-        != matrix_up_sc_eval * batched_col_up_sc_eval
-            + matrix_down_sc_eval * batched_col_down_sc_eval
+        != matrix_up_sc_eval * batched_col_up_sc_eval + matrix_down_sc_eval * batched_col_down_sc_eval
     {
         return Err(ProofError::InvalidProof);
     }

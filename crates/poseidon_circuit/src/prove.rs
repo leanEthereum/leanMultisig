@@ -52,12 +52,8 @@ where
         let mut output_claims = vec![];
         let mut claims = vec![];
         for evals in inner_evals {
-            output_claims
-                .push(evals.evaluate(&MultilinearPoint(point[..univariate_skips].to_vec())));
-            claims.push(dot_product(
-                selectors_at_alpha.iter().copied(),
-                evals.into_iter(),
-            ))
+            output_claims.push(evals.evaluate(&MultilinearPoint(point[..univariate_skips].to_vec())));
+            claims.push(dot_product(selectors_at_alpha.iter().copied(), evals.into_iter()))
         }
         point = [vec![alpha], point[univariate_skips..].to_vec()].concat();
         (output_claims, claims)
@@ -95,12 +91,7 @@ where
         None
     };
 
-    for (layer, full_round_constants) in witness
-        .final_full_layers
-        .iter()
-        .zip(&layers.final_full_rounds)
-        .rev()
-    {
+    for (layer, full_round_constants) in witness.final_full_layers.iter().zip(&layers.final_full_rounds).rev() {
         claims = apply_matrix(&inv_mds_matrix, &claims);
 
         (point, claims) = prove_gkr_round(
@@ -216,10 +207,7 @@ fn prove_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>> + 'static>(
 ) -> (Vec<EF>, Vec<EF>) {
     let batching_scalar = prover_state.sample();
     let batching_scalars_powers = batching_scalar.powers().collect_n(output_claims.len());
-    let batched_claim: EF = dot_product(
-        output_claims.iter().copied(),
-        batching_scalars_powers.iter().copied(),
-    );
+    let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalars_powers.iter().copied());
 
     let (sumcheck_point, sumcheck_inner_evals, sumcheck_final_sum) = sumcheck_prove(
         univariate_skips,
@@ -326,12 +314,8 @@ fn inner_evals_on_commited_columns(
         .map(|col| {
             col.chunks_exact(eq_mle.len())
                 .map(|chunk| {
-                    let ef_sum = dot_product::<EFPacking<EF>, _, _>(
-                        eq_mle.iter().copied(),
-                        chunk.iter().copied(),
-                    );
-                    <EFPacking<EF> as PackedFieldExtension<F, EF>>::to_ext_iter([ef_sum])
-                        .sum::<EF>()
+                    let ef_sum = dot_product::<EFPacking<EF>, _, _>(eq_mle.iter().copied(), chunk.iter().copied());
+                    <EFPacking<EF> as PackedFieldExtension<F, EF>>::to_ext_iter([ef_sum]).sum::<EF>()
                 })
                 .collect::<Vec<_>>()
         })
@@ -340,11 +324,9 @@ fn inner_evals_on_commited_columns(
     prover_state.add_extension_scalars(&inner_evals);
     let mut values_to_prove = vec![];
     let pcs_batching_scalars_inputs = prover_state.sample_vec(univariate_skips);
-    let point_to_prove =
-        MultilinearPoint([pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat());
+    let point_to_prove = MultilinearPoint([pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat());
     for col_inner_evals in inner_evals.chunks_exact(1 << univariate_skips) {
-        values_to_prove
-            .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
+        values_to_prove.push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
     MultiEvaluation::new(point_to_prove, values_to_prove)
 }

@@ -11,12 +11,9 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use utils::{
-    build_prover_state, build_verifier_state, padd_with_zero_to_next_multiple_of,
-    padd_with_zero_to_next_power_of_two,
+    build_prover_state, build_verifier_state, padd_with_zero_to_next_multiple_of, padd_with_zero_to_next_power_of_two,
 };
-use whir_p3::{
-    FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles,
-};
+use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 const NUM_VARIABLES: usize = 25;
 
@@ -33,8 +30,7 @@ pub fn run_whir_recursion_benchmark() {
         rs_domain_initial_reduction_factor: 3,
     };
 
-    let mut recursion_config =
-        WhirConfig::<EF>::new(recursion_config_builder.clone(), NUM_VARIABLES);
+    let mut recursion_config = WhirConfig::<EF>::new(recursion_config_builder.clone(), NUM_VARIABLES);
 
     // TODO remove overriding this
     {
@@ -48,14 +44,8 @@ pub fn run_whir_recursion_benchmark() {
     // println!("Whir parameters: {}", params.to_string());
     for (i, round) in recursion_config.round_parameters.iter().enumerate() {
         program_str = program_str
-            .replace(
-                &format!("NUM_QUERIES_{i}_PLACEHOLDER"),
-                &round.num_queries.to_string(),
-            )
-            .replace(
-                &format!("GRINDING_BITS_{i}_PLACEHOLDER"),
-                &round.pow_bits.to_string(),
-            );
+            .replace(&format!("NUM_QUERIES_{i}_PLACEHOLDER"), &round.num_queries.to_string())
+            .replace(&format!("GRINDING_BITS_{i}_PLACEHOLDER"), &round.pow_bits.to_string());
     }
     program_str = program_str
         .replace(
@@ -70,25 +60,16 @@ pub fn run_whir_recursion_benchmark() {
     for round in 0..=recursion_config.n_rounds() {
         program_str = program_str.replace(
             &format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
-            &recursion_config_builder
-                .folding_factor
-                .at_round(round)
-                .to_string(),
+            &recursion_config_builder.folding_factor.at_round(round).to_string(),
         );
     }
     program_str = program_str.replace(
         "RS_REDUCTION_FACTOR_0_PLACEHOLDER",
-        &recursion_config_builder
-            .rs_domain_initial_reduction_factor
-            .to_string(),
+        &recursion_config_builder.rs_domain_initial_reduction_factor.to_string(),
     );
 
     let mut rng = StdRng::seed_from_u64(0);
-    let polynomial = MleOwned::Base(
-        (0..1 << NUM_VARIABLES)
-            .map(|_| rng.random())
-            .collect::<Vec<F>>(),
-    );
+    let polynomial = MleOwned::Base((0..1 << NUM_VARIABLES).map(|_| rng.random()).collect::<Vec<F>>());
 
     let point = MultilinearPoint::<EF>((0..NUM_VARIABLES).map(|_| rng.random()).collect());
 
@@ -116,12 +97,7 @@ pub fn run_whir_recursion_benchmark() {
         <EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(&eval),
     ));
 
-    recursion_config.prove(
-        &mut prover_state,
-        statement.clone(),
-        witness,
-        &polynomial.by_ref(),
-    );
+    recursion_config.prove(&mut prover_state, statement.clone(), witness, &polynomial.by_ref());
 
     let first_folding_factor = recursion_config_builder.folding_factor.at_round(0);
 
@@ -166,9 +142,7 @@ pub fn run_whir_recursion_benchmark() {
 
     {
         let mut verifier_state = build_verifier_state(&prover_state);
-        let parsed_commitment = recursion_config
-            .parse_commitment::<F>(&mut verifier_state)
-            .unwrap();
+        let parsed_commitment = recursion_config.parse_commitment::<F>(&mut verifier_state).unwrap();
         recursion_config
             .verify(&mut verifier_state, &parsed_commitment, statement)
             .unwrap();
@@ -180,14 +154,8 @@ pub fn run_whir_recursion_benchmark() {
     // in practice we will precompute all the possible values
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
-    let no_vec_runtime_memory = execute_bytecode(
-        &bytecode,
-        (&public_input, &[]),
-        1 << 20,
-        false,
-        (&vec![], &vec![]),
-    )
-    .no_vec_runtime_memory;
+    let no_vec_runtime_memory =
+        execute_bytecode(&bytecode, (&public_input, &[]), 1 << 20, false, (&vec![], &vec![])).no_vec_runtime_memory;
 
     let time = Instant::now();
 

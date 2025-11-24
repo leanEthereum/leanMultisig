@@ -25,11 +25,7 @@ impl Memory {
     ///
     /// Returns an error if the address is uninitialized
     pub fn get(&self, index: usize) -> Result<F, RunnerError> {
-        self.0
-            .get(index)
-            .copied()
-            .flatten()
-            .ok_or(RunnerError::UndefinedMemory)
+        self.0.get(index).copied().flatten().ok_or(RunnerError::UndefinedMemory)
     }
 
     /// Sets a value at a memory address
@@ -85,9 +81,7 @@ impl Memory {
         index: usize, // normal pointer
         len: usize,
     ) -> Result<Vec<EF>, RunnerError> {
-        (0..len)
-            .map(|i| self.get_ef_element(index + i * DIMENSION))
-            .collect()
+        (0..len).map(|i| self.get_ef_element(index + i * DIMENSION)).collect()
     }
 
     /// Set an extension field element in memory

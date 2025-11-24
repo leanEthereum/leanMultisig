@@ -59,9 +59,8 @@ pub fn verify_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     )?;
 
-    let random_point_p16 = MultilinearPoint(
-        verifier_state.sample_vec(table_heights[Table::poseidon16().index()].log_padded()),
-    );
+    let random_point_p16 =
+        MultilinearPoint(verifier_state.sample_vec(table_heights[Table::poseidon16().index()].log_padded()));
     let p16_gkr = verify_poseidon_gkr(
         &mut verifier_state,
         table_heights[Table::poseidon16().index()].log_padded(),
@@ -71,9 +70,8 @@ pub fn verify_execution(
         true,
     );
 
-    let random_point_p24 = MultilinearPoint(
-        verifier_state.sample_vec(table_heights[Table::poseidon24().index()].log_padded()),
-    );
+    let random_point_p24 =
+        MultilinearPoint(verifier_state.sample_vec(table_heights[Table::poseidon24().index()].log_padded()));
     let p24_gkr = verify_poseidon_gkr(
         &mut verifier_state,
         table_heights[Table::poseidon24().index()].log_padded(),
@@ -110,29 +108,17 @@ pub fn verify_execution(
 
     let bytecode_lookup_claim_1 = Evaluation::new(
         air_points[Table::execution().index()].clone(),
-        padd_with_zero_to_next_power_of_two(
-            &evals_f[Table::execution().index()][..N_INSTRUCTION_COLUMNS],
-        )
-        .evaluate(&bytecode_compression_challenges),
+        padd_with_zero_to_next_power_of_two(&evals_f[Table::execution().index()][..N_INSTRUCTION_COLUMNS])
+            .evaluate(&bytecode_compression_challenges),
     );
 
     let normal_lookup_into_memory = NormalPackedLookupVerifier::step_1(
         &mut verifier_state,
         (0..N_TABLES)
-            .flat_map(|i| {
-                vec![
-                    table_heights[i].n_rows_non_padded_maxed();
-                    ALL_TABLES[i].num_normal_lookups_f()
-                ]
-            })
+            .flat_map(|i| vec![table_heights[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()])
             .collect(),
         (0..N_TABLES)
-            .flat_map(|i| {
-                vec![
-                    table_heights[i].n_rows_non_padded_maxed();
-                    ALL_TABLES[i].num_normal_lookups_ef()
-                ]
-            })
+            .flat_map(|i| vec![table_heights[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()])
             .collect(),
         (0..N_TABLES)
             .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_f())
@@ -153,9 +139,7 @@ pub fn verify_execution(
     let vectorized_lookup_into_memory = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
         &mut verifier_state,
         (0..N_TABLES)
-            .flat_map(|i| {
-                vec![table_heights[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_vector_lookups()]
-            })
+            .flat_map(|i| vec![table_heights[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_vector_lookups()])
             .collect(),
         (0..N_TABLES)
             .flat_map(|i| ALL_TABLES[i].vector_lookup_default_indexes())
@@ -171,10 +155,8 @@ pub fn verify_execution(
                     statements.extend(poseidon_24_vectorized_lookup_statements(&p24_gkr)); // special case
                     continue;
                 }
-                statements.extend(table.vectorized_lookups_statements(
-                    &air_points[table.index()],
-                    &evals_f[table.index()],
-                ));
+                statements
+                    .extend(table.vectorized_lookups_statements(&air_points[table.index()], &evals_f[table.index()]));
             }
             statements
         },
@@ -202,11 +184,9 @@ pub fn verify_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     )?;
 
-    let mut normal_lookup_statements =
-        normal_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
+    let mut normal_lookup_statements = normal_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
 
-    let vectorized_lookup_statements =
-        vectorized_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
+    let vectorized_lookup_statements = vectorized_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
 
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
@@ -256,13 +236,13 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_heights[Table::execution().index()].log_padded());
 
-    final_statements[Table::execution().index()]
-        [ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
-    .extend(vec![
-        bytecode_logup_star_statements.on_indexes.clone(),
-        initial_pc_statement,
-        final_pc_statement,
-    ]);
+    final_statements[Table::execution().index()][ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)].extend(
+        vec![
+            bytecode_logup_star_statements.on_indexes.clone(),
+            initial_pc_statement,
+            final_pc_statement,
+        ],
+    );
 
     let mut all_base_statements = [
         vec![memory_statements],
@@ -317,10 +297,7 @@ fn verify_bus_and_air(
     assert!(n_buses > 0, "Table {} has no buses", t.name());
 
     let (mut quotient, bus_point_global, numerator_value_global, denominator_value_global) =
-        verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
-            verifier_state,
-            log_n_rows + log_n_buses,
-        )?;
+        verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(verifier_state, log_n_rows + log_n_buses)?;
 
     let (bus_point, bus_selector_values, bus_data_values) = if n_buses == 1 {
         // easy case
@@ -332,8 +309,7 @@ fn verify_bus_and_air(
     } else {
         let uni_selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
 
-        let sub_numerators_evals =
-            verifier_state.next_extension_scalars_vec(n_buses << UNIVARIATE_SKIPS)?;
+        let sub_numerators_evals = verifier_state.next_extension_scalars_vec(n_buses << UNIVARIATE_SKIPS)?;
         assert_eq!(
             numerator_value_global,
             evaluate_univariate_multilinear::<_, _, _, false>(
@@ -344,8 +320,7 @@ fn verify_bus_and_air(
             ),
         );
 
-        let sub_denominators_evals =
-            verifier_state.next_extension_scalars_vec(n_buses << UNIVARIATE_SKIPS)?;
+        let sub_denominators_evals = verifier_state.next_extension_scalars_vec(n_buses << UNIVARIATE_SKIPS)?;
         assert_eq!(
             denominator_value_global,
             evaluate_univariate_multilinear::<_, _, _, false>(
@@ -356,31 +331,15 @@ fn verify_bus_and_air(
             ),
         );
         let epsilon = verifier_state.sample();
-        let bus_point = MultilinearPoint(
-            [vec![epsilon], bus_point_global[1 + log_n_buses..].to_vec()].concat(),
-        );
+        let bus_point = MultilinearPoint([vec![epsilon], bus_point_global[1 + log_n_buses..].to_vec()].concat());
 
         let bus_selector_values = sub_numerators_evals
             .chunks_exact(1 << UNIVARIATE_SKIPS)
-            .map(|chunk| {
-                evaluate_univariate_multilinear::<_, _, _, false>(
-                    chunk,
-                    &[epsilon],
-                    &uni_selectors,
-                    None,
-                )
-            })
+            .map(|chunk| evaluate_univariate_multilinear::<_, _, _, false>(chunk, &[epsilon], &uni_selectors, None))
             .collect();
         let bus_data_values = sub_denominators_evals
             .chunks_exact(1 << UNIVARIATE_SKIPS)
-            .map(|chunk| {
-                evaluate_univariate_multilinear::<_, _, _, false>(
-                    chunk,
-                    &[epsilon],
-                    &uni_selectors,
-                    None,
-                )
-            })
+            .map(|chunk| evaluate_univariate_multilinear::<_, _, _, false>(chunk, &[epsilon], &uni_selectors, None))
             .collect();
 
         (bus_point, bus_selector_values, bus_data_values)
@@ -405,12 +364,7 @@ fn verify_bus_and_air(
     let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
 
     for bus in t.buses() {
-        quotient -= bus.padding_contribution(
-            t,
-            table_height.padding_len(),
-            bus_challenge,
-            fingerprint_challenge,
-        );
+        quotient -= bus.padding_contribution(t, table_height.padding_len(), bus_challenge, fingerprint_challenge);
     }
 
     let extra_data = ExtraDataForBuses {

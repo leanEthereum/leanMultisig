@@ -17,26 +17,18 @@ pub(crate) fn pretty_stack_trace(
     let mut prev_function_line = usize::MAX;
     let mut skipped_lines: usize = 0; // Track skipped lines for current function
 
-    result
-        .push_str("╔═════════════════════════════════════════════════════════════════════════╗\n");
-    result
-        .push_str("║                               STACK TRACE                               ║\n");
-    result.push_str(
-        "╚═════════════════════════════════════════════════════════════════════════╝\n\n",
-    );
+    result.push_str("╔═════════════════════════════════════════════════════════════════════════╗\n");
+    result.push_str("║                               STACK TRACE                               ║\n");
+    result.push_str("╚═════════════════════════════════════════════════════════════════════════╝\n\n");
 
     for (idx, &line_num) in instructions.iter().enumerate() {
-        let (current_function_line, current_function_name) =
-            find_function_for_line(line_num, function_locations);
+        let (current_function_line, current_function_name) = find_function_for_line(line_num, function_locations);
 
         if prev_function_line != current_function_line {
             assert_eq!(skipped_lines, 0);
 
             // Check if we're returning to a previous function or calling a new one
-            if let Some(pos) = call_stack
-                .iter()
-                .position(|(_, f)| f == &current_function_name)
-            {
+            if let Some(pos) = call_stack.iter().position(|(_, f)| f == &current_function_name) {
                 // Returning to a previous function - pop the stack
                 while call_stack.len() > pos + 1 {
                     call_stack.pop();
@@ -64,12 +56,8 @@ pub(crate) fn pretty_stack_trace(
             true
         } else {
             // Count remaining lines in this function
-            let remaining_in_function = count_remaining_lines_in_function(
-                idx,
-                instructions,
-                function_locations,
-                current_function_line,
-            );
+            let remaining_in_function =
+                count_remaining_lines_in_function(idx, instructions, function_locations, current_function_line);
 
             remaining_in_function < STACK_TRACE_MAX_LINES_PER_FUNCTION
         };
@@ -78,9 +66,7 @@ pub(crate) fn pretty_stack_trace(
             // Show skipped lines message if transitioning from skipping to showing
             if skipped_lines > 0 {
                 let indent = "│ ".repeat(call_stack.len());
-                result.push_str(&format!(
-                    "{indent}├─ ... ({skipped_lines} lines skipped) ...\n"
-                ));
+                result.push_str(&format!("{indent}├─ ... ({skipped_lines} lines skipped) ...\n"));
                 skipped_lines = 0;
             }
 
@@ -118,10 +104,7 @@ pub(crate) fn pretty_stack_trace(
     result
 }
 
-pub(crate) fn find_function_for_line(
-    line_num: usize,
-    function_locations: &BTreeMap<usize, String>,
-) -> (usize, String) {
+pub(crate) fn find_function_for_line(line_num: usize, function_locations: &BTreeMap<usize, String>) -> (usize, String) {
     function_locations
         .range(..=line_num)
         .next_back()

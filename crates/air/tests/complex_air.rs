@@ -13,11 +13,7 @@ const N_COLS_F: usize = 2;
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 
-struct ExampleStructuredAir<
-    const N_COLUMNS: usize,
-    const N_PREPROCESSED_COLUMNS: usize,
-    const VIRTUAL_COLUMN: bool,
->;
+struct ExampleStructuredAir<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool>;
 
 impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_COLUMN: bool> Air
     for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN>
@@ -93,9 +89,7 @@ fn generate_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize>(
             witness_col.push(
                 witness_cols_j_i_min_1
                     + F::from_usize(j + N_PREPROCESSED_COLUMNS)
-                    + (0..3).map(|k| trace_ef[k][i - 1]).product::<EF>()
-                        * trace_f[0][i - 1]
-                        * trace_f[1][i - 1],
+                    + (0..3).map(|k| trace_ef[k][i - 1]).product::<EF>() * trace_f[0][i - 1] * trace_f[1][i - 1],
             );
         }
     }
@@ -116,20 +110,10 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
     let n_rows = 1 << log_n_rows;
     let mut prover_state = build_prover_state::<EF>();
 
-    let (columns_plus_one_f, columns_plus_one_ef) =
-        generate_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(n_rows + 1);
-    let columns_ref_f = columns_plus_one_f
-        .iter()
-        .map(|col| &col[..n_rows])
-        .collect::<Vec<_>>();
-    let columns_ref_ef = columns_plus_one_ef
-        .iter()
-        .map(|col| &col[..n_rows])
-        .collect::<Vec<_>>();
-    let mut last_row_ef = columns_plus_one_ef
-        .iter()
-        .map(|col| col[n_rows])
-        .collect::<Vec<_>>();
+    let (columns_plus_one_f, columns_plus_one_ef) = generate_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(n_rows + 1);
+    let columns_ref_f = columns_plus_one_f.iter().map(|col| &col[..n_rows]).collect::<Vec<_>>();
+    let columns_ref_ef = columns_plus_one_ef.iter().map(|col| &col[..n_rows]).collect::<Vec<_>>();
+    let mut last_row_ef = columns_plus_one_ef.iter().map(|col| col[n_rows]).collect::<Vec<_>>();
     last_row_ef = last_row_ef[N_PREPROCESSED_COLUMNS - N_COLS_F..].to_vec();
 
     let virtual_column_statement_prover = if VIRTUAL_COLUMN {
@@ -172,29 +156,20 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
 
     let air = ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS, VIRTUAL_COLUMN> {};
 
-    check_air_validity(
+    check_air_validity(&air, &vec![], &columns_ref_f, &columns_ref_ef, &[], &last_row_ef).unwrap();
+
+    let (point_prover, evaluations_remaining_to_prove_f, evaluations_remaining_to_prove_ef) = prove_air(
+        &mut prover_state,
         &air,
-        &vec![],
+        vec![],
+        UNIVARIATE_SKIPS,
         &columns_ref_f,
         &columns_ref_ef,
         &[],
         &last_row_ef,
-    )
-    .unwrap();
-
-    let (point_prover, evaluations_remaining_to_prove_f, evaluations_remaining_to_prove_ef) =
-        prove_air(
-            &mut prover_state,
-            &air,
-            vec![],
-            UNIVARIATE_SKIPS,
-            &columns_ref_f,
-            &columns_ref_ef,
-            &[],
-            &last_row_ef,
-            virtual_column_statement_prover,
-            true,
-        );
+        virtual_column_statement_prover,
+        true,
+    );
     let mut verifier_state = build_verifier_state(&prover_state);
 
     let virtual_column_statement_verifier = if VIRTUAL_COLUMN {
@@ -210,27 +185,20 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
         None
     };
 
-    let (point_verifier, evaluations_remaining_to_verify_f, evaluations_remaining_to_verify_ef) =
-        verify_air(
-            &mut verifier_state,
-            &air,
-            vec![],
-            UNIVARIATE_SKIPS,
-            log_n_rows,
-            &[],
-            &last_row_ef,
-            virtual_column_statement_verifier,
-        )
-        .unwrap();
+    let (point_verifier, evaluations_remaining_to_verify_f, evaluations_remaining_to_verify_ef) = verify_air(
+        &mut verifier_state,
+        &air,
+        vec![],
+        UNIVARIATE_SKIPS,
+        log_n_rows,
+        &[],
+        &last_row_ef,
+        virtual_column_statement_verifier,
+    )
+    .unwrap();
     assert_eq!(point_prover, point_verifier);
-    assert_eq!(
-        &evaluations_remaining_to_prove_f,
-        &evaluations_remaining_to_verify_f
-    );
-    assert_eq!(
-        &evaluations_remaining_to_prove_ef,
-        &evaluations_remaining_to_verify_ef
-    );
+    assert_eq!(&evaluations_remaining_to_prove_f, &evaluations_remaining_to_verify_f);
+    assert_eq!(&evaluations_remaining_to_prove_ef, &evaluations_remaining_to_verify_ef);
     for i in 0..N_COLS_F {
         assert_eq!(
             columns_ref_f[i].evaluate(&point_prover),

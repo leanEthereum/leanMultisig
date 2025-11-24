@@ -19,9 +19,7 @@ pub struct XmssPublicKey<const LOG_LIFETIME: usize>(pub Digest);
 
 impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
     pub fn random(rng: &mut impl Rng) -> Self {
-        let wots_secret_keys: Vec<_> = (0..1 << LOG_LIFETIME)
-            .map(|_| WotsSecretKey::random(rng))
-            .collect();
+        let wots_secret_keys: Vec<_> = (0..1 << LOG_LIFETIME).map(|_| WotsSecretKey::random(rng)).collect();
 
         let leaves = wots_secret_keys
             .iter()
@@ -43,10 +41,7 @@ impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
     }
 
     pub fn sign(&self, message_hash: &Digest, index: usize, rng: &mut impl Rng) -> XmssSignature {
-        assert!(
-            index < (1 << LOG_LIFETIME),
-            "Index out of bounds for XMSS signature"
-        );
+        assert!(index < (1 << LOG_LIFETIME), "Index out of bounds for XMSS signature");
         let wots_signature = self.wots_secret_keys[index].sign(message_hash, rng);
         let merkle_proof = (0..LOG_LIFETIME)
             .scan(index, |current_idx, level| {
@@ -71,8 +66,7 @@ impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
 
 impl<const LOG_LIFETIME: usize> XmssPublicKey<LOG_LIFETIME> {
     pub fn verify(&self, message_hash: &Digest, signature: &XmssSignature) -> Option<()> {
-        self.verify_with_poseidon_trace(message_hash, signature)
-            .map(|_| ())
+        self.verify_with_poseidon_trace(message_hash, signature).map(|_| ())
     }
 
     pub fn verify_with_poseidon_trace(
@@ -82,13 +76,11 @@ impl<const LOG_LIFETIME: usize> XmssPublicKey<LOG_LIFETIME> {
     ) -> Option<(Poseidon16History, Poseidon24History)> {
         let mut poseidon_16_trace = Vec::new();
         let mut poseidon_24_trace = Vec::new();
-        let wots_public_key = signature
-            .wots_signature
-            .recover_public_key_with_poseidon_trace(
-                message_hash,
-                &signature.wots_signature,
-                &mut poseidon_16_trace,
-            )?;
+        let wots_public_key = signature.wots_signature.recover_public_key_with_poseidon_trace(
+            message_hash,
+            &signature.wots_signature,
+            &mut poseidon_16_trace,
+        )?;
         // merkle root verification
         let mut current_hash = wots_public_key.hash_with_poseidon_trace(&mut poseidon_24_trace);
         if signature.merkle_proof.len() != LOG_LIFETIME {
@@ -96,14 +88,9 @@ impl<const LOG_LIFETIME: usize> XmssPublicKey<LOG_LIFETIME> {
         }
         for (is_left, neighbour) in &signature.merkle_proof {
             if *is_left {
-                current_hash =
-                    poseidon16_compress_with_trace(&current_hash, neighbour, &mut poseidon_16_trace)
+                current_hash = poseidon16_compress_with_trace(&current_hash, neighbour, &mut poseidon_16_trace)
             } else {
-                current_hash = poseidon16_compress_with_trace(
-                    neighbour,
-                    &current_hash,
-                    &mut poseidon_16_trace,
-                );
+                current_hash = poseidon16_compress_with_trace(neighbour, &current_hash, &mut poseidon_16_trace);
             }
         }
         if current_hash == self.0 {

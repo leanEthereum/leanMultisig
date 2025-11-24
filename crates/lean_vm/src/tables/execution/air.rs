@@ -6,8 +6,7 @@ use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 pub const N_INSTRUCTION_COLUMNS: usize = 13;
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
 pub const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with logup*)
-pub const N_EXEC_AIR_COLUMNS: usize =
-    N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
+pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
 
 // Instruction columns
 pub const COL_INDEX_OPERAND_A: usize = 0;
@@ -132,12 +131,9 @@ impl Air for ExecutionTable {
         builder.assert_zero(add * (nu_b.clone() - (nu_a.clone() + nu_c.clone())));
         builder.assert_zero(mul * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
 
-        builder
-            .assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
+        builder.assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
         builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
-        builder.assert_zero(
-            deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()),
-        );
+        builder.assert_zero(deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
 
         builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
         builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
@@ -145,9 +141,7 @@ impl Air for ExecutionTable {
         builder.assert_zero(jump.clone() * nu_a.clone() * nu_a_minus_one.clone());
         builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
         builder.assert_zero(jump.clone() * nu_a.clone() * (next_fp.clone() - nu_c.clone()));
-        builder.assert_zero(
-            jump.clone() * nu_a_minus_one.clone() * (next_pc.clone() - pc_plus_one.clone()),
-        );
+        builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_pc.clone() - pc_plus_one.clone()));
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
 }

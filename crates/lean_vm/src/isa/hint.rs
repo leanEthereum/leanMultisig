@@ -132,8 +132,7 @@ impl Hint {
                     }
                 } else {
                     let allocation_start_addr = *ctx.ap;
-                    ctx.memory
-                        .set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
+                    ctx.memory.set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
                     *ctx.ap += size;
 
                     if ctx.profiling {
@@ -179,8 +178,7 @@ impl Hint {
                 }
             }
             Self::CounterHint { res_offset } => {
-                ctx.memory
-                    .set(ctx.fp + *res_offset, F::from_usize(*ctx.counter_hint))?;
+                ctx.memory.set(ctx.fp + *res_offset, F::from_usize(*ctx.counter_hint))?;
                 *ctx.counter_hint += 1;
             }
             Self::Inverse { arg, res_offset } => {
@@ -206,8 +204,7 @@ impl Hint {
                             values[1],
                             pretty_integer(ctx.cpu_cycles - *ctx.last_checkpoint_cpu_cycles),
                             pretty_integer(new_no_vec_memory + new_vec_memory),
-                            new_vec_memory as f64 / (new_no_vec_memory + new_vec_memory) as f64
-                                * 100.0
+                            new_vec_memory as f64 / (new_no_vec_memory + new_vec_memory) as f64 * 100.0
                         );
                     }
 
@@ -255,10 +252,7 @@ impl Display for Hint {
                 vectorized_len,
             } => {
                 if *vectorized {
-                    write!(
-                        f,
-                        "m[fp + {offset}] = request_memory_vec({size}, {vectorized_len})"
-                    )
+                    write!(f, "m[fp + {offset}] = request_memory_vec({size}, {vectorized_len})")
                 } else {
                     write!(f, "m[fp + {offset}] = request_memory({size})")
                 }
@@ -305,9 +299,7 @@ impl Display for Hint {
             Self::Inverse { arg, res_offset } => {
                 write!(f, "m[fp + {res_offset}] = inverse({arg})")
             }
-            Self::LocationReport {
-                location: line_number,
-            } => {
+            Self::LocationReport { location: line_number } => {
                 write!(f, "source line number: {line_number}")
             }
             Self::Label { label } => {

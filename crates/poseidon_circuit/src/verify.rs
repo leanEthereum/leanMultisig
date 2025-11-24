@@ -3,8 +3,8 @@ use p3_koala_bear::{KoalaBearInternalLayerParameters, KoalaBearParameters};
 use p3_monty_31::InternalLayerBaseParameters;
 
 use crate::{
-    CompressionComputation, EF, F, FullRoundComputation, GKRPoseidonResult,
-    PartialRoundComputation, build_poseidon_inv_matrices, gkr_layers::PoseidonGKRLayers,
+    CompressionComputation, EF, F, FullRoundComputation, GKRPoseidonResult, PartialRoundComputation,
+    build_poseidon_inv_matrices, gkr_layers::PoseidonGKRLayers,
 };
 
 pub fn verify_poseidon_gkr<const WIDTH: usize, const N_COMMITED_CUBES: usize>(
@@ -38,13 +38,8 @@ where
             .map(|selector| selector.evaluate(alpha))
             .collect::<Vec<_>>();
         for evals in inner_evals {
-            output_claims.push(evals.evaluate(&MultilinearPoint(
-                output_claim_point[..univariate_skips].to_vec(),
-            )));
-            claims.push(dot_product(
-                selectors_at_alpha.iter().copied(),
-                evals.into_iter(),
-            ))
+            output_claims.push(evals.evaluate(&MultilinearPoint(output_claim_point[..univariate_skips].to_vec())));
+            claims.push(dot_product(selectors_at_alpha.iter().copied(), evals.into_iter()))
         }
         [vec![alpha], output_claim_point[univariate_skips..].to_vec()].concat()
     };
@@ -65,12 +60,8 @@ where
         let inner_evals = verifier_state
             .next_extension_scalars_vec(1 << univariate_skips)
             .unwrap();
-        let recomputed_value = evaluate_univariate_multilinear::<_, _, _, false>(
-            &inner_evals,
-            &[point[0]],
-            &selectors,
-            None,
-        );
+        let recomputed_value =
+            evaluate_univariate_multilinear::<_, _, _, false>(&inner_evals, &[point[0]], &selectors, None);
         assert_eq!(claims.pop().unwrap(), recomputed_value);
         let epsilons = verifier_state.sample_vec(univariate_skips);
         let new_point = MultilinearPoint([epsilons.clone(), point[1..].to_vec()].concat());
@@ -118,9 +109,7 @@ where
     let mut pcs_point_for_cubes = vec![];
     let mut pcs_evals_for_cubes = vec![];
     if N_COMMITED_CUBES > 0 {
-        let claimed_cubes_evals = verifier_state
-            .next_extension_scalars_vec(N_COMMITED_CUBES)
-            .unwrap();
+        let claimed_cubes_evals = verifier_state.next_extension_scalars_vec(N_COMMITED_CUBES).unwrap();
 
         (point, claims) = verify_gkr_round(
             verifier_state,
@@ -171,16 +160,10 @@ where
     let cubes_statements = if N_COMMITED_CUBES == 0 {
         Default::default()
     } else {
-        verify_inner_evals_on_commited_columns(
-            verifier_state,
-            &pcs_point_for_cubes,
-            &pcs_evals_for_cubes,
-            &selectors,
-        )
+        verify_inner_evals_on_commited_columns(verifier_state, &pcs_point_for_cubes, &pcs_evals_for_cubes, &selectors)
     };
 
-    let output_statements =
-        MultiEvaluation::new(MultilinearPoint(output_claim_point.to_vec()), output_claims);
+    let output_statements = MultiEvaluation::new(MultilinearPoint(output_claim_point.to_vec()), output_claims);
     GKRPoseidonResult {
         output_statements,
         input_statements,
@@ -215,11 +198,7 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>>>(
     let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(n_inputs).unwrap();
     assert_eq!(
         computation.eval_extension(&sumcheck_inner_evals, &[], &batching_scalars_powers)
-            * eq_poly_with_skip(
-                &sumcheck_postponed_claim.point,
-                claim_point,
-                univariate_skips
-            ),
+            * eq_poly_with_skip(&sumcheck_postponed_claim.point, claim_point, univariate_skips),
         sumcheck_postponed_claim.value
     );
 
@@ -238,23 +217,16 @@ fn verify_inner_evals_on_commited_columns(
         .unwrap();
     let pcs_batching_scalars_inputs = verifier_state.sample_vec(univariate_skips);
     let mut values_to_verif = vec![];
-    let point_to_verif =
-        MultilinearPoint([pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat());
+    let point_to_verif = MultilinearPoint([pcs_batching_scalars_inputs.clone(), point[1..].to_vec()].concat());
     for (&eval, col_inner_evals) in claimed_evals
         .iter()
         .zip(inner_evals_inputs.chunks_exact(1 << univariate_skips))
     {
         assert_eq!(
             eval,
-            evaluate_univariate_multilinear::<_, _, _, false>(
-                col_inner_evals,
-                &point[..1],
-                selectors,
-                None
-            )
+            evaluate_univariate_multilinear::<_, _, _, false>(col_inner_evals, &point[..1], selectors, None)
         );
-        values_to_verif
-            .push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
+        values_to_verif.push(col_inner_evals.evaluate(&MultilinearPoint(pcs_batching_scalars_inputs.clone())));
     }
     MultiEvaluation::new(point_to_verif, values_to_verif)
 }

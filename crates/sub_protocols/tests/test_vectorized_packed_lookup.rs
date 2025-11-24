@@ -19,19 +19,11 @@ fn test_vectorized_packed_lookup() {
     let cols_heights: Vec<usize> = vec![785, 1022, 4751];
     let default_indexes = vec![7, 11, 0];
     let n_statements = vec![1, 5, 2];
-    assert_eq_many!(
-        cols_heights.len(),
-        default_indexes.len(),
-        n_statements.len()
-    );
+    assert_eq_many!(cols_heights.len(), default_indexes.len(), n_statements.len());
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(non_zero_memory_size.next_power_of_two());
-    for mem in memory
-        .iter_mut()
-        .take(non_zero_memory_size)
-        .skip(VECTOR_LEN)
-    {
+    for mem in memory.iter_mut().take(non_zero_memory_size).skip(VECTOR_LEN) {
         *mem = rng.random();
     }
 
@@ -59,12 +51,8 @@ fn test_vectorized_packed_lookup() {
     for (value_cols, n_statements) in all_value_columns.iter().zip(&n_statements) {
         let mut statements = vec![];
         for _ in 0..*n_statements {
-            let point =
-                MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_cols[0].len()));
-            let values = value_cols
-                .iter()
-                .map(|col| col.evaluate(&point))
-                .collect::<Vec<EF>>();
+            let point = MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_cols[0].len()));
+            let values = value_cols.iter().map(|col| col.evaluate(&point)).collect::<Vec<EF>>();
             statements.push(MultiEvaluation::new(point, values));
         }
         all_statements.push(statements);
@@ -89,8 +77,7 @@ fn test_vectorized_packed_lookup() {
     // phony commitment to pushforward
     prover_state.hint_extension_scalars(packed_lookup_prover.pushforward_to_commit());
 
-    let remaining_claims_to_prove =
-        packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
+    let remaining_claims_to_prove = packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
 
     let mut verifier_state = build_verifier_state(&prover_state);
 
