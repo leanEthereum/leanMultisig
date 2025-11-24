@@ -143,7 +143,7 @@ fn main() {
     evaluation_of_weights = weight_sums[N_ROUNDS]; // not good
     poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, 2**FINAL_VARS);
     final_value = malloc(DIM);
-    dot_product(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS);
+    dot_product_ee(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS);
     evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
     assert_eq_extension(evaluation_of_weights_times_final_value, end_sum);
     return;
@@ -350,19 +350,14 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     fs_state_11 = fs_states_c[num_queries];
 
     folds = malloc(num_queries * DIM);
+
+    poly_eq = poly_eq_extension(folding_randomness, folding_factor, two_pow_folding_factor);
+
     if merkle_leaves_in_basefield == 1 {
-        folding_randomness_alligned = malloc_vec(1, log2_ceil(DIM * FOLDING_FACTOR_0));
-        folding_randomness_alligned_ptr = folding_randomness_alligned * (2 ** log2_ceil(DIM * FOLDING_FACTOR_0));
-        for i in 0..FOLDING_FACTOR_0 unroll {
-            assert_eq_extension(folding_randomness + i*DIM, folding_randomness_alligned_ptr + i*DIM);
-        }
         for i in 0..num_queries {
-            res = malloc_vec(1);
-            multilinear_eval((answers[i] * 8) / 2**FOLDING_FACTOR_0, folding_randomness_alligned, res, FOLDING_FACTOR_0); // TODO batching: use a single call to multilinear eval
-            assert_eq_extension(res * 8, folds + i*DIM);
+            dot_product_be(answers[i] * 8, poly_eq, folds + i*DIM, 2**FOLDING_FACTOR_0);
         }
     } else {
-        poly_eq = poly_eq_extension(folding_randomness, folding_factor, two_pow_folding_factor);
         for i in 0..num_queries {
             dot_product_dynamic(answers[i] * 8, poly_eq, folds + i*DIM, two_pow_folding_factor);
         }
@@ -467,39 +462,39 @@ fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
 
 fn dot_product_dynamic(a, b, res, n) {
     if n == 16 {
-        dot_product(a, b, res, 16);
+        dot_product_ee(a, b, res, 16);
         return;
     }
     if n == NUM_QUERIES_0 {
-        dot_product(a, b, res, NUM_QUERIES_0);
+        dot_product_ee(a, b, res, NUM_QUERIES_0);
         return;
     }
     if n == NUM_QUERIES_1 {
-        dot_product(a, b, res, NUM_QUERIES_1);
+        dot_product_ee(a, b, res, NUM_QUERIES_1);
         return;
     }
     if n == NUM_QUERIES_2 {
-        dot_product(a, b, res, NUM_QUERIES_2);
+        dot_product_ee(a, b, res, NUM_QUERIES_2);
         return;
     }
     if n == NUM_QUERIES_3 {
-        dot_product(a, b, res, NUM_QUERIES_3);
+        dot_product_ee(a, b, res, NUM_QUERIES_3);
         return;
     }
     if n == NUM_QUERIES_0 + 1 {
-        dot_product(a, b, res, NUM_QUERIES_0 + 1);
+        dot_product_ee(a, b, res, NUM_QUERIES_0 + 1);
         return;
     }
     if n == NUM_QUERIES_1 + 1 {
-        dot_product(a, b, res, NUM_QUERIES_1 + 1);
+        dot_product_ee(a, b, res, NUM_QUERIES_1 + 1);
         return;
     }
     if n == NUM_QUERIES_2 + 1 {
-        dot_product(a, b, res, NUM_QUERIES_2 + 1);
+        dot_product_ee(a, b, res, NUM_QUERIES_2 + 1);
         return;
     }
     if n == NUM_QUERIES_3 + 1 {
-        dot_product(a, b, res, NUM_QUERIES_3 + 1);
+        dot_product_ee(a, b, res, NUM_QUERIES_3 + 1);
         return;
     }
 
@@ -831,12 +826,12 @@ fn fs_print_state(fs_state) {
 
 fn mul_extension_ret(a, b) inline -> 1 {
     c = malloc(DIM);
-    dot_product(a, b, c, 1);
+    dot_product_ee(a, b, c, 1);
     return c;
 }
 
 fn mul_extension(a, b, c) inline {
-    dot_product(a, b, c, 1);
+    dot_product_ee(a, b, c, 1);
     return;
 }
 
@@ -866,7 +861,7 @@ fn sub_extension(a, b, c) inline {
 }
 
 fn assert_eq_extension(a, b) inline {
-    dot_product(a, pointer_to_one_vector * 8, b, 1);
+    dot_product_ee(a, pointer_to_one_vector * 8, b, 1);
     return;
 }
 
@@ -874,8 +869,8 @@ fn assert_eq_extension(a, b) inline {
 fn assert_eq_vec(a, b) inline {
     a_ptr = a * 8;
     b_ptr = b * 8;
-    dot_product(a_ptr, pointer_to_one_vector * 8, b_ptr, 1);
-    dot_product(a_ptr + (8 - DIM), pointer_to_one_vector * 8, b_ptr + (8 - DIM), 1);
+    dot_product_ee(a_ptr, pointer_to_one_vector * 8, b_ptr, 1);
+    dot_product_ee(a_ptr + (8 - DIM), pointer_to_one_vector * 8, b_ptr + (8 - DIM), 1);
     return;
 }
 

@@ -1,9 +1,7 @@
-use lean_vm::error::ExecutionResult;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
-use utils::ToUsize;
 
 // Pointers for precompile inputs allocated in public memory.
 const POSEIDON16_ARG_A_PTR: usize = 6;
@@ -160,36 +158,32 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
     );
 
     let instructions = vec![
-        Instruction::Poseidon2_16 {
+        Instruction::Precompile {
+            table: Table::poseidon16(),
             arg_a: MemOrConstant::Constant(f(POSEIDON16_ARG_A_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(POSEIDON16_ARG_B_PTR as u64)),
-            res: MemOrFp::MemoryAfterFp {
+            arg_c: MemOrFp::MemoryAfterFp {
                 offset: POSEIDON16_RES_OFFSET,
             },
-            is_compression: false,
+            aux: 0, // compression = false
         },
-        Instruction::Poseidon2_24 {
+        Instruction::Precompile {
+            table: Table::poseidon24(),
             arg_a: MemOrConstant::Constant(f(POSEIDON24_ARG_A_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(POSEIDON24_ARG_B_PTR as u64)),
-            res: MemOrFp::MemoryAfterFp {
+            arg_c: MemOrFp::MemoryAfterFp {
                 offset: POSEIDON24_RES_OFFSET,
             },
+            aux: 0, // unused
         },
-        Instruction::DotProduct {
-            arg0: MemOrConstant::Constant(f(DOT_ARG0_PTR as u64)),
-            arg1: MemOrConstant::Constant(f(DOT_ARG1_PTR as u64)),
-            res: MemOrFp::MemoryAfterFp {
+        Instruction::Precompile {
+            table: Table::dot_product_ee(),
+            arg_a: MemOrConstant::Constant(f(DOT_ARG0_PTR as u64)),
+            arg_b: MemOrConstant::Constant(f(DOT_ARG1_PTR as u64)),
+            arg_c: MemOrFp::MemoryAfterFp {
                 offset: DOT_RES_OFFSET,
             },
-            size: DOT_PRODUCT_LEN,
-        },
-        Instruction::MultilinearEval {
-            coeffs: MemOrConstant::Constant(f(MLE_COEFF_PTR as u64)),
-            point: MemOrConstant::Constant(f(MLE_POINT_PTR as u64)),
-            res: MemOrFp::MemoryAfterFp {
-                offset: MLE_RES_OFFSET,
-            },
-            n_vars: MLE_N_VARS,
+            aux: DOT_PRODUCT_LEN,
         },
     ];
 
@@ -197,7 +191,6 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
         instructions,
         hints,
         starting_frame_memory: 512,
-        ending_pc: 4,
         program: Default::default(),
         function_locations: Default::default(),
     };
@@ -217,111 +210,6 @@ fn run_program() -> (Bytecode, ExecutionResult) {
     println!("{}", result.summary);
     (bytecode, result)
 }
-
-#[test]
-fn vm_precompile_events_capture_expected_data() {
-    let (_bytecode, execution_result) = run_program();
-
-    assert_eq!(execution_result.poseidons_16.len(), 1);
-    assert_eq!(execution_result.poseidons_24.len(), 1);
-    assert_eq!(execution_result.dot_products.len(), 1);
-    assert_eq!(execution_result.multilinear_evals.len(), 1);
-
-    let poseidon16_event = &execution_result.poseidons_16[0];
-    assert_eq!(poseidon16_event.cycle, Some(0));
-    assert_eq!(poseidon16_event.addr_input_a, POSEIDON16_ARG_A_PTR);
-    assert_eq!(poseidon16_event.addr_input_b, POSEIDON16_ARG_B_PTR);
-
-    let poseidon16_res_ptr = execution_result
-        .memory
-        .get(execution_result.fps[poseidon16_event.cycle.unwrap()] + POSEIDON16_RES_OFFSET)
-        .unwrap()
-        .to_usize();
-    assert_eq!(poseidon16_event.addr_output, poseidon16_res_ptr);
-
-    let poseidon16_input_a = POSEIDON16_ARG_A_VALUES.map(f);
-    let poseidon16_input_b = POSEIDON16_ARG_B_VALUES.map(f);
-    let mut expected_poseidon16_input = [F::ZERO; 16];
-    expected_poseidon16_input[..VECTOR_LEN].copy_from_slice(&poseidon16_input_a);
-    expected_poseidon16_input[VECTOR_LEN..].copy_from_slice(&poseidon16_input_b);
-    assert_eq!(poseidon16_event.input, expected_poseidon16_input);
-
-    let poseidon24_event = &execution_result.poseidons_24[0];
-    assert_eq!(poseidon24_event.cycle, Some(1));
-    assert_eq!(poseidon24_event.addr_input_a, POSEIDON24_ARG_A_PTR);
-    assert_eq!(poseidon24_event.addr_input_b, POSEIDON24_ARG_B_PTR);
-
-    let poseidon24_res_ptr = execution_result
-        .memory
-        .get(execution_result.fps[poseidon24_event.cycle.unwrap()] + POSEIDON24_RES_OFFSET)
-        .unwrap()
-        .to_usize();
-    assert_eq!(poseidon24_event.addr_output, poseidon24_res_ptr);
-
-    let poseidon24_input_a0 = POSEIDON24_ARG_A_VALUES[0].map(f);
-    let poseidon24_input_a1 = POSEIDON24_ARG_A_VALUES[1].map(f);
-    let poseidon24_input_b = POSEIDON24_ARG_B_VALUES.map(f);
-    let mut expected_poseidon24_input = [F::ZERO; 24];
-    expected_poseidon24_input[..VECTOR_LEN].copy_from_slice(&poseidon24_input_a0);
-    expected_poseidon24_input[VECTOR_LEN..2 * VECTOR_LEN].copy_from_slice(&poseidon24_input_a1);
-    expected_poseidon24_input[2 * VECTOR_LEN..].copy_from_slice(&poseidon24_input_b);
-    assert_eq!(poseidon24_event.input, expected_poseidon24_input);
-
-    let dot_event = &execution_result.dot_products[0];
-    assert_eq!(dot_event.cycle, 2);
-    assert_eq!(dot_event.addr_0, DOT_ARG0_PTR);
-    assert_eq!(dot_event.addr_1, DOT_ARG1_PTR);
-
-    let dot_res_ptr = execution_result
-        .memory
-        .get(execution_result.fps[dot_event.cycle] + DOT_RES_OFFSET)
-        .unwrap()
-        .to_usize();
-    assert_eq!(dot_event.addr_res, dot_res_ptr);
-
-    let dot_slice_0 = DOT_ARG0_VALUES
-        .iter()
-        .map(|coeffs| coeffs.map(f))
-        .map(|coeffs| EF::from_basis_coefficients_slice(&coeffs).unwrap())
-        .collect::<Vec<_>>();
-    let dot_slice_1 = DOT_ARG1_VALUES
-        .iter()
-        .map(|coeffs| coeffs.map(f))
-        .map(|coeffs| EF::from_basis_coefficients_slice(&coeffs).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(dot_event.slice_0, dot_slice_0);
-    assert_eq!(dot_event.slice_1, dot_slice_1);
-
-    let dot_res = execution_result
-        .memory
-        .get_ef_element(dot_event.addr_res)
-        .unwrap();
-    assert_eq!(dot_event.res, dot_res);
-
-    let mle_event = &execution_result.multilinear_evals[0];
-    assert_eq!(mle_event.cycle, 3);
-    assert_eq!(mle_event.addr_coeffs, MLE_COEFF_PTR);
-    assert_eq!(mle_event.addr_point, MLE_POINT_PTR);
-
-    let mle_res_ptr = execution_result
-        .memory
-        .get(execution_result.fps[mle_event.cycle] + MLE_RES_OFFSET)
-        .unwrap()
-        .to_usize();
-    assert_eq!(mle_event.addr_res, mle_res_ptr);
-
-    let expected_point = vec![EF::from_basis_coefficients_slice(&MLE_POINT_VALUES.map(f)).unwrap()];
-    assert_eq!(mle_event.point, expected_point);
-
-    let mle_res_vec = execution_result
-        .memory
-        .get_vector(mle_event.addr_res)
-        .unwrap();
-    let mle_res_coeffs: [F; DIMENSION] = mle_res_vec[..DIMENSION].try_into().unwrap();
-    let mle_res = EF::from_basis_coefficients_slice(&mle_res_coeffs).unwrap();
-    assert_eq!(mle_event.res, mle_res);
-}
-
 #[test]
 fn test_memory_operations() {
     let mut memory = Memory::empty();
@@ -344,10 +232,4 @@ fn test_operation_compute() {
         mul.compute(F::from_usize(2), F::from_usize(3)),
         F::from_usize(6)
     );
-}
-
-#[test]
-fn test_witness_creation() {
-    let witness = WitnessPoseidon16::poseidon_of_zero();
-    assert_eq!(witness.input, [F::ZERO; 16]);
 }

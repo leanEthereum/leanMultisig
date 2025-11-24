@@ -428,13 +428,13 @@ fn test_inlined() {
         return;
     }
     fn assert_vectorized_eq_4(x, y) {
-        dot_product(x * 8, pointer_to_one_vector * 8, y * 8, 1);
-        dot_product(x * 8 + 3, pointer_to_one_vector * 8, y * 8 + 3, 1);
+        dot_product_ee(x * 8, pointer_to_one_vector * 8, y * 8, 1);
+        dot_product_ee(x * 8 + 3, pointer_to_one_vector * 8, y * 8 + 3, 1);
         return;
     }
     fn assert_vectorized_eq_5(x, y) inline {
-        dot_product(x * 8, pointer_to_one_vector * 8, y * 8, 1);
-        dot_product(x * 8 + 3, pointer_to_one_vector * 8, y * 8 + 3, 1);
+        dot_product_ee(x * 8, pointer_to_one_vector * 8, y * 8, 1);
+        dot_product_ee(x * 8 + 3, pointer_to_one_vector * 8, y * 8 + 3, 1);
         return;
     }
    "#;

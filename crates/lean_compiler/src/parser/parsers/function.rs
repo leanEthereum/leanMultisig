@@ -9,9 +9,8 @@ use crate::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
     },
-    precompiles::PRECOMPILES,
 };
-use lean_vm::LOG_VECTOR_LEN;
+use lean_vm::{ALL_TABLES, LOG_VECTOR_LEN, Table, TableT};
 
 /// Parser for complete function definitions.
 pub struct FunctionParser;
@@ -235,26 +234,20 @@ impl FunctionCallParser {
                 Ok(Line::Panic)
             }
             _ => {
-                // Check for precompile functions
-                if let Some(precompile) = PRECOMPILES
-                    .iter()
-                    .find(|p| p.name.to_string() == function_name)
-                {
-                    if args.len() != precompile.n_inputs {
-                        return Err(SemanticError::new("Invalid precompile call").into());
+                // Check for special precompile functions
+                if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name) {
+                    if table != Table::execution() {
+                        return Ok(Line::Precompile { table, args });
                     }
-                    Ok(Line::Precompile {
-                        precompile: precompile.clone(),
-                        args,
-                    })
-                } else {
-                    Ok(Line::FunctionCall {
-                        function_name,
-                        args,
-                        return_data,
-                        line_number,
-                    })
                 }
+
+                // fall back to regular function call
+                Ok(Line::FunctionCall {
+                    function_name,
+                    args,
+                    return_data,
+                    line_number,
+                })
             }
         }
     }

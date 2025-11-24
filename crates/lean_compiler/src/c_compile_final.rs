@@ -19,10 +19,7 @@ impl IntermediateInstruction {
             | Self::Deref { .. }
             | Self::JumpIfNotZero { .. }
             | Self::Jump { .. }
-            | Self::Poseidon2_16 { .. }
-            | Self::Poseidon2_24 { .. }
-            | Self::DotProduct { .. }
-            | Self::MultilinearEval { .. } => false,
+            | Self::Precompile { .. } => false,
         }
     }
 }
@@ -54,21 +51,32 @@ pub fn compile_to_low_level_bytecode(
 
     let mut hints = BTreeMap::new();
     let mut label_to_pc = BTreeMap::new();
-    label_to_pc.insert(Label::function("main"), 0);
+
+    label_to_pc.insert(Label::EndProgram, ENDING_PC);
+    let exit_point = intermediate_bytecode
+        .bytecode
+        .remove(&Label::EndProgram)
+        .ok_or("No end_program label found in the compiled program")?;
+    assert_eq!(count_real_instructions(&exit_point), STARTING_PC);
+
+    label_to_pc.insert(Label::function("main"), STARTING_PC);
     let entrypoint = intermediate_bytecode
         .bytecode
         .remove(&Label::function("main"))
         .ok_or("No main function found in the compiled program")?;
     hints.insert(
-        0,
+        STARTING_PC,
         vec![Hint::StackFrame {
             label: Label::function("main"),
             size: starting_frame_memory,
         }],
     );
 
-    let mut code_blocks = vec![(Label::function("main"), 0, entrypoint.clone())];
-    let mut pc = count_real_instructions(&entrypoint);
+    let mut pc = count_real_instructions(&exit_point) + count_real_instructions(&entrypoint);
+    let mut code_blocks = vec![
+        (Label::EndProgram, ENDING_PC, exit_point),
+        (Label::function("main"), STARTING_PC, entrypoint),
+    ];
 
     for (label, instructions) in &intermediate_bytecode.bytecode {
         label_to_pc.insert(label.clone(), pc);
@@ -87,8 +95,6 @@ pub fn compile_to_low_level_bytecode(
         code_blocks.push((label.clone(), pc, instructions.clone()));
         pc += count_real_instructions(instructions);
     }
-
-    let ending_pc = label_to_pc.get(&Label::EndProgram).copied().unwrap();
 
     let mut match_block_sizes = Vec::new();
     let mut match_first_block_starts = Vec::new();
@@ -147,7 +153,6 @@ pub fn compile_to_low_level_bytecode(
         instructions: low_level_bytecode,
         hints,
         starting_frame_memory,
-        ending_pc,
         program,
         function_locations,
     })
@@ -291,50 +296,19 @@ fn compile_block(
                     IntermediateValue::Constant(ConstExpression::Value(ConstantValue::Scalar(1)));
                 codegen_jump(hints, low_level_bytecode, one, dest, updated_fp)
             }
-            IntermediateInstruction::Poseidon2_16 {
+            IntermediateInstruction::Precompile {
+                table,
                 arg_a,
                 arg_b,
-                res,
-                is_compression,
+                arg_c,
+                aux,
             } => {
-                low_level_bytecode.push(Instruction::Poseidon2_16 {
+                low_level_bytecode.push(Instruction::Precompile {
+                    table,
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
                     arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
-                    res: try_as_mem_or_fp(&res).unwrap(),
-                    is_compression,
-                });
-            }
-            IntermediateInstruction::Poseidon2_24 { arg_a, arg_b, res } => {
-                low_level_bytecode.push(Instruction::Poseidon2_24 {
-                    arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
-                    arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
-                    res: try_as_mem_or_fp(&res).unwrap(),
-                });
-            }
-            IntermediateInstruction::DotProduct {
-                arg0,
-                arg1,
-                res,
-                size,
-            } => {
-                low_level_bytecode.push(Instruction::DotProduct {
-                    arg0: arg0.try_into_mem_or_constant(compiler).unwrap(),
-                    arg1: arg1.try_into_mem_or_constant(compiler).unwrap(),
-                    res: res.try_into_mem_or_fp(compiler).unwrap(),
-                    size: eval_const_expression_usize(&size, compiler),
-                });
-            }
-            IntermediateInstruction::MultilinearEval {
-                coeffs,
-                point,
-                res,
-                n_vars,
-            } => {
-                low_level_bytecode.push(Instruction::MultilinearEval {
-                    coeffs: coeffs.try_into_mem_or_constant(compiler).unwrap(),
-                    point: point.try_into_mem_or_constant(compiler).unwrap(),
-                    res: res.try_into_mem_or_fp(compiler).unwrap(),
-                    n_vars: eval_const_expression_usize(&n_vars, compiler),
+                    arg_c: try_as_mem_or_fp(&arg_c).unwrap(),
+                    aux: eval_const_expression_usize(&aux, compiler),
                 });
             }
             IntermediateInstruction::DecomposeBits {

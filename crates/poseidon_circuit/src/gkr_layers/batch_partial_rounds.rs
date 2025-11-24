@@ -15,48 +15,35 @@ pub struct BatchPartialRounds<const WIDTH: usize, const N_COMMITED_CUBES: usize>
     pub last_constant: F,
 }
 
-impl<NF: ExtensionField<F>, const WIDTH: usize, const N_COMMITED_CUBES: usize>
-    SumcheckComputation<NF, EF> for BatchPartialRounds<WIDTH, N_COMMITED_CUBES>
-where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-    EF: ExtensionField<NF>,
-{
-    fn degree(&self) -> usize {
-        3
-    }
-
-    fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
-        debug_assert_eq!(point.len(), WIDTH + N_COMMITED_CUBES);
-        debug_assert_eq!(alpha_powers.len(), WIDTH + N_COMMITED_CUBES);
-
-        let mut res = EF::ZERO;
-        let mut buff: [NF; WIDTH] = array::from_fn(|j| point[j]);
-        for (i, &constant) in self.constants.iter().enumerate() {
-            let computed_cube = (buff[0] + constant).cube();
-            res += alpha_powers[WIDTH + i] * computed_cube;
-            buff[0] = point[WIDTH + i]; // commited cube
-            GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
-        }
-
-        buff[0] = (buff[0] + self.last_constant).cube();
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
-        for i in 0..WIDTH {
-            res += alpha_powers[i] * buff[i];
-        }
-        res
-    }
-}
-
-impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> SumcheckComputationPacked<EF>
+impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> SumcheckComputation<EF>
     for BatchPartialRounds<WIDTH, N_COMMITED_CUBES>
 where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
+    EF: ExtensionField<PF<EF>>,
 {
+    type ExtraData = Vec<EF>;
+
     fn degree(&self) -> usize {
         3
     }
 
-    fn eval_packed_base(&self, point: &[FPacking<F>], alpha_powers: &[EF]) -> EFPacking<EF> {
+    #[inline(always)]
+    fn eval_base(&self, point: &[PF<EF>], _: &[EF], alpha_powers: &Self::ExtraData) -> EF {
+        self.my_eval::<PF<EF>>(point, alpha_powers)
+    }
+
+    #[inline(always)]
+    fn eval_extension(&self, point: &[EF], _: &[EF], alpha_powers: &Self::ExtraData) -> EF {
+        self.my_eval::<EF>(point, alpha_powers)
+    }
+
+    #[inline(always)]
+    fn eval_packed_base(
+        &self,
+        point: &[FPacking<F>],
+        _: &[EFPacking<EF>],
+        alpha_powers: &Self::ExtraData,
+    ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + N_COMMITED_CUBES);
         debug_assert_eq!(alpha_powers.len(), WIDTH + N_COMMITED_CUBES);
 
@@ -77,7 +64,13 @@ where
         res
     }
 
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
+    #[inline(always)]
+    fn eval_packed_extension(
+        &self,
+        point: &[EFPacking<EF>],
+        _: &[EFPacking<EF>],
+        alpha_powers: &Self::ExtraData,
+    ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH + N_COMMITED_CUBES);
         debug_assert_eq!(alpha_powers.len(), WIDTH + N_COMMITED_CUBES);
 
@@ -94,6 +87,37 @@ where
         GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
         for i in 0..WIDTH {
             res += buff[i] * alpha_powers[i];
+        }
+        res
+    }
+}
+
+impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> BatchPartialRounds<WIDTH, N_COMMITED_CUBES>
+where
+    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
+    EF: ExtensionField<PF<EF>>,
+{
+    #[inline(always)]
+    fn my_eval<NF: ExtensionField<PF<EF>>>(&self, point: &[NF], alpha_powers: &[EF]) -> EF
+    where
+        EF: ExtensionField<NF>,
+    {
+        debug_assert_eq!(point.len(), WIDTH + N_COMMITED_CUBES);
+        debug_assert_eq!(alpha_powers.len(), WIDTH + N_COMMITED_CUBES);
+
+        let mut res = EF::ZERO;
+        let mut buff: [NF; WIDTH] = array::from_fn(|j| point[j]);
+        for (i, &constant) in self.constants.iter().enumerate() {
+            let computed_cube = (buff[0] + constant).cube();
+            res += alpha_powers[WIDTH + i] * computed_cube;
+            buff[0] = point[WIDTH + i]; // commited cube
+            GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
+        }
+
+        buff[0] = (buff[0] + self.last_constant).cube();
+        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
+        for i in 0..WIDTH {
+            res += alpha_powers[i] * buff[i];
         }
         res
     }

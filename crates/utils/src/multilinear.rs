@@ -71,9 +71,13 @@ pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) 
 // }
 
 pub fn padd_with_zero_to_next_power_of_two<F: Field>(pol: &[F]) -> Vec<F> {
+    padd_to_next_power_of_two(pol, F::ZERO)
+}
+
+pub fn padd_to_next_power_of_two<F: Field>(pol: &[F], value: F) -> Vec<F> {
     let next_power_of_two = pol.len().next_power_of_two();
     let mut padded = pol.to_vec();
-    padded.resize(next_power_of_two, F::ZERO);
+    padded.resize(next_power_of_two, value);
     padded
 }
 

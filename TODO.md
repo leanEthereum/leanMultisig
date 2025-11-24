@@ -26,6 +26,7 @@
 - Opti WHIR: in sumcheck we know more than f(0) + f(1), we know f(0) and f(1)
 - Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306
 - Avoid committing to the 3 index columns, and replace it by a sumcheck? Using this idea, we would only commit to PC and FP for the execution table. Idea by Georg (Powdr). Do we even need to commit to FP then?
+- Avoid the embedding overhead in logup, when denominators = "c - index", as it was previously done
 
 - About the ordering of the variables in sumchecks, currently we do as follows:
 
@@ -97,8 +98,6 @@ Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed ch
 - bounddary condition on dot_product table: first flag = 1
 - verify correctness of the Grand Product check
 - Proof size: replace all equality checks in the verifier algo by value deduction
-- WIR recursion: batch the multilinear_eval calls on initial merkle leaves
-- multilinear_eval precompile: we can reduce the number of sparse equality constraints required to verify the correctness of point / res into the memory
 
 - KoalaBear extension of degree 5: the current implem (in a fork of Plonky3) has not been been optimized
 - KoalaBear extension of degree 6: in order to use the (proven) Johnson bound in WHIR

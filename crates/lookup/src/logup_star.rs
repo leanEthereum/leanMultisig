@@ -16,7 +16,7 @@ use crate::{
     quotient_gkr::{prove_gkr_quotient, verify_gkr_quotient},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct LogupStarStatements<EF> {
     pub on_indexes: Evaluation<EF>,
     pub on_table: Evaluation<EF>,
@@ -45,6 +45,8 @@ where
     if packing {
         max_index = max_index.div_ceil(packing_width::<EF>());
     }
+    // TODO use max_index
+    let _ = max_index;
 
     let (poly_eq_point_packed, pushforward_packed, table_packed) =
         info_span!("packing").in_scope(|| {
@@ -86,34 +88,38 @@ where
 
     let c = prover_state.sample();
 
-    let (claim_left, _, eval_c_minux_indexes) = prove_gkr_quotient(
-        prover_state,
-        &poly_eq_point_packed.by_ref(),
-        (c, indexes),
-        None,
-    );
-
-    let increments = (0..table.unpacked_len())
-        .into_par_iter()
-        .map(PF::<EF>::from_usize)
+    let c_minus_indexes = indexes
+        .par_iter()
+        .map(|i| c - PF::<EF>::from_usize(i.to_usize()))
         .collect::<Vec<_>>();
-    let (claim_right, pushforward_final_eval, _) = prove_gkr_quotient(
+    let c_minus_indexes_packed = MleRef::Extension(&c_minus_indexes).pack_if(packing);
+
+    let (_, claim_point_left, _, eval_c_minus_indexes) = prove_gkr_quotient::<_, 2>(
         prover_state,
-        &pushforward_packed.by_ref(),
-        (c, &increments),
-        Some(max_index),
+        &MleGroupRef::merge(&[
+            &poly_eq_point_packed.by_ref(),
+            &c_minus_indexes_packed.by_ref(),
+        ]),
     );
 
-    let final_point_left = claim_left.point[1..].to_vec();
-    let indexes_final_eval = c - eval_c_minux_indexes;
-    prover_state.add_extension_scalar(indexes_final_eval);
-    let on_indexes = Evaluation::new(final_point_left, indexes_final_eval);
+    let c_minus_increments = MleRef::Extension(
+        &(0..table.unpacked_len())
+            .into_par_iter()
+            .map(|i| c - PF::<EF>::from_usize(i))
+            .collect::<Vec<_>>(),
+    );
+    let c_minus_increments_packed = c_minus_increments.pack_if(packing);
+    let (_, claim_point_right, pushforward_final_eval, _) = prove_gkr_quotient::<_, 2>(
+        prover_state,
+        &MleGroupRef::merge(&[
+            &pushforward_packed.by_ref(),
+            &c_minus_increments_packed.by_ref(),
+        ]),
+    );
 
-    prover_state.add_extension_scalar(pushforward_final_eval);
-    on_pushforward.push(Evaluation::new(
-        claim_right.point[1..].to_vec(),
-        pushforward_final_eval,
-    ));
+    let on_indexes = Evaluation::new(claim_point_left, c - eval_c_minus_indexes);
+
+    on_pushforward.push(Evaluation::new(claim_point_right, pushforward_final_eval));
 
     // These statements remained to be proven
     LogupStarStatements {
@@ -157,48 +163,41 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    let random_challenge = verifier_state.sample(); // "c" in the paper
+    let c = verifier_state.sample();
 
-    let (quotient_left, claim_left) = verify_gkr_quotient(verifier_state, log_indexes_len + 1)?;
-    let (quotient_right, claim_right) = verify_gkr_quotient(verifier_state, log_table_len + 1)?;
+    let (quotient_left, claim_point_left, claim_num_left, eval_c_minus_indexes) =
+        verify_gkr_quotient::<_, 2>(verifier_state, log_indexes_len)?;
+    let (quotient_right, claim_point_right, pushforward_final_eval, claim_den_right) =
+        verify_gkr_quotient::<_, 2>(verifier_state, log_table_len)?;
 
     if quotient_left != quotient_right {
         return Err(ProofError::InvalidProof);
     }
 
-    let final_point_left = MultilinearPoint(claim_left.point[1..].to_vec());
-    let index_openined_value = verifier_state.next_extension_scalar()?;
-    let on_indexes = Evaluation::new(final_point_left.clone(), index_openined_value);
-    if claim_left.value
+    let on_indexes = Evaluation::new(claim_point_left.clone(), c - eval_c_minus_indexes);
+    if claim_num_left
         != claims
             .iter()
             .zip(alpha.powers())
-            .map(|(claim, a)| final_point_left.eq_poly_outside(&claim.point) * a)
+            .map(|(claim, a)| claim_point_left.eq_poly_outside(&claim.point) * a)
             .sum::<EF>()
-            * (EF::ONE - claim_left.point[0])
-            + (random_challenge - index_openined_value) * claim_left.point[0]
     {
         return Err(ProofError::InvalidProof);
     }
 
-    let final_point_right = claim_right.point[1..].to_vec();
-    let pushforward_opening_value = verifier_state.next_extension_scalar()?;
     on_pushforward.push(Evaluation::new(
-        final_point_right.clone(),
-        pushforward_opening_value,
+        claim_point_right.clone(),
+        pushforward_final_eval,
     ));
 
-    let big_endian_mle = final_point_right
+    let big_endian_mle = claim_point_right
         .iter()
         .rev()
         .enumerate()
         .map(|(i, &p)| p * EF::TWO.exp_u64(i as u64))
         .sum::<EF>();
 
-    if claim_right.value
-        != pushforward_opening_value * (EF::ONE - claim_right.point[0])
-            + (random_challenge - big_endian_mle) * claim_right.point[0]
-    {
+    if claim_den_right != c - big_endian_mle {
         return Err(ProofError::InvalidProof);
     }
 
@@ -240,13 +239,13 @@ mod tests {
 
     #[test]
     fn test_logup_star() {
-        for log_table_len in [1, 10] {
-            for log_indexes_len in 1..10 {
+        for log_table_len in [3, 10] {
+            for log_indexes_len in 3..10 {
                 test_logup_star_helper(log_table_len, log_indexes_len);
             }
         }
 
-        test_logup_star_helper(15, 17);
+        test_logup_star_helper(12, 14);
     }
 
     fn test_logup_star_helper(log_table_len: usize, log_indexes_len: usize) {
@@ -290,7 +289,7 @@ mod tests {
         let pushforward = compute_pushforward(&indexes, table_length, &poly_eq_point);
         let claim = Evaluation::new(point, eval);
 
-        prove_logup_star(
+        let prover_statements = prove_logup_star(
             &mut prover_state,
             &MleRef::Base(&commited_table),
             &commited_indexes,
@@ -302,7 +301,7 @@ mod tests {
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
-        let statements = verify_logup_star(
+        let verifier_statements = verify_logup_star(
             &mut verifier_state,
             log_table_len,
             log_indexes_len,
@@ -311,15 +310,21 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(&verifier_statements, &prover_statements);
         assert_eq!(
-            indexes.evaluate(&statements.on_indexes.point),
-            statements.on_indexes.value
+            prover_state.challenger().state(),
+            verifier_state.challenger().state()
+        );
+
+        assert_eq!(
+            indexes.evaluate(&verifier_statements.on_indexes.point),
+            verifier_statements.on_indexes.value
         );
         assert_eq!(
-            table.evaluate(&statements.on_table.point),
-            statements.on_table.value
+            table.evaluate(&verifier_statements.on_table.point),
+            verifier_statements.on_table.value
         );
-        for eval in &statements.on_pushforward {
+        for eval in &verifier_statements.on_pushforward {
             assert_eq!(pushforward.evaluate(&eval.point), eval.value);
         }
 

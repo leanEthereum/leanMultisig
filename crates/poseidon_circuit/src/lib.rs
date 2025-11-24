@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use multilinear_toolkit::prelude::MultiEvaluation;
+use multilinear_toolkit::prelude::{Evaluation, MultiEvaluation};
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 
 mod prove;
@@ -29,4 +29,5 @@ pub struct GKRPoseidonResult {
     pub output_statements: MultiEvaluation<EF>, // of length width
     pub input_statements: MultiEvaluation<EF>,  // of length width
     pub cubes_statements: MultiEvaluation<EF>,  // of length n_committed_cubes
+    pub on_compression_selector: Option<Evaluation<EF>>, // univariate_skips = 1 here (TODO dont do this)
 }

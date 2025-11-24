@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicPtr, Ordering};
+
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 
@@ -14,10 +16,6 @@ pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
 pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     assert!(n <= slice.len());
     &slice[slice.len() - n..]
-}
-
-pub fn field_slice_as_base<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Option<Vec<F>> {
-    slice.par_iter().map(|x| x.as_base()).collect()
 }
 
 pub fn transpose_slice_to_basis_coefficients<F: Field, EF: ExtensionField<F>>(
@@ -77,15 +75,6 @@ macro_rules! assert_eq_many {
     };
 }
 
-pub fn finger_print<F: Field, EF: ExtensionField<F>>(
-    table_index: usize,
-    data: &[F],
-    challenge: EF,
-) -> EF {
-    dot_product::<EF, _, _>(challenge.powers().skip(1), data.iter().copied())
-        + F::from_usize(table_index)
-}
-
 pub fn powers_const<F: Field, const N: usize>(base: F) -> [F; N] {
     base.powers().collect_n(N).try_into().unwrap()
 }
@@ -123,19 +112,15 @@ pub fn transpose<F: Copy + Send + Sync>(
     res
 }
 
-struct SendPtr<T>(*mut T);
-unsafe impl<T> Send for SendPtr<T> {}
-unsafe impl<T> Sync for SendPtr<T> {}
-
 pub fn transposed_par_iter_mut<A: Send + Sync, const N: usize>(
     array: &mut [Vec<A>; N], // all vectors must have the same length
 ) -> impl IndexedParallelIterator<Item = [&mut A; N]> + '_ {
     let len = array[0].len();
-    let data_ptrs: [SendPtr<A>; N] = array.each_mut().map(|v| SendPtr(v.as_mut_ptr()));
+    let data_ptrs: [AtomicPtr<A>; N] = array.each_mut().map(|v| AtomicPtr::new(v.as_mut_ptr()));
 
-    (0..len)
-        .into_par_iter()
-        .map(move |i| unsafe { std::array::from_fn(|j| &mut *data_ptrs[j].0.add(i)) })
+    (0..len).into_par_iter().map(move |i| unsafe {
+        std::array::from_fn(|j| &mut *data_ptrs[j].load(Ordering::Relaxed).add(i))
+    })
 }
 
 #[derive(Debug)]
@@ -155,4 +140,8 @@ impl<'a, T> VecOrSlice<'a, T> {
 
 pub fn encapsulate_vec<T>(v: Vec<T>) -> Vec<Vec<T>> {
     v.into_iter().map(|x| vec![x]).collect()
+}
+
+pub fn collect_refs<'a, T>(vecs: &'a [Vec<T>]) -> Vec<&'a [T]> {
+    vecs.iter().map(Vec::as_slice).collect()
 }

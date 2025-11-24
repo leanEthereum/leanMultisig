@@ -1,11 +1,7 @@
-use std::{
-    any::TypeId,
-    mem::{transmute, transmute_copy},
-};
-
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder, BaseAir};
-use p3_uni_stark::SymbolicExpression;
+use p3_air::{Air, AirBuilder};
+
+use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 
 pub const N_INSTRUCTION_COLUMNS: usize = 13;
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
@@ -38,36 +34,38 @@ pub const COL_INDEX_MEM_ADDRESS_A: usize = 18;
 pub const COL_INDEX_MEM_ADDRESS_B: usize = 19;
 pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
 
-#[derive(Debug)]
-pub struct VMAir<EF> {
-    // GKR grand product challenges
-    pub global_challenge: EF,
-    pub fingerprint_challenge_powers: [EF; 5],
-}
+// Temporary columns (stored to avoid duplicate computations)
+pub const N_TEMPORARY_EXEC_COLUMNS: usize = 3;
+pub const COL_INDEX_EXEC_NU_A: usize = 21;
+pub const COL_INDEX_EXEC_NU_B: usize = 22;
+pub const COL_INDEX_EXEC_NU_C: usize = 23;
 
-impl<F, EF: Send + Sync> BaseAir<F> for VMAir<EF> {
-    fn width(&self) -> usize {
+impl Air for ExecutionTable {
+    type ExtraData = ExtraDataForBuses<EF>;
+
+    fn n_columns_f_air(&self) -> usize {
         N_EXEC_AIR_COLUMNS
+    }
+    fn n_columns_ef_air(&self) -> usize {
+        0
     }
     fn degree(&self) -> usize {
         5
     }
-    fn columns_with_shift(&self) -> Vec<usize> {
+    fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![COL_INDEX_PC, COL_INDEX_FP]
     }
-}
+    fn down_column_indexes_ef(&self) -> Vec<usize> {
+        vec![]
+    }
+    fn n_constraints(&self) -> usize {
+        16
+    }
 
-impl<AB: AirBuilder, EF: ExtensionField<PF<EF>>> Air<AB> for VMAir<EF>
-where
-    AB::Var: 'static,
-    AB::Expr: 'static,
-    AB::FinalOutput: 'static,
-{
     #[inline]
-    fn eval(&self, builder: &mut AB) {
-        let main = builder.main();
-        let up = &main[..N_EXEC_AIR_COLUMNS];
-        let down = &main[N_EXEC_AIR_COLUMNS..];
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+        let up = builder.up_f();
+        let down = builder.down_f();
 
         let next_pc = down[0].clone();
         let next_fp = down[1].clone();
@@ -117,16 +115,14 @@ where
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.add_custom(<VMAir<EF> as Air<AB>>::eval_custom(
-            self,
-            &[
-                nu_a.clone(),
-                nu_b.clone(),
-                nu_c.clone(),
-                aux.clone().into(),
-                is_precompile.into(),
-                precompile_index.into(),
-            ],
+        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            extra_data,
+            precompile_index.clone(),
+            is_precompile.clone(),
+            nu_a.clone(),
+            nu_b.clone(),
+            nu_c.clone(),
+            aux.clone(),
         ));
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
@@ -154,69 +150,4 @@ where
         );
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
-
-    fn eval_custom(&self, inputs: &[<AB as AirBuilder>::Expr]) -> <AB as AirBuilder>::FinalOutput {
-        let type_id_final_output = TypeId::of::<<AB as AirBuilder>::FinalOutput>();
-        let type_id_expr = TypeId::of::<<AB as AirBuilder>::Expr>();
-        // let type_id_f = TypeId::of::<PF<EF>>();
-        let type_id_ef = TypeId::of::<EF>();
-        let type_id_f_packing = TypeId::of::<PFPacking<EF>>();
-        let type_id_ef_packing = TypeId::of::<EFPacking<EF>>();
-
-        if type_id_expr == type_id_ef {
-            assert_eq!(type_id_final_output, type_id_ef);
-            let inputs = unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EF]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| c * p);
-            unsafe { transmute_copy::<EF, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else if type_id_expr == type_id_ef_packing {
-            assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs =
-                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[EFPacking<EF>]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| p * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else if type_id_expr == type_id_f_packing {
-            assert_eq!(type_id_final_output, type_id_ef_packing);
-            let inputs =
-                unsafe { transmute::<&[<AB as AirBuilder>::Expr], &[PFPacking<EF>]>(inputs) };
-            let res = self.gkr_virtual_column_eval(inputs, |p, c| EFPacking::<EF>::from(p) * c);
-            unsafe { transmute_copy::<EFPacking<EF>, <AB as AirBuilder>::FinalOutput>(&res) }
-        } else {
-            assert_eq!(type_id_expr, TypeId::of::<SymbolicExpression<PF<EF>>>());
-            unsafe { transmute_copy(&SymbolicExpression::<PF<EF>>::default()) }
-        }
-    }
-}
-
-impl<EF: Copy> VMAir<EF> {
-    fn gkr_virtual_column_eval<
-        PointF: PrimeCharacteristicRing + Copy,
-        ResultF: Algebra<EF> + Algebra<PointF> + Copy,
-    >(
-        &self,
-        point: &[PointF],
-        mul_point_f_and_ef: impl Fn(PointF, EF) -> ResultF,
-    ) -> ResultF {
-        let nu_a = point[0];
-        let nu_b = point[1];
-        let nu_c = point[2];
-        let aux = point[3];
-        let is_precompile = point[4];
-        let precompile_index = point[5];
-
-        let nu_a_mul_challenge_1 = mul_point_f_and_ef(nu_a, self.fingerprint_challenge_powers[1]);
-        let nu_b_mul_challenge_2 = mul_point_f_and_ef(nu_b, self.fingerprint_challenge_powers[2]);
-        let nu_c_mul_challenge_3 = mul_point_f_and_ef(nu_c, self.fingerprint_challenge_powers[3]);
-
-        let nu_sums = nu_a_mul_challenge_1 + nu_b_mul_challenge_2 + nu_c_mul_challenge_3;
-        let aux_mul_challenge_4 = mul_point_f_and_ef(aux, self.fingerprint_challenge_powers[4]);
-        (nu_sums + aux_mul_challenge_4 + precompile_index) * is_precompile + self.global_challenge
-    }
-}
-
-pub fn execution_air_padding_row<F: Field>(ending_pc: usize) -> Vec<F> {
-    // only the shifted columns
-    vec![
-        F::from_usize(ending_pc), // PC
-        F::ZERO,                  // FP
-    ]
 }

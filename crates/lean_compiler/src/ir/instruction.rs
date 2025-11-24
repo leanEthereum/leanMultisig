@@ -1,7 +1,7 @@
 use super::operation::HighLevelOperation;
 use super::value::{IntermediaryMemOrFpOrConstant, IntermediateValue};
 use crate::lang::ConstExpression;
-use lean_vm::{Operation, SourceLineNumber};
+use lean_vm::{Operation, SourceLineNumber, Table, TableT};
 use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.
@@ -28,28 +28,12 @@ pub enum IntermediateInstruction {
         dest: IntermediateValue,
         updated_fp: Option<IntermediateValue>,
     },
-    Poseidon2_16 {
-        arg_a: IntermediateValue, // vectorized pointer, of size 1
-        arg_b: IntermediateValue, // vectorized pointer, of size 1
-        res: IntermediateValue,   // vectorized pointer, of size 1 if `is_compression`, else size 2
-        is_compression: bool,
-    },
-    Poseidon2_24 {
-        arg_a: IntermediateValue, // vectorized pointer, of size 2 (2 first inputs)
-        arg_b: IntermediateValue, // vectorized pointer, of size 1 (3rd = last input)
-        res: IntermediateValue,   // vectorized pointer, of size 1 (3rd = last output)
-    },
-    DotProduct {
-        arg0: IntermediateValue, // vectorized pointer
-        arg1: IntermediateValue, // vectorized pointer
-        res: IntermediateValue,  // vectorized pointer
-        size: ConstExpression,
-    },
-    MultilinearEval {
-        coeffs: IntermediateValue, // vectorized pointer, chunk size = 2^n_vars
-        point: IntermediateValue,  // vectorized pointer, of size `n_vars`
-        res: IntermediateValue,    // vectorized pointer, of size 1
-        n_vars: ConstExpression,
+    Precompile {
+        table: Table,
+        arg_a: IntermediateValue,
+        arg_b: IntermediateValue,
+        arg_c: IntermediateValue,
+        aux: ConstExpression,
     },
     // HINTS (does not appears in the final bytecode)
     Inverse {
@@ -172,32 +156,15 @@ impl Display for IntermediateInstruction {
                     write!(f, "jump_if_not_zero {condition} to {dest}")
                 }
             }
-            Self::Poseidon2_16 {
+            Self::Precompile {
+                table,
                 arg_a,
                 arg_b,
-                res,
-                is_compression,
+                arg_c,
+                aux,
             } => {
-                write!(
-                    f,
-                    "{res} = poseidon2_16({arg_a}, {arg_b}, is_compression={is_compression})"
-                )
+                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux})", table.name())
             }
-            Self::Poseidon2_24 { arg_a, arg_b, res } => {
-                write!(f, "{res} = poseidon2_24({arg_a}, {arg_b})")
-            }
-            Self::DotProduct {
-                arg0,
-                arg1,
-                res,
-                size,
-            } => write!(f, "dot_product({arg0}, {arg1}, {res}, {size})"),
-            Self::MultilinearEval {
-                coeffs,
-                point,
-                res,
-                n_vars,
-            } => write!(f, "multilinear_eval({coeffs}, {point}, {res}, {n_vars})"),
             Self::Inverse { arg, res_offset } => {
                 write!(f, "m[fp + {res_offset}] = inverse({arg})")
             }

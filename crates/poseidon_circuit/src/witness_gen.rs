@@ -12,7 +12,7 @@ use crate::F;
 use crate::gkr_layers::BatchPartialRounds;
 use crate::gkr_layers::PoseidonGKRLayers;
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize> {
     pub input_layer: [Vec<A>; WIDTH], // input of the permutation
     pub initial_full_layers: Vec<[Vec<A>; WIDTH]>, // just before cubing
@@ -21,7 +21,7 @@ pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize>
     pub remaining_partial_round_layers: Vec<[Vec<A>; WIDTH]>, // the input of each remaining partial round, just before cubing the first element
     pub final_full_layers: Vec<[Vec<A>; WIDTH]>,              // just before cubing
     pub output_layer: [Vec<A>; WIDTH],                        // output of the permutation
-    pub compression: Option<(usize, Vec<A>, [Vec<A>; WIDTH])>, // num compressions, compression indicator column, compressed output
+    pub compression: Option<(Vec<A>, [Vec<A>; WIDTH])>, // compression indicator column, compressed output
 }
 
 impl<const WIDTH: usize, const N_COMMITED_CUBES: usize>
@@ -35,7 +35,7 @@ impl<const WIDTH: usize, const N_COMMITED_CUBES: usize>
 pub fn generate_poseidon_witness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize>(
     input: [Vec<A>; WIDTH],
     layers: &PoseidonGKRLayers<WIDTH, N_COMMITED_CUBES>,
-    compression: Option<(usize, Vec<A>)>,
+    compression: Option<Vec<A>>,
 ) -> PoseidonWitness<A, WIDTH, N_COMMITED_CUBES>
 where
     A: Algebra<F> + Copy + Send + Sync,
@@ -93,7 +93,7 @@ where
         &[F::ZERO; WIDTH], // unused
     );
 
-    let compression = compression.map(|(n_compressions, indicator)| {
+    let compression = compression.map(|indicator| {
         let compressed_output = (0..WIDTH)
             .into_par_iter()
             .map(|col_idx| {
@@ -110,7 +110,7 @@ where
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        (n_compressions, indicator, compressed_output)
+        (indicator, compressed_output)
     });
 
     PoseidonWitness {
@@ -240,7 +240,7 @@ where
         array::from_fn(|_| vec![A::ZERO]),
         layers,
         if layers.compressed_output.is_some() {
-            Some((0, vec![A::ZERO]))
+            Some(vec![A::ZERO])
         } else {
             None
         },

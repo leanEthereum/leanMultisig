@@ -103,8 +103,7 @@ pub fn run_poseidon_benchmark<
             input_packed,
             &layers,
             if compress {
-                Some((
-                    n_compressions,
+                Some(
                     PFPacking::<F>::pack_slice(
                         &[
                             vec![F::ZERO; n_poseidons - n_compressions],
@@ -113,7 +112,7 @@ pub fn run_poseidon_benchmark<
                         .concat(),
                     )
                     .to_vec(),
-                ))
+                )
             } else {
                 None
             },
@@ -142,6 +141,7 @@ pub fn run_poseidon_benchmark<
             output_statements,
             input_statements,
             cubes_statements,
+            on_compression_selector,
         } = prove_poseidon_gkr(
             &mut prover_state,
             &witness,
@@ -150,6 +150,15 @@ pub fn run_poseidon_benchmark<
             &layers,
         );
         assert_eq!(&output_statements.point.0, &claim_point);
+        if let Some(on_compression_selector) = on_compression_selector {
+            assert_eq!(
+                on_compression_selector.value,
+                mle_of_zeros_then_ones(
+                    (1 << log_n_poseidons) - n_compressions,
+                    &on_compression_selector.point,
+                )
+            );
+        }
 
         // PCS opening
         let mut pcs_statements = vec![];
@@ -187,7 +196,7 @@ pub fn run_poseidon_benchmark<
             proof_size_gkr,
             match compress {
                 false => witness.output_layer,
-                true => witness.compression.unwrap().2,
+                true => witness.compression.unwrap().1,
             },
             prover_duration,
             output_statements,
@@ -213,15 +222,26 @@ pub fn run_poseidon_benchmark<
             output_statements,
             input_statements,
             cubes_statements,
+            on_compression_selector,
         } = verify_poseidon_gkr(
             &mut verifier_state,
             log_n_poseidons,
             &output_claim_point,
             &layers,
             UNIVARIATE_SKIPS,
-            if compress { Some(n_compressions) } else { None },
+            compress,
         );
         assert_eq!(&output_statements.point.0, &output_claim_point);
+
+        if let Some(on_compression_selector) = on_compression_selector {
+            assert_eq!(
+                on_compression_selector.value,
+                mle_of_zeros_then_ones(
+                    (1 << log_n_poseidons) - n_compressions,
+                    &on_compression_selector.point,
+                )
+            );
+        }
 
         // PCS verification
         let mut pcs_statements = vec![];

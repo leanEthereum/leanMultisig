@@ -8,11 +8,12 @@ use crate::diagnostics::{ExecutionResult, MemoryProfile, RunnerError, memory_pro
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
-use crate::witness::{
-    WitnessDotProduct, WitnessMultilinearEval, WitnessPoseidon16, WitnessPoseidon24,
+use crate::{
+    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, N_TABLES, STARTING_PC,
+    SourceLineNumber, Table, TableTrace,
 };
-use crate::{CodeAddress, HintExecutionContext, SourceLineNumber};
 use multilinear_toolkit::prelude::*;
+use std::array;
 use std::collections::{BTreeMap, BTreeSet};
 use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
 use xmss::{Poseidon16History, Poseidon24History};
@@ -185,7 +186,7 @@ fn execute_bytecode_helper(
     let initial_ap_vec =
         (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
 
-    let mut pc = 0;
+    let mut pc = STARTING_PC;
     let mut ap = initial_ap;
     let mut ap_vec = initial_ap_vec;
 
@@ -202,10 +203,7 @@ fn execute_bytecode_helper(
     let mut n_poseidon24_precomputed_used = 0;
 
     // Events collected only in final execution
-    let mut poseidons_16: Vec<WitnessPoseidon16> = Vec::new();
-    let mut poseidons_24: Vec<WitnessPoseidon24> = Vec::new();
-    let mut dot_products: Vec<WitnessDotProduct> = Vec::new();
-    let mut multilinear_evals: Vec<WitnessMultilinearEval> = Vec::new();
+    let mut traces: [TableTrace; N_TABLES] = array::from_fn(|i| TableTrace::new(&ALL_TABLES[i]));
 
     let mut add_counts = 0;
     let mut mul_counts = 0;
@@ -215,7 +213,7 @@ fn execute_bytecode_helper(
     let mut counter_hint = 0;
     let mut cpu_cycles_before_new_line = 0;
 
-    while pc != bytecode.ending_pc {
+    while pc != ENDING_PC {
         if pc >= bytecode.instructions.len() {
             return Err(RunnerError::PCOutOfBounds);
         }
@@ -252,10 +250,7 @@ fn execute_bytecode_helper(
             fp: &mut fp,
             pc: &mut pc,
             pcs: &pcs,
-            poseidons_16: &mut poseidons_16,
-            poseidons_24: &mut poseidons_24,
-            dot_products: &mut dot_products,
-            multilinear_evals: &mut multilinear_evals,
+            traces: &mut traces,
             add_counts: &mut add_counts,
             mul_counts: &mut mul_counts,
             deref_counts: &mut deref_counts,
@@ -295,7 +290,7 @@ fn execute_bytecode_helper(
         }
     );
 
-    assert_eq!(pc, bytecode.ending_pc);
+    assert_eq!(pc, ENDING_PC);
     pcs.push(pc);
     fps.push(fp);
 
@@ -370,26 +365,25 @@ fn execute_bytecode_helper(
 
     summary.push('\n');
 
-    if poseidons_16.len() + poseidons_24.len() > 0 {
+    if traces[Table::poseidon16().index()].base[0].len()
+        + traces[Table::poseidon24().index()].base[0].len()
+        > 0
+    {
         summary.push_str(&format!(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
-            pretty_integer(poseidons_16.len()),
-            pretty_integer(poseidons_24.len()),
-            cpu_cycles / (poseidons_16.len() + poseidons_24.len())
+            pretty_integer(traces[Table::poseidon16().index()].base[0].len()),
+            pretty_integer(traces[Table::poseidon24().index()].base[0].len()),
+            cpu_cycles
+                / (traces[Table::poseidon16().index()].base[0].len()
+                    + traces[Table::poseidon24().index()].base[0].len())
         ));
     }
-    if !dot_products.is_empty() {
-        summary.push_str(&format!(
-            "DotProduct calls: {}\n",
-            pretty_integer(dot_products.len())
-        ));
-    }
-    if !multilinear_evals.is_empty() {
-        summary.push_str(&format!(
-            "MultilinearEval calls: {}\n",
-            pretty_integer(multilinear_evals.len())
-        ));
-    }
+    // if !dot_products.is_empty() {
+    //     summary.push_str(&format!(
+    //         "DotProduct calls: {}\n",
+    //         pretty_integer(dot_products.len())
+    //     ));
+    // }
 
     if false {
         summary.push_str("Low level instruction counts:\n");
@@ -420,10 +414,7 @@ fn execute_bytecode_helper(
         memory,
         pcs,
         fps,
-        poseidons_16,
-        poseidons_24,
-        dot_products,
-        multilinear_evals,
+        traces,
         summary,
         memory_profile: if profiling { Some(mem_profile) } else { None },
     })
