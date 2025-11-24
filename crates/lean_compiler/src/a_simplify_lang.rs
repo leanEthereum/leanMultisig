@@ -845,10 +845,10 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
             }
         };
 
-    let on_new_condition = |condition: &Condition,
-                            internal_vars: &BTreeSet<Var>,
-                            external_vars: &mut BTreeSet<Var>| {
-        match condition {
+    let on_new_condition =
+        |condition: &Condition,
+         internal_vars: &BTreeSet<Var>,
+         external_vars: &mut BTreeSet<Var>| match condition {
             Condition::Comparison(Boolean::Equal { left, right })
             | Condition::Comparison(Boolean::Different { left, right }) => {
                 on_new_expr(left, internal_vars, external_vars);
@@ -857,8 +857,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
             Condition::Expression(expr, _assume_boolean) => {
                 on_new_expr(expr, internal_vars, external_vars);
             }
-        }
-    };
+        };
 
     for line in lines {
         match line {
