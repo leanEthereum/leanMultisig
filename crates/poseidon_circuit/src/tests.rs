@@ -167,7 +167,7 @@ pub fn run_poseidon_benchmark<const WIDTH: usize, const N_COMMITED_CUBES: usize,
 
         let proof_size_pcs = prover_state.proof_size() - proof_size_gkr;
         (
-            build_verifier_state(&prover_state),
+            build_verifier_state(prover_state),
             proof_size_pcs,
             proof_size_gkr,
             match compress {

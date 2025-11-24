@@ -8,7 +8,7 @@ use crate::*;
 #[derive(Debug)]
 pub struct PhonyXmssSecretKey<const LOG_LIFETIME: usize> {
     pub wots_secret_key: WotsSecretKey,
-    pub signature_index: usize,
+    pub slot: usize,
     pub merkle_path: Vec<Digest>,
     pub public_key: XmssPublicKey<LOG_LIFETIME>,
 }
@@ -34,7 +34,7 @@ impl<const LOG_LIFETIME: usize> PhonyXmssSecretKey<LOG_LIFETIME> {
         }
         Self {
             wots_secret_key,
-            signature_index,
+            slot: signature_index,
             merkle_path,
             public_key: XmssPublicKey(hash),
         }
@@ -44,12 +44,13 @@ impl<const LOG_LIFETIME: usize> PhonyXmssSecretKey<LOG_LIFETIME> {
         let wots_signature = self.wots_secret_key.sign(message_hash, rng);
         XmssSignature {
             wots_signature,
+            slot: self.slot,
             merkle_proof: self
                 .merkle_path
                 .iter()
                 .enumerate()
                 .map(|(i, h)| {
-                    let is_left = (self.signature_index >> i).is_multiple_of(2);
+                    let is_left = (self.slot >> i).is_multiple_of(2);
                     (is_left, *h)
                 })
                 .collect(),

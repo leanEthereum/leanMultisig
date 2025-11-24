@@ -4,12 +4,13 @@ use lean_prover::{prove_execution::prove_execution, verify_execution::verify_exe
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use std::collections::VecDeque;
 use std::time::Instant;
 use tracing::instrument;
 use whir_p3::precompute_dft_twiddles;
 use xmss::{PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature};
 
-const LOG_LIFETIME: usize = 32;
+const LOG_LIFETIME: usize = 30;
 
 pub fn run_xmss_benchmark(n_xmss: usize) {
     // Public input:  message_hash | all_public_keys | bitield
@@ -48,12 +49,12 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
 
     fn xmss_recover_pub_key(message_hash, signature) -> 1 {
         // message_hash: vectorized pointers (of length 1)
-        // signature: vectorized pointer = randomness | chain_tips | merkle_neighbours | merkle_are_left
+        // signature: vectorized pointer = randomness | chain_tips | slot
         // return a vectorized pointer (of length 1), the hashed xmss public key
         randomness = signature; // vectorized
         chain_tips = signature + 1; // vectorized
-        merkle_neighbours = chain_tips + V; // vectorized
-        merkle_are_left = (merkle_neighbours + LOG_LIFETIME) * 8; // non-vectorized
+        slot_ptr = (chain_tips + V) * 8;
+        slot = slot_ptr[0];
 
         // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
@@ -154,22 +155,10 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
 
         wots_pubkey_hashed = public_key_hashed + (V / 2 - 1);
 
-        merkle_hashes = malloc_vec(LOG_LIFETIME);
-        if merkle_are_left[0] == 1 {
-            poseidon16(wots_pubkey_hashed, merkle_neighbours, merkle_hashes, COMPRESSION);
-        } else {
-            poseidon16(merkle_neighbours, wots_pubkey_hashed, merkle_hashes, COMPRESSION);
-        }
+        merkle_root = malloc_vec(1);
+        merkle_verify(wots_pubkey_hashed, slot, merkle_root, LOG_LIFETIME);
 
-        for h in 1..LOG_LIFETIME unroll {
-            if merkle_are_left[h] == 1 {
-                poseidon16(merkle_hashes + (h-1), merkle_neighbours + h, merkle_hashes + h, COMPRESSION);
-            } else {
-                poseidon16(merkle_neighbours + h, merkle_hashes + (h-1), merkle_hashes + h, COMPRESSION);
-            }
-        }
-
-        return merkle_hashes + (LOG_LIFETIME - 1);
+        return merkle_root;
     }
 
     fn assert_eq_vec(x, y) inline {
@@ -182,7 +171,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     }
    "#.to_string();
 
-    let xmss_signature_size_padded = (V + 1 + LOG_LIFETIME) + LOG_LIFETIME.div_ceil(8);
+    let xmss_signature_size_padded = V + 1 + 1; // chains, randomness, slot
     program_str = program_str
         .replace("LOG_LIFETIME_PLACE_HOLDER", &LOG_LIFETIME.to_string())
         .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &n_xmss.to_string())
@@ -223,6 +212,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     public_input.splice(1..1, F::zero_vec(7));
 
     let mut private_input = vec![];
+    let mut merkle_path_hints = VecDeque::<Vec<[F; 8]>>::new();
     for signature in &all_signatures {
         private_input.extend(signature.wots_signature.randomness.to_vec());
         private_input.extend(
@@ -232,14 +222,10 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
                 .iter()
                 .flat_map(|digest| digest.to_vec()),
         );
-        private_input.extend(signature.merkle_proof.iter().flat_map(|(_, neighbour)| *neighbour));
-        private_input.extend(
-            signature
-                .merkle_proof
-                .iter()
-                .map(|(is_left, _)| F::new(*is_left as u32)),
-        );
-        private_input.extend(F::zero_vec(LOG_LIFETIME.next_multiple_of(8) - LOG_LIFETIME));
+        private_input.push(F::from_usize(signature.slot));
+        private_input.extend(F::zero_vec(VECTOR_LEN - 1));
+
+        merkle_path_hints.push_back(signature.merkle_proof.iter().map(|(_, d)| *d).collect());
     }
     let bytecode = compile_program(program_str);
 
@@ -252,6 +238,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
         1 << 21,
         false,
         (&vec![], &vec![]),
+        merkle_path_hints.clone(),
     )
     .no_vec_runtime_memory;
 
@@ -264,16 +251,18 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     let (poseidons_16_precomputed, poseidons_24_precomputed) =
         precompute_poseidons(&all_public_keys, &all_signatures, &message_hash);
 
-    let (proof_data, proof_size, summary) = prove_execution(
+    let (proof, summary) = prove_execution(
         &bytecode,
         (&public_input, &private_input),
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
         (&poseidons_16_precomputed, &poseidons_24_precomputed),
+        merkle_path_hints,
     );
     let proving_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+    let proof_size = proof.proof_size;
+    verify_execution(&bytecode, &public_input, proof, whir_config_builder()).unwrap();
 
     println!("{summary}");
     println!(

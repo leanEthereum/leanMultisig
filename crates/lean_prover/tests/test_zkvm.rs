@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use lean_compiler::*;
 use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder};
 use lean_vm::*;
@@ -12,6 +14,10 @@ fn test_zk_vm_all_precompiles() {
     const COMPRESSION = 1;
     const PERMUTATION = 0;
     const N = 11;
+    const MERKLE_HEIGHT_1 = 10;
+    const LEAF_POS_1 = 781;
+    const MERKLE_HEIGHT_2 = 15;
+    const LEAF_POS_2 = 178;
     fn main() {
         pub_start = public_input_start;
         pub_start_vec = pub_start / 8;
@@ -21,6 +27,8 @@ fn test_zk_vm_all_precompiles() {
         poseidon24(pub_start_vec + 7, pub_start_vec + 9, pub_start_vec + 10);
         dot_product_be(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N);
         dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
+        merkle_verify((pub_start + 2000) / 8, LEAF_POS_1, (pub_start + 2000 + 8) / 8, MERKLE_HEIGHT_1);
+        merkle_verify((pub_start + 2000 + 16) / 8, LEAF_POS_2, (pub_start + 2000 + 24) / 8, MERKLE_HEIGHT_2);
         
         return;
     }
@@ -66,7 +74,42 @@ fn test_zk_vm_all_precompiles() {
     public_input[1000..][..DIMENSION].copy_from_slice(dot_product_base_ext.as_basis_coefficients_slice());
     public_input[1000 + DIMENSION..][..DIMENSION].copy_from_slice(dot_product_ext_ext.as_basis_coefficients_slice());
 
-    test_zk_vm_helper(program_str, (&public_input, &[]), 0);
+    fn add_merkle_path(
+        rng: &mut StdRng,
+        public_input: &mut [F],
+        merkle_height: usize,
+        leaf_position: usize,
+    ) -> Vec<[F; 8]> {
+        let leaf: [F; VECTOR_LEN] = rng.random();
+        public_input[..VECTOR_LEN].copy_from_slice(&leaf);
+        let mut merkle_path = Vec::new();
+        let mut current_digest = leaf;
+        for i in 0..merkle_height {
+            let sibling: [F; VECTOR_LEN] = rng.random();
+            merkle_path.push(sibling);
+            let (left, right) = if (leaf_position >> i) & 1 == 0 {
+                (current_digest, sibling)
+            } else {
+                (sibling, current_digest)
+            };
+            current_digest = poseidon16_permute([left.to_vec(), right.to_vec()].concat().try_into().unwrap())
+                [..VECTOR_LEN]
+                .try_into()
+                .unwrap();
+        }
+        let root = current_digest;
+        public_input[VECTOR_LEN..][..VECTOR_LEN].copy_from_slice(&root);
+        merkle_path
+    }
+
+    let merkle_path_1 = add_merkle_path(&mut rng, &mut public_input[2000..], 10, 781);
+    let merkle_path_2 = add_merkle_path(&mut rng, &mut public_input[2000 + 16..], 15, 178);
+
+    let mut merkle_path_hints = VecDeque::new();
+    merkle_path_hints.push_back(merkle_path_1);
+    merkle_path_hints.push_back(merkle_path_2);
+
+    test_zk_vm_helper(program_str, (&public_input, &[]), 0, merkle_path_hints);
 }
 
 #[test]
@@ -108,23 +151,29 @@ fn test_prove_fibonacci() {
         .unwrap();
     let program_str = program_str.replace("FIB_N_PLACEHOLDER", &n.to_string());
 
-    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0);
+    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0, Default::default());
 }
 
-fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F]), no_vec_runtime_memory: usize) {
+fn test_zk_vm_helper(
+    program_str: &str,
+    (public_input, private_input): (&[F], &[F]),
+    no_vec_runtime_memory: usize,
+    merkle_path_hints: VecDeque<Vec<[F; 8]>>,
+) {
     utils::init_tracing();
     let bytecode = compile_program(program_str.to_string());
     let time = std::time::Instant::now();
-    let (proof_data, _, summary) = prove_execution(
+    let (proof, summary) = prove_execution(
         &bytecode,
         (public_input, private_input),
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]),
+        merkle_path_hints,
     );
     let proof_time = time.elapsed();
-    verify_execution(&bytecode, public_input, proof_data, whir_config_builder()).unwrap();
+    verify_execution(&bytecode, public_input, proof, whir_config_builder()).unwrap();
     println!("{}", summary);
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }

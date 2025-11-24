@@ -8,6 +8,7 @@ use crate::execution::Memory;
 use crate::tables::TableT;
 use crate::{N_TABLES, Table, TableTrace};
 use multilinear_toolkit::prelude::*;
+use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
@@ -71,6 +72,7 @@ pub struct InstructionContext<'a> {
     pub jump_counts: &'a mut usize,
     pub poseidon16_precomputed: &'a [([F; 16], [F; 16])],
     pub poseidon24_precomputed: &'a [([F; 24], [F; 8])],
+    pub merkle_path_hints: &'a mut VecDeque<Vec<[F; 8]>>,
     pub n_poseidon16_precomputed_used: &'a mut usize,
     pub n_poseidon24_precomputed_used: &'a mut usize,
 }

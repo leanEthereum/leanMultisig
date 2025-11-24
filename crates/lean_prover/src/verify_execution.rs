@@ -21,10 +21,10 @@ use whir_p3::second_batched_whir_config_builder;
 pub fn verify_execution(
     bytecode: &Bytecode,
     public_input: &[F],
-    proof_data: Vec<PF<EF>>,
+    proof: Proof<F>,
     whir_config_builder: WhirConfigBuilder,
 ) -> Result<(), ProofError> {
-    let mut verifier_state = VerifierState::new(proof_data, build_challenger());
+    let mut verifier_state = VerifierState::new(proof, build_challenger());
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);

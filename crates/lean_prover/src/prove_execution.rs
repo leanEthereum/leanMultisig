@@ -10,6 +10,7 @@ use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
+use std::collections::VecDeque;
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
@@ -23,7 +24,8 @@ pub fn prove_execution(
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
-) -> (Vec<PF<EF>>, usize, String) {
+    merkle_path_hints: VecDeque<Vec<[F; 8]>>,
+) -> (Proof<F>, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
         traces,
@@ -38,6 +40,7 @@ pub fn prove_execution(
                 no_vec_runtime_memory,
                 vm_profiler,
                 (poseidons_16_precomputed, poseidons_24_precomputed),
+                merkle_path_hints,
             )
         });
         exec_summary = std::mem::take(&mut execution_result.summary);
@@ -380,11 +383,7 @@ pub fn prove_execution(
         &packed_pcs_witness_extension.packed_polynomial.by_ref(),
     );
 
-    (
-        prover_state.proof_data().to_vec(),
-        prover_state.proof_size(),
-        exec_summary,
-    )
+    (prover_state.into_proof(), exec_summary)
 }
 
 fn prove_bus_and_air(

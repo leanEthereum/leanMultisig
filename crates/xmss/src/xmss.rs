@@ -11,6 +11,7 @@ pub struct XmssSecretKey<const LOG_LIFETIME: usize> {
 #[derive(Debug)]
 pub struct XmssSignature {
     pub wots_signature: WotsSignature,
+    pub slot: usize,
     pub merkle_proof: Vec<(bool, Digest)>,
 }
 
@@ -40,11 +41,11 @@ impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
         }
     }
 
-    pub fn sign(&self, message_hash: &Digest, index: usize, rng: &mut impl Rng) -> XmssSignature {
-        assert!(index < (1 << LOG_LIFETIME), "Index out of bounds for XMSS signature");
-        let wots_signature = self.wots_secret_keys[index].sign(message_hash, rng);
+    pub fn sign(&self, message_hash: &Digest, slot: usize, rng: &mut impl Rng) -> XmssSignature {
+        assert!(slot < (1 << LOG_LIFETIME), "Index out of bounds for XMSS signature");
+        let wots_signature = self.wots_secret_keys[slot].sign(message_hash, rng);
         let merkle_proof = (0..LOG_LIFETIME)
-            .scan(index, |current_idx, level| {
+            .scan(slot, |current_idx, level| {
                 let is_left = *current_idx % 2 == 0;
                 let neighbour_index = *current_idx ^ 1;
                 let neighbour = self.merkle_tree[level][neighbour_index];
@@ -55,6 +56,7 @@ impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
             .collect();
         XmssSignature {
             wots_signature,
+            slot,
             merkle_proof,
         }
     }

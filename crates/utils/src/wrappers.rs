@@ -19,9 +19,9 @@ pub fn build_prover_state<EF: ExtensionField<KoalaBear>>() -> ProverState<KoalaB
 }
 
 pub fn build_verifier_state<EF: ExtensionField<KoalaBear>>(
-    prover_state: &ProverState<KoalaBear, EF, MyChallenger>,
+    prover_state: ProverState<KoalaBear, EF, MyChallenger>,
 ) -> VerifierState<KoalaBear, EF, MyChallenger> {
-    VerifierState::new(prover_state.proof_data().to_vec(), build_challenger())
+    VerifierState::new(prover_state.into_proof(), build_challenger())
 }
 
 pub trait ToUsize {

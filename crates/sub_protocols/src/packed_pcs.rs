@@ -670,7 +670,7 @@ mod tests {
             &witness.packed_polynomial.by_ref(),
         );
 
-        let mut verifier_state = build_verifier_state(&prover_state);
+        let mut verifier_state = build_verifier_state(prover_state);
 
         let parsed_commitment = packed_pcs_parse_commitment(
             &whir_config_builder,

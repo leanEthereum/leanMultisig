@@ -10,9 +10,8 @@ use multilinear_toolkit::prelude::*;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use utils::{
-    build_prover_state, build_verifier_state, padd_with_zero_to_next_multiple_of, padd_with_zero_to_next_power_of_two,
-};
+use utils::build_challenger;
+use utils::{build_prover_state, padd_with_zero_to_next_multiple_of, padd_with_zero_to_next_power_of_two};
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 const NUM_VARIABLES: usize = 25;
@@ -82,10 +81,19 @@ pub fn run_whir_recursion_benchmark() {
     precompute_dft_twiddles::<F>(1 << 24);
 
     let witness = recursion_config.commit(&mut prover_state, &polynomial);
+    recursion_config.prove(&mut prover_state, statement.clone(), witness, &polynomial.by_ref());
+    let whir_proof = prover_state.into_proof();
 
-    let mut public_input = prover_state.proof_data().to_vec();
-    let commitment_size = public_input.len();
-    assert_eq!(commitment_size, 16);
+    {
+        let mut verifier_state = VerifierState::new(whir_proof.clone(), build_challenger());
+        let parsed_commitment = recursion_config.parse_commitment::<F>(&mut verifier_state).unwrap();
+        recursion_config
+            .verify(&mut verifier_state, &parsed_commitment, statement)
+            .unwrap();
+    }
+
+    let commitment_size = 16;
+    let mut public_input = whir_proof.proof_data[..commitment_size].to_vec();
     public_input.extend(padd_with_zero_to_next_multiple_of(
         &point
             .iter()
@@ -96,8 +104,6 @@ pub fn run_whir_recursion_benchmark() {
     public_input.extend(padd_with_zero_to_next_power_of_two(
         <EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(&eval),
     ));
-
-    recursion_config.prove(&mut prover_state, statement.clone(), witness, &polynomial.by_ref());
 
     let first_folding_factor = recursion_config_builder.folding_factor.at_round(0);
 
@@ -138,15 +144,7 @@ pub fn run_whir_recursion_benchmark() {
 
     public_input.extend(F::zero_vec(proof_data_padding * 8));
 
-    public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
-
-    {
-        let mut verifier_state = build_verifier_state(&prover_state);
-        let parsed_commitment = recursion_config.parse_commitment::<F>(&mut verifier_state).unwrap();
-        recursion_config
-            .verify(&mut verifier_state, &parsed_commitment, statement)
-            .unwrap();
-    }
+    public_input.extend(whir_proof.proof_data[commitment_size..].to_vec());
 
     utils::init_tracing();
     let bytecode = compile_program(program_str);
@@ -154,21 +152,30 @@ pub fn run_whir_recursion_benchmark() {
     // in practice we will precompute all the possible values
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
-    let no_vec_runtime_memory =
-        execute_bytecode(&bytecode, (&public_input, &[]), 1 << 20, false, (&vec![], &vec![])).no_vec_runtime_memory;
+    let no_vec_runtime_memory = execute_bytecode(
+        &bytecode,
+        (&public_input, &[]),
+        1 << 20,
+        false,
+        (&vec![], &vec![]), // TODO
+        whir_proof.merkle_hints.clone(),
+    )
+    .no_vec_runtime_memory;
 
     let time = Instant::now();
 
-    let (proof_data, proof_size, summary) = prove_execution(
+    let (proof, summary) = prove_execution(
         &bytecode,
         (&public_input, &[]),
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]), // TODO precompute poseidons
+        whir_proof.merkle_hints.clone(),
     );
+    let proof_size = proof.proof_size;
     let proving_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+    verify_execution(&bytecode, &public_input, proof, whir_config_builder()).unwrap();
 
     println!("{summary}");
     println!(

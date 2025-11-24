@@ -320,7 +320,7 @@ mod tests {
         );
         println!("Proving time: {:?}", time.elapsed());
 
-        let mut verifier_state = build_verifier_state(&prover_state);
+        let mut verifier_state = build_verifier_state(prover_state);
 
         let verifier_statements = verify_gkr_quotient::<EF, N_GROUPS>(&mut verifier_state, log_n).unwrap();
         assert_eq!(&verifier_statements, &prover_statements);
