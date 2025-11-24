@@ -123,7 +123,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
         false,
         prover_state,
         claim_num + alpha * claim_den,
-        None,
+        true,
     );
     prover_state.add_extension_scalars(&inner_evals);
     let beta = prover_state.sample();
@@ -229,7 +229,7 @@ mod tests {
     use super::*;
     use p3_koala_bear::QuinticExtensionFieldKB;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use utils::{build_prover_state, build_verifier_state};
+    use utils::{build_prover_state, build_verifier_state, init_tracing};
 
     type EF = QuinticExtensionFieldKB;
 
@@ -241,6 +241,7 @@ mod tests {
     fn test_gkr_quotient() {
         let log_n = 22;
         let n = 1 << log_n;
+        init_tracing();
 
         let mut rng = StdRng::seed_from_u64(0);
 
