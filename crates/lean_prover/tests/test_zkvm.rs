@@ -1,7 +1,5 @@
 use lean_compiler::*;
-use lean_prover::{
-    prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder,
-};
+use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -62,19 +60,11 @@ fn test_zk_vm_all_precompiles() {
             .flat_map(|&x| x.as_basis_coefficients_slice().to_vec())
             .collect::<Vec<F>>(),
     );
-    let dot_product_base_ext: EF = dot_product(
-        dot_product_slice_ext_a.into_iter(),
-        dot_product_slice_base.into_iter(),
-    );
-    let dot_product_ext_ext: EF = dot_product(
-        dot_product_slice_ext_a.into_iter(),
-        dot_product_slice_ext_b.into_iter(),
-    );
+    let dot_product_base_ext: EF = dot_product(dot_product_slice_ext_a.into_iter(), dot_product_slice_base.into_iter());
+    let dot_product_ext_ext: EF = dot_product(dot_product_slice_ext_a.into_iter(), dot_product_slice_ext_b.into_iter());
 
-    public_input[1000..][..DIMENSION]
-        .copy_from_slice(dot_product_base_ext.as_basis_coefficients_slice());
-    public_input[1000 + DIMENSION..][..DIMENSION]
-        .copy_from_slice(dot_product_ext_ext.as_basis_coefficients_slice());
+    public_input[1000..][..DIMENSION].copy_from_slice(dot_product_base_ext.as_basis_coefficients_slice());
+    public_input[1000 + DIMENSION..][..DIMENSION].copy_from_slice(dot_product_ext_ext.as_basis_coefficients_slice());
 
     test_zk_vm_helper(program_str, (&public_input, &[]), 0);
 }
@@ -121,11 +111,7 @@ fn test_prove_fibonacci() {
     test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0);
 }
 
-fn test_zk_vm_helper(
-    program_str: &str,
-    (public_input, private_input): (&[F], &[F]),
-    no_vec_runtime_memory: usize,
-) {
+fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F]), no_vec_runtime_memory: usize) {
     utils::init_tracing();
     let bytecode = compile_program(program_str.to_string());
     let time = std::time::Instant::now();

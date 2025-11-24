@@ -139,10 +139,7 @@ impl TableT for Poseidon16Precompile {
         input[..VECTOR_LEN].copy_from_slice(&arg0);
         input[VECTOR_LEN..].copy_from_slice(&arg1);
 
-        let output = match ctx
-            .poseidon16_precomputed
-            .get(*ctx.n_poseidon16_precomputed_used)
-        {
+        let output = match ctx.poseidon16_precomputed.get(*ctx.n_poseidon16_precomputed_used) {
             Some(precomputed) if precomputed.0 == input => {
                 *ctx.n_poseidon16_precomputed_used += 1;
                 precomputed.1
@@ -154,10 +151,7 @@ impl TableT for Poseidon16Precompile {
         let (index_res_b, res_b): (F, [F; VECTOR_LEN]) = if is_compression {
             (F::from_usize(ZERO_VEC_PTR), [F::ZERO; VECTOR_LEN])
         } else {
-            (
-                index_res_a + F::ONE,
-                output[VECTOR_LEN..].try_into().unwrap(),
-            )
+            (index_res_a + F::ONE, output[VECTOR_LEN..].try_into().unwrap())
         };
 
         ctx.memory.set_vector(index_res_a.to_usize(), res_a)?;
@@ -223,9 +217,6 @@ impl Air for Poseidon16Precompile {
 
         builder.assert_bool(flag.clone());
         builder.assert_bool(compression.clone());
-        builder.assert_eq(
-            index_res_bis,
-            (index_res + AB::F::ONE) * (AB::F::ONE - compression),
-        );
+        builder.assert_eq(index_res_bis, (index_res + AB::F::ONE) * (AB::F::ONE - compression));
     }
 }

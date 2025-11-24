@@ -14,11 +14,7 @@ pub struct DotProductPrecompile<const BE: bool>; // BE = true for base-extension
 
 impl<const BE: bool> TableT for DotProductPrecompile<BE> {
     fn name(&self) -> &'static str {
-        if BE {
-            "dot_product_be"
-        } else {
-            "dot_product_ee"
-        }
+        if BE { "dot_product_be" } else { "dot_product_ee" }
     }
 
     fn identifier(&self) -> Table {

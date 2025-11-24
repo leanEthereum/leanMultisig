@@ -1,25 +1,21 @@
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::{
-    KoalaBear, KoalaBearInternalLayerParameters, KoalaBearParameters, QuinticExtensionFieldKB,
-};
+use p3_koala_bear::{KoalaBear, KoalaBearInternalLayerParameters, KoalaBearParameters, QuinticExtensionFieldKB};
 use p3_monty_31::InternalLayerBaseParameters;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{array, time::Instant};
 use sub_protocols::{
-    ColDims, packed_pcs_commit, packed_pcs_global_statements_for_prover,
-    packed_pcs_global_statements_for_verifier, packed_pcs_parse_commitment,
+    ColDims, packed_pcs_commit, packed_pcs_global_statements_for_prover, packed_pcs_global_statements_for_verifier,
+    packed_pcs_parse_commitment,
 };
 use utils::{
-    build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut,
-    poseidon24_permute_mut, transposed_par_iter_mut,
+    build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut, poseidon24_permute_mut,
+    transposed_par_iter_mut,
 };
-use whir_p3::{
-    FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles,
-};
+use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 use crate::{
-    GKRPoseidonResult, default_cube_layers, generate_poseidon_witness,
-    gkr_layers::PoseidonGKRLayers, prove_poseidon_gkr, verify_poseidon_gkr,
+    GKRPoseidonResult, default_cube_layers, generate_poseidon_witness, gkr_layers::PoseidonGKRLayers,
+    prove_poseidon_gkr, verify_poseidon_gkr,
 };
 
 type F = KoalaBear;
@@ -35,11 +31,7 @@ fn test_poseidon_benchmark() {
     run_poseidon_benchmark::<16, 16, 3>(12, true);
 }
 
-pub fn run_poseidon_benchmark<
-    const WIDTH: usize,
-    const N_COMMITED_CUBES: usize,
-    const UNIVARIATE_SKIPS: usize,
->(
+pub fn run_poseidon_benchmark<const WIDTH: usize, const N_COMMITED_CUBES: usize, const UNIVARIATE_SKIPS: usize>(
     log_n_poseidons: usize,
     compress: bool,
 ) where
@@ -64,17 +56,11 @@ pub fn run_poseidon_benchmark<
     let n_poseidons = 1 << log_n_poseidons;
     let n_compressions = if compress { n_poseidons / 3 } else { 0 };
 
-    let perm_inputs = (0..n_poseidons)
-        .map(|_| rng.random())
-        .collect::<Vec<[F; WIDTH]>>();
-    let input: [_; WIDTH] =
-        array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
-    let input_packed: [_; WIDTH] =
-        array::from_fn(|i| PFPacking::<EF>::pack_slice(&input[i]).to_vec());
+    let perm_inputs = (0..n_poseidons).map(|_| rng.random()).collect::<Vec<[F; WIDTH]>>();
+    let input: [_; WIDTH] = array::from_fn(|i| perm_inputs.par_iter().map(|x| x[i]).collect::<Vec<F>>());
+    let input_packed: [_; WIDTH] = array::from_fn(|i| PFPacking::<EF>::pack_slice(&input[i]).to_vec());
 
-    let layers = PoseidonGKRLayers::<WIDTH, N_COMMITED_CUBES>::build(
-        compress.then_some(COMPRESSION_OUTPUT_WIDTH),
-    );
+    let layers = PoseidonGKRLayers::<WIDTH, N_COMMITED_CUBES>::build(compress.then_some(COMPRESSION_OUTPUT_WIDTH));
 
     let default_cubes = default_cube_layers::<F, WIDTH, N_COMMITED_CUBES>(&layers);
 
@@ -87,14 +73,7 @@ pub fn run_poseidon_benchmark<
 
     let log_smallest_decomposition_chunk = 0; // unused because everything is a power of 2
 
-    let (
-        mut verifier_state,
-        proof_size_pcs,
-        proof_size_gkr,
-        output_layer,
-        prover_duration,
-        output_statements_prover,
-    ) = {
+    let (mut verifier_state, proof_size_pcs, proof_size_gkr, output_layer, prover_duration, output_statements_prover) = {
         // ---------------------------------------------------- PROVER ----------------------------------------------------
 
         let prover_time = Instant::now();
@@ -153,10 +132,7 @@ pub fn run_poseidon_benchmark<
         if let Some(on_compression_selector) = on_compression_selector {
             assert_eq!(
                 on_compression_selector.value,
-                mle_of_zeros_then_ones(
-                    (1 << log_n_poseidons) - n_compressions,
-                    &on_compression_selector.point,
-                )
+                mle_of_zeros_then_ones((1 << log_n_poseidons) - n_compressions, &on_compression_selector.point,)
             );
         }
 
@@ -236,10 +212,7 @@ pub fn run_poseidon_benchmark<
         if let Some(on_compression_selector) = on_compression_selector {
             assert_eq!(
                 on_compression_selector.value,
-                mle_of_zeros_then_ones(
-                    (1 << log_n_poseidons) - n_compressions,
-                    &on_compression_selector.point,
-                )
+                mle_of_zeros_then_ones((1 << log_n_poseidons) - n_compressions, &on_compression_selector.point,)
             );
         }
 
@@ -264,11 +237,7 @@ pub fn run_poseidon_benchmark<
         .unwrap();
 
         whir_config
-            .verify::<F>(
-                &mut verifier_state,
-                &parsed_pcs_commitment,
-                global_statements,
-            )
+            .verify::<F>(&mut verifier_state, &parsed_pcs_commitment, global_statements)
             .unwrap();
         output_statements
     };
@@ -329,8 +298,7 @@ pub fn run_poseidon_benchmark<
         &output_statements_verifier.values,
         &output_layer
             .iter()
-            .map(|layer| PFPacking::<EF>::unpack_slice(layer)
-                .evaluate(&output_statements_verifier.point))
+            .map(|layer| PFPacking::<EF>::unpack_slice(layer).evaluate(&output_statements_verifier.point))
             .collect::<Vec<_>>()
     );
 

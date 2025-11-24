@@ -5,8 +5,7 @@ use std::{any::TypeId, array, mem::transmute_copy};
 use utils::ToUsize;
 
 use sub_protocols::{
-    ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier,
-    committed_dims_extension_from_base,
+    ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier, committed_dims_extension_from_base,
 };
 
 // Zero padding will be added to each at least, if this minimum is not reached
@@ -131,8 +130,7 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
             assert_eq!(TypeId::of::<NewEF>(), TypeId::of::<EFPacking<EF>>());
             unsafe {
                 transmute_copy::<_, _>(&(
-                    self.fingerprint_challenge_powers
-                        .map(|c| EFPacking::<EF>::from(c)),
+                    self.fingerprint_challenge_powers.map(|c| EFPacking::<EF>::from(c)),
                     EFPacking::<EF>::from(self.bus_beta),
                 ))
             }
@@ -287,10 +285,7 @@ pub trait TableT: Air {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
         let mut statements = Vec::new();
         for lookup in self.normal_lookups_f() {
-            statements.push(vec![Evaluation::new(
-                air_point.clone(),
-                air_values_f[lookup.values],
-            )]);
+            statements.push(vec![Evaluation::new(air_point.clone(), air_values_f[lookup.values])]);
         }
         statements
     }
@@ -302,10 +297,7 @@ pub trait TableT: Air {
         assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
         let mut statements = Vec::new();
         for lookup in self.normal_lookups_ef() {
-            statements.push(vec![Evaluation::new(
-                air_point.clone(),
-                air_values_ef[lookup.values],
-            )]);
+            statements.push(vec![Evaluation::new(air_point.clone(), air_values_ef[lookup.values])]);
         }
         statements
     }
@@ -388,10 +380,7 @@ pub trait TableT: Air {
         }
         cols
     }
-    fn vector_lookup_values_columns<'a>(
-        &self,
-        trace: &'a TableTrace,
-    ) -> Vec<[&'a [F]; VECTOR_LEN]> {
+    fn vector_lookup_values_columns<'a>(&self, trace: &'a TableTrace) -> Vec<[&'a [F]; VECTOR_LEN]> {
         let mut cols = Vec::new();
         for lookup in self.vector_lookups() {
             cols.push(array::from_fn(|i| &trace.base[lookup.values[i]][..]));
@@ -420,10 +409,7 @@ pub trait TableT: Air {
         default_indexes
     }
     fn find_committed_column_index_f(&self, col: ColIndex) -> usize {
-        self.commited_columns_f()
-            .iter()
-            .position(|&c| c == col)
-            .unwrap()
+        self.commited_columns_f().iter().position(|&c| c == col).unwrap()
     }
 }
 
@@ -445,11 +431,7 @@ impl Bus {
             BusTable::Constant(t) => F::from_usize(t.index()),
             BusTable::Variable(col) => padding_row_f[*col],
         };
-        let default_data = self
-            .data
-            .iter()
-            .map(|&col| padding_row_f[col])
-            .collect::<Vec<_>>();
+        let default_data = self.data.iter().map(|&col| padding_row_f[col]).collect::<Vec<_>>();
         EF::from(default_selector * self.direction.to_field_flag() * F::from_usize(padding))
             / (bus_challenge + finger_print(default_table, &default_data, fingerprint_challenge))
     }

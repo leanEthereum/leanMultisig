@@ -34,8 +34,7 @@ const POSEIDON24_ARG_A_VALUES: [[u64; VECTOR_LEN]; 2] = [
 ];
 const POSEIDON24_ARG_B_VALUES: [u64; VECTOR_LEN] = [221, 222, 223, 224, 225, 226, 227, 228];
 const DOT_ARG0_VALUES: [[u64; DIMENSION]; DOT_PRODUCT_LEN] = [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]];
-const DOT_ARG1_VALUES: [[u64; DIMENSION]; DOT_PRODUCT_LEN] =
-    [[11, 12, 13, 14, 15], [16, 17, 18, 19, 20]];
+const DOT_ARG1_VALUES: [[u64; DIMENSION]; DOT_PRODUCT_LEN] = [[11, 12, 13, 14, 15], [16, 17, 18, 19, 20]];
 const MLE_COEFF_VALUES: [u64; 1 << MLE_N_VARS] = [7, 9];
 const MLE_POINT_VALUES: [u64; DIMENSION] = [21, 22, 23, 24, 25];
 
@@ -83,27 +82,12 @@ fn set_base_slice(public_input: &mut [F], start_index: usize, values: &[u64]) {
 fn build_test_case() -> (Bytecode, Vec<F>) {
     let mut public_input = vec![F::ZERO; PUBLIC_INPUT_LEN];
 
-    set_vector(
-        &mut public_input,
-        POSEIDON16_ARG_A_PTR,
-        &POSEIDON16_ARG_A_VALUES,
-    );
-    set_vector(
-        &mut public_input,
-        POSEIDON16_ARG_B_PTR,
-        &POSEIDON16_ARG_B_VALUES,
-    );
+    set_vector(&mut public_input, POSEIDON16_ARG_A_PTR, &POSEIDON16_ARG_A_VALUES);
+    set_vector(&mut public_input, POSEIDON16_ARG_B_PTR, &POSEIDON16_ARG_B_VALUES);
 
-    let poseidon24_chunks = [
-        &POSEIDON24_ARG_A_VALUES[0][..],
-        &POSEIDON24_ARG_A_VALUES[1][..],
-    ];
+    let poseidon24_chunks = [&POSEIDON24_ARG_A_VALUES[0][..], &POSEIDON24_ARG_A_VALUES[1][..]];
     set_multivector(&mut public_input, POSEIDON24_ARG_A_PTR, &poseidon24_chunks);
-    set_vector(
-        &mut public_input,
-        POSEIDON24_ARG_B_PTR,
-        &POSEIDON24_ARG_B_VALUES,
-    );
+    set_vector(&mut public_input, POSEIDON24_ARG_B_PTR, &POSEIDON24_ARG_B_VALUES);
 
     set_ef_slice(&mut public_input, DOT_ARG0_PTR, &DOT_ARG0_VALUES);
     set_ef_slice(&mut public_input, DOT_ARG1_PTR, &DOT_ARG1_VALUES);
@@ -180,9 +164,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
             table: Table::dot_product_ee(),
             arg_a: MemOrConstant::Constant(f(DOT_ARG0_PTR as u64)),
             arg_b: MemOrConstant::Constant(f(DOT_ARG1_PTR as u64)),
-            arg_c: MemOrFp::MemoryAfterFp {
-                offset: DOT_RES_OFFSET,
-            },
+            arg_c: MemOrFp::MemoryAfterFp { offset: DOT_RES_OFFSET },
             aux: DOT_PRODUCT_LEN,
         },
     ];
@@ -200,13 +182,7 @@ fn build_test_case() -> (Bytecode, Vec<F>) {
 
 fn run_program() -> (Bytecode, ExecutionResult) {
     let (bytecode, public_input) = build_test_case();
-    let result = execute_bytecode(
-        &bytecode,
-        (&public_input, &[]),
-        1 << 20,
-        false,
-        (&vec![], &vec![]),
-    );
+    let result = execute_bytecode(&bytecode, (&public_input, &[]), 1 << 20, false, (&vec![], &vec![]));
     println!("{}", result.summary);
     (bytecode, result)
 }
@@ -224,12 +200,6 @@ fn test_operation_compute() {
     let add = Operation::Add;
     let mul = Operation::Mul;
 
-    assert_eq!(
-        add.compute(F::from_usize(2), F::from_usize(3)),
-        F::from_usize(5)
-    );
-    assert_eq!(
-        mul.compute(F::from_usize(2), F::from_usize(3)),
-        F::from_usize(6)
-    );
+    assert_eq!(add.compute(F::from_usize(2), F::from_usize(3)), F::from_usize(5));
+    assert_eq!(mul.compute(F::from_usize(2), F::from_usize(3)), F::from_usize(6));
 }

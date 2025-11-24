@@ -48,14 +48,13 @@ where
     // TODO use max_index
     let _ = max_index;
 
-    let (poly_eq_point_packed, pushforward_packed, table_packed) =
-        info_span!("packing").in_scope(|| {
-            (
-                MleRef::Extension(poly_eq_point).pack_if(packing),
-                MleRef::Extension(pushforward).pack_if(packing),
-                table.pack_if(packing),
-            )
-        });
+    let (poly_eq_point_packed, pushforward_packed, table_packed) = info_span!("packing").in_scope(|| {
+        (
+            MleRef::Extension(poly_eq_point).pack_if(packing),
+            MleRef::Extension(pushforward).pack_if(packing),
+            table.pack_if(packing),
+        )
+    });
 
     let (sc_point, inner_evals, prod) =
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
@@ -96,10 +95,7 @@ where
 
     let (_, claim_point_left, _, eval_c_minus_indexes) = prove_gkr_quotient::<_, 2>(
         prover_state,
-        &MleGroupRef::merge(&[
-            &poly_eq_point_packed.by_ref(),
-            &c_minus_indexes_packed.by_ref(),
-        ]),
+        &MleGroupRef::merge(&[&poly_eq_point_packed.by_ref(), &c_minus_indexes_packed.by_ref()]),
     );
 
     let c_minus_increments = MleRef::Extension(
@@ -111,10 +107,7 @@ where
     let c_minus_increments_packed = c_minus_increments.pack_if(packing);
     let (_, claim_point_right, pushforward_final_eval, _) = prove_gkr_quotient::<_, 2>(
         prover_state,
-        &MleGroupRef::merge(&[
-            &pushforward_packed.by_ref(),
-            &c_minus_increments_packed.by_ref(),
-        ]),
+        &MleGroupRef::merge(&[&pushforward_packed.by_ref(), &c_minus_increments_packed.by_ref()]),
     );
 
     let on_indexes = Evaluation::new(claim_point_left, c - eval_c_minus_indexes);
@@ -140,16 +133,9 @@ where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    let (sum, postponed) =
-        sumcheck_verify(verifier_state, log_table_len, 2).map_err(|_| ProofError::InvalidProof)?;
+    let (sum, postponed) = sumcheck_verify(verifier_state, log_table_len, 2).map_err(|_| ProofError::InvalidProof)?;
 
-    if sum
-        != claims
-            .iter()
-            .zip(alpha.powers())
-            .map(|(c, a)| c.value * a)
-            .sum::<EF>()
-    {
+    if sum != claims.iter().zip(alpha.powers()).map(|(c, a)| c.value * a).sum::<EF>() {
         return Err(ProofError::InvalidProof);
     }
 
@@ -185,10 +171,7 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    on_pushforward.push(Evaluation::new(
-        claim_point_right.clone(),
-        pushforward_final_eval,
-    ));
+    on_pushforward.push(Evaluation::new(claim_point_right.clone(), pushforward_final_eval));
 
     let big_endian_mle = claim_point_right
         .iter()
@@ -275,11 +258,7 @@ mod tests {
 
         let challenger = build_challenger();
 
-        let point = MultilinearPoint(
-            (0..log_indexes_len)
-                .map(|_| rng.random())
-                .collect::<Vec<EF>>(),
-        );
+        let point = MultilinearPoint((0..log_indexes_len).map(|_| rng.random()).collect::<Vec<EF>>());
 
         let mut prover_state = FSProver::new(challenger.clone());
         let eval = values.evaluate(&point);
@@ -301,20 +280,11 @@ mod tests {
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
-        let verifier_statements = verify_logup_star(
-            &mut verifier_state,
-            log_table_len,
-            log_indexes_len,
-            &[claim],
-            EF::ONE,
-        )
-        .unwrap();
+        let verifier_statements =
+            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &[claim], EF::ONE).unwrap();
 
         assert_eq!(&verifier_statements, &prover_statements);
-        assert_eq!(
-            prover_state.challenger().state(),
-            verifier_state.challenger().state()
-        );
+        assert_eq!(prover_state.challenger().state(), verifier_state.challenger().state());
 
         assert_eq!(
             indexes.evaluate(&verifier_statements.on_indexes.point),
@@ -339,10 +309,7 @@ mod tests {
                 .map(|x| (0..n_muls).map(|_| *x).product::<EFPacking<EF>>())
                 .sum::<EFPacking<EF>>();
             assert!(sum != EFPacking::<EF>::ONE);
-            println!(
-                "Optimal time we can hope for: {} ms",
-                time.elapsed().as_millis()
-            );
+            println!("Optimal time we can hope for: {} ms", time.elapsed().as_millis());
         }
     }
 }

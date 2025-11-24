@@ -86,9 +86,7 @@ where
             );
         }
 
-        for (eval_group, extension_column_split) in
-            statements_ef.iter().zip(&all_value_columns[n_cols_f..])
-        {
+        for (eval_group, extension_column_split) in statements_ef.iter().zip(&all_value_columns[n_cols_f..]) {
             let mut multi_evals = vec![];
             for eval in eval_group {
                 let sub_evals = extension_column_split
@@ -166,11 +164,7 @@ where
         EF: ExtensionField<TF>,
     {
         assert_eq_many!(heights_f.len(), default_indexes_f.len(), statements_f.len());
-        assert_eq_many!(
-            heights_ef.len(),
-            default_indexes_ef.len(),
-            statements_ef.len()
-        );
+        assert_eq_many!(heights_ef.len(), default_indexes_ef.len(), statements_ef.len());
         let n_cols_f = statements_f.len();
 
         let mut multi_eval_statements = vec![];
@@ -185,8 +179,8 @@ where
         for eval_group in &statements_ef {
             let mut multi_evals = vec![];
             for eval in eval_group {
-                let sub_evals = verifier_state
-                    .next_extension_scalars_vec(<EF as BasedVectorSpace<PF<EF>>>::DIMENSION)?;
+                let sub_evals =
+                    verifier_state.next_extension_scalars_vec(<EF as BasedVectorSpace<PF<EF>>>::DIMENSION)?;
                 if dot_product_with_base(&sub_evals) != eval.value {
                     return Err(ProofError::InvalidProof);
                 }

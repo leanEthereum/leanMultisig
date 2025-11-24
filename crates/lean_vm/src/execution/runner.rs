@@ -1,16 +1,16 @@
 //! VM execution runner
 
 use crate::core::{
-    DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR,
-    POSEIDON_24_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
+    DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
+    VECTOR_LEN, ZERO_VEC_PTR,
 };
 use crate::diagnostics::{ExecutionResult, MemoryProfile, RunnerError, memory_profiling_report};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, N_TABLES, STARTING_PC,
-    SourceLineNumber, Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, N_TABLES, STARTING_PC, SourceLineNumber, Table,
+    TableTrace,
 };
 use multilinear_toolkit::prelude::*;
 use std::array;
@@ -24,38 +24,26 @@ const STACK_TRACE_INSTRUCTIONS: usize = 5000;
 /// Build public memory with standard initialization
 pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     // padded to a power of two
-    let public_memory_len =
-        (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
+    let public_memory_len = (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
     let mut public_memory = F::zero_vec(public_memory_len);
-    public_memory[NONRESERVED_PROGRAM_INPUT_START..][..public_input.len()]
-        .copy_from_slice(public_input);
+    public_memory[NONRESERVED_PROGRAM_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
 
     // "zero" vector
     let zero_start = ZERO_VEC_PTR * VECTOR_LEN;
-    for slot in public_memory
-        .iter_mut()
-        .skip(zero_start)
-        .take(2 * VECTOR_LEN)
-    {
+    for slot in public_memory.iter_mut().skip(zero_start).take(2 * VECTOR_LEN) {
         *slot = F::ZERO;
     }
 
     // "one" vector
     public_memory[ONE_VEC_PTR * VECTOR_LEN] = F::ONE;
     let one_start = ONE_VEC_PTR * VECTOR_LEN + 1;
-    for slot in public_memory
-        .iter_mut()
-        .skip(one_start)
-        .take(VECTOR_LEN - 1)
-    {
+    for slot in public_memory.iter_mut().skip(one_start).take(VECTOR_LEN - 1) {
         *slot = F::ZERO;
     }
 
-    public_memory
-        [POSEIDON_16_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_16_NULL_HASH_PTR + 2) * VECTOR_LEN]
+    public_memory[POSEIDON_16_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_16_NULL_HASH_PTR + 2) * VECTOR_LEN]
         .copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
-    public_memory
-        [POSEIDON_24_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_24_NULL_HASH_PTR + 1) * VECTOR_LEN]
+    public_memory[POSEIDON_24_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_24_NULL_HASH_PTR + 1) * VECTOR_LEN]
         .copy_from_slice(&poseidon24_permute([F::ZERO; 24])[16..]);
     public_memory
 }
@@ -84,8 +72,7 @@ pub fn execute_bytecode(
     )
     .unwrap_or_else(|err| {
         let lines_history = &instruction_history.lines;
-        let latest_instructions =
-            &lines_history[lines_history.len().saturating_sub(STACK_TRACE_INSTRUCTIONS)..];
+        let latest_instructions = &lines_history[lines_history.len().saturating_sub(STACK_TRACE_INSTRUCTIONS)..];
         println!(
             "\n{}",
             crate::diagnostics::pretty_stack_trace(
@@ -163,8 +150,7 @@ fn execute_bytecode_helper(
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
 
-    let public_memory_size =
-        (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
+    let public_memory_size = (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
     let mut fp = public_memory_size;
 
     for (i, value) in private_input.iter().enumerate() {
@@ -173,8 +159,7 @@ fn execute_bytecode_helper(
 
     let mut mem_profile = MemoryProfile {
         used: BTreeSet::new(),
-        public_inputs: NONRESERVED_PROGRAM_INPUT_START
-            ..NONRESERVED_PROGRAM_INPUT_START + public_memory_size,
+        public_inputs: NONRESERVED_PROGRAM_INPUT_START..NONRESERVED_PROGRAM_INPUT_START + public_memory_size,
         private_inputs: fp..fp + private_input.len(),
         objects: BTreeMap::new(),
     };
@@ -183,8 +168,7 @@ fn execute_bytecode_helper(
     fp = fp.next_multiple_of(DIMENSION);
 
     let initial_ap = fp + bytecode.starting_frame_memory;
-    let initial_ap_vec =
-        (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
+    let initial_ap_vec = (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
 
     let mut pc = STARTING_PC;
     let mut ap = initial_ap;
@@ -299,49 +283,32 @@ fn execute_bytecode_helper(
     let mut summary = String::new();
 
     if profiling {
-        let report =
-            crate::diagnostics::profiling_report(instruction_history, &bytecode.function_locations);
+        let report = crate::diagnostics::profiling_report(instruction_history, &bytecode.function_locations);
         summary.push_str(&report);
     }
 
     if !std_out.is_empty() {
-        summary.push_str(
-            "╔═════════════════════════════════════════════════════════════════════════╗\n",
-        );
-        summary.push_str(
-            "║                                STD-OUT                                  ║\n",
-        );
-        summary.push_str(
-            "╚═════════════════════════════════════════════════════════════════════════╝\n",
-        );
+        summary.push_str("╔═════════════════════════════════════════════════════════════════════════╗\n");
+        summary.push_str("║                                STD-OUT                                  ║\n");
+        summary.push_str("╚═════════════════════════════════════════════════════════════════════════╝\n");
         summary.push_str(&format!("\n{std_out}"));
-        summary.push_str(
-            "──────────────────────────────────────────────────────────────────────────\n\n",
-        );
+        summary.push_str("──────────────────────────────────────────────────────────────────────────\n\n");
     }
 
-    summary
-        .push_str("╔═════════════════════════════════════════════════════════════════════════╗\n");
-    summary
-        .push_str("║                                 STATS                                   ║\n");
-    summary.push_str(
-        "╚═════════════════════════════════════════════════════════════════════════╝\n\n",
-    );
+    summary.push_str("╔═════════════════════════════════════════════════════════════════════════╗\n");
+    summary.push_str("║                                 STATS                                   ║\n");
+    summary.push_str("╚═════════════════════════════════════════════════════════════════════════╝\n\n");
 
     summary.push_str(&format!("CYCLES: {}\n", pretty_integer(cpu_cycles)));
     summary.push_str(&format!("MEMORY: {}\n", pretty_integer(memory.0.len())));
     summary.push('\n');
 
-    let runtime_memory_size =
-        memory.0.len() - (NONRESERVED_PROGRAM_INPUT_START + public_input.len());
+    let runtime_memory_size = memory.0.len() - (NONRESERVED_PROGRAM_INPUT_START + public_input.len());
     summary.push_str(&format!(
         "Bytecode size: {}\n",
         pretty_integer(bytecode.instructions.len())
     ));
-    summary.push_str(&format!(
-        "Public input size: {}\n",
-        pretty_integer(public_input.len())
-    ));
+    summary.push_str(&format!("Public input size: {}\n", pretty_integer(public_input.len())));
     summary.push_str(&format!(
         "Private input size: {}\n",
         pretty_integer(private_input.len())
@@ -365,10 +332,7 @@ fn execute_bytecode_helper(
 
     summary.push('\n');
 
-    if traces[Table::poseidon16().index()].base[0].len()
-        + traces[Table::poseidon24().index()].base[0].len()
-        > 0
-    {
+    if traces[Table::poseidon16().index()].base[0].len() + traces[Table::poseidon24().index()].base[0].len() > 0 {
         summary.push_str(&format!(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
             pretty_integer(traces[Table::poseidon16().index()].base[0].len()),
@@ -397,8 +361,7 @@ fn execute_bytecode_helper(
         summary.push_str(&format!("JUMP: {jump_counts}\n"));
     }
 
-    summary
-        .push_str("──────────────────────────────────────────────────────────────────────────\n");
+    summary.push_str("──────────────────────────────────────────────────────────────────────────\n");
 
     if profiling {
         for (addr, val) in (0..).zip(memory.0.iter()) {

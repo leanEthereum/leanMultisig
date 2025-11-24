@@ -29,9 +29,7 @@ impl Parse<Line> for StatementParser {
             Rule::assert_eq_statement => AssertEqParser::parse(inner, ctx),
             Rule::assert_not_eq_statement => AssertNotEqParser::parse(inner, ctx),
             Rule::break_statement => Ok(Line::Break),
-            Rule::continue_statement => {
-                Err(SemanticError::new("Continue statement not implemented yet").into())
-            }
+            Rule::continue_statement => Err(SemanticError::new("Continue statement not implemented yet").into()),
             _ => Err(SemanticError::new("Unknown statement").into()),
         }
     }
@@ -43,9 +41,7 @@ pub struct AssignmentParser;
 impl Parse<Line> for AssignmentParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut inner = pair.into_inner();
-        let var = next_inner_pair(&mut inner, "variable name")?
-            .as_str()
-            .to_string();
+        let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
         let expr = next_inner_pair(&mut inner, "assignment value")?;
         let value = ExpressionParser::parse(expr, ctx)?;
 
@@ -59,9 +55,7 @@ pub struct ArrayAssignParser;
 impl Parse<Line> for ArrayAssignParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut inner = pair.into_inner();
-        let array = next_inner_pair(&mut inner, "array name")?
-            .as_str()
-            .to_string();
+        let array = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
         let index = ExpressionParser::parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
         let value = ExpressionParser::parse(next_inner_pair(&mut inner, "array value")?, ctx)?;
 
@@ -133,11 +127,8 @@ impl Parse<Condition> for ConditionParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
         let inner_pair = next_inner_pair(&mut pair.into_inner(), "inner expression")?;
         if inner_pair.as_rule() == Rule::assumed_bool_expr {
-            ExpressionParser::parse(
-                next_inner_pair(&mut inner_pair.into_inner(), "inner expression")?,
-                ctx,
-            )
-            .map(|e| Condition::Expression(e, AssumeBoolean::AssumeBoolean))
+            ExpressionParser::parse(next_inner_pair(&mut inner_pair.into_inner(), "inner expression")?, ctx)
+                .map(|e| Condition::Expression(e, AssumeBoolean::AssumeBoolean))
         } else {
             let expr_result = ExpressionParser::parse(inner_pair, ctx);
             match expr_result {
@@ -158,10 +149,7 @@ impl Parse<Condition> for ConditionParser {
                     left: *left,
                     right: *right,
                 })),
-                Ok(expr) => Ok(Condition::Expression(
-                    expr,
-                    AssumeBoolean::DoNotAssumeBoolean,
-                )),
+                Ok(expr) => Ok(Condition::Expression(expr, AssumeBoolean::DoNotAssumeBoolean)),
             }
         }
     }
@@ -174,9 +162,7 @@ impl Parse<Line> for ForStatementParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
-        let iterator = next_inner_pair(&mut inner, "loop iterator")?
-            .as_str()
-            .to_string();
+        let iterator = next_inner_pair(&mut inner, "loop iterator")?.as_str().to_string();
 
         // Check for optional reverse clause
         let mut rev = false;
@@ -321,9 +307,6 @@ impl Parse<Line> for AssertNotEqParser {
         let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
         let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
-        Ok(Line::Assert(
-            Boolean::Different { left, right },
-            line_number,
-        ))
+        Ok(Line::Assert(Boolean::Different { left, right }, line_number))
     }
 }

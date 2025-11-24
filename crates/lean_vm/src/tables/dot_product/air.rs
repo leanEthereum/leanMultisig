@@ -1,6 +1,5 @@
 use crate::{
-    DIMENSION, EF, ExtraDataForBuses, TableT, eval_virtual_bus_column,
-    tables::dot_product::DotProductPrecompile,
+    DIMENSION, EF, ExtraDataForBuses, TableT, eval_virtual_bus_column, tables::dot_product::DotProductPrecompile,
 };
 use multilinear_toolkit::prelude::*;
 use p3_air::{Air, AirBuilder};
@@ -123,8 +122,7 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
         builder.assert_zero(flag_down * (len - AB::F::ONE));
         let index_a_increment = AB::F::from_usize(if BE { 1 } else { DIMENSION });
         builder.assert_zero(not_flag_down.clone() * (index_a - (index_a_down - index_a_increment)));
-        builder
-            .assert_zero(not_flag_down * (index_b - (index_b_down - AB::F::from_usize(DIMENSION))));
+        builder.assert_zero(not_flag_down * (index_b - (index_b_down - AB::F::from_usize(DIMENSION))));
 
         builder.assert_zero_ef((computation - res) * flag);
     }

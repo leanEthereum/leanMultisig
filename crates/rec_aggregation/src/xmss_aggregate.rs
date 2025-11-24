@@ -7,9 +7,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::time::Instant;
 use tracing::instrument;
 use whir_p3::precompute_dft_twiddles;
-use xmss::{
-    PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature,
-};
+use xmss::{PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature};
 
 const LOG_LIFETIME: usize = 32;
 
@@ -188,10 +186,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     program_str = program_str
         .replace("LOG_LIFETIME_PLACE_HOLDER", &LOG_LIFETIME.to_string())
         .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &n_xmss.to_string())
-        .replace(
-            "XMSS_SIG_SIZE_PLACE_HOLDER",
-            &xmss_signature_size_padded.to_string(),
-        );
+        .replace("XMSS_SIG_SIZE_PLACE_HOLDER", &xmss_signature_size_padded.to_string());
 
     let bitfield = vec![true; n_xmss]; // for now we use a dense bitfield
 
@@ -204,8 +199,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
             let mut rng = StdRng::seed_from_u64(i as u64);
             if bitfield[i] {
                 let signature_index = rng.random_range(0..1 << LOG_LIFETIME);
-                let xmss_secret_key =
-                    PhonyXmssSecretKey::<LOG_LIFETIME>::random(&mut rng, signature_index);
+                let xmss_secret_key = PhonyXmssSecretKey::<LOG_LIFETIME>::random(&mut rng, signature_index);
                 let signature = xmss_secret_key.sign(&message_hash, &mut rng);
                 (xmss_secret_key.public_key, Some(signature))
             } else {
@@ -220,16 +214,11 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     for bit in bitfield {
         public_input.push(F::from_bool(bit));
     }
-    let min_public_input_size =
-        (1 << LOG_SMALLEST_DECOMPOSITION_CHUNK) - NONRESERVED_PROGRAM_INPUT_START;
-    public_input.extend(F::zero_vec(
-        min_public_input_size.saturating_sub(public_input.len()),
-    ));
+    let min_public_input_size = (1 << LOG_SMALLEST_DECOMPOSITION_CHUNK) - NONRESERVED_PROGRAM_INPUT_START;
+    public_input.extend(F::zero_vec(min_public_input_size.saturating_sub(public_input.len())));
     public_input.insert(
         0,
-        F::from_usize(
-            (public_input.len() + 8 + NONRESERVED_PROGRAM_INPUT_START).next_power_of_two(),
-        ),
+        F::from_usize((public_input.len() + 8 + NONRESERVED_PROGRAM_INPUT_START).next_power_of_two()),
     );
     public_input.splice(1..1, F::zero_vec(7));
 
@@ -243,12 +232,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
                 .iter()
                 .flat_map(|digest| digest.to_vec()),
         );
-        private_input.extend(
-            signature
-                .merkle_proof
-                .iter()
-                .flat_map(|(_, neighbour)| *neighbour),
-        );
+        private_input.extend(signature.merkle_proof.iter().flat_map(|(_, neighbour)| *neighbour));
         private_input.extend(
             signature
                 .merkle_proof
@@ -310,11 +294,7 @@ fn precompute_poseidons(
     let (poseidon_16_traces, poseidon_24_traces): (Vec<_>, Vec<_>) = xmss_pub_keys
         .par_iter()
         .zip(all_signatures.par_iter())
-        .map(|(pub_key, sig)| {
-            pub_key
-                .verify_with_poseidon_trace(message_hash, sig)
-                .unwrap()
-        })
+        .map(|(pub_key, sig)| pub_key.verify_with_poseidon_trace(message_hash, sig).unwrap())
         .unzip();
     (
         poseidon_16_traces.into_par_iter().flatten().collect(),

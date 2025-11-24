@@ -14,19 +14,17 @@ use crate::gkr_layers::PoseidonGKRLayers;
 
 #[derive(Debug, Hash)]
 pub struct PoseidonWitness<A, const WIDTH: usize, const N_COMMITED_CUBES: usize> {
-    pub input_layer: [Vec<A>; WIDTH], // input of the permutation
-    pub initial_full_layers: Vec<[Vec<A>; WIDTH]>, // just before cubing
-    pub batch_partial_round_input: Option<[Vec<A>; WIDTH]>, // again, the input of the batch (partial) round
-    pub committed_cubes: [Vec<A>; N_COMMITED_CUBES], // the cubes commited in the batch (partial) rounds
+    pub input_layer: [Vec<A>; WIDTH],                         // input of the permutation
+    pub initial_full_layers: Vec<[Vec<A>; WIDTH]>,            // just before cubing
+    pub batch_partial_round_input: Option<[Vec<A>; WIDTH]>,   // again, the input of the batch (partial) round
+    pub committed_cubes: [Vec<A>; N_COMMITED_CUBES],          // the cubes commited in the batch (partial) rounds
     pub remaining_partial_round_layers: Vec<[Vec<A>; WIDTH]>, // the input of each remaining partial round, just before cubing the first element
     pub final_full_layers: Vec<[Vec<A>; WIDTH]>,              // just before cubing
     pub output_layer: [Vec<A>; WIDTH],                        // output of the permutation
-    pub compression: Option<(Vec<A>, [Vec<A>; WIDTH])>, // compression indicator column, compressed output
+    pub compression: Option<(Vec<A>, [Vec<A>; WIDTH])>,       // compression indicator column, compressed output
 }
 
-impl<const WIDTH: usize, const N_COMMITED_CUBES: usize>
-    PoseidonWitness<FPacking<F>, WIDTH, N_COMMITED_CUBES>
-{
+impl<const WIDTH: usize, const N_COMMITED_CUBES: usize> PoseidonWitness<FPacking<F>, WIDTH, N_COMMITED_CUBES> {
     pub fn n_poseidons(&self) -> usize {
         self.input_layer[0].len() * packing_width::<F>()
     }
@@ -126,13 +124,7 @@ where
 }
 
 // #[instrument(skip_all)]
-fn apply_full_round<
-    A,
-    const WIDTH: usize,
-    const CUBE: bool,
-    const MDS: bool,
-    const ADD_CONSTANTS: bool,
->(
+fn apply_full_round<A, const WIDTH: usize, const CUBE: bool, const MDS: bool, const ADD_CONSTANTS: bool>(
     input_layers: &[Vec<A>; WIDTH],
     constants: &[F; WIDTH],
 ) -> [Vec<A>; WIDTH]

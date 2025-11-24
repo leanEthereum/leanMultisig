@@ -12,10 +12,7 @@ pub struct ExecutionTrace {
     pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
-pub fn get_execution_trace(
-    bytecode: &Bytecode,
-    mut execution_result: ExecutionResult,
-) -> ExecutionTrace {
+pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionResult) -> ExecutionTrace {
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
 
     // padding to make proof work even on small programs (TODO make this more elegant)
@@ -78,8 +75,8 @@ pub fn get_execution_trace(
                 + (F::ONE - field_repr[COL_INDEX_FLAG_A]) * value_a;
             let nu_b = field_repr[COL_INDEX_FLAG_B] * field_repr[COL_INDEX_OPERAND_B]
                 + (F::ONE - field_repr[COL_INDEX_FLAG_B]) * value_b;
-            let nu_c = field_repr[COL_INDEX_FLAG_C] * F::from_usize(fp)
-                + (F::ONE - field_repr[COL_INDEX_FLAG_C]) * value_c;
+            let nu_c =
+                field_repr[COL_INDEX_FLAG_C] * F::from_usize(fp) + (F::ONE - field_repr[COL_INDEX_FLAG_C]) * value_c;
             *trace_row[COL_INDEX_EXEC_NU_A] = nu_a;
             *trace_row[COL_INDEX_EXEC_NU_B] = nu_b;
             *trace_row[COL_INDEX_EXEC_NU_C] = nu_c;
@@ -94,11 +91,7 @@ pub fn get_execution_trace(
             *trace_row[COL_INDEX_MEM_ADDRESS_C] = addr_c;
         });
 
-    let mut memory_padded = memory
-        .0
-        .par_iter()
-        .map(|&v| v.unwrap_or(F::ZERO))
-        .collect::<Vec<F>>();
+    let mut memory_padded = memory.0.par_iter().map(|&v| v.unwrap_or(F::ZERO)).collect::<Vec<F>>();
     memory_padded.resize(memory.0.len().next_power_of_two(), F::ZERO);
 
     let ExecutionResult { mut traces, .. } = execution_result;

@@ -40,11 +40,7 @@ pub struct ExecutionContext<'a> {
 }
 
 impl<'a> ExecutionContext<'a> {
-    pub fn new(
-        source_code: &'a str,
-        function_locations: &'a BTreeMap<usize, String>,
-        profiler_enabled: bool,
-    ) -> Self {
+    pub fn new(source_code: &'a str, function_locations: &'a BTreeMap<usize, String>, profiler_enabled: bool) -> Self {
         Self {
             source_code,
             function_locations,

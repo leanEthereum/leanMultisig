@@ -63,7 +63,7 @@ pub enum IntermediateInstruction {
         res_offset: usize,
     },
     Print {
-        line_info: String, // information about the line where the print occurs
+        line_info: String,               // information about the line where the print occurs
         content: Vec<IntermediateValue>, // values to print
     },
     // noop, debug purpose only
@@ -132,11 +132,7 @@ impl Display for IntermediateInstruction {
             } => {
                 write!(f, "{res} = {arg_a} {operation} {arg_c}")
             }
-            Self::Deref {
-                shift_0,
-                shift_1,
-                res,
-            } => write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]"),
+            Self::Deref { shift_0, shift_1, res } => write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]"),
             Self::Panic => write!(f, "panic"),
             Self::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {
@@ -175,10 +171,7 @@ impl Display for IntermediateInstruction {
                 vectorized_len,
             } => {
                 if *vectorized {
-                    write!(
-                        f,
-                        "m[fp + {offset}] = request_memory_vec({size}, {vectorized_len})"
-                    )
+                    write!(f, "m[fp + {offset}] = request_memory_vec({size}, {vectorized_len})")
                 } else {
                     write!(f, "m[fp + {offset}] = request_memory({size})")
                 }

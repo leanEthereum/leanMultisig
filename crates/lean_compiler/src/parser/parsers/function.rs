@@ -18,9 +18,7 @@ pub struct FunctionParser;
 impl Parse<Function> for FunctionParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Function> {
         let mut inner = pair.into_inner();
-        let name = next_inner_pair(&mut inner, "function name")?
-            .as_str()
-            .to_string();
+        let name = next_inner_pair(&mut inner, "function name")?.as_str().to_string();
 
         let mut arguments = Vec::new();
         let mut n_returned_vars = 0;
@@ -122,13 +120,7 @@ impl Parse<Line> for FunctionCallParser {
                         if res_item.as_rule() == Rule::var_list {
                             return_data = VarListParser::parse(res_item, ctx)?
                                 .into_iter()
-                                .filter_map(|v| {
-                                    if let SimpleExpr::Var(var) = v {
-                                        Some(var)
-                                    } else {
-                                        None
-                                    }
-                                })
+                                .filter_map(|v| if let SimpleExpr::Var(var) = v { Some(var) } else { None })
                                 .collect();
                         }
                     }
@@ -190,9 +182,7 @@ impl FunctionCallParser {
             }
             "print" => {
                 if !return_data.is_empty() {
-                    return Err(
-                        SemanticError::new("Print function should not return values").into(),
-                    );
+                    return Err(SemanticError::new("Print function should not return values").into());
                 }
                 Ok(Line::Print {
                     line_info: function_name.clone(),
@@ -227,9 +217,7 @@ impl FunctionCallParser {
             }
             "panic" => {
                 if !return_data.is_empty() || !args.is_empty() {
-                    return Err(
-                        SemanticError::new("Panic has no args and returns no values").into(),
-                    );
+                    return Err(SemanticError::new("Panic has no args and returns no values").into());
                 }
                 Ok(Line::Panic)
             }

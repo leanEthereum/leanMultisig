@@ -41,8 +41,7 @@ pub fn prove_execution(
             )
         });
         exec_summary = std::mem::take(&mut execution_result.summary);
-        info_span!("Building execution trace")
-            .in_scope(|| get_execution_trace(bytecode, execution_result))
+        info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
     if memory.len() < 1 << MIN_LOG_MEMORY_SIZE {
@@ -87,10 +86,7 @@ pub fn prove_execution(
     prover_state.add_base_scalars(
         &[
             vec![private_memory.len()],
-            traces
-                .iter()
-                .map(|t| t.n_rows_non_padded())
-                .collect::<Vec<_>>(),
+            traces.iter().map(|t| t.n_rows_non_padded()).collect::<Vec<_>>(),
         ]
         .concat()
         .into_iter()
@@ -120,9 +116,7 @@ pub fn prove_execution(
     ]
     .concat();
     for i in 0..N_TABLES {
-        base_pols.extend(
-            ALL_TABLES[i].committed_columns(&traces[i], commitmenent_extension_helper[i].as_ref()),
-        );
+        base_pols.extend(ALL_TABLES[i].committed_columns(&traces[i], commitmenent_extension_helper[i].as_ref()));
     }
 
     // 1st Commitment
@@ -134,8 +128,7 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let random_point_p16 =
-        MultilinearPoint(prover_state.sample_vec(traces[Table::poseidon16().index()].log_padded()));
+    let random_point_p16 = MultilinearPoint(prover_state.sample_vec(traces[Table::poseidon16().index()].log_padded()));
     let p16_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p16_witness,
@@ -144,8 +137,7 @@ pub fn prove_execution(
         &p16_gkr_layers,
     );
 
-    let random_point_p24 =
-        MultilinearPoint(prover_state.sample_vec(traces[Table::poseidon24().index()].log_padded()));
+    let random_point_p24 = MultilinearPoint(prover_state.sample_vec(traces[Table::poseidon24().index()].log_padded()));
     let p24_gkr = prove_poseidon_gkr(
         &mut prover_state,
         &p24_witness,
@@ -182,10 +174,8 @@ pub fn prove_execution(
 
     let bytecode_lookup_claim_1 = Evaluation::new(
         air_points[Table::execution().index()].clone(),
-        padd_with_zero_to_next_power_of_two(
-            &evals_f[Table::execution().index()][..N_INSTRUCTION_COLUMNS],
-        )
-        .evaluate(&bytecode_compression_challenges),
+        padd_with_zero_to_next_power_of_two(&evals_f[Table::execution().index()][..N_INSTRUCTION_COLUMNS])
+            .evaluate(&bytecode_compression_challenges),
     );
     let bytecode_poly_eq_point = eval_eq(&air_points[Table::execution().index()]);
     let bytecode_pushforward = compute_pushforward(
@@ -204,14 +194,10 @@ pub fn prove_execution(
             .flat_map(|i| ALL_TABLES[i].normal_lookup_index_columns_ef(&traces[i]))
             .collect(),
         (0..N_TABLES)
-            .flat_map(|i| {
-                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()]
-            })
+            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()])
             .collect(),
         (0..N_TABLES)
-            .flat_map(|i| {
-                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()]
-            })
+            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()])
             .collect(),
         (0..N_TABLES)
             .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_f())
@@ -241,9 +227,7 @@ pub fn prove_execution(
             .flat_map(|i| ALL_TABLES[i].vector_lookup_index_columns(&traces[i]))
             .collect(),
         (0..N_TABLES)
-            .flat_map(|i| {
-                vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_vector_lookups()]
-            })
+            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_vector_lookups()])
             .collect(),
         (0..N_TABLES)
             .flat_map(|i| ALL_TABLES[i].vector_lookup_default_indexes())
@@ -262,10 +246,8 @@ pub fn prove_execution(
                     statements.extend(poseidon_24_vectorized_lookup_statements(&p24_gkr)); // special case
                     continue;
                 }
-                statements.extend(table.vectorized_lookups_statements(
-                    &air_points[table.index()],
-                    &evals_f[table.index()],
-                ));
+                statements
+                    .extend(table.vectorized_lookups_statements(&air_points[table.index()], &evals_f[table.index()]));
             }
             statements
         },
@@ -297,11 +279,9 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let mut normal_lookup_statements =
-        normal_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
+    let mut normal_lookup_statements = normal_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
 
-    let vectorized_lookup_statements =
-        vectorized_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
+    let vectorized_lookup_statements = vectorized_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
 
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
@@ -348,13 +328,13 @@ pub fn prove_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(traces[Table::execution().index()].log_padded());
 
-    final_statements[Table::execution().index()]
-        [ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
-    .extend(vec![
-        bytecode_logup_star_statements.on_indexes.clone(),
-        initial_pc_statement,
-        final_pc_statement,
-    ]);
+    final_statements[Table::execution().index()][ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)].extend(
+        vec![
+            bytecode_logup_star_statements.on_indexes.clone(),
+            initial_pc_statement,
+            final_pc_statement,
+        ],
+    );
 
     // First Opening
     let mut all_base_statements = [
@@ -438,35 +418,28 @@ fn prove_bus_and_air(
 
     let mut denominators = unsafe { uninitialized_vec(n_buses_padded * n_rows) };
     for (bus, denomniators_chunk) in t.buses().iter().zip(denominators.chunks_exact_mut(n_rows)) {
-        denomniators_chunk
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, v)| {
-                *v = bus_challenge
-                    + finger_print(
-                        match &bus.table {
-                            BusTable::Constant(table) => table.embed(),
-                            BusTable::Variable(col) => trace.base[*col][i],
-                        },
-                        bus.data
-                            .iter()
-                            .map(|col| trace.base[*col][i])
-                            .collect::<Vec<_>>()
-                            .as_slice(),
-                        fingerprint_challenge,
-                    );
-            });
+        denomniators_chunk.par_iter_mut().enumerate().for_each(|(i, v)| {
+            *v = bus_challenge
+                + finger_print(
+                    match &bus.table {
+                        BusTable::Constant(table) => table.embed(),
+                        BusTable::Variable(col) => trace.base[*col][i],
+                    },
+                    bus.data
+                        .iter()
+                        .map(|col| trace.base[*col][i])
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                    fingerprint_challenge,
+                );
+        });
     }
     denominators[n_rows * n_buses..]
         .par_iter_mut()
         .for_each(|v| *v = EF::ONE);
 
     // TODO avoid embedding !!
-    let numerators_embedded = numerators
-        .par_iter()
-        .copied()
-        .map(EF::from)
-        .collect::<Vec<_>>();
+    let numerators_embedded = numerators.par_iter().copied().map(EF::from).collect::<Vec<_>>();
 
     // TODO avoid reallocation due to packing (pack directly when constructing)
     let numerators_packed = pack_extension(&numerators_embedded);
@@ -490,11 +463,7 @@ fn prove_bus_and_air(
         let sub_numerators_evals = numerators
             .par_chunks_exact(1 << (log_n_rows - UNIVARIATE_SKIPS))
             .take(n_buses << UNIVARIATE_SKIPS)
-            .map(|chunk| {
-                chunk.evaluate(&MultilinearPoint(
-                    bus_point_global[1 + log_n_buses..].to_vec(),
-                ))
-            })
+            .map(|chunk| chunk.evaluate(&MultilinearPoint(bus_point_global[1 + log_n_buses..].to_vec())))
             .collect::<Vec<_>>();
         prover_state.add_extension_scalars(&sub_numerators_evals);
         // sanity check:
@@ -511,11 +480,7 @@ fn prove_bus_and_air(
         let sub_denominators_evals = denominators
             .par_chunks_exact(1 << (log_n_rows - UNIVARIATE_SKIPS))
             .take(n_buses << UNIVARIATE_SKIPS)
-            .map(|chunk| {
-                chunk.evaluate(&MultilinearPoint(
-                    bus_point_global[1 + log_n_buses..].to_vec(),
-                ))
-            })
+            .map(|chunk| chunk.evaluate(&MultilinearPoint(bus_point_global[1 + log_n_buses..].to_vec())))
             .collect::<Vec<_>>();
         prover_state.add_extension_scalars(&sub_denominators_evals);
         // sanity check:
@@ -530,31 +495,15 @@ fn prove_bus_and_air(
         );
 
         let epsilon = prover_state.sample();
-        let bus_point = MultilinearPoint(
-            [vec![epsilon], bus_point_global[1 + log_n_buses..].to_vec()].concat(),
-        );
+        let bus_point = MultilinearPoint([vec![epsilon], bus_point_global[1 + log_n_buses..].to_vec()].concat());
 
         let bus_selector_values = sub_numerators_evals
             .chunks_exact(1 << UNIVARIATE_SKIPS)
-            .map(|chunk| {
-                evaluate_univariate_multilinear::<_, _, _, false>(
-                    chunk,
-                    &[epsilon],
-                    &uni_selectors,
-                    None,
-                )
-            })
+            .map(|chunk| evaluate_univariate_multilinear::<_, _, _, false>(chunk, &[epsilon], &uni_selectors, None))
             .collect();
         let bus_data_values = sub_denominators_evals
             .chunks_exact(1 << UNIVARIATE_SKIPS)
-            .map(|chunk| {
-                evaluate_univariate_multilinear::<_, _, _, false>(
-                    chunk,
-                    &[epsilon],
-                    &uni_selectors,
-                    None,
-                )
-            })
+            .map(|chunk| evaluate_univariate_multilinear::<_, _, _, false>(chunk, &[epsilon], &uni_selectors, None))
             .collect();
 
         (bus_point, bus_selector_values, bus_data_values)
@@ -579,8 +528,7 @@ fn prove_bus_and_air(
     let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
 
     for bus in t.buses() {
-        quotient -=
-            bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
+        quotient -= bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
     }
 
     let extra_data = ExtraDataForBuses {
@@ -588,26 +536,25 @@ fn prove_bus_and_air(
         bus_beta,
         alpha_powers: vec![], // filled later
     };
-    let (air_point, evals_f, evals_ef) =
-        info_span!("Table AIR proof", table = t.name()).in_scope(|| {
-            macro_rules! prove_air_for_table {
-                ($t:expr) => {
-                    prove_air(
-                        prover_state,
-                        $t,
-                        extra_data,
-                        UNIVARIATE_SKIPS,
-                        &trace.base[..$t.n_columns_f_air()],
-                        &trace.ext[..$t.n_columns_ef_air()],
-                        &$t.air_padding_row_f(),
-                        &$t.air_padding_row_ef(),
-                        Some(bus_virtual_statement),
-                        $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
-                    )
-                };
-            }
-            delegate_to_inner!(t => prove_air_for_table)
-        });
+    let (air_point, evals_f, evals_ef) = info_span!("Table AIR proof", table = t.name()).in_scope(|| {
+        macro_rules! prove_air_for_table {
+            ($t:expr) => {
+                prove_air(
+                    prover_state,
+                    $t,
+                    extra_data,
+                    UNIVARIATE_SKIPS,
+                    &trace.base[..$t.n_columns_f_air()],
+                    &trace.ext[..$t.n_columns_ef_air()],
+                    &$t.air_padding_row_f(),
+                    &$t.air_padding_row_ef(),
+                    Some(bus_virtual_statement),
+                    $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
+                )
+            };
+        }
+        delegate_to_inner!(t => prove_air_for_table)
+    });
 
     (quotient, air_point, evals_f, evals_ef)
 }

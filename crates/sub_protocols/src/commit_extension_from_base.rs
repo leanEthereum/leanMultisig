@@ -29,13 +29,9 @@ impl<EF: ExtensionField<PF<EF>>> ExtensionCommitmentFromBaseProver<EF> {
     pub fn before_commitment(extension_columns: Vec<&[EF]>) -> Self {
         let mut sub_columns_to_commit = Vec::new();
         for extension_column in extension_columns {
-            sub_columns_to_commit.extend(transpose_slice_to_basis_coefficients::<PF<EF>, EF>(
-                extension_column,
-            ));
+            sub_columns_to_commit.extend(transpose_slice_to_basis_coefficients::<PF<EF>, EF>(extension_column));
         }
-        Self {
-            sub_columns_to_commit,
-        }
+        Self { sub_columns_to_commit }
     }
 
     pub fn after_commitment(
@@ -66,8 +62,7 @@ impl ExtensionCommitmentFromBaseVerifier {
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         claim: &MultiEvaluation<EF>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
-        let sub_evals =
-            verifier_state.next_extension_scalars_vec(EF::DIMENSION * claim.num_values())?;
+        let sub_evals = verifier_state.next_extension_scalars_vec(EF::DIMENSION * claim.num_values())?;
 
         let mut statements_remaning_to_verify = Vec::new();
         for (chunk, claim_value) in sub_evals.chunks_exact(EF::DIMENSION).zip(&claim.values) {

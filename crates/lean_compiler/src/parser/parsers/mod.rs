@@ -68,12 +68,7 @@ pub fn expect_rule(pair: &ParsePair<'_>, expected: Rule) -> ParseResult<()> {
     if pair.as_rule() == expected {
         Ok(())
     } else {
-        Err(SemanticError::new(format!(
-            "Expected {:?} but found {:?}",
-            expected,
-            pair.as_rule()
-        ))
-        .into())
+        Err(SemanticError::new(format!("Expected {:?} but found {:?}", expected, pair.as_rule())).into())
     }
 }
 

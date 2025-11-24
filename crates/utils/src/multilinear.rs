@@ -7,20 +7,13 @@ use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 
 #[instrument(skip_all)]
-pub fn multilinears_linear_combination<
-    F: Field,
-    EF: ExtensionField<F>,
-    P: Borrow<[F]> + Send + Sync,
->(
+pub fn multilinears_linear_combination<F: Field, EF: ExtensionField<F>, P: Borrow<[F]> + Send + Sync>(
     pols: &[P],
     scalars: &[EF],
 ) -> Vec<EF> {
     assert_eq!(pols.len(), scalars.len());
     let n_vars = log2_strict_usize(pols[0].borrow().len());
-    assert!(
-        pols.iter()
-            .all(|p| log2_strict_usize(p.borrow().len()) == n_vars)
-    );
+    assert!(pols.iter().all(|p| log2_strict_usize(p.borrow().len()) == n_vars));
     (0..1 << n_vars)
         .into_par_iter()
         .map(|i| dot_product(scalars.iter().copied(), pols.iter().map(|p| p.borrow()[i])))
@@ -32,10 +25,7 @@ pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) 
 
     // multilinear polynomial = [0 0 --- 0][1 1 --- 1] (`limit` times 0, then `2^n_vars - limit` times 1) evaluated at `point`
 
-    assert!(
-        limit <= (1 << n_vars),
-        "limit {limit} is too large for n_vars {n_vars}"
-    );
+    assert!(limit <= (1 << n_vars), "limit {limit} is too large for n_vars {n_vars}");
 
     if limit == 1 << n_vars {
         return F::ZERO;
@@ -88,10 +78,7 @@ pub fn padd_with_zero_to_next_multiple_of<F: Field>(pol: &[F], multiple: usize) 
     padded
 }
 
-pub fn evaluate_as_larger_multilinear_pol<F: Field, EF: ExtensionField<F>>(
-    pol: &[F],
-    point: &[EF],
-) -> EF {
+pub fn evaluate_as_larger_multilinear_pol<F: Field, EF: ExtensionField<F>>(pol: &[F], point: &[EF]) -> EF {
     // [[-pol-] 0 0 0 0 ... 0 0 0 0 0] evaluated at point
     let pol_n_vars = log2_strict_usize(pol.len());
     assert!(point.len() >= pol_n_vars);
@@ -103,10 +90,7 @@ pub fn evaluate_as_larger_multilinear_pol<F: Field, EF: ExtensionField<F>>(
         * pol.evaluate(&MultilinearPoint(from_end(point, pol_n_vars).to_vec()))
 }
 
-pub fn evaluate_as_smaller_multilinear_pol<F: Field, EF: ExtensionField<F>>(
-    pol: &[F],
-    point: &[EF],
-) -> EF {
+pub fn evaluate_as_smaller_multilinear_pol<F: Field, EF: ExtensionField<F>>(pol: &[F], point: &[EF]) -> EF {
     let pol_n_vars = log2_strict_usize(pol.len());
     assert!(point.len() <= pol_n_vars);
     (&pol[..1 << point.len()]).evaluate(&MultilinearPoint(point.to_vec()))
@@ -140,9 +124,7 @@ mod tests {
         let n_point_vars = 7;
         let mut rng = StdRng::seed_from_u64(0);
         let mut pol = F::zero_vec(1 << n_point_vars);
-        pol.iter_mut()
-            .take(1 << n_vars)
-            .for_each(|coeff| *coeff = rng.random());
+        pol.iter_mut().take(1 << n_vars).for_each(|coeff| *coeff = rng.random());
         let point = (0..n_point_vars).map(|_| rng.random()).collect::<Vec<EF>>();
         assert_eq!(
             evaluate_as_larger_multilinear_pol(&pol[..1 << n_vars], &point),

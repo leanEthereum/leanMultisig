@@ -138,11 +138,7 @@ impl TryFrom<Expression> for ConstExpression {
             Expression::Value(SimpleExpr::Constant(const_expr)) => Ok(const_expr),
             Expression::Value(_) => Err(()),
             Expression::ArrayAccess { .. } => Err(()),
-            Expression::Binary {
-                left,
-                operation,
-                right,
-            } => {
+            Expression::Binary { left, operation, right } => {
                 let left_expr = Self::try_from(*left)?;
                 let right_expr = Self::try_from(*right)?;
                 Ok(Self::Binary {
@@ -187,11 +183,9 @@ impl ConstExpression {
     {
         match self {
             Self::Value(value) => func(value),
-            Self::Binary {
-                left,
-                operation,
-                right,
-            } => Some(operation.eval(left.eval_with(func)?, right.eval_with(func)?)),
+            Self::Binary { left, operation, right } => {
+                Some(operation.eval(left.eval_with(func)?, right.eval_with(func)?))
+            }
             Self::Log2Ceil { value } => {
                 let value = value.eval_with(func)?;
                 Some(F::from_usize(log2_ceil_usize(value.to_usize())))
@@ -276,10 +270,7 @@ impl From<Var> for Expression {
 
 impl Expression {
     pub fn naive_eval(&self) -> Option<F> {
-        self.eval_with(
-            &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
-            &|_, _| None,
-        )
+        self.eval_with(&|value: &SimpleExpr| value.as_constant()?.naive_eval(), &|_, _| None)
     }
 
     pub fn eval_with<ValueFn, ArrayFn>(&self, value_fn: &ValueFn, array_fn: &ArrayFn) -> Option<F>
@@ -289,14 +280,8 @@ impl Expression {
     {
         match self {
             Self::Value(value) => value_fn(value),
-            Self::ArrayAccess { array, index } => {
-                array_fn(array, index.eval_with(value_fn, array_fn)?)
-            }
-            Self::Binary {
-                left,
-                operation,
-                right,
-            } => Some(operation.eval(
+            Self::ArrayAccess { array, index } => array_fn(array, index.eval_with(value_fn, array_fn)?),
+            Self::Binary { left, operation, right } => Some(operation.eval(
                 left.eval_with(value_fn, array_fn)?,
                 right.eval_with(value_fn, array_fn)?,
             )),
@@ -401,11 +386,7 @@ impl Display for Expression {
             Self::ArrayAccess { array, index } => {
                 write!(f, "{array}[{index}]")
             }
-            Self::Binary {
-                left,
-                operation,
-                right,
-            } => {
+            Self::Binary { left, operation, right } => {
                 write!(f, "({left} {operation} {right})")
             }
             Self::Log2Ceil { value } => {
@@ -441,11 +422,7 @@ impl Line {
             Self::Assignment { var, value } => {
                 format!("{var} = {value}")
             }
-            Self::ArrayAssign {
-                array,
-                index,
-                value,
-            } => {
+            Self::ArrayAssign { array, index, value } => {
                 format!("{array}[{index}] = {value}")
             }
             Self::Assert(condition, _line_number) => format!("assert {condition}"),
@@ -470,9 +447,7 @@ impl Line {
                 if else_branch.is_empty() {
                     format!("if {condition} {{\n{then_str}\n{spaces}}}")
                 } else {
-                    format!(
-                        "if {condition} {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}"
-                    )
+                    format!("if {condition} {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}")
                 }
             }
             Self::CounterHint { var } => {
@@ -509,11 +484,7 @@ impl Line {
                 return_data,
                 line_number: _,
             } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| format!("{arg}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 let return_data_str = return_data
                     .iter()
                     .map(|var| var.to_string())
@@ -541,21 +512,11 @@ impl Line {
                 format!(
                     "{}({})",
                     precompile.name(),
-                    args.iter()
-                        .map(|arg| format!("{arg}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ")
                 )
             }
-            Self::Print {
-                line_info: _,
-                content,
-            } => {
-                let content_str = content
-                    .iter()
-                    .map(|c| format!("{c}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+            Self::Print { line_info: _, content } => {
+                let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
                 format!("print({content_str})")
             }
             Self::MAlloc {
@@ -638,10 +599,7 @@ impl Display for SimpleExpr {
         match self {
             Self::Var(var) => write!(f, "{var}"),
             Self::Constant(constant) => write!(f, "{constant}"),
-            Self::ConstMallocAccess {
-                malloc_label,
-                offset,
-            } => {
+            Self::ConstMallocAccess { malloc_label, offset } => {
                 write!(f, "malloc_access({malloc_label}, {offset})")
             }
         }
@@ -652,11 +610,7 @@ impl Display for ConstExpression {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Value(value) => write!(f, "{value}"),
-            Self::Binary {
-                left,
-                operation,
-                right,
-            } => {
+            Self::Binary { left, operation, right } => {
                 write!(f, "({left} {operation} {right})")
             }
             Self::Log2Ceil { value } => {
@@ -706,11 +660,7 @@ impl Display for Function {
             .join("\n");
 
         if self.body.is_empty() {
-            write!(
-                f,
-                "fn {}({}) -> {} {{}}",
-                self.name, args_str, self.n_returned_vars
-            )
+            write!(f, "fn {}({}) -> {} {{}}", self.name, args_str, self.n_returned_vars)
         } else {
             write!(
                 f,

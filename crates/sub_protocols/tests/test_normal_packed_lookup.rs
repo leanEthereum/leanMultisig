@@ -37,9 +37,8 @@ fn test_normal_packed_lookup() {
     for (i, height) in cols_heights_ef.iter().enumerate() {
         let mut indexes = vec![F::from_usize(default_indexes_ef[i]); height.next_power_of_two()];
         for idx in indexes.iter_mut().take(*height) {
-            *idx = F::from_usize(rng.random_range(
-                0..non_zero_memory_size - <EF as BasedVectorSpace<PF<EF>>>::DIMENSION,
-            ));
+            *idx =
+                F::from_usize(rng.random_range(0..non_zero_memory_size - <EF as BasedVectorSpace<PF<EF>>>::DIMENSION));
         }
         all_indexe_columns_ef.push(indexes);
     }
@@ -67,8 +66,7 @@ fn test_normal_packed_lookup() {
     for (value_col_f, n_statements) in value_columns_f.iter().zip(&n_statements_f) {
         let mut statements = vec![];
         for _ in 0..*n_statements {
-            let point =
-                MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_col_f.len()));
+            let point = MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_col_f.len()));
             let value = value_col_f.evaluate(&point);
             statements.push(Evaluation::new(point, value));
         }
@@ -78,8 +76,7 @@ fn test_normal_packed_lookup() {
     for (value_col_ef, n_statements) in value_columns_ef.iter().zip(&n_statements_ef) {
         let mut statements = vec![];
         for _ in 0..*n_statements {
-            let point =
-                MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_col_ef.len()));
+            let point = MultilinearPoint::<EF>::random(&mut rng, log2_strict_usize(value_col_ef.len()));
             let value = value_col_ef.evaluate(&point);
             statements.push(Evaluation::new(point, value));
         }
@@ -107,8 +104,7 @@ fn test_normal_packed_lookup() {
     // phony commitment to pushforward
     prover_state.hint_extension_scalars(packed_lookup_prover.pushforward_to_commit());
 
-    let remaining_claims_to_prove =
-        packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
+    let remaining_claims_to_prove = packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
 
     let mut verifier_state = build_verifier_state(&prover_state);
 
