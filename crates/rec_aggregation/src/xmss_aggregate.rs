@@ -9,7 +9,7 @@ use tracing::instrument;
 use whir_p3::precompute_dft_twiddles;
 use xmss::{PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature};
 
-const LOG_LIFETIME: usize = 30;
+const MAX_LOG_LIFETIME: usize = 30;
 
 pub fn run_xmss_benchmark(n_xmss: usize) {
     // Public input:  message_hash | all_public_keys | bitield
@@ -149,14 +149,53 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
 
         wots_pubkey_hashed = public_key_hashed + (V / 2 - 1);
 
-        merkle_hashes = malloc_vec(log_lifetime);
-        if merkle_are_left[0] == 1 {
-            poseidon16(wots_pubkey_hashed, merkle_neighbours, merkle_hashes, COMPRESSION);
-        } else {
-            poseidon16(merkle_neighbours, wots_pubkey_hashed, merkle_hashes, COMPRESSION);
+        // TODO unroll
+        match log_lifetime {
+            0 => { merkle_hash = verify_merkle_path(0, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            1 => { merkle_hash = verify_merkle_path(1, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            2 => { merkle_hash = verify_merkle_path(2, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            3 => { merkle_hash = verify_merkle_path(3, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            4 => { merkle_hash = verify_merkle_path(4, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            5 => { merkle_hash = verify_merkle_path(5, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            6 => { merkle_hash = verify_merkle_path(6, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            7 => { merkle_hash = verify_merkle_path(7, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            8 => { merkle_hash = verify_merkle_path(8, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            9 => { merkle_hash = verify_merkle_path(9, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            10 => { merkle_hash = verify_merkle_path(10, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            11 => { merkle_hash = verify_merkle_path(11, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            12 => { merkle_hash = verify_merkle_path(12, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            13 => { merkle_hash = verify_merkle_path(13, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            14 => { merkle_hash = verify_merkle_path(14, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            15 => { merkle_hash = verify_merkle_path(15, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            16 => { merkle_hash = verify_merkle_path(16, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            17 => { merkle_hash = verify_merkle_path(17, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            18 => { merkle_hash = verify_merkle_path(18, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            19 => { merkle_hash = verify_merkle_path(19, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            20 => { merkle_hash = verify_merkle_path(20, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            21 => { merkle_hash = verify_merkle_path(21, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            22 => { merkle_hash = verify_merkle_path(22, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            23 => { merkle_hash = verify_merkle_path(23, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            24 => { merkle_hash = verify_merkle_path(24, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            25 => { merkle_hash = verify_merkle_path(25, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            26 => { merkle_hash = verify_merkle_path(26, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            27 => { merkle_hash = verify_merkle_path(27, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            28 => { merkle_hash = verify_merkle_path(28, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            29 => { merkle_hash = verify_merkle_path(29, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            30 => { merkle_hash = verify_merkle_path(30, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            31 => { merkle_hash = verify_merkle_path(31, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+            32 => { merkle_hash = verify_merkle_path(32, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
         }
 
-        // TODO unroll
+        return merkle_hash;
+    }
+
+    fn verify_merkle_path(const height, merkle_are_left, leaf_hash, merkle_neighbours) -> 1 {
+        merkle_hashes = malloc_vec(height);
+        if merkle_are_left[0] == 1 {
+            poseidon16(leaf_hash, merkle_neighbours, merkle_hashes, COMPRESSION);
+        } else {
+            poseidon16(merkle_neighbours, leaf_hash, merkle_hashes, COMPRESSION);
+        }
         for h in 1..log_lifetime {
             if merkle_are_left[h] == 1 {
                 poseidon16(merkle_hashes + (h-1), merkle_neighbours + h, merkle_hashes + h, COMPRESSION);
@@ -164,7 +203,6 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
                 poseidon16(merkle_neighbours + h, merkle_hashes + (h-1), merkle_hashes + h, COMPRESSION);
             }
         }
-
         return merkle_hashes + (log_lifetime - 1);
     }
 
@@ -178,7 +216,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     }
    "#.to_string();
 
-    let xmss_signature_size_padded = (V + 1 + LOG_LIFETIME) + LOG_LIFETIME.div_ceil(8);
+    let xmss_signature_size_padded = (V + 1 + MAX_LOG_LIFETIME) + MAX_LOG_LIFETIME.div_ceil(8);
     program_str = program_str
         .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &n_xmss.to_string())
         .replace("XMSS_SIG_SIZE_PLACE_HOLDER", &xmss_signature_size_padded.to_string());
@@ -187,12 +225,17 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     let message_hash: [F; 8] = rng.random();
     let first_slot = 785555;
 
+    let log_lifetimes = (0..n_xmss)
+        .map(|_| rng.random_range(MAX_LOG_LIFETIME - 3..=MAX_LOG_LIFETIME))
+        .collect::<Vec<_>>();
+
     let (all_public_keys, all_signatures): (Vec<_>, Vec<_>) = (0..n_xmss)
         .into_par_iter()
         .map(|i| {
             let mut rng = StdRng::seed_from_u64(i as u64);
-            let signature_index = rng.random_range(first_slot..first_slot + (1 << LOG_LIFETIME));
-            let xmss_secret_key = PhonyXmssSecretKey::random(&mut rng, first_slot, LOG_LIFETIME, signature_index);
+            let log_lifetime = log_lifetimes[i];
+            let signature_index = rng.random_range(first_slot..first_slot + (1 << log_lifetime));
+            let xmss_secret_key = PhonyXmssSecretKey::random(&mut rng, first_slot, log_lifetime, signature_index);
             let signature = xmss_secret_key.sign(&message_hash, &mut rng);
             (xmss_secret_key.public_key, signature)
         })
@@ -215,6 +258,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
 
     let mut private_input = vec![];
     for (signature, pubkey) in all_signatures.iter().zip(&all_public_keys) {
+        let initial_private_input_len = private_input.len();
         private_input.extend(signature.wots_signature.randomness.to_vec());
         private_input.extend(
             signature
@@ -225,14 +269,15 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
         );
         private_input.extend(signature.merkle_proof.iter().copied().flatten());
         let wots_index = signature.slot.checked_sub(pubkey.first_slot).unwrap();
-        private_input.extend((0..LOG_LIFETIME).map(|i| {
+        private_input.extend((0..pubkey.log_lifetime).map(|i| {
             if (wots_index >> i).is_multiple_of(2) {
                 F::ONE
             } else {
                 F::ZERO
             }
         }));
-        private_input.extend(F::zero_vec(LOG_LIFETIME.next_multiple_of(8) - LOG_LIFETIME));
+        let sig_size = private_input.len() - initial_private_input_len;
+        private_input.extend(F::zero_vec(xmss_signature_size_padded * VECTOR_LEN - sig_size));
     }
     let bytecode = compile_program(program_str);
 
