@@ -7,19 +7,19 @@ const PERMUTATION = 0;
 const V = 68;
 const W = 4;
 const TARGET_SUM = 114;
-const N_PUBLIC_KEYS = N_PUBLIC_KEYS_PLACE_HOLDER;
-const XMSS_SIG_SIZE = XMSS_SIG_SIZE_PLACE_HOLDER; // vectorized and padded
 
 fn main() {
     public_input_start_ = public_input_start;
     private_input_start = public_input_start_[0];
+    n_signatures = public_input_start_[1];
+    sig_size = public_input_start_[2]; // vectorized
     message_hash = public_input_start / 8 + 1;
     all_public_keys = message_hash + 1;
-    all_log_lifetimes = (all_public_keys + N_PUBLIC_KEYS) * 8;
+    all_log_lifetimes = (all_public_keys + n_signatures) * 8;
     signatures_start = private_input_start / 8;
-    for i in 0..N_PUBLIC_KEYS {
+    for i in 0..n_signatures {
         xmss_public_key = all_public_keys + i;
-        signature = signatures_start + i * XMSS_SIG_SIZE;
+        signature = signatures_start + i * sig_size;
         log_lifetime = all_log_lifetimes[i];
         xmss_public_key_recovered = xmss_recover_pub_key(message_hash, signature, log_lifetime);
         assert_eq_vec(xmss_public_key, xmss_public_key_recovered);

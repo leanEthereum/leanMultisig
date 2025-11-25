@@ -86,6 +86,7 @@ multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolk
 [dependencies]
 clap.workspace = true
 rec_aggregation.workspace = true
+xmss.workspace = true
 poseidon_circuit.workspace = true
 
 # [patch."https://github.com/TomWambsgans/Plonky3.git"]

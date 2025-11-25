@@ -377,6 +377,7 @@ dependencies = [
  "clap",
  "poseidon_circuit",
  "rec_aggregation",
+ "xmss",
 ]
 
 [[package]]

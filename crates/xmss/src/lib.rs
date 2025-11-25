@@ -18,6 +18,8 @@ pub const W: usize = 4;
 pub const CHAIN_LENGTH: usize = 1 << W;
 pub const D: usize = 90;
 pub const TARGET_SUM: usize = V * (W - 1) - D;
+pub const MAX_LOG_LIFETIME: usize = 30;
+
 
 pub type Poseidon16History = Vec<([F; 16], [F; 16])>;
 pub type Poseidon24History = Vec<([F; 24], [F; 8])>;

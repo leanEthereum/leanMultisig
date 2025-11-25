@@ -8,9 +8,10 @@ use std::path::Path;
 use std::time::Instant;
 use tracing::instrument;
 use whir_p3::precompute_dft_twiddles;
-use xmss::{Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature, generate_phony_xmss_signatures};
-
-const MAX_LOG_LIFETIME: usize = 30;
+use xmss::{
+    MAX_LOG_LIFETIME, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature,
+    generate_phony_xmss_signatures,
+};
 
 const XMSS_SIG_SIZE_VEC_PADDED: usize = (V + 1 + MAX_LOG_LIFETIME) + MAX_LOG_LIFETIME.div_ceil(8);
 
@@ -24,11 +25,20 @@ fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message_hash: [F; 8]) -> 
 
     let min_public_input_size = (1 << LOG_SMALLEST_DECOMPOSITION_CHUNK) - NONRESERVED_PROGRAM_INPUT_START;
     public_input.extend(F::zero_vec(min_public_input_size.saturating_sub(public_input.len())));
-    public_input.insert(
-        0,
-        F::from_usize((public_input.len() + 8 + NONRESERVED_PROGRAM_INPUT_START).next_power_of_two()),
+    let private_input_start =
+        F::from_usize((public_input.len() + 8 + NONRESERVED_PROGRAM_INPUT_START).next_power_of_two());
+    public_input.splice(
+        0..0,
+        [
+            vec![
+                private_input_start,
+                F::from_usize(xmss_pub_keys.len()),
+                F::from_usize(XMSS_SIG_SIZE_VEC_PADDED),
+            ],
+            vec![F::ZERO; 5],
+        ]
+        .concat(),
     );
-    public_input.splice(1..1, F::zero_vec(7));
     public_input
 }
 
@@ -59,42 +69,88 @@ fn build_private_input(all_signatures: &[XmssSignature], xmss_pub_keys: &[XmssPu
     private_input
 }
 
-pub fn run_xmss_benchmark(n_xmss: usize) {
+#[derive(Debug, Clone)]
+pub struct XmssAggregationProgram {
+    pub bytecode: Bytecode,
+    pub default_no_vec_mem: usize,
+    pub no_vec_mem_per_log_lifetime: Vec<usize>,
+}
+
+impl XmssAggregationProgram {
+    pub fn compute_non_vec_memory(&self, log_lifetimes: &[usize]) -> usize {
+        log_lifetimes
+            .iter()
+            .map(|&ll| self.no_vec_mem_per_log_lifetime[ll - 1])
+            .sum::<usize>()
+            + self.default_no_vec_mem
+    }
+}
+
+#[instrument(skip_all)]
+pub fn compile_xmss_aggregation_program() -> XmssAggregationProgram {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("xmss_aggregate.lean_lang");
-    let mut program_str = std::fs::read_to_string(src_file).unwrap();
+    let program_str = std::fs::read_to_string(src_file).unwrap();
+    let bytecode = compile_program(program_str);
+    let default_no_vec_mem = exec_phony_xmss(&bytecode, &[]).no_vec_runtime_memory;
+    let mut no_vec_mem_per_log_lifetime = vec![];
+    for log_lifetime in 1..=MAX_LOG_LIFETIME {
+        let no_vec_mem = exec_phony_xmss(&bytecode, &[log_lifetime]).no_vec_runtime_memory;
+        no_vec_mem_per_log_lifetime.push(no_vec_mem.checked_sub(default_no_vec_mem).unwrap());
+    }
 
-    program_str = program_str
-        .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &n_xmss.to_string())
-        .replace("XMSS_SIG_SIZE_PLACE_HOLDER", &XMSS_SIG_SIZE_VEC_PADDED.to_string());
+    let res = XmssAggregationProgram {
+        bytecode,
+        default_no_vec_mem,
+        no_vec_mem_per_log_lifetime,
+    };
 
+    let n_sanity_checks = 50;
+    let mut rng = rand::rng();
+    for _ in 0..n_sanity_checks {
+        let n_sigs = rng.random_range(1..=25);
+        let log_lifetimes = (0..n_sigs)
+            .map(|_| rng.random_range(1..=MAX_LOG_LIFETIME))
+            .collect::<Vec<_>>();
+        let result = exec_phony_xmss(&res.bytecode, &log_lifetimes);
+        assert_eq!(
+            result.no_vec_runtime_memory,
+            res.compute_non_vec_memory(&log_lifetimes),
+            "inconsistent no-vec memory for log_lifetimes : {:?}: non linear formula, TODO",
+            log_lifetimes
+        );
+    }
+    res
+}
+
+fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionResult {
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
-    let first_slot = 785555;
-
-    let log_lifetimes = (0..n_xmss)
-        .map(|_| rng.random_range(MAX_LOG_LIFETIME - 3..=MAX_LOG_LIFETIME))
-        .collect::<Vec<_>>();
-
+    let first_slot = 1111;
     let (xmss_pub_keys, all_signatures) = generate_phony_xmss_signatures(&log_lifetimes, message_hash, first_slot);
-
-    let bytecode = compile_program(program_str);
-
     let public_input = build_public_input(&xmss_pub_keys, message_hash);
     let private_input = build_private_input(&all_signatures, &xmss_pub_keys);
-
-    // in practice we will precompute all the possible values
-    // (depending on the number of recursions + the number of xmss signatures)
-    // (or even better: find a linear relation)
-    let no_vec_runtime_memory = execute_bytecode(
+    execute_bytecode(
         &bytecode,
         (&public_input, &private_input),
         1 << 21,
         false,
         (&vec![], &vec![]),
     )
-    .no_vec_runtime_memory;
+}
 
+pub fn run_xmss_benchmark(log_lifetimes: &[usize]) {
     utils::init_tracing();
+
+    let program = compile_xmss_aggregation_program();
+
+    let mut rng = StdRng::seed_from_u64(0);
+    let message_hash: [F; 8] = rng.random();
+    let first_slot = 785555;
+
+    let (xmss_pub_keys, all_signatures) = generate_phony_xmss_signatures(&log_lifetimes, message_hash, first_slot);
+
+    let public_input = build_public_input(&xmss_pub_keys, message_hash);
+    let private_input = build_private_input(&all_signatures, &xmss_pub_keys);
 
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -104,21 +160,22 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
         precompute_poseidons(&xmss_pub_keys, &all_signatures, &message_hash);
 
     let (proof_data, proof_size, summary) = prove_execution(
-        &bytecode,
+        &program.bytecode,
         (&public_input, &private_input),
         whir_config_builder(),
-        no_vec_runtime_memory,
+        program.compute_non_vec_memory(&log_lifetimes),
         false,
         (&poseidons_16_precomputed, &poseidons_24_precomputed),
     );
     let proving_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+
+    verify_execution(&program.bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
 
     println!("{summary}");
     println!(
         "XMSS aggregation, proving time: {:.3} s ({:.1} XMSS/s), proof size: {} KiB (not optimized)",
         proving_time.as_secs_f64(),
-        n_xmss as f64 / proving_time.as_secs_f64(),
+        log_lifetimes.len() as f64 / proving_time.as_secs_f64(),
         proof_size * F::bits() / (8 * 1024)
     );
 }
@@ -143,9 +200,10 @@ fn precompute_poseidons(
 
 #[test]
 fn test_xmss_aggregate() {
-    let n_xmss: usize = std::env::var("NUM_XMSS_AGGREGATED")
-        .unwrap_or("100".to_string())
-        .parse()
-        .unwrap();
-    run_xmss_benchmark(n_xmss);
+    let n_xmss = 50;
+    let mut rng = StdRng::seed_from_u64(0);
+    let log_lifetimes = (0..n_xmss)
+        .map(|_| rng.random_range(1..=MAX_LOG_LIFETIME))
+        .collect::<Vec<_>>();
+    run_xmss_benchmark(&log_lifetimes);
 }
