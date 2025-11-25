@@ -196,14 +196,14 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
         } else {
             poseidon16(merkle_neighbours, leaf_hash, merkle_hashes, COMPRESSION);
         }
-        for h in 1..log_lifetime {
+        for h in 1..height unroll {
             if merkle_are_left[h] == 1 {
                 poseidon16(merkle_hashes + (h-1), merkle_neighbours + h, merkle_hashes + h, COMPRESSION);
             } else {
                 poseidon16(merkle_neighbours + h, merkle_hashes + (h-1), merkle_hashes + h, COMPRESSION);
             }
         }
-        return merkle_hashes + (log_lifetime - 1);
+        return merkle_hashes + (height - 1);
     }
 
     fn assert_eq_vec(x, y) inline {
