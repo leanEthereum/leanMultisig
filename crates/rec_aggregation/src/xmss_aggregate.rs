@@ -9,7 +9,7 @@ use tracing::instrument;
 use whir_p3::precompute_dft_twiddles;
 use xmss::{PhonyXmssSecretKey, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature};
 
-const LOG_LIFETIME: usize = 32;
+const LOG_LIFETIME: usize = 30;
 
 pub fn run_xmss_benchmark(n_xmss: usize) {
     // Public input:  message_hash | all_public_keys | bitield
@@ -21,7 +21,6 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     const V = 68;
     const W = 4;
     const TARGET_SUM = 114;
-    const LOG_LIFETIME = LOG_LIFETIME_PLACE_HOLDER;
     const N_PUBLIC_KEYS = N_PUBLIC_KEYS_PLACE_HOLDER;
     const XMSS_SIG_SIZE = XMSS_SIG_SIZE_PLACE_HOLDER; // vectorized and padded
 
@@ -30,30 +29,26 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
         private_input_start = public_input_start_[0];
         message_hash = public_input_start / 8 + 1;
         all_public_keys = message_hash + 1;
-        bitield = public_input_start + (2 + N_PUBLIC_KEYS) * 8;
+        all_log_lifetimes = (all_public_keys + N_PUBLIC_KEYS) * 8;
         signatures_start = private_input_start / 8;
         for i in 0..N_PUBLIC_KEYS {
-            if !!assume_bool(bitield[i]) {
-                xmss_public_key = all_public_keys + i;
-
-                sig_index = counter_hint();
-                signature = signatures_start + sig_index * XMSS_SIG_SIZE;
-
-                xmss_public_key_recovered = xmss_recover_pub_key(message_hash, signature);
-                assert_eq_vec(xmss_public_key, xmss_public_key_recovered);
-            }
+            xmss_public_key = all_public_keys + i;
+            signature = signatures_start + i * XMSS_SIG_SIZE;
+            log_lifetime = all_log_lifetimes[i];
+            xmss_public_key_recovered = xmss_recover_pub_key(message_hash, signature, log_lifetime);
+            assert_eq_vec(xmss_public_key, xmss_public_key_recovered);
         }
         return;
     }
 
-    fn xmss_recover_pub_key(message_hash, signature) -> 1 {
+    fn xmss_recover_pub_key(message_hash, signature, log_lifetime) -> 1 {
         // message_hash: vectorized pointers (of length 1)
         // signature: vectorized pointer = randomness | chain_tips | merkle_neighbours | merkle_are_left
         // return a vectorized pointer (of length 1), the hashed xmss public key
         randomness = signature; // vectorized
         chain_tips = signature + 1; // vectorized
         merkle_neighbours = chain_tips + V; // vectorized
-        merkle_are_left = (merkle_neighbours + LOG_LIFETIME) * 8; // non-vectorized
+        merkle_are_left = (merkle_neighbours + log_lifetime) * 8; // non-vectorized
 
         // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
@@ -154,14 +149,15 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
 
         wots_pubkey_hashed = public_key_hashed + (V / 2 - 1);
 
-        merkle_hashes = malloc_vec(LOG_LIFETIME);
+        merkle_hashes = malloc_vec(log_lifetime);
         if merkle_are_left[0] == 1 {
             poseidon16(wots_pubkey_hashed, merkle_neighbours, merkle_hashes, COMPRESSION);
         } else {
             poseidon16(merkle_neighbours, wots_pubkey_hashed, merkle_hashes, COMPRESSION);
         }
 
-        for h in 1..LOG_LIFETIME unroll {
+        // TODO unroll
+        for h in 1..log_lifetime {
             if merkle_are_left[h] == 1 {
                 poseidon16(merkle_hashes + (h-1), merkle_neighbours + h, merkle_hashes + h, COMPRESSION);
             } else {
@@ -169,7 +165,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
             }
         }
 
-        return merkle_hashes + (LOG_LIFETIME - 1);
+        return merkle_hashes + (log_lifetime - 1);
     }
 
     fn assert_eq_vec(x, y) inline {
@@ -184,36 +180,31 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
 
     let xmss_signature_size_padded = (V + 1 + LOG_LIFETIME) + LOG_LIFETIME.div_ceil(8);
     program_str = program_str
-        .replace("LOG_LIFETIME_PLACE_HOLDER", &LOG_LIFETIME.to_string())
         .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &n_xmss.to_string())
         .replace("XMSS_SIG_SIZE_PLACE_HOLDER", &xmss_signature_size_padded.to_string());
 
-    let bitfield = vec![true; n_xmss]; // for now we use a dense bitfield
-
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
+    let first_slot = 785555;
 
     let (all_public_keys, all_signatures): (Vec<_>, Vec<_>) = (0..n_xmss)
         .into_par_iter()
         .map(|i| {
             let mut rng = StdRng::seed_from_u64(i as u64);
-            if bitfield[i] {
-                let signature_index = rng.random_range(0..1 << LOG_LIFETIME);
-                let xmss_secret_key = PhonyXmssSecretKey::<LOG_LIFETIME>::random(&mut rng, signature_index);
-                let signature = xmss_secret_key.sign(&message_hash, &mut rng);
-                (xmss_secret_key.public_key, Some(signature))
-            } else {
-                (XmssPublicKey(rng.random()), None) // random pub key
-            }
+            let signature_index = rng.random_range(first_slot..first_slot + (1 << LOG_LIFETIME));
+            let xmss_secret_key = PhonyXmssSecretKey::random(&mut rng, first_slot, LOG_LIFETIME, signature_index);
+            let signature = xmss_secret_key.sign(&message_hash, &mut rng);
+            (xmss_secret_key.public_key, signature)
         })
         .unzip();
-    let all_signatures: Vec<XmssSignature> = all_signatures.into_iter().flatten().collect();
 
     let mut public_input = message_hash.to_vec();
-    public_input.extend(all_public_keys.iter().flat_map(|pk| pk.0));
-    for bit in bitfield {
-        public_input.push(F::from_bool(bit));
-    }
+    public_input.extend(all_public_keys.iter().flat_map(|pk| pk.merkle_root));
+    public_input.extend(all_public_keys.iter().map(|pk| F::from_usize(pk.log_lifetime)));
+    public_input.extend(F::zero_vec(
+        all_public_keys.len().next_multiple_of(8) - all_public_keys.len(),
+    ));
+
     let min_public_input_size = (1 << LOG_SMALLEST_DECOMPOSITION_CHUNK) - NONRESERVED_PROGRAM_INPUT_START;
     public_input.extend(F::zero_vec(min_public_input_size.saturating_sub(public_input.len())));
     public_input.insert(
@@ -223,7 +214,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
     public_input.splice(1..1, F::zero_vec(7));
 
     let mut private_input = vec![];
-    for signature in &all_signatures {
+    for (signature, pubkey) in all_signatures.iter().zip(&all_public_keys) {
         private_input.extend(signature.wots_signature.randomness.to_vec());
         private_input.extend(
             signature
@@ -232,13 +223,15 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
                 .iter()
                 .flat_map(|digest| digest.to_vec()),
         );
-        private_input.extend(signature.merkle_proof.iter().flat_map(|(_, neighbour)| *neighbour));
-        private_input.extend(
-            signature
-                .merkle_proof
-                .iter()
-                .map(|(is_left, _)| F::new(*is_left as u32)),
-        );
+        private_input.extend(signature.merkle_proof.iter().copied().flatten());
+        let wots_index = signature.slot.checked_sub(pubkey.first_slot).unwrap();
+        private_input.extend((0..LOG_LIFETIME).map(|i| {
+            if (wots_index >> i).is_multiple_of(2) {
+                F::ONE
+            } else {
+                F::ZERO
+            }
+        }));
         private_input.extend(F::zero_vec(LOG_LIFETIME.next_multiple_of(8) - LOG_LIFETIME));
     }
     let bytecode = compile_program(program_str);
@@ -286,7 +279,7 @@ pub fn run_xmss_benchmark(n_xmss: usize) {
 
 #[instrument(skip_all)]
 fn precompute_poseidons(
-    xmss_pub_keys: &[XmssPublicKey<LOG_LIFETIME>],
+    xmss_pub_keys: &[XmssPublicKey],
     all_signatures: &[XmssSignature],
     message_hash: &[F; 8],
 ) -> (Poseidon16History, Poseidon24History) {
