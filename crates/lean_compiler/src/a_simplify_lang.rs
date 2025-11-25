@@ -1632,6 +1632,11 @@ fn handle_const_arguments_helper(
                 // TODO we should unroll before const arguments handling
                 handle_const_arguments_helper(body, constant_functions, new_functions);
             }
+            Line::Match { arms, .. } => {
+                for (_, arm) in arms {
+                    handle_const_arguments_helper(arm, constant_functions, new_functions);
+                }
+            }
             _ => {}
         }
     }
