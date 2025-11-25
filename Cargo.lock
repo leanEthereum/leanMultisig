@@ -95,7 +95,7 @@ version = "0.3.0"
 source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#99573608916262f1643de9ce5d67f54a15d05524"
 dependencies = [
  "fiat-shamir",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "p3-field",
  "p3-util",
  "rand",
@@ -363,6 +363,15 @@ name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
+
+[[package]]
+name = "keccak"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+dependencies = [
+ "cpufeatures",
+]
 
 [[package]]
 name = "lazy_static"
@@ -1063,6 +1072,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+dependencies = [
+ "digest",
+ "keccak",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1534,6 +1553,7 @@ dependencies = [
  "p3-koala-bear",
  "p3-util",
  "rand",
+ "sha3",
  "utils",
 ]
 

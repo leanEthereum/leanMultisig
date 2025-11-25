@@ -1,11 +1,13 @@
-use rand::Rng;
+use multilinear_toolkit::prelude::*;
+use rand::{Rng, SeedableRng, rngs::StdRng};
+use sha3::{Digest as Sha3Digest, Keccak256};
 
 use crate::*;
 
 #[derive(Debug)]
 pub struct XmssSecretKey {
     pub first_slot: usize,
-    pub wots_secret_keys: Vec<WotsSecretKey>,
+    pub seed: [u8; 32],
     pub merkle_tree: Vec<Vec<Digest>>,
 }
 
@@ -23,26 +25,36 @@ pub struct XmssPublicKey {
     pub log_lifetime: usize,
 }
 
+fn gen_wots_secret_key(seed: &[u8; 32], slot: usize) -> WotsSecretKey {
+    let mut hasher = Keccak256::new();
+    hasher.update(seed);
+    hasher.update(&slot.to_le_bytes());
+    let mut rng = StdRng::from_seed(hasher.finalize().into());
+    WotsSecretKey::random(&mut rng)
+}
 impl XmssSecretKey {
-    pub fn random(rng: &mut impl Rng, first_slot: usize, log_lifetime: usize) -> Self {
-        let wots_secret_keys: Vec<_> = (0..1 << log_lifetime).map(|_| WotsSecretKey::random(rng)).collect();
-
-        let leaves = wots_secret_keys
-            .iter()
-            .map(|w| w.public_key().hash())
+    pub fn new(seed: [u8; 32], first_slot: usize, log_lifetime: usize) -> Self {
+        let leaves = (first_slot..first_slot + (1 << log_lifetime))
+            .into_par_iter()
+            .map(|slot| {
+                let wots = gen_wots_secret_key(&seed, slot);
+                wots.public_key().hash()
+            })
             .collect::<Vec<_>>();
         let mut merkle_tree = vec![leaves];
         for _ in 0..log_lifetime {
-            let mut next_level = Vec::new();
-            let current_level = merkle_tree.last().unwrap();
-            for (left, right) in current_level.chunks(2).map(|chunk| (chunk[0], chunk[1])) {
-                next_level.push(poseidon16_compress(&left, &right));
-            }
-            merkle_tree.push(next_level);
+            merkle_tree.push(
+                merkle_tree
+                    .last()
+                    .unwrap()
+                    .par_chunks(2)
+                    .map(|chunk| poseidon16_compress(&chunk[0], &chunk[1]))
+                    .collect(),
+            );
         }
         Self {
             first_slot,
-            wots_secret_keys,
+            seed,
             merkle_tree,
         }
     }
@@ -63,7 +75,8 @@ impl XmssSecretKey {
         if wots_index >= self.lifetime() {
             return None;
         }
-        let wots_signature = self.wots_secret_keys[wots_index].sign(message_hash, rng);
+        let wots_secret_key = gen_wots_secret_key(&self.seed, slot);
+        let wots_signature = wots_secret_key.sign(message_hash, rng);
         let merkle_proof = (0..self.log_lifetime())
             .scan(wots_index, |current_idx, level| {
                 let neighbour_index = *current_idx ^ 1;
