@@ -1,0 +1,202 @@
+// Public input:  message_hash | all_public_keys | bitield
+// Private input: signatures = (randomness | chain_tips | merkle_path)
+
+const COMPRESSION = 1;
+const PERMUTATION = 0;
+
+const V = 68;
+const W = 4;
+const TARGET_SUM = 114;
+const N_PUBLIC_KEYS = N_PUBLIC_KEYS_PLACE_HOLDER;
+const XMSS_SIG_SIZE = XMSS_SIG_SIZE_PLACE_HOLDER; // vectorized and padded
+
+fn main() {
+    public_input_start_ = public_input_start;
+    private_input_start = public_input_start_[0];
+    message_hash = public_input_start / 8 + 1;
+    all_public_keys = message_hash + 1;
+    all_log_lifetimes = (all_public_keys + N_PUBLIC_KEYS) * 8;
+    signatures_start = private_input_start / 8;
+    for i in 0..N_PUBLIC_KEYS {
+        xmss_public_key = all_public_keys + i;
+        signature = signatures_start + i * XMSS_SIG_SIZE;
+        log_lifetime = all_log_lifetimes[i];
+        xmss_public_key_recovered = xmss_recover_pub_key(message_hash, signature, log_lifetime);
+        assert_eq_vec(xmss_public_key, xmss_public_key_recovered);
+    }
+    return;
+}
+
+fn xmss_recover_pub_key(message_hash, signature, log_lifetime) -> 1 {
+    // message_hash: vectorized pointers (of length 1)
+    // signature: vectorized pointer = randomness | chain_tips | merkle_neighbours | merkle_are_left
+    // return a vectorized pointer (of length 1), the hashed xmss public key
+    randomness = signature; // vectorized
+    chain_tips = signature + 1; // vectorized
+    merkle_neighbours = chain_tips + V; // vectorized
+    merkle_are_left = (merkle_neighbours + log_lifetime) * 8; // non-vectorized
+
+    // 1) We encode message_hash + randomness into the d-th layer of the hypercube
+
+    compressed = malloc_vec(1);
+    poseidon16(message_hash, randomness, compressed, COMPRESSION);
+    compressed_ptr = compressed * 8;
+    decomposed = decompose_custom(compressed_ptr[0], compressed_ptr[1], compressed_ptr[2], compressed_ptr[3], compressed_ptr[4], compressed_ptr[5]);
+    
+    // check that the decomposition is correct
+    for i in 0..6 unroll {
+        for j in 0..12 unroll {
+            // TODO Implem range check (https://github.com/leanEthereum/leanMultisig/issues/52)
+            // For now we use dummy instructions to replicate exactly the cost
+
+            // assert decomposed[i * 13 + j] < 4;
+            dummy_0 = 88888888;
+            assert dummy_0 == 88888888;
+            assert dummy_0 == 88888888;
+            assert dummy_0 == 88888888;
+        }
+
+        // assert decomposed[i * 13 + 12] < 2^7 - 1;
+        dummy_1 = 88888888;
+        dummy_2 = 88888888;
+        dummy_3 = 88888888;
+        assert dummy_1 == 88888888;
+        assert dummy_2 == 88888888;
+        assert dummy_3 == 88888888;
+
+        partial_sums = malloc(12);
+        partial_sums[0] = decomposed[i * 13];
+        for j in 1..12 unroll {
+            partial_sums[j] = partial_sums[j - 1] + (decomposed[i * 13 + j]) * 4**j;
+        }
+        assert partial_sums[11] + (decomposed[i * 13 + 12]) * 4**12 == compressed_ptr[i];
+    }
+    
+    encoding = malloc(12 * 6);
+    for i in 0..6 unroll {
+        for j in 0..12 unroll {
+            encoding[i * 12 + j] = decomposed[i * 13 + j];
+        }
+    }
+
+    // we need to check the target sum
+    sums = malloc(V);
+    sums[0] = encoding[0];
+    for i in 1..V unroll {
+        sums[i] = sums[i - 1] + encoding[i];
+    }
+    assert sums[V - 1] == TARGET_SUM;
+
+    public_key = malloc_vec(V);
+
+    chain_tips_ptr = 8 * chain_tips;
+    public_key_ptr = 8 * public_key;
+
+    for i in 0..V unroll {
+        match encoding[i] {
+            0 => {
+                var_1 = chain_tips + i;
+                var_2 = public_key + i;
+                var_3 = malloc_vec(1);
+                var_4 = malloc_vec(1);
+                poseidon16(var_1, pointer_to_zero_vector, var_3, COMPRESSION);
+                poseidon16(var_3, pointer_to_zero_vector, var_4, COMPRESSION);
+                poseidon16(var_4, pointer_to_zero_vector, var_2, COMPRESSION);
+            }
+            1 => {
+                var_3 = malloc_vec(1);
+                var_1 = chain_tips + i;
+                var_2 = public_key + i;
+                poseidon16(var_1, pointer_to_zero_vector, var_3, COMPRESSION);
+                poseidon16(var_3, pointer_to_zero_vector, var_2, COMPRESSION);
+            }
+            2 => {
+                var_1 = chain_tips + i;
+                var_2 = public_key + i;
+                poseidon16(var_1, pointer_to_zero_vector, var_2, COMPRESSION);
+            }
+            3 => {
+                var_1 = chain_tips_ptr + (i * 8);
+                var_2 = public_key_ptr + (i * 8);
+                var_3 = var_1 + 3;
+                var_4 = var_2 + 3;
+                dot_product_ee(var_1, pointer_to_one_vector * 8, var_2, 1);
+                dot_product_ee(var_3, pointer_to_one_vector * 8, var_4, 1);
+            }
+        }
+    }
+
+    public_key_hashed = malloc_vec(V / 2);
+    poseidon24(public_key, pointer_to_zero_vector, public_key_hashed);
+
+    for i in 1..V / 2 unroll {
+        poseidon24(public_key + (2*i), public_key_hashed + (i - 1), public_key_hashed + i);
+    }
+
+    wots_pubkey_hashed = public_key_hashed + (V / 2 - 1);
+
+    // TODO unroll
+    match log_lifetime {
+        0 => { merkle_hash = verify_merkle_path(0, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        1 => { merkle_hash = verify_merkle_path(1, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        2 => { merkle_hash = verify_merkle_path(2, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        3 => { merkle_hash = verify_merkle_path(3, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        4 => { merkle_hash = verify_merkle_path(4, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        5 => { merkle_hash = verify_merkle_path(5, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        6 => { merkle_hash = verify_merkle_path(6, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        7 => { merkle_hash = verify_merkle_path(7, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        8 => { merkle_hash = verify_merkle_path(8, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        9 => { merkle_hash = verify_merkle_path(9, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        10 => { merkle_hash = verify_merkle_path(10, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        11 => { merkle_hash = verify_merkle_path(11, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        12 => { merkle_hash = verify_merkle_path(12, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        13 => { merkle_hash = verify_merkle_path(13, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        14 => { merkle_hash = verify_merkle_path(14, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        15 => { merkle_hash = verify_merkle_path(15, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        16 => { merkle_hash = verify_merkle_path(16, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        17 => { merkle_hash = verify_merkle_path(17, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        18 => { merkle_hash = verify_merkle_path(18, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        19 => { merkle_hash = verify_merkle_path(19, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        20 => { merkle_hash = verify_merkle_path(20, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        21 => { merkle_hash = verify_merkle_path(21, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        22 => { merkle_hash = verify_merkle_path(22, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        23 => { merkle_hash = verify_merkle_path(23, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        24 => { merkle_hash = verify_merkle_path(24, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        25 => { merkle_hash = verify_merkle_path(25, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        26 => { merkle_hash = verify_merkle_path(26, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        27 => { merkle_hash = verify_merkle_path(27, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        28 => { merkle_hash = verify_merkle_path(28, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        29 => { merkle_hash = verify_merkle_path(29, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        30 => { merkle_hash = verify_merkle_path(30, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        31 => { merkle_hash = verify_merkle_path(31, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+        32 => { merkle_hash = verify_merkle_path(32, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
+    }
+
+    return merkle_hash;
+}
+
+fn verify_merkle_path(const height, merkle_are_left, leaf_hash, merkle_neighbours) -> 1 {
+    merkle_hashes = malloc_vec(height);
+    if merkle_are_left[0] == 1 {
+        poseidon16(leaf_hash, merkle_neighbours, merkle_hashes, COMPRESSION);
+    } else {
+        poseidon16(merkle_neighbours, leaf_hash, merkle_hashes, COMPRESSION);
+    }
+    for h in 1..height unroll {
+        if merkle_are_left[h] == 1 {
+            poseidon16(merkle_hashes + (h-1), merkle_neighbours + h, merkle_hashes + h, COMPRESSION);
+        } else {
+            poseidon16(merkle_neighbours + h, merkle_hashes + (h-1), merkle_hashes + h, COMPRESSION);
+        }
+    }
+    return merkle_hashes + (height - 1);
+}
+
+fn assert_eq_vec(x, y) inline {
+    // x and y are vectorized pointer of len 1 each
+    ptr_x = x * 8;
+    ptr_y = y * 8;
+    dot_product_ee(ptr_x, pointer_to_one_vector * 8, ptr_y, 1);
+    dot_product_ee(ptr_x + 3, pointer_to_one_vector * 8, ptr_y + 3, 1);
+    return;
+}

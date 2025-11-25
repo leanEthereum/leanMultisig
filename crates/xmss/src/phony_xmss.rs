@@ -1,21 +1,21 @@
-use rand::Rng;
-
+use multilinear_toolkit::prelude::*;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use crate::*;
 
 // Only 1 WOTS, everything else in the merkle tree is random
 // Useful for benchmark with a big lifetime, to speed up keys generation
 
 #[derive(Debug)]
-pub struct PhonyXmssSecretKey {
-    pub wots_secret_key: WotsSecretKey,
-    pub first_slot: usize,
-    pub signature_slot: usize,
-    pub merkle_path: Vec<Digest>,
-    pub public_key: XmssPublicKey,
+struct PhonyXmssSecretKey {
+    wots_secret_key: WotsSecretKey,
+    first_slot: usize,
+    signature_slot: usize,
+    merkle_path: Vec<Digest>,
+    public_key: XmssPublicKey,
 }
 
 impl PhonyXmssSecretKey {
-    pub fn random(rng: &mut impl Rng, first_slot: usize, log_lifetime: usize, signature_slot: usize) -> Self {
+    fn random(rng: &mut impl Rng, first_slot: usize, log_lifetime: usize, signature_slot: usize) -> Self {
         assert!(
             signature_slot.checked_sub(first_slot).unwrap() < (1 << log_lifetime),
             "Index out of bounds for XMSS signature"
@@ -42,12 +42,12 @@ impl PhonyXmssSecretKey {
             public_key: XmssPublicKey {
                 merkle_root: hash,
                 log_lifetime,
-                first_slot
+                first_slot,
             },
         }
     }
 
-    pub fn sign(&self, message_hash: &Digest, rng: &mut impl Rng) -> XmssSignature {
+    fn sign(&self, message_hash: &Digest, rng: &mut impl Rng) -> XmssSignature {
         let wots_signature = self.wots_secret_key.sign(message_hash, rng);
         XmssSignature {
             wots_signature,
@@ -55,4 +55,22 @@ impl PhonyXmssSecretKey {
             slot: self.signature_slot,
         }
     }
+}
+
+pub fn generate_phony_xmss_signatures(
+    log_lifetimes: &[usize],
+    message_hash: Digest,
+    first_slot: usize,
+) -> (Vec<XmssPublicKey>, Vec<XmssSignature>) {
+    log_lifetimes
+        .par_iter()
+        .enumerate()
+        .map(|(i, &log_lifetime)| {
+            let mut rng = StdRng::seed_from_u64(i as u64);
+            let signature_index = rng.random_range(first_slot..first_slot + (1 << log_lifetime));
+            let xmss_secret_key = PhonyXmssSecretKey::random(&mut rng, first_slot, log_lifetime, signature_index);
+            let signature = xmss_secret_key.sign(&message_hash, &mut rng);
+            (xmss_secret_key.public_key, signature)
+        })
+        .unzip()
 }

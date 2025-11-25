@@ -30,12 +30,3 @@ fn test_xmss_signature() {
     let public_key = sk.public_key();
     assert!(public_key.verify(&message_hash, &signature).is_some());
 }
-
-#[test]
-fn test_phony_xmss_signature() {
-    let mut rng = StdRng::seed_from_u64(0);
-    let sk = PhonyXmssSecretKey::random(&mut rng, FIRST_SLOT, LOG_LIFETIME, SIGNATURE_SLOT);
-    let message_hash: [F; 8] = rng.random();
-    let signature = sk.sign(&message_hash, &mut rng);
-    assert!(sk.public_key.verify(&message_hash, &signature).is_some());
-}
