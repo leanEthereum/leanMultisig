@@ -71,7 +71,6 @@ num_enum = "0.7.5"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }
 p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-baby-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
@@ -88,6 +87,8 @@ clap.workspace = true
 rec_aggregation.workspace = true
 xmss.workspace = true
 poseidon_circuit.workspace = true
+p3-koala-bear.workspace = true
+multilinear-toolkit.workspace = true
 
 # [patch."https://github.com/TomWambsgans/Plonky3.git"]
 # p3-koala-bear = { path = "../zk/Plonky3/koala-bear" }

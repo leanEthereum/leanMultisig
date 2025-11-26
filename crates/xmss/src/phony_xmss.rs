@@ -8,14 +8,14 @@ use crate::*;
 #[derive(Debug)]
 struct PhonyXmssSecretKey {
     wots_secret_key: WotsSecretKey,
-    first_slot: usize,
-    signature_slot: usize,
+    first_slot: u64,
+    signature_slot: u64,
     merkle_path: Vec<Digest>,
     public_key: XmssPublicKey,
 }
 
 impl PhonyXmssSecretKey {
-    fn random(rng: &mut impl Rng, first_slot: usize, log_lifetime: usize, signature_slot: usize) -> Self {
+    fn random(rng: &mut impl Rng, first_slot: u64, log_lifetime: usize, signature_slot: u64) -> Self {
         assert!(
             signature_slot.checked_sub(first_slot).unwrap() < (1 << log_lifetime),
             "Index out of bounds for XMSS signature"
@@ -60,7 +60,7 @@ impl PhonyXmssSecretKey {
 pub fn generate_phony_xmss_signatures(
     log_lifetimes: &[usize],
     message_hash: Digest,
-    first_slot: usize,
+    first_slot: u64,
 ) -> (Vec<XmssPublicKey>, Vec<XmssSignature>) {
     log_lifetimes
         .par_iter()

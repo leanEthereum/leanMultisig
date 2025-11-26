@@ -4,9 +4,9 @@
 const COMPRESSION = 1;
 const PERMUTATION = 0;
 
-const V = 68;
+const V = 66;
 const W = 4;
-const TARGET_SUM = 114;
+const TARGET_SUM = 118;
 
 fn main() {
     public_input_start_ = public_input_start;

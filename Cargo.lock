@@ -384,6 +384,8 @@ name = "lean-multisig"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "multilinear-toolkit",
+ "p3-koala-bear",
  "poseidon_circuit",
  "rec_aggregation",
  "xmss",

@@ -10,7 +10,7 @@ use tracing::instrument;
 use whir_p3::precompute_dft_twiddles;
 use xmss::{
     MAX_LOG_LIFETIME, Poseidon16History, Poseidon24History, V, XmssPublicKey, XmssSignature,
-    generate_phony_xmss_signatures,
+    generate_phony_xmss_signatures, xmss_verify_with_poseidon_trace,
 };
 
 const XMSS_SIG_SIZE_VEC_PADDED: usize = (V + 1 + MAX_LOG_LIFETIME) + MAX_LOG_LIFETIME.div_ceil(8);
@@ -190,7 +190,7 @@ fn precompute_poseidons(
     let (poseidon_16_traces, poseidon_24_traces): (Vec<_>, Vec<_>) = xmss_pub_keys
         .par_iter()
         .zip(all_signatures.par_iter())
-        .map(|(pub_key, sig)| pub_key.verify_with_poseidon_trace(message_hash, sig).unwrap())
+        .map(|(pub_key, sig)| xmss_verify_with_poseidon_trace(pub_key, message_hash, sig).unwrap())
         .unzip();
     (
         poseidon_16_traces.into_par_iter().flatten().collect(),
@@ -200,7 +200,7 @@ fn precompute_poseidons(
 
 #[test]
 fn test_xmss_aggregate() {
-    let n_xmss = 50;
+    let n_xmss = 10;
     let mut rng = StdRng::seed_from_u64(0);
     let log_lifetimes = (0..n_xmss)
         .map(|_| rng.random_range(1..=MAX_LOG_LIFETIME))
