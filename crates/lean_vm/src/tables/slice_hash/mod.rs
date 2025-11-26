@@ -5,41 +5,37 @@ use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use utils::{ToUsize, get_poseidon_16_of_zero, poseidon16_permute, to_big_endian_in_field};
 
-// Does not support height = 1 (minimum height is 2)
-
 // "committed" columns
 const COL_FLAG: ColIndex = 0;
-const COL_INDEX_LEAF: ColIndex = 1; // vectorized pointer
-const COL_LEAF_POSITION: ColIndex = 2; // (between 0 and 2^height - 1)
-const COL_INDEX_ROOT: ColIndex = 3; // vectorized pointer
-const COL_HEIGHT: ColIndex = 4; // merkle tree height
+const COL_INDEX_SEED: ColIndex = 1; // vectorized pointer
+const COL_INDEX_INPUT: ColIndex = 2; // vectorized pointer
+const COL_INDEX_OUTPUT: ColIndex = 3; // vectorized pointer
+const COL_LEN: ColIndex = 4; // by multiple of 16
 
-const COL_IS_LEFT: ColIndex = 5; // boolean, whether the current node is a left child
-const COL_LOOKUP_MEM_INDEX: ColIndex = 6; // = COL_INDEX_LEAF if flag = 1, otherwise = COL_INDEX_ROOT
-
-const INITIAL_COLS_DATA_LEFT: ColIndex = 7;
-const INITIAL_COLS_DATA_RIGHT: ColIndex = INITIAL_COLS_DATA_LEFT + VECTOR_LEN;
-const INITIAL_COLS_DATA_RES: ColIndex = INITIAL_COLS_DATA_RIGHT + VECTOR_LEN;
+const INITIAL_COLS_DATA_LEFT: ColIndex = 6; // 16 columns for data left
+const INITIAL_COLS_DATA_RIGHT: ColIndex = INITIAL_COLS_DATA_LEFT + 16; // 8 columns for data right
+const INITIAL_COLS_DATA_RES: ColIndex = INITIAL_COLS_DATA_RIGHT + 8;
 
 // "virtual" columns (vectorized lookups into memory)
-const COL_LOOKUP_MEM_VALUES: ColIndex = INITIAL_COLS_DATA_RES + VECTOR_LEN;
+const COLS_INDEX_LEFT: ColIndex = INITIAL_COLS_DATA_RES + 8;
+const COLS_ROOT_START: ColIndex = COLS_LEAF_START + VECTOR_LEN;
 
-const TOTAL_N_COLS: usize = COL_LOOKUP_MEM_VALUES + VECTOR_LEN;
+const TOTAL_N_COLS: usize = COLS_ROOT_START + VECTOR_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MerklePrecompile;
+pub struct SliceHashPrecompile;
 
-impl TableT for MerklePrecompile {
+impl TableT for SliceHashPrecompile {
     fn name(&self) -> &'static str {
-        "merkle_verify"
+        "slice_hash"
     }
 
     fn identifier(&self) -> Table {
-        Table::merkle()
+        Table::slice_hash()
     }
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
-        (0..COL_LOOKUP_MEM_VALUES).collect()
+        (0..COLS_LEAF_START).collect()
     }
 
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
@@ -55,10 +51,16 @@ impl TableT for MerklePrecompile {
     }
 
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
-        vec![VectorLookupIntoMemory {
-            index: COL_LOOKUP_MEM_INDEX,
-            values: array::from_fn(|i| COL_LOOKUP_MEM_VALUES + i),
-        }]
+        vec![
+            VectorLookupIntoMemory {
+                index: COL_INDEX_LEAF,
+                values: array::from_fn(|i| COLS_LEAF_START + i),
+            },
+            VectorLookupIntoMemory {
+                index: COL_INDEX_ROOT,
+                values: array::from_fn(|i| COLS_ROOT_START + i),
+            },
+        ]
     }
 
     fn buses(&self) -> Vec<Bus> {
@@ -66,7 +68,12 @@ impl TableT for MerklePrecompile {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
             selector: COL_FLAG,
-            data: vec![COL_INDEX_LEAF, COL_LEAF_POSITION, COL_INDEX_ROOT, COL_HEIGHT],
+            data: vec![
+                COL_INDEX_LEAF,
+                COL_LEAF_POSITION,
+                COL_INDEX_ROOT,
+                COL_HEIGHT,
+            ],
         }]
     }
 
@@ -79,13 +86,13 @@ impl TableT for MerklePrecompile {
                 F::ZERO,                                  // leaf_position
                 F::from_usize(POSEIDON_16_NULL_HASH_PTR), // index_root
                 F::ONE,
-                F::ZERO,                                  // is_left
-                F::from_usize(ZERO_VEC_PTR), // lookup_mem_index
+                F::ZERO, // is_left
             ],
             vec![F::ZERO; VECTOR_LEN], // data_left
             vec![F::ZERO; VECTOR_LEN], // data_right
             default_root.clone(),      // data_res
-            vec![F::ZERO; VECTOR_LEN], // lookup_mem_values
+            vec![F::ZERO; VECTOR_LEN], // leaf
+            default_root,              // root
         ]
         .concat()
     }
@@ -103,8 +110,6 @@ impl TableT for MerklePrecompile {
         height: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
-        assert!(height >= 2);
-
         let trace = &mut ctx.traces[self.identifier().index()].base;
         // TODO add row to poseidon16 trace
 
@@ -112,7 +117,7 @@ impl TableT for MerklePrecompile {
         assert!(height > 0);
         assert!(leaf_position < (1 << height));
 
-        let auth_path = ctx.merkle_path_hints.pop_front().unwrap();
+        let auth_path = ctx.path_hints.pop_front().unwrap();
         assert_eq!(auth_path.len(), height);
         let mut leaf_position_bools = to_big_endian_in_field::<F>(!leaf_position, height);
         leaf_position_bools.reverse(); // little-endian
@@ -125,7 +130,6 @@ impl TableT for MerklePrecompile {
         trace[COL_INDEX_ROOT].extend(vec![index_root; height]);
         trace[COL_HEIGHT].extend((1..=height).rev().map(F::from_usize));
         trace[COL_IS_LEFT].extend(leaf_position_bools);
-        trace[COL_LOOKUP_MEM_INDEX].extend([vec![index_leaf], vec![index_root; height - 1]].concat());
 
         let mut current_hash = leaf;
         for (d, neightbour) in auth_path.iter().enumerate() {
@@ -164,14 +168,15 @@ impl TableT for MerklePrecompile {
         ctx.memory.set_vector(index_root.to_usize(), root)?;
 
         for i in 0..VECTOR_LEN {
-            trace[COL_LOOKUP_MEM_VALUES + i].extend([vec![leaf[i]], vec![root[i]; height - 1]].concat());
+            trace[COLS_LEAF_START + i].extend(vec![leaf[i]; height]);
+            trace[COLS_ROOT_START + i].extend(vec![root[i]; height]);
         }
 
         Ok(())
     }
 }
 
-impl Air for MerklePrecompile {
+impl Air for SliceHashPrecompile {
     type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns_f_air(&self) -> usize {
         TOTAL_N_COLS
@@ -183,13 +188,13 @@ impl Air for MerklePrecompile {
         3
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        (0..TOTAL_N_COLS - 2 * VECTOR_LEN).collect()
+        (0..TOTAL_N_COLS - 3 * VECTOR_LEN).collect() // skip COLS_DATA, COLS_LEAF, COLS_ROOT
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        8 + 5 * VECTOR_LEN
+        7 + 6 * VECTOR_LEN
     }
     fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
@@ -199,11 +204,11 @@ impl Air for MerklePrecompile {
         let index_root = up[COL_INDEX_ROOT].clone();
         let height = up[COL_HEIGHT].clone();
         let is_left = up[COL_IS_LEFT].clone();
-        let lookup_index = up[COL_LOOKUP_MEM_INDEX].clone();
         let data_left: [_; VECTOR_LEN] = array::from_fn(|i| up[INITIAL_COLS_DATA_LEFT + i].clone());
         let data_right: [_; VECTOR_LEN] = array::from_fn(|i| up[INITIAL_COLS_DATA_RIGHT + i].clone());
         let data_res: [_; VECTOR_LEN] = array::from_fn(|i| up[INITIAL_COLS_DATA_RES + i].clone());
-        let lookup_values: [_; VECTOR_LEN] = array::from_fn(|i| up[COL_LOOKUP_MEM_VALUES + i].clone());
+        let leaf: [_; VECTOR_LEN] = array::from_fn(|i| up[COLS_LEAF_START + i].clone());
+        let root: [_; VECTOR_LEN] = array::from_fn(|i| up[COLS_ROOT_START + i].clone());
 
         let down = builder.down_f();
         let flag_down = down[0].clone();
@@ -212,9 +217,8 @@ impl Air for MerklePrecompile {
         let index_root_down = down[3].clone();
         let height_down = down[4].clone();
         let is_left_down = down[5].clone();
-        let _lookup_index_down = down[6].clone();
-        let data_left_down: [_; VECTOR_LEN] = array::from_fn(|i| down[7 + i].clone());
-        let data_right_down: [_; VECTOR_LEN] = array::from_fn(|i| down[7 + VECTOR_LEN + i].clone());
+        let data_left_down: [_; VECTOR_LEN] = array::from_fn(|i| down[6 + i].clone());
+        let data_right_down: [_; VECTOR_LEN] = array::from_fn(|i| down[6 + VECTOR_LEN + i].clone());
 
         builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
             extra_data,
@@ -231,15 +235,9 @@ impl Air for MerklePrecompile {
         builder.assert_bool(flag.clone());
         builder.assert_bool(is_left.clone());
 
-        let not_flag = AB::F::ONE - flag.clone();
         let not_flag_down = AB::F::ONE - flag_down.clone();
         let is_right = AB::F::ONE - is_left.clone();
         let is_right_down = AB::F::ONE - is_left_down.clone();
-
-        builder.assert_eq(
-            lookup_index.clone(),
-            flag.clone() * index_leaf.clone() + not_flag.clone() * index_root.clone(),
-        );
 
         // Parameters should not change as long as the flag has not been switched back to 1:
         builder.assert_zero(not_flag_down.clone() * (index_leaf_down.clone() - index_leaf.clone()));
@@ -256,11 +254,11 @@ impl Air for MerklePrecompile {
         // start (bottom of the tree)
         let starts_and_is_left = flag.clone() * is_left.clone();
         for i in 0..VECTOR_LEN {
-            builder.assert_zero(starts_and_is_left.clone() * (data_left[i].clone() - lookup_values[i].clone()));
+            builder.assert_zero(starts_and_is_left.clone() * (data_left[i].clone() - leaf[i].clone()));
         }
         let starts_and_is_right = flag.clone() * is_right.clone();
         for i in 0..VECTOR_LEN {
-            builder.assert_zero(starts_and_is_right.clone() * (data_right[i].clone() - lookup_values[i].clone()));
+            builder.assert_zero(starts_and_is_right.clone() * (data_right[i].clone() - leaf[i].clone()));
         }
 
         // transition (interior nodes)
@@ -275,9 +273,13 @@ impl Air for MerklePrecompile {
 
         // end (top of the tree)
         builder.assert_zero(flag_down.clone() * leaf_position.clone() * (AB::F::ONE - leaf_position.clone())); // at last step, leaf position should be boolean
+        let ends_and_is_left = flag_down.clone() * is_left.clone();
         for i in 0..VECTOR_LEN {
-            builder
-                .assert_zero(not_flag.clone() * flag_down.clone() * (data_res[i].clone() - lookup_values[i].clone()));
+            builder.assert_zero(ends_and_is_left.clone() * (data_res[i].clone() - root[i].clone()));
+        }
+        let ends_and_is_right = flag_down.clone() * is_right.clone();
+        for i in 0..VECTOR_LEN {
+            builder.assert_zero(ends_and_is_right.clone() * (data_res[i].clone() - root[i].clone()));
         }
     }
 }

@@ -5,6 +5,7 @@ pub use multilinear_toolkit::prelude::{
 pub use rec_aggregation::xmss_aggregate::{xmss_aggregate_signatures, xmss_verify_aggregated_signatures};
 pub use xmss::{
     XMSS_MAX_LOG_LIFETIME,
+    XMSS_MIN_LOG_LIFETIME,
     XmssPublicKey,
     XmssSecretKey,
     xmss_generate_phony_signatures, // useful for tests
@@ -59,7 +60,7 @@ mod tests {
         // (Actually, no need to call it if `xmss_aggregation_setup_prover` was already called)
         xmss_aggregation_setup_verifier();
 
-        let log_lifetimes = (1..=XMSS_MAX_LOG_LIFETIME).collect::<Vec<usize>>();
+        let log_lifetimes = (XMSS_MIN_LOG_LIFETIME..=XMSS_MAX_LOG_LIFETIME).collect::<Vec<usize>>();
         let message_hash: [F; 8] = std::array::from_fn(|i| F::from_usize(i * 7));
         let slot = 77777;
 

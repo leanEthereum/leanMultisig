@@ -66,6 +66,8 @@ pub fn xmss_generate_phony_signatures(
         .par_iter()
         .enumerate()
         .map(|(i, &log_lifetime)| {
+            assert!(log_lifetime >= XMSS_MIN_LOG_LIFETIME);
+            assert!(log_lifetime <= XMSS_MAX_LOG_LIFETIME);
             let mut rng = StdRng::seed_from_u64(i as u64);
             let first_slot = slot - rng.random_range(0..(1 << log_lifetime).min(slot));
             let xmss_secret_key = PhonyXmssSecretKey::random(&mut rng, first_slot, log_lifetime, slot);

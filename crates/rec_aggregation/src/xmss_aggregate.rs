@@ -11,8 +11,8 @@ use std::time::Instant;
 use tracing::{info_span, instrument};
 use whir_p3::precompute_dft_twiddles;
 use xmss::{
-    Poseidon16History, Poseidon24History, V, XMSS_MAX_LOG_LIFETIME, XmssPublicKey, XmssSignature,
-    xmss_generate_phony_signatures, xmss_verify_with_poseidon_trace,
+    Poseidon16History, Poseidon24History, V, XMSS_MAX_LOG_LIFETIME, XMSS_MIN_LOG_LIFETIME, XmssPublicKey,
+    XmssSignature, xmss_generate_phony_signatures, xmss_verify_with_poseidon_trace,
 };
 
 static XMSS_AGGREGATION_PROGRAM: OnceLock<XmssAggregationProgram> = OnceLock::new();
@@ -92,7 +92,7 @@ impl XmssAggregationProgram {
     pub fn compute_non_vec_memory(&self, log_lifetimes: &[usize]) -> usize {
         log_lifetimes
             .iter()
-            .map(|&ll| self.no_vec_mem_per_log_lifetime[ll - 1])
+            .map(|&ll| self.no_vec_mem_per_log_lifetime[ll - XMSS_MIN_LOG_LIFETIME])
             .sum::<usize>()
             + self.default_no_vec_mem
     }
@@ -105,7 +105,7 @@ fn compile_xmss_aggregation_program() -> XmssAggregationProgram {
     let bytecode = compile_program(program_str);
     let default_no_vec_mem = exec_phony_xmss(&bytecode, &[]).no_vec_runtime_memory;
     let mut no_vec_mem_per_log_lifetime = vec![];
-    for log_lifetime in 1..=XMSS_MAX_LOG_LIFETIME {
+    for log_lifetime in XMSS_MIN_LOG_LIFETIME..=XMSS_MAX_LOG_LIFETIME {
         let no_vec_mem = exec_phony_xmss(&bytecode, &[log_lifetime]).no_vec_runtime_memory;
         no_vec_mem_per_log_lifetime.push(no_vec_mem.checked_sub(default_no_vec_mem).unwrap());
     }
@@ -121,7 +121,7 @@ fn compile_xmss_aggregation_program() -> XmssAggregationProgram {
     for _ in 0..n_sanity_checks {
         let n_sigs = rng.random_range(1..=25);
         let log_lifetimes = (0..n_sigs)
-            .map(|_| rng.random_range(1..=XMSS_MAX_LOG_LIFETIME))
+            .map(|_| rng.random_range(XMSS_MIN_LOG_LIFETIME..=XMSS_MAX_LOG_LIFETIME))
             .collect::<Vec<_>>();
         let result = exec_phony_xmss(&res.bytecode, &log_lifetimes);
         assert_eq!(
@@ -274,7 +274,7 @@ fn test_xmss_aggregate() {
     let n_xmss = 10;
     let mut rng = StdRng::seed_from_u64(0);
     let log_lifetimes = (0..n_xmss)
-        .map(|_| rng.random_range(1..=XMSS_MAX_LOG_LIFETIME))
+        .map(|_| rng.random_range(XMSS_MIN_LOG_LIFETIME..=XMSS_MAX_LOG_LIFETIME))
         .collect::<Vec<_>>();
     run_xmss_benchmark(&log_lifetimes);
 }
