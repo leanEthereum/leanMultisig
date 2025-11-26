@@ -314,18 +314,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     fs_state_10 = fs_states_b[num_queries];
 
     leaf_hashes = malloc(num_queries); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
-    for i in 0..num_queries {
-        answer = answers[i];
-        internal_states = malloc(1 + (n_chuncks_per_answer / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
-        internal_states[0] = pointer_to_zero_vector; // initial state
-        for j in 0..n_chuncks_per_answer / 2 {
-            h24 = malloc_vec(1);
-            poseidon24(answer + (2*j), internal_states[j], h24);
-            internal_states[j + 1] = h24;
-        }
-        leaf_hashes[i] = internal_states[n_chuncks_per_answer / 2];
-    }
-
+    batch_hash_slice_dynamic(num_queries, answers, leaf_hashes, n_chuncks_per_answer);
 
     // Merkle verification
     merkle_verif_batch_dynamic(num_queries, leaf_hashes, stir_challenges_indexes + num_queries, prev_root, folded_domain_size);
@@ -352,6 +341,31 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     }
 
     return fs_state_10, circle_values, folds;
+}
+
+fn batch_hash_slice_dynamic(num_queries, all_data_to_hash, all_resulting_hashes, len) {
+    if len == DIM * 2 {
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM);
+        return;
+    }
+    if len == 16 {
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 8);
+        return;
+    }
+    TODO_batch_hash_slice_dynamic = len;
+    print(77777123);
+    print(len);
+    panic();
+}
+
+fn batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, const half_len) {
+    for i in 0..num_queries {
+        data = all_data_to_hash[i];
+        res = malloc_vec(1);
+        slice_hash(pointer_to_zero_vector, data, res, half_len);
+        all_resulting_hashes[i] = res;
+    }
+    return;    
 }
 
 fn merkle_verif_batch_dynamic(n_paths, leaves_digests, leave_positions, root, height) {

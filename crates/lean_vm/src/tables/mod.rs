@@ -19,5 +19,8 @@ pub use execution::*;
 mod merkle;
 pub use merkle::*;
 
+mod slice_hash;
+pub use slice_hash::*;
+
 mod utils;
 pub(crate) use utils::*;

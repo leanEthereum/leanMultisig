@@ -5,6 +5,8 @@ const V = 66;
 const W = 4;
 const TARGET_SUM = 118;
 
+const V_HALF = V / 2; // V should be even
+
 fn main() {
     public_input_start_ = public_input_start;
     private_input_start = public_input_start_[0];
@@ -124,14 +126,8 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
         }
     }
 
-    public_key_hashed = malloc_vec(V / 2);
-    poseidon24(public_key, pointer_to_zero_vector, public_key_hashed);
-
-    for i in 1..V / 2 unroll {
-        poseidon24(public_key + (2*i), public_key_hashed + (i - 1), public_key_hashed + i);
-    }
-
-    wots_pubkey_hashed = public_key_hashed + (V / 2 - 1);
+    wots_pubkey_hashed = malloc_vec(1);
+    slice_hash(pointer_to_zero_vector, public_key, wots_pubkey_hashed, V_HALF);
 
     merkle_root = malloc_vec(1);
     match log_lifetime {

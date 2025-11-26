@@ -3,24 +3,27 @@ use std::array;
 use crate::*;
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use utils::{ToUsize, get_poseidon_16_of_zero, poseidon16_permute, to_big_endian_in_field};
+use utils::{ToUsize, get_poseidon_24_of_zero, poseidon24_permute};
+
+// Does not support len = 1 (minimum len is 2)
 
 // "committed" columns
 const COL_FLAG: ColIndex = 0;
 const COL_INDEX_SEED: ColIndex = 1; // vectorized pointer
-const COL_INDEX_INPUT: ColIndex = 2; // vectorized pointer
-const COL_INDEX_OUTPUT: ColIndex = 3; // vectorized pointer
-const COL_LEN: ColIndex = 4; // by multiple of 16
+const COL_INDEX_START: ColIndex = 2; // vectorized pointer
+const COL_INDEX_START_BIS: ColIndex = 3; // = COL_INDEX_START + 1
+const COL_INDEX_RES: ColIndex = 4; // vectorized pointer
+const COL_LEN: ColIndex = 5;
 
-const INITIAL_COLS_DATA_LEFT: ColIndex = 6; // 16 columns for data left
-const INITIAL_COLS_DATA_RIGHT: ColIndex = INITIAL_COLS_DATA_LEFT + 16; // 8 columns for data right
-const INITIAL_COLS_DATA_RES: ColIndex = INITIAL_COLS_DATA_RIGHT + 8;
+const COL_LOOKUP_MEM_INDEX_SEED_OR_RES: ColIndex = 6; // = COL_INDEX_START if flag = 1, otherwise = COL_INDEX_RES
+const INITIAL_COLS_DATA_RIGHT: ColIndex = 7;
+const INITIAL_COLS_DATA_RES: ColIndex = INITIAL_COLS_DATA_RIGHT + VECTOR_LEN;
 
 // "virtual" columns (vectorized lookups into memory)
-const COLS_INDEX_LEFT: ColIndex = INITIAL_COLS_DATA_RES + 8;
-const COLS_ROOT_START: ColIndex = COLS_LEAF_START + VECTOR_LEN;
+const COL_LOOKUP_MEM_VALUES_SEED_OR_RES: ColIndex = INITIAL_COLS_DATA_RES + VECTOR_LEN; // 8 columns
+const COL_LOOKUP_MEM_VALUES_LEFT: ColIndex = COL_LOOKUP_MEM_VALUES_SEED_OR_RES + VECTOR_LEN; // 16 columns
 
-const TOTAL_N_COLS: usize = COLS_ROOT_START + VECTOR_LEN;
+const TOTAL_N_COLS: usize = COL_LOOKUP_MEM_VALUES_LEFT + 2 * VECTOR_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SliceHashPrecompile;
@@ -35,7 +38,7 @@ impl TableT for SliceHashPrecompile {
     }
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
-        (0..COLS_LEAF_START).collect()
+        (0..COL_LOOKUP_MEM_VALUES_SEED_OR_RES).collect()
     }
 
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
@@ -53,12 +56,16 @@ impl TableT for SliceHashPrecompile {
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
         vec![
             VectorLookupIntoMemory {
-                index: COL_INDEX_LEAF,
-                values: array::from_fn(|i| COLS_LEAF_START + i),
+                index: COL_LOOKUP_MEM_INDEX_SEED_OR_RES,
+                values: array::from_fn(|i| COL_LOOKUP_MEM_VALUES_SEED_OR_RES + i),
             },
             VectorLookupIntoMemory {
-                index: COL_INDEX_ROOT,
-                values: array::from_fn(|i| COLS_ROOT_START + i),
+                index: COL_INDEX_START,
+                values: array::from_fn(|i| COL_LOOKUP_MEM_VALUES_LEFT + i),
+            },
+            VectorLookupIntoMemory {
+                index: COL_INDEX_START_BIS,
+                values: array::from_fn(|i| COL_LOOKUP_MEM_VALUES_LEFT + VECTOR_LEN + i),
             },
         ]
     }
@@ -68,31 +75,26 @@ impl TableT for SliceHashPrecompile {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
             selector: COL_FLAG,
-            data: vec![
-                COL_INDEX_LEAF,
-                COL_LEAF_POSITION,
-                COL_INDEX_ROOT,
-                COL_HEIGHT,
-            ],
+            data: vec![COL_INDEX_SEED, COL_INDEX_START, COL_INDEX_RES, COL_LEN],
         }]
     }
 
     fn padding_row_f(&self) -> Vec<F> {
-        let default_root = get_poseidon_16_of_zero()[..VECTOR_LEN].to_vec();
+        let default_hash = get_poseidon_24_of_zero()[2 * VECTOR_LEN..].to_vec();
         [
             vec![
-                F::ONE,                                   // flag
-                F::ZERO,                                  // index_leaf
-                F::ZERO,                                  // leaf_position
-                F::from_usize(POSEIDON_16_NULL_HASH_PTR), // index_root
-                F::ONE,
-                F::ZERO, // is_left
+                F::ONE,                          // flag
+                F::from_usize(ZERO_VEC_PTR),     // index seed
+                F::from_usize(ZERO_VEC_PTR),     // index_start
+                F::from_usize(ZERO_VEC_PTR + 1), // index_start_bis
+                F::from_usize(ZERO_VEC_PTR),     // index_res
+                F::ONE,                          // len
+                F::from_usize(ZERO_VEC_PTR),     // COL_LOOKUP_MEM_INDEX_SEED_OR_RES
             ],
-            vec![F::ZERO; VECTOR_LEN], // data_left
-            vec![F::ZERO; VECTOR_LEN], // data_right
-            default_root.clone(),      // data_res
-            vec![F::ZERO; VECTOR_LEN], // leaf
-            default_root,              // root
+            vec![F::ZERO; VECTOR_LEN],     // INITIAL_COLS_DATA_RIGHT
+            default_hash,                  // INITIAL_COLS_DATA_RES
+            vec![F::ZERO; VECTOR_LEN],     // COL_LOOKUP_MEM_VALUES_SEED_OR_RES
+            vec![F::ZERO; VECTOR_LEN * 2], // COL_LOOKUP_MEM_VALUES_LEFT
         ]
         .concat()
     }
@@ -104,72 +106,61 @@ impl TableT for SliceHashPrecompile {
     #[inline(always)]
     fn execute(
         &self,
-        index_leaf: F,
-        leaf_position: F,
-        index_root: F,
-        height: usize,
+        index_seed: F,
+        index_start: F,
+        index_res: F,
+        len: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
+        assert!(len >= 2);
+
         let trace = &mut ctx.traces[self.identifier().index()].base;
-        // TODO add row to poseidon16 trace
+        // TODO add row to poseidon24 trace
 
-        let leaf_position = leaf_position.to_usize();
-        assert!(height > 0);
-        assert!(leaf_position < (1 << height));
+        let seed = ctx.memory.get_vector(index_seed.to_usize())?;
+        let mut cap = seed;
+        for i in 0..len {
+            let index = index_start.to_usize() + i * 2;
 
-        let auth_path = ctx.path_hints.pop_front().unwrap();
-        assert_eq!(auth_path.len(), height);
-        let mut leaf_position_bools = to_big_endian_in_field::<F>(!leaf_position, height);
-        leaf_position_bools.reverse(); // little-endian
+            let mut input = [F::ZERO; VECTOR_LEN * 3];
+            input[..VECTOR_LEN].copy_from_slice(&ctx.memory.get_vector(index)?);
+            input[VECTOR_LEN..VECTOR_LEN * 2].copy_from_slice(&ctx.memory.get_vector(index + 1)?);
+            input[VECTOR_LEN * 2..].copy_from_slice(&cap);
+            // let output: [F; VECTOR_LEN] = poseidon24_permute(input)[VECTOR_LEN * 2..].try_into().unwrap();
 
-        let leaf = ctx.memory.get_vector(index_leaf.to_usize())?;
-
-        trace[COL_FLAG].extend([vec![F::ONE], vec![F::ZERO; height - 1]].concat());
-        trace[COL_INDEX_LEAF].extend(vec![index_leaf; height]);
-        trace[COL_LEAF_POSITION].extend((0..height).map(|d| F::from_usize(leaf_position >> d)));
-        trace[COL_INDEX_ROOT].extend(vec![index_root; height]);
-        trace[COL_HEIGHT].extend((1..=height).rev().map(F::from_usize));
-        trace[COL_IS_LEFT].extend(leaf_position_bools);
-
-        let mut current_hash = leaf;
-        for (d, neightbour) in auth_path.iter().enumerate() {
-            let is_left = (leaf_position >> d) & 1 == 0;
-
-            // TODO precompute (in parallel + SIMD) poseidons
-
-            let (data_left, data_right) = if is_left {
-                (current_hash, *neightbour)
-            } else {
-                (*neightbour, current_hash)
-            };
-            for i in 0..VECTOR_LEN {
-                trace[INITIAL_COLS_DATA_LEFT + i].push(data_left[i]);
-                trace[INITIAL_COLS_DATA_RIGHT + i].push(data_right[i]);
-            }
-
-            let mut input = [F::ZERO; VECTOR_LEN * 2];
-            input[..VECTOR_LEN].copy_from_slice(&data_left);
-            input[VECTOR_LEN..].copy_from_slice(&data_right);
-
-            let output = match ctx.poseidon16_precomputed.get(*ctx.n_poseidon16_precomputed_used) {
+            let output = match ctx.poseidon24_precomputed.get(*ctx.n_poseidon24_precomputed_used) {
                 Some(precomputed) if precomputed.0 == input => {
-                    *ctx.n_poseidon16_precomputed_used += 1;
+                    *ctx.n_poseidon24_precomputed_used += 1;
                     precomputed.1
                 }
-                _ => poseidon16_permute(input),
+                _ => poseidon24_permute(input)[VECTOR_LEN * 2..].try_into().unwrap(),
             };
 
-            current_hash = output[..VECTOR_LEN].try_into().unwrap();
-            for i in 0..VECTOR_LEN {
-                trace[INITIAL_COLS_DATA_RES + i].push(current_hash[i]);
+            for j in 0..VECTOR_LEN * 2 {
+                trace[COL_LOOKUP_MEM_VALUES_LEFT + j].push(input[j]);
             }
-        }
-        let root = current_hash;
-        ctx.memory.set_vector(index_root.to_usize(), root)?;
+            for j in 0..VECTOR_LEN {
+                trace[INITIAL_COLS_DATA_RIGHT + j].push(cap[j]);
+            }
+            for j in 0..VECTOR_LEN {
+                trace[INITIAL_COLS_DATA_RES + j].push(output[j]);
+            }
 
+            cap = output;
+        }
+
+        let final_res = cap;
+        ctx.memory.set_vector(index_res.to_usize(), final_res)?;
+
+        trace[COL_FLAG].extend([vec![F::ONE], vec![F::ZERO; len - 1]].concat());
+        trace[COL_INDEX_SEED].extend(vec![index_seed; len]);
+        trace[COL_INDEX_START].extend((0..len).map(|i| index_start + F::from_usize(i * 2)));
+        trace[COL_INDEX_START_BIS].extend((0..len).map(|i| index_start + F::from_usize(i * 2 + 1)));
+        trace[COL_INDEX_RES].extend(vec![index_res; len]);
+        trace[COL_LEN].extend((1..=len).rev().map(F::from_usize));
+        trace[COL_LOOKUP_MEM_INDEX_SEED_OR_RES].extend([vec![index_seed], vec![index_res; len - 1]].concat());
         for i in 0..VECTOR_LEN {
-            trace[COLS_LEAF_START + i].extend(vec![leaf[i]; height]);
-            trace[COLS_ROOT_START + i].extend(vec![root[i]; height]);
+            trace[COL_LOOKUP_MEM_VALUES_SEED_OR_RES + i].extend([vec![seed[i]], vec![final_res[i]; len - 1]].concat());
         }
 
         Ok(())
@@ -188,98 +179,90 @@ impl Air for SliceHashPrecompile {
         3
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        (0..TOTAL_N_COLS - 3 * VECTOR_LEN).collect() // skip COLS_DATA, COLS_LEAF, COLS_ROOT
+        (0..INITIAL_COLS_DATA_RES).collect()
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        7 + 6 * VECTOR_LEN
+        8 + 5 * VECTOR_LEN
     }
     fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
         let flag = up[COL_FLAG].clone();
-        let index_leaf = up[COL_INDEX_LEAF].clone();
-        let leaf_position = up[COL_LEAF_POSITION].clone();
-        let index_root = up[COL_INDEX_ROOT].clone();
-        let height = up[COL_HEIGHT].clone();
-        let is_left = up[COL_IS_LEFT].clone();
-        let data_left: [_; VECTOR_LEN] = array::from_fn(|i| up[INITIAL_COLS_DATA_LEFT + i].clone());
+        let index_seed = up[COL_INDEX_SEED].clone();
+        let index_start = up[COL_INDEX_START].clone();
+        let index_start_bis = up[COL_INDEX_START_BIS].clone();
+        let index_res = up[COL_INDEX_RES].clone();
+        let len = up[COL_LEN].clone();
+        let lookup_index_seed_or_res = up[COL_LOOKUP_MEM_INDEX_SEED_OR_RES].clone();
         let data_right: [_; VECTOR_LEN] = array::from_fn(|i| up[INITIAL_COLS_DATA_RIGHT + i].clone());
         let data_res: [_; VECTOR_LEN] = array::from_fn(|i| up[INITIAL_COLS_DATA_RES + i].clone());
-        let leaf: [_; VECTOR_LEN] = array::from_fn(|i| up[COLS_LEAF_START + i].clone());
-        let root: [_; VECTOR_LEN] = array::from_fn(|i| up[COLS_ROOT_START + i].clone());
+        let data_seed_or_res_lookup_values: [_; VECTOR_LEN] =
+            array::from_fn(|i| up[COL_LOOKUP_MEM_VALUES_SEED_OR_RES + i].clone());
 
         let down = builder.down_f();
         let flag_down = down[0].clone();
-        let index_leaf_down = down[1].clone();
-        let leaf_position_down = down[2].clone();
-        let index_root_down = down[3].clone();
-        let height_down = down[4].clone();
-        let is_left_down = down[5].clone();
-        let data_left_down: [_; VECTOR_LEN] = array::from_fn(|i| down[6 + i].clone());
-        let data_right_down: [_; VECTOR_LEN] = array::from_fn(|i| down[6 + VECTOR_LEN + i].clone());
+        let index_seed_down = down[1].clone();
+        let index_start_down = down[2].clone();
+        let _index_start_bis_down = down[3].clone();
+        let index_res_down = down[4].clone();
+        let len_down = down[5].clone();
+        let _lookup_index_seed_or_res_down = down[6].clone();
+        let data_right_down: [_; VECTOR_LEN] = array::from_fn(|i| down[7 + i].clone());
 
         builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
             extra_data,
             AB::F::from_usize(self.identifier().index()),
             flag.clone(),
-            index_leaf.clone(),
-            leaf_position.clone(),
-            index_root.clone(),
-            height.clone(),
+            index_seed.clone(),
+            index_start.clone(),
+            index_res.clone(),
+            len.clone(),
         ));
 
         // TODO double check constraints
 
         builder.assert_bool(flag.clone());
-        builder.assert_bool(is_left.clone());
 
+        let not_flag = AB::F::ONE - flag.clone();
         let not_flag_down = AB::F::ONE - flag_down.clone();
-        let is_right = AB::F::ONE - is_left.clone();
-        let is_right_down = AB::F::ONE - is_left_down.clone();
 
-        // Parameters should not change as long as the flag has not been switched back to 1:
-        builder.assert_zero(not_flag_down.clone() * (index_leaf_down.clone() - index_leaf.clone()));
-        builder.assert_zero(not_flag_down.clone() * (index_root_down.clone() - index_root.clone()));
-
-        // decrease height by 1 each step
-        builder.assert_zero(not_flag_down.clone() * (height_down.clone() + AB::F::ONE - height.clone()));
-
-        builder.assert_zero(
-            not_flag_down.clone()
-                * ((leaf_position_down.clone() * AB::F::TWO + is_right.clone()) - leaf_position.clone()),
+        builder.assert_eq(
+            lookup_index_seed_or_res.clone(),
+            flag.clone() * index_seed.clone() + not_flag.clone() * index_res.clone(),
         );
 
-        // start (bottom of the tree)
-        let starts_and_is_left = flag.clone() * is_left.clone();
+        // index_start_bis = index_start + 1
+        builder.assert_eq(index_start_bis.clone(), index_start.clone() + AB::F::ONE);
+
+        // Parameters should not change as long as the flag has not been switched back to 1:
+        builder.assert_zero(not_flag_down.clone() * (index_seed_down.clone() - index_seed.clone()));
+        builder.assert_zero(not_flag_down.clone() * (index_res_down.clone() - index_res.clone()));
+
+        builder.assert_zero(not_flag_down.clone() * (index_start_down.clone() - (index_start.clone() + AB::F::TWO)));
+
+        // decrease len by 1 each step
+        builder.assert_zero(not_flag_down.clone() * (len_down.clone() + AB::F::ONE - len.clone()));
+
+        // start: ingest the seed
         for i in 0..VECTOR_LEN {
-            builder.assert_zero(starts_and_is_left.clone() * (data_left[i].clone() - leaf[i].clone()));
-        }
-        let starts_and_is_right = flag.clone() * is_right.clone();
-        for i in 0..VECTOR_LEN {
-            builder.assert_zero(starts_and_is_right.clone() * (data_right[i].clone() - leaf[i].clone()));
+            builder.assert_zero(flag.clone() * (data_right[i].clone() - data_seed_or_res_lookup_values[i].clone()));
         }
 
-        // transition (interior nodes)
-        let transition_left = not_flag_down.clone() * is_left_down.clone();
+        // transition
         for i in 0..VECTOR_LEN {
-            builder.assert_zero(transition_left.clone() * (data_left_down[i].clone() - data_res[i].clone()));
-        }
-        let transition_right = not_flag_down.clone() * is_right_down.clone();
-        for i in 0..VECTOR_LEN {
-            builder.assert_zero(transition_right.clone() * (data_right_down[i].clone() - data_res[i].clone()));
+            builder.assert_zero(not_flag_down.clone() * (data_res[i].clone() - data_right_down[i].clone()));
         }
 
-        // end (top of the tree)
-        builder.assert_zero(flag_down.clone() * leaf_position.clone() * (AB::F::ONE - leaf_position.clone())); // at last step, leaf position should be boolean
-        let ends_and_is_left = flag_down.clone() * is_left.clone();
+        // end
+        builder.assert_zero(flag_down.clone() * (len.clone() - AB::F::ONE)); // at last step, len should be 1
         for i in 0..VECTOR_LEN {
-            builder.assert_zero(ends_and_is_left.clone() * (data_res[i].clone() - root[i].clone()));
-        }
-        let ends_and_is_right = flag_down.clone() * is_right.clone();
-        for i in 0..VECTOR_LEN {
-            builder.assert_zero(ends_and_is_right.clone() * (data_res[i].clone() - root[i].clone()));
+            builder.assert_zero(
+                not_flag.clone()
+                    * flag_down.clone()
+                    * (data_res[i].clone() - data_seed_or_res_lookup_values[i].clone()),
+            );
         }
     }
 }
