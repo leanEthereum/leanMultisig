@@ -57,7 +57,7 @@ impl PhonyXmssSecretKey {
     }
 }
 
-pub fn generate_phony_xmss_signatures(
+pub fn xmss_generate_phony_signatures(
     log_lifetimes: &[usize],
     message_hash: Digest,
     first_slot: u64,

@@ -11,7 +11,7 @@ use tracing::{info_span, instrument};
 use whir_p3::precompute_dft_twiddles;
 use xmss::{
     Poseidon16History, Poseidon24History, V, XMSS_MAX_LOG_LIFETIME, XmssPublicKey, XmssSignature,
-    generate_phony_xmss_signatures, xmss_verify_with_poseidon_trace,
+    xmss_generate_phony_signatures, xmss_verify_with_poseidon_trace,
 };
 
 const XMSS_SIG_SIZE_VEC_PADDED: usize = (V + 1 + XMSS_MAX_LOG_LIFETIME) + XMSS_MAX_LOG_LIFETIME.div_ceil(8);
@@ -22,7 +22,7 @@ fn get_xmss_aggregation_program() -> &'static XmssAggregationProgram {
     XMSS_AGGREGATION_PROGRAM.get_or_init(compile_xmss_aggregation_program)
 }
 
-pub fn setup_xmss_aggregation() {
+pub fn xmss_setup_aggregation_program() {
     let _ = get_xmss_aggregation_program();
 }
 
@@ -137,7 +137,7 @@ fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionRes
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
     let first_slot = 1111;
-    let (xmss_pub_keys, all_signatures) = generate_phony_xmss_signatures(log_lifetimes, message_hash, first_slot);
+    let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, first_slot);
     let public_input = build_public_input(&xmss_pub_keys, message_hash);
     let private_input = build_private_input(&all_signatures, &xmss_pub_keys);
     execute_bytecode(
@@ -151,14 +151,14 @@ fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionRes
 
 pub fn run_xmss_benchmark(log_lifetimes: &[usize]) {
     utils::init_tracing();
-    setup_xmss_aggregation();
+    xmss_setup_aggregation_program();
     precompute_dft_twiddles::<F>(1 << 24);
 
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
     let first_slot = 785555;
 
-    let (xmss_pub_keys, all_signatures) = generate_phony_xmss_signatures(log_lifetimes, message_hash, first_slot);
+    let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, first_slot);
 
     let time = Instant::now();
     let (proof_data, n_field_elements_in_proof, summary) =

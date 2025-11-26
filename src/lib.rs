@@ -2,11 +2,25 @@ pub use multilinear_toolkit::prelude::{
     PrimeCharacteristicRing, // to allow `F::from_usize`
     ProofError,
 };
-pub use rec_aggregation::xmss_aggregate::{
-    setup_xmss_aggregation, xmss_aggregate_signatures, xmss_verify_aggregated_signatures,
+pub use rec_aggregation::xmss_aggregate::{xmss_aggregate_signatures, xmss_verify_aggregated_signatures};
+pub use xmss::{
+    XMSS_MAX_LOG_LIFETIME,
+    XmssPublicKey,
+    XmssSecretKey,
+    xmss_generate_phony_signatures, // useful for tests
+    xmss_key_gen,
+    xmss_sign,
+    xmss_verify,
 };
-pub use whir_p3::precompute_dft_twiddles;
-pub use xmss::{XMSS_MAX_LOG_LIFETIME, XmssPublicKey, XmssSecretKey, xmss_key_gen, xmss_sign, xmss_verify};
+
+pub fn xmss_aggregation_setup_prover() {
+    rec_aggregation::xmss_aggregate::xmss_setup_aggregation_program();
+    whir_p3::precompute_dft_twiddles::<F>(1 << 24);
+}
+
+pub fn xmss_aggregation_setup_verifier() {
+    rec_aggregation::xmss_aggregate::xmss_setup_aggregation_program();
+}
 
 pub type F = p3_koala_bear::KoalaBear;
 
@@ -21,7 +35,6 @@ For performance, don't forget:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xmss::{XMSS_MAX_LOG_LIFETIME, generate_phony_xmss_signatures};
 
     #[test]
     fn test_xmss_signature() {
@@ -39,20 +52,18 @@ mod tests {
 
     #[test]
     fn test_aggregate_xmss_signature() {
-        // Compile witness program to lean-ISA.
-        // Should be called at the start of the program (both by prover or verifier).
-        // (Otherwise the first call to `xmss_aggregate_signatures` or `xmss_verify_aggregated_signatures` will be slower)
-        setup_xmss_aggregation();
+        // Not mandatory, but avoid to slow down the first aggregation proof
+        xmss_aggregation_setup_prover();
 
-        // Should only be called by the prover, at the start of the program
-        //(Otherwise the first call to `xmss_aggregate_signatures` will be slower)
-        precompute_dft_twiddles::<F>(1 << 24);
+        // Not mandatory, but avoid to slow down the first aggregation verification
+        // (Actually, no need to call it if `xmss_aggregation_setup_prover` was already called)
+        xmss_aggregation_setup_verifier();
 
         let log_lifetimes = (1..=XMSS_MAX_LOG_LIFETIME).collect::<Vec<usize>>();
         let message_hash: [F; 8] = std::array::from_fn(|i| F::from_usize(i * 7));
         let first_slot = 77777;
 
-        let (xmss_pub_keys, all_signatures) = generate_phony_xmss_signatures(&log_lifetimes, message_hash, first_slot);
+        let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(&log_lifetimes, message_hash, first_slot);
 
         let proof = xmss_aggregate_signatures(&xmss_pub_keys, &all_signatures, message_hash).unwrap();
         xmss_verify_aggregated_signatures(&xmss_pub_keys, message_hash, &proof).unwrap();
