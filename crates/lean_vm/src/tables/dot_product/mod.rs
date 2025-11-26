@@ -26,17 +26,7 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
     }
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
-        let mut res = vec![
-            COL_FLAG,
-            COL_LEN,
-            COL_INDEX_A,
-            COL_INDEX_B,
-            COL_INDEX_RES,
-        ];
-        if BE {
-            res.push(dot_product_air_col_value_a(BE));
-        }
-        res
+        vec![COL_FLAG, COL_LEN, COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES]
     }
 
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
@@ -86,12 +76,7 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
             selector: COL_FLAG,
-            data: vec![
-                COL_INDEX_A,
-                COL_INDEX_B,
-                COL_INDEX_RES,
-                COL_LEN,
-            ],
+            data: vec![COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES, COL_LEN],
         }]
     }
 
