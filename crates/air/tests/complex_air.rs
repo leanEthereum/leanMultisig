@@ -108,7 +108,7 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
     const N_PREPROCESSED_COLUMNS: usize = 5;
     let log_n_rows = 12;
     let n_rows = 1 << log_n_rows;
-    let mut prover_state = build_prover_state::<EF>();
+    let mut prover_state = build_prover_state::<EF>(false);
 
     let (columns_plus_one_f, columns_plus_one_ef) = generate_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(n_rows + 1);
     let columns_ref_f = columns_plus_one_f.iter().map(|col| &col[..n_rows]).collect::<Vec<_>>();

@@ -60,7 +60,7 @@ fn generate_trace(n_rows: usize) -> (Vec<F>, Vec<EF>) {
 fn test_air_fibonacci() {
     let log_n_rows = 14;
     let n_rows = 1 << log_n_rows;
-    let mut prover_state = build_prover_state::<EF>();
+    let mut prover_state = build_prover_state::<EF>(false);
 
     let (columns_plus_one_f, columns_plus_one_ef) = generate_trace(n_rows + 1);
     let columns_ref_f = vec![&columns_plus_one_f[..n_rows]];

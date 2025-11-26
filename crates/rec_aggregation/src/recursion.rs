@@ -76,7 +76,7 @@ pub fn run_whir_recursion_benchmark() {
     let eval = polynomial.evaluate(&point);
     statement.push(Evaluation::new(point.clone(), eval));
 
-    let mut prover_state = build_prover_state();
+    let mut prover_state = build_prover_state(true);
 
     precompute_dft_twiddles::<F>(1 << 24);
 

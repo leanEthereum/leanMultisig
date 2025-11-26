@@ -97,7 +97,7 @@ pub fn run_poseidon_benchmark<const WIDTH: usize, const N_COMMITED_CUBES: usize,
             },
         );
 
-        let mut prover_state = build_prover_state::<EF>();
+        let mut prover_state = build_prover_state::<EF>(false);
 
         let committed_polys = witness
             .input_layer

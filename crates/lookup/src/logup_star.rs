@@ -215,7 +215,7 @@ mod tests {
     use super::*;
     use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use utils::{build_challenger, build_verifier_state, init_tracing};
+    use utils::{build_prover_state, build_verifier_state, init_tracing};
 
     type F = KoalaBear;
     type EF = QuinticExtensionFieldKB;
@@ -256,11 +256,9 @@ mod tests {
         // commit to the indexes
         let commited_indexes = indexes.clone(); // Phony commitment for the example
 
-        let challenger = build_challenger();
-
         let point = MultilinearPoint((0..log_indexes_len).map(|_| rng.random()).collect::<Vec<EF>>());
 
-        let mut prover_state = FSProver::new(challenger.clone());
+        let mut prover_state = build_prover_state(false);
         let eval = values.evaluate(&point);
 
         let time = std::time::Instant::now();

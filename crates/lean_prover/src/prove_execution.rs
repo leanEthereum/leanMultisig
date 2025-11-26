@@ -85,7 +85,7 @@ pub fn prove_execution(
         })
     });
 
-    let mut prover_state = build_prover_state::<EF>();
+    let mut prover_state = build_prover_state::<EF>(false);
     prover_state.add_base_scalars(
         &[
             vec![private_memory.len()],

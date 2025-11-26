@@ -52,7 +52,7 @@ fn test_generic_packed_lookup() {
         all_value_columns.push(columns);
     }
 
-    let mut prover_state = build_prover_state();
+    let mut prover_state = build_prover_state(false);
 
     let packed_lookup_prover = GenericPackedLookupProver::step_1(
         &mut prover_state,

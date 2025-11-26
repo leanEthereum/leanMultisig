@@ -643,7 +643,7 @@ mod tests {
             .unwrap()
             .push(Evaluation::new(vec![EF::ONE; 10], EF::from_usize(100)));
 
-        let mut prover_state = build_prover_state();
+        let mut prover_state = build_prover_state(false);
         precompute_dft_twiddles::<F>(1 << 24);
 
         let polynomials_ref = polynomials.iter().map(|p| p.as_slice()).collect::<Vec<_>>();

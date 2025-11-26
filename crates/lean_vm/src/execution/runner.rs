@@ -261,26 +261,6 @@ fn execute_bytecode_helper(
         poseidons_24_precomputed.len(),
         "Warning: not all precomputed Poseidon24 were used"
     );
-    assert!(
-        merkle_path_hints.is_empty(),
-        "Warning: not all merkle path hints were used"
-    );
-    tracing::info!(
-        "{}% of Poseidon16 precomputed",
-        if poseidons_16_precomputed.is_empty() {
-            0.
-        } else {
-            (n_poseidon16_precomputed_used as f64 / poseidons_16_precomputed.len() as f64) * 100.0
-        }
-    );
-    tracing::info!(
-        "{}% of Poseidon24 precomputed",
-        if poseidons_24_precomputed.is_empty() {
-            0.
-        } else {
-            (n_poseidon24_precomputed_used as f64 / poseidons_24_precomputed.len() as f64) * 100.0
-        }
-    );
 
     assert_eq!(pc, ENDING_PC);
     pcs.push(pc);
@@ -336,6 +316,18 @@ fn execute_bytecode_helper(
     summary.push_str(&format!(
         "Memory usage: {:.1}%\n",
         used_memory_cells as f64 / runtime_memory_size as f64 * 100.0
+    ));
+
+    // precomputed poseidons
+    summary.push_str(&format!(
+        "Poseidon2_16 precomputed used: {}/{}\n",
+        pretty_integer(n_poseidon16_precomputed_used),
+        pretty_integer(poseidons_16_precomputed.len())
+    ));
+    summary.push_str(&format!(
+        "Poseidon2_24 precomputed used: {}/{}\n",
+        pretty_integer(n_poseidon24_precomputed_used),
+        pretty_integer(poseidons_24_precomputed.len())
     ));
 
     summary.push('\n');

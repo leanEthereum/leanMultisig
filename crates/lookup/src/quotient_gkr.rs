@@ -311,7 +311,7 @@ mod tests {
             .collect::<Vec<_>>();
         let denominators = denominators_indexes.iter().map(|&i| c - i).collect::<Vec<EF>>();
         let real_quotient = sum_all_quotients(&numerators, &denominators);
-        let mut prover_state = build_prover_state();
+        let mut prover_state = build_prover_state(false);
 
         let time = Instant::now();
         let prover_statements = prove_gkr_quotient::<EF, N_GROUPS>(

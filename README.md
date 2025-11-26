@@ -46,7 +46,7 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion
 ### XMSS aggregation
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1150
+RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1200
 ```
 
 [Trivial encoding](docs/XMSS_trivial_encoding.pdf) (for now).

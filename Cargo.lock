@@ -95,12 +95,21 @@ version = "0.3.0"
 source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
 dependencies = [
  "fiat-shamir",
- "itertools 0.10.5",
+ "itertools",
  "p3-field",
  "p3-util",
  "rand",
  "rayon",
  "tracing",
+]
+
+[[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -283,11 +292,12 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=modular-precompiles#854f7b73b51f788ff44dafd6ea19205f42c19dcc"
+source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=modular-precompiles#b71afd774b3186b02ebe2cded75358da2901b584"
 dependencies = [
  "p3-challenger",
  "p3-field",
  "p3-koala-bear",
+ "serde",
 ]
 
 [[package]]
@@ -342,15 +352,6 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itertools"
-version = "0.10.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -365,6 +366,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
+name = "keccak"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+dependencies = [
+ "cpufeatures",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -375,8 +385,12 @@ name = "lean-multisig"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "multilinear-toolkit",
+ "p3-koala-bear",
  "poseidon_circuit",
  "rec_aggregation",
+ "whir-p3",
+ "xmss",
 ]
 
 [[package]]
@@ -408,7 +422,7 @@ name = "lean_prover"
 version = "0.1.0"
 dependencies = [
  "air",
- "itertools 0.10.5",
+ "itertools",
  "lean_compiler",
  "lean_vm",
  "lookup",
@@ -623,7 +637,7 @@ name = "p3-commit"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-challenger",
  "p3-dft",
  "p3-field",
@@ -637,7 +651,7 @@ name = "p3-dft"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-field",
  "p3-matrix",
  "p3-maybe-rayon",
@@ -650,7 +664,7 @@ name = "p3-field"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "num-bigint",
  "p3-maybe-rayon",
  "p3-util",
@@ -676,7 +690,7 @@ name = "p3-koala-bear"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "num-bigint",
  "p3-field",
  "p3-monty-31",
@@ -692,7 +706,7 @@ name = "p3-matrix"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-field",
  "p3-maybe-rayon",
  "p3-util",
@@ -727,7 +741,7 @@ name = "p3-merkle-tree"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-commit",
  "p3-field",
  "p3-matrix",
@@ -744,7 +758,7 @@ name = "p3-monty-31"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "num-bigint",
  "p3-dft",
  "p3-field",
@@ -778,7 +792,7 @@ name = "p3-symmetric"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-field",
  "serde",
 ]
@@ -958,6 +972,7 @@ name = "rec_aggregation"
 version = "0.1.0"
 dependencies = [
  "air",
+ "bincode",
  "lean_compiler",
  "lean_prover",
  "lean_vm",
@@ -970,6 +985,7 @@ dependencies = [
  "p3-symmetric",
  "p3-util",
  "rand",
+ "serde",
  "serde_json",
  "sub_protocols",
  "tracing",
@@ -1059,6 +1075,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "sha3"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+dependencies = [
+ "digest",
+ "keccak",
 ]
 
 [[package]]
@@ -1200,9 +1226,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-attributes"
-version = "0.1.30"
+version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81383ab64e72a7a8b8e13130c49e3dab29def6d0c7d76a03087b3cf71c5c6903"
+checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1211,9 +1237,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.34"
+version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9d12581f227e93f094d3af2ae690a574abb8a2b9b7a96e7cfe9647b2b617678"
+checksum = "7a04e24fab5c89c6a36eb8558c9656f30d81de51dfa4d3b45f26b21d61fa0a6c"
 dependencies = [
  "once_cell",
  "valuable",
@@ -1362,7 +1388,7 @@ name = "whir-p3"
 version = "0.1.0"
 source = "git+https://github.com/TomWambsgans/whir-p3?branch=modular-precompiles#a95124c1f0bb4166f4f091293123f5ad4903c8e1"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "multilinear-toolkit",
  "p3-baby-bear",
  "p3-challenger",
@@ -1545,23 +1571,24 @@ dependencies = [
  "p3-koala-bear",
  "p3-util",
  "rand",
+ "sha3",
  "utils",
 ]
 
 [[package]]
 name = "zerocopy"
-version = "0.8.28"
+version = "0.8.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43fa6694ed34d6e57407afbccdeecfa268c470a7d2a5b0cf49ce9fcc345afb90"
+checksum = "4ea879c944afe8a2b25fef16bb4ba234f47c694565e97383b36f3a878219065c"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.28"
+version = "0.8.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c640b22cd9817fae95be82f0d2f90b11f7605f6c319d16705c459b27ac2cbc26"
+checksum = "cf955aa904d6040f70dc8e9384444cb1030aed272ba3cb09bbc4ab9e7c1f34f5"
 dependencies = [
  "proc-macro2",
  "quote",

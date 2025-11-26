@@ -1,30 +1,32 @@
-use rand::Rng;
-
 use crate::*;
+use multilinear_toolkit::prelude::*;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
 // Only 1 WOTS, everything else in the merkle tree is random
 // Useful for benchmark with a big lifetime, to speed up keys generation
 
 #[derive(Debug)]
-pub struct PhonyXmssSecretKey<const LOG_LIFETIME: usize> {
-    pub wots_secret_key: WotsSecretKey,
-    pub slot: usize,
-    pub merkle_path: Vec<Digest>,
-    pub public_key: XmssPublicKey<LOG_LIFETIME>,
+struct PhonyXmssSecretKey {
+    wots_secret_key: WotsSecretKey,
+    first_slot: u64,
+    signature_slot: u64,
+    merkle_path: Vec<Digest>,
+    public_key: XmssPublicKey,
 }
 
-impl<const LOG_LIFETIME: usize> PhonyXmssSecretKey<LOG_LIFETIME> {
-    pub fn random(rng: &mut impl Rng, signature_index: usize) -> Self {
+impl PhonyXmssSecretKey {
+    fn random(rng: &mut impl Rng, first_slot: u64, log_lifetime: usize, signature_slot: u64) -> Self {
         assert!(
-            signature_index < (1 << LOG_LIFETIME),
+            signature_slot.checked_sub(first_slot).unwrap() < (1 << log_lifetime),
             "Index out of bounds for XMSS signature"
         );
         let wots_secret_key = WotsSecretKey::random(rng);
         let mut merkle_path = Vec::new();
         let mut hash = wots_secret_key.public_key().hash();
-        for i in 0..LOG_LIFETIME {
+        let wots_index = signature_slot - first_slot;
+        for i in 0..log_lifetime {
             let phony_neighbour: Digest = rng.random();
-            let is_left = (signature_index >> i).is_multiple_of(2);
+            let is_left = (wots_index >> i).is_multiple_of(2);
             if is_left {
                 hash = poseidon16_compress(&hash, &phony_neighbour);
             } else {
@@ -34,26 +36,41 @@ impl<const LOG_LIFETIME: usize> PhonyXmssSecretKey<LOG_LIFETIME> {
         }
         Self {
             wots_secret_key,
-            slot: signature_index,
+            first_slot,
+            signature_slot,
             merkle_path,
-            public_key: XmssPublicKey(hash),
+            public_key: XmssPublicKey {
+                merkle_root: hash,
+                log_lifetime,
+                first_slot,
+            },
         }
     }
 
-    pub fn sign(&self, message_hash: &Digest, rng: &mut impl Rng) -> XmssSignature {
+    fn sign(&self, message_hash: &Digest, rng: &mut impl Rng) -> XmssSignature {
         let wots_signature = self.wots_secret_key.sign(message_hash, rng);
         XmssSignature {
             wots_signature,
-            slot: self.slot,
-            merkle_proof: self
-                .merkle_path
-                .iter()
-                .enumerate()
-                .map(|(i, h)| {
-                    let is_left = (self.slot >> i).is_multiple_of(2);
-                    (is_left, *h)
-                })
-                .collect(),
+            merkle_proof: self.merkle_path.clone(),
+            slot: self.signature_slot,
         }
     }
+}
+
+pub fn xmss_generate_phony_signatures(
+    log_lifetimes: &[usize],
+    message_hash: Digest,
+    slot: u64,
+) -> (Vec<XmssPublicKey>, Vec<XmssSignature>) {
+    log_lifetimes
+        .par_iter()
+        .enumerate()
+        .map(|(i, &log_lifetime)| {
+            let mut rng = StdRng::seed_from_u64(i as u64);
+            let first_slot = slot - rng.random_range(0..(1 << log_lifetime).min(slot));
+            let xmss_secret_key = PhonyXmssSecretKey::random(&mut rng, first_slot, log_lifetime, slot);
+            let signature = xmss_secret_key.sign(&message_hash, &mut rng);
+            (xmss_secret_key.public_key, signature)
+        })
+        .unzip()
 }

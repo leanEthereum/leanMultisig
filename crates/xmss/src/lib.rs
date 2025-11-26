@@ -13,11 +13,12 @@ type F = KoalaBear;
 type Digest = [F; 8];
 
 // WOTS
-pub const V: usize = 68;
+pub const V: usize = 66;
 pub const W: usize = 4;
 pub const CHAIN_LENGTH: usize = 1 << W;
-pub const D: usize = 90;
+pub const D: usize = 80;
 pub const TARGET_SUM: usize = V * (W - 1) - D;
+pub const XMSS_MAX_LOG_LIFETIME: usize = 30;
 
 pub type Poseidon16History = Vec<([F; 16], [F; 16])>;
 pub type Poseidon24History = Vec<([F; 24], [F; 8])>;
