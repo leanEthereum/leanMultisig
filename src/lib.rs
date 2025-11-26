@@ -11,7 +11,9 @@ pub use xmss::{XMSS_MAX_LOG_LIFETIME, XmssPublicKey, XmssSecretKey, xmss_key_gen
 pub type F = p3_koala_bear::KoalaBear;
 
 /*
-Don't forget:
+WARNING: Toy XMSS, do not consider this secure (for now)!
+
+For performance, don't forget:
 1) RUSTFLAGS='-C target-cpu=native'
 2) --release
 */
