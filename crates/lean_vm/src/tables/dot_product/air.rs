@@ -60,12 +60,7 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
         8
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        vec![
-            COL_FLAG,
-            COL_LEN,
-            COL_INDEX_A,
-            COL_INDEX_B,
-        ]
+        vec![COL_FLAG, COL_LEN, COL_INDEX_A, COL_INDEX_B]
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![COL_COMPUTATION]

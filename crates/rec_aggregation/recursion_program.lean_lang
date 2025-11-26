@@ -179,46 +179,22 @@ fn eq_mle_extension(a, b, n) -> 1 {
 }
 
 fn eq_mle_extension_base_dynamic(a, b, n) -> 1 {
+    res = malloc(DIM);
     if n == N_VARS - FOLDING_FACTOR_0 {
-        res = eq_mle_extension_base_const(a, b, N_VARS - FOLDING_FACTOR_0);
+        eq_poly_base_ext(a, b, res, N_VARS - FOLDING_FACTOR_0);
         return res;
     }
     if n == N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 {
-        res = eq_mle_extension_base_const(a, b, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
+        eq_poly_base_ext(a, b, res, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
         return res;
     }
     if n == N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2 {
-        res = eq_mle_extension_base_const(a, b, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
+        eq_poly_base_ext(a, b, res, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
         return res;
     }
     TODO_eq_mle_extension_base_dynamicc = n;
     print(TODO_eq_mle_extension_base_dynamicc);
     panic();
-}
-
-fn eq_mle_extension_base_const(a, b, const n) -> 1 {
-    // a: base
-    // b: extension
-
-    buff = malloc(n*DIM);
-
-    for i in 0..n unroll {
-        ai = a[i];
-        bi = b + i*DIM;
-        buffi = buff + i*DIM;
-        ai_double = ai * 2;
-        buffi[0] = 1 + ai_double * bi[0] - ai - bi[0];
-        for j in 1..DIM unroll {
-            buffi[j] = ai_double * bi[j] - bi[j];
-        }
-    }
-
-    prods = malloc(n*DIM);
-    assert_eq_extension(buff, prods);
-    for i in 0..n - 1 unroll {
-        mul_extension(prods + i*DIM, buff + (i + 1)*DIM, prods + (i + 1)*DIM);
-    }
-    return prods + (n - 1) * DIM;
 }
 
 fn expand_from_univariate_dynamic(alpha, n) -> 1 {

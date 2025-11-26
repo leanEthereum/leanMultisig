@@ -40,6 +40,16 @@ where
         "TODO handle the case UNIVARIATE_SKIPS >= log_length"
     );
 
+    // crate::check_air_validity(
+    //     air,
+    //     &extra_data,
+    //     &columns_f,
+    //     &columns_ef,
+    //     last_row_shifted_f,
+    //     last_row_shifted_ef,
+    // )
+    // .unwrap();
+
     let alpha = prover_state.sample(); // random challenge for batching constraints
 
     *extra_data.alpha_powers_mut() = alpha

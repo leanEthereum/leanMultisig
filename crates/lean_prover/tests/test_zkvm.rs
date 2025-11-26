@@ -29,8 +29,9 @@ fn test_zk_vm_all_precompiles() {
         dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
         merkle_verify((pub_start + 2000) / 8, LEAF_POS_1, (pub_start + 2000 + 8) / 8, MERKLE_HEIGHT_1);
         merkle_verify((pub_start + 2000 + 16) / 8, LEAF_POS_2, (pub_start + 2000 + 24) / 8, MERKLE_HEIGHT_2);
-        index_res = 10000;
-        slice_hash(0, 0, index_res, 3);
+        index_res_slice_hash = 10000;
+        slice_hash(5, 6, index_res_slice_hash, 3);
+        eq_poly_base_ext(pub_start + 1100, pub_start +1100 + 3, pub_start + 1100 + (DIM + 1) * 3, 3);
         
         return;
     }
@@ -75,6 +76,20 @@ fn test_zk_vm_all_precompiles() {
 
     public_input[1000..][..DIMENSION].copy_from_slice(dot_product_base_ext.as_basis_coefficients_slice());
     public_input[1000 + DIMENSION..][..DIMENSION].copy_from_slice(dot_product_ext_ext.as_basis_coefficients_slice());
+
+    let slice_a: [F; 3] = rng.random();
+    let slice_b: [EF; 3] = rng.random();
+    let poly_eq = MultilinearPoint(slice_b.to_vec())
+        .eq_poly_outside(&MultilinearPoint(slice_a.iter().map(|&x| EF::from(x)).collect()));
+    public_input[1100..][..3].copy_from_slice(&slice_a);
+    public_input[1100 + 3..][..3 * DIMENSION].copy_from_slice(
+        slice_b
+            .iter()
+            .flat_map(|&x| x.as_basis_coefficients_slice().to_vec())
+            .collect::<Vec<F>>()
+            .as_slice(),
+    );
+    public_input[1100 + 3 + 3 * DIMENSION..][..DIMENSION].copy_from_slice(poly_eq.as_basis_coefficients_slice());
 
     fn add_merkle_path(
         rng: &mut StdRng,
