@@ -77,7 +77,7 @@ pub fn run_whir_recursion_benchmark() {
     let eval = polynomial.evaluate(&point);
     statement.push(Evaluation::new(point.clone(), eval));
 
-    let mut prover_state = build_prover_state();
+    let mut prover_state = build_prover_state(true);
 
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -159,7 +159,7 @@ pub fn run_whir_recursion_benchmark() {
 
     let time = Instant::now();
 
-    let (proof_data, proof_size, summary) = prove_execution(
+    let (proof_data, summary) = prove_execution(
         &bytecode,
         (&public_input, &[]),
         whir_config_builder(),
@@ -168,13 +168,13 @@ pub fn run_whir_recursion_benchmark() {
         (&vec![], &vec![]), // TODO precompute poseidons
     );
     let proving_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+    verify_execution(&bytecode, &public_input, proof_data.clone(), whir_config_builder()).unwrap();
 
     println!("{summary}");
     println!(
         "WHIR recursion, proving time: {} ms, proof size: {} KiB (not optimized)",
         proving_time.as_millis(),
-        proof_size * F::bits() / (8 * 1024)
+        proof_data.len() * F::bits() / (8 * 1024)
     );
 }
 

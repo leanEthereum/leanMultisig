@@ -83,7 +83,7 @@ fn test_normal_packed_lookup() {
         all_statements_ef.push(statements);
     }
 
-    let mut prover_state = build_prover_state();
+    let mut prover_state = build_prover_state(false);
 
     let packed_lookup_prover = NormalPackedLookupProver::step_1(
         &mut prover_state,
