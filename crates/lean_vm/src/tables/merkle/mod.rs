@@ -79,7 +79,7 @@ impl TableT for MerklePrecompile {
                 F::ZERO,                                  // leaf_position
                 F::from_usize(POSEIDON_16_NULL_HASH_PTR), // index_root
                 F::ONE,
-                F::ZERO,                                  // is_left
+                F::ZERO,                     // is_left
                 F::from_usize(ZERO_VEC_PTR), // lookup_mem_index
             ],
             vec![F::ZERO; VECTOR_LEN], // data_left
@@ -189,7 +189,7 @@ impl Air for MerklePrecompile {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        8 + 5 * VECTOR_LEN
+        9 + 5 * VECTOR_LEN
     }
     fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
@@ -274,6 +274,7 @@ impl Air for MerklePrecompile {
         }
 
         // end (top of the tree)
+        builder.assert_zero(flag_down.clone() * (height.clone() - AB::F::ONE)); // at last step, height should be 1
         builder.assert_zero(flag_down.clone() * leaf_position.clone() * (AB::F::ONE - leaf_position.clone())); // at last step, leaf position should be boolean
         for i in 0..VECTOR_LEN {
             builder
