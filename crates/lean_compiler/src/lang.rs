@@ -1,7 +1,7 @@
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
@@ -307,6 +307,7 @@ pub enum Line {
         value: Expression,
         arms: Vec<(usize, Vec<Self>)>,
     },
+    ForwardDeclaration { var: Var },
     Assignment {
         var: Var,
         value: Expression,
@@ -379,6 +380,29 @@ pub enum Line {
         location: SourceLineNumber,
     },
 }
+
+/// A context specifying which variables are in scope.
+pub struct Context {
+    /// A list of lexical scopes, innermost scope last.
+    pub scopes: Vec<Scope>,
+}
+
+impl Context {
+    pub fn defines(&self, var: &Var) -> bool {
+        for scope in self.scopes.iter() {
+            if scope.vars.contains(var) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+pub struct Scope {
+    /// A set of declared variables.
+    pub vars: BTreeSet<Var>,
+}
+
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -418,6 +442,9 @@ impl Line {
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!("match {value} {{\n{arms_str}\n{spaces}}}")
+            }
+            Self::ForwardDeclaration { var } => {
+                format!("var {var}")
             }
             Self::Assignment { var, value } => {
                 format!("{var} = {value}")
