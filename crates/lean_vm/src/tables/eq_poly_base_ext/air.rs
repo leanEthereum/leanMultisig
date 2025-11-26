@@ -21,16 +21,16 @@ use p3_air::{Air, AirBuilder};
 */
 
 // F columns
-pub(super) const COL_FLAG: usize = 0;
-pub(super) const COL_LEN: usize = 1;
-pub(super) const COL_INDEX_A: usize = 2;
-pub(super) const COL_INDEX_B: usize = 3;
-pub(super) const COL_INDEX_RES: usize = 4;
+pub(super) const DOT_PRODUCT_AIR_COL_FLAG: usize = 0;
+pub(super) const DOT_PRODUCT_AIR_COL_LEN: usize = 1;
+pub(super) const DOT_PRODUCT_AIR_COL_INDEX_A: usize = 2;
+pub(super) const DOT_PRODUCT_AIR_COL_INDEX_B: usize = 3;
+pub(super) const DOT_PRODUCT_AIR_COL_INDEX_RES: usize = 4;
 
 // EF columns
-pub(super) const COL_VALUE_B: usize = 0;
-pub(super) const COL_VALUE_RES: usize = 1;
-pub(super) const COL_COMPUTATION: usize = 2;
+pub(super) const DOT_PRODUCT_AIR_COL_VALUE_B: usize = 0;
+pub(super) const DOT_PRODUCT_AIR_COL_VALUE_RES: usize = 1;
+pub(super) const DOT_PRODUCT_AIR_COL_COMPUTATION: usize = 2;
 
 pub(super) const fn dot_product_air_col_value_a(be: bool) -> usize {
     if be { 5 } else { 3 }
@@ -61,14 +61,14 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![
-            COL_FLAG,
-            COL_LEN,
-            COL_INDEX_A,
-            COL_INDEX_B,
+            DOT_PRODUCT_AIR_COL_FLAG,
+            DOT_PRODUCT_AIR_COL_LEN,
+            DOT_PRODUCT_AIR_COL_INDEX_A,
+            DOT_PRODUCT_AIR_COL_INDEX_B,
         ]
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
-        vec![COL_COMPUTATION]
+        vec![DOT_PRODUCT_AIR_COL_COMPUTATION]
     }
 
     #[inline]
@@ -78,20 +78,20 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
         let down_f = builder.down_f();
         let down_ef = builder.down_ef();
 
-        let flag = up_f[COL_FLAG].clone();
-        let len = up_f[COL_LEN].clone();
-        let index_a = up_f[COL_INDEX_A].clone();
-        let index_b = up_f[COL_INDEX_B].clone();
-        let index_res = up_f[COL_INDEX_RES].clone();
+        let flag = up_f[DOT_PRODUCT_AIR_COL_FLAG].clone();
+        let len = up_f[DOT_PRODUCT_AIR_COL_LEN].clone();
+        let index_a = up_f[DOT_PRODUCT_AIR_COL_INDEX_A].clone();
+        let index_b = up_f[DOT_PRODUCT_AIR_COL_INDEX_B].clone();
+        let index_res = up_f[DOT_PRODUCT_AIR_COL_INDEX_RES].clone();
         let value_a = if BE {
             AB::EF::from(up_f[dot_product_air_col_value_a(BE)].clone()) // TODO embdding overhead
         } else {
             up_ef[dot_product_air_col_value_a(BE)].clone()
         };
 
-        let value_b = up_ef[COL_VALUE_B].clone();
-        let res = up_ef[COL_VALUE_RES].clone();
-        let computation = up_ef[COL_COMPUTATION].clone();
+        let value_b = up_ef[DOT_PRODUCT_AIR_COL_VALUE_B].clone();
+        let res = up_ef[DOT_PRODUCT_AIR_COL_VALUE_RES].clone();
+        let computation = up_ef[DOT_PRODUCT_AIR_COL_COMPUTATION].clone();
 
         let flag_down = down_f[0].clone();
         let len_down = down_f[1].clone();

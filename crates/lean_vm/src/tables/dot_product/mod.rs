@@ -27,11 +27,11 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
         let mut res = vec![
-            DOT_PRODUCT_AIR_COL_FLAG,
-            DOT_PRODUCT_AIR_COL_LEN,
-            DOT_PRODUCT_AIR_COL_INDEX_A,
-            DOT_PRODUCT_AIR_COL_INDEX_B,
-            DOT_PRODUCT_AIR_COL_INDEX_RES,
+            COL_FLAG,
+            COL_LEN,
+            COL_INDEX_A,
+            COL_INDEX_B,
+            COL_INDEX_RES,
         ];
         if BE {
             res.push(dot_product_air_col_value_a(BE));
@@ -40,13 +40,13 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
     }
 
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![DOT_PRODUCT_AIR_COL_COMPUTATION]
+        vec![COL_COMPUTATION]
     }
 
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         if BE {
             vec![LookupIntoMemory {
-                index: DOT_PRODUCT_AIR_COL_INDEX_A,
+                index: COL_INDEX_A,
                 values: dot_product_air_col_value_a(BE),
             }]
         } else {
@@ -57,19 +57,19 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         let mut res = vec![
             ExtensionFieldLookupIntoMemory {
-                index: DOT_PRODUCT_AIR_COL_INDEX_B,
-                values: DOT_PRODUCT_AIR_COL_VALUE_B,
+                index: COL_INDEX_B,
+                values: COL_VALUE_B,
             },
             ExtensionFieldLookupIntoMemory {
-                index: DOT_PRODUCT_AIR_COL_INDEX_RES,
-                values: DOT_PRODUCT_AIR_COL_VALUE_RES,
+                index: COL_INDEX_RES,
+                values: COL_VALUE_RES,
             },
         ];
         if !BE {
             res.insert(
                 0,
                 ExtensionFieldLookupIntoMemory {
-                    index: DOT_PRODUCT_AIR_COL_INDEX_A,
+                    index: COL_INDEX_A,
                     values: dot_product_air_col_value_a(BE),
                 },
             );
@@ -85,12 +85,12 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
         vec![Bus {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
-            selector: DOT_PRODUCT_AIR_COL_FLAG,
+            selector: COL_FLAG,
             data: vec![
-                DOT_PRODUCT_AIR_COL_INDEX_A,
-                DOT_PRODUCT_AIR_COL_INDEX_B,
-                DOT_PRODUCT_AIR_COL_INDEX_RES,
-                DOT_PRODUCT_AIR_COL_LEN,
+                COL_INDEX_A,
+                COL_INDEX_B,
+                COL_INDEX_RES,
+                COL_LEN,
             ],
         }]
     }
