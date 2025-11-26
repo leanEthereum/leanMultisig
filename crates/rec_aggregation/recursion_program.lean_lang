@@ -85,13 +85,12 @@ fn main() {
 
     fs_state_10, final_circle_values, final_folds =
         sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4, GRINDING_BITS_3);
-
     
     for i in 0..NUM_QUERIES_3 {
         powers_of_2_rev = expand_from_univariate_const(final_circle_values[i], FINAL_VARS);
         poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, 2**FINAL_VARS);
         final_pol_evaluated_on_circle = malloc(DIM);
-        dot_product_base_extension(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS); // TODO use multilinear eval instead
+        dot_product_be(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS); 
         assert_eq_extension(final_pol_evaluated_on_circle, final_folds + i*DIM);
     }
 
@@ -533,29 +532,6 @@ fn dot_product_dynamic(a, b, res, n) {
     TODO_dot_product_dynamic = 0;
     print(TODO_dot_product_dynamic, n);
     panic();
-}
-
-fn dot_product_base_extension(a, b, res, const n) {
-    // a is a normal pointer to n F elements
-    // b is a normal pointer to n continous EF elements
-    // res is a normal pointer to 1 EF element
-
-    prods = malloc(n * DIM);
-    for i in 0..n unroll {
-        for j in 0..DIM unroll {
-            prods[i * DIM + j] = a[i] * b[i * DIM + j];
-        }
-    }
-    my_buff = malloc(n * DIM);
-    for i in 0..DIM unroll {
-        my_buff[n * i] = prods[i];
-        for j in 0..n - 1 unroll {
-            my_buff[(n * i) + j + 1] = my_buff[(n * i) + j] + prods[i + ((j + 1) * DIM)];
-        }
-        res[i] = my_buff[(n * i) + n - 1];
-    }
-
-    return;
 }
 
 fn poly_eq_extension(point, n, two_pow_n) -> 1 {
