@@ -58,7 +58,7 @@ fn test_vectorized_packed_lookup() {
         all_statements.push(statements);
     }
 
-    let mut prover_state = build_prover_state();
+    let mut prover_state = build_prover_state(false);
 
     let packed_lookup_prover = VectorizedPackedLookupProver::step_1(
         &mut prover_state,

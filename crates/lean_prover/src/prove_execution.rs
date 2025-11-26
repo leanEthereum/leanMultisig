@@ -23,7 +23,7 @@ pub fn prove_execution(
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
-) -> (Vec<PF<EF>>, usize, String) {
+) -> (Vec<PF<EF>>, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
         traces,
@@ -82,7 +82,7 @@ pub fn prove_execution(
         })
     });
 
-    let mut prover_state = build_prover_state::<EF>();
+    let mut prover_state = build_prover_state::<EF>(false);
     prover_state.add_base_scalars(
         &[
             vec![private_memory.len()],
@@ -380,11 +380,7 @@ pub fn prove_execution(
         &packed_pcs_witness_extension.packed_polynomial.by_ref(),
     );
 
-    (
-        prover_state.proof_data().to_vec(),
-        prover_state.proof_size(),
-        exec_summary,
-    )
+    (prover_state.proof_data().to_vec(), exec_summary)
 }
 
 fn prove_bus_and_air(

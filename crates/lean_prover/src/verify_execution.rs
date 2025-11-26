@@ -24,7 +24,7 @@ pub fn verify_execution(
     proof_data: Vec<PF<EF>>,
     whir_config_builder: WhirConfigBuilder,
 ) -> Result<(), ProofError> {
-    let mut verifier_state = VerifierState::new(proof_data, build_challenger());
+    let mut verifier_state = VerifierState::new(proof_data, build_challenger(), false);
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);

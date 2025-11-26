@@ -28,7 +28,7 @@ pub struct XmssPublicKey {
 fn gen_wots_secret_key(seed: &[u8; 32], slot: u64) -> WotsSecretKey {
     let mut hasher = Keccak256::new();
     hasher.update(seed);
-    hasher.update(&slot.to_le_bytes());
+    hasher.update(slot.to_le_bytes());
     let mut rng = StdRng::from_seed(hasher.finalize().into());
     WotsSecretKey::random(&mut rng)
 }
@@ -45,13 +45,13 @@ pub fn xmss_key_gen(
     first_slot: u64,
     log_lifetime: usize,
 ) -> Result<(XmssSecretKey, XmssPublicKey), XmssKeyGenError> {
-    if first_slot >= (1 << MAX_LOG_LIFETIME) {
+    if first_slot >= (1 << XMSS_MAX_LOG_LIFETIME) {
         return Err(XmssKeyGenError::FirstSlotTooLarge);
     }
     if log_lifetime == 0 {
         return Err(XmssKeyGenError::LogLifetimeTooSmall);
     }
-    if log_lifetime > MAX_LOG_LIFETIME {
+    if log_lifetime > XMSS_MAX_LOG_LIFETIME {
         return Err(XmssKeyGenError::LogLifetimeTooLarge);
     }
     let leaves = (first_slot..first_slot + (1 << log_lifetime))

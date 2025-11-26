@@ -14,14 +14,18 @@ pub fn build_challenger() -> MyChallenger {
     MyChallenger::new(get_poseidon16().clone())
 }
 
-pub fn build_prover_state<EF: ExtensionField<KoalaBear>>() -> ProverState<KoalaBear, EF, MyChallenger> {
-    ProverState::new(build_challenger())
+pub fn build_prover_state<EF: ExtensionField<KoalaBear>>(padding: bool) -> ProverState<KoalaBear, EF, MyChallenger> {
+    ProverState::new(build_challenger(), padding)
 }
 
 pub fn build_verifier_state<EF: ExtensionField<KoalaBear>>(
     prover_state: &ProverState<KoalaBear, EF, MyChallenger>,
 ) -> VerifierState<KoalaBear, EF, MyChallenger> {
-    VerifierState::new(prover_state.proof_data().to_vec(), build_challenger())
+    VerifierState::new(
+        prover_state.proof_data().to_vec(),
+        build_challenger(),
+        prover_state.has_padding(),
+    )
 }
 
 pub trait ToUsize {

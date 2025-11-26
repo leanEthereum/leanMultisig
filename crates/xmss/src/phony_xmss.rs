@@ -1,6 +1,6 @@
+use crate::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use crate::*;
 
 // Only 1 WOTS, everything else in the merkle tree is random
 // Useful for benchmark with a big lifetime, to speed up keys generation

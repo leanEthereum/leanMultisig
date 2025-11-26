@@ -95,7 +95,7 @@ version = "0.3.0"
 source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#99573608916262f1643de9ce5d67f54a15d05524"
 dependencies = [
  "fiat-shamir",
- "itertools 0.14.0",
+ "itertools",
  "p3-field",
  "p3-util",
  "rand",
@@ -283,7 +283,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/fiat-shamir.git#211b12c35c9742c3d2ec0477381954208f97986c"
+source = "git+https://github.com/leanEthereum/fiat-shamir.git#cd05e57a124fa29bb788cec49569c835dd60053a"
 dependencies = [
  "p3-challenger",
  "p3-field",
@@ -342,15 +342,6 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itertools"
-version = "0.10.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -388,6 +379,7 @@ dependencies = [
  "p3-koala-bear",
  "poseidon_circuit",
  "rec_aggregation",
+ "whir-p3",
  "xmss",
 ]
 
@@ -420,7 +412,7 @@ name = "lean_prover"
 version = "0.1.0"
 dependencies = [
  "air",
- "itertools 0.10.5",
+ "itertools",
  "lean_compiler",
  "lean_vm",
  "lookup",
@@ -635,7 +627,7 @@ name = "p3-commit"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-challenger",
  "p3-dft",
  "p3-field",
@@ -649,7 +641,7 @@ name = "p3-dft"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-field",
  "p3-matrix",
  "p3-maybe-rayon",
@@ -662,7 +654,7 @@ name = "p3-field"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "num-bigint",
  "p3-maybe-rayon",
  "p3-util",
@@ -688,7 +680,7 @@ name = "p3-koala-bear"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "num-bigint",
  "p3-field",
  "p3-monty-31",
@@ -704,7 +696,7 @@ name = "p3-matrix"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-field",
  "p3-maybe-rayon",
  "p3-util",
@@ -739,7 +731,7 @@ name = "p3-merkle-tree"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-commit",
  "p3-field",
  "p3-matrix",
@@ -756,7 +748,7 @@ name = "p3-monty-31"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "num-bigint",
  "p3-dft",
  "p3-field",
@@ -790,7 +782,7 @@ name = "p3-symmetric"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "p3-field",
  "serde",
 ]
@@ -1372,7 +1364,7 @@ name = "whir-p3"
 version = "0.1.0"
 source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#e30463252c59e18c7cf09168299539b1e5b2b442"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
  "multilinear-toolkit",
  "p3-baby-bear",
  "p3-challenger",
@@ -1561,18 +1553,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.28"
+version = "0.8.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43fa6694ed34d6e57407afbccdeecfa268c470a7d2a5b0cf49ce9fcc345afb90"
+checksum = "4ea879c944afe8a2b25fef16bb4ba234f47c694565e97383b36f3a878219065c"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.28"
+version = "0.8.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c640b22cd9817fae95be82f0d2f90b11f7605f6c319d16705c459b27ac2cbc26"
+checksum = "cf955aa904d6040f70dc8e9384444cb1030aed272ba3cb09bbc4ab9e7c1f34f5"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -1,7 +1,7 @@
 use clap::Parser;
 use poseidon_circuit::tests::run_poseidon_benchmark;
 use rec_aggregation::{recursion::run_whir_recursion_benchmark, xmss_aggregate::run_xmss_benchmark};
-use xmss::MAX_LOG_LIFETIME;
+use xmss::XMSS_MAX_LOG_LIFETIME;
 
 #[derive(Parser)]
 enum Cli {
@@ -24,7 +24,7 @@ fn main() {
 
     match cli {
         Cli::Xmss { n_signatures } => {
-            let log_lifetimes = (0..n_signatures).map(|_| MAX_LOG_LIFETIME).collect::<Vec<_>>();
+            let log_lifetimes = (0..n_signatures).map(|_| XMSS_MAX_LOG_LIFETIME).collect::<Vec<_>>();
             run_xmss_benchmark(&log_lifetimes);
         }
         Cli::Recursion => {
