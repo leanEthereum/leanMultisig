@@ -47,7 +47,7 @@ mod tests {
 
         let (secret_key, pub_key) = xmss_key_gen(key_gen_seed, first_slot, log_lifetime).unwrap();
         let signature = xmss_sign(randomness_seed, &secret_key, &message_hash, slot).unwrap();
-        xmss_verify(&pub_key, &message_hash, &signature).unwrap();
+        xmss_verify(&pub_key, &message_hash, &signature, slot).unwrap();
     }
 
     #[test]
@@ -59,13 +59,13 @@ mod tests {
         // (Actually, no need to call it if `xmss_aggregation_setup_prover` was already called)
         xmss_aggregation_setup_verifier();
 
-        let log_lifetimes = (1..=XMSS_MAX_LOG_LIFETIME).collect::<Vec<usize>>();
+        let log_lifetimes = (10..=XMSS_MAX_LOG_LIFETIME).collect::<Vec<usize>>();
         let message_hash: [F; 8] = std::array::from_fn(|i| F::from_usize(i * 7));
-        let first_slot = 77777;
+        let slot = 1 << 33;
 
-        let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(&log_lifetimes, message_hash, first_slot);
+        let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(&log_lifetimes, message_hash, slot);
 
-        let proof = xmss_aggregate_signatures(&xmss_pub_keys, &all_signatures, message_hash).unwrap();
-        xmss_verify_aggregated_signatures(&xmss_pub_keys, message_hash, &proof).unwrap();
+        let proof = xmss_aggregate_signatures(&xmss_pub_keys, &all_signatures, message_hash, slot).unwrap();
+        xmss_verify_aggregated_signatures(&xmss_pub_keys, message_hash, &proof, slot).unwrap();
     }
 }

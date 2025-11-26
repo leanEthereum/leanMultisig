@@ -136,8 +136,8 @@ fn compile_xmss_aggregation_program() -> XmssAggregationProgram {
 fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionResult {
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
-    let first_slot = 1111;
-    let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, first_slot);
+    let slot = 1 << 33;
+    let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, slot);
     let public_input = build_public_input(&xmss_pub_keys, message_hash);
     let private_input = build_private_input(&all_signatures, &xmss_pub_keys);
     execute_bytecode(
@@ -156,16 +156,15 @@ pub fn run_xmss_benchmark(log_lifetimes: &[usize]) {
 
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
-    let first_slot = 785555;
-
-    let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, first_slot);
+    let slot = 1 << 33;
+    let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, slot);
 
     let time = Instant::now();
     let (proof_data, n_field_elements_in_proof, summary) =
         xmss_aggregate_signatures_helper(&xmss_pub_keys, &all_signatures, message_hash).unwrap();
     let proving_time = time.elapsed();
 
-    xmss_verify_aggregated_signatures(&xmss_pub_keys, message_hash, &proof_data).unwrap();
+    xmss_verify_aggregated_signatures(&xmss_pub_keys, message_hash, &proof_data, slot).unwrap();
 
     println!("{summary}");
     println!(
@@ -186,7 +185,9 @@ pub fn xmss_aggregate_signatures(
     xmss_pub_keys: &[XmssPublicKey],
     all_signatures: &[XmssSignature],
     message_hash: [F; 8],
+    slot: u64,
 ) -> Result<Vec<u8>, XmssAggregateError> {
+    let _ = slot; // TODO
     Ok(xmss_aggregate_signatures_helper(xmss_pub_keys, all_signatures, message_hash)?.0)
 }
 
@@ -233,7 +234,9 @@ pub fn xmss_verify_aggregated_signatures(
     xmss_pub_keys: &[XmssPublicKey],
     message_hash: [F; 8],
     proof_bytes: &[u8],
+    slot: u64,
 ) -> Result<(), ProofError> {
+    let _ = slot; // TODO
     let program = get_xmss_aggregation_program();
 
     let proof_field_elements = info_span!("Proof deserialization").in_scope(|| {

@@ -60,15 +60,15 @@ impl PhonyXmssSecretKey {
 pub fn xmss_generate_phony_signatures(
     log_lifetimes: &[usize],
     message_hash: Digest,
-    first_slot: u64,
+    slot: u64,
 ) -> (Vec<XmssPublicKey>, Vec<XmssSignature>) {
     log_lifetimes
         .par_iter()
         .enumerate()
         .map(|(i, &log_lifetime)| {
             let mut rng = StdRng::seed_from_u64(i as u64);
-            let signature_index = rng.random_range(first_slot..first_slot + (1 << log_lifetime));
-            let xmss_secret_key = PhonyXmssSecretKey::random(&mut rng, first_slot, log_lifetime, signature_index);
+            let first_slot = slot - rng.random_range(0..(1 << log_lifetime).min(slot));
+            let xmss_secret_key = PhonyXmssSecretKey::random(&mut rng, first_slot, log_lifetime, slot);
             let signature = xmss_secret_key.sign(&message_hash, &mut rng);
             (xmss_secret_key.public_key, signature)
         })

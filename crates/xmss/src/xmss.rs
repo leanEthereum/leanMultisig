@@ -154,7 +154,9 @@ pub fn xmss_verify(
     pub_key: &XmssPublicKey,
     message_hash: &Digest,
     signature: &XmssSignature,
+    slot: u64,
 ) -> Result<(), XmssVerifyError> {
+    let _ = slot; // TODO
     xmss_verify_with_poseidon_trace(pub_key, message_hash, signature).map(|_| ())
 }
 
