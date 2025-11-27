@@ -1,12 +1,12 @@
 use crate::instruction_encoder::field_representation;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
-use std::{array, iter::repeat_n};
+use std::{array, collections::BTreeMap, iter::repeat_n};
 use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
-    pub traces: [TableTrace; N_TABLES],
+    pub traces: BTreeMap<Table, TableTrace>,
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
@@ -96,13 +96,16 @@ pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionR
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
-    traces[Table::execution().index()] = TableTrace {
-        base: Vec::from(main_trace),
-        ext: vec![],
-        height: Default::default(),
-    };
-    for (trace, table) in traces.iter_mut().zip(ALL_TABLES) {
-        padd_table(&table, trace);
+    traces.insert(
+        Table::execution(),
+        TableTrace {
+            base: Vec::from(main_trace),
+            ext: vec![],
+            height: Default::default(),
+        },
+    );
+    for (table, trace) in traces.iter_mut() {
+        padd_table(table, trace);
     }
 
     ExecutionTrace {

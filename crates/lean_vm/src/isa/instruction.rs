@@ -6,9 +6,9 @@ use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
 use crate::tables::TableT;
-use crate::{N_TABLES, Table, TableTrace};
+use crate::{Table, TableTrace};
 use multilinear_toolkit::prelude::*;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
@@ -65,7 +65,7 @@ pub struct InstructionContext<'a> {
     pub fp: &'a mut usize,
     pub pc: &'a mut usize,
     pub pcs: &'a Vec<usize>,
-    pub traces: &'a mut [TableTrace; N_TABLES],
+    pub traces: &'a mut BTreeMap<Table, TableTrace>,
     pub add_counts: &'a mut usize,
     pub mul_counts: &'a mut usize,
     pub deref_counts: &'a mut usize,

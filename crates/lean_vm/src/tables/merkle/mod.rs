@@ -105,7 +105,7 @@ impl TableT for MerklePrecompile {
     ) -> Result<(), RunnerError> {
         assert!(height >= 2);
 
-        let trace = &mut ctx.traces[self.identifier().index()].base;
+        let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
         // TODO add row to poseidon16 trace
 
         let leaf_position = leaf_position.to_usize();

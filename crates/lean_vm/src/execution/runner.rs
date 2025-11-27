@@ -13,7 +13,6 @@ use crate::{
     TableTrace,
 };
 use multilinear_toolkit::prelude::*;
-use std::array;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
 use xmss::{Poseidon16History, Poseidon24History};
@@ -189,8 +188,8 @@ fn execute_bytecode_helper(
     let mut n_poseidon16_precomputed_used = 0;
     let mut n_poseidon24_precomputed_used = 0;
 
-    // Events collected only in final execution
-    let mut traces: [TableTrace; N_TABLES] = array::from_fn(|i| TableTrace::new(&ALL_TABLES[i]));
+    let mut traces =
+        BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i].clone(), TableTrace::new(&ALL_TABLES[i]))));
 
     let mut add_counts = 0;
     let mut mul_counts = 0;
@@ -332,14 +331,14 @@ fn execute_bytecode_helper(
 
     summary.push('\n');
 
-    if traces[Table::poseidon16().index()].base[0].len() + traces[Table::poseidon24().index()].base[0].len() > 0 {
+    if traces[&Table::poseidon16()].base[0].len() + traces[&Table::poseidon24()].base[0].len() > 0 {
         summary.push_str(&format!(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
-            pretty_integer(traces[Table::poseidon16().index()].base[0].len()),
-            pretty_integer(traces[Table::poseidon24().index()].base[0].len()),
+            pretty_integer(traces[&Table::poseidon16()].base[0].len()),
+            pretty_integer(traces[&Table::poseidon24()].base[0].len()),
             cpu_cycles
-                / (traces[Table::poseidon16().index()].base[0].len()
-                    + traces[Table::poseidon24().index()].base[0].len())
+                / (traces[&Table::poseidon16()].base[0].len()
+                    + traces[&Table::poseidon24()].base[0].len())
         ));
     }
     // if !dot_products.is_empty() {

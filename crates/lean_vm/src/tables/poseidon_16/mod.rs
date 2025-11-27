@@ -130,7 +130,7 @@ impl TableT for Poseidon16Precompile {
     ) -> Result<(), RunnerError> {
         assert!(is_compression == 0 || is_compression == 1);
         let is_compression = is_compression == 1;
-        let trace = &mut ctx.traces[self.identifier().index()];
+        let trace = ctx.traces.get_mut(&self.identifier()).unwrap();
 
         let arg0 = ctx.memory.get_vector(arg_a.to_usize())?;
         let arg1 = ctx.memory.get_vector(arg_b.to_usize())?;

@@ -104,7 +104,7 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
         aux: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
-        let trace = &mut ctx.traces[self.identifier().index()];
+        let trace = ctx.traces.get_mut(&self.identifier()).unwrap();
         if BE {
             exec_dot_product_be(arg_a, arg_b, arg_c, aux, ctx.memory, trace)
         } else {

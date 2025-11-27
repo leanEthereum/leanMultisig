@@ -6,10 +6,10 @@ use crate::*;
 pub const N_TABLES: usize = 8;
 pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::execution(),
-    Table::dot_product_be(),
-    Table::dot_product_ee(),
     Table::poseidon16(),
     Table::poseidon24(),
+    Table::dot_product_be(),
+    Table::dot_product_ee(),
     Table::merkle(),
     Table::slice_hash(),
     Table::eq_poly_base_ext(),
@@ -19,10 +19,10 @@ pub const ALL_TABLES: [Table; N_TABLES] = [
 #[repr(usize)]
 pub enum Table {
     Execution(ExecutionTable),
-    DotProductBE(DotProductPrecompile<true>),
-    DotProductEE(DotProductPrecompile<false>),
     Poseidon16(Poseidon16Precompile),
     Poseidon24(Poseidon24Precompile),
+    DotProductBE(DotProductPrecompile<true>),
+    DotProductEE(DotProductPrecompile<false>),
     Merkle(MerklePrecompile),
     SliceHash(SliceHashPrecompile),
     EqPolyBaseExt(EqPolyBaseExtPrecompile),

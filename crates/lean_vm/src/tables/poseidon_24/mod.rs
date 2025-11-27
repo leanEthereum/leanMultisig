@@ -114,7 +114,7 @@ impl TableT for Poseidon24Precompile {
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
         assert_eq!(aux, 0); // no aux for poseidon24
-        let trace = &mut ctx.traces[self.identifier().index()];
+        let trace = ctx.traces.get_mut(&self.identifier()).unwrap();
 
         let arg0 = ctx.memory.get_vector(arg_a.to_usize())?;
         let arg1 = ctx.memory.get_vector(1 + arg_a.to_usize())?;

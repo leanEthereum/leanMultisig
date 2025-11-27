@@ -114,7 +114,7 @@ impl TableT for SliceHashPrecompile {
     ) -> Result<(), RunnerError> {
         assert!(len >= 2);
 
-        let trace = &mut ctx.traces[self.identifier().index()].base;
+        let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
         // TODO add row to poseidon24 trace
 
         let seed = ctx.memory.get_vector(index_seed.to_usize())?;
