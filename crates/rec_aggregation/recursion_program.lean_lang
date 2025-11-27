@@ -88,7 +88,7 @@ fn main() {
     
     for i in 0..NUM_QUERIES_3 {
         powers_of_2_rev = expand_from_univariate_const(final_circle_values[i], FINAL_VARS);
-        poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, 2**FINAL_VARS);
+        poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS);
         final_pol_evaluated_on_circle = malloc(DIM);
         dot_product_be(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS); 
         assert_eq_extension(final_pol_evaluated_on_circle, final_folds + i*DIM);
@@ -140,7 +140,7 @@ fn main() {
             assert_eq_extension(temp, s6s + (j + 1) * DIM);
         }
         s7 = malloc(DIM);
-        dot_product_dynamic(s6s, combination_randomness_powers[i], s7, num_queries[i] + 1);
+        dot_product_ee_dynamic(s6s, combination_randomness_powers[i], s7, num_queries[i] + 1);
         wsum = add_extension_ret(weight_sums[i], s7);
         weight_sums[i+1] = wsum;
     }
@@ -180,39 +180,61 @@ fn eq_mle_extension(a, b, n) -> 1 {
 
 fn eq_mle_extension_base_dynamic(a, b, n) -> 1 {
     res = malloc(DIM);
-    if n == N_VARS - FOLDING_FACTOR_0 {
-        eq_poly_base_ext(a, b, res, N_VARS - FOLDING_FACTOR_0);
-        return res;
+    match n {
+        0 => {  } // unreachable
+        1 => { eq_poly_base_ext(a, b, res, 1); }
+        2 => { eq_poly_base_ext(a, b, res, 2); }
+        3 => { eq_poly_base_ext(a, b, res, 3); }
+        4 => { eq_poly_base_ext(a, b, res, 4); }
+        5 => { eq_poly_base_ext(a, b, res, 5); }
+        6 => { eq_poly_base_ext(a, b, res, 6); }
+        7 => { eq_poly_base_ext(a, b, res, 7); }
+        8 => { eq_poly_base_ext(a, b, res, 8); }
+        9 => { eq_poly_base_ext(a, b, res, 9); }
+        10 => { eq_poly_base_ext(a, b, res, 10); }
+        11 => { eq_poly_base_ext(a, b, res, 11); }
+        12 => { eq_poly_base_ext(a, b, res, 12); }
+        13 => { eq_poly_base_ext(a, b, res, 13); }
+        14 => { eq_poly_base_ext(a, b, res, 14); }
+        15 => { eq_poly_base_ext(a, b, res, 15); }
+        16 => { eq_poly_base_ext(a, b, res, 16); }
+        17 => { eq_poly_base_ext(a, b, res, 17); }
+        18 => { eq_poly_base_ext(a, b, res, 18); }
+        19 => { eq_poly_base_ext(a, b, res, 19); }
+        20 => { eq_poly_base_ext(a, b, res, 20); }
+        21 => { eq_poly_base_ext(a, b, res, 21); }
+        22 => { eq_poly_base_ext(a, b, res, 22); }
     }
-    if n == N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 {
-        eq_poly_base_ext(a, b, res, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
-        return res;
-    }
-    if n == N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2 {
-        eq_poly_base_ext(a, b, res, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
-        return res;
-    }
-    TODO_eq_mle_extension_base_dynamicc = n;
-    print(TODO_eq_mle_extension_base_dynamicc);
-    panic();
+    return res;
 }
 
 fn expand_from_univariate_dynamic(alpha, n) -> 1 {
-    if n == N_VARS - FOLDING_FACTOR_0 {
-        res = expand_from_univariate_const(alpha, N_VARS - FOLDING_FACTOR_0);
-        return res;
+    match n {
+        0 => {  } // unreachable
+        1 => { res = expand_from_univariate_const(alpha, 1); }
+        2 => { res = expand_from_univariate_const(alpha, 2); }
+        3 => { res = expand_from_univariate_const(alpha, 3); }
+        4 => { res = expand_from_univariate_const(alpha, 4); }
+        5 => { res = expand_from_univariate_const(alpha, 5); }
+        6 => { res = expand_from_univariate_const(alpha, 6); }
+        7 => { res = expand_from_univariate_const(alpha, 7); }
+        8 => { res = expand_from_univariate_const(alpha, 8); }
+        9 => { res = expand_from_univariate_const(alpha, 9); }
+        10 => { res = expand_from_univariate_const(alpha, 10); }
+        11 => { res = expand_from_univariate_const(alpha, 11); }
+        12 => { res = expand_from_univariate_const(alpha, 12); }
+        13 => { res = expand_from_univariate_const(alpha, 13); }
+        14 => { res = expand_from_univariate_const(alpha, 14); }
+        15 => { res = expand_from_univariate_const(alpha, 15); }
+        16 => { res = expand_from_univariate_const(alpha, 16); }
+        17 => { res = expand_from_univariate_const(alpha, 17); }
+        18 => { res = expand_from_univariate_const(alpha, 18); }
+        19 => { res = expand_from_univariate_const(alpha, 19); }
+        20 => { res = expand_from_univariate_const(alpha, 20); }
+        21 => { res = expand_from_univariate_const(alpha, 21); }
+        22 => { res = expand_from_univariate_const(alpha, 22); }
     }
-    if n == N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 {
-        res = expand_from_univariate_const(alpha, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
-        return res;
-    }
-    if n == N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2 {
-        res = expand_from_univariate_const(alpha, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
-        return res;
-    }
-    TODO_expand_from_univariate_dynamic = n;
-    print(TODO_expand_from_univariate_dynamic);
-    panic();
+    return res;
 }
 
 fn expand_from_univariate_const(alpha, const n) -> 1 {
@@ -268,7 +290,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     folded_domain_size = domain_size - folding_factor;
 
     fs_state_8 = fs_grinding(fs_state, grinding_bits);
-    fs_state_9, stir_challenges_indexes = sample_bits(fs_state_8, num_queries, folded_domain_size);
+    fs_state_9, stir_challenges_indexes = sample_bits_dynamic(fs_state_8, num_queries, folded_domain_size);
 
     answers = malloc(num_queries); // a vector of vectorized pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
     fs_states_b = malloc(num_queries + 1);
@@ -304,14 +326,14 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
         }
     } else {
         for i in 0..num_queries {
-            dot_product_dynamic(answers[i] * 8, poly_eq, folds + i*DIM, two_pow_folding_factor);
+            dot_product_ee_dynamic(answers[i] * 8, poly_eq, folds + i*DIM, two_pow_folding_factor);
         }
     }
 
     circle_values = malloc(num_queries); // ROOT^each_stir_index
     for i in 0..num_queries {
         stir_index_bits = stir_challenges_indexes[i];
-        circle_value = unit_root_pow(folded_domain_size, stir_index_bits);
+        circle_value = unit_root_pow_dynamic(folded_domain_size, stir_index_bits);
         circle_values[i] = circle_value;
     }
 
@@ -394,7 +416,7 @@ fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkl
     combination_randomness_powers = powers(combination_randomness_gen, num_queries + 1); // "+ 1" because of one OOD sample
 
     claimed_sum_supplement_side = malloc(5);
-    dot_product_dynamic(folds, combination_randomness_powers + DIM, claimed_sum_supplement_side, num_queries);
+    dot_product_ee_dynamic(folds, combination_randomness_powers + DIM, claimed_sum_supplement_side, num_queries);
 
     claimed_sum_supplement = add_extension_ret(claimed_sum_supplement_side, ood_eval);
     new_claimed_sum_b = add_extension_ret(claimed_sum_supplement, new_claimed_sum_a);
@@ -427,35 +449,34 @@ fn powers(alpha, n) -> 1 {
     return res;
 }
 
-fn unit_root_pow(domain_size, index_bits) -> 1 {
+fn unit_root_pow_dynamic(domain_size, index_bits) -> 1 {
     // index_bits is a pointer to domain_size bits
-    if domain_size == 19 {
-        res = unit_root_pow_const(19, index_bits);
-        return res;
+    match domain_size {
+        0 => {  } // unreachable
+        1 => { res = unit_root_pow_const(1, index_bits); }
+        2 => { res = unit_root_pow_const(2, index_bits); }
+        3 => { res = unit_root_pow_const(3, index_bits); }
+        4 => { res = unit_root_pow_const(4, index_bits); }
+        5 => { res = unit_root_pow_const(5, index_bits); }
+        6 => { res = unit_root_pow_const(6, index_bits); }
+        7 => { res = unit_root_pow_const(7, index_bits); }
+        8 => { res = unit_root_pow_const(8, index_bits); }
+        9 => { res = unit_root_pow_const(9, index_bits); }
+        10 => { res = unit_root_pow_const(10, index_bits); }
+        11 => { res = unit_root_pow_const(11, index_bits); }
+        12 => { res = unit_root_pow_const(12, index_bits); }
+        13 => { res = unit_root_pow_const(13, index_bits); }
+        14 => { res = unit_root_pow_const(14, index_bits); }
+        15 => { res = unit_root_pow_const(15, index_bits); }
+        16 => { res = unit_root_pow_const(16, index_bits); }
+        17 => { res = unit_root_pow_const(17, index_bits); }
+        18 => { res = unit_root_pow_const(18, index_bits); }
+        19 => { res = unit_root_pow_const(19, index_bits); }
+        20 => { res = unit_root_pow_const(20, index_bits); }
+        21 => { res = unit_root_pow_const(21, index_bits); }
+        22 => { res = unit_root_pow_const(22, index_bits); }
     }
-    if domain_size == 18 {
-        res = unit_root_pow_const(18, index_bits);
-        return res;
-    }
-    if domain_size == 17 {
-        res = unit_root_pow_const(17, index_bits);
-        return res;
-    }
-    if domain_size == 16 {
-        res = unit_root_pow_const(16, index_bits);
-        return res;
-    }
-    if domain_size == 15 {
-        res = unit_root_pow_const(15, index_bits);
-        return res;
-    }
-    if domain_size == 20 {
-        res = unit_root_pow_const(20, index_bits);
-        return res;
-    }
-    UNIMPLEMENTED = 0;
-    print(UNIMPLEMENTED, domain_size);
-    panic();
+    return res;
 }
 
 fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
@@ -467,7 +488,7 @@ fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
     return prods[domain_size - 1];
 }
 
-fn dot_product_dynamic(a, b, res, n) {
+fn dot_product_ee_dynamic(a, b, res, n) { 
     if n == 16 {
         dot_product_ee(a, b, res, 16);
         return;
@@ -505,8 +526,8 @@ fn dot_product_dynamic(a, b, res, n) {
         return;
     }
 
-    TODO_dot_product_dynamic = 0;
-    print(TODO_dot_product_dynamic, n);
+    TODO_dot_product_ee_dynamic = 0;
+    print(TODO_dot_product_ee_dynamic, n);
     panic();
 }
 
@@ -533,27 +554,114 @@ fn poly_eq_extension(point, n, two_pow_n) -> 1 {
     return res;
 }
 
-fn poly_eq_base(point, n, two_pow_n) -> 1 {
+fn poly_eq_base(point, n) -> 1 {
+    match n {
+        0 => {  } // unreachable
+        1 => { res = poly_eq_base_1(point); }
+        2 => { res = poly_eq_base_2(point); }
+        3 => { res = poly_eq_base_3(point); }
+        4 => { res = poly_eq_base_4(point); }
+        5 => { res = poly_eq_base_5(point); }
+        6 => { res = poly_eq_base_6(point); }
+        7 => { res = poly_eq_base_7(point); }
+    }
+    return res;
+}
+
+fn poly_eq_base_7(point) -> 1 {
+    // n = 7
     // return a (normal) pointer to 2^n base field elements, corresponding to the "equality polynomial" at point
     // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
-    if n == 0 {
-        // base case
-        res = malloc(1);
-        res[0] = 1;
-        return res;
+    res = malloc(128);
+
+    inner_res = poly_eq_base_6(point + 1);
+
+    for i in 0..64 unroll {
+        res[64 + i] = inner_res[i] * point[0];
+        res[i] = inner_res[i] - res[64 + i];
     }
+    
+    return res;
+}
 
-    res = malloc(two_pow_n);
-
-    inner_res = poly_eq_base(point + 1, n - 1, two_pow_n / 2);
-
-    two_pow_n_minus_1 = two_pow_n / 2;
-
-    for i in 0..two_pow_n_minus_1 {
-        res[two_pow_n_minus_1 + i] = inner_res[i] * point[0];
-        res[i] = inner_res[i] - res[two_pow_n_minus_1 + i];
+fn poly_eq_base_6(point) -> 1 {
+    // n = 6
+    res = malloc(64);
+    
+    inner_res = poly_eq_base_5(point + 1);
+    
+    for i in 0..32 unroll {
+        res[32 + i] = inner_res[i] * point[0];
+        res[i] = inner_res[i] - res[32 + i];
     }
+    
+    return res;
+}
+
+fn poly_eq_base_5(point) -> 1 {
+    // n = 5
+    res = malloc(32);
+    
+    inner_res = poly_eq_base_4(point + 1);
+    
+    for i in 0..16 unroll {
+        res[16 + i] = inner_res[i] * point[0];
+        res[i] = inner_res[i] - res[16 + i];
+    }
+    
+    return res;
+}
+
+fn poly_eq_base_4(point) -> 1 {
+    // n = 4
+    res = malloc(16);
+    
+    inner_res = poly_eq_base_3(point + 1);
+    
+    for i in 0..8 unroll {
+        res[8 + i] = inner_res[i] * point[0];
+        res[i] = inner_res[i] - res[8 + i];
+    }
+    
+    return res;
+}
+
+fn poly_eq_base_3(point) -> 1 {
+    // n = 3
+    res = malloc(8);
+    
+    inner_res = poly_eq_base_2(point + 1);
+    
+    for i in 0..4 unroll {
+        res[4 + i] = inner_res[i] * point[0];
+        res[i] = inner_res[i] - res[4 + i];
+    }
+    
+    return res;
+}
+
+fn poly_eq_base_2(point) -> 1 {
+    // n = 2
+    res = malloc(4);
+    
+    inner_res = poly_eq_base_1(point + 1);
+    
+    for i in 0..2 unroll {
+        res[2 + i] = inner_res[i] * point[0];
+        res[i] = inner_res[i] - res[2 + i];
+    }
+    
+    return res;
+}
+
+fn poly_eq_base_1(point) -> 1 {
+    // n = 1
+    // Base case: eq(x) = [1 - x, x]
+    res = malloc(2);
+    
+    res[1] = point[0];
+    res[0] = 1 - res[1];
     
     return res;
 }
@@ -568,13 +676,35 @@ fn pow(a, b) -> 1 {
     }
 }
 
-fn sample_bits(fs_state, n_samples, K) -> 2 {
+fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
+    if n_samples == NUM_QUERIES_0 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_0, K);
+        return new_fs_state, sampled_bits;
+    }
+    if n_samples == NUM_QUERIES_1 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
+        return new_fs_state, sampled_bits;
+    }
+    if n_samples == NUM_QUERIES_2 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
+        return new_fs_state, sampled_bits;
+    }
+    if n_samples == NUM_QUERIES_3 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
+        return new_fs_state, sampled_bits;
+    }
+    print(n_samples);
+    print(999333);
+    panic();
+}
+
+fn sample_bits_const(fs_state, const n_samples, K) -> 2 {
     // return the updated fs_state, and a pointer to n pointers, each pointing to 31 (boolean) field elements,
     //  ... followed by the n corresponding sampled field elements (where we only look at the first K bits)
     samples = malloc(n_samples);
     new_fs_state = fs_sample_helper(fs_state, n_samples, samples);
     sampled_bits = malloc(n_samples * 2);
-    for i in 0..n_samples {
+    for i in 0..n_samples unroll {
         bits, partial_sum = checked_decompose_bits(samples[i], K);
         sampled_bits[i] = bits;
         sampled_bits[n_samples + i] = partial_sum;
@@ -683,6 +813,7 @@ fn fs_grinding(fs_state, bits) -> 1 {
 }
 
 fn less_than_8(a) inline -> 1 {
+    // TODO range check
     if a * (a - 1) * (a - 2) * (a - 3) * (a - 4) * (a - 5) * (a - 6) * (a - 7) == 0 {
         return 1; // a < 8
     } else {
@@ -755,11 +886,29 @@ fn fs_hint(fs_state, n) -> 2 {
 }
 
 fn fs_receive_ef(fs_state, n) -> 2 {
+    match n {
+        0 => {  } // unreachable
+        1 => { final_fs_state, res = fs_receive_ef_const(fs_state, 1); }
+        2 => { final_fs_state, res = fs_receive_ef_const(fs_state, 2); }
+        3 => { final_fs_state, res = fs_receive_ef_const(fs_state, 3); }
+        4 => { final_fs_state, res = fs_receive_ef_const(fs_state, 4); }
+        5 => { final_fs_state, res = fs_receive_ef_const(fs_state, 5); }
+        6 => { final_fs_state, res = fs_receive_ef_const(fs_state, 6); }
+        7 => { final_fs_state, res = fs_receive_ef_const(fs_state, 7); }
+        8 => { final_fs_state, res = fs_receive_ef_const(fs_state, 8); }
+        9 => { final_fs_state, res = fs_receive_ef_const(fs_state, 9); }
+        10 => { final_fs_state, res = fs_receive_ef_const(fs_state, 10); }
+    }
+    return final_fs_state, res;
+}
+
+
+fn fs_receive_ef_const(fs_state, const n) -> 2 {
     // return the updated fs_state, and a (normal) pointer to n consecutive EF elements
     final_fs_state = fs_observe(fs_state, n);
     res = malloc(n * DIM);
     // TODO optimize with dot_product
-    for i in 0..n { // TODO unroll in most cases
+    for i in 0..n unroll { 
         ptr = (fs_state[0] + i) * 8;
         for j in 0..DIM unroll {
             res[i * DIM + j] = ptr[j];
