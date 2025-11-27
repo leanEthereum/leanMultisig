@@ -55,7 +55,28 @@ pub fn prove_execution(
     let private_memory = &memory[public_memory_size..non_zero_memory_size];
     let log_public_memory = log2_strict_usize(public_memory.len());
 
-    let _validity_proof_span = info_span!("Validity proof generation").entered();
+    let mut prover_state = build_prover_state::<EF>(false);
+    prover_state.add_base_scalars(
+        &[
+            vec![private_memory.len()],
+            traces.values().map(|t| t.n_rows_non_padded()).collect::<Vec<_>>(),
+        ]
+        .concat()
+        .into_iter()
+        .map(F::from_usize)
+        .collect::<Vec<_>>(),
+    );
+
+    // only keep tables with non-zero rows
+    let traces: BTreeMap<_, _> = traces
+        .into_iter()
+        .filter(|(table, trace)| {
+            trace.n_rows_non_padded() > 0
+                || table == &Table::execution()
+                || table == &Table::poseidon16() // due to custom GKR
+                || table == &Table::poseidon24() // due to custom GKR
+        })
+        .collect();
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
@@ -89,18 +110,6 @@ pub fn prove_execution(
             )
         })
         .collect::<BTreeMap<_, _>>();
-
-    let mut prover_state = build_prover_state::<EF>(false);
-    prover_state.add_base_scalars(
-        &[
-            vec![private_memory.len()],
-            traces.values().map(|t| t.n_rows_non_padded()).collect::<Vec<_>>(),
-        ]
-        .concat()
-        .into_iter()
-        .map(F::from_usize)
-        .collect::<Vec<_>>(),
-    );
 
     let base_dims = get_base_dims(
         log_public_memory,

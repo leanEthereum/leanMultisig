@@ -116,8 +116,6 @@ pub fn compile_to_low_level_bytecode(
         }
     }
 
-    let mut low_level_bytecode = Vec::new();
-
     for (label, pc) in label_to_pc.clone() {
         hints.entry(pc).or_insert_with(Vec::new).push(Hint::Label { label });
     }
@@ -129,19 +127,21 @@ pub fn compile_to_low_level_bytecode(
         match_first_block_starts,
     };
 
+    let mut instructions = Vec::new();
+
     for (function_name, pc_start, block) in code_blocks {
         compile_block(
             &compiler,
             &function_name,
             &block,
             pc_start,
-            &mut low_level_bytecode,
+            &mut instructions,
             &mut hints,
         );
     }
 
     Ok(Bytecode {
-        instructions: low_level_bytecode,
+        instructions,
         hints,
         starting_frame_memory,
         program,
