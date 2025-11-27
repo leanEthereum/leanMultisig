@@ -308,11 +308,13 @@ fn compile_block(
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::DecomposeCustom {
-                res_offset,
+                decomposed,
+                remaining,
                 to_decompose,
             } => {
                 let hint = Hint::DecomposeCustom {
-                    res_offset,
+                    decomposed: try_as_mem_or_constant(&decomposed).unwrap(),
+                    remaining: try_as_mem_or_constant(&remaining).unwrap(),
                     to_decompose: to_decompose
                         .iter()
                         .map(|expr| try_as_mem_or_constant(expr).unwrap())

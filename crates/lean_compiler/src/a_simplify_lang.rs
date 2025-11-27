@@ -120,9 +120,7 @@ pub enum SimpleLine {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeCustom {
-        var: Var, // a pointer to 13 * len(to_decompose) field elements
-        to_decompose: Vec<SimpleExpr>,
-        label: ConstMallocLabel,
+        args: Vec<SimpleExpr>,
     },
     CounterHint {
         var: Var,
@@ -654,20 +652,12 @@ fn simplify_lines(
                     label,
                 });
             }
-            Line::DecomposeCustom { var, to_decompose } => {
-                assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
-                let simplified_to_decompose = to_decompose
+            Line::DecomposeCustom { args } => {
+                let simplified_args = args
                     .iter()
                     .map(|expr| simplify_expr(expr, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
-                let label = const_malloc.counter;
-                const_malloc.counter += 1;
-                const_malloc.map.insert(var.clone(), label);
-                res.push(SimpleLine::DecomposeCustom {
-                    var: var.clone(),
-                    to_decompose: simplified_to_decompose,
-                    label,
-                });
+                res.push(SimpleLine::DecomposeCustom { args: simplified_args });
             }
             Line::CounterHint { var } => {
                 res.push(SimpleLine::CounterHint { var: var.clone() });
@@ -845,13 +835,17 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                     on_new_expr(var, &internal_vars, &mut external_vars);
                 }
             }
-            Line::DecomposeBits { var, to_decompose } | Line::DecomposeCustom { var, to_decompose } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 for expr in to_decompose {
                     on_new_expr(expr, &internal_vars, &mut external_vars);
                 }
                 internal_vars.insert(var.clone());
             }
-
+            Line::DecomposeCustom { args } => {
+                for expr in args {
+                    on_new_expr(expr, &internal_vars, &mut external_vars);
+                }
+            }
             Line::CounterHint { var } => {
                 internal_vars.insert(var.clone());
             }
@@ -1005,11 +999,16 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
                     inline_expr(var, args, inlining_count);
                 }
             }
-            Line::DecomposeBits { var, to_decompose } | Line::DecomposeCustom { var, to_decompose } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 for expr in to_decompose {
                     inline_expr(expr, args, inlining_count);
                 }
                 inline_internal_var(var);
+            }
+            Line::DecomposeCustom { args: decompose_args } => {
+                for expr in decompose_args {
+                    inline_expr(expr, args, inlining_count);
+                }
             }
             Line::CounterHint { var } => {
                 inline_internal_var(var);
@@ -1340,10 +1339,15 @@ fn replace_vars_for_unroll(
                 replace_vars_for_unroll_in_expr(size, iterator, unroll_index, iterator_value, internal_vars);
                 replace_vars_for_unroll_in_expr(vectorized_len, iterator, unroll_index, iterator_value, internal_vars);
             }
-            Line::DecomposeBits { var, to_decompose } | Line::DecomposeCustom { var, to_decompose } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 for expr in to_decompose {
+                    replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
+                }
+            }
+            Line::DecomposeCustom { args } => {
+                for expr in args {
                     replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
                 }
             }
@@ -1783,9 +1787,14 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(var, map);
                 }
             }
-            Line::DecomposeBits { var, to_decompose } | Line::DecomposeCustom { var, to_decompose } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
                 for expr in to_decompose {
+                    replace_vars_by_const_in_expr(expr, map);
+                }
+            }
+            Line::DecomposeCustom { args } => {
+                for expr in args {
                     replace_vars_by_const_in_expr(expr, map);
                 }
             }
@@ -1863,19 +1872,10 @@ impl SimpleLine {
                         .join(", ")
                 )
             }
-            Self::DecomposeCustom {
-                var: result,
-                to_decompose,
-                label: _,
-            } => {
+            Self::DecomposeCustom { args } => {
                 format!(
-                    "{} = decompose_custom({})",
-                    result,
-                    to_decompose
-                        .iter()
-                        .map(|expr| format!("{expr}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "decompose_custom({})",
+                    args.iter().map(|expr| format!("{expr}")).collect::<Vec<_>>().join(", ")
                 )
             }
             Self::CounterHint { var: result } => {

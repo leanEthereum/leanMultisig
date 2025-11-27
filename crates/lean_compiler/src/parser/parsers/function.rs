@@ -199,13 +199,10 @@ impl FunctionCallParser {
                 })
             }
             "decompose_custom" => {
-                if args.is_empty() || return_data.len() != 1 {
+                if args.len() < 3 {
                     return Err(SemanticError::new("Invalid decompose_custom call").into());
                 }
-                Ok(Line::DecomposeCustom {
-                    var: return_data[0].clone(),
-                    to_decompose: args,
-                })
+                Ok(Line::DecomposeCustom { args })
             }
             "counter_hint" => {
                 if !args.is_empty() || return_data.len() != 1 {

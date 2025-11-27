@@ -56,7 +56,8 @@ pub enum IntermediateInstruction {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeCustom {
-        res_offset: usize, // m[fp + res_offset..fp + res_offset + 13 * len(to_decompose)] will store the decomposed values
+        decomposed: IntermediateValue,
+        remaining: IntermediateValue,
         to_decompose: Vec<IntermediateValue>,
     },
     CounterHint {
@@ -190,10 +191,14 @@ impl Display for IntermediateInstruction {
                 write!(f, ")")
             }
             Self::DecomposeCustom {
-                res_offset,
+                decomposed,
+                remaining,
                 to_decompose,
             } => {
-                write!(f, "m[fp + {res_offset}..] = decompose_custom(")?;
+                write!(
+                    f,
+                    "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], "
+                )?;
                 for (i, expr) in to_decompose.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;

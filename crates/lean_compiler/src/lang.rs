@@ -368,8 +368,7 @@ pub enum Line {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeCustom {
-        var: Var, // a pointer to 13 * len(to_decompose) field elements
-        to_decompose: Vec<Expression>,
+        args: Vec<Expression>,
     },
     CounterHint {
         var: Var,
@@ -542,15 +541,10 @@ impl Line {
                         .join(", ")
                 )
             }
-            Self::DecomposeCustom { var, to_decompose } => {
+            Self::DecomposeCustom { args } => {
                 format!(
-                    "{} = decompose_custom({})",
-                    var,
-                    to_decompose
-                        .iter()
-                        .map(|expr| expr.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "decompose_custom({})",
+                    args.iter().map(|expr| expr.to_string()).collect::<Vec<_>>().join(", ")
                 )
             }
             Self::Break => "break".to_string(),

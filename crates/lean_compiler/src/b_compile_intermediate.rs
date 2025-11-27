@@ -511,27 +511,18 @@ fn compile_lines(
                     label,
                 );
             }
-            SimpleLine::DecomposeCustom {
-                var,
-                to_decompose,
-                label,
-            } => {
+            SimpleLine::DecomposeCustom { args } => {
+                assert!(args.len() >= 3);
+                let decomposed = IntermediateValue::from_simple_expr(&args[0], compiler);
+                let remaining = IntermediateValue::from_simple_expr(&args[1], compiler);
                 instructions.push(IntermediateInstruction::DecomposeCustom {
-                    res_offset: compiler.stack_size,
-                    to_decompose: to_decompose
+                    decomposed,
+                    remaining,
+                    to_decompose: args[2..]
                         .iter()
                         .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
                         .collect(),
                 });
-
-                handle_const_malloc(
-                    declared_vars,
-                    &mut instructions,
-                    compiler,
-                    var,
-                    F::bits() * to_decompose.len(),
-                    label,
-                );
             }
             SimpleLine::CounterHint { var } => {
                 declared_vars.insert(var.clone());
@@ -691,7 +682,6 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             SimpleLine::HintMAlloc { var, .. }
             | SimpleLine::ConstMalloc { var, .. }
             | SimpleLine::DecomposeBits { var, .. }
-            | SimpleLine::DecomposeCustom { var, .. }
             | SimpleLine::CounterHint { var } => {
                 internal_vars.insert(var.clone());
             }
@@ -712,6 +702,7 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
                 internal_vars.extend(find_internal_vars(else_branch));
             }
             SimpleLine::Panic
+            | SimpleLine::DecomposeCustom { .. }
             | SimpleLine::Print { .. }
             | SimpleLine::FunctionRet { .. }
             | SimpleLine::Precompile { .. }

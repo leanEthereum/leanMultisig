@@ -43,8 +43,8 @@ pub enum Hint {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeCustom {
-        /// Memory offset for results: m[fp + res_offset..fp + res_offset + 13 * len(to_decompose)]
-        res_offset: usize,
+        decomposed: MemOrConstant,
+        remaining: MemOrConstant,
         /// Values to decompose into custom representation
         to_decompose: Vec<MemOrConstant>,
     },
@@ -162,19 +162,21 @@ impl Hint {
                 }
             }
             Self::DecomposeCustom {
-                res_offset,
+                decomposed,
+                remaining,
                 to_decompose,
             } => {
-                let mut memory_index = ctx.fp + *res_offset;
+                let mut memory_index_decomposed = decomposed.read_value(ctx.memory, ctx.fp)?.to_usize();
+                let mut memory_index_remaining = remaining.read_value(ctx.memory, ctx.fp)?.to_usize();
                 for value_source in to_decompose {
                     let value = value_source.read_value(ctx.memory, ctx.fp)?.to_usize();
                     for i in 0..12 {
                         let value = F::from_usize((value >> (2 * i)) & 0b11);
-                        ctx.memory.set(memory_index, value)?;
-                        memory_index += 1;
+                        ctx.memory.set(memory_index_decomposed, value)?;
+                        memory_index_decomposed += 1;
                     }
-                    ctx.memory.set(memory_index, F::from_usize(value >> 24))?;
-                    memory_index += 1;
+                    ctx.memory.set(memory_index_remaining, F::from_usize(value >> 24))?;
+                    memory_index_remaining += 1;
                 }
             }
             Self::CounterHint { res_offset } => {
@@ -271,10 +273,14 @@ impl Display for Hint {
                 write!(f, ")")
             }
             Self::DecomposeCustom {
-                res_offset,
+                decomposed,
+                remaining,
                 to_decompose,
             } => {
-                write!(f, "m[fp + {res_offset}] = decompose_custom(")?;
+                write!(
+                    f,
+                    "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], "
+                )?;
                 for (i, v) in to_decompose.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
