@@ -71,12 +71,25 @@ impl TableT for SliceHashPrecompile {
     }
 
     fn buses(&self) -> Vec<Bus> {
-        vec![Bus {
-            table: BusTable::Constant(self.identifier()),
-            direction: BusDirection::Pull,
-            selector: BusSelector::Column(COL_FLAG),
-            data: vec![COL_INDEX_SEED, COL_INDEX_START, COL_INDEX_RES, COL_LEN],
-        }]
+        vec![
+            Bus {
+                table: BusTable::Constant(self.identifier()),
+                direction: BusDirection::Pull,
+                selector: BusSelector::Column(COL_FLAG),
+                data: vec![COL_INDEX_SEED, COL_INDEX_START, COL_INDEX_RES, COL_LEN],
+            },
+            Bus {
+                table: BusTable::Constant(Table::poseidon24_core()),
+                direction: BusDirection::Push,
+                selector: BusSelector::ConstantOne,
+                data: [
+                    (COL_LOOKUP_MEM_VALUES_LEFT..COL_LOOKUP_MEM_VALUES_LEFT + 16).collect::<Vec<ColIndex>>(),
+                    (INITIAL_COLS_DATA_RIGHT..INITIAL_COLS_DATA_RIGHT + 8).collect::<Vec<ColIndex>>(),
+                    (INITIAL_COLS_DATA_RES..INITIAL_COLS_DATA_RES + 8).collect::<Vec<ColIndex>>(),
+                ]
+                .concat(),
+            },
+        ]
     }
 
     fn padding_row_f(&self) -> Vec<F> {
@@ -114,9 +127,6 @@ impl TableT for SliceHashPrecompile {
     ) -> Result<(), RunnerError> {
         assert!(len >= 2);
 
-        let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
-        // TODO add row to poseidon24 trace
-
         let seed = ctx.memory.get_vector(index_seed.to_usize())?;
         let mut cap = seed;
         for i in 0..len {
@@ -136,6 +146,8 @@ impl TableT for SliceHashPrecompile {
                 _ => poseidon24_permute(input)[VECTOR_LEN * 2..].try_into().unwrap(),
             };
 
+            let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
+
             for j in 0..VECTOR_LEN * 2 {
                 trace[COL_LOOKUP_MEM_VALUES_LEFT + j].push(input[j]);
             }
@@ -146,8 +158,11 @@ impl TableT for SliceHashPrecompile {
                 trace[INITIAL_COLS_DATA_RES + j].push(output[j]);
             }
 
+            add_poseidon_24_core_row(ctx.traces, 1, input, output);
+
             cap = output;
         }
+        let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
 
         let final_res = cap;
         ctx.memory.set_vector(index_res.to_usize(), final_res)?;
@@ -211,11 +226,23 @@ impl Air for SliceHashPrecompile {
         let _lookup_index_seed_or_res_down = down[6].clone();
         let data_right_down: [_; VECTOR_LEN] = array::from_fn(|i| down[7 + i].clone());
 
+        let mut core_bus_data = [AB::F::ZERO; 24 + 8];
+        core_bus_data[0..16].clone_from_slice(&up[COL_LOOKUP_MEM_VALUES_LEFT..][..16]);
+        core_bus_data[16..24].clone_from_slice(&up[INITIAL_COLS_DATA_RIGHT..][..8]);
+        core_bus_data[24..32].clone_from_slice(&up[INITIAL_COLS_DATA_RES..][..8]);
+
         builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
             extra_data,
             AB::F::from_usize(self.identifier().index()),
             flag.clone(),
             &[index_seed.clone(), index_start.clone(), index_res.clone(), len.clone()],
+        ));
+
+        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            extra_data,
+            AB::F::from_usize(Table::poseidon24_core().index()),
+            AB::F::ONE,
+            &core_bus_data,
         ));
 
         // TODO double check constraints

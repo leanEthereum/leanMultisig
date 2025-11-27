@@ -14,10 +14,12 @@ const COL_LEAF_POSITION: ColIndex = 2; // (between 0 and 2^height - 1)
 const COL_INDEX_ROOT: ColIndex = 3; // vectorized pointer
 const COL_HEIGHT: ColIndex = 4; // merkle tree height
 
-const COL_IS_LEFT: ColIndex = 5; // boolean, whether the current node is a left child
-const COL_LOOKUP_MEM_INDEX: ColIndex = 6; // = COL_INDEX_LEAF if flag = 1, otherwise = COL_INDEX_ROOT
+const COL_ZERO: ColIndex = 5; // always equal to 0, TODO remove this
+const COL_ONE: ColIndex = 6; // always equal to 1, TODO remove this
+const COL_IS_LEFT: ColIndex = 7; // boolean, whether the current node is a left child
+const COL_LOOKUP_MEM_INDEX: ColIndex = 8; // = COL_INDEX_LEAF if flag = 1, otherwise = COL_INDEX_ROOT
 
-const INITIAL_COLS_DATA_LEFT: ColIndex = 7;
+const INITIAL_COLS_DATA_LEFT: ColIndex = 9;
 const INITIAL_COLS_DATA_RIGHT: ColIndex = INITIAL_COLS_DATA_LEFT + VECTOR_LEN;
 const INITIAL_COLS_DATA_RES: ColIndex = INITIAL_COLS_DATA_RIGHT + VECTOR_LEN;
 
@@ -62,12 +64,27 @@ impl TableT for MerklePrecompile {
     }
 
     fn buses(&self) -> Vec<Bus> {
-        vec![Bus {
-            table: BusTable::Constant(self.identifier()),
-            direction: BusDirection::Pull,
-            selector: BusSelector::Column(COL_FLAG),
-            data: vec![COL_INDEX_LEAF, COL_LEAF_POSITION, COL_INDEX_ROOT, COL_HEIGHT],
-        }]
+        vec![
+            Bus {
+                table: BusTable::Constant(self.identifier()),
+                direction: BusDirection::Pull,
+                selector: BusSelector::Column(COL_FLAG),
+                data: vec![COL_INDEX_LEAF, COL_LEAF_POSITION, COL_INDEX_ROOT, COL_HEIGHT],
+            },
+            Bus {
+                table: BusTable::Constant(Table::poseidon16_core()),
+                direction: BusDirection::Push,
+                selector: BusSelector::ConstantOne,
+                data: [
+                    vec![COL_ONE], // Compression
+                    (INITIAL_COLS_DATA_LEFT..INITIAL_COLS_DATA_LEFT + 8).collect::<Vec<ColIndex>>(),
+                    (INITIAL_COLS_DATA_RIGHT..INITIAL_COLS_DATA_RIGHT + 8).collect::<Vec<ColIndex>>(),
+                    (INITIAL_COLS_DATA_RES..INITIAL_COLS_DATA_RES + 8).collect::<Vec<ColIndex>>(),
+                    vec![COL_ZERO; VECTOR_LEN], // Padding
+                ]
+                .concat(),
+            },
+        ]
     }
 
     fn padding_row_f(&self) -> Vec<F> {
@@ -79,6 +96,8 @@ impl TableT for MerklePrecompile {
                 F::ZERO,                                  // leaf_position
                 F::from_usize(POSEIDON_16_NULL_HASH_PTR), // index_root
                 F::ONE,
+                F::ZERO,                     // col_zero
+                F::ONE,                      // col_one
                 F::ZERO,                     // is_left
                 F::from_usize(ZERO_VEC_PTR), // lookup_mem_index
             ],
@@ -105,9 +124,6 @@ impl TableT for MerklePrecompile {
     ) -> Result<(), RunnerError> {
         assert!(height >= 2);
 
-        let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
-        // TODO add row to poseidon16 trace
-
         let leaf_position = leaf_position.to_usize();
         assert!(height > 0);
         assert!(leaf_position < (1 << height));
@@ -119,16 +135,23 @@ impl TableT for MerklePrecompile {
 
         let leaf = ctx.memory.get_vector(index_leaf.to_usize())?;
 
-        trace[COL_FLAG].extend([vec![F::ONE], vec![F::ZERO; height - 1]].concat());
-        trace[COL_INDEX_LEAF].extend(vec![index_leaf; height]);
-        trace[COL_LEAF_POSITION].extend((0..height).map(|d| F::from_usize(leaf_position >> d)));
-        trace[COL_INDEX_ROOT].extend(vec![index_root; height]);
-        trace[COL_HEIGHT].extend((1..=height).rev().map(F::from_usize));
-        trace[COL_IS_LEFT].extend(leaf_position_bools);
-        trace[COL_LOOKUP_MEM_INDEX].extend([vec![index_leaf], vec![index_root; height - 1]].concat());
+        {
+            let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
+            trace[COL_FLAG].extend([vec![F::ONE], vec![F::ZERO; height - 1]].concat());
+            trace[COL_INDEX_LEAF].extend(vec![index_leaf; height]);
+            trace[COL_LEAF_POSITION].extend((0..height).map(|d| F::from_usize(leaf_position >> d)));
+            trace[COL_INDEX_ROOT].extend(vec![index_root; height]);
+            trace[COL_HEIGHT].extend((1..=height).rev().map(F::from_usize));
+            trace[COL_ZERO].extend(vec![F::ZERO; height]);
+            trace[COL_ONE].extend(vec![F::ONE; height]);
+            trace[COL_IS_LEFT].extend(leaf_position_bools);
+            trace[COL_LOOKUP_MEM_INDEX].extend([vec![index_leaf], vec![index_root; height - 1]].concat());
+        }
 
         let mut current_hash = leaf;
         for (d, neightbour) in auth_path.iter().enumerate() {
+            let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
+
             let is_left = (leaf_position >> d) & 1 == 0;
 
             // TODO precompute (in parallel + SIMD) poseidons
@@ -159,10 +182,13 @@ impl TableT for MerklePrecompile {
             for i in 0..VECTOR_LEN {
                 trace[INITIAL_COLS_DATA_RES + i].push(current_hash[i]);
             }
+
+            add_poseidon_16_core_row(ctx.traces, 1, input, current_hash, [F::ZERO; VECTOR_LEN], true);
         }
         let root = current_hash;
         ctx.memory.set_vector(index_root.to_usize(), root)?;
 
+        let trace = &mut ctx.traces.get_mut(&self.identifier()).unwrap().base;
         for i in 0..VECTOR_LEN {
             trace[COL_LOOKUP_MEM_VALUES + i].extend([vec![leaf[i]], vec![root[i]; height - 1]].concat());
         }
@@ -189,7 +215,7 @@ impl Air for MerklePrecompile {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        9 + 5 * VECTOR_LEN
+        12 + 5 * VECTOR_LEN
     }
     fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
@@ -198,6 +224,8 @@ impl Air for MerklePrecompile {
         let leaf_position = up[COL_LEAF_POSITION].clone();
         let index_root = up[COL_INDEX_ROOT].clone();
         let height = up[COL_HEIGHT].clone();
+        let col_zero = up[COL_ZERO].clone();
+        let col_one = up[COL_ONE].clone();
         let is_left = up[COL_IS_LEFT].clone();
         let lookup_index = up[COL_LOOKUP_MEM_INDEX].clone();
         let data_left: [_; VECTOR_LEN] = array::from_fn(|i| up[INITIAL_COLS_DATA_LEFT + i].clone());
@@ -211,10 +239,19 @@ impl Air for MerklePrecompile {
         let leaf_position_down = down[2].clone();
         let index_root_down = down[3].clone();
         let height_down = down[4].clone();
-        let is_left_down = down[5].clone();
-        let _lookup_index_down = down[6].clone();
-        let data_left_down: [_; VECTOR_LEN] = array::from_fn(|i| down[7 + i].clone());
-        let data_right_down: [_; VECTOR_LEN] = array::from_fn(|i| down[7 + VECTOR_LEN + i].clone());
+        let _col_zero_down = down[5].clone();
+        let _col_one_down = down[6].clone();
+        let is_left_down = down[7].clone();
+        let _lookup_index_down = down[8].clone();
+        let data_left_down: [_; VECTOR_LEN] = array::from_fn(|i| down[9 + i].clone());
+        let data_right_down: [_; VECTOR_LEN] = array::from_fn(|i| down[9 + VECTOR_LEN + i].clone());
+
+        let mut core_bus_data = [AB::F::ZERO; 1 + 2 * 16];
+        core_bus_data[0] = col_one.clone(); // Compression
+        core_bus_data[1..9].clone_from_slice(&data_left);
+        core_bus_data[9..17].clone_from_slice(&data_right);
+        core_bus_data[17..25].clone_from_slice(&data_res);
+        core_bus_data[25..].clone_from_slice(&vec![col_zero.clone(); VECTOR_LEN]);
 
         builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
             extra_data,
@@ -228,7 +265,17 @@ impl Air for MerklePrecompile {
             ],
         ));
 
+        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            extra_data,
+            AB::F::from_usize(Table::poseidon16_core().index()),
+            AB::F::ONE,
+            &core_bus_data,
+        ));
+
         // TODO double check constraints
+
+        builder.assert_eq(col_one.clone(), AB::F::ONE);
+        builder.assert_eq(col_zero.clone(), AB::F::ZERO);
 
         builder.assert_bool(flag.clone());
         builder.assert_bool(is_left.clone());
