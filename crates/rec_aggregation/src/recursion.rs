@@ -16,7 +16,7 @@ use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, 
 
 const NUM_VARIABLES: usize = 25;
 
-pub fn run_whir_recursion_benchmark() {
+pub fn run_whir_recursion_benchmark(tracing: bool) {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("recursion_program.lean_lang");
     let mut program_str = std::fs::read_to_string(src_file).unwrap();
     let recursion_config_builder = WhirConfigBuilder {
@@ -146,7 +146,10 @@ pub fn run_whir_recursion_benchmark() {
 
     public_input.extend(whir_proof.proof_data[commitment_size..].to_vec());
 
-    utils::init_tracing();
+    if tracing {
+        utils::init_tracing();
+    }
+
     let bytecode = compile_program(program_str);
 
     // in practice we will precompute all the possible values
@@ -187,5 +190,5 @@ pub fn run_whir_recursion_benchmark() {
 
 #[test]
 fn test_whir_recursion() {
-    run_whir_recursion_benchmark();
+    run_whir_recursion_benchmark(false);
 }

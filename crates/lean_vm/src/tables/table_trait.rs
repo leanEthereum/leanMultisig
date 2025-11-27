@@ -131,12 +131,22 @@ impl AlphaPowers<EF> for ExtraDataForBuses<EF> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
-    pub fn transmute_bus_data<'a, NewEF: 'static>(&'a self) -> (&'a Vec<NewEF>, &'a NewEF) {
+    pub fn transmute_bus_data<NewEF: 'static>(&self) -> (&Vec<NewEF>, &NewEF) {
         if TypeId::of::<NewEF>() == TypeId::of::<EF>() {
-            unsafe { transmute((&self.fingerprint_challenge_powers, &self.bus_beta)) }
+            unsafe {
+                transmute::<(&Vec<EF>, &EF), (&Vec<NewEF>, &NewEF)>((
+                    &self.fingerprint_challenge_powers,
+                    &self.bus_beta,
+                ))
+            }
         } else {
             assert_eq!(TypeId::of::<NewEF>(), TypeId::of::<EFPacking<EF>>());
-            unsafe { transmute((&self.fingerprint_challenge_powers_packed, &self.bus_beta_packed)) }
+            unsafe {
+                transmute::<(&Vec<EFPacking<EF>>, &EFPacking<EF>), (&Vec<NewEF>, &NewEF)>((
+                    &self.fingerprint_challenge_powers_packed,
+                    &self.bus_beta_packed,
+                ))
+            }
         }
     }
 }

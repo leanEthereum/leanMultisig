@@ -11,7 +11,7 @@ pub(crate) fn eval_virtual_bus_column<AB: AirBuilder, EF: ExtensionField<PF<EF>>
 ) -> AB::EF {
     let (fingerprint_challenge_powers, bus_beta) = extra_data.transmute_bus_data::<AB::EF>();
 
-    assert!(data.len() + 1 <= fingerprint_challenge_powers.len());
+    assert!(data.len() < fingerprint_challenge_powers.len());
     (fingerprint_challenge_powers[1..]
         .iter()
         .zip(data)

@@ -151,8 +151,10 @@ fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionRes
     )
 }
 
-pub fn run_xmss_benchmark(log_lifetimes: &[usize]) {
-    utils::init_tracing();
+pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
+    if tracing {
+        utils::init_tracing();
+    }
     xmss_setup_aggregation_program();
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -276,5 +278,5 @@ fn test_xmss_aggregate() {
     let log_lifetimes = (0..n_xmss)
         .map(|_| rng.random_range(XMSS_MIN_LOG_LIFETIME..=XMSS_MAX_LOG_LIFETIME))
         .collect::<Vec<_>>();
-    run_xmss_benchmark(&log_lifetimes);
+    run_xmss_benchmark(&log_lifetimes, false);
 }

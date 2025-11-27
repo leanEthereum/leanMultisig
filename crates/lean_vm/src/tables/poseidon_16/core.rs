@@ -127,7 +127,7 @@ impl Air for Poseidon16CorePrecompile {
     }
 }
 
-pub fn add_poseidon16_core_row(
+pub fn add_poseidon_16_core_row(
     traces: &mut BTreeMap<Table, TableTrace>,
     multiplicity: usize,
     input: [F; 16],

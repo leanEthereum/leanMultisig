@@ -185,7 +185,7 @@ impl TableT for Poseidon16MemPrecompile {
             trace.base[POSEIDON_16_MEM_COL_OUTPUT_START + 8 + i].push(*value);
         }
 
-        add_poseidon16_core_row(ctx.traces, 1, input, res_a, res_b, is_compression);
+        add_poseidon_16_core_row(ctx.traces, 1, input, res_a, res_b, is_compression);
 
         Ok(())
     }

@@ -25,19 +25,22 @@ const COMPRESSION_OUTPUT_WIDTH: usize = 8;
 
 #[test]
 fn test_poseidon_benchmark() {
-    run_poseidon_benchmark::<16, 0, 3>(12, false);
-    run_poseidon_benchmark::<16, 0, 3>(12, true);
-    run_poseidon_benchmark::<16, 16, 3>(12, false);
-    run_poseidon_benchmark::<16, 16, 3>(12, true);
+    run_poseidon_benchmark::<16, 0, 3>(12, false, false);
+    run_poseidon_benchmark::<16, 0, 3>(12, true, false);
+    run_poseidon_benchmark::<16, 16, 3>(12, false, false);
+    run_poseidon_benchmark::<16, 16, 3>(12, true, false);
 }
 
 pub fn run_poseidon_benchmark<const WIDTH: usize, const N_COMMITED_CUBES: usize, const UNIVARIATE_SKIPS: usize>(
     log_n_poseidons: usize,
     compress: bool,
+    tracing: bool,
 ) where
     KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
 {
-    init_tracing();
+    if tracing {
+        init_tracing();
+    }
     precompute_dft_twiddles::<F>(1 << 24);
 
     let whir_config_builder = WhirConfigBuilder {

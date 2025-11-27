@@ -88,6 +88,6 @@ impl TableT for EqPolyBaseExtPrecompile {
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
         let trace = ctx.traces.get_mut(&self.identifier()).unwrap();
-        exec_eq_poly_base_ext(arg_a, arg_b, arg_c, aux, &mut ctx.memory, trace)
+        exec_eq_poly_base_ext(arg_a, arg_b, arg_c, aux, ctx.memory, trace)
     }
 }

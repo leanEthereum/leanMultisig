@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
-use poseidon_circuit::{GKRPoseidonResult, PoseidonGKRLayers, default_cube_layers};
+use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};
 use sub_protocols::ColDims;
 
 use crate::*;
@@ -33,7 +33,7 @@ pub(crate) fn get_base_dims(
             .collect::<Vec<_>>(), // commited cubes for poseidon16
         p24_default_cubes
             .iter()
-            .map(|&c| ColDims::padded(table_heights[&Table::poseidon24()].n_rows_non_padded_maxed(), c))
+            .map(|&c| ColDims::padded(table_heights[&Table::poseidon24_core()].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(),
     ]
     .concat();
@@ -65,13 +65,4 @@ fn split_at(stmt: &MultiEvaluation<EF>, start: usize, end: usize) -> Vec<MultiEv
         stmt.point.clone(),
         stmt.values[start..end].to_vec(),
     )]
-}
-
-pub(crate) fn poseidon_24_vectorized_lookup_statements(p24_gkr: &GKRPoseidonResult) -> Vec<Vec<MultiEvaluation<EF>>> {
-    vec![
-        split_at(&p24_gkr.input_statements, 0, VECTOR_LEN),
-        split_at(&p24_gkr.input_statements, VECTOR_LEN, VECTOR_LEN * 2),
-        split_at(&p24_gkr.input_statements, VECTOR_LEN * 2, VECTOR_LEN * 3),
-        split_at(&p24_gkr.output_statements, VECTOR_LEN * 2, VECTOR_LEN * 3),
-    ]
 }

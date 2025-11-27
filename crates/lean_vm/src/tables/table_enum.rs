@@ -3,14 +3,15 @@ use p3_air::Air;
 
 use crate::*;
 
-pub const N_TABLES: usize = 9;
+pub const N_TABLES: usize = 10;
 pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::execution(),
     Table::dot_product_be(),
     Table::dot_product_ee(),
     Table::poseidon16_core(),
     Table::poseidon16_mem(),
-    Table::poseidon24(),
+    Table::poseidon24_core(),
+    Table::poseidon24_mem(),
     Table::merkle(),
     Table::slice_hash(),
     Table::eq_poly_base_ext(),
@@ -24,7 +25,8 @@ pub enum Table {
     DotProductEE(DotProductPrecompile<false>),
     Poseidon16Core(Poseidon16CorePrecompile),
     Poseidon16Mem(Poseidon16MemPrecompile),
-    Poseidon24(Poseidon24Precompile),
+    Poseidon24Core(Poseidon24CorePrecompile),
+    Poseidon24Mem(Poseidon24MemPrecompile),
     Merkle(MerklePrecompile),
     SliceHash(SliceHashPrecompile),
     EqPolyBaseExt(EqPolyBaseExtPrecompile),
@@ -39,7 +41,8 @@ macro_rules! delegate_to_inner {
             Self::DotProductEE(p) => p.$method($($($arg),*)?),
             Self::Poseidon16Core(p) => p.$method($($($arg),*)?),
             Self::Poseidon16Mem(p) => p.$method($($($arg),*)?),
-            Self::Poseidon24(p) => p.$method($($($arg),*)?),
+            Self::Poseidon24Core(p) => p.$method($($($arg),*)?),
+            Self::Poseidon24Mem(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
             Self::Merkle(p) => p.$method($($($arg),*)?),
             Self::SliceHash(p) => p.$method($($($arg),*)?),
@@ -53,7 +56,8 @@ macro_rules! delegate_to_inner {
             Table::DotProductEE(p) => $macro_name!(p),
             Table::Poseidon16Core(p) => $macro_name!(p),
             Table::Poseidon16Mem(p) => $macro_name!(p),
-            Table::Poseidon24(p) => $macro_name!(p),
+            Table::Poseidon24Core(p) => $macro_name!(p),
+            Table::Poseidon24Mem(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
             Table::Merkle(p) => $macro_name!(p),
             Table::SliceHash(p) => $macro_name!(p),
@@ -78,8 +82,11 @@ impl Table {
     pub const fn poseidon16_mem() -> Self {
         Self::Poseidon16Mem(Poseidon16MemPrecompile)
     }
-    pub const fn poseidon24() -> Self {
-        Self::Poseidon24(Poseidon24Precompile)
+    pub const fn poseidon24_core() -> Self {
+        Self::Poseidon24Core(Poseidon24CorePrecompile)
+    }
+    pub const fn poseidon24_mem() -> Self {
+        Self::Poseidon24Mem(Poseidon24MemPrecompile)
     }
     pub const fn merkle() -> Self {
         Self::Merkle(MerklePrecompile)
@@ -95,6 +102,12 @@ impl Table {
     }
     pub const fn index(&self) -> usize {
         unsafe { *(self as *const Self as *const usize) }
+    }
+    pub fn is_poseidon(&self) -> bool {
+        matches!(
+            self,
+            Table::Poseidon16Core(_) | Table::Poseidon16Mem(_) | Table::Poseidon24Core(_) | Table::Poseidon24Mem(_)
+        )
     }
 }
 

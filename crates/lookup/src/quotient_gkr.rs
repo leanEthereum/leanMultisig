@@ -220,7 +220,7 @@ fn sum_quotients_helper<F: PrimeCharacteristicRing + Sync + Send + Copy>(
 ) -> Vec<Vec<F>> {
     assert_eq!(numerators_and_denominators.len(), n_groups);
     let n = numerators_and_denominators[0].len();
-    assert!(n.is_power_of_two() && n >= 2);
+    assert!(n.is_power_of_two() && n >= 2, "n = {}", n);
     let mut new_numerators = Vec::new();
     let mut new_denominators = Vec::new();
     let (prev_numerators, prev_denominators) = numerators_and_denominators.split_at(n_groups / 2);

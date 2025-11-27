@@ -71,10 +71,7 @@ pub fn prove_execution(
     let traces: BTreeMap<_, _> = traces
         .into_iter()
         .filter(|(table, trace)| {
-            trace.n_rows_non_padded() > 0
-                || table == &Table::execution()
-                || table == &Table::poseidon16_core() // due to custom GKR
-                || table == &Table::poseidon24() // due to custom GKR
+            trace.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon()
         })
         .collect();
 
@@ -89,8 +86,8 @@ pub fn prove_execution(
     );
     let p24_witness = generate_poseidon_witness_helper(
         &p24_gkr_layers,
-        &traces[&Table::poseidon24()],
-        POSEIDON_24_COL_INDEX_INPUT_START,
+        &traces[&Table::poseidon24_core()],
+        POSEIDON_24_CORE_COL_INPUT_START,
         None,
     );
 
@@ -143,15 +140,6 @@ pub fn prove_execution(
         &base_dims,
         &mut prover_state,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    );
-
-    let random_point_p24 = MultilinearPoint(prover_state.sample_vec(traces[&Table::poseidon24()].log_padded()));
-    let p24_gkr = prove_poseidon_gkr(
-        &mut prover_state,
-        &p24_witness,
-        random_point_p24.0.clone(),
-        UNIVARIATE_SKIPS,
-        &p24_gkr_layers,
     );
 
     let bus_challenge = prover_state.sample();
@@ -255,17 +243,10 @@ pub fn prove_execution(
             .iter()
             .flat_map(|(table, trace)| table.vector_lookup_values_columns(trace))
             .collect(),
-        {
-            let mut statements = vec![];
-            for (table, _) in &traces {
-                if table.identifier() == Table::poseidon24() {
-                    statements.extend(poseidon_24_vectorized_lookup_statements(&p24_gkr)); // special case
-                    continue;
-                }
-                statements.extend(table.vectorized_lookups_statements(&air_points[table], &evals_f[table]));
-            }
-            statements
-        },
+        traces
+            .keys()
+            .flat_map(|table| table.vectorized_lookups_statements(&air_points[table], &evals_f[table]))
+            .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
@@ -314,7 +295,7 @@ pub fn prove_execution(
     ];
 
     let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
-    for (table, _) in &traces {
+    for table in traces.keys() {
         final_statements.insert(
             *table,
             table.committed_statements_prover(
@@ -342,11 +323,23 @@ pub fn prove_execution(
         &p16_gkr.output_statements.values,
         &evals_f[&Table::poseidon16_core()][POSEIDON_16_CORE_COL_OUTPUT_START..][..16]
     );
-    // TODO p16_gkr.input / p16_gkr.compression
+
+    let p24_gkr = prove_poseidon_gkr(
+        &mut prover_state,
+        &p24_witness,
+        air_points[&Table::poseidon24_core()].0.clone(),
+        UNIVARIATE_SKIPS,
+        &p24_gkr_layers,
+    );
+    assert_eq!(&p24_gkr.output_statements.point, &air_points[&Table::poseidon24_core()]);
+    assert_eq!(
+        &p24_gkr.output_statements.values[16..],
+        &evals_f[&Table::poseidon24_core()][POSEIDON_24_CORE_COL_OUTPUT_START..][..8]
+    );
 
     {
         let mut cursor = 0;
-        for (table, _) in &traces {
+        for table in traces.keys() {
             for (statement, lookup) in vectorized_lookup_statements.on_indexes[cursor..]
                 .iter()
                 .zip(table.vector_lookups())
@@ -374,6 +367,14 @@ pub fn prove_execution(
         stmts.push(Evaluation::new(p16_gkr.input_statements.point.clone(), *gkr_value));
     }
     statements_p16_core[POSEIDON_16_CORE_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
+
+    let statements_p24_core = final_statements.get_mut(&Table::poseidon24_core()).unwrap();
+    for (stmts, gkr_value) in statements_p24_core[POSEIDON_24_CORE_COL_INPUT_START..][..24]
+        .iter_mut()
+        .zip(&p24_gkr.input_statements.values)
+    {
+        stmts.push(Evaluation::new(p24_gkr.input_statements.point.clone(), *gkr_value));
+    }
 
     // First Opening
     let mut all_base_statements = [

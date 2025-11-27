@@ -43,10 +43,7 @@ pub fn verify_execution(
     let table_heights: BTreeMap<_, _> = table_heights
         .into_iter()
         .filter(|(table, height)| {
-            height.n_rows_non_padded() > 0
-                || table == &Table::execution()
-                || table == &Table::poseidon16_core() // due to custom GKR
-                || table == &Table::poseidon24() // due to custom GKR
+            height.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon()
         })
         .collect();
 
@@ -71,17 +68,6 @@ pub fn verify_execution(
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     )?;
-
-    let random_point_p24 =
-        MultilinearPoint(verifier_state.sample_vec(table_heights[&Table::poseidon24()].log_padded()));
-    let p24_gkr = verify_poseidon_gkr(
-        &mut verifier_state,
-        table_heights[&Table::poseidon24()].log_padded(),
-        &random_point_p24,
-        &p24_gkr_layers,
-        UNIVARIATE_SKIPS,
-        false,
-    );
 
     let bus_challenge = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
@@ -158,17 +144,10 @@ pub fn verify_execution(
             .keys()
             .flat_map(|table| table.vector_lookup_default_indexes())
             .collect(),
-        {
-            let mut statements = vec![];
-            for (table, _) in &table_heights {
-                if table.identifier() == Table::poseidon24() {
-                    statements.extend(poseidon_24_vectorized_lookup_statements(&p24_gkr)); // special case
-                    continue;
-                }
-                statements.extend(table.vectorized_lookups_statements(&air_points[table], &evals_f[table]));
-            }
-            statements
-        },
+        table_heights
+            .keys()
+            .flat_map(|table| table.vectorized_lookups_statements(&air_points[table], &evals_f[table]))
+            .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &public_memory, // we need to pass the first few values of memory, public memory is enough
     )?;
@@ -216,7 +195,7 @@ pub fn verify_execution(
     ];
 
     let mut final_statements: BTreeMap<Table, Vec<_>> = Default::default();
-    for (table, _) in &table_heights {
+    for table in table_heights.keys() {
         final_statements.insert(
             *table,
             table.committed_statements_verifier(
@@ -245,11 +224,24 @@ pub fn verify_execution(
         &p16_gkr.output_statements.values,
         &evals_f[&Table::poseidon16_core()][POSEIDON_16_CORE_COL_OUTPUT_START..][..16]
     );
-    // TODO p16_gkr.input / p16_gkr.compression
+
+    let p24_gkr = verify_poseidon_gkr(
+        &mut verifier_state,
+        table_heights[&Table::poseidon24_core()].log_padded(),
+        &air_points[&Table::poseidon24_core()].0,
+        &p24_gkr_layers,
+        UNIVARIATE_SKIPS,
+        false,
+    );
+    assert_eq!(&p24_gkr.output_statements.point, &air_points[&Table::poseidon24_core()]);
+    assert_eq!(
+        &p24_gkr.output_statements.values[16..],
+        &evals_f[&Table::poseidon24_core()][POSEIDON_24_CORE_COL_OUTPUT_START..][..8]
+    );
 
     {
         let mut cursor = 0;
-        for (table, _) in &table_heights {
+        for table in table_heights.keys() {
             for (statement, lookup) in vectorized_lookup_statements.on_indexes[cursor..]
                 .iter()
                 .zip(table.vector_lookups())
@@ -277,6 +269,14 @@ pub fn verify_execution(
         stmts.push(Evaluation::new(p16_gkr.input_statements.point.clone(), *gkr_value));
     }
     statements_p16_core[POSEIDON_16_CORE_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
+
+    let statements_p24_core = final_statements.get_mut(&Table::poseidon24_core()).unwrap();
+    for (stmts, gkr_value) in statements_p24_core[POSEIDON_24_CORE_COL_INPUT_START..][..24]
+        .iter_mut()
+        .zip(&p24_gkr.input_statements.values)
+    {
+        stmts.push(Evaluation::new(p24_gkr.input_statements.point.clone(), *gkr_value));
+    }
 
     let mut all_base_statements = [
         vec![memory_statements],

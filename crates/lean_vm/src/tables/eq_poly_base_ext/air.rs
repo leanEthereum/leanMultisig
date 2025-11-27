@@ -72,10 +72,7 @@ impl Air for EqPolyBaseExtPrecompile {
             extra_data,
             AB::F::from_usize(self.identifier().index()),
             flag.clone(),
-            &[index_a.clone(),
-            index_b.clone(),
-            index_res.clone(),
-            len.clone()],
+            &[index_a.clone(), index_b.clone(), index_res.clone(), len.clone()],
         ));
 
         builder.assert_bool(flag.clone());
