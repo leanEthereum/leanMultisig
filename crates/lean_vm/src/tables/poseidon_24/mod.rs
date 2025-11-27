@@ -186,10 +186,7 @@ impl Air for Poseidon24Precompile {
             extra_data,
             AB::F::from_usize(self.identifier().index()),
             flag.clone(),
-            index_input_a.clone(),
-            index_b,
-            index_res,
-            AB::F::ZERO,
+            &[index_input_a.clone(), index_b, index_res, AB::F::ZERO],
         ));
         builder.assert_bool(flag);
         builder.assert_eq(index_input_a_bis, index_input_a + AB::F::ONE);

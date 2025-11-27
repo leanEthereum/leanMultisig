@@ -1,7 +1,7 @@
 use crate::{EF, F, InstructionContext, RunnerError, Table, VECTOR_LEN};
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
-use std::{any::TypeId, array, mem::transmute_copy};
+use std::{any::TypeId, array, mem::transmute};
 use utils::ToUsize;
 
 use sub_protocols::{
@@ -34,7 +34,7 @@ pub struct VectorLookupIntoMemory {
     pub values: [ColIndex; 8],
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BusDirection {
     Pull,
     Push,
@@ -63,7 +63,7 @@ pub struct Bus {
     pub data: Vec<ColIndex>, // For now, we only supports F (base field) columns as bus data
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BusTable {
     Constant(Table),
     Variable(ColIndex),
@@ -109,10 +109,12 @@ impl TableTrace {
 }
 
 #[derive(Debug)]
-pub struct ExtraDataForBuses<EF> {
+pub struct ExtraDataForBuses<EF: ExtensionField<PF<EF>>> {
     // GKR quotient challenges
-    pub fingerprint_challenge_powers: [EF; 5],
+    pub fingerprint_challenge_powers: Vec<EF>,
+    pub fingerprint_challenge_powers_packed: Vec<EFPacking<EF>>,
     pub bus_beta: EF,
+    pub bus_beta_packed: EFPacking<EF>,
     pub alpha_powers: Vec<EF>,
 }
 
@@ -129,17 +131,12 @@ impl AlphaPowers<EF> for ExtraDataForBuses<EF> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
-    pub fn transmute_bus_data<NewEF: 'static>(&self) -> ([NewEF; 5], NewEF) {
+    pub fn transmute_bus_data<'a, NewEF: 'static>(&'a self) -> (&'a Vec<NewEF>, &'a NewEF) {
         if TypeId::of::<NewEF>() == TypeId::of::<EF>() {
-            unsafe { transmute_copy::<_, _>(&(self.fingerprint_challenge_powers, self.bus_beta)) }
+            unsafe { transmute((&self.fingerprint_challenge_powers, &self.bus_beta)) }
         } else {
             assert_eq!(TypeId::of::<NewEF>(), TypeId::of::<EFPacking<EF>>());
-            unsafe {
-                transmute_copy::<_, _>(&(
-                    self.fingerprint_challenge_powers.map(|c| EFPacking::<EF>::from(c)),
-                    EFPacking::<EF>::from(self.bus_beta),
-                ))
-            }
+            unsafe { transmute((&self.fingerprint_challenge_powers_packed, &self.bus_beta_packed)) }
         }
     }
 }

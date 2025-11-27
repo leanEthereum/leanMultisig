@@ -73,7 +73,7 @@ pub fn prove_execution(
         .filter(|(table, trace)| {
             trace.n_rows_non_padded() > 0
                 || table == &Table::execution()
-                || table == &Table::poseidon16() // due to custom GKR
+                || table == &Table::poseidon16_core() // due to custom GKR
                 || table == &Table::poseidon24() // due to custom GKR
         })
         .collect();
@@ -83,9 +83,9 @@ pub fn prove_execution(
 
     let p16_witness = generate_poseidon_witness_helper(
         &p16_gkr_layers,
-        &traces[&Table::poseidon16()],
-        POSEIDON_16_COL_INDEX_INPUT_START,
-        Some(&traces[&Table::poseidon16()].base[POSEIDON_16_COL_COMPRESSION].clone()),
+        &traces[&Table::poseidon16_core()],
+        POSEIDON_16_CORE_COL_INPUT_START,
+        Some(&traces[&Table::poseidon16_core()].base[POSEIDON_16_CORE_COL_COMPRESSION].clone()),
     );
     let p24_witness = generate_poseidon_witness_helper(
         &p24_gkr_layers,
@@ -143,15 +143,6 @@ pub fn prove_execution(
         &base_dims,
         &mut prover_state,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    );
-
-    let random_point_p16 = MultilinearPoint(prover_state.sample_vec(traces[&Table::poseidon16()].log_padded()));
-    let p16_gkr = prove_poseidon_gkr(
-        &mut prover_state,
-        &p16_witness,
-        random_point_p16.0.clone(),
-        UNIVARIATE_SKIPS,
-        &p16_gkr_layers,
     );
 
     let random_point_p24 = MultilinearPoint(prover_state.sample_vec(traces[&Table::poseidon24()].log_padded()));
@@ -267,10 +258,6 @@ pub fn prove_execution(
         {
             let mut statements = vec![];
             for (table, _) in &traces {
-                if table.identifier() == Table::poseidon16() {
-                    statements.extend(poseidon_16_vectorized_lookup_statements(&p16_gkr)); // special case
-                    continue;
-                }
                 if table.identifier() == Table::poseidon24() {
                     statements.extend(poseidon_24_vectorized_lookup_statements(&p24_gkr)); // special case
                     continue;
@@ -326,7 +313,7 @@ pub fn prove_execution(
         vectorized_lookup_statements.on_table.clone(),
     ];
 
-    let mut final_statements: BTreeMap<Table, Vec<_>> = Default::default();
+    let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
     for (table, _) in &traces {
         final_statements.insert(
             *table,
@@ -342,6 +329,20 @@ pub fn prove_execution(
     }
     assert!(normal_lookup_statements.on_indexes_f.is_empty());
     assert!(normal_lookup_statements.on_indexes_ef.is_empty());
+
+    let p16_gkr = prove_poseidon_gkr(
+        &mut prover_state,
+        &p16_witness,
+        air_points[&Table::poseidon16_core()].0.clone(),
+        UNIVARIATE_SKIPS,
+        &p16_gkr_layers,
+    );
+    assert_eq!(&p16_gkr.output_statements.point, &air_points[&Table::poseidon16_core()]);
+    assert_eq!(
+        &p16_gkr.output_statements.values,
+        &evals_f[&Table::poseidon16_core()][POSEIDON_16_CORE_COL_OUTPUT_START..][..16]
+    );
+    // TODO p16_gkr.input / p16_gkr.compression
 
     {
         let mut cursor = 0;
@@ -365,6 +366,14 @@ pub fn prove_execution(
             initial_pc_statement,
             final_pc_statement,
         ]);
+    let statements_p16_core = final_statements.get_mut(&Table::poseidon16_core()).unwrap();
+    for (stmts, gkr_value) in statements_p16_core[POSEIDON_16_CORE_COL_INPUT_START..][..16]
+        .iter_mut()
+        .zip(&p16_gkr.input_statements.values)
+    {
+        stmts.push(Evaluation::new(p16_gkr.input_statements.point.clone(), *gkr_value));
+    }
+    statements_p16_core[POSEIDON_16_CORE_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
 
     // First Opening
     let mut all_base_statements = [
@@ -570,10 +579,15 @@ fn prove_bus_and_air(
     }
 
     let extra_data = ExtraDataForBuses {
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        fingerprint_challenge_powers: fingerprint_challenge.powers().collect_n(max_bus_width()),
+        fingerprint_challenge_powers_packed: EFPacking::<EF>::from(fingerprint_challenge)
+            .powers()
+            .collect_n(max_bus_width()),
         bus_beta,
+        bus_beta_packed: EFPacking::<EF>::from(bus_beta),
         alpha_powers: vec![], // filled later
     };
+
     let (air_point, evals_f, evals_ef) = info_span!("Table AIR proof", table = t.name()).in_scope(|| {
         macro_rules! prove_air_for_table {
             ($t:expr) => {

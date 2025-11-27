@@ -331,13 +331,13 @@ fn execute_bytecode_helper(
 
     summary.push('\n');
 
-    if traces[&Table::poseidon16()].base[0].len() + traces[&Table::poseidon24()].base[0].len() > 0 {
+    if traces[&Table::poseidon16_core()].base[0].len() + traces[&Table::poseidon24()].base[0].len() > 0 {
         summary.push_str(&format!(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
-            pretty_integer(traces[&Table::poseidon16()].base[0].len()),
+            pretty_integer(traces[&Table::poseidon16_core()].base[0].len()),
             pretty_integer(traces[&Table::poseidon24()].base[0].len()),
             cpu_cycles
-                / (traces[&Table::poseidon16()].base[0].len()
+                / (traces[&Table::poseidon16_core()].base[0].len()
                     + traces[&Table::poseidon24()].base[0].len())
         ));
     }

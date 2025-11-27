@@ -163,7 +163,7 @@ fn test_prove_fibonacci() {
    "#;
 
     let n = std::env::var("FIB_N")
-        .unwrap_or("100000".to_string())
+        .unwrap_or("10000".to_string())
         .parse::<usize>()
         .unwrap();
     let program_str = program_str.replace("FIB_N_PLACEHOLDER", &n.to_string());

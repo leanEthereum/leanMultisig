@@ -45,7 +45,7 @@ pub fn verify_execution(
         .filter(|(table, height)| {
             height.n_rows_non_padded() > 0
                 || table == &Table::execution()
-                || table == &Table::poseidon16() // due to custom GKR
+                || table == &Table::poseidon16_core() // due to custom GKR
                 || table == &Table::poseidon24() // due to custom GKR
         })
         .collect();
@@ -71,17 +71,6 @@ pub fn verify_execution(
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     )?;
-
-    let random_point_p16 =
-        MultilinearPoint(verifier_state.sample_vec(table_heights[&Table::poseidon16()].log_padded()));
-    let p16_gkr = verify_poseidon_gkr(
-        &mut verifier_state,
-        table_heights[&Table::poseidon16()].log_padded(),
-        &random_point_p16,
-        &p16_gkr_layers,
-        UNIVARIATE_SKIPS,
-        true,
-    );
 
     let random_point_p24 =
         MultilinearPoint(verifier_state.sample_vec(table_heights[&Table::poseidon24()].log_padded()));
@@ -172,10 +161,6 @@ pub fn verify_execution(
         {
             let mut statements = vec![];
             for (table, _) in &table_heights {
-                if table.identifier() == Table::poseidon16() {
-                    statements.extend(poseidon_16_vectorized_lookup_statements(&p16_gkr)); // special case
-                    continue;
-                }
                 if table.identifier() == Table::poseidon24() {
                     statements.extend(poseidon_24_vectorized_lookup_statements(&p24_gkr)); // special case
                     continue;
@@ -247,6 +232,21 @@ pub fn verify_execution(
     assert!(normal_lookup_statements.on_indexes_f.is_empty());
     assert!(normal_lookup_statements.on_indexes_ef.is_empty());
 
+    let p16_gkr = verify_poseidon_gkr(
+        &mut verifier_state,
+        table_heights[&Table::poseidon16_core()].log_padded(),
+        &air_points[&Table::poseidon16_core()].0,
+        &p16_gkr_layers,
+        UNIVARIATE_SKIPS,
+        true,
+    );
+    assert_eq!(&p16_gkr.output_statements.point, &air_points[&Table::poseidon16_core()]);
+    assert_eq!(
+        &p16_gkr.output_statements.values,
+        &evals_f[&Table::poseidon16_core()][POSEIDON_16_CORE_COL_OUTPUT_START..][..16]
+    );
+    // TODO p16_gkr.input / p16_gkr.compression
+
     {
         let mut cursor = 0;
         for (table, _) in &table_heights {
@@ -269,6 +269,14 @@ pub fn verify_execution(
             initial_pc_statement,
             final_pc_statement,
         ]);
+    let statements_p16_core = final_statements.get_mut(&Table::poseidon16_core()).unwrap();
+    for (stmts, gkr_value) in statements_p16_core[POSEIDON_16_CORE_COL_INPUT_START..][..16]
+        .iter_mut()
+        .zip(&p16_gkr.input_statements.values)
+    {
+        stmts.push(Evaluation::new(p16_gkr.input_statements.point.clone(), *gkr_value));
+    }
+    statements_p16_core[POSEIDON_16_CORE_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
 
     let mut all_base_statements = [
         vec![memory_statements],
@@ -394,8 +402,12 @@ fn verify_bus_and_air(
     }
 
     let extra_data = ExtraDataForBuses {
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        fingerprint_challenge_powers: fingerprint_challenge.powers().collect_n(max_bus_width()),
+        fingerprint_challenge_powers_packed: EFPacking::<EF>::from(fingerprint_challenge)
+            .powers()
+            .collect_n(max_bus_width()),
         bus_beta,
+        bus_beta_packed: EFPacking::<EF>::from(bus_beta),
         alpha_powers: vec![], // filled later
     };
 

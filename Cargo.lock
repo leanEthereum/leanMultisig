@@ -452,6 +452,7 @@ dependencies = [
  "air",
  "colored",
  "derive_more",
+ "itertools",
  "lookup",
  "multilinear-toolkit",
  "num_enum",

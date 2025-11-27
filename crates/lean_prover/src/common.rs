@@ -29,7 +29,7 @@ pub(crate) fn get_base_dims(
         ],
         p16_default_cubes
             .iter()
-            .map(|&c| ColDims::padded(table_heights[&Table::poseidon16()].n_rows_non_padded_maxed(), c))
+            .map(|&c| ColDims::padded(table_heights[&Table::poseidon16_core()].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(), // commited cubes for poseidon16
         p24_default_cubes
             .iter()
@@ -65,14 +65,6 @@ fn split_at(stmt: &MultiEvaluation<EF>, start: usize, end: usize) -> Vec<MultiEv
         stmt.point.clone(),
         stmt.values[start..end].to_vec(),
     )]
-}
-pub(crate) fn poseidon_16_vectorized_lookup_statements(p16_gkr: &GKRPoseidonResult) -> Vec<Vec<MultiEvaluation<EF>>> {
-    vec![
-        split_at(&p16_gkr.input_statements, 0, VECTOR_LEN),
-        split_at(&p16_gkr.input_statements, VECTOR_LEN, VECTOR_LEN * 2),
-        split_at(&p16_gkr.output_statements, 0, VECTOR_LEN),
-        split_at(&p16_gkr.output_statements, VECTOR_LEN, VECTOR_LEN * 2),
-    ]
 }
 
 pub(crate) fn poseidon_24_vectorized_lookup_statements(p24_gkr: &GKRPoseidonResult) -> Vec<Vec<MultiEvaluation<EF>>> {

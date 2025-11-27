@@ -3,13 +3,14 @@ use p3_air::Air;
 
 use crate::*;
 
-pub const N_TABLES: usize = 8;
+pub const N_TABLES: usize = 9;
 pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::execution(),
-    Table::poseidon16(),
-    Table::poseidon24(),
     Table::dot_product_be(),
     Table::dot_product_ee(),
+    Table::poseidon16_core(),
+    Table::poseidon16_mem(),
+    Table::poseidon24(),
     Table::merkle(),
     Table::slice_hash(),
     Table::eq_poly_base_ext(),
@@ -19,10 +20,11 @@ pub const ALL_TABLES: [Table; N_TABLES] = [
 #[repr(usize)]
 pub enum Table {
     Execution(ExecutionTable),
-    Poseidon16(Poseidon16Precompile),
-    Poseidon24(Poseidon24Precompile),
     DotProductBE(DotProductPrecompile<true>),
     DotProductEE(DotProductPrecompile<false>),
+    Poseidon16Core(Poseidon16CorePrecompile),
+    Poseidon16Mem(Poseidon16MemPrecompile),
+    Poseidon24(Poseidon24Precompile),
     Merkle(MerklePrecompile),
     SliceHash(SliceHashPrecompile),
     EqPolyBaseExt(EqPolyBaseExtPrecompile),
@@ -35,7 +37,8 @@ macro_rules! delegate_to_inner {
         match $self {
             Self::DotProductBE(p) => p.$method($($($arg),*)?),
             Self::DotProductEE(p) => p.$method($($($arg),*)?),
-            Self::Poseidon16(p) => p.$method($($($arg),*)?),
+            Self::Poseidon16Core(p) => p.$method($($($arg),*)?),
+            Self::Poseidon16Mem(p) => p.$method($($($arg),*)?),
             Self::Poseidon24(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
             Self::Merkle(p) => p.$method($($($arg),*)?),
@@ -48,7 +51,8 @@ macro_rules! delegate_to_inner {
         match $self {
             Table::DotProductBE(p) => $macro_name!(p),
             Table::DotProductEE(p) => $macro_name!(p),
-            Table::Poseidon16(p) => $macro_name!(p),
+            Table::Poseidon16Core(p) => $macro_name!(p),
+            Table::Poseidon16Mem(p) => $macro_name!(p),
             Table::Poseidon24(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
             Table::Merkle(p) => $macro_name!(p),
@@ -68,8 +72,11 @@ impl Table {
     pub const fn dot_product_ee() -> Self {
         Self::DotProductEE(DotProductPrecompile::<false>)
     }
-    pub const fn poseidon16() -> Self {
-        Self::Poseidon16(Poseidon16Precompile)
+    pub const fn poseidon16_core() -> Self {
+        Self::Poseidon16Core(Poseidon16CorePrecompile)
+    }
+    pub const fn poseidon16_mem() -> Self {
+        Self::Poseidon16Mem(Poseidon16MemPrecompile)
     }
     pub const fn poseidon24() -> Self {
         Self::Poseidon24(Poseidon24Precompile)
@@ -163,6 +170,14 @@ impl Air for Table {
     fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()
     }
+}
+
+pub fn max_bus_width() -> usize {
+    1 + ALL_TABLES
+        .iter()
+        .map(|table| table.buses().iter().map(|bus| bus.data.len()).max().unwrap())
+        .max()
+        .unwrap()
 }
 
 #[cfg(test)]

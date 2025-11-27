@@ -104,8 +104,8 @@ pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionR
             height: Default::default(),
         },
     );
-    for (table, trace) in traces.iter_mut() {
-        padd_table(table, trace);
+    for table in traces.keys().copied().collect::<Vec<_>>() {
+        padd_table(&table, &mut traces);
     }
 
     ExecutionTrace {
@@ -116,21 +116,24 @@ pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionR
     }
 }
 
-fn padd_table<T: TableT>(t: &T, trace: &mut TableTrace) {
+fn padd_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
+    let trace = traces.get_mut(table).unwrap();
     let h = trace.base[0].len();
     trace
         .base
         .iter()
         .enumerate()
-        .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, t.name()));
+        .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, table.name()));
 
     trace.height = TableHeight(h);
-
+    let padding_len = trace.height.padding_len();
+    let padding_row_f = table.padding_row_f();
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
-        col.extend(repeat_n(t.padding_row_f()[i], trace.height.padding_len()));
+        col.extend(repeat_n(padding_row_f[i], padding_len));
     });
 
+    let padding_row_ef = table.padding_row_ef();
     trace.ext.par_iter_mut().enumerate().for_each(|(i, col)| {
-        col.extend(repeat_n(t.padding_row_ef()[i], trace.height.padding_len()));
+        col.extend(repeat_n(padding_row_ef[i], padding_len));
     });
 }

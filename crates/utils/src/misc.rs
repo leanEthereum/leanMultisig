@@ -67,10 +67,6 @@ macro_rules! assert_eq_many {
     };
 }
 
-pub fn powers_const<F: Field, const N: usize>(base: F) -> [F; N] {
-    base.powers().collect_n(N).try_into().unwrap()
-}
-
 #[instrument(skip_all)]
 pub fn transpose<F: Copy + Send + Sync>(matrix: &[F], width: usize, column_extra_capacity: usize) -> Vec<Vec<F>> {
     assert!((matrix.len().is_multiple_of(width)));

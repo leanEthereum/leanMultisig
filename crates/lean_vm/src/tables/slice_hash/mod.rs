@@ -215,10 +215,7 @@ impl Air for SliceHashPrecompile {
             extra_data,
             AB::F::from_usize(self.identifier().index()),
             flag.clone(),
-            index_seed.clone(),
-            index_start.clone(),
-            index_res.clone(),
-            len.clone(),
+            &[index_seed.clone(), index_start.clone(), index_res.clone(), len.clone()],
         ));
 
         // TODO double check constraints

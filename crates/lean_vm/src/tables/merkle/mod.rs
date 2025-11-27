@@ -220,10 +220,12 @@ impl Air for MerklePrecompile {
             extra_data,
             AB::F::from_usize(self.identifier().index()),
             flag.clone(),
-            index_leaf.clone(),
-            leaf_position.clone(),
-            index_root.clone(),
-            height.clone(),
+            &[
+                index_leaf.clone(),
+                leaf_position.clone(),
+                index_root.clone(),
+                height.clone(),
+            ],
         ));
 
         // TODO double check constraints
