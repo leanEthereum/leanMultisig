@@ -74,7 +74,7 @@ impl TableT for SliceHashPrecompile {
         vec![Bus {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
-            selector: COL_FLAG,
+            selector: BusSelector::Column(COL_FLAG),
             data: vec![COL_INDEX_SEED, COL_INDEX_START, COL_INDEX_RES, COL_LEN],
         }]
     }

@@ -430,16 +430,28 @@ fn prove_bus_and_air(
 
     let mut numerators = F::zero_vec(n_buses_padded * n_rows);
     for (bus, numerators_chunk) in t.buses().iter().zip(numerators.chunks_mut(n_rows)) {
-        assert!(bus.selector < trace.base.len());
-        trace.base[bus.selector]
-            .par_iter()
-            .zip(numerators_chunk)
-            .for_each(|(&selector, v)| {
-                *v = match bus.direction {
-                    BusDirection::Pull => -selector,
-                    BusDirection::Push => selector,
-                }
-            });
+        match bus.selector {
+            BusSelector::Column(selector_col) => {
+                assert!(selector_col < trace.base.len());
+                trace.base[selector_col]
+                    .par_iter()
+                    .zip(numerators_chunk)
+                    .for_each(|(&selector, v)| {
+                        *v = match bus.direction {
+                            BusDirection::Pull => -selector,
+                            BusDirection::Push => selector,
+                        }
+                    });
+            }
+            BusSelector::ConstantOne => {
+                numerators_chunk.par_iter_mut().for_each(|v| {
+                    *v = match bus.direction {
+                        BusDirection::Pull => F::NEG_ONE,
+                        BusDirection::Push => F::ONE,
+                    }
+                });
+            }
+        }
     }
 
     let mut denominators = unsafe { uninitialized_vec(n_buses_padded * n_rows) };

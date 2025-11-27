@@ -81,7 +81,7 @@ impl TableT for Poseidon16Precompile {
         vec![Bus {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
-            selector: POSEIDON_16_COL_FLAG,
+            selector: BusSelector::Column(POSEIDON_16_COL_FLAG),
             data: vec![
                 POSEIDON_16_COL_INDEX_A,
                 POSEIDON_16_COL_INDEX_B,

@@ -50,10 +50,16 @@ impl BusDirection {
 }
 
 #[derive(Debug)]
+pub enum BusSelector {
+    Column(ColIndex),
+    ConstantOne,
+}
+
+#[derive(Debug)]
 pub struct Bus {
     pub direction: BusDirection,
     pub table: BusTable,
-    pub selector: ColIndex,
+    pub selector: BusSelector,
     pub data: Vec<ColIndex>, // For now, we only supports F (base field) columns as bus data
 }
 
@@ -426,7 +432,10 @@ impl Bus {
         fingerprint_challenge: EF,
     ) -> EF {
         let padding_row_f = table.padding_row_f();
-        let default_selector = padding_row_f[self.selector];
+        let default_selector = match &self.selector {
+            BusSelector::ConstantOne => F::ONE,
+            BusSelector::Column(col) => padding_row_f[*col],
+        };
         let default_table = match &self.table {
             BusTable::Constant(t) => F::from_usize(t.index()),
             BusTable::Variable(col) => padding_row_f[*col],

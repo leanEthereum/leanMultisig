@@ -65,7 +65,7 @@ impl TableT for MerklePrecompile {
         vec![Bus {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
-            selector: COL_FLAG,
+            selector: BusSelector::Column(COL_FLAG),
             data: vec![COL_INDEX_LEAF, COL_LEAF_POSITION, COL_INDEX_ROOT, COL_HEIGHT],
         }]
     }

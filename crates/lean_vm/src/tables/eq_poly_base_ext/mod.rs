@@ -53,7 +53,7 @@ impl TableT for EqPolyBaseExtPrecompile {
         vec![Bus {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
-            selector: COL_FLAG,
+            selector: BusSelector::Column(COL_FLAG),
             data: vec![COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES, COL_LEN],
         }]
     }
