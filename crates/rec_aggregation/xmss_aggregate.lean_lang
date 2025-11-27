@@ -41,7 +41,11 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     compressed = malloc_vec(1);
     poseidon16(message_hash, randomness, compressed, COMPRESSION);
     compressed_ptr = compressed * 8;
-    decomposed = decompose_custom(compressed_ptr[0], compressed_ptr[1], compressed_ptr[2], compressed_ptr[3], compressed_ptr[4], compressed_ptr[5]);
+    compressed_vals = malloc(6);
+    dot_product_ee(compressed_ptr, pointer_to_one_vector * 8, compressed_vals, 1);
+    compressed_vals[5] = compressed_ptr[5];
+
+    decomposed = decompose_custom(compressed_vals[0], compressed_vals[1], compressed_vals[2], compressed_vals[3], compressed_vals[4], compressed_vals[5]);
     
     // check that the decomposition is correct
     for i in 0..6 unroll {
@@ -69,7 +73,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
         for j in 1..12 unroll {
             partial_sums[j] = partial_sums[j - 1] + (decomposed[i * 13 + j]) * 4**j;
         }
-        assert partial_sums[11] + (decomposed[i * 13 + 12]) * 4**12 == compressed_ptr[i];
+        assert partial_sums[11] + (decomposed[i * 13 + 12]) * 4**12 == compressed_vals[i];
     }
     
     encoding = malloc(12 * 6);
