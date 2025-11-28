@@ -370,9 +370,6 @@ pub enum Line {
     DecomposeCustom {
         args: Vec<Expression>,
     },
-    CounterHint {
-        var: Var,
-    },
     // noop, debug purpose only
     LocationReport {
         location: SourceLineNumber,
@@ -448,9 +445,6 @@ impl Line {
                 } else {
                     format!("if {condition} {{\n{then_str}\n{spaces}}} else {{\n{else_str}\n{spaces}}}")
                 }
-            }
-            Self::CounterHint { var } => {
-                format!("{var} = counter_hint({var})")
             }
             Self::ForLoop {
                 iterator,

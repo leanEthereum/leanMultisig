@@ -48,11 +48,6 @@ pub enum Hint {
         /// Values to decompose into custom representation
         to_decompose: Vec<MemOrConstant>,
     },
-    /// Provide a counter value
-    CounterHint {
-        /// Memory offset where counter result will be stored: m[fp + res_offset]
-        res_offset: usize,
-    },
     /// Print debug information during execution
     Print {
         /// Source code location information
@@ -179,10 +174,6 @@ impl Hint {
                     memory_index_remaining += 1;
                 }
             }
-            Self::CounterHint { res_offset } => {
-                ctx.memory.set(ctx.fp + *res_offset, F::from_usize(*ctx.counter_hint))?;
-                *ctx.counter_hint += 1;
-            }
             Self::Inverse { arg, res_offset } => {
                 let value = arg.read_value(ctx.memory, ctx.fp)?;
                 let result = value.try_inverse().unwrap_or(F::ZERO);
@@ -277,10 +268,7 @@ impl Display for Hint {
                 remaining,
                 to_decompose,
             } => {
-                write!(
-                    f,
-                    "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], "
-                )?;
+                write!(f, "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], ")?;
                 for (i, v) in to_decompose.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -288,9 +276,6 @@ impl Display for Hint {
                     write!(f, "{v}")?;
                 }
                 write!(f, ")")
-            }
-            Self::CounterHint { res_offset } => {
-                write!(f, "m[fp + {res_offset}] = counter_hint()")
             }
             Self::Print { line_info, content } => {
                 write!(f, "print(")?;

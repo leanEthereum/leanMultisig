@@ -70,9 +70,7 @@ pub fn prove_execution(
     // only keep tables with non-zero rows
     let traces: BTreeMap<_, _> = traces
         .into_iter()
-        .filter(|(table, trace)| {
-            trace.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon()
-        })
+        .filter(|(table, trace)| trace.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon())
         .collect();
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));

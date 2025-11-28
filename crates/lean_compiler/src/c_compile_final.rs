@@ -11,7 +11,6 @@ impl IntermediateInstruction {
             | Self::Print { .. }
             | Self::DecomposeBits { .. }
             | Self::DecomposeCustom { .. }
-            | Self::CounterHint { .. }
             | Self::Inverse { .. }
             | Self::LocationReport { .. } => true,
             Self::Computation { .. }
@@ -320,10 +319,6 @@ fn compile_block(
                         .map(|expr| try_as_mem_or_constant(expr).unwrap())
                         .collect(),
                 };
-                hints.entry(pc).or_default().push(hint);
-            }
-            IntermediateInstruction::CounterHint { res_offset } => {
-                let hint = Hint::CounterHint { res_offset };
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::Inverse { arg, res_offset } => {

@@ -60,9 +60,6 @@ pub enum IntermediateInstruction {
         remaining: IntermediateValue,
         to_decompose: Vec<IntermediateValue>,
     },
-    CounterHint {
-        res_offset: usize,
-    },
     Print {
         line_info: String,               // information about the line where the print occurs
         content: Vec<IntermediateValue>, // values to print
@@ -195,10 +192,7 @@ impl Display for IntermediateInstruction {
                 remaining,
                 to_decompose,
             } => {
-                write!(
-                    f,
-                    "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], "
-                )?;
+                write!(f, "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], ")?;
                 for (i, expr) in to_decompose.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -206,9 +200,6 @@ impl Display for IntermediateInstruction {
                     write!(f, "{expr}")?;
                 }
                 write!(f, ")")
-            }
-            Self::CounterHint { res_offset } => {
-                write!(f, "m[fp + {res_offset}] = counter_hint()")
             }
             Self::Print { line_info, content } => {
                 write!(f, "print {line_info}: ")?;

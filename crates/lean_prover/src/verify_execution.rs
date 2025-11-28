@@ -42,9 +42,7 @@ pub fn verify_execution(
     // only keep tables with non-zero rows
     let table_heights: BTreeMap<_, _> = table_heights
         .into_iter()
-        .filter(|(table, height)| {
-            height.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon()
-        })
+        .filter(|(table, height)| height.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon())
         .collect();
 
     let public_memory = build_public_memory(public_input);

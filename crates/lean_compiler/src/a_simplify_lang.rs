@@ -122,9 +122,6 @@ pub enum SimpleLine {
     DecomposeCustom {
         args: Vec<SimpleExpr>,
     },
-    CounterHint {
-        var: Var,
-    },
     Print {
         line_info: String,
         content: Vec<SimpleExpr>,
@@ -659,9 +656,6 @@ fn simplify_lines(
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::DecomposeCustom { args: simplified_args });
             }
-            Line::CounterHint { var } => {
-                res.push(SimpleLine::CounterHint { var: var.clone() });
-            }
             Line::Panic => {
                 res.push(SimpleLine::Panic);
             }
@@ -846,9 +840,6 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                     on_new_expr(expr, &internal_vars, &mut external_vars);
                 }
             }
-            Line::CounterHint { var } => {
-                internal_vars.insert(var.clone());
-            }
             Line::ForLoop {
                 iterator,
                 start,
@@ -1009,9 +1000,6 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
                 for expr in decompose_args {
                     inline_expr(expr, args, inlining_count);
                 }
-            }
-            Line::CounterHint { var } => {
-                inline_internal_var(var);
             }
             Line::ForLoop {
                 iterator,
@@ -1350,9 +1338,6 @@ fn replace_vars_for_unroll(
                 for expr in args {
                     replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
                 }
-            }
-            Line::CounterHint { var } => {
-                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
             }
             Line::Break | Line::Panic | Line::LocationReport { .. } => {}
         }
@@ -1705,7 +1690,6 @@ fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
             | Line::Print { .. }
             | Line::DecomposeBits { .. }
             | Line::DecomposeCustom { .. }
-            | Line::CounterHint { .. }
             | Line::MAlloc { .. }
             | Line::Panic
             | Line::Break
@@ -1798,9 +1782,6 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(expr, map);
                 }
             }
-            Line::CounterHint { var } => {
-                assert!(!map.contains_key(var), "Variable {var} is a constant");
-            }
             Line::MAlloc { var, size, .. } => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
                 replace_vars_by_const_in_expr(size, map);
@@ -1877,9 +1858,6 @@ impl SimpleLine {
                     "decompose_custom({})",
                     args.iter().map(|expr| format!("{expr}")).collect::<Vec<_>>().join(", ")
                 )
-            }
-            Self::CounterHint { var: result } => {
-                format!("{result} = counter_hint()")
             }
             Self::RawAccess { res, index, shift } => {
                 format!("memory[{index} + {shift}] = {res}")

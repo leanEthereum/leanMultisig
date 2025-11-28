@@ -524,16 +524,6 @@ fn compile_lines(
                         .collect(),
                 });
             }
-            SimpleLine::CounterHint { var } => {
-                declared_vars.insert(var.clone());
-                instructions.push(IntermediateInstruction::CounterHint {
-                    res_offset: compiler
-                        .get_offset(&var.clone().into())
-                        .naive_eval()
-                        .unwrap()
-                        .to_usize(),
-                });
-            }
             SimpleLine::Print { line_info, content } => {
                 instructions.push(IntermediateInstruction::Print {
                     line_info: line_info.clone(),
@@ -681,8 +671,7 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             SimpleLine::TestZero { .. } => {}
             SimpleLine::HintMAlloc { var, .. }
             | SimpleLine::ConstMalloc { var, .. }
-            | SimpleLine::DecomposeBits { var, .. }
-            | SimpleLine::CounterHint { var } => {
+            | SimpleLine::DecomposeBits { var, .. } => {
                 internal_vars.insert(var.clone());
             }
             SimpleLine::RawAccess { res, .. } => {
