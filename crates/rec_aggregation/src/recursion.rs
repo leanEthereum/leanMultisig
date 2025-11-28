@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::Path;
 use std::time::Instant;
 
@@ -16,7 +17,7 @@ use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, 
 
 const NUM_VARIABLES: usize = 25;
 
-pub fn run_whir_recursion_benchmark(tracing: bool) {
+pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("recursion_program.lean_lang");
     let mut program_str = std::fs::read_to_string(src_file).unwrap();
     let recursion_config_builder = WhirConfigBuilder {
@@ -28,6 +29,8 @@ pub fn run_whir_recursion_benchmark(tracing: bool) {
         starting_log_inv_rate: 2,
         rs_domain_initial_reduction_factor: 3,
     };
+
+    program_str = program_str.replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string());
 
     let mut recursion_config = WhirConfig::<EF>::new(recursion_config_builder.clone(), NUM_VARIABLES);
 
@@ -152,6 +155,11 @@ pub fn run_whir_recursion_benchmark(tracing: bool) {
 
     let bytecode = compile_program(program_str);
 
+    let mut merkle_path_hints = VecDeque::new();
+    for _ in 0..n_recursions {
+        merkle_path_hints.extend(whir_proof.merkle_hints.clone());
+    }
+
     // in practice we will precompute all the possible values
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
@@ -161,7 +169,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool) {
         1 << 20,
         false,
         (&vec![], &vec![]), // TODO
-        whir_proof.merkle_hints.clone(),
+        merkle_path_hints.clone(),
     )
     .no_vec_runtime_memory;
 
@@ -174,7 +182,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool) {
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]), // TODO precompute poseidons
-        whir_proof.merkle_hints.clone(),
+        merkle_path_hints,
     );
     let proof_size = proof.proof_size;
     let proving_time = time.elapsed();
@@ -182,13 +190,13 @@ pub fn run_whir_recursion_benchmark(tracing: bool) {
 
     println!("{summary}");
     println!(
-        "WHIR recursion, proving time: {} ms, proof size: {} KiB (not optimized)",
-        proving_time.as_millis(),
+        "Proving time: {} ms / WHIR recursion, proof size: {} KiB (not optimized)",
+        proving_time.as_millis() / n_recursions as u128,
         proof_size * F::bits() / (8 * 1024)
     );
 }
 
 #[test]
 fn test_whir_recursion() {
-    run_whir_recursion_benchmark(false);
+    run_whir_recursion_benchmark(false, 1);
 }

@@ -44,7 +44,16 @@ const MERKLE_HEIGHT_3 = MERKLE_HEIGHT_2 - RS_REDUCTION_FACTOR_2;
 const TWO_ADICITY = 24;
 const ROOT = 1791270792; // of order 2^TWO_ADICITY
 
+const N_RECURSIONS = N_RECURSIONS_PLACEHOLDER;
+
 fn main() {
+    for _ in 0..N_RECURSIONS {
+        whir_recursion();
+    }
+    return;
+}
+
+fn whir_recursion() {
     transcript_start = public_input_start / 8;
     fs_state = fs_new(transcript_start);
 
