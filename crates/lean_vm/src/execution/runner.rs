@@ -212,6 +212,7 @@ fn execute_bytecode_helper(
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             let mut hint_ctx = HintExecutionContext {
                 memory: &mut memory,
+                private_input_start: public_memory_size,
                 fp,
                 ap: &mut ap,
                 ap_vec: &mut ap_vec,

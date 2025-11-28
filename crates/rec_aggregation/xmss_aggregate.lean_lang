@@ -9,15 +9,15 @@ const V_HALF = V / 2; // V should be even
 
 fn main() {
     public_input_start_ = public_input_start;
-    private_input_start = public_input_start_[0];
-    n_signatures = public_input_start_[1];
-    sig_size = public_input_start_[2]; // vectorized
+    n_signatures = public_input_start_[0];
+    sig_size = public_input_start_[1]; // vectorized
     message_hash = public_input_start / 8 + 1;
     all_public_keys = message_hash + 1;
     all_log_lifetimes = (all_public_keys + n_signatures) * 8;
     all_merkle_indexes = all_log_lifetimes + n_signatures;
 
-    signatures_start = private_input_start / 8;
+    signatures_start_no_vec = private_input_start();
+    signatures_start = signatures_start_no_vec / 8;
     for i in 0..n_signatures {
         xmss_public_key = all_public_keys + i;
         signature = signatures_start + i * sig_size;

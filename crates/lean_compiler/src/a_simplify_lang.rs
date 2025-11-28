@@ -122,6 +122,9 @@ pub enum SimpleLine {
     DecomposeCustom {
         args: Vec<SimpleExpr>,
     },
+    PrivateInputStart {
+        result: Var,
+    },
     Print {
         line_info: String,
         content: Vec<SimpleExpr>,
@@ -649,6 +652,9 @@ fn simplify_lines(
                     label,
                 });
             }
+            Line::PrivateInputStart { result } => {
+                res.push(SimpleLine::PrivateInputStart { result: result.clone() });
+            }
             Line::DecomposeCustom { args } => {
                 let simplified_args = args
                     .iter()
@@ -835,6 +841,9 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 }
                 internal_vars.insert(var.clone());
             }
+            Line::PrivateInputStart { result } => {
+                internal_vars.insert(result.clone());
+            }
             Line::DecomposeCustom { args } => {
                 for expr in args {
                     on_new_expr(expr, &internal_vars, &mut external_vars);
@@ -1000,6 +1009,9 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
                 for expr in decompose_args {
                     inline_expr(expr, args, inlining_count);
                 }
+            }
+            Line::PrivateInputStart { result } => {
+                inline_internal_var(result);
             }
             Line::ForLoop {
                 iterator,
@@ -1333,6 +1345,10 @@ fn replace_vars_for_unroll(
                 for expr in to_decompose {
                     replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
                 }
+            }
+            Line::PrivateInputStart { result } => {
+                assert!(result != iterator, "Weird");
+                *result = format!("@unrolled_{unroll_index}_{iterator_value}_{result}");
             }
             Line::DecomposeCustom { args } => {
                 for expr in args {
@@ -1687,6 +1703,7 @@ fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
             | Line::Assert { .. }
             | Line::FunctionRet { .. }
             | Line::Precompile { .. }
+            | Line::PrivateInputStart { .. }
             | Line::Print { .. }
             | Line::DecomposeBits { .. }
             | Line::DecomposeCustom { .. }
@@ -1781,6 +1798,9 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 for expr in args {
                     replace_vars_by_const_in_expr(expr, map);
                 }
+            }
+            Line::PrivateInputStart { result } => {
+                assert!(!map.contains_key(result), "Variable {result} is a constant");
             }
             Line::MAlloc { var, size, .. } => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
@@ -1944,6 +1964,9 @@ impl SimpleLine {
             }
             Self::ConstMalloc { var, size, label: _ } => {
                 format!("{var} = malloc({size})")
+            }
+            Self::PrivateInputStart { result } => {
+                format!("private_input_start({result})")
             }
             Self::Panic => "panic".to_string(),
             Self::LocationReport { .. } => Default::default(),

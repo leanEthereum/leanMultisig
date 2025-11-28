@@ -204,6 +204,14 @@ impl FunctionCallParser {
                 }
                 Ok(Line::DecomposeCustom { args })
             }
+            "private_input_start" => {
+                if args.len() != 0 || return_data.len() != 1 {
+                    return Err(SemanticError::new("Invalid private_input_start call").into());
+                }
+                Ok(Line::PrivateInputStart {
+                    result: return_data[0].clone(),
+                })
+            }
             "panic" => {
                 if !return_data.is_empty() || !args.is_empty() {
                     return Err(SemanticError::new("Panic has no args and returns no values").into());

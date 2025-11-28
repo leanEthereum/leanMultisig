@@ -370,6 +370,9 @@ pub enum Line {
     DecomposeCustom {
         args: Vec<Expression>,
     },
+    PrivateInputStart {
+        result: Var,
+    },
     // noop, debug purpose only
     LocationReport {
         location: SourceLineNumber,
@@ -420,6 +423,9 @@ impl Line {
             }
             Self::ArrayAssign { array, index, value } => {
                 format!("{array}[{index}] = {value}")
+            }
+            Self::PrivateInputStart { result } => {
+                format!("{result} = private_input_start()")
             }
             Self::Assert(condition, _line_number) => format!("assert {condition}"),
             Self::IfCondition {

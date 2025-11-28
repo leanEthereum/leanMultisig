@@ -11,6 +11,7 @@ impl IntermediateInstruction {
             | Self::Print { .. }
             | Self::DecomposeBits { .. }
             | Self::DecomposeCustom { .. }
+            | Self::PrivateInputStart { .. }
             | Self::Inverse { .. }
             | Self::LocationReport { .. } => true,
             Self::Computation { .. }
@@ -305,6 +306,11 @@ fn compile_block(
                         .collect(),
                 };
                 hints.entry(pc).or_default().push(hint);
+            }
+            IntermediateInstruction::PrivateInputStart { res_offset } => {
+                hints.entry(pc).or_default().push(Hint::PrivateInputStart {
+                    res_offset: eval_const_expression_usize(&res_offset, compiler),
+                });
             }
             IntermediateInstruction::DecomposeCustom {
                 decomposed,

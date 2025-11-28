@@ -60,6 +60,9 @@ pub enum IntermediateInstruction {
         remaining: IntermediateValue,
         to_decompose: Vec<IntermediateValue>,
     },
+    PrivateInputStart {
+        res_offset: ConstExpression,
+    },
     Print {
         line_info: String,               // information about the line where the print occurs
         content: Vec<IntermediateValue>, // values to print
@@ -138,6 +141,9 @@ impl Display for IntermediateInstruction {
                 } else {
                     write!(f, "jump {dest}")
                 }
+            }
+            Self::PrivateInputStart { res_offset } => {
+                write!(f, "m[fp + {res_offset}] = private_input_start()")
             }
             Self::JumpIfNotZero {
                 condition,

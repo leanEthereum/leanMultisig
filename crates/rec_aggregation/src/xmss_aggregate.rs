@@ -42,17 +42,14 @@ fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message_hash: [F; 8], slo
 
     let min_public_input_size = (1 << LOG_SMALLEST_DECOMPOSITION_CHUNK) - NONRESERVED_PROGRAM_INPUT_START;
     public_input.extend(F::zero_vec(min_public_input_size.saturating_sub(public_input.len())));
-    let private_input_start =
-        F::from_usize((public_input.len() + 8 + NONRESERVED_PROGRAM_INPUT_START).next_power_of_two());
     public_input.splice(
         0..0,
         [
             vec![
-                private_input_start,
                 F::from_usize(xmss_pub_keys.len()),
                 F::from_usize(xmss_sig_size_in_memory()),
             ],
-            vec![F::ZERO; 5],
+            vec![F::ZERO; 6],
         ]
         .concat(),
     );

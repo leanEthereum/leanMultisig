@@ -55,21 +55,30 @@ pub enum Hint {
         /// Values to print
         content: Vec<MemOrConstant>,
     },
+    PrivateInputStart {
+        res_offset: usize,
+    },
     /// Report source code location for debugging
     LocationReport {
         /// Source code location
         location: SourceLineNumber,
     },
     /// Jump destination label (for debugging purposes)
-    Label { label: Label },
+    Label {
+        label: Label,
+    },
     /// Stack frame size (for memory profiling)
-    StackFrame { label: Label, size: usize },
+    StackFrame {
+        label: Label,
+        size: usize,
+    },
 }
 
 /// Execution state for hint processing
 #[derive(Debug)]
 pub struct HintExecutionContext<'a> {
     pub memory: &'a mut Memory,
+    pub private_input_start: usize, // normal pointer
     pub fp: usize,
     pub ap: &'a mut usize,
     pub ap_vec: &'a mut usize,
@@ -216,6 +225,10 @@ impl Hint {
                     .push(*ctx.cpu_cycles_before_new_line);
                 *ctx.cpu_cycles_before_new_line = 0;
             }
+            Self::PrivateInputStart { res_offset } => {
+                ctx.memory
+                    .set(ctx.fp + *res_offset, F::from_usize(ctx.private_input_start))?;
+            }
             Self::Label { .. } => {}
             Self::StackFrame { label, size } => {
                 if ctx.profiling {
@@ -249,6 +262,9 @@ impl Display for Hint {
                 } else {
                     write!(f, "m[fp + {offset}] = request_memory({size})")
                 }
+            }
+            Self::PrivateInputStart { res_offset } => {
+                write!(f, "m[fp + {res_offset}] = private_input_start()")
             }
             Self::DecomposeBits {
                 res_offset,

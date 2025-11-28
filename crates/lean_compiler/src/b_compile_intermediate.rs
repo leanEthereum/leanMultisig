@@ -524,6 +524,12 @@ fn compile_lines(
                         .collect(),
                 });
             }
+            SimpleLine::PrivateInputStart { result } => {
+                declared_vars.insert(result.clone());
+                instructions.push(IntermediateInstruction::PrivateInputStart {
+                    res_offset: compiler.get_offset(&result.clone().into()),
+                });
+            }
             SimpleLine::Print { line_info, content } => {
                 instructions.push(IntermediateInstruction::Print {
                     line_info: line_info.clone(),
@@ -673,6 +679,9 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             | SimpleLine::ConstMalloc { var, .. }
             | SimpleLine::DecomposeBits { var, .. } => {
                 internal_vars.insert(var.clone());
+            }
+            SimpleLine::PrivateInputStart { result } => {
+                internal_vars.insert(result.clone());
             }
             SimpleLine::RawAccess { res, .. } => {
                 if let SimpleExpr::Var(var) = res {
