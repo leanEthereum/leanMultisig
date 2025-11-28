@@ -12,7 +12,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use utils::build_challenger;
-use utils::{build_prover_state, padd_with_zero_to_next_multiple_of, padd_with_zero_to_next_power_of_two};
+use utils::{build_prover_state, padd_with_zero_to_next_multiple_of};
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 const NUM_VARIABLES: usize = 25;
@@ -57,6 +57,11 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         .replace(
             &format!("GRINDING_BITS_{}_PLACEHOLDER", recursion_config.n_rounds()),
             &recursion_config.final_pow_bits.to_string(),
+        )
+        .replace("N_VARS_PLACEHOLDER", &NUM_VARIABLES.to_string())
+        .replace(
+            "LOG_INV_RATE_PLACEHOLDER",
+            &recursion_config_builder.starting_log_inv_rate.to_string(),
         );
     assert_eq!(recursion_config.n_rounds(), 3); // this is hardcoded in the program above
     for round in 0..=recursion_config.n_rounds() {
@@ -104,50 +109,20 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
             .collect::<Vec<F>>(),
         VECTOR_LEN,
     ));
-    public_input.extend(padd_with_zero_to_next_power_of_two(
+    public_input.extend(padd_with_zero_to_next_multiple_of(
         <EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(&eval),
+        VECTOR_LEN,
     ));
 
-    let first_folding_factor = recursion_config_builder.folding_factor.at_round(0);
-
-    // to align the first merkle leaves (in base field) (required to appropriately call the precompile multilinear_eval)
-    let mut proof_data_padding = (1 << first_folding_factor)
-        - ((NONRESERVED_PROGRAM_INPUT_START
-            + public_input.len()
-            + {
-                // sumcheck polys
-                first_folding_factor * 3 * VECTOR_LEN
-            }
-            + {
-                // merkle root
-                VECTOR_LEN
-            }
-            + {
-                // grinding witness
-                VECTOR_LEN
-            }
-            + {
-                // ood answer
-                VECTOR_LEN
-            })
-            % (1 << first_folding_factor));
-    assert_eq!(proof_data_padding % 8, 0);
-    proof_data_padding /= 8;
-
-    program_str = program_str
-        .replace(
-            "PADDING_FOR_INITIAL_MERKLE_LEAVES_PLACEHOLDER",
-            &proof_data_padding.to_string(),
-        )
-        .replace("N_VARS_PLACEHOLDER", &NUM_VARIABLES.to_string())
-        .replace(
-            "LOG_INV_RATE_PLACEHOLDER",
-            &recursion_config_builder.starting_log_inv_rate.to_string(),
-        );
-
-    public_input.extend(F::zero_vec(proof_data_padding * 8));
-
     public_input.extend(whir_proof.proof_data[commitment_size..].to_vec());
+
+    assert!(public_input.len().is_multiple_of(VECTOR_LEN));
+    program_str = program_str.replace(
+        "WHIR_PROOF_SIZE_PLACEHOLDER",
+        &(public_input.len() / VECTOR_LEN).to_string(),
+    );
+
+    public_input = std::iter::repeat(public_input).take(n_recursions).flatten().collect();
 
     if tracing {
         utils::init_tracing();

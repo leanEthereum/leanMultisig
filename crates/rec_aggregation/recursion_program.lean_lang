@@ -12,8 +12,6 @@ const N_VARS = N_VARS_PLACEHOLDER;
 const LOG_INV_RATE = LOG_INV_RATE_PLACEHOLDER; 
 const N_ROUNDS = 3; // TODO make it a parameter
 
-const PADDING_FOR_INITIAL_MERKLE_LEAVES = PADDING_FOR_INITIAL_MERKLE_LEAVES_PLACEHOLDER;
-
 const FOLDING_FACTOR_0 = FOLDING_FACTOR_0_PLACEHOLDER;
 const FOLDING_FACTOR_1 = FOLDING_FACTOR_1_PLACEHOLDER;
 const FOLDING_FACTOR_2 = FOLDING_FACTOR_2_PLACEHOLDER;
@@ -45,16 +43,16 @@ const TWO_ADICITY = 24;
 const ROOT = 1791270792; // of order 2^TWO_ADICITY
 
 const N_RECURSIONS = N_RECURSIONS_PLACEHOLDER;
+const WHIR_PROOF_SIZE = WHIR_PROOF_SIZE_PLACEHOLDER; // vectorized
 
 fn main() {
-    for _ in 0..N_RECURSIONS {
-        whir_recursion();
+    for i in 0..N_RECURSIONS unroll {
+        whir_recursion((public_input_start / 8) + i * WHIR_PROOF_SIZE);
     }
     return;
 }
 
-fn whir_recursion() {
-    transcript_start = public_input_start / 8;
+fn whir_recursion(transcript_start) {
     fs_state = fs_new(transcript_start);
 
     fs_state_0, root_0, ood_point_0, ood_eval_0 = parse_commitment(fs_state);
@@ -63,10 +61,9 @@ fn whir_recursion() {
     point_vector_len = next_multiple_of_8(N_VARS * DIM);
     fs_state_1, pcs_point_vec = fs_hint(fs_state_0, point_vector_len / 8);
     pcs_point = pcs_point_vec * 8;
-    fs_state_2, pcs_eval_vec = fs_hint(fs_state_1, 1);
+    fs_state_3, pcs_eval_vec = fs_hint(fs_state_1, 1);
     pcs_eval = pcs_eval_vec * 8;
 
-    fs_state_3, _ = fs_hint(fs_state_2, PADDING_FOR_INITIAL_MERKLE_LEAVES);
     fs_state_4, combination_randomness_gen_0 = fs_sample_ef(fs_state_3);
 
     claimed_sum_side = mul_extension_ret(combination_randomness_gen_0, pcs_eval);
