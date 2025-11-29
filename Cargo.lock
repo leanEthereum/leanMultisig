@@ -92,7 +92,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#d1f625ef347fe62525f30a073dc59c284325a4a8"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#d1f625ef347fe62525f30a073dc59c284325a4a8"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -517,7 +517,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#d1f625ef347fe62525f30a073dc59c284325a4a8"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1133,7 +1133,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#e355bd1eeb0dfe1b09b3f534d7aa21414d1ec47d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#d1f625ef347fe62525f30a073dc59c284325a4a8"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1216,9 +1216,9 @@ dependencies = [
 
 [[package]]
 name = "tracing"
-version = "0.1.41"
+version = "0.1.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0"
+checksum = "2d15d90a0b5c19378952d479dc858407149d7bb45a14de0142f6c534b16fc647"
 dependencies = [
  "pin-project-lite",
  "tracing-attributes",
@@ -1284,9 +1284,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.3.20"
+version = "0.3.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2054a14f5307d601f88daf0553e1cbf472acc4f2c51afab632431cdcd72124d5"
+checksum = "2f30143827ddab0d256fd843b7a66d164e9f271cfa0dde49142c5ca0ca291f1e"
 dependencies = [
  "matchers",
  "nu-ansi-term",
@@ -1523,9 +1523,9 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
-version = "0.7.13"
+version = "0.7.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21a0236b59786fed61e2a80582dd500fe61f18b5dca67a4a067d0bc9039339cf"
+checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
 dependencies = [
  "memchr",
 ]
