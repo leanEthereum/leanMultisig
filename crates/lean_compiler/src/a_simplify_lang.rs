@@ -371,7 +371,6 @@ struct ArrayManager {
 pub struct ConstMalloc {
     counter: usize,
     map: BTreeMap<Var, ConstMallocLabel>,
-    forbidden_vars: BTreeSet<Var>, // vars shared between branches of an if/else
 }
 
 impl ArrayManager {
@@ -397,8 +396,8 @@ fn simplify_lines(
     let mut res = Vec::new();
     for line in lines {
         match line {
-            Line::ForwardDeclaration { var: _ } => {
-                todo!();
+            Line::ForwardDeclaration { var } => {
+                res.push(SimpleLine::ForwardDeclaration { var: var.clone() });
             },
             Line::Match { value, arms } => {
                 let simple_value = simplify_expr(value, &mut res, counters, array_manager, const_malloc);
@@ -555,17 +554,6 @@ fn simplify_lines(
                     }
                 };
 
-                let forbidden_vars_before = const_malloc.forbidden_vars.clone();
-
-                let then_internal_vars = find_variable_usage(then_branch).0;
-                let else_internal_vars = find_variable_usage(else_branch).0;
-                let new_forbidden_vars = then_internal_vars
-                    .intersection(&else_internal_vars)
-                    .cloned()
-                    .collect::<BTreeSet<_>>();
-
-                const_malloc.forbidden_vars.extend(new_forbidden_vars);
-
                 let mut array_manager_then = array_manager.clone();
                 let then_branch_simplified = simplify_lines(
                     then_branch,
@@ -586,8 +574,6 @@ fn simplify_lines(
                     &mut array_manager_else,
                     const_malloc,
                 );
-
-                const_malloc.forbidden_vars = forbidden_vars_before;
 
                 *array_manager = array_manager_else.clone();
                 // keep the intersection both branches
@@ -650,6 +636,8 @@ fn simplify_lines(
                     counter: const_malloc.counter,
                     ..ConstMalloc::default()
                 };
+                // TODO: what is array manager, and does it need to be updated
+                // to make block-level scoping work?
                 let valid_aux_vars_in_array_manager_before = array_manager.valid.clone();
                 array_manager.valid.clear();
                 let simplified_body = simplify_lines(
@@ -781,12 +769,8 @@ fn simplify_lines(
                 let simplified_size = simplify_expr(size, &mut res, counters, array_manager, const_malloc);
                 let simplified_vectorized_len =
                     simplify_expr(vectorized_len, &mut res, counters, array_manager, const_malloc);
-                if simplified_size.is_constant() && !*vectorized && const_malloc.forbidden_vars.contains(var) {
-                    println!("TODO: Optimization missed: Requires to align const malloc in if/else branches");
-                }
                 match simplified_size {
-                    SimpleExpr::Constant(const_size) if !*vectorized && !const_malloc.forbidden_vars.contains(var) => {
-                        // TODO do this optimization even if we are in an if/else branch
+                    SimpleExpr::Constant(const_size) if !*vectorized => {
                         let label = const_malloc.counter;
                         const_malloc.counter += 1;
                         const_malloc.map.insert(var.clone(), label);
@@ -807,7 +791,6 @@ fn simplify_lines(
                 }
             }
             Line::DecomposeBits { var, to_decompose } => {
-                assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
                 let simplified_to_decompose = to_decompose
                     .iter()
                     .map(|expr| simplify_expr(expr, &mut res, counters, array_manager, const_malloc))
@@ -822,7 +805,6 @@ fn simplify_lines(
                 });
             }
             Line::DecomposeCustom { var, to_decompose } => {
-                assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
                 let simplified_to_decompose = to_decompose
                     .iter()
                     .map(|expr| simplify_expr(expr, &mut res, counters, array_manager, const_malloc))
@@ -949,9 +931,8 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
 
     for line in lines {
         match line {
-            Line::ForwardDeclaration { var: _ } => {
-                todo!();
-                // internal_vars.push(var.clone()); // if declaring is using; otherwise do nothing
+            Line::ForwardDeclaration { var } => {
+                internal_vars.insert(var.clone());
             },
             Line::Match { value, arms } => {
                 on_new_expr(value, &internal_vars, &mut external_vars);
@@ -1997,6 +1978,9 @@ impl SimpleLine {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
         let line_str = match self {
+            Self::ForwardDeclaration { var } => {
+                format!("var {var}")
+            }
             Self::Match { value, arms } => {
                 let arms_str = arms
                     .iter()
