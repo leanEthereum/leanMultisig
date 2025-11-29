@@ -16,6 +16,7 @@ return_count = { "->" ~ number }
 
 // Statements
 statement = {
+    forward_declaration |
     single_assignment |
     array_assign |
     if_statement |
@@ -33,6 +34,8 @@ return_statement = { "return" ~ (tuple_expression)? ~ ";" }
 
 break_statement = { "break" ~ ";" }
 continue_statement = { "continue" ~ ";" }
+
+forward_declaration = { "var" ~ identifier ~ ";" }
 
 single_assignment = { identifier ~ "=" ~ expression ~ ";" }
 

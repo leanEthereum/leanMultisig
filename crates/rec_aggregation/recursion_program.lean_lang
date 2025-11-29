@@ -292,15 +292,16 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     fs_states_b = malloc(num_queries + 1);
     fs_states_b[0] = fs_state_9;
     
+    var n_chunks_per_answer;
     // the number of chunk of 8 field elements per merkle leaf opened
     if merkle_leaves_in_basefield == 1 {
-        n_chuncks_per_answer = two_pow_folding_factor / 8; // "/ 8" because initial merkle leaves are in the basefield
+        n_chunks_per_answer = two_pow_folding_factor / 8; // "/ 8" because initial merkle leaves are in the basefield
     } else {
-        n_chuncks_per_answer = two_pow_folding_factor * DIM / 8;
+        n_chunks_per_answer = two_pow_folding_factor * DIM / 8;
     }
 
     for i in 0..num_queries {
-        new_fs_state, answer = fs_hint(fs_states_b[i], n_chuncks_per_answer); 
+        new_fs_state, answer = fs_hint(fs_states_b[i], n_chunks_per_answer); 
         fs_states_b[i + 1] = new_fs_state;
         answers[i] = answer;
     }
@@ -309,14 +310,14 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     leaf_hashes = malloc(num_queries); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
     for i in 0..num_queries {
         answer = answers[i];
-        internal_states = malloc(1 + (n_chuncks_per_answer / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
+        internal_states = malloc(1 + (n_chunks_per_answer / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
         internal_states[0] = pointer_to_zero_vector; // initial state
-        for j in 0..n_chuncks_per_answer / 2 {
+        for j in 0..n_chunks_per_answer / 2 {
             h24 = malloc_vec(1);
             poseidon24(answer + (2*j), internal_states[j], h24);
             internal_states[j + 1] = h24;
         }
-        leaf_hashes[i] = internal_states[n_chuncks_per_answer / 2];
+        leaf_hashes[i] = internal_states[n_chunks_per_answer / 2];
     }
 
     folded_domain_size = domain_size - folding_factor;

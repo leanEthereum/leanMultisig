@@ -14,31 +14,46 @@ struct Compiler {
     if_counter: usize,
     call_counter: usize,
     func_name: String,
-    var_positions: BTreeMap<Var, usize>, // var -> memory offset from fp
+    stack_frame_layout: StackFrameLayout,
     args_count: usize,
     stack_size: usize,
+}
+
+#[derive(Default)]
+struct StackFrameLayout {
+    // Innermost lexical scope last
+    scopes: Vec<ScopeLayout>,
+}
+
+#[derive(Default)]
+struct ScopeLayout {
+    var_positions: BTreeMap<Var, usize>, // var -> memory offset from fp
     const_mallocs: BTreeMap<ConstMallocLabel, usize>, // const_malloc_label -> start = memory offset from fp
 }
 
 impl Compiler {
     fn get_offset(&self, var: &VarOrConstMallocAccess) -> ConstExpression {
         match var {
-            VarOrConstMallocAccess::Var(var) => (*self
-                .var_positions
-                .get(var)
-                .unwrap_or_else(|| panic!("Variable {var} not in scope")))
-            .into(),
-            VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset } => ConstExpression::Binary {
-                left: Box::new(
-                    self.const_mallocs
-                        .get(malloc_label)
-                        .copied()
-                        .unwrap_or_else(|| panic!("Const malloc {malloc_label} not in scope"))
-                        .into(),
-                ),
-                operation: HighLevelOperation::Add,
-                right: Box::new(offset.clone()),
-            },
+            VarOrConstMallocAccess::Var(var) => {
+                for scope in self.stack_frame_layout.scopes.iter().rev() {
+                    if let Some(offset) = scope.var_positions.get(var) {
+                        return (*offset).into();
+                    }
+                }
+                panic!("Variable {var} not in scope");
+            }
+            VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset } => {
+                for scope in self.stack_frame_layout.scopes.iter().rev() {
+                    if let Some(base) = scope.const_mallocs.get(malloc_label) {
+                        return ConstExpression::Binary {
+                            left: Box::new((*base).into()),
+                            operation: HighLevelOperation::Add,
+                            right: Box::new((*offset).clone()),
+                        };
+                    }
+                }
+                panic!("Const malloc {malloc_label} not in scope");
+            }
         }
     }
 }
@@ -68,18 +83,10 @@ impl IntermediateValue {
             },
             SimpleExpr::Constant(c) => Self::Constant(c.clone()),
             SimpleExpr::ConstMallocAccess { malloc_label, offset } => Self::MemoryAfterFp {
-                offset: ConstExpression::Binary {
-                    left: Box::new(
-                        compiler
-                            .const_mallocs
-                            .get(malloc_label)
-                            .copied()
-                            .unwrap_or_else(|| panic!("Const malloc {malloc_label} not in scope"))
-                            .into(),
-                    ),
-                    operation: HighLevelOperation::Add,
-                    right: Box::new(offset.clone()),
-                },
+                offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
+                    malloc_label: *malloc_label,
+                    offset: offset.clone()
+                }),
             },
         }
     }
@@ -110,28 +117,22 @@ fn compile_function(
     function: &SimpleFunction,
     compiler: &mut Compiler,
 ) -> Result<Vec<IntermediateInstruction>, String> {
-    let mut internal_vars = find_internal_vars(&function.instructions);
-
-    internal_vars.retain(|var| !function.arguments.contains(var));
-
     // memory layout: pc, fp, args, return_vars, internal_vars
     let mut stack_pos = 2; // Reserve space for pc and fp
-    let mut var_positions = BTreeMap::new();
+    let mut function_scope_layout = ScopeLayout::default();
+    compiler.stack_frame_layout = StackFrameLayout {
+        scopes: vec![function_scope_layout],
+    };
+    let function_scope_layout = &mut compiler.stack_frame_layout.scopes[0];
 
     for (i, var) in function.arguments.iter().enumerate() {
-        var_positions.insert(var.clone(), stack_pos + i);
+        function_scope_layout.var_positions.insert(var.clone(), stack_pos + i);
     }
     stack_pos += function.arguments.len();
 
     stack_pos += function.n_returned_vars;
 
-    for (i, var) in internal_vars.iter().enumerate() {
-        var_positions.insert(var.clone(), stack_pos + i);
-    }
-    stack_pos += internal_vars.len();
-
     compiler.func_name = function.name.clone();
-    compiler.var_positions = var_positions;
     compiler.stack_size = stack_pos;
     compiler.args_count = function.arguments.len();
 
@@ -152,10 +153,18 @@ fn compile_lines(
     final_jump: Option<Label>,
     declared_vars: &mut BTreeSet<Var>,
 ) -> Result<Vec<IntermediateInstruction>, String> {
+    // TODO: amend stack frame layout with internal variables.
+
     let mut instructions = Vec::new();
 
     for (i, line) in lines.iter().enumerate() {
         match line {
+            SimpleLine::ForwardDeclaration { var } => {
+                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_size);
+                compiler.stack_size += 1;
+            }
+
             SimpleLine::Assignment {
                 var,
                 operation,
@@ -172,6 +181,9 @@ fn compile_lines(
                 mark_vars_as_declared(&[arg0, arg1], declared_vars);
                 if let VarOrConstMallocAccess::Var(var) = var {
                     declared_vars.insert(var.clone());
+                    let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_size);
+                    compiler.stack_size += 1;
                 }
             }
 
@@ -187,6 +199,9 @@ fn compile_lines(
             }
 
             SimpleLine::Match { value, arms } => {
+                let saved_stack_size = compiler.stack_size;
+                compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
+
                 let match_index = compiler.match_blocks.len();
                 let end_label = Label::match_end(match_index);
 
@@ -248,6 +263,9 @@ fn compile_lines(
                 let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump, declared_vars)?;
                 compiler.bytecode.insert(end_label, remaining);
 
+                compiler.stack_frame_layout.scopes.pop();
+                compiler.stack_size = saved_stack_size;
+
                 return Ok(instructions);
             }
 
@@ -257,6 +275,9 @@ fn compile_lines(
                 else_branch,
                 line_number,
             } => {
+                let saved_stack_size = compiler.stack_size;
+                compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
+
                 validate_vars_declared(&[condition], declared_vars)?;
 
                 let if_id = compiler.if_counter;
@@ -361,6 +382,9 @@ fn compile_lines(
                 let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump, declared_vars)?;
                 compiler.bytecode.insert(end_label, remaining);
 
+                compiler.stack_frame_layout.scopes.pop();
+                compiler.stack_size = saved_stack_size;
+
                 return Ok(instructions);
             }
 
@@ -403,6 +427,11 @@ fn compile_lines(
 
                 validate_vars_declared(args, declared_vars)?;
                 declared_vars.extend(return_data.iter().cloned());
+                for var in return_data.iter() {
+                    let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_size);
+                    compiler.stack_size += 1;
+                }
 
                 let after_call = {
                     let mut instructions = Vec::new();
@@ -477,6 +506,9 @@ fn compile_lines(
                 vectorized,
                 vectorized_len,
             } => {
+                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_size);
+                compiler.stack_size += 1;
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::RequestMemory {
                     offset: compiler.get_offset(&var.clone().into()),
@@ -486,6 +518,7 @@ fn compile_lines(
                 });
             }
             SimpleLine::ConstMalloc { var, size, label } => {
+                todo!(); // amend stack frame layout
                 let size = size.naive_eval().unwrap().to_usize(); // TODO not very good;
                 handle_const_malloc(declared_vars, &mut instructions, compiler, var, size, label);
             }
@@ -494,6 +527,7 @@ fn compile_lines(
                 to_decompose,
                 label,
             } => {
+                todo!(); // amend stack frame layout
                 instructions.push(IntermediateInstruction::DecomposeBits {
                     res_offset: compiler.stack_size,
                     to_decompose: to_decompose
@@ -516,6 +550,7 @@ fn compile_lines(
                 to_decompose,
                 label,
             } => {
+                todo!(); // amend stack frame layout
                 instructions.push(IntermediateInstruction::DecomposeCustom {
                     res_offset: compiler.stack_size,
                     to_decompose: to_decompose
@@ -534,6 +569,7 @@ fn compile_lines(
                 );
             }
             SimpleLine::CounterHint { var } => {
+                todo!(); // amend stack frame layout
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::CounterHint {
                     res_offset: compiler
@@ -576,6 +612,7 @@ fn handle_const_malloc(
     size: usize,
     label: &ConstMallocLabel,
 ) {
+    todo!(); // amend stack frame layout
     declared_vars.insert(var.clone());
     instructions.push(IntermediateInstruction::Computation {
         operation: Operation::Add,
@@ -585,7 +622,8 @@ fn handle_const_malloc(
             offset: compiler.get_offset(&var.clone().into()),
         },
     });
-    compiler.const_mallocs.insert(*label, compiler.stack_size);
+    let current_scope = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+    current_scope.const_mallocs.insert(*label, compiler.stack_size);
     compiler.stack_size += size;
 }
 
@@ -673,10 +711,14 @@ fn compile_function_ret(
     });
 }
 
+// TODO: delete this?
 fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
     let mut internal_vars = BTreeSet::new();
     for line in lines {
         match line {
+            SimpleLine::ForwardDeclaration { var } => {
+                internal_vars.insert(var.clone());
+            }
             SimpleLine::Match { arms, .. } => {
                 for arm in arms {
                     internal_vars.extend(find_internal_vars(arm));
