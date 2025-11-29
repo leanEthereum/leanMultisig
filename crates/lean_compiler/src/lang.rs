@@ -398,6 +398,7 @@ impl Context {
     }
 }
 
+#[derive(Default)]
 pub struct Scope {
     /// A set of declared variables.
     pub vars: BTreeSet<Var>,
