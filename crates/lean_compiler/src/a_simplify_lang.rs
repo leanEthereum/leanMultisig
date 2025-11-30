@@ -2042,7 +2042,7 @@ impl SimpleLine {
                 format!("{result} = counter_hint()")
             }
             Self::RawAccess { res, index, shift } => {
-                format!("memory[{index} + {shift}] = {res}")
+                format!("{res} = memory[{index} + {shift}]")
             }
             Self::TestZero { operation, arg0, arg1 } => {
                 format!("0 = {arg0} {operation} {arg1}")
