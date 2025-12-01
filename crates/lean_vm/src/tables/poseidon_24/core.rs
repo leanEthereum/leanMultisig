@@ -62,6 +62,7 @@ impl TableT for Poseidon24CorePrecompile {
                 (POSEIDON_24_CORE_COL_OUTPUT_START..POSEIDON_24_CORE_COL_OUTPUT_START + 8).collect::<Vec<ColIndex>>(),
             ]
             .concat(),
+            degree: 1,
         }]
     }
 
@@ -92,8 +93,8 @@ impl Air for Poseidon24CorePrecompile {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
-        2
+    fn degrees(&self) -> Vec<usize> {
+        vec![2]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
@@ -101,10 +102,10 @@ impl Air for Poseidon24CorePrecompile {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
-    fn n_constraints(&self) -> usize {
-        1
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![1]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
         let up = builder.up_f();
         let flag = up[POSEIDON_24_CORE_COL_FLAG].clone();
         let mut data = [AB::F::ZERO; 24 + 8];

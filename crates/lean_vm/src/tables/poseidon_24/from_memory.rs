@@ -83,6 +83,7 @@ impl TableT for Poseidon24MemPrecompile {
                     POSEIDON_24_MEM_COL_INDEX_B,
                     POSEIDON_24_MEM_COL_INDEX_RES,
                 ],
+                degree: 1,
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon24_core()),
@@ -93,6 +94,7 @@ impl TableT for Poseidon24MemPrecompile {
                     (POSEIDON_24_MEM_COL_OUTPUT_START..POSEIDON_24_MEM_COL_OUTPUT_START + 8).collect::<Vec<ColIndex>>(),
                 ]
                 .concat(),
+                degree: 1,
             },
         ]
     }
@@ -176,8 +178,8 @@ impl Air for Poseidon24MemPrecompile {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
-        2
+    fn degrees(&self) -> Vec<usize> {
+        vec![2]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
@@ -185,10 +187,10 @@ impl Air for Poseidon24MemPrecompile {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
-    fn n_constraints(&self) -> usize {
-        4
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![4]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
         let up = builder.up_f();
         let flag = up[POSEIDON_24_MEM_COL_FLAG].clone();
         let index_res = up[POSEIDON_24_MEM_COL_INDEX_RES].clone();

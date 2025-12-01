@@ -70,6 +70,7 @@ impl TableT for ExecutionTable {
                 COL_INDEX_EXEC_NU_C,
                 COL_INDEX_AUX,
             ],
+            degree: 2
         }]
     }
 

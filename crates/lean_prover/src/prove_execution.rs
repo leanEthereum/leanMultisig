@@ -571,7 +571,20 @@ fn prove_bus_and_air(
         })
         .collect::<Vec<_>>();
 
-    let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
+    let bus_virtual_statement = {
+        let mut bus_evals = vec![];
+        for degree in Air::degrees(t) {
+            bus_evals.push(
+                bus_final_values
+                    .iter()
+                    .zip(t.buses())
+                    .filter_map(|(eval, bus)| (bus.degree == degree).then(|| *eval))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        assert_eq!(bus_evals.len(), Air::degrees(t).len());
+        (bus_point, bus_evals)
+    };
 
     for bus in t.buses() {
         quotient -= bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
@@ -584,7 +597,6 @@ fn prove_bus_and_air(
             .collect_n(max_bus_width()),
         bus_beta,
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
-        alpha_powers: vec![], // filled later
     };
 
     let (air_point, evals_f, evals_ef) = info_span!("Table AIR proof", table = t.name()).in_scope(|| {

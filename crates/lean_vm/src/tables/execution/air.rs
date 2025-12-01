@@ -48,8 +48,8 @@ impl Air for ExecutionTable {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
-        5
+    fn degrees(&self) -> Vec<usize> {
+        vec![5]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![COL_INDEX_PC, COL_INDEX_FP]
@@ -57,12 +57,12 @@ impl Air for ExecutionTable {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
-    fn n_constraints(&self) -> usize {
-        16
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![16]
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
         let up = builder.up_f();
         let down = builder.down_f();
 

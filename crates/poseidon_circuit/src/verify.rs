@@ -172,7 +172,7 @@ where
     }
 }
 
-fn verify_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>>>(
+fn verify_gkr_round<SC: SumcheckComputation<EF, ExtraData = ()>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     computation: &SC,
     log_n_poseidons: usize,
@@ -187,7 +187,7 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>>>(
 
     let (retrieved_batched_claim, sumcheck_postponed_claim) = sumcheck_verify_with_univariate_skip(
         verifier_state,
-        computation.degree() + 1,
+        computation.max_degree() + 1,
         log_n_poseidons,
         univariate_skips,
     )
@@ -197,7 +197,7 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>>>(
 
     let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(n_inputs).unwrap();
     assert_eq!(
-        computation.eval_extension(&sumcheck_inner_evals, &[], &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &[], &(), &batching_scalars_powers, 0)
             * eq_poly_with_skip(&sumcheck_postponed_claim.point, claim_point, univariate_skips),
         sumcheck_postponed_claim.value
     );

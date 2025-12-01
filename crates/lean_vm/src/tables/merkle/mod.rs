@@ -70,6 +70,7 @@ impl TableT for MerklePrecompile {
                 direction: BusDirection::Pull,
                 selector: BusSelector::Column(COL_FLAG),
                 data: vec![COL_INDEX_LEAF, COL_LEAF_POSITION, COL_INDEX_ROOT, COL_HEIGHT],
+                degree: 1,
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon16_core()),
@@ -83,6 +84,7 @@ impl TableT for MerklePrecompile {
                     vec![COL_ZERO; VECTOR_LEN], // Padding
                 ]
                 .concat(),
+                degree: 1,
             },
         ]
     }
@@ -205,8 +207,8 @@ impl Air for MerklePrecompile {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
-        3
+    fn degrees(&self) -> Vec<usize> {
+        vec![3]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         (0..TOTAL_N_COLS - 2 * VECTOR_LEN).collect()
@@ -214,10 +216,10 @@ impl Air for MerklePrecompile {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
-    fn n_constraints(&self) -> usize {
-        12 + 5 * VECTOR_LEN
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![13 + 5 * VECTOR_LEN]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
         let up = builder.up_f();
         let flag = up[COL_FLAG].clone();
         let index_leaf = up[COL_INDEX_LEAF].clone();

@@ -87,6 +87,7 @@ impl TableT for Poseidon16MemPrecompile {
                     POSEIDON_16_MEM_COL_INDEX_RES,
                     POSEIDON_16_MEM_COL_COMPRESSION,
                 ],
+                degree: 1,
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon16_core()),
@@ -99,6 +100,7 @@ impl TableT for Poseidon16MemPrecompile {
                         .collect::<Vec<ColIndex>>(),
                 ]
                 .concat(),
+                degree: 1,
             },
         ]
     }
@@ -199,8 +201,8 @@ impl Air for Poseidon16MemPrecompile {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
-        2
+    fn degrees(&self) -> Vec<usize> {
+        vec![2]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
@@ -208,10 +210,10 @@ impl Air for Poseidon16MemPrecompile {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
-    fn n_constraints(&self) -> usize {
-        5
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![5]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
         let up = builder.up_f();
         let flag = up[POSEIDON_16_MEM_COL_FLAG].clone();
         let index_res = up[POSEIDON_16_MEM_COL_INDEX_RES].clone();

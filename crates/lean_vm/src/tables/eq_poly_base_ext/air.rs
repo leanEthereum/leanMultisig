@@ -30,11 +30,11 @@ impl Air for EqPolyBaseExtPrecompile {
     fn n_columns_ef_air(&self) -> usize {
         N_COLS_EF
     }
-    fn degree(&self) -> usize {
-        4
+    fn degrees(&self) -> Vec<usize> {
+        vec![4]
     }
-    fn n_constraints(&self) -> usize {
-        8
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![8]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![COL_FLAG, COL_LEN, COL_INDEX_A, COL_INDEX_B]
@@ -44,7 +44,7 @@ impl Air for EqPolyBaseExtPrecompile {
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
         let up_f = builder.up_f();
         let up_ef = builder.up_ef();
         let down_f = builder.down_f();

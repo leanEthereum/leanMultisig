@@ -197,7 +197,7 @@ where
 }
 
 // #[instrument(skip_all)]
-fn prove_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>> + 'static>(
+fn prove_gkr_round<SC: SumcheckComputation<EF, ExtraData = ()> + 'static>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     computation: &SC,
     input_layers: &[impl AsRef<[PFPacking<EF>]>],
@@ -214,6 +214,7 @@ fn prove_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>> + 'static>(
         MleGroupRef::BasePacked(input_layers.iter().map(|l| l.as_ref()).collect()),
         None,
         computation,
+        &(),
         &batching_scalars_powers,
         Some((claim_point.to_vec(), None)),
         false,
@@ -224,7 +225,7 @@ fn prove_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>> + 'static>(
 
     // sanity check
     debug_assert_eq!(
-        computation.eval_extension(&sumcheck_inner_evals, &[], &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &[], &(), &batching_scalars_powers, 0)
             * eq_poly_with_skip(&sumcheck_point, claim_point, univariate_skips),
         sumcheck_final_sum
     );
@@ -282,6 +283,7 @@ where
         ),
         None,
         computation,
+        &(),
         &batching_scalars_powers,
         Some((claim_point.to_vec(), None)),
         false,
@@ -292,7 +294,7 @@ where
 
     // sanity check
     debug_assert_eq!(
-        computation.eval_extension(&sumcheck_inner_evals, &[], &batching_scalars_powers)
+        computation.eval_extension(&sumcheck_inner_evals, &[], &(), &batching_scalars_powers, 0)
             * eq_poly_with_skip(&sumcheck_point, claim_point, univariate_skips),
         sumcheck_final_sum
     );

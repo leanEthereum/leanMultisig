@@ -162,8 +162,8 @@ impl TableT for Table {
 
 impl Air for Table {
     type ExtraData = ();
-    fn degree(&self) -> usize {
-        delegate_to_inner!(self, degree)
+    fn degrees(&self) -> Vec<usize> {
+        delegate_to_inner!(self, degrees)
     }
     fn n_columns_f_air(&self) -> usize {
         delegate_to_inner!(self, n_columns_f_air)
@@ -171,7 +171,7 @@ impl Air for Table {
     fn n_columns_ef_air(&self) -> usize {
         delegate_to_inner!(self, n_columns_ef_air)
     }
-    fn n_constraints(&self) -> usize {
+    fn n_constraints(&self) -> Vec<usize> {
         delegate_to_inner!(self, n_constraints)
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
@@ -180,7 +180,7 @@ impl Air for Table {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         delegate_to_inner!(self, down_column_indexes_ef)
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData, _: usize) {
         unreachable!()
     }
 }

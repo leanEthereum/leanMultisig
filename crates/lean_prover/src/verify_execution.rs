@@ -8,6 +8,7 @@ use lean_vm::*;
 use lookup::verify_gkr_quotient;
 use lookup::verify_logup_star;
 use multilinear_toolkit::prelude::*;
+use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::PoseidonGKRLayers;
 use poseidon_circuit::verify_poseidon_gkr;
@@ -393,8 +394,20 @@ fn verify_bus_and_air(
         })
         .collect::<Vec<_>>();
 
-    let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
-
+    let bus_virtual_statement = {
+        let mut bus_evals = vec![];
+        for degree in Air::degrees(t) {
+            bus_evals.push(
+                bus_final_values
+                    .iter()
+                    .zip(t.buses())
+                    .filter_map(|(eval, bus)| (bus.degree == degree).then(|| *eval))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        assert_eq!(bus_evals.len(), Air::degrees(t).len());
+        (bus_point, bus_evals)
+    };
     for bus in t.buses() {
         quotient -= bus.padding_contribution(t, table_height.padding_len(), bus_challenge, fingerprint_challenge);
     }
@@ -406,7 +419,6 @@ fn verify_bus_and_air(
             .collect_n(max_bus_width()),
         bus_beta,
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
-        alpha_powers: vec![], // filled later
     };
 
     let (air_point, evals_f, evals_ef) = {

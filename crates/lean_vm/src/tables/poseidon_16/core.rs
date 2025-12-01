@@ -64,6 +64,7 @@ impl TableT for Poseidon16CorePrecompile {
                 (POSEIDON_16_CORE_COL_OUTPUT_START..POSEIDON_16_CORE_COL_OUTPUT_START + 16).collect::<Vec<ColIndex>>(),
             ]
             .concat(),
+            degree: 1,
         }]
     }
 
@@ -98,8 +99,8 @@ impl Air for Poseidon16CorePrecompile {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
-        1
+    fn degrees(&self) -> Vec<usize> {
+        vec![1]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
@@ -107,10 +108,10 @@ impl Air for Poseidon16CorePrecompile {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
-    fn n_constraints(&self) -> usize {
-        1
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![1]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
         let up = builder.up_f();
         let flag = up[POSEIDON_16_CORE_COL_FLAG].clone();
         let mut data = [AB::F::ZERO; 1 + 2 * 16];

@@ -77,6 +77,7 @@ impl TableT for SliceHashPrecompile {
                 direction: BusDirection::Pull,
                 selector: BusSelector::Column(COL_FLAG),
                 data: vec![COL_INDEX_SEED, COL_INDEX_START, COL_INDEX_RES, COL_LEN],
+                degree: 1
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon24_core()),
@@ -88,6 +89,7 @@ impl TableT for SliceHashPrecompile {
                     (INITIAL_COLS_DATA_RES..INITIAL_COLS_DATA_RES + 8).collect::<Vec<ColIndex>>(),
                 ]
                 .concat(),
+                degree: 1
             },
         ]
     }
@@ -190,8 +192,8 @@ impl Air for SliceHashPrecompile {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
-        3
+    fn degrees(&self) -> Vec<usize> {
+        vec![3]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         (0..INITIAL_COLS_DATA_RES).collect()
@@ -199,10 +201,10 @@ impl Air for SliceHashPrecompile {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
     }
-    fn n_constraints(&self) -> usize {
-        8 + 5 * VECTOR_LEN
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![8 + 5 * VECTOR_LEN]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
         let up = builder.up_f();
         let flag = up[COL_FLAG].clone();
         let index_seed = up[COL_INDEX_SEED].clone();

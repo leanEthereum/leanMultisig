@@ -85,6 +85,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
         prev_numerators_and_denominators_split,
         None,
         &GKRQuotientComputation::<N_GROUPS> {},
+        &(),
         &alpha.powers().take(N_GROUPS).collect(),
         Some((claim_point.0.clone(), None)),
         false,
@@ -174,8 +175,9 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
                 &Default::default(),
                 &inner_evals,
                 &[],
+                &(),
                 &alpha.powers().take(N_GROUPS).collect(),
-                0
+                0,
             )
     {
         return Err(ProofError::InvalidProof);

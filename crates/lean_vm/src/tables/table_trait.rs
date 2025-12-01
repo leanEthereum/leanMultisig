@@ -61,6 +61,7 @@ pub struct Bus {
     pub table: BusTable,
     pub selector: BusSelector,
     pub data: Vec<ColIndex>, // For now, we only supports F (base field) columns as bus data
+    pub degree: usize,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -115,19 +116,6 @@ pub struct ExtraDataForBuses<EF: ExtensionField<PF<EF>>> {
     pub fingerprint_challenge_powers_packed: Vec<EFPacking<EF>>,
     pub bus_beta: EF,
     pub bus_beta_packed: EFPacking<EF>,
-    pub alpha_powers: Vec<EF>,
-}
-
-impl AlphaPowersMut<EF> for ExtraDataForBuses<EF> {
-    fn alpha_powers_mut(&mut self) -> &mut Vec<EF> {
-        &mut self.alpha_powers
-    }
-}
-
-impl AlphaPowers<EF> for ExtraDataForBuses<EF> {
-    fn alpha_powers(&self) -> &[EF] {
-        &self.alpha_powers
-    }
 }
 
 impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
