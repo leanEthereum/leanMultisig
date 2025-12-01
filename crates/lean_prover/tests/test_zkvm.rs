@@ -125,6 +125,6 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
     );
     let proof_time = time.elapsed();
     verify_execution(&bytecode, public_input, proof_data, whir_config_builder()).unwrap();
-    println!("{}", summary);
+    println!("{summary}");
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }

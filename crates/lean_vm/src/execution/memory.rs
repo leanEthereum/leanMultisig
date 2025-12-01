@@ -41,7 +41,11 @@ impl Memory {
         }
         if let Some(existing) = &mut self.0[index] {
             if *existing != value {
-                return Err(RunnerError::MemoryAlreadySet);
+                return Err(RunnerError::MemoryAlreadySet {
+                    address: index,
+                    prev_value: *existing,
+                    new_value: value,
+                });
             }
         } else {
             self.0[index] = Some(value);
