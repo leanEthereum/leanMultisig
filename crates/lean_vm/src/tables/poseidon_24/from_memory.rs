@@ -83,7 +83,7 @@ impl TableT for Poseidon24MemPrecompile {
                     POSEIDON_24_MEM_COL_INDEX_B,
                     POSEIDON_24_MEM_COL_INDEX_RES,
                 ],
-                degree: 1,
+                degree: 2,
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon24_core()),
@@ -94,7 +94,7 @@ impl TableT for Poseidon24MemPrecompile {
                     (POSEIDON_24_MEM_COL_OUTPUT_START..POSEIDON_24_MEM_COL_OUTPUT_START + 8).collect::<Vec<ColIndex>>(),
                 ]
                 .concat(),
-                degree: 1,
+                degree: 2,
             },
         ]
     }

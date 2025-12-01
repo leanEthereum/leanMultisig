@@ -94,7 +94,7 @@ impl Air for Poseidon24CorePrecompile {
         0
     }
     fn degrees(&self) -> Vec<usize> {
-        vec![2]
+        vec![1]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]

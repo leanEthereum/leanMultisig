@@ -421,6 +421,9 @@ fn verify_bus_and_air(
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
     };
 
+
+    dbg!(t.name());
+
     let (air_point, evals_f, evals_ef) = {
         macro_rules! verify_air_for_table {
             ($t:expr) => {
@@ -433,7 +436,7 @@ fn verify_bus_and_air(
                     &t.air_padding_row_f(),
                     &t.air_padding_row_ef(),
                     Some(bus_virtual_statement),
-                )?
+                ).unwrap()
             };
         }
         delegate_to_inner!(t => verify_air_for_table)

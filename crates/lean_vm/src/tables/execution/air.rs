@@ -49,7 +49,7 @@ impl Air for ExecutionTable {
         0
     }
     fn degrees(&self) -> Vec<usize> {
-        vec![5]
+        vec![2, 3, 4, 5]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![COL_INDEX_PC, COL_INDEX_FP]
@@ -58,11 +58,11 @@ impl Air for ExecutionTable {
         vec![]
     }
     fn n_constraints(&self) -> Vec<usize> {
-        vec![16]
+        vec![6, 2, 4, 4]
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, step: usize) {
         let up = builder.up_f();
         let down = builder.down_f();
 
@@ -114,31 +114,43 @@ impl Air for ExecutionTable {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
-            extra_data,
-            precompile_index.clone(),
-            is_precompile.clone(),
-            &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()],
-        ));
+        match step {
+            0 => {
+                // degree 2 constraints
+                builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+                    extra_data,
+                    precompile_index.clone(),
+                    is_precompile.clone(),
+                    &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()],
+                ));
 
-        builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
-        builder.assert_zero(flag_b_minus_one * (addr_b.clone() - fp_plus_operand_b));
-        builder.assert_zero(flag_c_minus_one * (addr_c.clone() - fp_plus_operand_c));
+                builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
+                builder.assert_zero(flag_b_minus_one * (addr_b.clone() - fp_plus_operand_b));
+                builder.assert_zero(flag_c_minus_one * (addr_c.clone() - fp_plus_operand_c));
 
-        builder.assert_zero(add * (nu_b.clone() - (nu_a.clone() + nu_c.clone())));
-        builder.assert_zero(mul * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
-
-        builder.assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
-        builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
-        builder.assert_zero(deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
-
-        builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
-        builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
-
-        builder.assert_zero(jump.clone() * nu_a.clone() * nu_a_minus_one.clone());
-        builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
-        builder.assert_zero(jump.clone() * nu_a.clone() * (next_fp.clone() - nu_c.clone()));
-        builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_pc.clone() - pc_plus_one.clone()));
-        builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
+                builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
+                builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
+            }
+            1 => {
+                // degree 3 constraints
+                builder.assert_zero(add * (nu_b.clone() - (nu_a.clone() + nu_c.clone())));
+                builder.assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
+            }
+            2 => {
+                // degree 4 constraints
+                builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
+                builder.assert_zero(deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
+                builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_pc.clone() - pc_plus_one.clone()));
+                builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
+            }
+            3 => {
+                // degree 5 constraints
+                builder.assert_zero(mul * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
+                builder.assert_zero(jump.clone() * nu_a.clone() * nu_a_minus_one.clone());
+                builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
+                builder.assert_zero(jump.clone() * nu_a.clone() * (next_fp.clone() - nu_c.clone()));
+            }
+            _ => unreachable!("step out of bounds: {}", step),
+        }
     }
 }

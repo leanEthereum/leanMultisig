@@ -87,7 +87,7 @@ impl TableT for Poseidon16MemPrecompile {
                     POSEIDON_16_MEM_COL_INDEX_RES,
                     POSEIDON_16_MEM_COL_COMPRESSION,
                 ],
-                degree: 1,
+                degree: 2,
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon16_core()),
@@ -100,7 +100,7 @@ impl TableT for Poseidon16MemPrecompile {
                         .collect::<Vec<ColIndex>>(),
                 ]
                 .concat(),
-                degree: 1,
+                degree: 2,
             },
         ]
     }

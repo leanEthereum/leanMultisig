@@ -70,7 +70,7 @@ impl TableT for MerklePrecompile {
                 direction: BusDirection::Pull,
                 selector: BusSelector::Column(COL_FLAG),
                 data: vec![COL_INDEX_LEAF, COL_LEAF_POSITION, COL_INDEX_ROOT, COL_HEIGHT],
-                degree: 1,
+                degree: 3,
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon16_core()),
@@ -84,7 +84,7 @@ impl TableT for MerklePrecompile {
                     vec![COL_ZERO; VECTOR_LEN], // Padding
                 ]
                 .concat(),
-                degree: 1,
+                degree: 3,
             },
         ]
     }

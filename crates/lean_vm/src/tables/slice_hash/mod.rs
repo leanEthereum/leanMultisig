@@ -77,7 +77,7 @@ impl TableT for SliceHashPrecompile {
                 direction: BusDirection::Pull,
                 selector: BusSelector::Column(COL_FLAG),
                 data: vec![COL_INDEX_SEED, COL_INDEX_START, COL_INDEX_RES, COL_LEN],
-                degree: 1
+                degree: 3
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon24_core()),
@@ -89,7 +89,7 @@ impl TableT for SliceHashPrecompile {
                     (INITIAL_COLS_DATA_RES..INITIAL_COLS_DATA_RES + 8).collect::<Vec<ColIndex>>(),
                 ]
                 .concat(),
-                degree: 1
+                degree: 3
             },
         ]
     }
