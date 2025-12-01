@@ -14,7 +14,7 @@ where
     type ExtraData = ();
 
     fn degrees(&self) -> Vec<usize> {
-        vec![1]
+        vec![2]
     }
 
     #[inline(always)]
