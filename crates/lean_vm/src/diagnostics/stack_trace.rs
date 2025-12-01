@@ -10,6 +10,7 @@ pub(crate) fn pretty_stack_trace(
     source_code: &str,
     instructions: &[SourceLineNumber], // SourceLineNumber = usize
     function_locations: &BTreeMap<usize, String>,
+    last_pc: usize,
 ) -> String {
     let source_lines: Vec<&str> = source_code.lines().collect();
     let mut result = String::new();
@@ -97,7 +98,11 @@ pub(crate) fn pretty_stack_trace(
     if !call_stack.is_empty() {
         result.push_str("\nCall stack:\n");
         for (i, (line, func)) in call_stack.iter().enumerate() {
-            result.push_str(&format!("  {}. {} (line {})\n", i + 1, func, line));
+            if i + 1 == call_stack.len() {
+                result.push_str(&format!("  {}. {} (line {}, pc {})\n", i + 1, func, line, last_pc));
+            } else {
+                result.push_str(&format!("  {}. {} (line {})\n", i + 1, func, line));
+            }
         }
     }
 
