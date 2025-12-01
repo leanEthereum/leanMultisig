@@ -171,13 +171,12 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
 
     if postponed.value
         != point.eq_poly_outside(&postponed.point)
-            * <GKRQuotientComputation<N_GROUPS> as SumcheckComputation<EF>>::eval_extension(
+            * <GKRQuotientComputation<N_GROUPS> as SumcheckComputation<EF>>::eval_extension::<0>(
                 &Default::default(),
                 &inner_evals,
                 &[],
                 &(),
                 &alpha.powers().take(N_GROUPS).collect(),
-                0,
             )
     {
         return Err(ProofError::InvalidProof);

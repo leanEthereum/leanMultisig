@@ -44,7 +44,7 @@ impl Air for EqPolyBaseExtPrecompile {
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
+    fn eval<AB: AirBuilder, const STEP: usize>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up_f = builder.up_f();
         let up_ef = builder.up_ef();
         let down_f = builder.down_f();

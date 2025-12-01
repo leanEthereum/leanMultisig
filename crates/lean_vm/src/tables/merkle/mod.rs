@@ -219,7 +219,7 @@ impl Air for MerklePrecompile {
     fn n_constraints(&self) -> Vec<usize> {
         vec![13 + 5 * VECTOR_LEN]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
+    fn eval<AB: p3_air::AirBuilder, const STEP: usize>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
         let flag = up[COL_FLAG].clone();
         let index_leaf = up[COL_INDEX_LEAF].clone();

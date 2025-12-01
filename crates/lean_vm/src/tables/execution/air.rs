@@ -62,7 +62,7 @@ impl Air for ExecutionTable {
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, step: usize) {
+    fn eval<AB: AirBuilder, const STEP: usize>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
         let down = builder.down_f();
 
@@ -114,7 +114,7 @@ impl Air for ExecutionTable {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        match step {
+        match STEP {
             0 => {
                 // degree 2 constraints
                 builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
@@ -150,7 +150,7 @@ impl Air for ExecutionTable {
                 builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
                 builder.assert_zero(jump.clone() * nu_a.clone() * (next_fp.clone() - nu_c.clone()));
             }
-            _ => unreachable!("step out of bounds: {}", step),
+            _ => unreachable!("step out of bounds: {}", STEP),
         }
     }
 }

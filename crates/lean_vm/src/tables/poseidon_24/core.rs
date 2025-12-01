@@ -105,7 +105,7 @@ impl Air for Poseidon24CorePrecompile {
     fn n_constraints(&self) -> Vec<usize> {
         vec![1]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
+    fn eval<AB: p3_air::AirBuilder, const STEP: usize>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
         let flag = up[POSEIDON_24_CORE_COL_FLAG].clone();
         let mut data = [AB::F::ZERO; 24 + 8];

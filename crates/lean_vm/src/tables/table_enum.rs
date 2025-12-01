@@ -180,7 +180,7 @@ impl Air for Table {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         delegate_to_inner!(self, down_column_indexes_ef)
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData, _: usize) {
+    fn eval<AB: p3_air::AirBuilder, const STEP: usize>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()
     }
 }

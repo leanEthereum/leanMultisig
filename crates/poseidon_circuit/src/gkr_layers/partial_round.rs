@@ -16,23 +16,28 @@ where
     }
 
     #[inline(always)]
-    fn eval_base(&self, point: &[PF<EF>], _: &[EF], _: &Self::ExtraData, alpha_powers: &[EF], _: usize) -> EF {
+    fn eval_base<const STEP: usize>(&self, point: &[PF<EF>], _: &[EF], _: &Self::ExtraData, alpha_powers: &[EF]) -> EF {
         self.my_eval::<EF, PF<EF>>(point, alpha_powers)
     }
 
     #[inline(always)]
-    fn eval_extension(&self, point: &[EF], _: &[EF], _: &Self::ExtraData, alpha_powers: &[EF], _: usize) -> EF {
+    fn eval_extension<const STEP: usize>(
+        &self,
+        point: &[EF],
+        _: &[EF],
+        _: &Self::ExtraData,
+        alpha_powers: &[EF],
+    ) -> EF {
         self.my_eval::<EF, EF>(point, alpha_powers)
     }
 
     #[inline(always)]
-    fn eval_packed_base(
+    fn eval_packed_base<const STEP: usize>(
         &self,
         point: &[FPacking<F>],
         _: &[EFPacking<EF>],
         _: &Self::ExtraData,
         alpha_powers: &[EF],
-        _: usize,
     ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH);
         let mut res = EFPacking::<EF>::from(point[0].cube());
@@ -43,13 +48,12 @@ where
     }
 
     #[inline(always)]
-    fn eval_packed_extension(
+    fn eval_packed_extension<const STEP: usize>(
         &self,
         point: &[EFPacking<EF>],
         _: &[EFPacking<EF>],
         _: &Self::ExtraData,
         alpha_powers: &[EF],
-        _: usize,
     ) -> EFPacking<EF> {
         debug_assert_eq!(point.len(), WIDTH);
         let mut res = point[0].cube();

@@ -1,3 +1,5 @@
+use std::usize;
+
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
@@ -266,32 +268,30 @@ impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for MySumcheck {
         vec![2]
     }
     #[inline(always)]
-    fn eval_base(&self, _: &[PF<EF>], _: &[EF], _: &Self::ExtraData, _: &[EF], _: usize) -> EF {
+    fn eval_base<const STEP: usize>(&self, _: &[PF<EF>], _: &[EF], _: &Self::ExtraData, _: &[EF]) -> EF {
         unreachable!()
     }
     #[inline(always)]
-    fn eval_extension(&self, point: &[EF], _: &[EF], _: &Self::ExtraData, _: &[EF], _: usize) -> EF {
+    fn eval_extension<const STEP: usize>(&self, point: &[EF], _: &[EF], _: &Self::ExtraData, _: &[EF]) -> EF {
         point[0] * point[1] + point[2] * point[3]
     }
     #[inline(always)]
-    fn eval_packed_base(
+    fn eval_packed_base<const STEP: usize>(
         &self,
         _: &[PFPacking<EF>],
         _: &[EFPacking<EF>],
         _: &Self::ExtraData,
         _: &[EF],
-        _: usize,
     ) -> EFPacking<EF> {
         unreachable!()
     }
     #[inline(always)]
-    fn eval_packed_extension(
+    fn eval_packed_extension<const STEP: usize>(
         &self,
         point: &[EFPacking<EF>],
         _: &[EFPacking<EF>],
         _: &Self::ExtraData,
         _: &[EF],
-        _: usize,
     ) -> EFPacking<EF> {
         point[0] * point[1] + point[2] * point[3]
     }

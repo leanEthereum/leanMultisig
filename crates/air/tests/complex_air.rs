@@ -48,7 +48,7 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData, step: usize) {
+    fn eval<AB: AirBuilder, const STEP: usize>(&self, builder: &mut AB, _: &Self::ExtraData) {
         let up_f = builder.up_f().to_vec();
         let up_ef = builder.up_ef().to_vec();
         let down_ef = builder.down_ef().to_vec();
@@ -56,22 +56,22 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
         assert_eq!(up_f.len() + up_ef.len(), N_COLUMNS);
         assert_eq!(down_ef.len(), N_COLUMNS - N_PREPROCESSED_COLUMNS);
         assert!(
-            step < if VIRTUAL_COLUMN { 3 } else { 1 },
+            STEP < if VIRTUAL_COLUMN { 3 } else { 1 },
             "step out of bounds: {}",
-            step
+            STEP
         );
 
         if VIRTUAL_COLUMN {
-            if step == 0 {
+            if STEP == 0 {
                 // virtual column B = col_0 - col_1
                 builder.eval_virtual_column(AB::EF::from(up_f[0].clone() - up_f[1].clone()));
             }
-            if step == 1 {
+            if STEP == 1 {
                 // virtual column A = col_0 * col_1 + col_2
                 builder.eval_virtual_column(up_ef[0].clone() + up_f[0].clone() * up_f[1].clone());
             }
         }
-        if step == if VIRTUAL_COLUMN { 2 } else { 0 } {
+        if STEP == if VIRTUAL_COLUMN { 2 } else { 0 } {
             for j in N_PREPROCESSED_COLUMNS..N_COLUMNS {
                 builder.assert_eq_ef(
                     down_ef[j - N_PREPROCESSED_COLUMNS].clone(),

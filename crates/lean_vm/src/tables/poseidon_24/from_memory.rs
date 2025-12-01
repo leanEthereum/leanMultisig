@@ -190,7 +190,7 @@ impl Air for Poseidon24MemPrecompile {
     fn n_constraints(&self) -> Vec<usize> {
         vec![4]
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData, _: usize) {
+    fn eval<AB: p3_air::AirBuilder, const STEP: usize>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
         let flag = up[POSEIDON_24_MEM_COL_FLAG].clone();
         let index_res = up[POSEIDON_24_MEM_COL_INDEX_RES].clone();

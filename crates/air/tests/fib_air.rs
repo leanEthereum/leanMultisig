@@ -34,7 +34,7 @@ impl Air for FibonacciAir {
         vec![0]
     }
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData, _degree: usize) {
+    fn eval<AB: AirBuilder, const STEP: usize>(&self, builder: &mut AB, _: &Self::ExtraData) {
         let a_up = builder.up_f()[0].clone();
         let b_up = builder.up_ef()[0].clone();
         let a_down = builder.down_f()[0].clone();

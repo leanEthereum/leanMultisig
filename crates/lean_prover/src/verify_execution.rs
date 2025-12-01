@@ -421,9 +421,6 @@ fn verify_bus_and_air(
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
     };
 
-
-    dbg!(t.name());
-
     let (air_point, evals_f, evals_ef) = {
         macro_rules! verify_air_for_table {
             ($t:expr) => {
