@@ -21,11 +21,11 @@ impl Air for FibonacciAir {
     fn n_columns_ef_air(&self) -> usize {
         1
     }
-    fn degree(&self) -> usize {
-        1
+    fn degrees(&self) -> Vec<usize> {
+        vec![1]
     }
-    fn n_constraints(&self) -> usize {
-        10 // too much, but ok for tests
+    fn n_constraints(&self) -> Vec<usize> {
+        vec![10] // too much, but ok for tests
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![0]
@@ -34,7 +34,7 @@ impl Air for FibonacciAir {
         vec![0]
     }
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData, _degree: usize) {
         let a_up = builder.up_f()[0].clone();
         let b_up = builder.up_ef()[0].clone();
         let a_down = builder.down_f()[0].clone();

@@ -26,11 +26,19 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
     fn n_columns_ef_air(&self) -> usize {
         N_COLUMNS - N_COLS_F
     }
-    fn degree(&self) -> usize {
-        N_PREPROCESSED_COLUMNS
+    fn degrees(&self) -> Vec<usize> {
+        if VIRTUAL_COLUMN {
+            vec![1, 2, N_PREPROCESSED_COLUMNS - N_COLS_F + 2]
+        } else {
+            vec![N_PREPROCESSED_COLUMNS - N_COLS_F + 2]
+        }
     }
-    fn n_constraints(&self) -> usize {
-        50 // too much, but ok for tests
+    fn n_constraints(&self) -> Vec<usize> {
+        if VIRTUAL_COLUMN {
+            vec![1, 1, N_COLUMNS - N_PREPROCESSED_COLUMNS]
+        } else {
+            vec![N_COLUMNS - N_PREPROCESSED_COLUMNS]
+        }
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
@@ -40,32 +48,42 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
     }
 
     #[inline]
-    fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, _: &Self::ExtraData, step: usize) {
         let up_f = builder.up_f().to_vec();
         let up_ef = builder.up_ef().to_vec();
         let down_ef = builder.down_ef().to_vec();
         assert_eq!(up_f.len(), N_COLS_F);
         assert_eq!(up_f.len() + up_ef.len(), N_COLUMNS);
         assert_eq!(down_ef.len(), N_COLUMNS - N_PREPROCESSED_COLUMNS);
+        assert!(
+            step < if VIRTUAL_COLUMN { 3 } else { 1 },
+            "step out of bounds: {}",
+            step
+        );
 
         if VIRTUAL_COLUMN {
-            // virtual column A = col_0 * col_1 + col_2
-            // virtual column B = col_0 - col_1
-            builder.eval_virtual_column(up_ef[0].clone() + up_f[0].clone() * up_f[1].clone());
-            builder.eval_virtual_column(AB::EF::from(up_f[0].clone() - up_f[1].clone()));
+            if step == 0 {
+                // virtual column B = col_0 - col_1
+                builder.eval_virtual_column(AB::EF::from(up_f[0].clone() - up_f[1].clone()));
+            }
+            if step == 1 {
+                // virtual column A = col_0 * col_1 + col_2
+                builder.eval_virtual_column(up_ef[0].clone() + up_f[0].clone() * up_f[1].clone());
+            }
         }
-
-        for j in N_PREPROCESSED_COLUMNS..N_COLUMNS {
-            builder.assert_eq_ef(
-                down_ef[j - N_PREPROCESSED_COLUMNS].clone(),
-                up_ef[j - N_COLS_F].clone()
-                    + AB::F::from_usize(j)
-                    + (0..N_PREPROCESSED_COLUMNS - N_COLS_F)
-                        .map(|k| up_ef[k].clone())
-                        .product::<AB::EF>()
-                        * up_f[0].clone()
-                        * up_f[1].clone(),
-            );
+        if step == if VIRTUAL_COLUMN { 2 } else { 0 } {
+            for j in N_PREPROCESSED_COLUMNS..N_COLUMNS {
+                builder.assert_eq_ef(
+                    down_ef[j - N_PREPROCESSED_COLUMNS].clone(),
+                    up_ef[j - N_COLS_F].clone()
+                        + AB::F::from_usize(j)
+                        + (0..N_PREPROCESSED_COLUMNS - N_COLS_F)
+                            .map(|k| up_ef[k].clone())
+                            .product::<AB::EF>()
+                            * up_f[0].clone()
+                            * up_f[1].clone(),
+                );
+            }
         }
     }
 }
@@ -117,25 +135,27 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
     last_row_ef = last_row_ef[N_PREPROCESSED_COLUMNS - N_COLS_F..].to_vec();
 
     let virtual_column_statement_prover = if VIRTUAL_COLUMN {
-        let virtual_column_a = columns_ref_f[0]
-            .iter()
-            .zip(columns_ref_f[1].iter())
-            .zip(columns_ref_ef[0].iter())
-            .map(|((&a, &b), &c)| c + a * b)
-            .collect::<Vec<_>>();
         let virtual_column_evaluation_point =
             MultilinearPoint(prover_state.sample_vec(log_n_rows + 1 - UNIVARIATE_SKIPS));
         let selectors = univariate_selectors::<PF<EF>>(UNIVARIATE_SKIPS);
+
+        let virtual_column_a = columns_ref_f[0]
+            .iter()
+            .zip(columns_ref_f[1].iter())
+            .map(|(&a, &b)| EF::from(a - b))
+            .collect::<Vec<_>>();
         let virtual_column_value_a = evaluate_univariate_multilinear::<_, _, _, true>(
             &virtual_column_a,
             &virtual_column_evaluation_point,
             &selectors,
             None,
         );
+
         let virtual_column_b = columns_ref_f[0]
             .iter()
             .zip(columns_ref_f[1].iter())
-            .map(|(&a, &b)| EF::from(a - b))
+            .zip(columns_ref_ef[0].iter())
+            .map(|((&a, &b), &c)| c + a * b)
             .collect::<Vec<_>>();
         let virtual_column_value_b = evaluate_univariate_multilinear::<_, _, _, true>(
             &virtual_column_b,
@@ -143,12 +163,13 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
             &selectors,
             None,
         );
+
         prover_state.add_extension_scalar(virtual_column_value_a);
         prover_state.add_extension_scalar(virtual_column_value_b);
 
-        Some(MultiEvaluation::new(
-            virtual_column_evaluation_point.0.clone(),
-            vec![virtual_column_value_a, virtual_column_value_b],
+        Some((
+            virtual_column_evaluation_point,
+            vec![vec![virtual_column_value_a], vec![virtual_column_value_b], vec![]],
         ))
     } else {
         None
@@ -177,9 +198,9 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
             MultilinearPoint(verifier_state.sample_vec(log_n_rows + 1 - UNIVARIATE_SKIPS));
         let virtual_column_value_a = verifier_state.next_extension_scalar().unwrap();
         let virtual_column_value_b = verifier_state.next_extension_scalar().unwrap();
-        Some(MultiEvaluation::new(
-            virtual_column_evaluation_point.0.clone(),
-            vec![virtual_column_value_a, virtual_column_value_b],
+        Some((
+            virtual_column_evaluation_point,
+            vec![vec![virtual_column_value_a], vec![virtual_column_value_b], vec![]],
         ))
     } else {
         None

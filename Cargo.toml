@@ -94,26 +94,26 @@ p3-koala-bear.workspace = true
 multilinear-toolkit.workspace = true
 whir-p3.workspace = true
 
-# [patch."https://github.com/TomWambsgans/Plonky3.git"]
-# p3-koala-bear = { path = "../zk/Plonky3/koala-bear" }
-# p3-field = { path = "../zk/Plonky3/field" }
-# p3-poseidon2 = { path = "../zk/Plonky3/poseidon2" }
-# p3-symmetric = { path = "../zk/Plonky3/symmetric" }
-# p3-air = { path = "../zk/Plonky3/air" }
-# p3-merkle-tree = { path = "../zk/Plonky3/merkle-tree" }
-# p3-commit = { path = "../zk/Plonky3/commit" }
-# p3-matrix = { path = "../zk/Plonky3/matrix" }
-# p3-dft = { path = "../zk/Plonky3/dft" }
-# p3-challenger = { path = "../zk/Plonky3/challenger" }
-# p3-monty-31 = { path = "../zk/Plonky3/monty-31" }
-# p3-maybe-rayon = { path = "../zk/Plonky3/maybe-rayon" }
-# p3-util = { path = "../zk/Plonky3/util" }
+[patch."https://github.com/TomWambsgans/Plonky3.git"]
+p3-koala-bear = { path = "../Plonky3/koala-bear" }
+p3-field = { path = "../Plonky3/field" }
+p3-poseidon2 = { path = "../Plonky3/poseidon2" }
+p3-symmetric = { path = "../Plonky3/symmetric" }
+p3-air = { path = "../Plonky3/air" }
+p3-merkle-tree = { path = "../Plonky3/merkle-tree" }
+p3-commit = { path = "../Plonky3/commit" }
+p3-matrix = { path = "../Plonky3/matrix" }
+p3-dft = { path = "../Plonky3/dft" }
+p3-challenger = { path = "../Plonky3/challenger" }
+p3-monty-31 = { path = "../Plonky3/monty-31" }
+p3-maybe-rayon = { path = "../Plonky3/maybe-rayon" }
+p3-util = { path = "../Plonky3/util" }
 
-# [patch."https://github.com/TomWambsgans/whir-p3.git"]
-# whir-p3 = { path = "../zk/whir/fork-whir-p3" }
+[patch."https://github.com/TomWambsgans/whir-p3.git"]
+whir-p3 = { path = "../whir-p3" }
 
-# [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
-# multilinear-toolkit = { path = "../zk/multilinear-toolkit" }
+[patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
+multilinear-toolkit = { path = "../multilinear-toolkit" }
 
 # [profile.release]
 # opt-level = 1

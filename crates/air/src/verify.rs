@@ -9,38 +9,42 @@ use crate::utils::next_mle;
 pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     air: &A,
-    mut extra_data: A::ExtraData,
+    extra_data: A::ExtraData,
     univariate_skips: usize,
     log_n_rows: usize,
     last_row_f: &[PF<EF>],
     last_row_ef: &[EF],
-    virtual_column_statements: Option<MultiEvaluation<EF>>, // point should be randomness generated after committing to the columns
-) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError>
-where
-    A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
-{
-    let alpha = verifier_state.sample(); // random challenge for batching constraints
-
-    *extra_data.alpha_powers_mut() = alpha
-        .powers()
-        .take(air.n_constraints() + virtual_column_statements.as_ref().map_or(0, |s| s.values.len()))
-        .collect();
-
+    virtual_column_statements: Option<(MultilinearPoint<EF>, Vec<Vec<EF>>)>, // point should be randomness generated after committing to the columns
+) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError> {
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
-    let zerocheck_challenges = virtual_column_statements
-        .as_ref()
-        .map(|st| st.point.0.clone())
-        .unwrap_or_else(|| verifier_state.sample_vec(n_sc_rounds));
-    assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
-    let (sc_sum, outer_statement) =
-        sumcheck_verify_with_univariate_skip::<EF>(verifier_state, air.degree() + 1, log_n_rows, univariate_skips)?;
-    if sc_sum
-        != virtual_column_statements
-            .as_ref()
-            .map(|st| dot_product(st.values.iter().copied(), alpha.powers()))
-            .unwrap_or_else(|| EF::ZERO)
-    {
+    let alpha = verifier_state.sample(); // random challenge for batching constraints
+    let alpha_powers = alpha.powers().take(air.total_n_constraints()).collect();
+
+    let virtual_column_statements = virtual_column_statements.unwrap_or_else(|| {
+        let point = MultilinearPoint(verifier_state.sample_vec(n_sc_rounds));
+        (point, vec![vec![]; <A as SumcheckComputation<EF>>::n_steps(air)])
+    });
+
+    let mut sum = EF::ZERO;
+    assert_eq!(
+        <A as SumcheckComputation<EF>>::n_steps(air),
+        virtual_column_statements.1.len()
+    );
+    for (step, virtual_column_values) in virtual_column_statements.1.iter().enumerate() {
+        sum += dot_product::<EF, _, _>(
+            virtual_column_values.iter().copied(),
+            alpha_powers[air.n_constraints_before_step(step)..].iter().copied(),
+        );
+    }
+
+    let (sc_sum, outer_statement) = sumcheck_verify_with_univariate_skip::<EF>(
+        verifier_state,
+        <A as SumcheckComputation<EF>>::max_degree(air) + 1,
+        log_n_rows,
+        univariate_skips,
+    )?;
+    if sc_sum != sum {
         return Err(ProofError::InvalidProof);
     }
 
@@ -54,14 +58,15 @@ where
     )?;
 
     let n_columns_down_f = air.down_column_indexes_f().len();
-    let constraint_evals = SumcheckComputation::eval_extension(
+    let constraint_evals = SumcheckComputation::eval_extension_everywhere(
         air,
         &inner_sums[..air.n_columns_f_air() + n_columns_down_f],
         &inner_sums[air.n_columns_f_air() + n_columns_down_f..],
         &extra_data,
+        &alpha_powers,
     );
 
-    if eq_poly_with_skip(&zerocheck_challenges, &outer_statement.point, univariate_skips) * constraint_evals
+    if eq_poly_with_skip(&virtual_column_statements.0, &outer_statement.point, univariate_skips) * constraint_evals
         != outer_statement.value
     {
         return Err(ProofError::InvalidProof);

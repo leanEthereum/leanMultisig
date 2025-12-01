@@ -17,18 +17,15 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     air: &A,
-    mut extra_data: A::ExtraData,
+    extra_data: A::ExtraData,
     univariate_skips: usize,
     columns_f: &[impl AsRef<[PF<EF>]>],
     columns_ef: &[impl AsRef<[EF]>],
     last_row_shifted_f: &[PF<EF>],
     last_row_shifted_ef: &[EF],
-    virtual_column_statements: Option<MultiEvaluation<EF>>, // point should be randomness generated after committing to the columns
+    virtual_column_statements: Option<(MultilinearPoint<EF>, Vec<Vec<EF>>)>, // point should be randomness generated after committing to the columns
     store_intermediate_foldings: bool,
-) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>)
-where
-    A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
-{
+) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
     let columns_f: Vec<_> = columns_f.iter().map(|c| c.as_ref()).collect();
     let columns_ef: Vec<_> = columns_ef.iter().map(|c| c.as_ref()).collect();
     let n_rows = columns_f[0].len();
@@ -50,20 +47,29 @@ where
     // )
     // .unwrap();
 
-    let alpha = prover_state.sample(); // random challenge for batching constraints
-
-    *extra_data.alpha_powers_mut() = alpha
-        .powers()
-        .take(air.n_constraints() + virtual_column_statements.as_ref().map_or(0, |s| s.values.len()))
-        .collect();
-
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
 
-    let zerocheck_challenges = virtual_column_statements
-        .as_ref()
-        .map(|st| st.point.0.clone())
-        .unwrap_or_else(|| prover_state.sample_vec(n_sc_rounds));
-    assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
+    let alpha = prover_state.sample(); // random challenge for batching constraints
+    let alpha_powers = alpha.powers().take(air.total_n_constraints()).collect();
+
+    let virtual_column_statements = virtual_column_statements.unwrap_or_else(|| {
+        let point = MultilinearPoint(prover_state.sample_vec(n_sc_rounds));
+        (point, vec![vec![]; <A as SumcheckComputation<EF>>::n_steps(air)])
+    });
+
+    let mut sums = Vec::new();
+    let mut is_zerofier = Vec::new();
+    assert_eq!(
+        <A as SumcheckComputation<EF>>::n_steps(air),
+        virtual_column_statements.1.len()
+    );
+    for (step, virtual_column_values) in virtual_column_statements.1.iter().enumerate() {
+        is_zerofier.push(virtual_column_values.is_empty());
+        sums.push(dot_product(
+            virtual_column_values.iter().copied(),
+            alpha_powers[air.n_constraints_before_step(step)..].iter().copied(),
+        ));
+    }
 
     let shifted_rows_f = air
         .down_column_indexes_f()
@@ -91,19 +97,18 @@ where
     let columns_up_down_group_ef_packed = columns_up_down_group_ef.pack();
 
     let (outer_sumcheck_challenge, inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-        sumcheck_prove(
+        sumcheck_prove_custom(
             univariate_skips,
             columns_up_down_group_f_packed,
             Some(columns_up_down_group_ef_packed),
+            None,
             air,
             &extra_data,
-            Some((zerocheck_challenges, None)),
-            virtual_column_statements.is_none(),
+            &alpha_powers,
+            Some((virtual_column_statements.0.0, None)),
+            is_zerofier,
             prover_state,
-            virtual_column_statements
-                .as_ref()
-                .map(|st| dot_product(st.values.iter().copied(), alpha.powers()))
-                .unwrap_or_else(|| EF::ZERO),
+            sums,
             store_intermediate_foldings,
         )
     });
@@ -219,7 +224,8 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
             inner_mle,
             None,
             &MySumcheck,
-            &vec![],
+            &(),
+            &[],
             None,
             false,
             prover_state,
@@ -254,21 +260,28 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
 struct MySumcheck;
 
 impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for MySumcheck {
-    type ExtraData = Vec<EF>;
+    type ExtraData = ();
 
-    fn degree(&self) -> usize {
-        2
+    fn degrees(&self) -> Vec<usize> {
+        vec![2]
     }
     #[inline(always)]
-    fn eval_base(&self, _: &[PF<EF>], _: &[EF], _: &Self::ExtraData) -> EF {
+    fn eval_base(&self, _: &[PF<EF>], _: &[EF], _: &Self::ExtraData, _: &[EF], _: usize) -> EF {
         unreachable!()
     }
     #[inline(always)]
-    fn eval_extension(&self, point: &[EF], _: &[EF], _: &Self::ExtraData) -> EF {
+    fn eval_extension(&self, point: &[EF], _: &[EF], _: &Self::ExtraData, _: &[EF], _: usize) -> EF {
         point[0] * point[1] + point[2] * point[3]
     }
     #[inline(always)]
-    fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EFPacking<EF>], _: &Self::ExtraData) -> EFPacking<EF> {
+    fn eval_packed_base(
+        &self,
+        _: &[PFPacking<EF>],
+        _: &[EFPacking<EF>],
+        _: &Self::ExtraData,
+        _: &[EF],
+        _: usize,
+    ) -> EFPacking<EF> {
         unreachable!()
     }
     #[inline(always)]
@@ -277,6 +290,8 @@ impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for MySumcheck {
         point: &[EFPacking<EF>],
         _: &[EFPacking<EF>],
         _: &Self::ExtraData,
+        _: &[EF],
+        _: usize,
     ) -> EFPacking<EF> {
         point[0] * point[1] + point[2] * point[3]
     }

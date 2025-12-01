@@ -1,4 +1,4 @@
-use multilinear_toolkit::prelude::{ExtensionField, PF};
+use multilinear_toolkit::prelude::{ExtensionField, PF, SumcheckComputation};
 use p3_air::Air;
 use tracing::instrument;
 use utils::ConstraintChecker;
@@ -58,7 +58,9 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
             constraint_index: 0,
             errors: Vec::new(),
         };
-        air.eval(&mut constraints_checker, extra_data);
+        for step in <A as SumcheckComputation<EF>>::steps(air) {
+            air.eval(&mut constraints_checker, extra_data, step);
+        }
         handle_errors(row, &constraints_checker)?;
     }
     // last transition:
@@ -78,7 +80,9 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
         constraint_index: 0,
         errors: Vec::new(),
     };
-    air.eval(&mut constraints_checker, extra_data);
+    for step in <A as SumcheckComputation<EF>>::steps(air) {
+        air.eval(&mut constraints_checker, extra_data, step);
+    }
     handle_errors(n_rows - 1, &constraints_checker)?;
     Ok(())
 }

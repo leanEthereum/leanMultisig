@@ -175,6 +175,7 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
                 &inner_evals,
                 &[],
                 &alpha.powers().take(N_GROUPS).collect(),
+                0
             )
     {
         return Err(ProofError::InvalidProof);
