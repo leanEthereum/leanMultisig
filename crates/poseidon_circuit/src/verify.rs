@@ -197,7 +197,7 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, ExtraData = ()>>(
 
     let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(n_inputs).unwrap();
     assert_eq!(
-        computation.eval_extension(&sumcheck_inner_evals, &[], &(), &batching_scalars_powers, 0)
+        computation.eval_extension_everywhere(&sumcheck_inner_evals, &[], &(), &batching_scalars_powers)
             * eq_poly_with_skip(&sumcheck_postponed_claim.point, claim_point, univariate_skips),
         sumcheck_postponed_claim.value
     );
