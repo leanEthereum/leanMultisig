@@ -33,6 +33,15 @@ struct ScopeLayout {
 }
 
 impl Compiler {
+    fn is_in_scope(&self, var: &Var) -> bool {
+        for scope in self.stack_frame_layout.scopes.iter() {
+            if let Some(_offset) = scope.var_positions.get(var) {
+                return true;
+            }
+        }
+        false
+    }
+
     fn get_offset(&self, var: &VarOrConstMallocAccess) -> ConstExpression {
         match var {
             VarOrConstMallocAccess::Var(var) => {
@@ -392,7 +401,7 @@ fn compile_lines(
             SimpleLine::RawAccess { res, index, shift } => {
                 // TODO: why is validate_vars_declared here?
                 validate_vars_declared(&[index], declared_vars)?;
-                if let SimpleExpr::Var(var) = res {
+                if let SimpleExpr::Var(var) = res && !compiler.is_in_scope(var) {
                     declared_vars.insert(var.clone());
                     let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
