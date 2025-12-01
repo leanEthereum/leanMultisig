@@ -54,7 +54,7 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
         dot_product_air_n_cols_ef(BE)
     }
     fn degree(&self) -> usize {
-        3
+        2
     }
     fn n_constraints(&self) -> usize {
         8
