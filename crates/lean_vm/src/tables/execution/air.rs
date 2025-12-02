@@ -41,6 +41,7 @@ pub const COL_INDEX_EXEC_NU_C: usize = 23;
 
 impl Air for ExecutionTable {
     type ExtraData = ExtraDataForBuses<EF>;
+    const N_STEPS: usize = 4;
 
     fn n_columns_f_air(&self) -> usize {
         N_EXEC_AIR_COLUMNS
@@ -108,9 +109,6 @@ impl Air for ExecutionTable {
         let nu_b = flag_b * operand_b.clone() + value_b.clone() * -flag_b_minus_one.clone();
         let nu_c = flag_c * fp.clone() + value_c.clone() * -flag_c_minus_one.clone();
 
-        let fp_plus_operand_a = fp.clone() + operand_a.clone();
-        let fp_plus_operand_b = fp.clone() + operand_b.clone();
-        let fp_plus_operand_c = fp.clone() + operand_c.clone();
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
@@ -124,9 +122,9 @@ impl Air for ExecutionTable {
                     &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()],
                 ));
 
-                builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
-                builder.assert_zero(flag_b_minus_one * (addr_b.clone() - fp_plus_operand_b));
-                builder.assert_zero(flag_c_minus_one * (addr_c.clone() - fp_plus_operand_c));
+                builder.assert_zero(flag_a_minus_one * (addr_a.clone() - (fp.clone() + operand_a.clone())));
+                builder.assert_zero(flag_b_minus_one * (addr_b.clone() - (fp.clone() + operand_b.clone())));
+                builder.assert_zero(flag_c_minus_one * (addr_c.clone() - (fp.clone() + operand_c.clone())));
 
                 builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
                 builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
