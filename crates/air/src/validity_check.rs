@@ -58,7 +58,7 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
             constraint_index: 0,
             errors: Vec::new(),
         };
-        unroll_match!(A::N_STEPS, I, {
+        unroll_match!(<A as SumcheckComputation<EF>>::n_steps(air), I, {
             air.eval::<_, I>(&mut constraints_checker, extra_data);
         });
 
@@ -81,7 +81,7 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
         constraint_index: 0,
         errors: Vec::new(),
     };
-    unroll_match!(A::N_STEPS, I, {
+    unroll_match!(<A as SumcheckComputation<EF>>::n_steps(air), I, {
         air.eval::<_, I>(&mut constraints_checker, extra_data);
     });
     handle_errors(n_rows - 1, &constraints_checker)?;
