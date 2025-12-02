@@ -385,10 +385,10 @@ fn test_inlined() {
 fn test_match() {
     let program = r#"
     fn main() {
-        for x in 0..3 unroll {
+        for x in 0..3 {
             func_match(x);
         }
-        for x in 0..2 unroll {
+        for x in 0..2 {
             match x {
                 0 => {
                     y = 10 * (x + 8);
@@ -405,7 +405,7 @@ fn test_match() {
         return;
     }
 
-    fn func_match(x) inline {
+    fn func_match(x) {
         match x {
             0 => {
                 print(41);
@@ -426,7 +426,7 @@ fn test_match() {
         return x * x * x * x;
     }
 
-    fn func_2(x) inline -> 1 {
+    fn func_2(x) -> 1 {
         return x * x * x * x * x * x;
     }
    "#;

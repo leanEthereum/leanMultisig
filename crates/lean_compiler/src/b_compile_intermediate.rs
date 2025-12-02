@@ -539,9 +539,10 @@ fn compile_lines(
                 declared_vars.insert(var.clone());
                 let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                 current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                current_scope_layout.const_mallocs.insert(*label, compiler.stack_pos + 1);
-                compiler.stack_pos += 1 + size;
+                compiler.stack_pos += 1;
+                current_scope_layout.const_mallocs.insert(*label, compiler.stack_pos);
                 handle_const_malloc(declared_vars, &mut instructions, compiler, var, size, label);
+                compiler.stack_pos += size;
             }
             SimpleLine::DecomposeBits {
                 var,
