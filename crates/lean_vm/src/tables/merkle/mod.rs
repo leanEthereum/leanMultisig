@@ -70,7 +70,7 @@ impl TableT for MerklePrecompile {
                 direction: BusDirection::Pull,
                 selector: BusSelector::Column(COL_FLAG),
                 data: vec![COL_INDEX_LEAF, COL_LEAF_POSITION, COL_INDEX_ROOT, COL_HEIGHT],
-                degree: 3,
+                degree: 1,
             },
             Bus {
                 table: BusTable::Constant(Table::poseidon16_core()),
@@ -84,7 +84,7 @@ impl TableT for MerklePrecompile {
                     vec![COL_ZERO; VECTOR_LEN], // Padding
                 ]
                 .concat(),
-                degree: 3,
+                degree: 1,
             },
         ]
     }
@@ -208,7 +208,7 @@ impl Air for MerklePrecompile {
         0
     }
     fn degrees(&self) -> Vec<usize> {
-        vec![3]
+        vec![1, 2, 3]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         (0..TOTAL_N_COLS - 2 * VECTOR_LEN).collect()
@@ -217,7 +217,7 @@ impl Air for MerklePrecompile {
         vec![]
     }
     fn n_constraints(&self) -> Vec<usize> {
-        vec![13 + 5 * VECTOR_LEN]
+        vec![4, 8, 1 + 5 * VECTOR_LEN]
     }
     fn eval<AB: p3_air::AirBuilder, const STEP: usize>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
@@ -255,81 +255,94 @@ impl Air for MerklePrecompile {
         core_bus_data[17..25].clone_from_slice(&data_res);
         core_bus_data[25..].clone_from_slice(&vec![col_zero.clone(); VECTOR_LEN]);
 
-        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
-            extra_data,
-            AB::F::from_usize(self.identifier().index()),
-            flag.clone(),
-            &[
-                index_leaf.clone(),
-                leaf_position.clone(),
-                index_root.clone(),
-                height.clone(),
-            ],
-        ));
-
-        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
-            extra_data,
-            AB::F::from_usize(Table::poseidon16_core().index()),
-            AB::F::ONE,
-            &core_bus_data,
-        ));
-
-        // TODO double check constraints
-
-        builder.assert_eq(col_one.clone(), AB::F::ONE);
-        builder.assert_eq(col_zero.clone(), AB::F::ZERO);
-
-        builder.assert_bool(flag.clone());
-        builder.assert_bool(is_left.clone());
-
         let not_flag = AB::F::ONE - flag.clone();
         let not_flag_down = AB::F::ONE - flag_down.clone();
         let is_right = AB::F::ONE - is_left.clone();
         let is_right_down = AB::F::ONE - is_left_down.clone();
 
-        builder.assert_eq(
-            lookup_index.clone(),
-            flag.clone() * index_leaf.clone() + not_flag.clone() * index_root.clone(),
-        );
+        match STEP {
+            0 => {
+                // degree 1 constraints
 
-        // Parameters should not change as long as the flag has not been switched back to 1:
-        builder.assert_zero(not_flag_down.clone() * (index_leaf_down.clone() - index_leaf.clone()));
-        builder.assert_zero(not_flag_down.clone() * (index_root_down.clone() - index_root.clone()));
+                builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+                    extra_data,
+                    AB::F::from_usize(self.identifier().index()),
+                    flag.clone(),
+                    &[
+                        index_leaf.clone(),
+                        leaf_position.clone(),
+                        index_root.clone(),
+                        height.clone(),
+                    ],
+                ));
 
-        // decrease height by 1 each step
-        builder.assert_zero(not_flag_down.clone() * (height_down.clone() + AB::F::ONE - height.clone()));
+                builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+                    extra_data,
+                    AB::F::from_usize(Table::poseidon16_core().index()),
+                    AB::F::ONE,
+                    &core_bus_data,
+                ));
 
-        builder.assert_zero(
-            not_flag_down.clone()
-                * ((leaf_position_down.clone() * AB::F::TWO + is_right.clone()) - leaf_position.clone()),
-        );
+                builder.assert_eq(col_one.clone(), AB::F::ONE);
+                builder.assert_eq(col_zero.clone(), AB::F::ZERO);
+            }
+            1 => {
+                // degree 2 constraints
 
-        // start (bottom of the tree)
-        let starts_and_is_left = flag.clone() * is_left.clone();
-        for i in 0..VECTOR_LEN {
-            builder.assert_zero(starts_and_is_left.clone() * (data_left[i].clone() - lookup_values[i].clone()));
-        }
-        let starts_and_is_right = flag.clone() * is_right.clone();
-        for i in 0..VECTOR_LEN {
-            builder.assert_zero(starts_and_is_right.clone() * (data_right[i].clone() - lookup_values[i].clone()));
-        }
+                builder.assert_bool(flag.clone());
 
-        // transition (interior nodes)
-        let transition_left = not_flag_down.clone() * is_left_down.clone();
-        for i in 0..VECTOR_LEN {
-            builder.assert_zero(transition_left.clone() * (data_left_down[i].clone() - data_res[i].clone()));
-        }
-        let transition_right = not_flag_down.clone() * is_right_down.clone();
-        for i in 0..VECTOR_LEN {
-            builder.assert_zero(transition_right.clone() * (data_right_down[i].clone() - data_res[i].clone()));
-        }
+                builder.assert_eq(
+                    lookup_index.clone(),
+                    flag.clone() * index_leaf.clone() + not_flag.clone() * index_root.clone(),
+                );
 
-        // end (top of the tree)
-        builder.assert_zero(flag_down.clone() * (height.clone() - AB::F::ONE)); // at last step, height should be 1
-        builder.assert_zero(flag_down.clone() * leaf_position.clone() * (AB::F::ONE - leaf_position.clone())); // at last step, leaf position should be boolean
-        for i in 0..VECTOR_LEN {
-            builder
-                .assert_zero(not_flag.clone() * flag_down.clone() * (data_res[i].clone() - lookup_values[i].clone()));
+                // Parameters should not change as long as the flag has not been switched back to 1:
+                builder.assert_zero(not_flag_down.clone() * (index_leaf_down.clone() - index_leaf.clone()));
+                builder.assert_zero(not_flag_down.clone() * (index_root_down.clone() - index_root.clone()));
+
+                // decrease height by 1 each step
+                builder.assert_zero(not_flag_down.clone() * (height_down.clone() + AB::F::ONE - height.clone()));
+
+                builder.assert_zero(
+                    not_flag_down.clone()
+                        * ((leaf_position_down.clone() * AB::F::TWO + is_right.clone()) - leaf_position.clone()),
+                );
+                builder.assert_bool(is_left.clone());
+
+                builder.assert_zero(flag_down.clone() * (height.clone() - AB::F::ONE)); // at last step, height should be 1
+            }
+            2 => {
+                // degree 3 constraints
+
+                // start (bottom of the tree)
+                let starts_and_is_left = flag.clone() * is_left.clone();
+                for i in 0..VECTOR_LEN {
+                    builder.assert_zero(starts_and_is_left.clone() * (data_left[i].clone() - lookup_values[i].clone()));
+                }
+                let starts_and_is_right = flag.clone() * is_right.clone();
+                for i in 0..VECTOR_LEN {
+                    builder
+                        .assert_zero(starts_and_is_right.clone() * (data_right[i].clone() - lookup_values[i].clone()));
+                }
+
+                // transition (interior nodes)
+                let transition_left = not_flag_down.clone() * is_left_down.clone();
+                for i in 0..VECTOR_LEN {
+                    builder.assert_zero(transition_left.clone() * (data_left_down[i].clone() - data_res[i].clone()));
+                }
+                let transition_right = not_flag_down.clone() * is_right_down.clone();
+                for i in 0..VECTOR_LEN {
+                    builder.assert_zero(transition_right.clone() * (data_right_down[i].clone() - data_res[i].clone()));
+                }
+
+                builder.assert_zero(flag_down.clone() * leaf_position.clone() * (AB::F::ONE - leaf_position.clone())); // at last step, leaf position should be boolean
+                for i in 0..VECTOR_LEN {
+                    builder.assert_zero(
+                        not_flag.clone() * flag_down.clone() * (data_res[i].clone() - lookup_values[i].clone()),
+                    );
+                }
+            }
+            _ => unreachable!(),
         }
     }
 }

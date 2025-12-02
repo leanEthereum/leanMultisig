@@ -31,10 +31,10 @@ impl Air for EqPolyBaseExtPrecompile {
         N_COLS_EF
     }
     fn degrees(&self) -> Vec<usize> {
-        vec![4]
+        vec![2, 4]
     }
     fn n_constraints(&self) -> Vec<usize> {
-        vec![8]
+        vec![7, 1]
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![COL_FLAG, COL_LEN, COL_INDEX_A, COL_INDEX_B]
@@ -68,28 +68,41 @@ impl Air for EqPolyBaseExtPrecompile {
 
         let computation_down = down_ef[0].clone();
 
-        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
-            extra_data,
-            AB::F::from_usize(self.identifier().index()),
-            flag.clone(),
-            &[index_a.clone(), index_b.clone(), index_res.clone(), len.clone()],
-        ));
-
-        builder.assert_bool(flag.clone());
-
-        let product_up =
-            value_b.clone() * value_a.clone() + (AB::EF::ONE - value_b.clone()) * (AB::F::ONE - value_a.clone());
         let not_flag_down = AB::F::ONE - flag_down.clone();
-        builder.assert_eq_ef(
-            computation.clone(),
-            product_up.clone() * (computation_down * not_flag_down.clone() + flag_down.clone()),
-        );
-        builder.assert_zero(not_flag_down.clone() * (len.clone() - (len_down + AB::F::ONE)));
-        builder.assert_zero(flag_down * (len - AB::F::ONE));
-        let index_a_increment = AB::F::ONE;
-        builder.assert_zero(not_flag_down.clone() * (index_a - (index_a_down - index_a_increment)));
-        builder.assert_zero(not_flag_down * (index_b - (index_b_down - AB::F::from_usize(DIMENSION))));
 
-        builder.assert_zero_ef((computation - res) * flag);
+        match STEP {
+            0 => {
+                // degree 2 constraints
+                builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+                    extra_data,
+                    AB::F::from_usize(self.identifier().index()),
+                    flag.clone(),
+                    &[index_a.clone(), index_b.clone(), index_res.clone(), len.clone()],
+                ));
+
+                builder.assert_bool(flag.clone());
+
+                builder.assert_zero(not_flag_down.clone() * (len.clone() - (len_down + AB::F::ONE)));
+                builder.assert_zero(flag_down * (len - AB::F::ONE));
+                let index_a_increment = AB::F::ONE;
+                builder.assert_zero(not_flag_down.clone() * (index_a - (index_a_down - index_a_increment)));
+                builder.assert_zero(not_flag_down * (index_b - (index_b_down - AB::F::from_usize(DIMENSION))));
+
+                builder.assert_zero_ef((computation - res) * flag);
+            }
+            1 => {
+                // degree 4 constraints
+
+                let product_up = value_b.clone() * value_a.clone()
+                    + (AB::EF::ONE - value_b.clone()) * (AB::F::ONE - value_a.clone());
+                builder.assert_eq_ef(
+                    computation.clone(),
+                    product_up.clone() * (computation_down * not_flag_down.clone() + flag_down.clone()),
+                );
+            }
+            _ => {
+                unreachable!()
+            }
+        }
     }
 }

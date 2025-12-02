@@ -55,7 +55,7 @@ impl TableT for EqPolyBaseExtPrecompile {
             direction: BusDirection::Pull,
             selector: BusSelector::Column(COL_FLAG),
             data: vec![COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES, COL_LEN],
-            degree: 4,
+            degree: 2,
         }]
     }
 
