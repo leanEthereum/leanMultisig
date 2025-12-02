@@ -41,6 +41,7 @@ pub const COL_INDEX_EXEC_NU_C: usize = 23;
 
 impl Air for ExecutionTable {
     type ExtraData = ExtraDataForBuses<EF>;
+    const N_STEPS: usize = 4;
 
     fn n_columns_f_air(&self) -> usize {
         N_EXEC_AIR_COLUMNS
