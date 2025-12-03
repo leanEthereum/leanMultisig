@@ -37,14 +37,6 @@ impl TableT for SliceHashPrecompile {
         Table::slice_hash()
     }
 
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        (0..COL_LOOKUP_MEM_VALUES_SEED_OR_RES).collect()
-    }
-
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![]
-    }
-
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![]
     }

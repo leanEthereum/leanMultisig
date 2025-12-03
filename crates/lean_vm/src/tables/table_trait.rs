@@ -1,4 +1,6 @@
-use crate::{EF, F, InstructionContext, RunnerError, Table, VECTOR_LEN};
+use crate::{
+    COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C, COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC, EF, F, InstructionContext, RunnerError, Table, VECTOR_LEN
+};
 use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use std::{any::TypeId, array, mem::transmute};
@@ -156,9 +158,6 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
 pub trait TableT: Air {
     fn name(&self) -> &'static str;
     fn identifier(&self) -> Table;
-    fn commited_columns_f(&self) -> Vec<ColIndex>;
-    /// the first committed column in the extension starts at index 0
-    fn commited_columns_ef(&self) -> Vec<ColIndex>;
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory>;
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory>;
@@ -196,6 +195,25 @@ pub trait TableT: Air {
             .into_iter()
             .map(|i| self.padding_row_ef()[i])
             .collect()
+    }
+    fn commited_columns_f(&self) -> Vec<ColIndex> {
+        if self.identifier() == Table::execution() {
+            vec![
+                COL_INDEX_PC,
+                COL_INDEX_FP,
+                COL_INDEX_MEM_ADDRESS_A,
+                COL_INDEX_MEM_ADDRESS_B,
+                COL_INDEX_MEM_ADDRESS_C,
+                COL_INDEX_MEM_VALUE_A,
+                COL_INDEX_MEM_VALUE_B,
+                COL_INDEX_MEM_VALUE_C,
+            ]
+        } else {
+            (0..self.n_columns_f_air()).collect()
+        }
+    }
+    fn commited_columns_ef(&self) -> Vec<ColIndex> {
+        (0..self.n_columns_ef_air()).collect()
     }
     fn committed_dims(&self, n_rows: usize) -> Vec<ColDims<F>> {
         let mut dims = self

@@ -118,12 +118,6 @@ impl TableT for Table {
     fn identifier(&self) -> Table {
         delegate_to_inner!(self, identifier)
     }
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        delegate_to_inner!(self, commited_columns_f)
-    }
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        delegate_to_inner!(self, commited_columns_ef)
-    }
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         delegate_to_inner!(self, normal_lookups_f)
     }

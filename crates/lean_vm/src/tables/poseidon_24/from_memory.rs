@@ -25,24 +25,6 @@ impl TableT for Poseidon24MemPrecompile {
         Table::poseidon24_mem()
     }
 
-    fn n_columns_f_total(&self) -> usize {
-        5 + 24 + 8
-    }
-
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        vec![
-            POSEIDON_24_MEM_COL_FLAG,
-            POSEIDON_24_MEM_COL_INDEX_A,
-            POSEIDON_24_MEM_COL_INDEX_A_BIS,
-            POSEIDON_24_MEM_COL_INDEX_B,
-            POSEIDON_24_MEM_COL_INDEX_RES,
-        ] // indexes only here (committed cubes are handled elsewhere)
-    }
-
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![]
-    }
-
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![]
     }

@@ -31,21 +31,6 @@ impl TableT for Poseidon16MemPrecompile {
         6 + 16 * 2
     }
 
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        vec![
-            POSEIDON_16_MEM_COL_FLAG,
-            POSEIDON_16_MEM_COL_INDEX_RES,
-            POSEIDON_16_MEM_COL_INDEX_RES_BIS,
-            POSEIDON_16_MEM_COL_COMPRESSION,
-            POSEIDON_16_MEM_COL_INDEX_A,
-            POSEIDON_16_MEM_COL_INDEX_B,
-        ] // (committed cubes are handled elsewhere)
-    }
-
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![]
-    }
-
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![]
     }

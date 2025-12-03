@@ -40,14 +40,6 @@ impl TableT for MerklePrecompile {
         Table::merkle()
     }
 
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        (0..COL_LOOKUP_MEM_VALUES).collect()
-    }
-
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![]
-    }
-
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![]
     }

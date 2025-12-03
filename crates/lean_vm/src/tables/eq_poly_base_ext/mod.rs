@@ -17,14 +17,6 @@ impl TableT for EqPolyBaseExtPrecompile {
         Table::eq_poly_base_ext()
     }
 
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        vec![COL_FLAG, COL_LEN, COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES]
-    }
-
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![COL_COMPUTATION]
-    }
-
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![LookupIntoMemory {
             index: COL_INDEX_A,

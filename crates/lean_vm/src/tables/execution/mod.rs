@@ -20,20 +20,6 @@ impl TableT for ExecutionTable {
         N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS
     }
 
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        vec![
-            COL_INDEX_PC,
-            COL_INDEX_FP,
-            COL_INDEX_MEM_ADDRESS_A,
-            COL_INDEX_MEM_ADDRESS_B,
-            COL_INDEX_MEM_ADDRESS_C,
-        ]
-    }
-
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![]
-    }
-
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![
             LookupIntoMemory {

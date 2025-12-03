@@ -27,19 +27,6 @@ impl TableT for Poseidon24CorePrecompile {
         1 + 24 + 8
     }
 
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        [
-            vec![POSEIDON_24_CORE_COL_FLAG],
-            (POSEIDON_24_CORE_COL_INPUT_START..POSEIDON_24_CORE_COL_INPUT_START + 24).collect::<Vec<ColIndex>>(),
-        ]
-        .concat()
-        // (committed cubes are handled elsewhere)
-    }
-
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![]
-    }
-
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![]
     }

@@ -25,14 +25,6 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
         }
     }
 
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
-        vec![COL_FLAG, COL_LEN, COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES]
-    }
-
-    fn commited_columns_ef(&self) -> Vec<ColIndex> {
-        vec![COL_COMPUTATION]
-    }
-
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
         if BE {
             vec![LookupIntoMemory {
