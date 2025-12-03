@@ -14,13 +14,12 @@ use std::collections::VecDeque;
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
-use whir_p3::{WhirConfig, WhirConfigBuilder, second_batched_whir_config_builder};
+use whir_p3::WhirConfig;
 use xmss::{Poseidon16History, Poseidon24History};
 
 pub fn prove_execution(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
-    whir_config_builder: WhirConfigBuilder,
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
@@ -73,6 +72,32 @@ pub fn prove_execution(
         .filter(|(table, trace)| trace.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon())
         .collect();
 
+    // TODO parrallelize
+    let mut acc = F::zero_vec(memory.len());
+    info_span!("Building memory access count").in_scope(|| {
+        for (table, trace) in &traces {
+            for lookup in table.normal_lookups_f() {
+                for i in &trace.base[lookup.index] {
+                    acc[i.to_usize()] += F::ONE;
+                }
+            }
+            for lookup in table.normal_lookups_ef() {
+                for i in &trace.base[lookup.index] {
+                    for j in 0..DIMENSION {
+                        acc[i.to_usize() + j] += F::ONE;
+                    }
+                }
+            }
+            for lookup in table.vector_lookups() {
+                for i in &trace.base[lookup.index] {
+                    for j in 0..VECTOR_LEN {
+                        acc[i.to_usize() * VECTOR_LEN + j] += F::ONE;
+                    }
+                }
+            }
+        }
+    });
+
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
     let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
@@ -114,7 +139,7 @@ pub fn prove_execution(
     );
 
     let mut base_pols = [
-        vec![memory.as_slice()],
+        vec![memory.as_slice(), acc.as_slice()],
         p16_witness
             .committed_cubes
             .iter()
@@ -133,7 +158,7 @@ pub fn prove_execution(
 
     // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
-        &whir_config_builder,
+        &whir_config_builder_a(),
         &base_pols,
         &base_dims,
         &mut prover_state,
@@ -164,21 +189,23 @@ pub fn prove_execution(
 
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
 
-    let bytecode_lookup_claim_1 = Evaluation::new(
+    let bytecode_lookup_claim = Evaluation::new(
         air_points[&Table::execution()].clone(),
         padd_with_zero_to_next_power_of_two(&evals_f[&Table::execution()][..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
     let bytecode_poly_eq_point = eval_eq(&air_points[&Table::execution()]);
-    let bytecode_pushforward = compute_pushforward(
+    let bytecode_pushforward = MleOwned::Extension(compute_pushforward(
         &traces[&Table::execution()].base[COL_INDEX_PC],
         folded_bytecode.len(),
         &bytecode_poly_eq_point,
-    );
+    ));
 
-    let normal_lookup_into_memory = CustomPackedLookupProver::step_1(
+    let mut lookup_into_memory = CustomPackedLookupProver::run::<EF, DIMENSION, VECTOR_LEN>(
         &mut prover_state,
         &memory,
+        &acc,
+        non_zero_memory_size,
         traces
             .iter()
             .flat_map(|(table, trace)| table.normal_lookup_index_columns_f(trace))
@@ -189,11 +216,19 @@ pub fn prove_execution(
             .collect(),
         traces
             .iter()
+            .flat_map(|(table, trace)| table.vector_lookup_index_columns(trace))
+            .collect(),
+        traces
+            .iter()
             .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_normal_lookups_f()])
             .collect(),
         traces
             .iter()
             .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_normal_lookups_ef()])
+            .collect(),
+        traces
+            .iter()
+            .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_vector_lookups()])
             .collect(),
         traces
             .keys()
@@ -204,6 +239,10 @@ pub fn prove_execution(
             .flat_map(|table| table.normal_lookup_default_indexes_ef())
             .collect(),
         traces
+            .keys()
+            .flat_map(|table| table.vector_lookup_default_indexes())
+            .collect(),
+        traces
             .iter()
             .flat_map(|(table, trace)| table.normal_lookup_f_value_columns(trace))
             .collect(),
@@ -212,85 +251,28 @@ pub fn prove_execution(
             .flat_map(|(table, trace)| table.normal_lookup_ef_value_columns(trace))
             .collect(),
         traces
-            .keys()
-            .flat_map(|table| table.normal_lookups_statements_f(&air_points[table], &evals_f[table]))
-            .collect(),
-        traces
-            .keys()
-            .flat_map(|table| table.normal_lookups_statements_ef(&air_points[table], &evals_ef[table]))
-            .collect(),
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    );
-
-    let vectorized_lookup_into_memory = VectorizedPackedLookupProver::<_, VECTOR_LEN>::step_1(
-        &mut prover_state,
-        &memory,
-        traces
-            .iter()
-            .flat_map(|(table, trace)| table.vector_lookup_index_columns(trace))
-            .collect(),
-        traces
-            .iter()
-            .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_vector_lookups()])
-            .collect(),
-        traces
-            .keys()
-            .flat_map(|table| table.vector_lookup_default_indexes())
-            .collect(),
-        traces
             .iter()
             .flat_map(|(table, trace)| table.vector_lookup_values_columns(trace))
             .collect(),
-        traces
-            .keys()
-            .flat_map(|table| table.vectorized_lookups_statements(&air_points[table], &evals_f[table]))
-            .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    // 2nd Commitment
-    let extension_pols = vec![
-        normal_lookup_into_memory.pushforward_to_commit(),
-        vectorized_lookup_into_memory.pushforward_to_commit(),
-        bytecode_pushforward.as_slice(),
-    ];
-
-    let extension_dims = vec![
-        ColDims::padded(non_zero_memory_size, EF::ZERO), // memory
-        ColDims::padded(non_zero_memory_size.div_ceil(VECTOR_LEN), EF::ZERO), // memory (folded)
-        ColDims::padded(bytecode.instructions.len(), EF::ZERO), // bytecode
-    ];
-
-    let packed_pcs_witness_extension = packed_pcs_commit(
-        &second_batched_whir_config_builder(
-            whir_config_builder.clone(),
-            packed_pcs_witness_base.packed_polynomial.by_ref().n_vars(),
-            num_packed_vars_for_dims::<EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
-        ),
-        &extension_pols,
-        &extension_dims,
-        &mut prover_state,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    );
-
-    let mut normal_lookup_statements = normal_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
-
-    let vectorized_lookup_statements = vectorized_lookup_into_memory.step_2(&mut prover_state, non_zero_memory_size);
+    let bytecode_pushforward_commitment =
+        WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len()))
+            .commit(&mut prover_state, &bytecode_pushforward);
 
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &MleRef::Extension(&folded_bytecode),
         &traces[&Table::execution()].base[COL_INDEX_PC],
-        bytecode_lookup_claim_1.value,
+        bytecode_lookup_claim.value,
         &bytecode_poly_eq_point,
-        &bytecode_pushforward,
+        &bytecode_pushforward.by_ref(),
         Some(bytecode.instructions.len()),
     );
 
-    let memory_statements = vec![
-        normal_lookup_statements.on_table.clone(),
-        vectorized_lookup_statements.on_table.clone(),
-    ];
+    let memory_statements = vec![lookup_into_memory.on_table];
+    let acc_statements = vec![lookup_into_memory.on_acc];
 
     let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
     for table in traces.keys() {
@@ -301,13 +283,21 @@ pub fn prove_execution(
                 &air_points[table],
                 &evals_f[table],
                 commitmenent_extension_helper.get(table),
-                &mut normal_lookup_statements.on_indexes_f,
-                &mut normal_lookup_statements.on_indexes_ef,
+                &mut lookup_into_memory.on_indexes_f,
+                &mut lookup_into_memory.on_indexes_ef,
+                &mut lookup_into_memory.on_indexes_vec,
+                &mut lookup_into_memory.on_values_f,
+                &mut lookup_into_memory.on_values_ef,
+                &mut lookup_into_memory.on_values_vec,
             ),
         );
     }
-    assert!(normal_lookup_statements.on_indexes_f.is_empty());
-    assert!(normal_lookup_statements.on_indexes_ef.is_empty());
+    assert!(lookup_into_memory.on_indexes_f.is_empty());
+    assert!(lookup_into_memory.on_indexes_ef.is_empty());
+    assert!(lookup_into_memory.on_indexes_vec.is_empty());
+    assert!(lookup_into_memory.on_values_f.is_empty());
+    assert!(lookup_into_memory.on_values_ef.is_empty());
+    assert!(lookup_into_memory.on_values_vec.is_empty());
 
     let p16_gkr = prove_poseidon_gkr(
         &mut prover_state,
@@ -334,19 +324,6 @@ pub fn prove_execution(
         &p24_gkr.output_statements.values[16..],
         &evals_f[&Table::poseidon24_core()][POSEIDON_24_CORE_COL_OUTPUT_START..][..8]
     );
-
-    {
-        let mut cursor = 0;
-        for table in traces.keys() {
-            for (statement, lookup) in vectorized_lookup_statements.on_indexes[cursor..]
-                .iter()
-                .zip(table.vector_lookups())
-            {
-                final_statements.get_mut(table).unwrap()[lookup.index].extend(statement.clone());
-            }
-            cursor += table.num_vector_lookups();
-        }
-    }
 
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(traces[&Table::execution()].log_padded());
@@ -377,6 +354,7 @@ pub fn prove_execution(
     // First Opening
     let mut all_base_statements = [
         vec![memory_statements],
+        vec![acc_statements],
         encapsulate_vec(p16_gkr.cubes_statements.split()),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
     ]
@@ -391,31 +369,22 @@ pub fn prove_execution(
         &mut prover_state,
     );
 
-    // Second Opening
-    let global_statements_extension = packed_pcs_global_statements_for_prover(
-        &extension_pols,
-        &extension_dims,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &[
-            normal_lookup_statements.on_pushforward,
-            vectorized_lookup_statements.on_pushforward,
-            bytecode_logup_star_statements.on_pushforward,
-        ],
-        &mut prover_state,
-    );
-
     WhirConfig::new(
-        whir_config_builder,
+        whir_config_builder_a(),
         packed_pcs_witness_base.packed_polynomial.by_ref().n_vars(),
     )
-    .batch_prove(
+    .prove(
         &mut prover_state,
         global_statements_base,
         packed_pcs_witness_base.inner_witness,
         &packed_pcs_witness_base.packed_polynomial.by_ref(),
-        global_statements_extension,
-        packed_pcs_witness_extension.inner_witness,
-        &packed_pcs_witness_extension.packed_polynomial.by_ref(),
+    );
+
+    WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len())).prove(
+        &mut prover_state,
+        bytecode_logup_star_statements.on_pushforward,
+        bytecode_pushforward_commitment,
+        &bytecode_pushforward.by_ref(),
     );
 
     (prover_state.into_proof(), exec_summary)

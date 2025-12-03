@@ -29,7 +29,7 @@ impl CustomPackedLookupProver {
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize, const VECTOR_LEN: usize>(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         table: &[PF<EF>], // table[0] is assumed to be zero
-        acc: &mut [PF<EF>],
+        acc: &[PF<EF>],
         non_zero_memory_size: usize,
         index_columns_f: Vec<&[PF<EF>]>,
         index_columns_ef: Vec<&[PF<EF>]>,

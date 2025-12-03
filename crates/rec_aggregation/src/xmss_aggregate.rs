@@ -1,5 +1,5 @@
 use lean_compiler::*;
-use lean_prover::{LOG_SMALLEST_DECOMPOSITION_CHUNK, whir_config_builder};
+use lean_prover::LOG_SMALLEST_DECOMPOSITION_CHUNK;
 use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
@@ -214,7 +214,6 @@ fn xmss_aggregate_signatures_helper(
     let (proof, summary) = prove_execution(
         &program.bytecode,
         (&public_input, &private_input),
-        whir_config_builder(),
         program.compute_non_vec_memory(&xmss_pub_keys.iter().map(|pk| pk.log_lifetime).collect::<Vec<_>>()),
         false,
         (&poseidons_16_precomputed, &poseidons_24_precomputed),
@@ -240,7 +239,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
 
-    verify_execution(&program.bytecode, &public_input, proof, whir_config_builder())
+    verify_execution(&program.bytecode, &public_input, proof)
 }
 
 #[instrument(skip_all)]

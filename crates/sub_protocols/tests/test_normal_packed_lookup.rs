@@ -97,7 +97,7 @@ fn test_normal_packed_lookup() {
     let remaining_claims_to_prove = CustomPackedLookupProver::run(
         &mut prover_state,
         &memory,
-        &mut acc,
+        &acc,
         non_zero_memory_size,
         collect_refs(&all_indexe_columns_f),
         collect_refs(&all_indexe_columns_ef),

@@ -5,7 +5,6 @@ use std::time::Instant;
 use lean_compiler::compile_program;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
-use lean_prover::whir_config_builder;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::Rng;
@@ -153,7 +152,6 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     let (proof, summary) = prove_execution(
         &bytecode,
         (&public_input, &[]),
-        whir_config_builder(),
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]), // TODO precompute poseidons
@@ -161,7 +159,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     );
     let proof_size = proof.proof_size;
     let proving_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof, whir_config_builder()).unwrap();
+    verify_execution(&bytecode, &public_input, proof).unwrap();
 
     println!("{summary}");
     println!(

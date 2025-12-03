@@ -15,15 +15,8 @@ use sub_protocols::*;
 use utils::ToUsize;
 use utils::build_challenger;
 use whir_p3::WhirConfig;
-use whir_p3::WhirConfigBuilder;
-use whir_p3::second_batched_whir_config_builder;
 
-pub fn verify_execution(
-    bytecode: &Bytecode,
-    public_input: &[F],
-    proof: Proof<F>,
-    whir_config_builder: WhirConfigBuilder,
-) -> Result<(), ProofError> {
+pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>) -> Result<(), ProofError> {
     let mut verifier_state = VerifierState::new(proof, build_challenger());
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
@@ -61,7 +54,7 @@ pub fn verify_execution(
         &table_heights,
     );
     let parsed_commitment_base = packed_pcs_parse_commitment(
-        &whir_config_builder,
+        &whir_config_builder_a(),
         &mut verifier_state,
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -96,14 +89,15 @@ pub fn verify_execution(
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
-    let bytecode_lookup_claim_1 = Evaluation::new(
+    let bytecode_lookup_claim = Evaluation::new(
         air_points[&Table::execution()].clone(),
         padd_with_zero_to_next_power_of_two(&evals_f[&Table::execution()][..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
 
-    let normal_lookup_into_memory = NormalPackedLookupVerifier::step_1(
+    let mut lookup_into_memory = NormalPackedLookupVerifier::run(
         &mut verifier_state,
+        log_memory,
         table_heights
             .iter()
             .flat_map(|(table, height)| vec![height.n_rows_non_padded_maxed(); table.num_normal_lookups_f()])
@@ -111,6 +105,10 @@ pub fn verify_execution(
         table_heights
             .iter()
             .flat_map(|(table, height)| vec![height.n_rows_non_padded_maxed(); table.num_normal_lookups_ef()])
+            .collect(),
+        table_heights
+            .iter()
+            .flat_map(|(table, height)| vec![height.n_rows_non_padded_maxed(); table.num_vector_lookups()])
             .collect(),
         table_heights
             .keys()
@@ -122,63 +120,21 @@ pub fn verify_execution(
             .collect(),
         table_heights
             .keys()
-            .flat_map(|table| table.normal_lookups_statements_f(&air_points[table], &evals_f[table]))
-            .collect(),
-        table_heights
-            .keys()
-            .flat_map(|table| table.normal_lookups_statements_ef(&air_points[table], &evals_ef[table]))
-            .collect(),
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &public_memory, // we need to pass the first few values of memory, public memory is enough
-    )?;
-
-    let vectorized_lookup_into_memory = VectorizedPackedLookupVerifier::<_, VECTOR_LEN>::step_1(
-        &mut verifier_state,
-        table_heights
-            .iter()
-            .flat_map(|(table, height)| vec![height.n_rows_non_padded_maxed(); table.num_vector_lookups()])
-            .collect(),
-        table_heights
-            .keys()
             .flat_map(|table| table.vector_lookup_default_indexes())
             .collect(),
-        table_heights
-            .keys()
-            .flat_map(|table| table.vectorized_lookups_statements(&air_points[table], &evals_f[table]))
-            .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &public_memory, // we need to pass the first few values of memory, public memory is enough
     )?;
 
-    let extension_dims = vec![
-        ColDims::padded(public_memory.len() + private_memory_len, EF::ZERO), // memory pushwordard
-        ColDims::padded(
-            (public_memory.len() + private_memory_len).div_ceil(VECTOR_LEN),
-            EF::ZERO,
-        ), // memory (folded) pushwordard
-        ColDims::padded(bytecode.instructions.len(), EF::ZERO),              // bytecode pushforward
-    ];
-
-    let parsed_commitment_extension = packed_pcs_parse_commitment(
-        &second_batched_whir_config_builder(
-            whir_config_builder.clone(),
-            parsed_commitment_base.num_variables,
-            num_packed_vars_for_dims::<EF>(&extension_dims, LOG_SMALLEST_DECOMPOSITION_CHUNK),
-        ),
-        &mut verifier_state,
-        &extension_dims,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    )?;
-
-    let mut normal_lookup_statements = normal_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
-
-    let vectorized_lookup_statements = vectorized_lookup_into_memory.step_2(&mut verifier_state, log_memory)?;
+    let bytecode_pushforward_parsed_commitment =
+        WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len()))
+            .parse_commitment::<EF>(&mut verifier_state)?;
 
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
         log2_ceil_usize(bytecode.instructions.len()),
         table_heights[&Table::execution()].log_padded(),
-        &[bytecode_lookup_claim_1],
+        &[bytecode_lookup_claim],
         EF::ONE,
     )?;
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
@@ -187,12 +143,10 @@ pub fn verify_execution(
     {
         return Err(ProofError::InvalidProof);
     }
-    let memory_statements = vec![
-        normal_lookup_statements.on_table.clone(),
-        vectorized_lookup_statements.on_table.clone(),
-    ];
+    let memory_statements = vec![lookup_into_memory.on_table.clone()];
+    let acc_statements = vec![lookup_into_memory.on_acc];
 
-    let mut final_statements: BTreeMap<Table, Vec<_>> = Default::default();
+    let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
     for table in table_heights.keys() {
         final_statements.insert(
             *table,
@@ -201,13 +155,21 @@ pub fn verify_execution(
                 &air_points[table],
                 &evals_f[table],
                 &evals_ef[table],
-                &mut normal_lookup_statements.on_indexes_f,
-                &mut normal_lookup_statements.on_indexes_ef,
+                &mut lookup_into_memory.on_indexes_f,
+                &mut lookup_into_memory.on_indexes_ef,
+                &mut lookup_into_memory.on_indexes_vec,
+                &mut lookup_into_memory.on_values_f,
+                &mut lookup_into_memory.on_values_ef,
+                &mut lookup_into_memory.on_values_vec,
             )?,
         );
     }
-    assert!(normal_lookup_statements.on_indexes_f.is_empty());
-    assert!(normal_lookup_statements.on_indexes_ef.is_empty());
+    assert!(lookup_into_memory.on_indexes_f.is_empty());
+    assert!(lookup_into_memory.on_indexes_ef.is_empty());
+    assert!(lookup_into_memory.on_indexes_vec.is_empty());
+    assert!(lookup_into_memory.on_values_f.is_empty());
+    assert!(lookup_into_memory.on_values_ef.is_empty());
+    assert!(lookup_into_memory.on_values_vec.is_empty());
 
     let p16_gkr = verify_poseidon_gkr(
         &mut verifier_state,
@@ -237,19 +199,6 @@ pub fn verify_execution(
         &evals_f[&Table::poseidon24_core()][POSEIDON_24_CORE_COL_OUTPUT_START..][..8]
     );
 
-    {
-        let mut cursor = 0;
-        for table in table_heights.keys() {
-            for (statement, lookup) in vectorized_lookup_statements.on_indexes[cursor..]
-                .iter()
-                .zip(table.vector_lookups())
-            {
-                final_statements.get_mut(table).unwrap()[lookup.index].extend(statement.clone());
-            }
-            cursor += table.num_vector_lookups();
-        }
-    }
-
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_heights[&Table::execution()].log_padded());
 
@@ -278,6 +227,7 @@ pub fn verify_execution(
 
     let mut all_base_statements = [
         vec![memory_statements],
+        vec![acc_statements],
         encapsulate_vec(p16_gkr.cubes_statements.split()),
         encapsulate_vec(p24_gkr.cubes_statements.split()),
     ]
@@ -291,24 +241,16 @@ pub fn verify_execution(
         &[(0, public_memory.clone())].into_iter().collect(),
     )?;
 
-    let global_statements_extension = packed_pcs_global_statements_for_verifier(
-        &extension_dims,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &[
-            normal_lookup_statements.on_pushforward,
-            vectorized_lookup_statements.on_pushforward,
-            bytecode_logup_star_statements.on_pushforward,
-        ],
-        &mut verifier_state,
-        &Default::default(),
-    )?;
-
-    WhirConfig::new(whir_config_builder, parsed_commitment_base.num_variables).batch_verify(
+    WhirConfig::new(whir_config_builder_a(), parsed_commitment_base.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment_base,
         global_statements_base,
-        &parsed_commitment_extension,
-        global_statements_extension,
+    )?;
+
+    WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len())).verify(
+        &mut verifier_state,
+        &bytecode_pushforward_parsed_commitment,
+        bytecode_logup_star_statements.on_pushforward,
     )?;
 
     Ok(())

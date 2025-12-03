@@ -1,5 +1,5 @@
 use lean_compiler::*;
-use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder};
+use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::{F, execute_bytecode};
 use multilinear_toolkit::prelude::*;
 use std::time::Instant;
@@ -71,7 +71,6 @@ fn benchmark_poseidon_chain() {
     let proof_data = prove_execution(
         &bytecode,
         (&public_input, &private_input),
-        whir_config_builder(),
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]), // TODO poseidons precomputed
@@ -79,7 +78,7 @@ fn benchmark_poseidon_chain() {
     )
     .0;
     let vm_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof_data, whir_config_builder()).unwrap();
+    verify_execution(&bytecode, &public_input, proof_data).unwrap();
 
     println!("VM proof time: {vm_time:?}");
 }

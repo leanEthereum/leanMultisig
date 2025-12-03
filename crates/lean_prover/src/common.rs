@@ -26,6 +26,7 @@ pub(crate) fn get_base_dims(
     let mut dims = [
         vec![
             ColDims::padded_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
+            ColDims::padded((1 << log_public_memory) + private_memory_len, F::ZERO), //  memory access counts (logup)
         ],
         p16_default_cubes
             .iter()

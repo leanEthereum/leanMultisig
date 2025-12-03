@@ -30,7 +30,7 @@ pub fn prove_logup_star<EF>(
     indexes: &[PF<EF>],
     claimed_value: EF,
     poly_eq_point: &[EF],
-    pushforward: &[EF], // already commited
+    pushforward: &MleRef<'_, EF>, // already commited
     max_index: Option<usize>,
 ) -> LogupStarStatements<EF>
 where
@@ -51,7 +51,7 @@ where
     let (poly_eq_point_packed, pushforward_packed, table_packed) = info_span!("packing").in_scope(|| {
         (
             MleRef::Extension(poly_eq_point).pack_if(packing),
-            MleRef::Extension(pushforward).pack_if(packing),
+            pushforward.pack_if(packing),
             table.pack_if(packing),
         )
     });
@@ -270,7 +270,7 @@ mod tests {
             &commited_indexes,
             claim.value,
             &poly_eq_point,
-            &pushforward,
+            &MleRef::Extension(&pushforward),
             Some(max_index),
         );
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());

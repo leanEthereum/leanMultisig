@@ -52,7 +52,7 @@ fn test_generic_packed_lookup() {
     let remaining_claims_to_prove = GenericPackedLookupProver::run::<EF>(
         &mut prover_state,
         &memory,
-        &mut acc,
+        &acc,
         all_indexe_columns.iter().map(Vec::as_slice).collect(),
         lookups_height_and_cols.iter().map(|(h, _)| *h).collect(),
         default_indexes.clone(),

@@ -83,14 +83,14 @@ fn tweak_acc_statement<EF: ExtensionField<PF<EF>>>(
 
 impl GenericPackedLookupProver {
     #[allow(clippy::too_many_arguments)]
-    pub fn run<'a, EF: ExtensionField<PF<EF>>>(
+    pub fn run<EF: ExtensionField<PF<EF>>>(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        table: &'a [PF<EF>], // table[0] is assumed to be zero
-        acc: &mut [PF<EF>],
-        index_columns: Vec<&'a [PF<EF>]>,
+        table: &[PF<EF>], // table[0] is assumed to be zero
+        acc: &[PF<EF>],
+        index_columns: Vec<&[PF<EF>]>,
         heights: Vec<usize>,
         default_indexes: Vec<usize>,
-        value_columns: Vec<Vec<VecOrSlice<'a, PF<EF>>>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
+        value_columns: Vec<Vec<VecOrSlice<'_, PF<EF>>>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
         log_smallest_decomposition_chunk: usize,
         non_zero_memory_size: usize,
     ) -> PackedLookupStatements<EF> {
@@ -104,6 +104,8 @@ impl GenericPackedLookupProver {
         );
         let n_groups = value_columns.len();
         let n_cols_per_group = value_columns.iter().map(|cols| cols.len()).collect::<Vec<usize>>();
+
+        let acc = unsafe { std::slice::from_raw_parts_mut(acc.as_ptr() as *mut PF<EF>, acc.len()) };
 
         let flatened_value_columns = value_columns
             .iter()

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use lean_compiler::*;
-use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution, whir_config_builder};
+use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -183,14 +183,13 @@ fn test_zk_vm_helper(
     let (proof, summary) = prove_execution(
         &bytecode,
         (public_input, private_input),
-        whir_config_builder(),
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]),
         merkle_path_hints,
     );
     let proof_time = time.elapsed();
-    verify_execution(&bytecode, public_input, proof, whir_config_builder()).unwrap();
+    verify_execution(&bytecode, public_input, proof).unwrap();
     println!("{}", summary);
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }

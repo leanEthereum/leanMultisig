@@ -19,14 +19,26 @@ pub const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 12; // TODO optimize
 const DOT_PRODUCT_UNIVARIATE_SKIPS: usize = 1;
 const TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS: usize = 1 << DOT_PRODUCT_UNIVARIATE_SKIPS;
 
-pub fn whir_config_builder() -> WhirConfigBuilder {
+pub fn whir_config_builder_a() -> WhirConfigBuilder {
+    whir_config_builder(1, 7, 5)
+}
+
+pub fn whir_config_builder_b() -> WhirConfigBuilder {
+    whir_config_builder(3, 4, 1)
+}
+
+fn whir_config_builder(
+    starting_log_inv_rate: usize,
+    first_folding_factor: usize,
+    rs_domain_initial_reduction_factor: usize,
+) -> WhirConfigBuilder {
     WhirConfigBuilder {
-        folding_factor: FoldingFactor::new(7, 4),
+        folding_factor: FoldingFactor::new(first_folding_factor, 4),
         soundness_type: SecurityAssumption::CapacityBound,
         pow_bits: 16,
         max_num_variables_to_send_coeffs: 6,
-        rs_domain_initial_reduction_factor: 5,
+        rs_domain_initial_reduction_factor,
         security_level: 128,
-        starting_log_inv_rate: 1,
+        starting_log_inv_rate,
     }
 }
