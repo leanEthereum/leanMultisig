@@ -66,7 +66,7 @@ impl ExtensionCommitmentFromBaseVerifier {
 
         let mut statements_remaning_to_verify = Vec::new();
         for (chunk, claim_value) in sub_evals.chunks_exact(EF::DIMENSION).zip(&claim.values) {
-            if dot_product_with_base(&sub_evals) != *claim_value {
+            if dot_product_with_base(&chunk) != *claim_value {
                 return Err(ProofError::InvalidProof);
             }
             statements_remaning_to_verify.extend(
