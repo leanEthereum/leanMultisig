@@ -129,7 +129,7 @@ fn compile_function(
 ) -> Result<Vec<IntermediateInstruction>, String> {
     // memory layout: pc, fp, args, return_vars, internal_vars
     let mut stack_pos = 2; // Reserve space for pc and fp
-    let mut function_scope_layout = ScopeLayout::default();
+    let function_scope_layout = ScopeLayout::default();
     compiler.stack_frame_layout = StackFrameLayout {
         scopes: vec![function_scope_layout],
     };
@@ -212,7 +212,6 @@ fn compile_lines(
             }
 
             SimpleLine::Match { value, arms } => {
-                let saved_stack_pos = compiler.stack_pos;
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
 
                 let match_index = compiler.match_blocks.len();
@@ -221,6 +220,8 @@ fn compile_lines(
                 let value_simplified = IntermediateValue::from_simple_expr(value, compiler);
 
                 let mut compiled_arms = vec![];
+                let saved_stack_pos = compiler.stack_pos;
+                let mut new_stack_pos = saved_stack_pos;
                 for (i, arm) in arms.iter().enumerate() {
                     let mut arm_declared_vars = declared_vars.clone();
                     compiler.stack_pos = saved_stack_pos;
@@ -237,7 +238,9 @@ fn compile_lines(
                     } else {
                         declared_vars.intersection(&arm_declared_vars).cloned().collect()
                     };
+                    new_stack_pos = new_stack_pos.max(compiler.stack_pos);
                 }
+                compiler.stack_pos = new_stack_pos;
                 compiler.match_blocks.push(MatchBlock {
                     function_name: function_name.clone(),
                     match_cases: compiled_arms,
@@ -549,6 +552,11 @@ fn compile_lines(
                 to_decompose,
                 label,
             } => {
+                declared_vars.insert(var.clone());
+                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                compiler.stack_pos += 1;
+
                 instructions.push(IntermediateInstruction::DecomposeBits {
                     res_offset: compiler.stack_pos,
                     to_decompose: to_decompose
@@ -556,26 +564,27 @@ fn compile_lines(
                         .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
                         .collect(),
                 });
-                declared_vars.insert(var.clone());
-                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                compiler.stack_pos += F::bits() * to_decompose.len();
 
-                // TODO: is handle_const_malloc needed?
-                // handle_const_malloc(
-                //     declared_vars,
-                //     &mut instructions,
-                //     compiler,
-                //     var,
-                //     F::bits() * to_decompose.len(),
-                //     label,
-                // );
+                handle_const_malloc(
+                    declared_vars,
+                    &mut instructions,
+                    compiler,
+                    var,
+                    F::bits() * to_decompose.len(),
+                    label,
+                );
+                compiler.stack_pos += F::bits() * to_decompose.len();
             }
             SimpleLine::DecomposeCustom {
                 var,
                 to_decompose,
                 label,
             } => {
+                declared_vars.insert(var.clone());
+                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                compiler.stack_pos += 1;
+
                 instructions.push(IntermediateInstruction::DecomposeCustom {
                     res_offset: compiler.stack_pos,
                     to_decompose: to_decompose
@@ -583,20 +592,16 @@ fn compile_lines(
                         .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
                         .collect(),
                 });
-                declared_vars.insert(var.clone());
-                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                compiler.stack_pos += F::bits() * to_decompose.len();
 
-                // TODO: is handle_const_malloc needed?
-                // handle_const_malloc(
-                //     declared_vars,
-                //     &mut instructions,
-                //     compiler,
-                //     var,
-                //     F::bits() * to_decompose.len(),
-                //     label,
-                // );
+                handle_const_malloc(
+                    declared_vars,
+                    &mut instructions,
+                    compiler,
+                    var,
+                    F::bits() * to_decompose.len(),
+                    label,
+                );
+                compiler.stack_pos += F::bits() * to_decompose.len();
             }
             SimpleLine::CounterHint { var } => {
                 let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
