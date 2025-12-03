@@ -3,7 +3,7 @@ use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sub_protocols::{GenericPackedLookupProver, GenericPackedLookupVerifier};
-use utils::{ToUsize, VecOrSlice, assert_eq_many, build_prover_state, build_verifier_state};
+use utils::{ToUsize, assert_eq_many, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -14,8 +14,7 @@ fn test_generic_packed_lookup() {
     let non_zero_memory_size: usize = 37412;
     let lookups_height_and_cols: Vec<(usize, usize)> = vec![(4587, 1), (1234, 3), (9411, 1), (7890, 2)];
     let default_indexes = vec![7, 11, 0, 2];
-    let n_statements = [1, 5, 2, 1];
-    assert_eq_many!(lookups_height_and_cols.len(), default_indexes.len(), n_statements.len());
+    assert_eq_many!(lookups_height_and_cols.len(), default_indexes.len());
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = F::zero_vec(non_zero_memory_size.next_power_of_two());
@@ -23,9 +22,10 @@ fn test_generic_packed_lookup() {
         *mem = rng.random();
     }
 
+    let mut acc = F::zero_vec(non_zero_memory_size.next_power_of_two());
+
     let mut all_indexe_columns = vec![];
     let mut all_value_columns = vec![];
-    let mut all_statements = vec![];
     for (i, (n_lines, n_cols)) in lookups_height_and_cols.iter().enumerate() {
         let mut indexes = vec![F::from_usize(default_indexes[i]); n_lines.next_power_of_two()];
         for idx in indexes.iter_mut().take(*n_lines) {
@@ -38,80 +38,76 @@ fn test_generic_packed_lookup() {
         for col_index in 0..*n_cols {
             let mut col = F::zero_vec(n_lines.next_power_of_two());
             for i in 0..n_lines.next_power_of_two() {
-                col[i] = memory[indexes[i].to_usize() + col_index];
+                let idx = indexes[i].to_usize() + col_index;
+                col[i] = memory[idx];
+                acc[idx] += F::ONE;
             }
             columns.push(col);
         }
-        let mut statements = vec![];
-        for _ in 0..n_statements[i] {
-            let point = MultilinearPoint::<EF>::random(&mut rng, log2_ceil_usize(*n_lines));
-            let values = columns.iter().map(|col| col.evaluate(&point)).collect::<Vec<EF>>();
-            statements.push(MultiEvaluation::new(point, values));
-        }
-        all_statements.push(statements);
         all_value_columns.push(columns);
     }
 
     let mut prover_state = build_prover_state(false);
-
-    let packed_lookup_prover = GenericPackedLookupProver::step_1(
+    let acc_before = acc.clone();
+    let remaining_claims_to_prove = GenericPackedLookupProver::run::<EF>(
         &mut prover_state,
-        VecOrSlice::Slice(&memory),
+        &memory,
+        &mut acc,
         all_indexe_columns.iter().map(Vec::as_slice).collect(),
         lookups_height_and_cols.iter().map(|(h, _)| *h).collect(),
         default_indexes.clone(),
         all_value_columns
             .iter()
-            .map(|cols| cols.iter().map(|s| VecOrSlice::Slice(s)).collect())
+            .map(|cols| cols.iter().map(|s| s.as_slice()).collect())
             .collect(),
-        all_statements.clone(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
+        non_zero_memory_size,
     );
-
-    // phony commitment to pushforward
-    prover_state.hint_extension_scalars(packed_lookup_prover.pushforward_to_commit());
-
-    let remaining_claims_to_prove = packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
+    assert!(acc_before == acc);
+    let final_prover_state = prover_state.challenger().state();
 
     let mut verifier_state = build_verifier_state(prover_state);
 
-    let packed_lookup_verifier = GenericPackedLookupVerifier::step_1(
+    let remaining_claims_to_verify = GenericPackedLookupVerifier::run(
         &mut verifier_state,
+        log2_ceil_usize(non_zero_memory_size),
         lookups_height_and_cols.iter().map(|(h, _)| *h).collect(),
         default_indexes,
-        all_statements,
+        lookups_height_and_cols.iter().map(|(_, n_cols)| *n_cols).collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &memory[..100],
     )
     .unwrap();
-
-    // receive commitment to pushforward
-    let pushforward = verifier_state
-        .receive_hint_extension_scalars(non_zero_memory_size.next_power_of_two())
-        .unwrap();
-
-    let remaining_claims_to_verify = packed_lookup_verifier
-        .step_2(&mut verifier_state, log2_ceil_usize(non_zero_memory_size))
-        .unwrap();
+    let final_verifier_state = verifier_state.challenger().state();
 
     assert_eq!(&remaining_claims_to_prove, &remaining_claims_to_verify);
+    assert_eq!(final_prover_state, final_verifier_state);
 
     assert_eq!(
         memory.evaluate(&remaining_claims_to_verify.on_table.point),
         remaining_claims_to_verify.on_table.value
     );
-    for pusforward_statement in &remaining_claims_to_verify.on_pushforward {
-        assert_eq!(
-            pushforward.evaluate(&pusforward_statement.point),
-            pusforward_statement.value
-        );
-    }
+    assert_eq!(
+        acc.evaluate(&remaining_claims_to_verify.on_acc.point),
+        remaining_claims_to_verify.on_acc.value
+    );
+
     for (index_col, index_statements) in all_indexe_columns
         .iter()
         .zip(remaining_claims_to_verify.on_indexes.iter())
     {
         for statement in index_statements {
             assert_eq!(index_col.evaluate(&statement.point), statement.value);
+        }
+    }
+    for (value_cols, value_statements) in all_value_columns
+        .iter()
+        .zip(remaining_claims_to_verify.on_values.iter())
+    {
+        for (col, statements_for_col) in value_cols.iter().zip(value_statements.iter()) {
+            for statement in statements_for_col {
+                assert_eq!(col.evaluate(&statement.point), statement.value);
+            }
         }
     }
 }

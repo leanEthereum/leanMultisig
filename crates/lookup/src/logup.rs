@@ -25,18 +25,14 @@ pub struct LogupStatements<EF> {
 }
 
 #[instrument(skip_all)]
-pub fn prove_logup<EF>(
+pub fn prove_logup<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     indexes: &[PF<EF>],
     values: &[PF<EF>],
     table: &[PF<EF>],
     acc: &[PF<EF>],
     max_index: Option<usize>,
-) -> LogupStatements<EF>
-where
-    EF: ExtensionField<PF<EF>>,
-    PF<EF>: PrimeField64,
-{
+) -> LogupStatements<EF> {
     assert_eq!(table.len(), acc.len());
     assert_eq!(indexes.len(), values.len());
 
@@ -100,15 +96,11 @@ where
     }
 }
 
-pub fn verify_logup<EF>(
+pub fn verify_logup<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     log_table_len: usize,
     log_indexes_len: usize,
-) -> Result<LogupStatements<EF>, ProofError>
-where
-    EF: ExtensionField<PF<EF>>,
-    PF<EF>: PrimeField64,
-{
+) -> Result<LogupStatements<EF>, ProofError> {
     let c = verifier_state.sample();
     let alpha = verifier_state.sample();
 
