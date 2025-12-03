@@ -9,11 +9,11 @@ use crate::GenericPackedLookupProver;
 use crate::GenericPackedLookupVerifier;
 
 #[derive(Debug)]
-pub struct NormalPackedLookupProver;
+pub struct CustomPackedLookupProver;
 
 /// claims contain sparse points (TODO take advantage of it)
 #[derive(Debug, PartialEq)]
-pub struct NormalPackedLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize> {
+pub struct CustomPackedLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize> {
     pub on_table: Evaluation<EF>,
     pub on_acc: Evaluation<EF>,
     pub on_indexes_f: Vec<Vec<Evaluation<EF>>>,
@@ -24,7 +24,7 @@ pub struct NormalPackedLookupStatements<EF, const DIM: usize, const VECTOR_LEN: 
     pub on_values_vec: Vec<[Vec<Evaluation<EF>>; VECTOR_LEN]>,
 }
 
-impl NormalPackedLookupProver {
+impl CustomPackedLookupProver {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize, const VECTOR_LEN: usize>(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -44,7 +44,7 @@ impl NormalPackedLookupProver {
         value_columns_ef: Vec<&[EF]>,
         value_columns_vec: Vec<[&[PF<EF>]; VECTOR_LEN]>,
         log_smallest_decomposition_chunk: usize,
-    ) -> NormalPackedLookupStatements<EF, DIM, VECTOR_LEN> {
+    ) -> CustomPackedLookupStatements<EF, DIM, VECTOR_LEN> {
         assert_eq_many!(
             index_columns_f.len(),
             heights_f.len(),
@@ -120,7 +120,7 @@ impl NormalPackedLookupProver {
             }
         }
 
-        NormalPackedLookupStatements {
+        CustomPackedLookupStatements {
             on_table: generic.on_table,
             on_acc: generic.on_acc,
             on_indexes_f: generic.on_indexes[..n_cols_f].to_vec(),
@@ -161,7 +161,7 @@ impl NormalPackedLookupVerifier {
         default_indexes_vec: Vec<usize>,
         log_smallest_decomposition_chunk: usize,
         table_initial_values: &[PF<EF>],
-    ) -> ProofResult<NormalPackedLookupStatements<EF, DIM, VECTOR_LEN>> {
+    ) -> ProofResult<CustomPackedLookupStatements<EF, DIM, VECTOR_LEN>> {
         assert_eq_many!(heights_f.len(), default_indexes_f.len());
         assert_eq_many!(heights_ef.len(), default_indexes_ef.len());
         assert_eq_many!(heights_vec.len(), default_indexes_vec.len());
@@ -197,7 +197,7 @@ impl NormalPackedLookupVerifier {
             }
         }
 
-        Ok(NormalPackedLookupStatements {
+        Ok(CustomPackedLookupStatements {
             on_table: generic.on_table,
             on_acc: generic.on_acc,
             on_indexes_f: generic.on_indexes[..heights_f.len()].to_vec(),

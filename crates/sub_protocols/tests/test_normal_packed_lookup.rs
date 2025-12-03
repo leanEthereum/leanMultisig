@@ -4,7 +4,7 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sub_protocols::{NormalPackedLookupProver, NormalPackedLookupVerifier};
+use sub_protocols::{CustomPackedLookupProver, NormalPackedLookupVerifier};
 use utils::{ToUsize, build_prover_state, build_verifier_state, collect_refs, transpose_slice_to_basis_coefficients};
 
 type F = KoalaBear;
@@ -94,7 +94,7 @@ fn test_normal_packed_lookup() {
 
     let mut prover_state = build_prover_state(false);
 
-    let remaining_claims_to_prove = NormalPackedLookupProver::run(
+    let remaining_claims_to_prove = CustomPackedLookupProver::run(
         &mut prover_state,
         &memory,
         &mut acc,

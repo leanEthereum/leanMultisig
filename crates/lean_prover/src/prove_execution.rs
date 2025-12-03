@@ -176,7 +176,7 @@ pub fn prove_execution(
         &bytecode_poly_eq_point,
     );
 
-    let normal_lookup_into_memory = NormalPackedLookupProver::step_1(
+    let normal_lookup_into_memory = CustomPackedLookupProver::step_1(
         &mut prover_state,
         &memory,
         traces
