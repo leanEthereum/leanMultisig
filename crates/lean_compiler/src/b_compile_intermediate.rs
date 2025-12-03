@@ -180,7 +180,6 @@ fn compile_lines(
                 arg0,
                 arg1,
             } => {
-                mark_vars_as_declared(&[arg0, arg1], declared_vars);
                 let arg0 = IntermediateValue::from_simple_expr(arg0, compiler);
                 let arg1 = IntermediateValue::from_simple_expr(arg1, compiler);
 
@@ -206,9 +205,6 @@ fn compile_lines(
                     IntermediateValue::from_simple_expr(arg1, compiler),
                     IntermediateValue::Constant(0.into()),
                 ));
-
-                // TODO: why is mark_vars_as_declared here?
-                mark_vars_as_declared(&[arg0, arg1], declared_vars);
             }
 
             SimpleLine::Match { value, arms } => {
@@ -662,14 +658,6 @@ fn handle_const_malloc(
 }
 
 // Helper functions
-fn mark_vars_as_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &mut BTreeSet<Var>) {
-    for voc in vocs {
-        if let SimpleExpr::Var(v) = voc.borrow() {
-            declared.insert(v.clone());
-        }
-    }
-}
-
 fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &BTreeSet<Var>) -> Result<(), String> {
     for voc in vocs {
         if let SimpleExpr::Var(v) = voc.borrow()
