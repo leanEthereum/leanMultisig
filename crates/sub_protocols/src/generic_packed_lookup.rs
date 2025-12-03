@@ -1,6 +1,7 @@
 use lookup::prove_logup;
 use lookup::verify_logup;
 use multilinear_toolkit::prelude::*;
+use utils::VecOrSlice;
 use utils::to_big_endian_in_field;
 use utils::{FSProver, assert_eq_many};
 
@@ -19,7 +20,7 @@ pub struct PackedLookupStatements<EF> {
 
 fn tweak_acc_vector<EF: ExtensionField<PF<EF>>>(
     at_start: bool,
-    acc: &mut Vec<PF<EF>>,
+    acc: &mut [PF<EF>],
     index_columns: &Vec<&[PF<EF>]>,
     n_cols_per_group: &Vec<usize>,
     default_indexes: &Vec<usize>,
@@ -85,11 +86,11 @@ impl GenericPackedLookupProver {
     pub fn run<'a, EF: ExtensionField<PF<EF>>>(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         table: &'a [PF<EF>], // table[0] is assumed to be zero
-        acc: &mut Vec<PF<EF>>,
+        acc: &mut [PF<EF>],
         index_columns: Vec<&'a [PF<EF>]>,
         heights: Vec<usize>,
         default_indexes: Vec<usize>,
-        value_columns: Vec<Vec<&'a [PF<EF>]>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
+        value_columns: Vec<Vec<VecOrSlice<'a, PF<EF>>>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
         log_smallest_decomposition_chunk: usize,
         non_zero_memory_size: usize,
     ) -> PackedLookupStatements<EF> {
@@ -106,7 +107,7 @@ impl GenericPackedLookupProver {
 
         let flatened_value_columns = value_columns
             .iter()
-            .flat_map(|cols| cols.iter().map(|col| &col[..]))
+            .flat_map(|cols| cols.iter().map(|col| col.as_slice()))
             .collect::<Vec<&[PF<EF>]>>();
 
         let mut all_dims = vec![];
@@ -214,7 +215,7 @@ impl GenericPackedLookupProver {
                             ]
                             .concat(),
                         );
-                        let eval = value_col.evaluate_sparse(&sparse_point);
+                        let eval = value_col.as_slice().evaluate_sparse(&sparse_point);
 
                         let missing_vars = chunks.packed_n_vars - chunk.n_vars;
                         eval_concatenated_values += eval

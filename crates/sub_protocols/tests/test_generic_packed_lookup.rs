@@ -3,7 +3,7 @@ use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use p3_util::log2_ceil_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sub_protocols::{GenericPackedLookupProver, GenericPackedLookupVerifier};
-use utils::{ToUsize, assert_eq_many, build_prover_state, build_verifier_state};
+use utils::{ToUsize, VecOrSlice, assert_eq_many, build_prover_state, build_verifier_state};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
@@ -58,7 +58,7 @@ fn test_generic_packed_lookup() {
         default_indexes.clone(),
         all_value_columns
             .iter()
-            .map(|cols| cols.iter().map(|s| s.as_slice()).collect())
+            .map(|cols| cols.iter().map(|s| VecOrSlice::Slice(s)).collect())
             .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         non_zero_memory_size,
