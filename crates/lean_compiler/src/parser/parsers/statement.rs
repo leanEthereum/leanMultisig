@@ -40,7 +40,7 @@ impl Parse<Line> for StatementParser {
 pub struct ForwardDeclarationParser;
 
 impl Parse<Line> for ForwardDeclarationParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut inner = pair.into_inner();
         let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
         Ok(Line::ForwardDeclaration { var })

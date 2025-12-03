@@ -169,8 +169,9 @@ fn compile_lines(
     for (i, line) in lines.iter().enumerate() {
         match line {
             SimpleLine::ForwardDeclaration { var } => {
-                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                 current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                declared_vars.insert(var.clone());
                 compiler.stack_pos += 1;
             }
 
@@ -185,7 +186,7 @@ fn compile_lines(
 
                 if let VarOrConstMallocAccess::Var(var) = var {
                     declared_vars.insert(var.clone());
-                    let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
@@ -402,7 +403,7 @@ fn compile_lines(
                 validate_vars_declared(&[index], declared_vars)?;
                 if let SimpleExpr::Var(var) = res && !compiler.is_in_scope(var) {
                     declared_vars.insert(var.clone());
-                    let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
@@ -442,8 +443,9 @@ fn compile_lines(
                 validate_vars_declared(args, declared_vars)?;
                 declared_vars.extend(return_data.iter().cloned());
                 for var in return_data.iter() {
-                    let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    declared_vars.insert(var.clone());
                     compiler.stack_pos += 1;
                 }
 
@@ -522,7 +524,7 @@ fn compile_lines(
                 vectorized,
                 vectorized_len,
             } => {
-                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                 current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                 compiler.stack_pos += 1;
                 declared_vars.insert(var.clone());
@@ -536,12 +538,10 @@ fn compile_lines(
             SimpleLine::ConstMalloc { var, size, label } => {
                 let size = size.naive_eval().unwrap().to_usize(); // TODO not very good;
                 declared_vars.insert(var.clone());
-                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                 current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                 compiler.stack_pos += 1;
-                current_scope_layout.const_mallocs.insert(*label, compiler.stack_pos);
-                handle_const_malloc(declared_vars, &mut instructions, compiler, var, size, label);
-                compiler.stack_pos += size;
+                handle_const_malloc(&mut instructions, compiler, var, size, label);
             }
             SimpleLine::DecomposeBits {
                 var,
@@ -549,7 +549,7 @@ fn compile_lines(
                 label,
             } => {
                 declared_vars.insert(var.clone());
-                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                 current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                 compiler.stack_pos += 1;
 
@@ -562,14 +562,12 @@ fn compile_lines(
                 });
 
                 handle_const_malloc(
-                    declared_vars,
                     &mut instructions,
                     compiler,
                     var,
                     F::bits() * to_decompose.len(),
                     label,
                 );
-                compiler.stack_pos += F::bits() * to_decompose.len();
             }
             SimpleLine::DecomposeCustom {
                 var,
@@ -577,7 +575,7 @@ fn compile_lines(
                 label,
             } => {
                 declared_vars.insert(var.clone());
-                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                 current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                 compiler.stack_pos += 1;
 
@@ -590,17 +588,15 @@ fn compile_lines(
                 });
 
                 handle_const_malloc(
-                    declared_vars,
                     &mut instructions,
                     compiler,
                     var,
                     F::bits() * to_decompose.len(),
                     label,
                 );
-                compiler.stack_pos += F::bits() * to_decompose.len();
             }
             SimpleLine::CounterHint { var } => {
-                let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                 current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                 compiler.stack_pos += 1;
                 declared_vars.insert(var.clone());
@@ -640,13 +636,14 @@ fn compile_lines(
 }
 
 fn handle_const_malloc(
-    declared_vars: &mut BTreeSet<Var>,
     instructions: &mut Vec<IntermediateInstruction>,
     compiler: &mut Compiler,
     var: &Var,
     size: usize,
     label: &ConstMallocLabel,
 ) {
+    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+    current_scope_layout.const_mallocs.insert(*label, compiler.stack_pos);
     instructions.push(IntermediateInstruction::Computation {
         operation: Operation::Add,
         arg_a: IntermediateValue::Constant(compiler.stack_pos.into()),
@@ -655,6 +652,7 @@ fn handle_const_malloc(
             offset: compiler.get_offset(&var.clone().into()),
         },
     });
+    compiler.stack_pos += size;
 }
 
 // Helper functions

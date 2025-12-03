@@ -326,7 +326,7 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
 fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
     match expr {
         SimpleExpr::Var(v) => {
-            assert!(ctx.defines(&v), "Variable defined but not used: {:?}", v)
+            assert!(ctx.defines(&v), "Variable used but not defined: {:?}", v)
         },
         SimpleExpr::Constant(_) => {},
         SimpleExpr::ConstMallocAccess { .. } => {},

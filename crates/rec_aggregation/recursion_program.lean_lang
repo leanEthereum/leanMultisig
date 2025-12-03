@@ -334,6 +334,8 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
         states = malloc(1 + folded_domain_size);
         states[0] = leaf_hashes[i];
         for j in 0..folded_domain_size {
+            var left;
+            var right;
             if stir_index_bits[j] == 1 {
                 left = merkle_path + j;
                 right = states[j];
