@@ -210,8 +210,6 @@ pub fn compute_pushforward<F: PrimeField64, EF: ExtensionField<EF>>(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use super::*;
     use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
     use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -295,20 +293,6 @@ mod tests {
         );
         for eval in &verifier_statements.on_pushforward {
             assert_eq!(pushforward.evaluate(&eval.point), eval.value);
-        }
-
-        {
-            let n_muls = 16;
-            let slice = (0..(table_length + indexes_len) / packing_width::<EF>())
-                .map(|_| rng.random())
-                .collect::<Vec<EFPacking<EF>>>();
-            let time = Instant::now();
-            let sum = slice
-                .par_iter()
-                .map(|x| (0..n_muls).map(|_| *x).product::<EFPacking<EF>>())
-                .sum::<EFPacking<EF>>();
-            assert!(sum != EFPacking::<EF>::ONE);
-            println!("Optimal time we can hope for: {} ms", time.elapsed().as_millis());
         }
     }
 }
