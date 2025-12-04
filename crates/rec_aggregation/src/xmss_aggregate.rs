@@ -232,6 +232,7 @@ pub fn xmss_verify_aggregated_signatures(
     proof_bytes: &[u8],
     slot: u64,
 ) -> Result<(), ProofError> {
+    let _ = slot; // TODO
     let program = get_xmss_aggregation_program();
 
     let proof = info_span!("Proof deserialization")
