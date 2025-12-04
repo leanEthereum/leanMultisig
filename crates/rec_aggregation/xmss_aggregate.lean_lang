@@ -131,39 +131,39 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
 
     merkle_root = malloc_vec(1);
     match log_lifetime {
-        0 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 0); }
-        1 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 1); }
-        2 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 2); }
-        3 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 3); }
-        4 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 4); }
-        5 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 5); }
-        6 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 6); }
-        7 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 7); }
-        8 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 8); }
-        9 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 9); }
-        10 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 10); }
-        11 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 11); }
-        12 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 12); }
-        13 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 13); }
-        14 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 14); }
-        15 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 15); }
-        16 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 16); }
-        17 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 17); }
-        18 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 18); }
-        19 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 19); }
-        20 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 20); }
-        21 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 21); }
-        22 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 22); }
-        23 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 23); }
-        24 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 24); }
-        25 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 25); }
-        26 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 26); }
-        27 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 27); }
-        28 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 28); }
-        29 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 29); }
-        30 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 30); }
-        31 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 31); }
-        32 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 32); }
+        0 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 0); }
+        1 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 1); }
+        2 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 2); }
+        3 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 3); }
+        4 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 4); }
+        5 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 5); }
+        6 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 6); }
+        7 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 7); }
+        8 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 8); }
+        9 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 9); }
+        10 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 10); }
+        11 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 11); }
+        12 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 12); }
+        13 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 13); }
+        14 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 14); }
+        15 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 15); }
+        16 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 16); }
+        17 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 17); }
+        18 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 18); }
+        19 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 19); }
+        20 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 20); }
+        21 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 21); }
+        22 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 22); }
+        23 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 23); }
+        24 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 24); }
+        25 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 25); }
+        26 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 26); }
+        27 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 27); }
+        28 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 28); }
+        29 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 29); }
+        30 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 30); }
+        31 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 31); }
+        32 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 32); }
     }           
     
 
