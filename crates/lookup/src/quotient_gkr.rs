@@ -220,7 +220,7 @@ fn sum_quotients_helper<F: PrimeCharacteristicRing + Sync + Send + Copy>(
 ) -> Vec<Vec<F>> {
     assert_eq!(numerators_and_denominators.len(), n_groups);
     let n = numerators_and_denominators[0].len();
-    assert!(n.is_power_of_two() && n >= 2);
+    assert!(n.is_power_of_two() && n >= 2, "n = {}", n);
     let mut new_numerators = Vec::new();
     let mut new_denominators = Vec::new();
     let (prev_numerators, prev_denominators) = numerators_and_denominators.split_at(n_groups / 2);
@@ -320,7 +320,7 @@ mod tests {
         );
         println!("Proving time: {:?}", time.elapsed());
 
-        let mut verifier_state = build_verifier_state(&prover_state);
+        let mut verifier_state = build_verifier_state(prover_state);
 
         let verifier_statements = verify_gkr_quotient::<EF, N_GROUPS>(&mut verifier_state, log_n).unwrap();
         assert_eq!(&verifier_statements, &prover_statements);

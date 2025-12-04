@@ -18,6 +18,7 @@ pub const W: usize = 4;
 pub const CHAIN_LENGTH: usize = 1 << W;
 pub const D: usize = 80;
 pub const TARGET_SUM: usize = V * (W - 1) - D;
+pub const XMSS_MIN_LOG_LIFETIME: usize = 2;
 pub const XMSS_MAX_LOG_LIFETIME: usize = 30;
 
 pub type Poseidon16History = Vec<([F; 16], [F; 16])>;

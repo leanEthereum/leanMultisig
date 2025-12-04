@@ -118,10 +118,7 @@ impl Air for ExecutionTable {
             extra_data,
             precompile_index.clone(),
             is_precompile.clone(),
-            nu_a.clone(),
-            nu_b.clone(),
-            nu_c.clone(),
-            aux.clone(),
+            &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()],
         ));
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));

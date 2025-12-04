@@ -13,8 +13,7 @@ use crate::{
     TableTrace,
 };
 use multilinear_toolkit::prelude::*;
-use std::array;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
 use xmss::{Poseidon16History, Poseidon24History};
 
@@ -58,6 +57,7 @@ pub fn execute_bytecode(
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     profiling: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
+    merkle_path_hints: VecDeque<Vec<[F; 8]>>,
 ) -> ExecutionResult {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
@@ -69,6 +69,7 @@ pub fn execute_bytecode(
         no_vec_runtime_memory,
         profiling,
         (poseidons_16_precomputed, poseidons_24_precomputed),
+        merkle_path_hints,
     )
     .unwrap_or_else(|(last_pc, err)| {
         let lines_history = &instruction_history.lines;
@@ -147,6 +148,7 @@ fn execute_bytecode_helper(
     no_vec_runtime_memory: usize,
     profiling: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
+    mut merkle_path_hints: VecDeque<Vec<[F; 8]>>,
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
@@ -187,8 +189,7 @@ fn execute_bytecode_helper(
     let mut n_poseidon16_precomputed_used = 0;
     let mut n_poseidon24_precomputed_used = 0;
 
-    // Events collected only in final execution
-    let mut traces: [TableTrace; N_TABLES] = array::from_fn(|i| TableTrace::new(&ALL_TABLES[i]));
+    let mut traces = BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i], TableTrace::new(&ALL_TABLES[i]))));
 
     let mut add_counts = 0;
     let mut mul_counts = 0;
@@ -212,6 +213,7 @@ fn execute_bytecode_helper(
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             let mut hint_ctx = HintExecutionContext {
                 memory: &mut memory,
+                private_input_start: public_memory_size,
                 fp,
                 ap: &mut ap,
                 ap_vec: &mut ap_vec,
@@ -242,6 +244,7 @@ fn execute_bytecode_helper(
             jump_counts: &mut jump_counts,
             poseidon16_precomputed: poseidons_16_precomputed,
             poseidon24_precomputed: poseidons_24_precomputed,
+            merkle_path_hints: &mut merkle_path_hints,
             n_poseidon16_precomputed_used: &mut n_poseidon16_precomputed_used,
             n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
@@ -331,14 +334,13 @@ fn execute_bytecode_helper(
 
     summary.push('\n');
 
-    if traces[Table::poseidon16().index()].base[0].len() + traces[Table::poseidon24().index()].base[0].len() > 0 {
+    if traces[&Table::poseidon16_core()].base[0].len() + traces[&Table::poseidon24_core()].base[0].len() > 0 {
         summary.push_str(&format!(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
-            pretty_integer(traces[Table::poseidon16().index()].base[0].len()),
-            pretty_integer(traces[Table::poseidon24().index()].base[0].len()),
+            pretty_integer(traces[&Table::poseidon16_core()].base[0].len()),
+            pretty_integer(traces[&Table::poseidon24_core()].base[0].len()),
             cpu_cycles
-                / (traces[Table::poseidon16().index()].base[0].len()
-                    + traces[Table::poseidon24().index()].base[0].len())
+                / (traces[&Table::poseidon16_core()].base[0].len() + traces[&Table::poseidon24_core()].base[0].len())
         ));
     }
     // if !dot_products.is_empty() {

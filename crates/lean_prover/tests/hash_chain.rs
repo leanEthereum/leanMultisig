@@ -63,6 +63,7 @@ fn benchmark_poseidon_chain() {
         1 << (3 + LOG_CHAIN_LENGTH),
         false,
         (&vec![], &vec![]),
+        Default::default(),
     )
     .no_vec_runtime_memory;
 
@@ -74,6 +75,7 @@ fn benchmark_poseidon_chain() {
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]), // TODO poseidons precomputed
+        Default::default(), // TODO merkle path hints
     )
     .0;
     let vm_time = time.elapsed();

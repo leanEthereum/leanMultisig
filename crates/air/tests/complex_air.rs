@@ -170,7 +170,7 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
         virtual_column_statement_prover,
         true,
     );
-    let mut verifier_state = build_verifier_state(&prover_state);
+    let mut verifier_state = build_verifier_state(prover_state);
 
     let virtual_column_statement_verifier = if VIRTUAL_COLUMN {
         let virtual_column_evaluation_point =

@@ -1,12 +1,12 @@
 use crate::instruction_encoder::field_representation;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
-use std::{array, iter::repeat_n};
+use std::{array, collections::BTreeMap, iter::repeat_n};
 use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
-    pub traces: [TableTrace; N_TABLES],
+    pub traces: BTreeMap<Table, TableTrace>,
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
@@ -96,13 +96,16 @@ pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionR
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
-    traces[Table::execution().index()] = TableTrace {
-        base: Vec::from(main_trace),
-        ext: vec![],
-        height: Default::default(),
-    };
-    for (trace, table) in traces.iter_mut().zip(ALL_TABLES) {
-        padd_table(&table, trace);
+    traces.insert(
+        Table::execution(),
+        TableTrace {
+            base: Vec::from(main_trace),
+            ext: vec![],
+            height: Default::default(),
+        },
+    );
+    for table in traces.keys().copied().collect::<Vec<_>>() {
+        padd_table(&table, &mut traces);
     }
 
     ExecutionTrace {
@@ -113,21 +116,24 @@ pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionR
     }
 }
 
-fn padd_table<T: TableT>(t: &T, trace: &mut TableTrace) {
+fn padd_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
+    let trace = traces.get_mut(table).unwrap();
     let h = trace.base[0].len();
     trace
         .base
         .iter()
         .enumerate()
-        .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, t.name()));
+        .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, table.name()));
 
     trace.height = TableHeight(h);
-
+    let padding_len = trace.height.padding_len();
+    let padding_row_f = table.padding_row_f();
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
-        col.extend(repeat_n(t.padding_row_f()[i], trace.height.padding_len()));
+        col.extend(repeat_n(padding_row_f[i], padding_len));
     });
 
+    let padding_row_ef = table.padding_row_ef();
     trace.ext.par_iter_mut().enumerate().for_each(|(i, col)| {
-        col.extend(repeat_n(t.padding_row_ef()[i], trace.height.padding_len()));
+        col.extend(repeat_n(padding_row_ef[i], padding_len));
     });
 }

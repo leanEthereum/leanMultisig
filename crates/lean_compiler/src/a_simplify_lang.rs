@@ -120,12 +120,10 @@ pub enum SimpleLine {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeCustom {
-        var: Var, // a pointer to 13 * len(to_decompose) field elements
-        to_decompose: Vec<SimpleExpr>,
-        label: ConstMallocLabel,
+        args: Vec<SimpleExpr>,
     },
-    CounterHint {
-        var: Var,
+    PrivateInputStart {
+        result: Var,
     },
     Print {
         line_info: String,
@@ -654,23 +652,15 @@ fn simplify_lines(
                     label,
                 });
             }
-            Line::DecomposeCustom { var, to_decompose } => {
-                assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
-                let simplified_to_decompose = to_decompose
+            Line::PrivateInputStart { result } => {
+                res.push(SimpleLine::PrivateInputStart { result: result.clone() });
+            }
+            Line::DecomposeCustom { args } => {
+                let simplified_args = args
                     .iter()
                     .map(|expr| simplify_expr(expr, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
-                let label = const_malloc.counter;
-                const_malloc.counter += 1;
-                const_malloc.map.insert(var.clone(), label);
-                res.push(SimpleLine::DecomposeCustom {
-                    var: var.clone(),
-                    to_decompose: simplified_to_decompose,
-                    label,
-                });
-            }
-            Line::CounterHint { var } => {
-                res.push(SimpleLine::CounterHint { var: var.clone() });
+                res.push(SimpleLine::DecomposeCustom { args: simplified_args });
             }
             Line::Panic => {
                 res.push(SimpleLine::Panic);
@@ -845,15 +835,19 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                     on_new_expr(var, &internal_vars, &mut external_vars);
                 }
             }
-            Line::DecomposeBits { var, to_decompose } | Line::DecomposeCustom { var, to_decompose } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 for expr in to_decompose {
                     on_new_expr(expr, &internal_vars, &mut external_vars);
                 }
                 internal_vars.insert(var.clone());
             }
-
-            Line::CounterHint { var } => {
-                internal_vars.insert(var.clone());
+            Line::PrivateInputStart { result } => {
+                internal_vars.insert(result.clone());
+            }
+            Line::DecomposeCustom { args } => {
+                for expr in args {
+                    on_new_expr(expr, &internal_vars, &mut external_vars);
+                }
             }
             Line::ForLoop {
                 iterator,
@@ -1005,14 +999,19 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
                     inline_expr(var, args, inlining_count);
                 }
             }
-            Line::DecomposeBits { var, to_decompose } | Line::DecomposeCustom { var, to_decompose } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 for expr in to_decompose {
                     inline_expr(expr, args, inlining_count);
                 }
                 inline_internal_var(var);
             }
-            Line::CounterHint { var } => {
-                inline_internal_var(var);
+            Line::DecomposeCustom { args: decompose_args } => {
+                for expr in decompose_args {
+                    inline_expr(expr, args, inlining_count);
+                }
+            }
+            Line::PrivateInputStart { result } => {
+                inline_internal_var(result);
             }
             Line::ForLoop {
                 iterator,
@@ -1340,15 +1339,21 @@ fn replace_vars_for_unroll(
                 replace_vars_for_unroll_in_expr(size, iterator, unroll_index, iterator_value, internal_vars);
                 replace_vars_for_unroll_in_expr(vectorized_len, iterator, unroll_index, iterator_value, internal_vars);
             }
-            Line::DecomposeBits { var, to_decompose } | Line::DecomposeCustom { var, to_decompose } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 for expr in to_decompose {
                     replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
                 }
             }
-            Line::CounterHint { var } => {
-                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
+            Line::PrivateInputStart { result } => {
+                assert!(result != iterator, "Weird");
+                *result = format!("@unrolled_{unroll_index}_{iterator_value}_{result}");
+            }
+            Line::DecomposeCustom { args } => {
+                for expr in args {
+                    replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
+                }
             }
             Line::Break | Line::Panic | Line::LocationReport { .. } => {}
         }
@@ -1698,10 +1703,10 @@ fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
             | Line::Assert { .. }
             | Line::FunctionRet { .. }
             | Line::Precompile { .. }
+            | Line::PrivateInputStart { .. }
             | Line::Print { .. }
             | Line::DecomposeBits { .. }
             | Line::DecomposeCustom { .. }
-            | Line::CounterHint { .. }
             | Line::MAlloc { .. }
             | Line::Panic
             | Line::Break
@@ -1783,14 +1788,19 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(var, map);
                 }
             }
-            Line::DecomposeBits { var, to_decompose } | Line::DecomposeCustom { var, to_decompose } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
                 for expr in to_decompose {
                     replace_vars_by_const_in_expr(expr, map);
                 }
             }
-            Line::CounterHint { var } => {
-                assert!(!map.contains_key(var), "Variable {var} is a constant");
+            Line::DecomposeCustom { args } => {
+                for expr in args {
+                    replace_vars_by_const_in_expr(expr, map);
+                }
+            }
+            Line::PrivateInputStart { result } => {
+                assert!(!map.contains_key(result), "Variable {result} is a constant");
             }
             Line::MAlloc { var, size, .. } => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
@@ -1863,23 +1873,11 @@ impl SimpleLine {
                         .join(", ")
                 )
             }
-            Self::DecomposeCustom {
-                var: result,
-                to_decompose,
-                label: _,
-            } => {
+            Self::DecomposeCustom { args } => {
                 format!(
-                    "{} = decompose_custom({})",
-                    result,
-                    to_decompose
-                        .iter()
-                        .map(|expr| format!("{expr}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "decompose_custom({})",
+                    args.iter().map(|expr| format!("{expr}")).collect::<Vec<_>>().join(", ")
                 )
-            }
-            Self::CounterHint { var: result } => {
-                format!("{result} = counter_hint()")
             }
             Self::RawAccess { res, index, shift } => {
                 format!("memory[{index} + {shift}] = {res}")
@@ -1966,6 +1964,9 @@ impl SimpleLine {
             }
             Self::ConstMalloc { var, size, label: _ } => {
                 format!("{var} = malloc({size})")
+            }
+            Self::PrivateInputStart { result } => {
+                format!("private_input_start({result})")
             }
             Self::Panic => "panic".to_string(),
             Self::LocationReport { .. } => Default::default(),

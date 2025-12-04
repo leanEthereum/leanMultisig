@@ -277,12 +277,13 @@ mod tests {
         );
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
-        let mut verifier_state = build_verifier_state(&prover_state);
+        let last_prover_state = prover_state.challenger().state();
+        let mut verifier_state = build_verifier_state(prover_state);
         let verifier_statements =
             verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &[claim], EF::ONE).unwrap();
 
         assert_eq!(&verifier_statements, &prover_statements);
-        assert_eq!(prover_state.challenger().state(), verifier_state.challenger().state());
+        assert_eq!(last_prover_state, verifier_state.challenger().state());
 
         assert_eq!(
             indexes.evaluate(&verifier_statements.on_indexes.point),

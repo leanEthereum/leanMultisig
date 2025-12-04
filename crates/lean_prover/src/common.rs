@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
-use poseidon_circuit::{GKRPoseidonResult, PoseidonGKRLayers, default_cube_layers};
+use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};
 use sub_protocols::ColDims;
 
 use crate::*;
@@ -16,7 +18,7 @@ pub(crate) fn get_base_dims(
         &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
         &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
     ),
-    table_heights: [TableHeight; N_TABLES],
+    table_heights: &BTreeMap<Table, TableHeight>,
 ) -> Vec<ColDims<F>> {
     let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(p16_gkr_layers);
     let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(p24_gkr_layers);
@@ -27,16 +29,16 @@ pub(crate) fn get_base_dims(
         ],
         p16_default_cubes
             .iter()
-            .map(|&c| ColDims::padded(table_heights[Table::poseidon16().index()].n_rows_non_padded_maxed(), c))
+            .map(|&c| ColDims::padded(table_heights[&Table::poseidon16_core()].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(), // commited cubes for poseidon16
         p24_default_cubes
             .iter()
-            .map(|&c| ColDims::padded(table_heights[Table::poseidon24().index()].n_rows_non_padded_maxed(), c))
+            .map(|&c| ColDims::padded(table_heights[&Table::poseidon24_core()].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(),
     ]
     .concat();
-    for i in 0..N_TABLES {
-        dims.extend(ALL_TABLES[i].committed_dims(table_heights[i].n_rows_non_padded_maxed()));
+    for (table, height) in table_heights {
+        dims.extend(table.committed_dims(height.n_rows_non_padded_maxed()));
     }
     dims
 }
@@ -63,21 +65,4 @@ fn split_at(stmt: &MultiEvaluation<EF>, start: usize, end: usize) -> Vec<MultiEv
         stmt.point.clone(),
         stmt.values[start..end].to_vec(),
     )]
-}
-pub(crate) fn poseidon_16_vectorized_lookup_statements(p16_gkr: &GKRPoseidonResult) -> Vec<Vec<MultiEvaluation<EF>>> {
-    vec![
-        split_at(&p16_gkr.input_statements, 0, VECTOR_LEN),
-        split_at(&p16_gkr.input_statements, VECTOR_LEN, VECTOR_LEN * 2),
-        split_at(&p16_gkr.output_statements, 0, VECTOR_LEN),
-        split_at(&p16_gkr.output_statements, VECTOR_LEN, VECTOR_LEN * 2),
-    ]
-}
-
-pub(crate) fn poseidon_24_vectorized_lookup_statements(p24_gkr: &GKRPoseidonResult) -> Vec<Vec<MultiEvaluation<EF>>> {
-    vec![
-        split_at(&p24_gkr.input_statements, 0, VECTOR_LEN),
-        split_at(&p24_gkr.input_statements, VECTOR_LEN, VECTOR_LEN * 2),
-        split_at(&p24_gkr.input_statements, VECTOR_LEN * 2, VECTOR_LEN * 3),
-        split_at(&p24_gkr.output_statements, VECTOR_LEN * 2, VECTOR_LEN * 3),
-    ]
 }

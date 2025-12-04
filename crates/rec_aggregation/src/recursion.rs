@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::Path;
 use std::time::Instant;
 
@@ -10,14 +11,13 @@ use multilinear_toolkit::prelude::*;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use utils::{
-    build_prover_state, build_verifier_state, padd_with_zero_to_next_multiple_of, padd_with_zero_to_next_power_of_two,
-};
+use utils::build_challenger;
+use utils::{build_prover_state, padd_with_zero_to_next_multiple_of};
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 const NUM_VARIABLES: usize = 25;
 
-pub fn run_whir_recursion_benchmark() {
+pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("recursion_program.lean_lang");
     let mut program_str = std::fs::read_to_string(src_file).unwrap();
     let recursion_config_builder = WhirConfigBuilder {
@@ -29,6 +29,8 @@ pub fn run_whir_recursion_benchmark() {
         starting_log_inv_rate: 2,
         rs_domain_initial_reduction_factor: 3,
     };
+
+    program_str = program_str.replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string());
 
     let mut recursion_config = WhirConfig::<EF>::new(recursion_config_builder.clone(), NUM_VARIABLES);
 
@@ -55,6 +57,11 @@ pub fn run_whir_recursion_benchmark() {
         .replace(
             &format!("GRINDING_BITS_{}_PLACEHOLDER", recursion_config.n_rounds()),
             &recursion_config.final_pow_bits.to_string(),
+        )
+        .replace("N_VARS_PLACEHOLDER", &NUM_VARIABLES.to_string())
+        .replace(
+            "LOG_INV_RATE_PLACEHOLDER",
+            &recursion_config_builder.starting_log_inv_rate.to_string(),
         );
     assert_eq!(recursion_config.n_rounds(), 3); // this is hardcoded in the program above
     for round in 0..=recursion_config.n_rounds() {
@@ -82,10 +89,19 @@ pub fn run_whir_recursion_benchmark() {
     precompute_dft_twiddles::<F>(1 << 24);
 
     let witness = recursion_config.commit(&mut prover_state, &polynomial);
+    recursion_config.prove(&mut prover_state, statement.clone(), witness, &polynomial.by_ref());
+    let whir_proof = prover_state.into_proof();
 
-    let mut public_input = prover_state.proof_data().to_vec();
-    let commitment_size = public_input.len();
-    assert_eq!(commitment_size, 16);
+    {
+        let mut verifier_state = VerifierState::new(whir_proof.clone(), build_challenger());
+        let parsed_commitment = recursion_config.parse_commitment::<F>(&mut verifier_state).unwrap();
+        recursion_config
+            .verify(&mut verifier_state, &parsed_commitment, statement)
+            .unwrap();
+    }
+
+    let commitment_size = 16;
+    let mut public_input = whir_proof.proof_data[..commitment_size].to_vec();
     public_input.extend(padd_with_zero_to_next_multiple_of(
         &point
             .iter()
@@ -93,92 +109,69 @@ pub fn run_whir_recursion_benchmark() {
             .collect::<Vec<F>>(),
         VECTOR_LEN,
     ));
-    public_input.extend(padd_with_zero_to_next_power_of_two(
+    public_input.extend(padd_with_zero_to_next_multiple_of(
         <EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(&eval),
+        VECTOR_LEN,
     ));
 
-    recursion_config.prove(&mut prover_state, statement.clone(), witness, &polynomial.by_ref());
+    public_input.extend(whir_proof.proof_data[commitment_size..].to_vec());
 
-    let first_folding_factor = recursion_config_builder.folding_factor.at_round(0);
+    assert!(public_input.len().is_multiple_of(VECTOR_LEN));
+    program_str = program_str.replace(
+        "WHIR_PROOF_SIZE_PLACEHOLDER",
+        &(public_input.len() / VECTOR_LEN).to_string(),
+    );
 
-    // to align the first merkle leaves (in base field) (required to appropriately call the precompile multilinear_eval)
-    let mut proof_data_padding = (1 << first_folding_factor)
-        - ((NONRESERVED_PROGRAM_INPUT_START
-            + public_input.len()
-            + {
-                // sumcheck polys
-                first_folding_factor * 3 * VECTOR_LEN
-            }
-            + {
-                // merkle root
-                VECTOR_LEN
-            }
-            + {
-                // grinding witness
-                VECTOR_LEN
-            }
-            + {
-                // ood answer
-                VECTOR_LEN
-            })
-            % (1 << first_folding_factor));
-    assert_eq!(proof_data_padding % 8, 0);
-    proof_data_padding /= 8;
+    public_input = std::iter::repeat_n(public_input, n_recursions).flatten().collect();
 
-    program_str = program_str
-        .replace(
-            "PADDING_FOR_INITIAL_MERKLE_LEAVES_PLACEHOLDER",
-            &proof_data_padding.to_string(),
-        )
-        .replace("N_VARS_PLACEHOLDER", &NUM_VARIABLES.to_string())
-        .replace(
-            "LOG_INV_RATE_PLACEHOLDER",
-            &recursion_config_builder.starting_log_inv_rate.to_string(),
-        );
-
-    public_input.extend(F::zero_vec(proof_data_padding * 8));
-
-    public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
-
-    {
-        let mut verifier_state = build_verifier_state(&prover_state);
-        let parsed_commitment = recursion_config.parse_commitment::<F>(&mut verifier_state).unwrap();
-        recursion_config
-            .verify(&mut verifier_state, &parsed_commitment, statement)
-            .unwrap();
+    if tracing {
+        utils::init_tracing();
     }
 
-    utils::init_tracing();
     let bytecode = compile_program(program_str);
+
+    let mut merkle_path_hints = VecDeque::new();
+    for _ in 0..n_recursions {
+        merkle_path_hints.extend(whir_proof.merkle_hints.clone());
+    }
 
     // in practice we will precompute all the possible values
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
-    let no_vec_runtime_memory =
-        execute_bytecode(&bytecode, (&public_input, &[]), 1 << 20, false, (&vec![], &vec![])).no_vec_runtime_memory;
+    let no_vec_runtime_memory = execute_bytecode(
+        &bytecode,
+        (&public_input, &[]),
+        1 << 20,
+        false,
+        (&vec![], &vec![]), // TODO
+        merkle_path_hints.clone(),
+    )
+    .no_vec_runtime_memory;
 
     let time = Instant::now();
 
-    let (proof_data, summary) = prove_execution(
+    let (proof, summary) = prove_execution(
         &bytecode,
         (&public_input, &[]),
         whir_config_builder(),
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]), // TODO precompute poseidons
+        merkle_path_hints,
     );
+    let proof_size = proof.proof_size;
     let proving_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof_data.clone(), whir_config_builder()).unwrap();
+    verify_execution(&bytecode, &public_input, proof, whir_config_builder()).unwrap();
 
     println!("{summary}");
     println!(
-        "WHIR recursion, proving time: {} ms, proof size: {} KiB (not optimized)",
-        proving_time.as_millis(),
-        proof_data.len() * F::bits() / (8 * 1024)
+        "Proving time: {} ms / WHIR recursion, proof size: {} KiB (not optimized)",
+        proving_time.as_millis() / n_recursions as u128,
+        proof_size * F::bits() / (8 * 1024)
     );
 }
 
 #[test]
 fn test_whir_recursion() {
-    run_whir_recursion_benchmark();
+    run_whir_recursion_benchmark(false, 1);
 }

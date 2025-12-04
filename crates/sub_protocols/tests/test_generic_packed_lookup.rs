@@ -73,7 +73,7 @@ fn test_generic_packed_lookup() {
 
     let remaining_claims_to_prove = packed_lookup_prover.step_2(&mut prover_state, non_zero_memory_size);
 
-    let mut verifier_state = build_verifier_state(&prover_state);
+    let mut verifier_state = build_verifier_state(prover_state);
 
     let packed_lookup_verifier = GenericPackedLookupVerifier::step_1(
         &mut verifier_state,

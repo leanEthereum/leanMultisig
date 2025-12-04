@@ -9,13 +9,22 @@ enum Cli {
     Xmss {
         #[arg(long)]
         n_signatures: usize,
+        #[arg(long, help = "Enable tracing")]
+        tracing: bool,
     },
     #[command(about = "Run 1 WHIR recursive proof")]
-    Recursion,
+    Recursion {
+        #[arg(long, help = "Enable tracing")]
+        tracing: bool,
+        #[arg(long, default_value_t = 1, help = "Number of recursions")]
+        count: usize,
+    },
     #[command(about = "Prove validity of Poseidon2 permutations over 16 field elements")]
     Poseidon {
         #[arg(long, help = "log2(number of Poseidons)")]
         log_n_perms: usize,
+        #[arg(long, help = "Enable tracing")]
+        tracing: bool,
     },
 }
 
@@ -23,15 +32,18 @@ fn main() {
     let cli = Cli::parse();
 
     match cli {
-        Cli::Xmss { n_signatures } => {
+        Cli::Xmss { n_signatures, tracing } => {
             let log_lifetimes = (0..n_signatures).map(|_| XMSS_MAX_LOG_LIFETIME).collect::<Vec<_>>();
-            run_xmss_benchmark(&log_lifetimes);
+            run_xmss_benchmark(&log_lifetimes, tracing);
         }
-        Cli::Recursion => {
-            run_whir_recursion_benchmark();
+        Cli::Recursion { tracing, count } => {
+            run_whir_recursion_benchmark(tracing, count);
         }
-        Cli::Poseidon { log_n_perms: log_count } => {
-            run_poseidon_benchmark::<16, 16, 3>(log_count, false);
+        Cli::Poseidon {
+            log_n_perms: log_count,
+            tracing,
+        } => {
+            run_poseidon_benchmark::<16, 16, 3>(log_count, false, tracing);
         }
     }
 }

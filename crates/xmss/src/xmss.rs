@@ -48,7 +48,7 @@ pub fn xmss_key_gen(
     if first_slot >= (1 << XMSS_MAX_LOG_LIFETIME) {
         return Err(XmssKeyGenError::FirstSlotTooLarge);
     }
-    if log_lifetime == 0 {
+    if log_lifetime < XMSS_MIN_LOG_LIFETIME {
         return Err(XmssKeyGenError::LogLifetimeTooSmall);
     }
     if log_lifetime > XMSS_MAX_LOG_LIFETIME {

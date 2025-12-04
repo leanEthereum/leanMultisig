@@ -435,7 +435,7 @@ fn compile_lines(
             }
 
             SimpleLine::Precompile { table, args, .. } => {
-                if *table == Table::poseidon24() {
+                if *table == Table::poseidon24_mem() {
                     assert_eq!(args.len(), 3);
                 } else {
                     assert_eq!(args.len(), 4);
@@ -511,36 +511,23 @@ fn compile_lines(
                     label,
                 );
             }
-            SimpleLine::DecomposeCustom {
-                var,
-                to_decompose,
-                label,
-            } => {
+            SimpleLine::DecomposeCustom { args } => {
+                assert!(args.len() >= 3);
+                let decomposed = IntermediateValue::from_simple_expr(&args[0], compiler);
+                let remaining = IntermediateValue::from_simple_expr(&args[1], compiler);
                 instructions.push(IntermediateInstruction::DecomposeCustom {
-                    res_offset: compiler.stack_size,
-                    to_decompose: to_decompose
+                    decomposed,
+                    remaining,
+                    to_decompose: args[2..]
                         .iter()
                         .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
                         .collect(),
                 });
-
-                handle_const_malloc(
-                    declared_vars,
-                    &mut instructions,
-                    compiler,
-                    var,
-                    F::bits() * to_decompose.len(),
-                    label,
-                );
             }
-            SimpleLine::CounterHint { var } => {
-                declared_vars.insert(var.clone());
-                instructions.push(IntermediateInstruction::CounterHint {
-                    res_offset: compiler
-                        .get_offset(&var.clone().into())
-                        .naive_eval()
-                        .unwrap()
-                        .to_usize(),
+            SimpleLine::PrivateInputStart { result } => {
+                declared_vars.insert(result.clone());
+                instructions.push(IntermediateInstruction::PrivateInputStart {
+                    res_offset: compiler.get_offset(&result.clone().into()),
                 });
             }
             SimpleLine::Print { line_info, content } => {
@@ -690,10 +677,11 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             SimpleLine::TestZero { .. } => {}
             SimpleLine::HintMAlloc { var, .. }
             | SimpleLine::ConstMalloc { var, .. }
-            | SimpleLine::DecomposeBits { var, .. }
-            | SimpleLine::DecomposeCustom { var, .. }
-            | SimpleLine::CounterHint { var } => {
+            | SimpleLine::DecomposeBits { var, .. } => {
                 internal_vars.insert(var.clone());
+            }
+            SimpleLine::PrivateInputStart { result } => {
+                internal_vars.insert(result.clone());
             }
             SimpleLine::RawAccess { res, .. } => {
                 if let SimpleExpr::Var(var) = res {
@@ -712,6 +700,7 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
                 internal_vars.extend(find_internal_vars(else_branch));
             }
             SimpleLine::Panic
+            | SimpleLine::DecomposeCustom { .. }
             | SimpleLine::Print { .. }
             | SimpleLine::FunctionRet { .. }
             | SimpleLine::Precompile { .. }

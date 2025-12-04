@@ -11,7 +11,7 @@ impl IntermediateInstruction {
             | Self::Print { .. }
             | Self::DecomposeBits { .. }
             | Self::DecomposeCustom { .. }
-            | Self::CounterHint { .. }
+            | Self::PrivateInputStart { .. }
             | Self::Inverse { .. }
             | Self::LocationReport { .. } => true,
             Self::Computation { .. }
@@ -116,8 +116,6 @@ pub fn compile_to_low_level_bytecode(
         }
     }
 
-    let mut low_level_bytecode = Vec::new();
-
     for (label, pc) in label_to_pc.clone() {
         hints.entry(pc).or_insert_with(Vec::new).push(Hint::Label { label });
     }
@@ -129,19 +127,21 @@ pub fn compile_to_low_level_bytecode(
         match_first_block_starts,
     };
 
+    let mut instructions = Vec::new();
+
     for (function_name, pc_start, block) in code_blocks {
         compile_block(
             &compiler,
             &function_name,
             &block,
             pc_start,
-            &mut low_level_bytecode,
+            &mut instructions,
             &mut hints,
         );
     }
 
     Ok(Bytecode {
-        instructions: low_level_bytecode,
+        instructions,
         hints,
         starting_frame_memory,
         program,
@@ -307,21 +307,24 @@ fn compile_block(
                 };
                 hints.entry(pc).or_default().push(hint);
             }
+            IntermediateInstruction::PrivateInputStart { res_offset } => {
+                hints.entry(pc).or_default().push(Hint::PrivateInputStart {
+                    res_offset: eval_const_expression_usize(&res_offset, compiler),
+                });
+            }
             IntermediateInstruction::DecomposeCustom {
-                res_offset,
+                decomposed,
+                remaining,
                 to_decompose,
             } => {
                 let hint = Hint::DecomposeCustom {
-                    res_offset,
+                    decomposed: try_as_mem_or_constant(&decomposed).unwrap(),
+                    remaining: try_as_mem_or_constant(&remaining).unwrap(),
                     to_decompose: to_decompose
                         .iter()
                         .map(|expr| try_as_mem_or_constant(expr).unwrap())
                         .collect(),
                 };
-                hints.entry(pc).or_default().push(hint);
-            }
-            IntermediateInstruction::CounterHint { res_offset } => {
-                let hint = Hint::CounterHint { res_offset };
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::Inverse { arg, res_offset } => {

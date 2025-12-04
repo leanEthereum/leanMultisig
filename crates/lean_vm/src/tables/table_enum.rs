@@ -3,13 +3,18 @@ use p3_air::Air;
 
 use crate::*;
 
-pub const N_TABLES: usize = 5;
+pub const N_TABLES: usize = 10;
 pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::execution(),
     Table::dot_product_be(),
     Table::dot_product_ee(),
-    Table::poseidon16(),
-    Table::poseidon24(),
+    Table::poseidon16_core(),
+    Table::poseidon16_mem(),
+    Table::poseidon24_core(),
+    Table::poseidon24_mem(),
+    Table::merkle(),
+    Table::slice_hash(),
+    Table::eq_poly_base_ext(),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -18,8 +23,13 @@ pub enum Table {
     Execution(ExecutionTable),
     DotProductBE(DotProductPrecompile<true>),
     DotProductEE(DotProductPrecompile<false>),
-    Poseidon16(Poseidon16Precompile),
-    Poseidon24(Poseidon24Precompile),
+    Poseidon16Core(Poseidon16CorePrecompile),
+    Poseidon16Mem(Poseidon16MemPrecompile),
+    Poseidon24Core(Poseidon24CorePrecompile),
+    Poseidon24Mem(Poseidon24MemPrecompile),
+    Merkle(MerklePrecompile),
+    SliceHash(SliceHashPrecompile),
+    EqPolyBaseExt(EqPolyBaseExtPrecompile),
 }
 
 #[macro_export]
@@ -29,9 +39,14 @@ macro_rules! delegate_to_inner {
         match $self {
             Self::DotProductBE(p) => p.$method($($($arg),*)?),
             Self::DotProductEE(p) => p.$method($($($arg),*)?),
-            Self::Poseidon16(p) => p.$method($($($arg),*)?),
-            Self::Poseidon24(p) => p.$method($($($arg),*)?),
+            Self::Poseidon16Core(p) => p.$method($($($arg),*)?),
+            Self::Poseidon16Mem(p) => p.$method($($($arg),*)?),
+            Self::Poseidon24Core(p) => p.$method($($($arg),*)?),
+            Self::Poseidon24Mem(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
+            Self::Merkle(p) => p.$method($($($arg),*)?),
+            Self::SliceHash(p) => p.$method($($($arg),*)?),
+            Self::EqPolyBaseExt(p) => p.$method($($($arg),*)?),
         }
     };
     // New pattern for applying a macro to the inner value
@@ -39,9 +54,14 @@ macro_rules! delegate_to_inner {
         match $self {
             Table::DotProductBE(p) => $macro_name!(p),
             Table::DotProductEE(p) => $macro_name!(p),
-            Table::Poseidon16(p) => $macro_name!(p),
-            Table::Poseidon24(p) => $macro_name!(p),
+            Table::Poseidon16Core(p) => $macro_name!(p),
+            Table::Poseidon16Mem(p) => $macro_name!(p),
+            Table::Poseidon24Core(p) => $macro_name!(p),
+            Table::Poseidon24Mem(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
+            Table::Merkle(p) => $macro_name!(p),
+            Table::SliceHash(p) => $macro_name!(p),
+            Table::EqPolyBaseExt(p) => $macro_name!(p),
         }
     };
 }
@@ -56,17 +76,38 @@ impl Table {
     pub const fn dot_product_ee() -> Self {
         Self::DotProductEE(DotProductPrecompile::<false>)
     }
-    pub const fn poseidon16() -> Self {
-        Self::Poseidon16(Poseidon16Precompile)
+    pub const fn poseidon16_core() -> Self {
+        Self::Poseidon16Core(Poseidon16CorePrecompile)
     }
-    pub const fn poseidon24() -> Self {
-        Self::Poseidon24(Poseidon24Precompile)
+    pub const fn poseidon16_mem() -> Self {
+        Self::Poseidon16Mem(Poseidon16MemPrecompile)
+    }
+    pub const fn poseidon24_core() -> Self {
+        Self::Poseidon24Core(Poseidon24CorePrecompile)
+    }
+    pub const fn poseidon24_mem() -> Self {
+        Self::Poseidon24Mem(Poseidon24MemPrecompile)
+    }
+    pub const fn merkle() -> Self {
+        Self::Merkle(MerklePrecompile)
+    }
+    pub const fn slice_hash() -> Self {
+        Self::SliceHash(SliceHashPrecompile)
+    }
+    pub const fn eq_poly_base_ext() -> Self {
+        Self::EqPolyBaseExt(EqPolyBaseExtPrecompile)
     }
     pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
         PF::from_usize(self.index())
     }
     pub const fn index(&self) -> usize {
         unsafe { *(self as *const Self as *const usize) }
+    }
+    pub fn is_poseidon(&self) -> bool {
+        matches!(
+            self,
+            Table::Poseidon16Core(_) | Table::Poseidon16Mem(_) | Table::Poseidon24Core(_) | Table::Poseidon24Mem(_)
+        )
     }
 }
 
@@ -142,6 +183,14 @@ impl Air for Table {
     fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()
     }
+}
+
+pub fn max_bus_width() -> usize {
+    1 + ALL_TABLES
+        .iter()
+        .map(|table| table.buses().iter().map(|bus| bus.data.len()).max().unwrap())
+        .max()
+        .unwrap()
 }
 
 #[cfg(test)]

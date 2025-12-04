@@ -92,7 +92,7 @@ fn test_air_fibonacci() {
         None,
         true,
     );
-    let mut verifier_state = build_verifier_state(&prover_state);
+    let mut verifier_state = build_verifier_state(prover_state);
 
     let (point_verifier, evaluations_remaining_to_verify_f, evaluations_remaining_to_verify_ef) = verify_air(
         &mut verifier_state,

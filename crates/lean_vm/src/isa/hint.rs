@@ -43,15 +43,10 @@ pub enum Hint {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeCustom {
-        /// Memory offset for results: m[fp + res_offset..fp + res_offset + 13 * len(to_decompose)]
-        res_offset: usize,
+        decomposed: MemOrConstant,
+        remaining: MemOrConstant,
         /// Values to decompose into custom representation
         to_decompose: Vec<MemOrConstant>,
-    },
-    /// Provide a counter value
-    CounterHint {
-        /// Memory offset where counter result will be stored: m[fp + res_offset]
-        res_offset: usize,
     },
     /// Print debug information during execution
     Print {
@@ -60,21 +55,30 @@ pub enum Hint {
         /// Values to print
         content: Vec<MemOrConstant>,
     },
+    PrivateInputStart {
+        res_offset: usize,
+    },
     /// Report source code location for debugging
     LocationReport {
         /// Source code location
         location: SourceLineNumber,
     },
     /// Jump destination label (for debugging purposes)
-    Label { label: Label },
+    Label {
+        label: Label,
+    },
     /// Stack frame size (for memory profiling)
-    StackFrame { label: Label, size: usize },
+    StackFrame {
+        label: Label,
+        size: usize,
+    },
 }
 
 /// Execution state for hint processing
 #[derive(Debug)]
 pub struct HintExecutionContext<'a> {
     pub memory: &'a mut Memory,
+    pub private_input_start: usize, // normal pointer
     pub fp: usize,
     pub ap: &'a mut usize,
     pub ap_vec: &'a mut usize,
@@ -162,24 +166,22 @@ impl Hint {
                 }
             }
             Self::DecomposeCustom {
-                res_offset,
+                decomposed,
+                remaining,
                 to_decompose,
             } => {
-                let mut memory_index = ctx.fp + *res_offset;
+                let mut memory_index_decomposed = decomposed.read_value(ctx.memory, ctx.fp)?.to_usize();
+                let mut memory_index_remaining = remaining.read_value(ctx.memory, ctx.fp)?.to_usize();
                 for value_source in to_decompose {
                     let value = value_source.read_value(ctx.memory, ctx.fp)?.to_usize();
                     for i in 0..12 {
                         let value = F::from_usize((value >> (2 * i)) & 0b11);
-                        ctx.memory.set(memory_index, value)?;
-                        memory_index += 1;
+                        ctx.memory.set(memory_index_decomposed, value)?;
+                        memory_index_decomposed += 1;
                     }
-                    ctx.memory.set(memory_index, F::from_usize(value >> 24))?;
-                    memory_index += 1;
+                    ctx.memory.set(memory_index_remaining, F::from_usize(value >> 24))?;
+                    memory_index_remaining += 1;
                 }
-            }
-            Self::CounterHint { res_offset } => {
-                ctx.memory.set(ctx.fp + *res_offset, F::from_usize(*ctx.counter_hint))?;
-                *ctx.counter_hint += 1;
             }
             Self::Inverse { arg, res_offset } => {
                 let value = arg.read_value(ctx.memory, ctx.fp)?;
@@ -223,6 +225,10 @@ impl Hint {
                     .push(*ctx.cpu_cycles_before_new_line);
                 *ctx.cpu_cycles_before_new_line = 0;
             }
+            Self::PrivateInputStart { res_offset } => {
+                ctx.memory
+                    .set(ctx.fp + *res_offset, F::from_usize(ctx.private_input_start))?;
+            }
             Self::Label { .. } => {}
             Self::StackFrame { label, size } => {
                 if ctx.profiling {
@@ -257,6 +263,9 @@ impl Display for Hint {
                     write!(f, "m[fp + {offset}] = request_memory({size})")
                 }
             }
+            Self::PrivateInputStart { res_offset } => {
+                write!(f, "m[fp + {res_offset}] = private_input_start()")
+            }
             Self::DecomposeBits {
                 res_offset,
                 to_decompose,
@@ -271,10 +280,11 @@ impl Display for Hint {
                 write!(f, ")")
             }
             Self::DecomposeCustom {
-                res_offset,
+                decomposed,
+                remaining,
                 to_decompose,
             } => {
-                write!(f, "m[fp + {res_offset}] = decompose_custom(")?;
+                write!(f, "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], ")?;
                 for (i, v) in to_decompose.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -282,9 +292,6 @@ impl Display for Hint {
                     write!(f, "{v}")?;
                 }
                 write!(f, ")")
-            }
-            Self::CounterHint { res_offset } => {
-                write!(f, "m[fp + {res_offset}] = counter_hint()")
             }
             Self::Print { line_info, content } => {
                 write!(f, "print(")?;

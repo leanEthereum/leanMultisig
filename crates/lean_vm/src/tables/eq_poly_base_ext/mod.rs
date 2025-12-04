@@ -1,28 +1,20 @@
-use crate::{
-    tables::dot_product::exec::{exec_dot_product_be, exec_dot_product_ee},
-    *,
-};
+use crate::{InstructionContext, tables::eq_poly_base_ext::exec::exec_eq_poly_base_ext, *};
 use multilinear_toolkit::prelude::*;
 
 mod air;
 use air::*;
 mod exec;
 
-/// Dot product between 2 vectors in the extension field EF.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DotProductPrecompile<const BE: bool>; // BE = true for base-extension, false for extension-extension
+pub struct EqPolyBaseExtPrecompile;
 
-impl<const BE: bool> TableT for DotProductPrecompile<BE> {
+impl TableT for EqPolyBaseExtPrecompile {
     fn name(&self) -> &'static str {
-        if BE { "dot_product_be" } else { "dot_product_ee" }
+        "eq_poly_base_ext"
     }
 
     fn identifier(&self) -> Table {
-        if BE {
-            Table::dot_product_be()
-        } else {
-            Table::dot_product_ee()
-        }
+        Table::eq_poly_base_ext()
     }
 
     fn commited_columns_f(&self) -> Vec<ColIndex> {
@@ -34,18 +26,14 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
     }
 
     fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
-        if BE {
-            vec![LookupIntoMemory {
-                index: COL_INDEX_A,
-                values: dot_product_air_col_value_a(BE),
-            }]
-        } else {
-            vec![]
-        }
+        vec![LookupIntoMemory {
+            index: COL_INDEX_A,
+            values: COL_VALUE_A,
+        }]
     }
 
     fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        let mut res = vec![
+        vec![
             ExtensionFieldLookupIntoMemory {
                 index: COL_INDEX_B,
                 values: COL_VALUE_B,
@@ -54,17 +42,7 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
                 index: COL_INDEX_RES,
                 values: COL_VALUE_RES,
             },
-        ];
-        if !BE {
-            res.insert(
-                0,
-                ExtensionFieldLookupIntoMemory {
-                    index: COL_INDEX_A,
-                    values: dot_product_air_col_value_a(BE),
-                },
-            );
-        }
-        res
+        ]
     }
 
     fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
@@ -81,18 +59,23 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
     }
 
     fn padding_row_f(&self) -> Vec<F> {
-        [
-            vec![
-                F::ONE, // StartFlag
-                F::ONE, // Len
-            ],
-            vec![F::ZERO; dot_product_air_n_cols_f(BE) - 2],
-        ]
+        [vec![
+            F::ONE,                                  // StartFlag
+            F::ONE,                                  // Len
+            F::ZERO,                                 // Index A
+            F::ZERO,                                 // Index B
+            F::from_usize(ONE_VEC_PTR * VECTOR_LEN), // Index Res
+            F::ZERO,                                 // Value A
+        ]]
         .concat()
     }
 
     fn padding_row_ef(&self) -> Vec<EF> {
-        vec![EF::ZERO; dot_product_air_n_cols_ef(BE)]
+        vec![
+            EF::ZERO, // Value B
+            EF::ONE,  // Value Res
+            EF::ONE,  // Computation
+        ]
     }
 
     #[inline(always)]
@@ -105,10 +88,6 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
         let trace = ctx.traces.get_mut(&self.identifier()).unwrap();
-        if BE {
-            exec_dot_product_be(arg_a, arg_b, arg_c, aux, ctx.memory, trace)
-        } else {
-            exec_dot_product_ee(arg_a, arg_b, arg_c, aux, ctx.memory, trace)
-        }
+        exec_eq_poly_base_ext(arg_a, arg_b, arg_c, aux, ctx.memory, trace)
     }
 }

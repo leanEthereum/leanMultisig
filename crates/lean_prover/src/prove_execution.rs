@@ -1,4 +1,4 @@
-use std::array;
+use std::collections::BTreeMap;
 
 use crate::common::*;
 use crate::*;
@@ -10,6 +10,7 @@ use multilinear_toolkit::prelude::*;
 use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
+use std::collections::VecDeque;
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
@@ -23,7 +24,8 @@ pub fn prove_execution(
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
-) -> (Vec<PF<EF>>, String) {
+    merkle_path_hints: VecDeque<Vec<[F; 8]>>,
+) -> (Proof<F>, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
         traces,
@@ -38,6 +40,7 @@ pub fn prove_execution(
                 no_vec_runtime_memory,
                 vm_profiler,
                 (poseidons_16_precomputed, poseidons_24_precomputed),
+                merkle_path_hints,
             )
         });
         exec_summary = std::mem::take(&mut execution_result.summary);
@@ -52,41 +55,11 @@ pub fn prove_execution(
     let private_memory = &memory[public_memory_size..non_zero_memory_size];
     let log_public_memory = log2_strict_usize(public_memory.len());
 
-    let _validity_proof_span = info_span!("Validity proof generation").entered();
-
-    let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
-    let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
-
-    let p16_witness = generate_poseidon_witness_helper(
-        &p16_gkr_layers,
-        &traces[Table::poseidon16().index()],
-        POSEIDON_16_COL_INDEX_INPUT_START,
-        Some(&traces[Table::poseidon16().index()].base[POSEIDON_16_COL_COMPRESSION].clone()),
-    );
-    let p24_witness = generate_poseidon_witness_helper(
-        &p24_gkr_layers,
-        &traces[Table::poseidon24().index()],
-        POSEIDON_24_COL_INDEX_INPUT_START,
-        None,
-    );
-
-    let commitmenent_extension_helper: [_; N_TABLES] = array::from_fn(|i| {
-        (ALL_TABLES[i].n_commited_columns_ef() > 0).then(|| {
-            ExtensionCommitmentFromBaseProver::before_commitment(
-                ALL_TABLES[i]
-                    .commited_columns_ef()
-                    .iter()
-                    .map(|&c| &traces[i].ext[c][..])
-                    .collect::<Vec<_>>(),
-            )
-        })
-    });
-
     let mut prover_state = build_prover_state::<EF>(false);
     prover_state.add_base_scalars(
         &[
             vec![private_memory.len()],
-            traces.iter().map(|t| t.n_rows_non_padded()).collect::<Vec<_>>(),
+            traces.values().map(|t| t.n_rows_non_padded()).collect::<Vec<_>>(),
         ]
         .concat()
         .into_iter()
@@ -94,11 +67,50 @@ pub fn prove_execution(
         .collect::<Vec<_>>(),
     );
 
+    // only keep tables with non-zero rows
+    let traces: BTreeMap<_, _> = traces
+        .into_iter()
+        .filter(|(table, trace)| trace.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon())
+        .collect();
+
+    let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
+    let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
+
+    let p16_witness = generate_poseidon_witness_helper(
+        &p16_gkr_layers,
+        &traces[&Table::poseidon16_core()],
+        POSEIDON_16_CORE_COL_INPUT_START,
+        Some(&traces[&Table::poseidon16_core()].base[POSEIDON_16_CORE_COL_COMPRESSION].clone()),
+    );
+    let p24_witness = generate_poseidon_witness_helper(
+        &p24_gkr_layers,
+        &traces[&Table::poseidon24_core()],
+        POSEIDON_24_CORE_COL_INPUT_START,
+        None,
+    );
+
+    let commitmenent_extension_helper = traces
+        .iter()
+        .filter(|(table, _)| table.n_commited_columns_ef() > 0)
+        .map(|(table, trace)| {
+            (
+                *table,
+                ExtensionCommitmentFromBaseProver::before_commitment(
+                    table
+                        .commited_columns_ef()
+                        .iter()
+                        .map(|&c| &trace.ext[c][..])
+                        .collect::<Vec<_>>(),
+                ),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
     let base_dims = get_base_dims(
         log_public_memory,
         private_memory.len(),
         (&p16_gkr_layers, &p24_gkr_layers),
-        array::from_fn(|i| traces[i].height),
+        &traces.iter().map(|(table, trace)| (*table, trace.height)).collect(),
     );
 
     let mut base_pols = [
@@ -115,8 +127,8 @@ pub fn prove_execution(
             .collect::<Vec<_>>(),
     ]
     .concat();
-    for i in 0..N_TABLES {
-        base_pols.extend(ALL_TABLES[i].committed_columns(&traces[i], commitmenent_extension_helper[i].as_ref()));
+    for (table, trace) in &traces {
+        base_pols.extend(table.committed_columns(trace, commitmenent_extension_helper.get(table)));
     }
 
     // 1st Commitment
@@ -128,44 +140,24 @@ pub fn prove_execution(
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
-    let random_point_p16 = MultilinearPoint(prover_state.sample_vec(traces[Table::poseidon16().index()].log_padded()));
-    let p16_gkr = prove_poseidon_gkr(
-        &mut prover_state,
-        &p16_witness,
-        random_point_p16.0.clone(),
-        UNIVARIATE_SKIPS,
-        &p16_gkr_layers,
-    );
-
-    let random_point_p24 = MultilinearPoint(prover_state.sample_vec(traces[Table::poseidon24().index()].log_padded()));
-    let p24_gkr = prove_poseidon_gkr(
-        &mut prover_state,
-        &p24_witness,
-        random_point_p24.0.clone(),
-        UNIVARIATE_SKIPS,
-        &p24_gkr_layers,
-    );
-
     let bus_challenge = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
 
-    let mut bus_quotients: [EF; N_TABLES] = Default::default();
-    let mut air_points: [MultilinearPoint<EF>; N_TABLES] = Default::default();
-    let mut evals_f: [Vec<EF>; N_TABLES] = Default::default();
-    let mut evals_ef: [Vec<EF>; N_TABLES] = Default::default();
+    let mut bus_quotients: BTreeMap<Table, EF> = Default::default();
+    let mut air_points: BTreeMap<Table, MultilinearPoint<EF>> = Default::default();
+    let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
+    let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
 
-    for table in ALL_TABLES {
-        let i = table.index();
-        (bus_quotients[i], air_points[i], evals_f[i], evals_ef[i]) = prove_bus_and_air(
-            &mut prover_state,
-            &table,
-            &traces[i],
-            bus_challenge,
-            fingerprint_challenge,
-        );
+    for (table, trace) in &traces {
+        let (this_bus_quotient, this_air_point, this_evals_f, this_evals_ef) =
+            prove_bus_and_air(&mut prover_state, table, trace, bus_challenge, fingerprint_challenge);
+        bus_quotients.insert(*table, this_bus_quotient);
+        air_points.insert(*table, this_air_point);
+        evals_f.insert(*table, this_evals_f);
+        evals_ef.insert(*table, this_evals_ef);
     }
 
-    assert_eq!(bus_quotients.iter().copied().sum::<EF>(), EF::ZERO);
+    assert_eq!(bus_quotients.values().copied().sum::<EF>(), EF::ZERO);
 
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -173,13 +165,13 @@ pub fn prove_execution(
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
 
     let bytecode_lookup_claim_1 = Evaluation::new(
-        air_points[Table::execution().index()].clone(),
-        padd_with_zero_to_next_power_of_two(&evals_f[Table::execution().index()][..N_INSTRUCTION_COLUMNS])
+        air_points[&Table::execution()].clone(),
+        padd_with_zero_to_next_power_of_two(&evals_f[&Table::execution()][..N_INSTRUCTION_COLUMNS])
             .evaluate(&bytecode_compression_challenges),
     );
-    let bytecode_poly_eq_point = eval_eq(&air_points[Table::execution().index()]);
+    let bytecode_poly_eq_point = eval_eq(&air_points[&Table::execution()]);
     let bytecode_pushforward = compute_pushforward(
-        &traces[Table::execution().index()].base[COL_INDEX_PC],
+        &traces[&Table::execution()].base[COL_INDEX_PC],
         folded_bytecode.len(),
         &bytecode_poly_eq_point,
     );
@@ -187,35 +179,45 @@ pub fn prove_execution(
     let normal_lookup_into_memory = NormalPackedLookupProver::step_1(
         &mut prover_state,
         &memory,
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].normal_lookup_index_columns_f(&traces[i]))
+        traces
+            .iter()
+            .flat_map(|(table, trace)| table.normal_lookup_index_columns_f(trace))
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].normal_lookup_index_columns_ef(&traces[i]))
+        traces
+            .iter()
+            .flat_map(|(table, trace)| table.normal_lookup_index_columns_ef(trace))
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_f()])
+        traces
+            .iter()
+            .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_normal_lookups_f()])
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_normal_lookups_ef()])
+        traces
+            .iter()
+            .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_normal_lookups_ef()])
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_f())
+        traces
+            .keys()
+            .flat_map(|table| table.normal_lookup_default_indexes_f())
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].normal_lookup_default_indexes_ef())
+        traces
+            .keys()
+            .flat_map(|table| table.normal_lookup_default_indexes_ef())
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].normal_lookup_f_value_columns(&traces[i]))
+        traces
+            .iter()
+            .flat_map(|(table, trace)| table.normal_lookup_f_value_columns(trace))
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].normal_lookup_ef_value_columns(&traces[i]))
+        traces
+            .iter()
+            .flat_map(|(table, trace)| table.normal_lookup_ef_value_columns(trace))
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].normal_lookups_statements_f(&air_points[i], &evals_f[i]))
+        traces
+            .keys()
+            .flat_map(|table| table.normal_lookups_statements_f(&air_points[table], &evals_f[table]))
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].normal_lookups_statements_ef(&air_points[i], &evals_ef[i]))
+        traces
+            .keys()
+            .flat_map(|table| table.normal_lookups_statements_ef(&air_points[table], &evals_ef[table]))
             .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
@@ -223,34 +225,26 @@ pub fn prove_execution(
     let vectorized_lookup_into_memory = VectorizedPackedLookupProver::<_, VECTOR_LEN>::step_1(
         &mut prover_state,
         &memory,
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].vector_lookup_index_columns(&traces[i]))
+        traces
+            .iter()
+            .flat_map(|(table, trace)| table.vector_lookup_index_columns(trace))
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| vec![traces[i].n_rows_non_padded_maxed(); ALL_TABLES[i].num_vector_lookups()])
+        traces
+            .iter()
+            .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_vector_lookups()])
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].vector_lookup_default_indexes())
+        traces
+            .keys()
+            .flat_map(|table| table.vector_lookup_default_indexes())
             .collect(),
-        (0..N_TABLES)
-            .flat_map(|i| ALL_TABLES[i].vector_lookup_values_columns(&traces[i]))
+        traces
+            .iter()
+            .flat_map(|(table, trace)| table.vector_lookup_values_columns(trace))
             .collect(),
-        {
-            let mut statements = vec![];
-            for table in ALL_TABLES {
-                if table.identifier() == Table::poseidon16() {
-                    statements.extend(poseidon_16_vectorized_lookup_statements(&p16_gkr)); // special case
-                    continue;
-                }
-                if table.identifier() == Table::poseidon24() {
-                    statements.extend(poseidon_24_vectorized_lookup_statements(&p24_gkr)); // special case
-                    continue;
-                }
-                statements
-                    .extend(table.vectorized_lookups_statements(&air_points[table.index()], &evals_f[table.index()]));
-            }
-            statements
-        },
+        traces
+            .keys()
+            .flat_map(|table| table.vectorized_lookups_statements(&air_points[table], &evals_f[table]))
+            .collect(),
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
@@ -286,7 +280,7 @@ pub fn prove_execution(
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &MleRef::Extension(&folded_bytecode),
-        &traces[Table::execution().index()].base[COL_INDEX_PC],
+        &traces[&Table::execution()].base[COL_INDEX_PC],
         bytecode_lookup_claim_1.value,
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
@@ -298,43 +292,87 @@ pub fn prove_execution(
         vectorized_lookup_statements.on_table.clone(),
     ];
 
-    let mut final_statements: [Vec<_>; N_TABLES] = Default::default();
-    for i in 0..N_TABLES {
-        final_statements[i] = ALL_TABLES[i].committed_statements_prover(
-            &mut prover_state,
-            &air_points[i],
-            &evals_f[i],
-            commitmenent_extension_helper[i].as_ref(),
-            &mut normal_lookup_statements.on_indexes_f,
-            &mut normal_lookup_statements.on_indexes_ef,
+    let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
+    for table in traces.keys() {
+        final_statements.insert(
+            *table,
+            table.committed_statements_prover(
+                &mut prover_state,
+                &air_points[table],
+                &evals_f[table],
+                commitmenent_extension_helper.get(table),
+                &mut normal_lookup_statements.on_indexes_f,
+                &mut normal_lookup_statements.on_indexes_ef,
+            ),
         );
     }
     assert!(normal_lookup_statements.on_indexes_f.is_empty());
     assert!(normal_lookup_statements.on_indexes_ef.is_empty());
 
+    let p16_gkr = prove_poseidon_gkr(
+        &mut prover_state,
+        &p16_witness,
+        air_points[&Table::poseidon16_core()].0.clone(),
+        UNIVARIATE_SKIPS,
+        &p16_gkr_layers,
+    );
+    assert_eq!(&p16_gkr.output_statements.point, &air_points[&Table::poseidon16_core()]);
+    assert_eq!(
+        &p16_gkr.output_statements.values,
+        &evals_f[&Table::poseidon16_core()][POSEIDON_16_CORE_COL_OUTPUT_START..][..16]
+    );
+
+    let p24_gkr = prove_poseidon_gkr(
+        &mut prover_state,
+        &p24_witness,
+        air_points[&Table::poseidon24_core()].0.clone(),
+        UNIVARIATE_SKIPS,
+        &p24_gkr_layers,
+    );
+    assert_eq!(&p24_gkr.output_statements.point, &air_points[&Table::poseidon24_core()]);
+    assert_eq!(
+        &p24_gkr.output_statements.values[16..],
+        &evals_f[&Table::poseidon24_core()][POSEIDON_24_CORE_COL_OUTPUT_START..][..8]
+    );
+
     {
         let mut cursor = 0;
-        for t in 0..N_TABLES {
+        for table in traces.keys() {
             for (statement, lookup) in vectorized_lookup_statements.on_indexes[cursor..]
                 .iter()
-                .zip(ALL_TABLES[t].vector_lookups())
+                .zip(table.vector_lookups())
             {
-                final_statements[t][lookup.index].extend(statement.clone());
+                final_statements.get_mut(table).unwrap()[lookup.index].extend(statement.clone());
             }
-            cursor += ALL_TABLES[t].num_vector_lookups();
+            cursor += table.num_vector_lookups();
         }
     }
 
     let (initial_pc_statement, final_pc_statement) =
-        initial_and_final_pc_conditions(traces[Table::execution().index()].log_padded());
+        initial_and_final_pc_conditions(traces[&Table::execution()].log_padded());
 
-    final_statements[Table::execution().index()][ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)].extend(
-        vec![
+    final_statements.get_mut(&Table::execution()).unwrap()[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
+        .extend(vec![
             bytecode_logup_star_statements.on_indexes.clone(),
             initial_pc_statement,
             final_pc_statement,
-        ],
-    );
+        ]);
+    let statements_p16_core = final_statements.get_mut(&Table::poseidon16_core()).unwrap();
+    for (stmts, gkr_value) in statements_p16_core[POSEIDON_16_CORE_COL_INPUT_START..][..16]
+        .iter_mut()
+        .zip(&p16_gkr.input_statements.values)
+    {
+        stmts.push(Evaluation::new(p16_gkr.input_statements.point.clone(), *gkr_value));
+    }
+    statements_p16_core[POSEIDON_16_CORE_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
+
+    let statements_p24_core = final_statements.get_mut(&Table::poseidon24_core()).unwrap();
+    for (stmts, gkr_value) in statements_p24_core[POSEIDON_24_CORE_COL_INPUT_START..][..24]
+        .iter_mut()
+        .zip(&p24_gkr.input_statements.values)
+    {
+        stmts.push(Evaluation::new(p24_gkr.input_statements.point.clone(), *gkr_value));
+    }
 
     // First Opening
     let mut all_base_statements = [
@@ -343,7 +381,7 @@ pub fn prove_execution(
         encapsulate_vec(p24_gkr.cubes_statements.split()),
     ]
     .concat();
-    all_base_statements.extend(final_statements.into_iter().flatten());
+    all_base_statements.extend(final_statements.into_values().flatten());
 
     let global_statements_base = packed_pcs_global_statements_for_prover(
         &base_pols,
@@ -380,7 +418,7 @@ pub fn prove_execution(
         &packed_pcs_witness_extension.packed_polynomial.by_ref(),
     );
 
-    (prover_state.proof_data().to_vec(), exec_summary)
+    (prover_state.into_proof(), exec_summary)
 }
 
 fn prove_bus_and_air(
@@ -400,16 +438,28 @@ fn prove_bus_and_air(
 
     let mut numerators = F::zero_vec(n_buses_padded * n_rows);
     for (bus, numerators_chunk) in t.buses().iter().zip(numerators.chunks_mut(n_rows)) {
-        assert!(bus.selector < trace.base.len());
-        trace.base[bus.selector]
-            .par_iter()
-            .zip(numerators_chunk)
-            .for_each(|(&selector, v)| {
-                *v = match bus.direction {
-                    BusDirection::Pull => -selector,
-                    BusDirection::Push => selector,
-                }
-            });
+        match bus.selector {
+            BusSelector::Column(selector_col) => {
+                assert!(selector_col < trace.base.len());
+                trace.base[selector_col]
+                    .par_iter()
+                    .zip(numerators_chunk)
+                    .for_each(|(&selector, v)| {
+                        *v = match bus.direction {
+                            BusDirection::Pull => -selector,
+                            BusDirection::Push => selector,
+                        }
+                    });
+            }
+            BusSelector::ConstantOne => {
+                numerators_chunk.par_iter_mut().for_each(|v| {
+                    *v = match bus.direction {
+                        BusDirection::Pull => F::NEG_ONE,
+                        BusDirection::Push => F::ONE,
+                    }
+                });
+            }
+        }
     }
 
     let mut denominators = unsafe { uninitialized_vec(n_buses_padded * n_rows) };
@@ -528,10 +578,15 @@ fn prove_bus_and_air(
     }
 
     let extra_data = ExtraDataForBuses {
-        fingerprint_challenge_powers: powers_const(fingerprint_challenge),
+        fingerprint_challenge_powers: fingerprint_challenge.powers().collect_n(max_bus_width()),
+        fingerprint_challenge_powers_packed: EFPacking::<EF>::from(fingerprint_challenge)
+            .powers()
+            .collect_n(max_bus_width()),
         bus_beta,
+        bus_beta_packed: EFPacking::<EF>::from(bus_beta),
         alpha_powers: vec![], // filled later
     };
+
     let (air_point, evals_f, evals_ef) = info_span!("Table AIR proof", table = t.name()).in_scope(|| {
         macro_rules! prove_air_for_table {
             ($t:expr) => {
