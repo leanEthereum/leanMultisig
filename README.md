@@ -2,6 +2,12 @@
 
 XMSS + minimal [zkVM](minimal_zkVM.pdf) = lightweight PQ signatures, with unbounded aggregation
 
+## Status
+
+- branch [main](https://github.com/leanEthereum/leanMultisig): optimized for **prover efficiency**
+- branch [lean-vm-simple](https://github.com/leanEthereum/leanMultisig/tree/lean-vm-simple): optimized for **simplicity**
+
+Both versions will eventually merge into one.
 
 ## Proving System
 
@@ -38,15 +44,17 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- poseidon --log-n-perms 2
 The full recursion program is not finished yet. Instead, we prove validity of a WHIR opening, with 25 variables, and rate = 1/4.
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 9
+RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 8
 ```
 
 ![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)
 
+Detail: before 4 December 2025, only 1 WHIR opening was benchmarked. Starting from now, we prove a dozen of openings together (to be closer to the n-to-1 aggregation scenario) and we report the proving time / WHIR.
+
 ### XMSS aggregation
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1100
+RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1775
 ```
 
 [Trivial encoding](docs/XMSS_trivial_encoding.pdf) (for now).
