@@ -92,7 +92,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#f8c42f923b714acbc2b1339c7dfbcb3a766378c8"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#62766141561550c3540f9f644085fec53d721f16"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#f8c42f923b714acbc2b1339c7dfbcb3a766378c8"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#62766141561550c3540f9f644085fec53d721f16"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -194,9 +194,9 @@ dependencies = [
 
 [[package]]
 name = "convert_case"
-version = "0.7.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb402b8d4c85569410425650ce3eddc7d698ed96d39a73f941b08fb63082f1e7"
+checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
 dependencies = [
  "unicode-segmentation",
 ]
@@ -247,22 +247,23 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "2.0.1"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "093242cf7570c207c83073cf82f79706fe7b8317e98620a47d5be7c3d8497678"
+checksum = "10b768e943bed7bf2cab53df09f4bc34bfd217cdb57d971e769874c9a6710618"
 dependencies = [
  "derive_more-impl",
 ]
 
 [[package]]
 name = "derive_more-impl"
-version = "2.0.1"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bda628edc44c4bb645fbe0f758797143e4e07926f7ebf4e9bdfbd3d2ce621df3"
+checksum = "6d286bfdaf75e988b4a78e013ecd79c581e06399ab53fbacd2d916c2f904f30b"
 dependencies = [
  "convert_case",
  "proc-macro2",
  "quote",
+ "rustc_version",
  "syn",
  "unicode-xid",
 ]
@@ -292,7 +293,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=modular-precompiles#b71afd774b3186b02ebe2cded75358da2901b584"
+source = "git+https://github.com/leanEthereum/fiat-shamir.git#bcf23c766f2e930acf11e68777449483a55af077"
 dependencies = [
  "p3-challenger",
  "p3-field",
@@ -481,9 +482,9 @@ checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
 
 [[package]]
 name = "log"
-version = "0.4.28"
+version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
+checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lookup"
@@ -517,7 +518,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#f8c42f923b714acbc2b1339c7dfbcb3a766378c8"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#62766141561550c3540f9f644085fec53d721f16"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -602,7 +603,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "p3-air"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "p3-field",
  "p3-matrix",
@@ -611,7 +612,7 @@ dependencies = [
 [[package]]
 name = "p3-baby-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -624,7 +625,7 @@ dependencies = [
 [[package]]
 name = "p3-challenger"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "p3-field",
  "p3-maybe-rayon",
@@ -636,7 +637,7 @@ dependencies = [
 [[package]]
 name = "p3-commit"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "itertools",
  "p3-challenger",
@@ -650,7 +651,7 @@ dependencies = [
 [[package]]
 name = "p3-dft"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "itertools",
  "p3-field",
@@ -663,7 +664,7 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -678,7 +679,7 @@ dependencies = [
 [[package]]
 name = "p3-interpolation"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "p3-field",
  "p3-matrix",
@@ -689,7 +690,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -705,7 +706,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "itertools",
  "p3-field",
@@ -720,7 +721,7 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "rayon",
 ]
@@ -728,7 +729,7 @@ dependencies = [
 [[package]]
 name = "p3-mds"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "p3-dft",
  "p3-field",
@@ -740,7 +741,7 @@ dependencies = [
 [[package]]
 name = "p3-merkle-tree"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "itertools",
  "p3-commit",
@@ -757,7 +758,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -779,7 +780,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -791,7 +792,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "itertools",
  "p3-field",
@@ -801,7 +802,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=modular-precompiles#4cacfe43d82ad3dbda11a69363ff961b3cd0964f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1db9df28abd6db586eaa891af2416d94d1b026ae"
 dependencies = [
  "rayon",
  "serde",
@@ -1013,6 +1014,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
+name = "rustc_version"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+dependencies = [
+ "semver",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1023,6 +1033,12 @@ name = "ryu"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
+
+[[package]]
+name = "semver"
+version = "1.0.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "serde"
@@ -1133,7 +1149,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#f8c42f923b714acbc2b1339c7dfbcb3a766378c8"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#62766141561550c3540f9f644085fec53d721f16"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1248,18 +1264,6 @@ dependencies = [
 
 [[package]]
 name = "tracing-forest"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3298fe855716711a00474eceb89cc7dc254bbe67f6bc4afafdeec5f0c538771c"
-dependencies = [
- "smallvec",
- "thiserror",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "tracing-forest"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92bdb3c949c9e81b71f78ba782f956b896019d82cc2f31025d21e04adab4d695"
@@ -1359,7 +1363,7 @@ dependencies = [
  "p3-util",
  "rand",
  "tracing",
- "tracing-forest 0.3.0",
+ "tracing-forest",
  "tracing-subscriber",
 ]
 
@@ -1387,7 +1391,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=modular-precompiles#a95124c1f0bb4166f4f091293123f5ad4903c8e1"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#e30463252c59e18c7cf09168299539b1e5b2b442"
 dependencies = [
  "itertools",
  "multilinear-toolkit",
@@ -1407,7 +1411,7 @@ dependencies = [
  "rayon",
  "thiserror",
  "tracing",
- "tracing-forest 0.2.0",
+ "tracing-forest",
  "tracing-subscriber",
 ]
 
