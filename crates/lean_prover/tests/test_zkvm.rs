@@ -29,8 +29,6 @@ fn test_zk_vm_all_precompiles() {
         dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
         merkle_verify((pub_start + 2000) / 8, LEAF_POS_1, (pub_start + 2000 + 8) / 8, MERKLE_HEIGHT_1);
         merkle_verify((pub_start + 2000 + 16) / 8, LEAF_POS_2, (pub_start + 2000 + 24) / 8, MERKLE_HEIGHT_2);
-        index_res_slice_hash = 10000;
-        slice_hash(5, 6, index_res_slice_hash, 3);
         
         return;
     }
