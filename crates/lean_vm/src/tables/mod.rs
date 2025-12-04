@@ -22,8 +22,5 @@ pub use merkle::*;
 mod slice_hash;
 pub use slice_hash::*;
 
-mod eq_poly_base_ext;
-pub use eq_poly_base_ext::*;
-
 mod utils;
 pub(crate) use utils::*;

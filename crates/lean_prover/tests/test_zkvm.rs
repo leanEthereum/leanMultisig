@@ -31,7 +31,6 @@ fn test_zk_vm_all_precompiles() {
         merkle_verify((pub_start + 2000 + 16) / 8, LEAF_POS_2, (pub_start + 2000 + 24) / 8, MERKLE_HEIGHT_2);
         index_res_slice_hash = 10000;
         slice_hash(5, 6, index_res_slice_hash, 3);
-        eq_poly_base_ext(pub_start + 1100, pub_start +1100 + 3, pub_start + 1100 + (DIM + 1) * 3, 3);
         
         return;
     }
