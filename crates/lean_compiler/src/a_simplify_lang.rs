@@ -1597,6 +1597,10 @@ fn handle_inlined_functions_helper(
                 if let Some(func) = inlined_functions.get(&*function_name) {
                     let mut inlined_lines = vec![];
 
+                    for var in return_data.iter() {
+                        inlined_lines.push(Line::ForwardDeclaration { var : var.clone() });
+                    }
+
                     let mut simplified_args = vec![];
                     for arg in args {
                         if let Expression::Value(simple_expr) = arg {
