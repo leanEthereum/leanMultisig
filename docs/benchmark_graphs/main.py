@@ -32,8 +32,8 @@ def create_duration_graph(data, target=None, target_label=None, title="", y_lege
         for i in range(num_curves):
             values[i].append(item[i + 1])
 
-    colors = ['#2E86AB', '#A23B72', '#28A745', '#FF6F00', '#6A1B9A']
-    markers = ['o', 's', '^', 'D', 'v']
+    colors = ['#2E86AB', "#FF0000", '#28A745', "#FF7B00", "#9E01FF"]
+    markers = ['o', 's', 's', '^', '^']
 
     _, ax = plt.subplots(figsize=(10, 6))
 
@@ -51,7 +51,7 @@ def create_duration_graph(data, target=None, target_label=None, title="", y_lege
             ax.plot(dates_filtered, values_filtered, 
                     marker=markers[i % len(markers)], 
                     linewidth=2,
-                    markersize=7, 
+                    markersize=8, 
                     color=colors[i % len(colors)], 
                     label=labels[i])
             all_values.extend(values_filtered)
@@ -121,33 +121,33 @@ if __name__ == "__main__":
         title="Raw Poseidon2",
         y_legend="Poseidons proven / s",
         file="raw_poseidons",
-        labels=["i9-12900H", "mac m4 max"],
+        labels=["i9-12900H", "m4-max"],
         log_scale=False
     )
 
     create_duration_graph(
         data=[
-            ('2025-08-27', 2.7, None, None),
-            ('2025-09-07', 1.4, None, None),
-            ('2025-09-09', 1.32, None, None),
-            ('2025-09-10', 0.970, None, None),
-            ('2025-09-14', 0.825, None, None),
-            ('2025-09-28', 0.725, None, None),
-            ('2025-10-01', 0.685, None, None),
-            ('2025-10-03', 0.647, None, None),
-            ('2025-10-12', 0.569, None, None),
-            ('2025-10-13', 0.521, None, None),
-            ('2025-10-18', 0.411, 0.320, None),
-            ('2025-10-27', 0.425, 0.330, None),
-            ('2025-11-15', 0.417, 0.330, None),
-            ('2025-12-04', None, 0.097, 0.130),
+            ('2025-08-27', 2.7, None, None, None, None),
+            ('2025-09-07', 1.4, None, None, None, None),
+            ('2025-09-09', 1.32, None, None, None, None),
+            ('2025-09-10', 0.970, None, None, None, None),
+            ('2025-09-14', 0.825, None, None, None, None),
+            ('2025-09-28', 0.725, None, None, None, None),
+            ('2025-10-01', 0.685, None, None, None, None),
+            ('2025-10-03', 0.647, None, None, None, None),
+            ('2025-10-12', 0.569, None, None, None, None),
+            ('2025-10-13', 0.521, None, None, None, None),
+            ('2025-10-18', 0.411, 0.320, None, None, None),
+            ('2025-10-27', 0.425, 0.330, None, None, None),
+            ('2025-11-15', 0.417, 0.330, None, None, None),
+            ('2025-12-04', None, 0.220, 0.097, 0.320, 0.130),
         ],
         target=0.1,
         target_label="Target (0.1 s)",
         title="Recursive WHIR opening (log scale)",
         y_legend="Proving time (s)",
         file="recursive_whir_opening",
-        labels=["i9-12900H", "mac m4 max", "mac m4 max | lean-vm-simple"],
+        labels=["i9-12900H | 1-to-1", "m4-max | 1-to-1", "m4-max | n-to-1", "m4-max | lean-vm-simple | 1-to-1", "m4-max | lean-vm-simple | n-to-1"],
         log_scale=True
     )
 
@@ -176,7 +176,7 @@ if __name__ == "__main__":
         title="number of XMSS aggregated / s",
         y_legend="",
         file="xmss_aggregated",
-        labels=["i9-12900H", "mac m4 max", "mac m4 max | lean-vm-simple"]
+        labels=["i9-12900H", "m4-max", "m4-max | lean-vm-simple"]
     )
 
     create_duration_graph(
@@ -205,5 +205,5 @@ if __name__ == "__main__":
         title="XMSS aggregated: zkVM overhead vs raw Poseidons",
         y_legend="",
         file="xmss_aggregated_overhead",
-        labels=["i9-12900H", "mac m4 max", "mac m4 max | lean-vm-simple"]
+        labels=["i9-12900H", "m4-max", "m4-max | lean-vm-simple"]
     )
