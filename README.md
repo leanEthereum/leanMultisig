@@ -49,6 +49,8 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 8
 
 ![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)
 
+Detail: before 4 December 2025, only 1 WHIR opening was benchmarked. Starting from now, we prove a dozen of openings together (to be closer to the n-to-1 aggregation scenario) and we report the proving time / WHIR.
+
 ### XMSS aggregation
 
 ```console
@@ -59,8 +61,6 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1775
 
 
 ![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated.svg)
-
-Detail: before 4 December 2025, only 1 WHIR opening was benchmarked. Starting from now, we prove a dozen of openings together (to be closer to the n-to-1 aggregation scenario) and we report the proving time / WHIR.
 
 ![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated_overhead.svg)
 
