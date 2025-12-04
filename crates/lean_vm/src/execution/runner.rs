@@ -69,7 +69,7 @@ pub fn execute_bytecode(
         profiling,
         (poseidons_16_precomputed, poseidons_24_precomputed),
     )
-    .unwrap_or_else(|err| {
+    .unwrap_or_else(|(last_pc, err)| {
         let lines_history = &instruction_history.lines;
         let latest_instructions = &lines_history[lines_history.len().saturating_sub(STACK_TRACE_INSTRUCTIONS)..];
         println!(
@@ -77,7 +77,8 @@ pub fn execute_bytecode(
             crate::diagnostics::pretty_stack_trace(
                 &bytecode.program,
                 latest_instructions,
-                &bytecode.function_locations
+                &bytecode.function_locations,
+                last_pc
             )
         );
         if !std_out.is_empty() {
@@ -145,7 +146,7 @@ fn execute_bytecode_helper(
     no_vec_runtime_memory: usize,
     profiling: bool,
     (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
-) -> Result<ExecutionResult, RunnerError> {
+) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
 
@@ -153,7 +154,7 @@ fn execute_bytecode_helper(
     let mut fp = public_memory_size;
 
     for (i, value) in private_input.iter().enumerate() {
-        memory.set(fp + i, *value)?;
+        memory.set(fp + i, *value).expect("to set private input in memory");
     }
 
     let mut mem_profile = MemoryProfile {
@@ -197,7 +198,7 @@ fn execute_bytecode_helper(
 
     while pc != ENDING_PC {
         if pc >= bytecode.instructions.len() {
-            return Err(RunnerError::PCOutOfBounds);
+            return Err((pc, RunnerError::PCOutOfBounds));
         }
 
         pcs.push(pc);
@@ -224,7 +225,7 @@ fn execute_bytecode_helper(
                 profiling,
                 memory_profile: &mut mem_profile,
             };
-            hint.execute_hint(&mut hint_ctx)?;
+            hint.execute_hint(&mut hint_ctx).map_err(|e| (pc, e))?;
         }
 
         let instruction = &bytecode.instructions[pc];
@@ -243,7 +244,9 @@ fn execute_bytecode_helper(
             n_poseidon16_precomputed_used: &mut n_poseidon16_precomputed_used,
             n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
-        instruction.execute_instruction(&mut instruction_ctx)?;
+        instruction
+            .execute_instruction(&mut instruction_ctx)
+            .map_err(|e| (pc, e))?;
     }
 
     assert_eq!(

@@ -9,8 +9,12 @@ pub enum RunnerError {
     #[error("Out of memory")]
     OutOfMemory,
 
-    #[error("Memory already set")]
-    MemoryAlreadySet,
+    #[error("Memory already set: m[{address}] = {prev_value} != {new_value}")]
+    MemoryAlreadySet {
+        address: usize,
+        prev_value: F,
+        new_value: F,
+    },
 
     #[error("Not a pointer")]
     NotAPointer,
