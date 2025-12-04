@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use lean_compiler::*;
 use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
@@ -27,8 +25,6 @@ fn test_zk_vm_all_precompiles() {
         poseidon24(pub_start_vec + 7, pub_start_vec + 9, pub_start_vec + 10);
         dot_product_be(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N);
         dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
-        merkle_verify((pub_start + 2000) / 8, LEAF_POS_1, (pub_start + 2000 + 8) / 8, MERKLE_HEIGHT_1);
-        merkle_verify((pub_start + 2000 + 16) / 8, LEAF_POS_2, (pub_start + 2000 + 24) / 8, MERKLE_HEIGHT_2);
         
         return;
     }
@@ -116,14 +112,7 @@ fn test_zk_vm_all_precompiles() {
         merkle_path
     }
 
-    let merkle_path_1 = add_merkle_path(&mut rng, &mut public_input[2000..], 10, 781);
-    let merkle_path_2 = add_merkle_path(&mut rng, &mut public_input[2000 + 16..], 15, 178);
-
-    let mut merkle_path_hints = VecDeque::new();
-    merkle_path_hints.push_back(merkle_path_1);
-    merkle_path_hints.push_back(merkle_path_2);
-
-    test_zk_vm_helper(program_str, (&public_input, &[]), 0, merkle_path_hints);
+    test_zk_vm_helper(program_str, (&public_input, &[]), 0);
 }
 
 #[test]
@@ -165,15 +154,10 @@ fn test_prove_fibonacci() {
         .unwrap();
     let program_str = program_str.replace("FIB_N_PLACEHOLDER", &n.to_string());
 
-    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0, Default::default());
+    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0);
 }
 
-fn test_zk_vm_helper(
-    program_str: &str,
-    (public_input, private_input): (&[F], &[F]),
-    no_vec_runtime_memory: usize,
-    merkle_path_hints: VecDeque<Vec<[F; 8]>>,
-) {
+fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F]), no_vec_runtime_memory: usize) {
     utils::init_tracing();
     let bytecode = compile_program(program_str.to_string());
     let time = std::time::Instant::now();
@@ -183,7 +167,6 @@ fn test_zk_vm_helper(
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]),
-        merkle_path_hints,
     );
     let proof_time = time.elapsed();
     verify_execution(&bytecode, public_input, proof).unwrap();

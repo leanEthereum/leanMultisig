@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::path::Path;
 use std::time::Instant;
 
@@ -129,11 +128,6 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
 
     let bytecode = compile_program(program_str);
 
-    let mut merkle_path_hints = VecDeque::new();
-    for _ in 0..n_recursions {
-        merkle_path_hints.extend(whir_proof.merkle_hints.clone());
-    }
-
     // in practice we will precompute all the possible values
     // (depending on the number of recursions + the number of xmss signatures)
     // (or even better: find a linear relation)
@@ -143,7 +137,6 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         1 << 20,
         false,
         (&vec![], &vec![]), // TODO
-        merkle_path_hints.clone(),
     )
     .no_vec_runtime_memory;
 
@@ -155,7 +148,6 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         no_vec_runtime_memory,
         false,
         (&vec![], &vec![]), // TODO precompute poseidons
-        merkle_path_hints,
     );
     let proof_size = proof.proof_size;
     let proving_time = time.elapsed();

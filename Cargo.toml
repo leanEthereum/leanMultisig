@@ -82,8 +82,8 @@ p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "modular-precompiles" }
 
-whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "modular-precompiles" }
-multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "modular-precompiles" }
+whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "simple-lean-vm" }
+multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "simple-lean-vm" }
 
 [dependencies]
 clap.workspace = true

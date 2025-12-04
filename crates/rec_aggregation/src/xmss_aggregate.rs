@@ -4,11 +4,11 @@ use lean_prover::{prove_execution::prove_execution, verify_execution::verify_exe
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Instant;
 use tracing::{info_span, instrument};
+use utils::to_little_endian_in_field;
 use whir_p3::precompute_dft_twiddles;
 use xmss::{
     Poseidon16History, Poseidon24History, V, XMSS_MAX_LOG_LIFETIME, XMSS_MIN_LOG_LIFETIME, XmssPublicKey,
@@ -25,40 +25,34 @@ pub fn xmss_setup_aggregation_program() {
     let _ = get_xmss_aggregation_program();
 }
 
-// vectorized
-fn xmss_sig_size_in_memory() -> usize {
-    1 + V
-}
-
 fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message_hash: [F; 8], slot: u64) -> Vec<F> {
     let mut public_input = message_hash.to_vec();
     public_input.extend(xmss_pub_keys.iter().flat_map(|pk| pk.merkle_root));
     public_input.extend(xmss_pub_keys.iter().map(|pk| F::from_usize(pk.log_lifetime)));
-    public_input.extend(
-        xmss_pub_keys
-            .iter()
-            .map(|pk| F::from_u64(slot.checked_sub(pk.first_slot).unwrap())), // index in merkle tree
-    );
+    for pk in xmss_pub_keys {
+        let index_in_merkle_tree = slot.checked_sub(pk.first_slot).unwrap() as usize;
+        public_input.extend(to_little_endian_in_field::<F>(
+            index_in_merkle_tree,
+            XMSS_MAX_LOG_LIFETIME,
+        ));
+    }
+    let mut acc = F::ZERO;
+    for pk in xmss_pub_keys {
+        public_input.push(acc);
+        acc += F::from_usize(1 + V + pk.log_lifetime); // signature size in memory (vectorized)
+    }
 
     let min_public_input_size = (1 << LOG_SMALLEST_DECOMPOSITION_CHUNK) - NONRESERVED_PROGRAM_INPUT_START;
     public_input.extend(F::zero_vec(min_public_input_size.saturating_sub(public_input.len())));
     public_input.splice(
         0..0,
-        [
-            vec![
-                F::from_usize(xmss_pub_keys.len()),
-                F::from_usize(xmss_sig_size_in_memory()),
-            ],
-            vec![F::ZERO; 6],
-        ]
-        .concat(),
+        [vec![F::from_usize(xmss_pub_keys.len())], vec![F::ZERO; 7]].concat(),
     );
     public_input
 }
 
-fn build_private_input(all_signatures: &[XmssSignature]) -> (Vec<F>, VecDeque<Vec<[F; 8]>>) {
+fn build_private_input(all_signatures: &[XmssSignature]) -> Vec<F> {
     let mut private_input = vec![];
-    let mut merkle_path_hints = VecDeque::<Vec<[F; 8]>>::new();
     for signature in all_signatures {
         let initial_private_input_len = private_input.len();
         private_input.extend(signature.wots_signature.randomness.to_vec());
@@ -69,13 +63,14 @@ fn build_private_input(all_signatures: &[XmssSignature]) -> (Vec<F>, VecDeque<Ve
                 .iter()
                 .flat_map(|digest| digest.to_vec()),
         );
+        for neighbor in &signature.merkle_proof {
+            private_input.extend(neighbor.to_vec());
+        }
 
         let sig_size = private_input.len() - initial_private_input_len;
-        private_input.extend(F::zero_vec(xmss_sig_size_in_memory() * VECTOR_LEN - sig_size));
-
-        merkle_path_hints.push_back(signature.merkle_proof.clone());
+        assert!(sig_size.is_multiple_of(VECTOR_LEN));
     }
-    (private_input, merkle_path_hints)
+    private_input
 }
 
 #[derive(Debug, Clone)]
@@ -137,14 +132,13 @@ fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionRes
     let slot = 1111;
     let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, slot);
     let public_input = build_public_input(&xmss_pub_keys, message_hash, slot);
-    let (private_input, merkle_path_hints) = build_private_input(&all_signatures);
+    let private_input = build_private_input(&all_signatures);
     execute_bytecode(
         bytecode,
         (&public_input, &private_input),
         1 << 21,
         false,
         (&vec![], &vec![]),
-        merkle_path_hints,
     )
 }
 
@@ -209,7 +203,7 @@ fn xmss_aggregate_signatures_helper(
             .ok_or(XmssAggregateError::InvalidSigature)?;
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
-    let (private_input, merkle_path_hints) = build_private_input(all_signatures);
+    let private_input = build_private_input(all_signatures);
 
     let (proof, summary) = prove_execution(
         &program.bytecode,
@@ -217,7 +211,6 @@ fn xmss_aggregate_signatures_helper(
         program.compute_non_vec_memory(&xmss_pub_keys.iter().map(|pk| pk.log_lifetime).collect::<Vec<_>>()),
         false,
         (&poseidons_16_precomputed, &poseidons_24_precomputed),
-        merkle_path_hints,
     );
 
     let proof_bytes = info_span!("Proof serialization").in_scope(|| bincode::serialize(&proof).unwrap());

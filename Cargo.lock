@@ -92,7 +92,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#f8c42f923b714acbc2b1339c7dfbcb3a766378c8"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=simple-lean-vm#cbbd38b61ce0775ebeb9a43083968410832c7b3b"
 dependencies = [
  "fiat-shamir",
  "itertools",
@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#f8c42f923b714acbc2b1339c7dfbcb3a766378c8"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=simple-lean-vm#cbbd38b61ce0775ebeb9a43083968410832c7b3b"
 dependencies = [
  "fiat-shamir",
  "p3-air",
@@ -292,7 +292,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=modular-precompiles#b71afd774b3186b02ebe2cded75358da2901b584"
+source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=simple-lean-vm#6af976fbedcf528374881c914458b9e1d2393b73"
 dependencies = [
  "p3-challenger",
  "p3-field",
@@ -517,7 +517,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#f8c42f923b714acbc2b1339c7dfbcb3a766378c8"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=simple-lean-vm#cbbd38b61ce0775ebeb9a43083968410832c7b3b"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1133,7 +1133,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=modular-precompiles#f8c42f923b714acbc2b1339c7dfbcb3a766378c8"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=simple-lean-vm#cbbd38b61ce0775ebeb9a43083968410832c7b3b"
 dependencies = [
  "backend",
  "constraints-folder",
@@ -1387,7 +1387,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=modular-precompiles#a95124c1f0bb4166f4f091293123f5ad4903c8e1"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=simple-lean-vm#092e46e10e2cd1be1c1b5862350d2bdcd4ccec13"
 dependencies = [
  "itertools",
  "multilinear-toolkit",

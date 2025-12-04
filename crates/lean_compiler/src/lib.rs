@@ -41,7 +41,6 @@ pub fn compile_and_run(
         no_vec_runtime_memory,
         profiler,
         (&vec![], &vec![]),
-        Default::default(),
     )
     .summary;
     println!("{summary}");

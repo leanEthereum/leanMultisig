@@ -16,8 +16,5 @@ pub use table_trait::*;
 mod execution;
 pub use execution::*;
 
-mod merkle;
-pub use merkle::*;
-
 mod utils;
 pub(crate) use utils::*;

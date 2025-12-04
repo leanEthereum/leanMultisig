@@ -53,6 +53,12 @@ pub fn to_little_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
     res
 }
 
+pub fn to_little_endian_in_field<F: Field>(value: usize, bit_count: usize) -> Vec<F> {
+    let mut res = to_big_endian_in_field::<F>(value, bit_count);
+    res.reverse();
+    res
+}
+
 #[macro_export]
 macro_rules! assert_eq_many {
     ($first:expr, $($rest:expr),+ $(,)?) => {

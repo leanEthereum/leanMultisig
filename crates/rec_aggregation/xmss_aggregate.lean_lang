@@ -4,25 +4,27 @@ const PERMUTATION = 0;
 const V = 66;
 const W = 4;
 const TARGET_SUM = 118;
+const MAX_LOG_LIFETIME = 30;
 
 const V_HALF = V / 2; // V should be even
 
 fn main() {
     public_input_start_ = public_input_start;
     n_signatures = public_input_start_[0];
-    sig_size = public_input_start_[1]; // vectorized
     message_hash = public_input_start / 8 + 1;
     all_public_keys = message_hash + 1;
     all_log_lifetimes = (all_public_keys + n_signatures) * 8;
     all_merkle_indexes = all_log_lifetimes + n_signatures;
+    sig_sizes = all_merkle_indexes + n_signatures * MAX_LOG_LIFETIME;
 
     signatures_start_no_vec = private_input_start();
     signatures_start = signatures_start_no_vec / 8;
+
     for i in 0..n_signatures {
         xmss_public_key = all_public_keys + i;
-        signature = signatures_start + i * sig_size;
+        signature = signatures_start + sig_sizes[i];
         log_lifetime = all_log_lifetimes[i];
-        merkle_index = all_merkle_indexes[i];
+        merkle_index = all_merkle_indexes + i * MAX_LOG_LIFETIME;
         xmss_public_key_recovered = xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index);
         assert_eq_vec(xmss_public_key, xmss_public_key_recovered);
     }
@@ -35,6 +37,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     // return a vectorized pointer (of length 1), the hashed xmss public key
     randomness = signature; // vectorized
     chain_tips = signature + 1; // vectorized
+    merkle_path = chain_tips + V; 
 
     // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
@@ -128,46 +131,63 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
 
     wots_pubkey_hashed = slice_hash(pointer_to_zero_vector, public_key, V_HALF);
 
-    merkle_root = malloc_vec(1);
     match log_lifetime {
-        0 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 0); }
-        1 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 1); }
-        2 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 2); }
-        3 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 3); }
-        4 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 4); }
-        5 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 5); }
-        6 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 6); }
-        7 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 7); }
-        8 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 8); }
-        9 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 9); }
-        10 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 10); }
-        11 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 11); }
-        12 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 12); }
-        13 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 13); }
-        14 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 14); }
-        15 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 15); }
-        16 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 16); }
-        17 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 17); }
-        18 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 18); }
-        19 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 19); }
-        20 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 20); }
-        21 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 21); }
-        22 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 22); }
-        23 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 23); }
-        24 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 24); }
-        25 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 25); }
-        26 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 26); }
-        27 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 27); }
-        28 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 28); }
-        29 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 29); }
-        30 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 30); }
-        31 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 31); }
-        32 => { merkle_hash = merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 32); }
+        0 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 0); }
+        1 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 1); }
+        2 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 2); }
+        3 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 3); }
+        4 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 4); }
+        5 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 5); }
+        6 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 6); }
+        7 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 7); }
+        8 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 8); }
+        9 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 9); }
+        10 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 10); }
+        11 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 11); }
+        12 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 12); }
+        13 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 13); }
+        14 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 14); }
+        15 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 15); }
+        16 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 16); }
+        17 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 17); }
+        18 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 18); }
+        19 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 19); }
+        20 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 20); }
+        21 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 21); }
+        22 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 22); }
+        23 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 23); }
+        24 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 24); }
+        25 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 25); }
+        26 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 26); }
+        27 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 27); }
+        28 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 28); }
+        29 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 29); }
+        30 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 30); }
+        31 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 31); }
+        32 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 32); }
     }           
-    
-
     return merkle_root;
 }
+
+
+fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, const height) -> 1 {
+    states = malloc(1 + height);
+    states[0] = leaf_digest;
+    for j in 0..height unroll {
+        if leaf_position_bits[j] == 1 {
+            left = merkle_path + j;
+            right = states[j];
+        } else {
+            left = states[j];
+            right = merkle_path + j;
+        }
+        state_j_plus_1 = malloc_vec(1);
+        poseidon16(left, right, state_j_plus_1, COMPRESSION);
+        states[j + 1] = state_j_plus_1;
+    }
+    return states[height];
+}
+
 
 
 fn slice_hash(seed, data, const half_len) -> 1 {

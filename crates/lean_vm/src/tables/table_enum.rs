@@ -3,7 +3,7 @@ use p3_air::Air;
 
 use crate::*;
 
-pub const N_TABLES: usize = 8;
+pub const N_TABLES: usize = 7;
 pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::execution(),
     Table::dot_product_be(),
@@ -12,7 +12,6 @@ pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::poseidon16_mem(),
     Table::poseidon24_core(),
     Table::poseidon24_mem(),
-    Table::merkle(),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -25,7 +24,6 @@ pub enum Table {
     Poseidon16Mem(Poseidon16MemPrecompile),
     Poseidon24Core(Poseidon24CorePrecompile),
     Poseidon24Mem(Poseidon24MemPrecompile),
-    Merkle(MerklePrecompile),
 }
 
 #[macro_export]
@@ -40,7 +38,6 @@ macro_rules! delegate_to_inner {
             Self::Poseidon24Core(p) => p.$method($($($arg),*)?),
             Self::Poseidon24Mem(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
-            Self::Merkle(p) => p.$method($($($arg),*)?),
         }
     };
     // New pattern for applying a macro to the inner value
@@ -53,7 +50,6 @@ macro_rules! delegate_to_inner {
             Table::Poseidon24Core(p) => $macro_name!(p),
             Table::Poseidon24Mem(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
-            Table::Merkle(p) => $macro_name!(p),
         }
     };
 }
@@ -79,9 +75,6 @@ impl Table {
     }
     pub const fn poseidon24_mem() -> Self {
         Self::Poseidon24Mem(Poseidon24MemPrecompile)
-    }
-    pub const fn merkle() -> Self {
-        Self::Merkle(MerklePrecompile)
     }
     pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
         PF::from_usize(self.index())
