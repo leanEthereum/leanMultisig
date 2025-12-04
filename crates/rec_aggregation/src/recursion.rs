@@ -134,7 +134,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     let no_vec_runtime_memory = execute_bytecode(
         &bytecode,
         (&public_input, &[]),
-        1 << 20,
+        1 << 23,
         false,
         (&vec![], &vec![]), // TODO
     )

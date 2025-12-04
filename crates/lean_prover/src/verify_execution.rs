@@ -173,30 +173,30 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
 
     let p16_gkr = verify_poseidon_gkr(
         &mut verifier_state,
-        table_heights[&Table::poseidon16_core()].log_padded(),
-        &air_points[&Table::poseidon16_core()].0,
+        table_heights[&Table::poseidon16()].log_padded(),
+        &air_points[&Table::poseidon16()].0,
         &p16_gkr_layers,
         UNIVARIATE_SKIPS,
         true,
     );
-    assert_eq!(&p16_gkr.output_statements.point, &air_points[&Table::poseidon16_core()]);
+    assert_eq!(&p16_gkr.output_statements.point, &air_points[&Table::poseidon16()]);
     assert_eq!(
         &p16_gkr.output_statements.values,
-        &evals_f[&Table::poseidon16_core()][POSEIDON_16_CORE_COL_OUTPUT_START..][..16]
+        &evals_f[&Table::poseidon16()][POSEIDON_16_COL_OUTPUT_START..][..16]
     );
 
     let p24_gkr = verify_poseidon_gkr(
         &mut verifier_state,
-        table_heights[&Table::poseidon24_core()].log_padded(),
-        &air_points[&Table::poseidon24_core()].0,
+        table_heights[&Table::poseidon24()].log_padded(),
+        &air_points[&Table::poseidon24()].0,
         &p24_gkr_layers,
         UNIVARIATE_SKIPS,
         false,
     );
-    assert_eq!(&p24_gkr.output_statements.point, &air_points[&Table::poseidon24_core()]);
+    assert_eq!(&p24_gkr.output_statements.point, &air_points[&Table::poseidon24()]);
     assert_eq!(
         &p24_gkr.output_statements.values[16..],
-        &evals_f[&Table::poseidon24_core()][POSEIDON_24_CORE_COL_OUTPUT_START..][..8]
+        &evals_f[&Table::poseidon24()][POSEIDON_24_COL_OUTPUT_START..][..8]
     );
 
     let (initial_pc_statement, final_pc_statement) =
@@ -208,17 +208,17 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
             initial_pc_statement,
             final_pc_statement,
         ]);
-    let statements_p16_core = final_statements.get_mut(&Table::poseidon16_core()).unwrap();
-    for (stmts, gkr_value) in statements_p16_core[POSEIDON_16_CORE_COL_INPUT_START..][..16]
+    let statements_p16_core = final_statements.get_mut(&Table::poseidon16()).unwrap();
+    for (stmts, gkr_value) in statements_p16_core[POSEIDON_16_COL_INPUT_START..][..16]
         .iter_mut()
         .zip(&p16_gkr.input_statements.values)
     {
         stmts.push(Evaluation::new(p16_gkr.input_statements.point.clone(), *gkr_value));
     }
-    statements_p16_core[POSEIDON_16_CORE_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
+    statements_p16_core[POSEIDON_16_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
 
-    let statements_p24_core = final_statements.get_mut(&Table::poseidon24_core()).unwrap();
-    for (stmts, gkr_value) in statements_p24_core[POSEIDON_24_CORE_COL_INPUT_START..][..24]
+    let statements_p24_core = final_statements.get_mut(&Table::poseidon24()).unwrap();
+    for (stmts, gkr_value) in statements_p24_core[POSEIDON_24_COL_INPUT_START..][..24]
         .iter_mut()
         .zip(&p24_gkr.input_statements.values)
     {

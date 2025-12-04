@@ -30,11 +30,11 @@ pub(crate) fn get_base_dims(
         ],
         p16_default_cubes
             .iter()
-            .map(|&c| ColDims::padded(table_heights[&Table::poseidon16_core()].n_rows_non_padded_maxed(), c))
+            .map(|&c| ColDims::padded(table_heights[&Table::poseidon16()].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(), // commited cubes for poseidon16
         p24_default_cubes
             .iter()
-            .map(|&c| ColDims::padded(table_heights[&Table::poseidon24_core()].n_rows_non_padded_maxed(), c))
+            .map(|&c| ColDims::padded(table_heights[&Table::poseidon24()].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(),
     ]
     .concat();

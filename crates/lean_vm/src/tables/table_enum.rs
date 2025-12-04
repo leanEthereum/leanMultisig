@@ -3,15 +3,13 @@ use p3_air::Air;
 
 use crate::*;
 
-pub const N_TABLES: usize = 7;
+pub const N_TABLES: usize = 5;
 pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::execution(),
     Table::dot_product_be(),
     Table::dot_product_ee(),
-    Table::poseidon16_core(),
-    Table::poseidon16_mem(),
-    Table::poseidon24_core(),
-    Table::poseidon24_mem(),
+    Table::poseidon16(),
+    Table::poseidon24(),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -20,10 +18,8 @@ pub enum Table {
     Execution(ExecutionTable),
     DotProductBE(DotProductPrecompile<true>),
     DotProductEE(DotProductPrecompile<false>),
-    Poseidon16Core(Poseidon16CorePrecompile),
-    Poseidon16Mem(Poseidon16MemPrecompile),
-    Poseidon24Core(Poseidon24CorePrecompile),
-    Poseidon24Mem(Poseidon24MemPrecompile),
+    Poseidon16(Poseidon16Precompile),
+    Poseidon24(Poseidon24Precompile),
 }
 
 #[macro_export]
@@ -33,10 +29,8 @@ macro_rules! delegate_to_inner {
         match $self {
             Self::DotProductBE(p) => p.$method($($($arg),*)?),
             Self::DotProductEE(p) => p.$method($($($arg),*)?),
-            Self::Poseidon16Core(p) => p.$method($($($arg),*)?),
-            Self::Poseidon16Mem(p) => p.$method($($($arg),*)?),
-            Self::Poseidon24Core(p) => p.$method($($($arg),*)?),
-            Self::Poseidon24Mem(p) => p.$method($($($arg),*)?),
+            Self::Poseidon16(p) => p.$method($($($arg),*)?),
+            Self::Poseidon24(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
         }
     };
@@ -45,10 +39,8 @@ macro_rules! delegate_to_inner {
         match $self {
             Table::DotProductBE(p) => $macro_name!(p),
             Table::DotProductEE(p) => $macro_name!(p),
-            Table::Poseidon16Core(p) => $macro_name!(p),
-            Table::Poseidon16Mem(p) => $macro_name!(p),
-            Table::Poseidon24Core(p) => $macro_name!(p),
-            Table::Poseidon24Mem(p) => $macro_name!(p),
+            Table::Poseidon16(p) => $macro_name!(p),
+            Table::Poseidon24(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
         }
     };
@@ -64,17 +56,11 @@ impl Table {
     pub const fn dot_product_ee() -> Self {
         Self::DotProductEE(DotProductPrecompile::<false>)
     }
-    pub const fn poseidon16_core() -> Self {
-        Self::Poseidon16Core(Poseidon16CorePrecompile)
+    pub const fn poseidon16() -> Self {
+        Self::Poseidon16(Poseidon16Precompile)
     }
-    pub const fn poseidon16_mem() -> Self {
-        Self::Poseidon16Mem(Poseidon16MemPrecompile)
-    }
-    pub const fn poseidon24_core() -> Self {
-        Self::Poseidon24Core(Poseidon24CorePrecompile)
-    }
-    pub const fn poseidon24_mem() -> Self {
-        Self::Poseidon24Mem(Poseidon24MemPrecompile)
+    pub const fn poseidon24() -> Self {
+        Self::Poseidon24(Poseidon24Precompile)
     }
     pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
         PF::from_usize(self.index())
@@ -83,10 +69,7 @@ impl Table {
         unsafe { *(self as *const Self as *const usize) }
     }
     pub fn is_poseidon(&self) -> bool {
-        matches!(
-            self,
-            Table::Poseidon16Core(_) | Table::Poseidon16Mem(_) | Table::Poseidon24Core(_) | Table::Poseidon24Mem(_)
-        )
+        matches!(self, Table::Poseidon16(_) | Table::Poseidon24(_))
     }
 }
 
