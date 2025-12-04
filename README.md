@@ -38,7 +38,7 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- poseidon --log-n-perms 2
 The full recursion program is not finished yet. Instead, we prove validity of a WHIR opening, with 25 variables, and rate = 1/4.
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 8
+RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 9
 ```
 
 ![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)
