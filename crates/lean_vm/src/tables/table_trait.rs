@@ -4,7 +4,7 @@ use crate::{
     Table, VECTOR_LEN,
 };
 use multilinear_toolkit::prelude::*;
-use p3_air::Air;
+
 use std::{any::TypeId, array, mem::transmute, usize};
 use utils::ToUsize;
 

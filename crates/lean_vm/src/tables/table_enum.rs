@@ -1,5 +1,4 @@
-use multilinear_toolkit::prelude::{PF, PrimeCharacteristicRing};
-use p3_air::Air;
+use multilinear_toolkit::prelude::*;
 
 use crate::*;
 
@@ -118,8 +117,8 @@ impl TableT for Table {
 
 impl Air for Table {
     type ExtraData = ();
-    fn degree(&self) -> usize {
-        delegate_to_inner!(self, degree)
+    fn degree_air(&self) -> usize {
+        delegate_to_inner!(self, degree_air)
     }
     fn n_columns_f_air(&self) -> usize {
         delegate_to_inner!(self, n_columns_f_air)
@@ -136,7 +135,7 @@ impl Air for Table {
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         delegate_to_inner!(self, down_column_indexes_ef)
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
+    fn eval<AB: AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()
     }
 }

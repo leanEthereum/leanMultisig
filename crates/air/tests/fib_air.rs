@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder};
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use utils::{build_prover_state, build_verifier_state};
 
@@ -21,7 +20,7 @@ impl Air for FibonacciAir {
     fn n_columns_ef_air(&self) -> usize {
         1
     }
-    fn degree(&self) -> usize {
+    fn degree_air(&self) -> usize {
         1
     }
     fn n_constraints(&self) -> usize {

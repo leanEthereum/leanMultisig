@@ -7,7 +7,7 @@ use itertools::Itertools;
 use lean_vm::*;
 use lookup::{compute_pushforward, prove_gkr_quotient, prove_logup_star};
 use multilinear_toolkit::prelude::*;
-use p3_air::Air;
+
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
 use sub_protocols::*;

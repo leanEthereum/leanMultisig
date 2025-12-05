@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder};
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state};
@@ -26,7 +25,7 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
     fn n_columns_ef_air(&self) -> usize {
         N_COLUMNS - N_COLS_F
     }
-    fn degree(&self) -> usize {
+    fn degree_air(&self) -> usize {
         N_PREPROCESSED_COLUMNS
     }
     fn n_constraints(&self) -> usize {

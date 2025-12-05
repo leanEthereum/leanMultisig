@@ -1,5 +1,4 @@
-use multilinear_toolkit::prelude::{ExtensionField, PF};
-use p3_air::Air;
+use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 use utils::ConstraintChecker;
 

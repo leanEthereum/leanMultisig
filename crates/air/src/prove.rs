@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_air::Air;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::{info_span, instrument};
 use utils::{FSProver, fold_multilinear_chunks, multilinears_linear_combination};

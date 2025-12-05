@@ -2,7 +2,6 @@ use crate::{
     DIMENSION, EF, ExtraDataForBuses, TableT, eval_virtual_bus_column, tables::dot_product::DotProductPrecompile,
 };
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder};
 
 /*
 (DIMENSION = 5)
@@ -53,7 +52,7 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
     fn n_columns_ef_air(&self) -> usize {
         dot_product_air_n_cols_ef(BE)
     }
-    fn degree(&self) -> usize {
+    fn degree_air(&self) -> usize {
         2
     }
     fn n_constraints(&self) -> usize {

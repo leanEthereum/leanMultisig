@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_air::Air;
 use p3_util::log2_ceil_usize;
 
 use crate::utils::next_mle;
@@ -34,7 +33,7 @@ where
     assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
 
     let (sc_sum, outer_statement) =
-        sumcheck_verify_with_univariate_skip::<EF>(verifier_state, air.degree() + 1, log_n_rows, univariate_skips)?;
+        sumcheck_verify_with_univariate_skip::<EF>(verifier_state, air.degree_air() + 1, log_n_rows, univariate_skips)?;
     if sc_sum
         != virtual_column_statements
             .as_ref()

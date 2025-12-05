@@ -1,6 +1,5 @@
 use crate::*;
 use multilinear_toolkit::prelude::*;
-use p3_air::Air;
 use std::array;
 use utils::{ToUsize, get_poseidon_24_of_zero, poseidon24_permute};
 
@@ -144,7 +143,7 @@ impl Air for Poseidon24Precompile {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
+    fn degree_air(&self) -> usize {
         2
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
@@ -156,7 +155,7 @@ impl Air for Poseidon24Precompile {
     fn n_constraints(&self) -> usize {
         4
     }
-    fn eval<AB: p3_air::AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
+    fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up_f();
         let flag = up[POSEIDON_24_COL_FLAG].clone();
         let index_res = up[POSEIDON_24_COL_INDEX_RES].clone();

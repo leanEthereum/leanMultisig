@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder};
 
 use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 
@@ -48,7 +47,7 @@ impl Air for ExecutionTable {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
+    fn degree_air(&self) -> usize {
         5
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
