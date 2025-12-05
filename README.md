@@ -47,7 +47,7 @@ The full recursion program is not finished yet. Instead, we prove validity of a 
 - n-to-1: Recursive proof of many WHIR openings (≈ 8) (we report prover time per WHIR)
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 8
+RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 9
 ```
 
 ![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)
@@ -56,7 +56,7 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 8
 ### XMSS aggregation
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1775
+RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1125
 ```
 
 [Trivial encoding](docs/XMSS_trivial_encoding.pdf) (for now).
