@@ -1,10 +1,23 @@
-pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
-
-use std::array;
+use p3_poseidon2::GenericPoseidon2LinearLayers;
+use std::{any::TypeId, array};
 
 use crate::*;
 use multilinear_toolkit::prelude::*;
-use utils::{ToUsize, get_poseidon_16_of_zero, poseidon16_permute};
+use p3_koala_bear::{
+    GenericPoseidon2LinearLayersKoalaBear, KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL,
+    KOALABEAR_RC16_INTERNAL,
+};
+use utils::{ToUsize, poseidon16_permute};
+
+mod test;
+mod trace_gen;
+
+pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
+
+pub(super) const WIDTH: usize = 16;
+const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 2;
+const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
+const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
 
 const POSEIDON_16_COL_FLAG: ColIndex = 0;
 const POSEIDON_16_COL_INDEX_RES: ColIndex = 1;
@@ -12,14 +25,13 @@ const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 2; // = if compressed { 0 } else
 pub const POSEIDON_16_COL_COMPRESSION: ColIndex = 3;
 const POSEIDON_16_COL_INDEX_A: ColIndex = 4;
 const POSEIDON_16_COL_INDEX_B: ColIndex = 5;
-pub const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
-pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = POSEIDON_16_COL_INPUT_START + 16;
-// intermediate columns ("commited cubes") are not handled here
+const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
+const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols() - 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Poseidon16Precompile;
+pub struct Poseidon16Precompile<const BUS: bool>;
 
-impl TableT for Poseidon16Precompile {
+impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     fn name(&self) -> &'static str {
         "poseidon16"
     }
@@ -58,6 +70,7 @@ impl TableT for Poseidon16Precompile {
     }
 
     fn buses(&self) -> Vec<Bus> {
+        assert!(BUS);
         vec![Bus {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
@@ -72,27 +85,7 @@ impl TableT for Poseidon16Precompile {
     }
 
     fn padding_row_f(&self) -> Vec<F> {
-        let mut poseidon_of_zero = *get_poseidon_16_of_zero();
-        if POSEIDON_16_DEFAULT_COMPRESSION {
-            poseidon_of_zero[8..].fill(F::ZERO);
-        }
-        [
-            vec![
-                F::ZERO,
-                F::from_usize(POSEIDON_16_NULL_HASH_PTR),
-                F::from_usize(if POSEIDON_16_DEFAULT_COMPRESSION {
-                    ZERO_VEC_PTR
-                } else {
-                    1 + POSEIDON_16_NULL_HASH_PTR
-                }),
-                F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION),
-                F::from_usize(ZERO_VEC_PTR),
-                F::from_usize(ZERO_VEC_PTR),
-            ],
-            vec![F::ZERO; 16],
-            poseidon_of_zero.to_vec(),
-        ]
-        .concat()
+        todo!()
     }
 
     fn padding_row_ef(&self) -> Vec<EF> {
@@ -157,16 +150,16 @@ impl TableT for Poseidon16Precompile {
     }
 }
 
-impl Air for Poseidon16Precompile {
+impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns_f_air(&self) -> usize {
-        6 + 16 * 2
+        num_cols()
     }
     fn n_columns_ef_air(&self) -> usize {
         0
     }
     fn degree_air(&self) -> usize {
-        2
+        10
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
@@ -175,26 +168,187 @@ impl Air for Poseidon16Precompile {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        5
+        BUS as usize + 87
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
-        let up = builder.up_f();
-        let flag = up[POSEIDON_16_COL_FLAG].clone();
-        let index_res = up[POSEIDON_16_COL_INDEX_RES].clone();
-        let index_res_bis = up[POSEIDON_16_COL_INDEX_RES_BIS].clone();
-        let compression = up[POSEIDON_16_COL_COMPRESSION].clone();
-        let index_a = up[POSEIDON_16_COL_INDEX_A].clone();
-        let index_b = up[POSEIDON_16_COL_INDEX_B].clone();
+        let cols: Poseidon2Cols<AB::F> = {
+            let up = builder.up_f();
+            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon2Cols<AB::F>>() };
+            debug_assert!(prefix.is_empty(), "Alignment should match");
+            debug_assert!(suffix.is_empty(), "Alignment should match");
+            debug_assert_eq!(shorts.len(), 1);
+            unsafe { std::ptr::read(&shorts[0]) }
+        };
 
-        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
-            extra_data,
-            AB::F::from_usize(self.identifier().index()),
-            flag.clone(),
-            &[index_a.clone(), index_b.clone(), index_res.clone(), compression.clone()],
-        ));
+        if BUS {
+            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+                extra_data,
+                AB::F::from_usize(self.identifier().index()),
+                cols.flag.clone(),
+                &[
+                    cols.index_a.clone(),
+                    cols.index_b.clone(),
+                    cols.index_res.clone(),
+                    cols.compress.clone(),
+                ],
+            ));
+        }
 
-        builder.assert_bool(flag.clone());
-        builder.assert_bool(compression.clone());
-        builder.assert_eq(index_res_bis, (index_res + AB::F::ONE) * (AB::F::ONE - compression));
+        builder.assert_bool(cols.flag.clone());
+        builder.assert_bool(cols.compress.clone());
+        builder.assert_eq(
+            cols.index_res_bis.clone(),
+            (cols.index_res.clone() + AB::F::ONE) * (AB::F::ONE - cols.compress.clone()),
+        );
+
+        eval(builder, &cols)
+    }
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub(super) struct Poseidon2Cols<T> {
+    pub flag: T,
+    pub index_res: T,
+    pub index_res_bis: T,
+    pub compress: T,
+    pub index_a: T,
+    pub index_b: T,
+
+    pub inputs: [T; WIDTH],
+    pub beginning_full_rounds: [[T; WIDTH]; HALF_INITIAL_FULL_ROUNDS],
+    pub partial_rounds: [T; PARTIAL_ROUNDS],
+    pub ending_full_rounds: [[T; WIDTH]; HALF_FINAL_FULL_ROUNDS],
+}
+
+fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
+    let mut state: [_; WIDTH] = local.inputs.clone().map(|x| x);
+
+    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut state);
+
+    for round in 0..HALF_INITIAL_FULL_ROUNDS {
+        eval_2_full_rounds(
+            &mut state,
+            &local.beginning_full_rounds[round],
+            &KOALABEAR_RC16_EXTERNAL_INITIAL[2 * round],
+            &KOALABEAR_RC16_EXTERNAL_INITIAL[2 * round + 1],
+            builder,
+        );
+    }
+
+    for round in 0..PARTIAL_ROUNDS {
+        eval_partial_round(
+            &mut state,
+            &local.partial_rounds[round],
+            KOALABEAR_RC16_INTERNAL[round],
+            builder,
+        );
+    }
+
+    for round in 0..HALF_FINAL_FULL_ROUNDS - 1 {
+        eval_2_full_rounds(
+            &mut state,
+            &local.ending_full_rounds[round],
+            &KOALABEAR_RC16_EXTERNAL_FINAL[2 * round],
+            &KOALABEAR_RC16_EXTERNAL_FINAL[2 * round + 1],
+            builder,
+        );
+    }
+
+    eval_last_2_full_rounds(
+        &mut state,
+        &local.ending_full_rounds[HALF_FINAL_FULL_ROUNDS - 1],
+        &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
+        &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1) + 1],
+        local.compress.clone(),
+        builder,
+    );
+}
+
+pub(super) const fn num_cols() -> usize {
+    size_of::<Poseidon2Cols<u8>>()
+}
+
+#[inline]
+fn eval_2_full_rounds<AB: AirBuilder>(
+    state: &mut [AB::F; WIDTH],
+    post_full_round: &[AB::F; WIDTH],
+    round_constants_1: &[F; WIDTH],
+    round_constants_2: &[F; WIDTH],
+    builder: &mut AB,
+) {
+    for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
+        add_koala_bear(s, *r);
+        *s = s.cube();
+    }
+    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
+        add_koala_bear(s, *r);
+        *s = s.cube();
+    }
+    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    for (state_i, post_i) in state.iter_mut().zip(post_full_round) {
+        builder.assert_eq(state_i.clone(), post_i.clone());
+        *state_i = post_i.clone();
+    }
+}
+
+#[inline]
+fn eval_last_2_full_rounds<AB: AirBuilder>(
+    state: &mut [AB::F; WIDTH],
+    post_full_round: &[AB::F; WIDTH],
+    round_constants_1: &[F; WIDTH],
+    round_constants_2: &[F; WIDTH],
+    compress: AB::F,
+    builder: &mut AB,
+) {
+    for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
+        add_koala_bear(s, *r);
+        *s = s.cube();
+    }
+    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
+        add_koala_bear(s, *r);
+        *s = s.cube();
+    }
+    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    for (state_i, post_i) in state.iter_mut().zip(post_full_round).take(WIDTH / 2) {
+        builder.assert_eq(state_i.clone(), post_i.clone());
+        *state_i = post_i.clone().into();
+    }
+    for (state_i, post_i) in state.iter_mut().zip(post_full_round).skip(WIDTH / 2) {
+        builder.assert_eq(state_i.clone() * -(compress.clone() - AB::F::ONE), post_i.clone());
+        *state_i = post_i.clone().into();
+    }
+}
+
+#[inline]
+fn eval_partial_round<AB: AirBuilder>(
+    state: &mut [AB::F; WIDTH],
+    post_partial_round: &AB::F,
+    round_constant: F,
+    builder: &mut AB,
+) {
+    add_koala_bear(&mut state[0], round_constant);
+    state[0] = state[0].cube();
+
+    builder.assert_eq(state[0].clone(), post_partial_round.clone());
+    state[0] = post_partial_round.clone();
+
+    GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(state);
+}
+
+#[inline(always)]
+fn add_koala_bear<A: 'static>(a: &mut A, value: F) {
+    if TypeId::of::<A>() == TypeId::of::<F>() {
+        *unsafe { std::mem::transmute::<&mut A, &mut F>(a) } += value;
+    } else if TypeId::of::<A>() == TypeId::of::<EF>() {
+        *unsafe { std::mem::transmute::<&mut A, &mut EF>(a) } += value;
+    } else if TypeId::of::<A>() == TypeId::of::<FPacking<F>>() {
+        *unsafe { std::mem::transmute::<&mut A, &mut FPacking<F>>(a) } += value;
+    } else if TypeId::of::<A>() == TypeId::of::<EFPacking<EF>>() {
+        *unsafe { std::mem::transmute::<&mut A, &mut EFPacking<EF>>(a) } += FPacking::<F>::from(value);
+    } else {
+        unreachable!()
     }
 }

@@ -17,7 +17,7 @@ pub enum Table {
     Execution(ExecutionTable),
     DotProductBE(DotProductPrecompile<true>),
     DotProductEE(DotProductPrecompile<false>),
-    Poseidon16(Poseidon16Precompile),
+    Poseidon16(Poseidon16Precompile<true>),
     Poseidon24(Poseidon24Precompile),
 }
 

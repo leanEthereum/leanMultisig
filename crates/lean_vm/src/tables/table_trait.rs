@@ -112,7 +112,7 @@ impl TableTrace {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ExtraDataForBuses<EF: ExtensionField<PF<EF>>> {
     // GKR quotient challenges
     pub fingerprint_challenge_powers: Vec<EF>,
