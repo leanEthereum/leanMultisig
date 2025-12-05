@@ -136,7 +136,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         (&public_input, &[]),
         1 << 23,
         false,
-        (&vec![], &vec![]), // TODO
+        &vec![], // TODO
     )
     .no_vec_runtime_memory;
 
@@ -147,7 +147,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         (&public_input, &[]),
         no_vec_runtime_memory,
         false,
-        (&vec![], &vec![]), // TODO precompute poseidons
+        &vec![], // TODO precompute poseidons
     );
     let proof_size = proof.proof_size;
     let proving_time = time.elapsed();

@@ -42,7 +42,7 @@ pub fn compile_and_run(
         (public_input, private_input),
         no_vec_runtime_memory,
         profiler,
-        (&vec![], &vec![]),
+        &vec![],
     )
     .summary;
     println!("{summary}");

@@ -38,9 +38,6 @@ pub const ONE_VEC_PTR: usize = 2;
 /// Convention: vectorized pointer of size 2, = the 16 elements of poseidon_16(0)
 pub const POSEIDON_16_NULL_HASH_PTR: usize = 3;
 
-/// Convention: vectorized pointer of size 1, = the last 8 elements of poseidon_24(0)
-pub const POSEIDON_24_NULL_HASH_PTR: usize = 5;
-
 /// Normal pointer to start of program input
 pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * 8;
 

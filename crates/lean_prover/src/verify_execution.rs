@@ -20,7 +20,6 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
     let mut verifier_state = VerifierState::new(proof, build_challenger());
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
-    let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
     let dims = verifier_state
         .next_base_scalars_vec(1 + N_TABLES)?
@@ -35,7 +34,9 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
     // only keep tables with non-zero rows
     let table_heights: BTreeMap<_, _> = table_heights
         .into_iter()
-        .filter(|(table, height)| height.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon())
+        .filter(|(table, height)| {
+            height.n_rows_non_padded() > 0 || table == &Table::execution() || table == &Table::poseidon16()
+        })
         .collect();
 
     let public_memory = build_public_memory(public_input);
@@ -47,12 +48,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         return Err(ProofError::InvalidProof);
     }
 
-    let base_dims = get_base_dims(
-        log_public_memory,
-        private_memory_len,
-        (&p16_gkr_layers, &p24_gkr_layers),
-        &table_heights,
-    );
+    let base_dims = get_base_dims(log_public_memory, private_memory_len, &p16_gkr_layers, &table_heights);
     let parsed_commitment_base = packed_pcs_parse_commitment(
         &whir_config_builder_a(),
         &mut verifier_state,
@@ -185,20 +181,6 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         &evals_f[&Table::poseidon16()][POSEIDON_16_COL_OUTPUT_START..][..16]
     );
 
-    let p24_gkr = verify_poseidon_gkr(
-        &mut verifier_state,
-        table_heights[&Table::poseidon24()].log_padded(),
-        &air_points[&Table::poseidon24()].0,
-        &p24_gkr_layers,
-        UNIVARIATE_SKIPS,
-        false,
-    );
-    assert_eq!(&p24_gkr.output_statements.point, &air_points[&Table::poseidon24()]);
-    assert_eq!(
-        &p24_gkr.output_statements.values[16..],
-        &evals_f[&Table::poseidon24()][POSEIDON_24_COL_OUTPUT_START..][..8]
-    );
-
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_heights[&Table::execution()].log_padded());
 
@@ -217,19 +199,10 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
     }
     statements_p16_core[POSEIDON_16_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
 
-    let statements_p24_core = final_statements.get_mut(&Table::poseidon24()).unwrap();
-    for (stmts, gkr_value) in statements_p24_core[POSEIDON_24_COL_INPUT_START..][..24]
-        .iter_mut()
-        .zip(&p24_gkr.input_statements.values)
-    {
-        stmts.push(Evaluation::new(p24_gkr.input_statements.point.clone(), *gkr_value));
-    }
-
     let mut all_base_statements = [
         vec![memory_statements],
         vec![acc_statements],
         encapsulate_vec(p16_gkr.cubes_statements.split()),
-        encapsulate_vec(p24_gkr.cubes_statements.split()),
     ]
     .concat();
     all_base_statements.extend(final_statements.into_values().flatten());

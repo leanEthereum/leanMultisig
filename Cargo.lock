@@ -609,7 +609,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "p3-baby-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -622,7 +622,7 @@ dependencies = [
 [[package]]
 name = "p3-challenger"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "p3-field",
  "p3-maybe-rayon",
@@ -634,7 +634,7 @@ dependencies = [
 [[package]]
 name = "p3-commit"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "itertools",
  "p3-challenger",
@@ -648,7 +648,7 @@ dependencies = [
 [[package]]
 name = "p3-dft"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "itertools",
  "p3-field",
@@ -661,7 +661,7 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -676,7 +676,7 @@ dependencies = [
 [[package]]
 name = "p3-interpolation"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "p3-field",
  "p3-matrix",
@@ -687,7 +687,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -703,7 +703,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "itertools",
  "p3-field",
@@ -718,7 +718,7 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "rayon",
 ]
@@ -726,7 +726,7 @@ dependencies = [
 [[package]]
 name = "p3-mds"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "p3-dft",
  "p3-field",
@@ -738,7 +738,7 @@ dependencies = [
 [[package]]
 name = "p3-merkle-tree"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "itertools",
  "p3-commit",
@@ -755,7 +755,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -777,7 +777,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -789,7 +789,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "itertools",
  "p3-field",
@@ -799,7 +799,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#9695da11fac759444c8ec39ca0458f023301dd4d"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-vm-simple#4897086b6f460b969dc0baad5c4dff91a4eb1d67"
 dependencies = [
  "rayon",
  "serde",
@@ -1398,7 +1398,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#fcdfe8c151b438bb0f4e83cb7a706bef41349981"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#f74bc197415a597b1ca316a4ee207f43c8adee85"
 dependencies = [
  "itertools",
  "multilinear-toolkit",

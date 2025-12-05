@@ -108,7 +108,7 @@ whir-p3.workspace = true
 # p3-util = { path = "../Plonky3/util" }
 
 # [patch."https://github.com/TomWambsgans/whir-p3.git"]
-# whir-p3 = { path = "../whir/fork-whir-p3" }
+# whir-p3 = { path = "../whir-p3" }
 
 # [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
 # multilinear-toolkit = { path = "../multilinear-toolkit" }

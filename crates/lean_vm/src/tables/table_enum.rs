@@ -2,13 +2,12 @@ use multilinear_toolkit::prelude::*;
 
 use crate::*;
 
-pub const N_TABLES: usize = 5;
+pub const N_TABLES: usize = 4;
 pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::execution(),
     Table::dot_product_be(),
     Table::dot_product_ee(),
     Table::poseidon16(),
-    Table::poseidon24(),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -18,7 +17,6 @@ pub enum Table {
     DotProductBE(DotProductPrecompile<true>),
     DotProductEE(DotProductPrecompile<false>),
     Poseidon16(Poseidon16Precompile),
-    Poseidon24(Poseidon24Precompile),
 }
 
 #[macro_export]
@@ -29,7 +27,6 @@ macro_rules! delegate_to_inner {
             Self::DotProductBE(p) => p.$method($($($arg),*)?),
             Self::DotProductEE(p) => p.$method($($($arg),*)?),
             Self::Poseidon16(p) => p.$method($($($arg),*)?),
-            Self::Poseidon24(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
         }
     };
@@ -39,7 +36,6 @@ macro_rules! delegate_to_inner {
             Table::DotProductBE(p) => $macro_name!(p),
             Table::DotProductEE(p) => $macro_name!(p),
             Table::Poseidon16(p) => $macro_name!(p),
-            Table::Poseidon24(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
         }
     };
@@ -58,17 +54,11 @@ impl Table {
     pub const fn poseidon16() -> Self {
         Self::Poseidon16(Poseidon16Precompile)
     }
-    pub const fn poseidon24() -> Self {
-        Self::Poseidon24(Poseidon24Precompile)
-    }
     pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
         PF::from_usize(self.index())
     }
     pub const fn index(&self) -> usize {
         unsafe { *(self as *const Self as *const usize) }
-    }
-    pub fn is_poseidon(&self) -> bool {
-        matches!(self, Table::Poseidon16(_) | Table::Poseidon24(_))
     }
 }
 

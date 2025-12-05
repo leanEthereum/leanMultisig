@@ -435,11 +435,7 @@ fn compile_lines(
             }
 
             SimpleLine::Precompile { table, args, .. } => {
-                if *table == Table::poseidon24() {
-                    assert_eq!(args.len(), 3);
-                } else {
-                    assert_eq!(args.len(), 4);
-                }
+                assert_eq!(args.len(), 4);
                 instructions.push(IntermediateInstruction::Precompile {
                     table: *table,
                     arg_a: IntermediateValue::from_simple_expr(&args[0], compiler),
