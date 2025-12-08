@@ -120,7 +120,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         &(public_input.len() / VECTOR_LEN).to_string(),
     );
 
-    public_input = std::iter::repeat(public_input).take(n_recursions).flatten().collect();
+    public_input = std::iter::repeat_n(public_input, n_recursions).flatten().collect();
 
     if tracing {
         utils::init_tracing();

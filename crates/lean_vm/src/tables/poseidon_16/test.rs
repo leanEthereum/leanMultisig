@@ -1,8 +1,11 @@
 use crate::{
-    EF, ExtraDataForBuses, F, POSEIDON_16_COL_COMPRESSION, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INDEX_A, POSEIDON_16_COL_INDEX_B, POSEIDON_16_COL_INDEX_RES, POSEIDON_16_COL_INDEX_RES_BIS, POSEIDON_16_COL_INPUT_START, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, Poseidon16Precompile, ZERO_VEC_PTR, tables::{
+    EF, ExtraDataForBuses, F, POSEIDON_16_COL_COMPRESSION, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INDEX_A,
+    POSEIDON_16_COL_INDEX_B, POSEIDON_16_COL_INDEX_RES, POSEIDON_16_COL_INDEX_RES_BIS, POSEIDON_16_COL_INPUT_START,
+    POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, Poseidon16Precompile, ZERO_VEC_PTR,
+    tables::{
         WIDTH, num_cols,
         poseidon_16::trace_gen::{default_poseidon_row, fill_trace_poseidon_16},
-    }
+    },
 };
 use air::{check_air_validity, prove_air, verify_air};
 use multilinear_toolkit::prelude::*;
@@ -27,8 +30,8 @@ pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
     }
     let mut rng = StdRng::seed_from_u64(0);
     let mut trace = vec![vec![F::ZERO; n_rows]; num_cols()];
-    for i in POSEIDON_16_COL_INPUT_START..POSEIDON_16_COL_INPUT_START + WIDTH {
-        trace[i] = (0..n_rows).map(|_| rng.random()).collect();
+    for t in trace.iter_mut().skip(POSEIDON_16_COL_INPUT_START).take(WIDTH) {
+        *t = (0..n_rows).map(|_| rng.random()).collect();
     }
     trace[POSEIDON_16_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
     trace[POSEIDON_16_COL_INDEX_RES] = (0..n_rows).map(|_| F::from_usize(POSEIDON_16_NULL_HASH_PTR)).collect();
@@ -39,7 +42,6 @@ pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
     trace[POSEIDON_16_COL_INDEX_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
     trace[POSEIDON_16_COL_INDEX_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
     fill_trace_poseidon_16(&mut trace);
-
 
     let default_row = default_poseidon_row();
 

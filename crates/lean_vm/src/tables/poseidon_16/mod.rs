@@ -12,8 +12,8 @@ use utils::{ToUsize, poseidon16_permute};
 mod test;
 mod trace_gen;
 
-pub use trace_gen::fill_trace_poseidon_16;
 pub use test::benchmark_prove_poseidon_16;
+pub use trace_gen::fill_trace_poseidon_16;
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 
@@ -142,7 +142,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         for (i, value) in input.iter().enumerate() {
             trace.base[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
-        
+
         // the rest of the trace is filled at the end of the execution (to get parallelism + SIMD)
 
         Ok(())
@@ -235,13 +235,8 @@ fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
         );
     }
 
-    for round in 0..PARTIAL_ROUNDS {
-        eval_partial_round(
-            &mut state,
-            &local.partial_rounds[round],
-            KOALABEAR_RC16_INTERNAL[round],
-            builder,
-        );
+    for (round, cst) in KOALABEAR_RC16_INTERNAL.iter().enumerate().take(PARTIAL_ROUNDS) {
+        eval_partial_round(&mut state, &local.partial_rounds[round], *cst, builder);
     }
 
     for round in 0..HALF_FINAL_FULL_ROUNDS - 1 {
@@ -313,11 +308,11 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
     for (state_i, post_i) in state.iter_mut().zip(post_full_round).take(WIDTH / 2) {
         builder.assert_eq(state_i.clone(), post_i.clone());
-        *state_i = post_i.clone().into();
+        *state_i = post_i.clone();
     }
     for (state_i, post_i) in state.iter_mut().zip(post_full_round).skip(WIDTH / 2) {
         builder.assert_eq(state_i.clone() * -(compress.clone() - AB::F::ONE), post_i.clone());
-        *state_i = post_i.clone().into();
+        *state_i = post_i.clone();
     }
 }
 

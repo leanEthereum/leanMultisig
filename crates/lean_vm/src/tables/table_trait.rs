@@ -5,7 +5,7 @@ use crate::{
 };
 use multilinear_toolkit::prelude::*;
 
-use std::{any::TypeId, array, mem::transmute, usize};
+use std::{any::TypeId, array, mem::transmute};
 use utils::ToUsize;
 
 use sub_protocols::{
@@ -238,6 +238,8 @@ pub trait TableT: Air {
     fn n_commited_columns_ef(&self) -> usize {
         self.commited_columns_ef().len()
     }
+
+    #[allow(clippy::too_many_arguments)]
     fn committed_statements_prover(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -302,6 +304,8 @@ pub trait TableT: Air {
 
         statements
     }
+
+    #[allow(clippy::too_many_arguments)]
     fn committed_statements_verifier(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
