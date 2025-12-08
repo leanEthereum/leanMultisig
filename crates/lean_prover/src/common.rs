@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::{KOALABEAR_RC16_INTERNAL, KOALABEAR_RC24_INTERNAL};
+use p3_koala_bear::KOALABEAR_RC16_INTERNAL;
 use poseidon_circuit::{PoseidonGKRLayers, default_cube_layers};
 use sub_protocols::ColDims;
 
@@ -9,19 +9,14 @@ use crate::*;
 use lean_vm::*;
 
 pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2;
-pub(crate) const N_COMMITED_CUBES_P24: usize = KOALABEAR_RC24_INTERNAL.len() - 2;
 
 pub(crate) fn get_base_dims(
     log_public_memory: usize,
     private_memory_len: usize,
-    (p16_gkr_layers, p24_gkr_layers): (
-        &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
-        &PoseidonGKRLayers<24, N_COMMITED_CUBES_P24>,
-    ),
+    p16_gkr_layers: &PoseidonGKRLayers<16, N_COMMITED_CUBES_P16>,
     table_heights: &BTreeMap<Table, TableHeight>,
 ) -> Vec<ColDims<F>> {
     let p16_default_cubes = default_cube_layers::<F, 16, N_COMMITED_CUBES_P16>(p16_gkr_layers);
-    let p24_default_cubes = default_cube_layers::<F, 24, N_COMMITED_CUBES_P24>(p24_gkr_layers);
 
     let mut dims = [
         vec![
@@ -32,10 +27,6 @@ pub(crate) fn get_base_dims(
             .iter()
             .map(|&c| ColDims::padded(table_heights[&Table::poseidon16()].n_rows_non_padded_maxed(), c))
             .collect::<Vec<_>>(), // commited cubes for poseidon16
-        p24_default_cubes
-            .iter()
-            .map(|&c| ColDims::padded(table_heights[&Table::poseidon24()].n_rows_non_padded_maxed(), c))
-            .collect::<Vec<_>>(),
     ]
     .concat();
     for (table, height) in table_heights {

@@ -7,10 +7,7 @@ use sub_protocols::{
     ColDims, packed_pcs_commit, packed_pcs_global_statements_for_prover, packed_pcs_global_statements_for_verifier,
     packed_pcs_parse_commitment,
 };
-use utils::{
-    build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut, poseidon24_permute_mut,
-    transposed_par_iter_mut,
-};
+use utils::{build_prover_state, build_verifier_state, init_tracing, poseidon16_permute_mut, transposed_par_iter_mut};
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 use crate::{
@@ -252,12 +249,6 @@ pub fn run_poseidon_benchmark<const WIDTH: usize, const N_COMMITED_CUBES: usize,
         if WIDTH == 16 {
             let mut buff = array::from_fn(|j| *row[j]);
             poseidon16_permute_mut(&mut buff);
-            for j in 0..WIDTH {
-                *row[j] = buff[j];
-            }
-        } else if WIDTH == 24 {
-            let mut buff = array::from_fn(|j| *row[j]);
-            poseidon24_permute_mut(&mut buff);
             for j in 0..WIDTH {
                 *row[j] = buff[j];
             }

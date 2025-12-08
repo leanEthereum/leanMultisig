@@ -3,7 +3,7 @@ use lean_prover::{prove_execution::prove_execution, verify_execution::verify_exe
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{poseidon16_permute, poseidon24_permute};
+use utils::poseidon16_permute;
 
 #[test]
 fn test_zk_vm_all_precompiles() {
@@ -22,7 +22,6 @@ fn test_zk_vm_all_precompiles() {
 
         poseidon16(pub_start_vec, pub_start_vec + 1, pub_start_vec + 2, PERMUTATION);
         poseidon16(pub_start_vec + 4, pub_start_vec + 5, pub_start_vec + 6, COMPRESSION);
-        poseidon24(pub_start_vec + 7, pub_start_vec + 9, pub_start_vec + 10);
         dot_product_be(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N);
         dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
         
@@ -45,7 +44,6 @@ fn test_zk_vm_all_precompiles() {
 
     let poseidon_24_input: [F; 24] = rng.random();
     public_input[56..80].copy_from_slice(&poseidon_24_input);
-    public_input[80..88].copy_from_slice(&poseidon24_permute(poseidon_24_input)[16..]);
 
     let dot_product_slice_base: [F; N] = rng.random();
     let dot_product_slice_ext_a: [EF; N] = rng.random();
@@ -166,7 +164,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
         (public_input, private_input),
         no_vec_runtime_memory,
         false,
-        (&vec![], &vec![]),
+        &vec![],
     );
     let proof_time = time.elapsed();
     verify_execution(&bytecode, public_input, proof).unwrap();

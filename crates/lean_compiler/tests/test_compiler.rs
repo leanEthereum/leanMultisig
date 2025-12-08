@@ -1,6 +1,6 @@
 use lean_compiler::*;
 use lean_vm::*;
-use utils::{poseidon16_permute, poseidon24_permute};
+use utils::poseidon16_permute;
 
 const DEFAULT_NO_VEC_RUNTIME_MEMORY: usize = 1 << 15;
 
@@ -275,33 +275,6 @@ fn test_mini_program_3() {
     );
 
     let _ = dbg!(poseidon16_permute(public_input));
-}
-
-#[test]
-fn test_mini_program_4() {
-    let program = r#"
-    fn main() {
-        a = public_input_start / 8;
-        c = a + 2;
-        f = malloc_vec(1);
-        poseidon24(a, c, f);
-
-        f_shifted = f * 8;
-        for j in 0..8 {
-            print(f_shifted[j]);
-        }
-        return;
-    }
-   "#;
-    let public_input: [F; 24] = (0..24).map(F::new).collect::<Vec<F>>().try_into().unwrap();
-    compile_and_run(
-        program.to_string(),
-        (&public_input, &[]),
-        DEFAULT_NO_VEC_RUNTIME_MEMORY,
-        false,
-    );
-
-    dbg!(&poseidon24_permute(public_input)[16..]);
 }
 
 #[test]

@@ -14,14 +14,14 @@ use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
 use whir_p3::WhirConfig;
-use xmss::{Poseidon16History, Poseidon24History};
+use xmss::Poseidon16History;
 
 pub fn prove_execution(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
-    (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
+    poseidons_16_precomputed: &Poseidon16History,
 ) -> (Proof<F>, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
@@ -36,7 +36,7 @@ pub fn prove_execution(
                 (public_input, private_input),
                 no_vec_runtime_memory,
                 vm_profiler,
-                (poseidons_16_precomputed, poseidons_24_precomputed),
+                poseidons_16_precomputed,
             )
         });
         exec_summary = std::mem::take(&mut execution_result.summary);
@@ -66,7 +66,9 @@ pub fn prove_execution(
     // only keep tables with non-zero rows
     let traces: BTreeMap<_, _> = traces
         .into_iter()
-        .filter(|(table, trace)| trace.n_rows_non_padded() > 0 || table == &Table::execution() || table.is_poseidon())
+        .filter(|(table, trace)| {
+            trace.n_rows_non_padded() > 0 || table == &Table::execution() || table == &Table::poseidon16()
+        })
         .collect();
 
     // TODO parrallelize
@@ -96,19 +98,12 @@ pub fn prove_execution(
     });
 
     let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
-    let p24_gkr_layers = PoseidonGKRLayers::<24, N_COMMITED_CUBES_P24>::build(None);
 
     let p16_witness = generate_poseidon_witness_helper(
         &p16_gkr_layers,
         &traces[&Table::poseidon16()],
         POSEIDON_16_COL_INPUT_START,
         Some(&traces[&Table::poseidon16()].base[POSEIDON_16_COL_COMPRESSION]),
-    );
-    let p24_witness = generate_poseidon_witness_helper(
-        &p24_gkr_layers,
-        &traces[&Table::poseidon24()],
-        POSEIDON_24_COL_INPUT_START,
-        None,
     );
 
     let commitmenent_extension_helper = traces
@@ -131,18 +126,13 @@ pub fn prove_execution(
     let base_dims = get_base_dims(
         log_public_memory,
         private_memory.len(),
-        (&p16_gkr_layers, &p24_gkr_layers),
+        &p16_gkr_layers,
         &traces.iter().map(|(table, trace)| (*table, trace.height)).collect(),
     );
 
     let mut base_pols = [
         vec![memory.as_slice(), acc.as_slice()],
         p16_witness
-            .committed_cubes
-            .iter()
-            .map(|s| FPacking::<F>::unpack_slice(s))
-            .collect::<Vec<_>>(),
-        p24_witness
             .committed_cubes
             .iter()
             .map(|s| FPacking::<F>::unpack_slice(s))
@@ -309,19 +299,6 @@ pub fn prove_execution(
         &evals_f[&Table::poseidon16()][POSEIDON_16_COL_OUTPUT_START..][..16]
     );
 
-    let p24_gkr = prove_poseidon_gkr(
-        &mut prover_state,
-        &p24_witness,
-        air_points[&Table::poseidon24()].0.clone(),
-        UNIVARIATE_SKIPS,
-        &p24_gkr_layers,
-    );
-    assert_eq!(&p24_gkr.output_statements.point, &air_points[&Table::poseidon24()]);
-    assert_eq!(
-        &p24_gkr.output_statements.values[16..],
-        &evals_f[&Table::poseidon24()][POSEIDON_24_COL_OUTPUT_START..][..8]
-    );
-
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(traces[&Table::execution()].log_padded());
 
@@ -340,20 +317,11 @@ pub fn prove_execution(
     }
     statements_p16_core[POSEIDON_16_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
 
-    let statements_p24_core = final_statements.get_mut(&Table::poseidon24()).unwrap();
-    for (stmts, gkr_value) in statements_p24_core[POSEIDON_24_COL_INPUT_START..][..24]
-        .iter_mut()
-        .zip(&p24_gkr.input_statements.values)
-    {
-        stmts.push(Evaluation::new(p24_gkr.input_statements.point.clone(), *gkr_value));
-    }
-
     // First Opening
     let mut all_base_statements = [
         vec![memory_statements],
         vec![acc_statements],
         encapsulate_vec(p16_gkr.cubes_statements.split()),
-        encapsulate_vec(p24_gkr.cubes_statements.split()),
     ]
     .concat();
     all_base_statements.extend(final_statements.into_values().flatten());

@@ -4,7 +4,7 @@ use utils::assert_eq_many;
 
 use crate::{
     F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
-    tables::{Poseidon2Cols, WIDTH, num_cols, poseidon_16::POSEIDON_16_COL_INPUT_START},
+    tables::{Poseidon2Cols, WIDTH, num_cols},
 };
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{
@@ -79,10 +79,9 @@ pub fn generate_trace_rows_16(
 pub fn default_poseidon_row() -> Vec<F> {
     let mut row = vec![F::ZERO; num_cols()];
     let ptrs: [*mut F; num_cols()] = std::array::from_fn(|i| unsafe { row.as_mut_ptr().add(i) });
-    
-    let perm: &mut Poseidon2Cols<&mut F> =
-        unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon2Cols<&mut F>) };
-    
+
+    let perm: &mut Poseidon2Cols<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon2Cols<&mut F>) };
+
     generate_trace_rows_for_perm(
         perm,
         F::ZERO,

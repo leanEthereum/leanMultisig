@@ -68,10 +68,9 @@ impl WotsPublicKey {
         self.hash_with_poseidon_trace(&mut Vec::new())
     }
 
-    pub fn hash_with_poseidon_trace(&self, poseidon_24_trace: &mut Poseidon24History) -> Digest {
-        assert!(V.is_multiple_of(2), "V must be even for hashing pairs.");
-        self.0.chunks_exact(2).fold(Digest::default(), |digest, chunk| {
-            poseidon24_compress_with_trace(&chunk[0], &chunk[1], &digest, poseidon_24_trace)
+    pub fn hash_with_poseidon_trace(&self, poseidon_16_trace: &mut Poseidon16History) -> Digest {
+        self.0.iter().fold(Digest::default(), |digest, chunk| {
+            poseidon16_compress_with_trace(&digest, &chunk, poseidon_16_trace)
         })
     }
 }

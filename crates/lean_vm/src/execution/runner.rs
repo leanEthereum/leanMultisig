@@ -1,8 +1,7 @@
 //! VM execution runner
 
 use crate::core::{
-    DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
-    VECTOR_LEN, ZERO_VEC_PTR,
+    DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
 };
 use crate::diagnostics::{ExecutionResult, MemoryProfile, RunnerError, memory_profiling_report};
 use crate::execution::{ExecutionHistory, Memory};
@@ -14,8 +13,8 @@ use crate::{
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
-use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
-use xmss::{Poseidon16History, Poseidon24History};
+use utils::{poseidon16_permute, pretty_integer};
+use xmss::Poseidon16History;
 
 /// Number of instructions to show in stack trace
 const STACK_TRACE_INSTRUCTIONS: usize = 5000;
@@ -42,8 +41,6 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
 
     public_memory[POSEIDON_16_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_16_NULL_HASH_PTR + 2) * VECTOR_LEN]
         .copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
-    public_memory[POSEIDON_24_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_24_NULL_HASH_PTR + 1) * VECTOR_LEN]
-        .copy_from_slice(&poseidon24_permute([F::ZERO; 24])[16..]);
     public_memory
 }
 
@@ -56,7 +53,7 @@ pub fn execute_bytecode(
     (public_input, private_input): (&[F], &[F]),
     no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     profiling: bool,
-    (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
+    poseidons_16_precomputed: &Poseidon16History,
 ) -> ExecutionResult {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
@@ -67,7 +64,7 @@ pub fn execute_bytecode(
         &mut instruction_history,
         no_vec_runtime_memory,
         profiling,
-        (poseidons_16_precomputed, poseidons_24_precomputed),
+        poseidons_16_precomputed,
     )
     .unwrap_or_else(|(last_pc, err)| {
         let lines_history = &instruction_history.lines;
@@ -145,7 +142,7 @@ fn execute_bytecode_helper(
     instruction_history: &mut ExecutionHistory,
     no_vec_runtime_memory: usize,
     profiling: bool,
-    (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
+    poseidons_16_precomputed: &Poseidon16History,
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
@@ -184,7 +181,6 @@ fn execute_bytecode_helper(
     let mut fps = Vec::new();
 
     let mut n_poseidon16_precomputed_used = 0;
-    let mut n_poseidon24_precomputed_used = 0;
 
     let mut traces = BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i], TableTrace::new(&ALL_TABLES[i]))));
 
@@ -240,9 +236,7 @@ fn execute_bytecode_helper(
             deref_counts: &mut deref_counts,
             jump_counts: &mut jump_counts,
             poseidon16_precomputed: poseidons_16_precomputed,
-            poseidon24_precomputed: poseidons_24_precomputed,
             n_poseidon16_precomputed_used: &mut n_poseidon16_precomputed_used,
-            n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
         instruction
             .execute_instruction(&mut instruction_ctx)
@@ -253,11 +247,6 @@ fn execute_bytecode_helper(
         n_poseidon16_precomputed_used,
         poseidons_16_precomputed.len(),
         "Warning: not all precomputed Poseidon16 were used"
-    );
-    assert_eq!(
-        n_poseidon24_precomputed_used,
-        poseidons_24_precomputed.len(),
-        "Warning: not all precomputed Poseidon24 were used"
     );
 
     assert_eq!(pc, ENDING_PC);
@@ -322,20 +311,14 @@ fn execute_bytecode_helper(
         pretty_integer(n_poseidon16_precomputed_used),
         pretty_integer(poseidons_16_precomputed.len())
     ));
-    summary.push_str(&format!(
-        "Poseidon2_24 precomputed used: {}/{}\n",
-        pretty_integer(n_poseidon24_precomputed_used),
-        pretty_integer(poseidons_24_precomputed.len())
-    ));
 
     summary.push('\n');
 
-    if traces[&Table::poseidon16()].base[0].len() + traces[&Table::poseidon24()].base[0].len() > 0 {
+    if traces[&Table::poseidon16()].base[0].len() > 0 {
         summary.push_str(&format!(
-            "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
+            "Poseidon2_16 calls: {} (1 poseidon per {} instructions)\n",
             pretty_integer(traces[&Table::poseidon16()].base[0].len()),
-            pretty_integer(traces[&Table::poseidon24()].base[0].len()),
-            cpu_cycles / (traces[&Table::poseidon16()].base[0].len() + traces[&Table::poseidon24()].base[0].len())
+            cpu_cycles / traces[&Table::poseidon16()].base[0].len()
         ));
     }
     // if !dot_products.is_empty() {

@@ -164,7 +164,7 @@ pub fn xmss_verify_with_poseidon_trace(
     pub_key: &XmssPublicKey,
     message_hash: &Digest,
     signature: &XmssSignature,
-) -> Result<(Poseidon16History, Poseidon24History), XmssVerifyError> {
+) -> Result<Poseidon16History, XmssVerifyError> {
     if signature.slot < pub_key.first_slot {
         return Err(XmssVerifyError::SlotTooEarly);
     }
@@ -173,13 +173,12 @@ pub fn xmss_verify_with_poseidon_trace(
         return Err(XmssVerifyError::SlotTooLate);
     }
     let mut poseidon_16_trace = Vec::new();
-    let mut poseidon_24_trace = Vec::new();
     let wots_public_key = signature
         .wots_signature
         .recover_public_key_with_poseidon_trace(message_hash, &signature.wots_signature, &mut poseidon_16_trace)
         .ok_or(XmssVerifyError::InvalidWots)?;
     // merkle root verification
-    let mut current_hash = wots_public_key.hash_with_poseidon_trace(&mut poseidon_24_trace);
+    let mut current_hash = wots_public_key.hash_with_poseidon_trace(&mut poseidon_16_trace);
     if signature.merkle_proof.len() != pub_key.log_lifetime {
         return Err(XmssVerifyError::InvalidMerklePath);
     }
@@ -192,7 +191,7 @@ pub fn xmss_verify_with_poseidon_trace(
         }
     }
     if current_hash == pub_key.merkle_root {
-        Ok((poseidon_16_trace, poseidon_24_trace))
+        Ok(poseidon_16_trace)
     } else {
         Err(XmssVerifyError::InvalidMerklePath)
     }

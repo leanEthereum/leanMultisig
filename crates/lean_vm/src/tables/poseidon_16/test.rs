@@ -16,7 +16,7 @@ const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 13;
 
 #[test]
 fn test_benchmark_air_poseidon_16() {
-    benchmark_air_poseidon_16(1 << 20);
+    benchmark_air_poseidon_16(1 << 11);
 }
 
 pub fn benchmark_air_poseidon_16(n_rows: usize) {

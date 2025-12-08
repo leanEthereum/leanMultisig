@@ -397,14 +397,14 @@ fn batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, c
 }
 
 fn slice_hash(seed, data, const half_len) -> 1 {
-    internal_states = malloc(1 + half_len);
+    internal_states = malloc(1 + half_len * 2);
     internal_states[0] = pointer_to_zero_vector; // initial state
-    for j in 0..half_len unroll {
-        h24 = malloc_vec(1);
-        poseidon24(data + (2*j), internal_states[j], h24);
-        internal_states[j + 1] = h24;
+    for j in 0..(half_len * 2) unroll {
+        h = malloc_vec(1);
+        poseidon16(internal_states[j], data + j, h, COMPRESSION);
+        internal_states[j + 1] = h;
     }
-    return internal_states[half_len];
+    return internal_states[half_len * 2];
 }
 
 fn merkle_verif_batch_dynamic(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries) {

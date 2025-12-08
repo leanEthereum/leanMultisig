@@ -11,8 +11,8 @@ use tracing::{info_span, instrument};
 use utils::to_little_endian_in_field;
 use whir_p3::precompute_dft_twiddles;
 use xmss::{
-    Poseidon16History, Poseidon24History, V, XMSS_MAX_LOG_LIFETIME, XMSS_MIN_LOG_LIFETIME, XmssPublicKey,
-    XmssSignature, xmss_generate_phony_signatures, xmss_verify_with_poseidon_trace,
+    Poseidon16History, V, XMSS_MAX_LOG_LIFETIME, XMSS_MIN_LOG_LIFETIME, XmssPublicKey, XmssSignature,
+    xmss_generate_phony_signatures, xmss_verify_with_poseidon_trace,
 };
 
 static XMSS_AGGREGATION_PROGRAM: OnceLock<XmssAggregationProgram> = OnceLock::new();
@@ -133,13 +133,7 @@ fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionRes
     let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, slot);
     let public_input = build_public_input(&xmss_pub_keys, message_hash, slot);
     let private_input = build_private_input(&all_signatures);
-    execute_bytecode(
-        bytecode,
-        (&public_input, &private_input),
-        1 << 21,
-        false,
-        (&vec![], &vec![]),
-    )
+    execute_bytecode(bytecode, (&public_input, &private_input), 1 << 21, false, &vec![])
 }
 
 pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
@@ -198,9 +192,8 @@ fn xmss_aggregate_signatures_helper(
 
     let program = get_xmss_aggregation_program();
 
-    let (poseidons_16_precomputed, poseidons_24_precomputed) =
-        precompute_poseidons(xmss_pub_keys, all_signatures, &message_hash)
-            .ok_or(XmssAggregateError::InvalidSigature)?;
+    let poseidons_16_precomputed = precompute_poseidons(xmss_pub_keys, all_signatures, &message_hash)
+        .ok_or(XmssAggregateError::InvalidSigature)?;
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
     let private_input = build_private_input(all_signatures);
@@ -210,7 +203,7 @@ fn xmss_aggregate_signatures_helper(
         (&public_input, &private_input),
         program.compute_non_vec_memory(&xmss_pub_keys.iter().map(|pk| pk.log_lifetime).collect::<Vec<_>>()),
         false,
-        (&poseidons_16_precomputed, &poseidons_24_precomputed),
+        &poseidons_16_precomputed,
     );
 
     let proof_bytes = info_span!("Proof serialization").in_scope(|| bincode::serialize(&proof).unwrap());
@@ -241,7 +234,7 @@ fn precompute_poseidons(
     xmss_pub_keys: &[XmssPublicKey],
     all_signatures: &[XmssSignature],
     message_hash: &[F; 8],
-) -> Option<(Poseidon16History, Poseidon24History)> {
+) -> Option<Poseidon16History> {
     assert_eq!(xmss_pub_keys.len(), all_signatures.len());
     let traces = xmss_pub_keys
         .par_iter()
@@ -249,16 +242,7 @@ fn precompute_poseidons(
         .map(|(pub_key, sig)| xmss_verify_with_poseidon_trace(pub_key, message_hash, sig))
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
-    Some((
-        traces
-            .par_iter()
-            .flat_map(|(poseidon_16_trace, _)| poseidon_16_trace.to_vec())
-            .collect(),
-        traces
-            .par_iter()
-            .flat_map(|(_, poseidon_24_trace)| poseidon_24_trace.to_vec())
-            .collect(),
-    ))
+    Some(traces.into_par_iter().flatten().collect())
 }
 
 #[test]
