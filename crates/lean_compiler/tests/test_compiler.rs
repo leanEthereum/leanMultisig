@@ -382,6 +382,27 @@ fn test_inlined() {
 }
 
 #[test]
+fn test_inlined_2() {
+    let program = r#"
+    fn main() {
+        b = is_one();
+        c = b;
+        return;
+    }
+
+    fn is_one() inline -> 1 {
+        if 1 {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+   "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+
+}
+
+#[test]
 fn test_match() {
     let program = r#"
     fn main() {
