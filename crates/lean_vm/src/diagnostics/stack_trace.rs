@@ -97,7 +97,7 @@ pub(crate) fn pretty_stack_trace(
 
     if !call_stack.is_empty() {
         result.push_str("\nCall stack:\n");
-        for (i, (line, func)) in call_stack.iter().rev().enumerate() {
+        for (i, (line, func)) in call_stack.iter().enumerate() {
             if i + 1 == call_stack.len() {
                 result.push_str(&format!("  {}. {} (line {}, pc {})\n", i + 1, func, line, last_pc));
             } else {
