@@ -53,7 +53,6 @@ lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
 witness_generation = { path = "crates/lean_prover/witness_generation" }
-poseidon_circuit = { path = "crates/poseidon_circuit" }
 
 # External
 thiserror = "2.0"
@@ -88,8 +87,8 @@ multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolk
 clap.workspace = true
 rec_aggregation.workspace = true
 xmss.workspace = true
-poseidon_circuit.workspace = true
 p3-koala-bear.workspace = true
+lean_vm.workspace = true
 multilinear-toolkit.workspace = true
 whir-p3.workspace = true
 

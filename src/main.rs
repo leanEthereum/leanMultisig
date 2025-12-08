@@ -1,5 +1,5 @@
 use clap::Parser;
-use poseidon_circuit::tests::run_poseidon_benchmark;
+use lean_vm::benchmark_prove_poseidon_16;
 use rec_aggregation::{recursion::run_whir_recursion_benchmark, xmss_aggregate::run_xmss_benchmark};
 use xmss::XMSS_MAX_LOG_LIFETIME;
 
@@ -43,7 +43,7 @@ fn main() {
             log_n_perms: log_count,
             tracing,
         } => {
-            run_poseidon_benchmark::<16, 16, 3>(log_count, false, tracing);
+            benchmark_prove_poseidon_16(1 << log_count, tracing);
         }
     }
 }

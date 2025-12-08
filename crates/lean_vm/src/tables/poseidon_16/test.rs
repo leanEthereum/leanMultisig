@@ -1,6 +1,6 @@
 use crate::{
     EF, ExtraDataForBuses, F, Poseidon16Precompile,
-    tables::poseidon_16::trace_gen::{default_poseidon_row, generate_trace_rows_16},
+    tables::poseidon_16::trace_gen::{default_poseidon_row, generate_trace_poseidon_16},
 };
 use air::{check_air_validity, prove_air, verify_air};
 use multilinear_toolkit::prelude::*;
@@ -16,19 +16,20 @@ const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 13;
 
 #[test]
 fn test_benchmark_air_poseidon_16() {
-    benchmark_air_poseidon_16(1 << 11);
+    benchmark_prove_poseidon_16(1 << 12, false);
 }
 
-pub fn benchmark_air_poseidon_16(n_rows: usize) {
-    init_tracing();
-
+pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
+    if tracing {
+        init_tracing();
+    }
     let mut rng = StdRng::seed_from_u64(0);
     let input: [Vec<F>; 16] = std::array::from_fn(|_| (0..n_rows).map(|_| rng.random()).collect());
     let index_a: Vec<F> = (0..n_rows).map(|_| rng.random()).collect();
     let index_b: Vec<F> = (0..n_rows).map(|_| rng.random()).collect();
     let index_res: Vec<F> = (0..n_rows).map(|_| rng.random()).collect();
     let compress: Vec<F> = (0..n_rows).map(|_| F::from_bool(rng.random())).collect();
-    let trace = generate_trace_rows_16(&input, &index_a, &index_b, &index_res, &compress);
+    let trace = generate_trace_poseidon_16(&input, &index_a, &index_b, &index_res, &compress);
     assert_eq!(trace[0].len(), n_rows.next_power_of_two());
 
     let default_row = default_poseidon_row();

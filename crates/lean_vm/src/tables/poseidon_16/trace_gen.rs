@@ -13,7 +13,7 @@ use p3_koala_bear::{
 };
 
 #[instrument(name = "generate Poseidon2 trace", skip_all)]
-pub fn generate_trace_rows_16(
+pub fn generate_trace_poseidon_16(
     inputs: &[Vec<F>; WIDTH],
     index_a: &[F],
     index_b: &[F],

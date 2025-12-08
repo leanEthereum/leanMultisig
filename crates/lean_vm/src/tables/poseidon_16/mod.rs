@@ -12,6 +12,9 @@ use utils::{ToUsize, poseidon16_permute};
 mod test;
 mod trace_gen;
 
+pub use trace_gen::generate_trace_poseidon_16;
+pub use test::benchmark_prove_poseidon_16;
+
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 
 pub(super) const WIDTH: usize = 16;
@@ -19,13 +22,13 @@ const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 
 const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
 const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
 
-const POSEIDON_16_COL_FLAG: ColIndex = 0;
-const POSEIDON_16_COL_INDEX_RES: ColIndex = 1;
-const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 2; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
+pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
+pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 1;
+pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 2; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
 pub const POSEIDON_16_COL_COMPRESSION: ColIndex = 3;
-const POSEIDON_16_COL_INDEX_A: ColIndex = 4;
-const POSEIDON_16_COL_INDEX_B: ColIndex = 5;
-const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
+pub const POSEIDON_16_COL_INDEX_A: ColIndex = 4;
+pub const POSEIDON_16_COL_INDEX_B: ColIndex = 5;
+pub const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
 const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols() - 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -139,12 +142,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         for (i, value) in input.iter().enumerate() {
             trace.base[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
-        for (i, value) in res_a.iter().enumerate() {
-            trace.base[POSEIDON_16_COL_OUTPUT_START + i].push(*value);
-        }
-        for (i, value) in res_b.iter().enumerate() {
-            trace.base[POSEIDON_16_COL_OUTPUT_START + 8 + i].push(*value);
-        }
+        
+        // the rest of the trace is filled at the end of the execution (to get parallelism + SIMD)
 
         Ok(())
     }
