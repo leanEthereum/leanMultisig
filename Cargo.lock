@@ -393,9 +393,9 @@ name = "lean-multisig"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "lean_vm",
  "multilinear-toolkit",
  "p3-koala-bear",
- "poseidon_circuit",
  "rec_aggregation",
  "whir-p3",
  "xmss",
@@ -441,7 +441,6 @@ dependencies = [
  "p3-util",
  "pest",
  "pest_derive",
- "poseidon_circuit",
  "rand",
  "sub_protocols",
  "tracing",
@@ -859,21 +858,6 @@ name = "pin-project-lite"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
-
-[[package]]
-name = "poseidon_circuit"
-version = "0.1.0"
-dependencies = [
- "multilinear-toolkit",
- "p3-koala-bear",
- "p3-monty-31",
- "p3-poseidon2",
- "rand",
- "sub_protocols",
- "tracing",
- "utils",
- "whir-p3",
-]
 
 [[package]]
 name = "ppv-lite86"
@@ -1565,7 +1549,6 @@ dependencies = [
  "p3-util",
  "pest",
  "pest_derive",
- "poseidon_circuit",
  "rand",
  "sub_protocols",
  "tracing",

@@ -26,5 +26,4 @@ lean_vm.workspace = true
 lean_compiler.workspace = true
 derive_more.workspace = true
 multilinear-toolkit.workspace = true
-poseidon_circuit.workspace = true
 p3-monty-31.workspace = true

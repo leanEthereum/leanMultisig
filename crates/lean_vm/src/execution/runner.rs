@@ -314,7 +314,7 @@ fn execute_bytecode_helper(
 
     summary.push('\n');
 
-    if traces[&Table::poseidon16()].base[0].len() > 0 {
+    if !traces[&Table::poseidon16()].base[0].is_empty() {
         summary.push_str(&format!(
             "Poseidon2_16 calls: {} (1 poseidon per {} instructions)\n",
             pretty_integer(traces[&Table::poseidon16()].base[0].len()),

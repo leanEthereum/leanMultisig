@@ -9,8 +9,6 @@ use lookup::verify_gkr_quotient;
 use lookup::verify_logup_star;
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use poseidon_circuit::PoseidonGKRLayers;
-use poseidon_circuit::verify_poseidon_gkr;
 use sub_protocols::*;
 use utils::ToUsize;
 use utils::build_challenger;
@@ -18,8 +16,6 @@ use whir_p3::WhirConfig;
 
 pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>) -> Result<(), ProofError> {
     let mut verifier_state = VerifierState::new(proof, build_challenger());
-
-    let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
 
     let dims = verifier_state
         .next_base_scalars_vec(1 + N_TABLES)?
@@ -48,7 +44,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         return Err(ProofError::InvalidProof);
     }
 
-    let base_dims = get_base_dims(log_public_memory, private_memory_len, &p16_gkr_layers, &table_heights);
+    let base_dims = get_base_dims(log_public_memory, private_memory_len, &table_heights);
     let parsed_commitment_base = packed_pcs_parse_commitment(
         &whir_config_builder_a(),
         &mut verifier_state,
@@ -167,20 +163,6 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
     assert!(lookup_into_memory.on_values_ef.is_empty());
     assert!(lookup_into_memory.on_values_vec.is_empty());
 
-    let p16_gkr = verify_poseidon_gkr(
-        &mut verifier_state,
-        table_heights[&Table::poseidon16()].log_padded(),
-        &air_points[&Table::poseidon16()].0,
-        &p16_gkr_layers,
-        UNIVARIATE_SKIPS,
-        true,
-    );
-    assert_eq!(&p16_gkr.output_statements.point, &air_points[&Table::poseidon16()]);
-    assert_eq!(
-        &p16_gkr.output_statements.values,
-        &evals_f[&Table::poseidon16()][POSEIDON_16_COL_OUTPUT_START..][..16]
-    );
-
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_heights[&Table::execution()].log_padded());
 
@@ -190,21 +172,9 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
             initial_pc_statement,
             final_pc_statement,
         ]);
-    let statements_p16_core = final_statements.get_mut(&Table::poseidon16()).unwrap();
-    for (stmts, gkr_value) in statements_p16_core[POSEIDON_16_COL_INPUT_START..][..16]
-        .iter_mut()
-        .zip(&p16_gkr.input_statements.values)
-    {
-        stmts.push(Evaluation::new(p16_gkr.input_statements.point.clone(), *gkr_value));
-    }
-    statements_p16_core[POSEIDON_16_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
 
-    let mut all_base_statements = [
-        vec![memory_statements],
-        vec![acc_statements],
-        encapsulate_vec(p16_gkr.cubes_statements.split()),
-    ]
-    .concat();
+    let mut all_base_statements = vec![memory_statements, acc_statements];
+
     all_base_statements.extend(final_statements.into_values().flatten());
     let global_statements_base = packed_pcs_global_statements_for_verifier(
         &base_dims,

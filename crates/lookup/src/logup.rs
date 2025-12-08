@@ -57,7 +57,7 @@ pub fn prove_logup<EF: ExtensionField<PF<EF>>>(
         .collect::<Vec<_>>();
 
     let num_left_packed = MleRef::Extension(&num_left).pack_if(packing);
-    let denom_left_packed = MleRef::Extension(&denom_left).pack_if(packing);
+    let denom_left_packed = MleRef::Extension(denom_left).pack_if(packing);
 
     let (sum_left, claim_point_left, num_left_value, denom_left_value) = prove_gkr_quotient::<_, 2>(
         prover_state,
@@ -77,7 +77,7 @@ pub fn prove_logup<EF: ExtensionField<PF<EF>>>(
         .collect::<Vec<_>>();
 
     let num_right_packed = MleRef::Extension(&num_right).pack_if(packing);
-    let denom_right_packed = MleRef::Extension(&denom_right).pack_if(packing);
+    let denom_right_packed = MleRef::Extension(denom_right).pack_if(packing);
 
     let (sum_right, claim_point_right, num_right_value, denom_right_value) = prove_gkr_quotient::<_, 2>(
         prover_state,

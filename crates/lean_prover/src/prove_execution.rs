@@ -9,7 +9,6 @@ use lookup::{compute_pushforward, prove_gkr_quotient, prove_logup_star};
 use multilinear_toolkit::prelude::*;
 
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use poseidon_circuit::{PoseidonGKRLayers, prove_poseidon_gkr};
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
@@ -97,15 +96,6 @@ pub fn prove_execution(
         }
     });
 
-    let p16_gkr_layers = PoseidonGKRLayers::<16, N_COMMITED_CUBES_P16>::build(Some(VECTOR_LEN));
-
-    let p16_witness = generate_poseidon_witness_helper(
-        &p16_gkr_layers,
-        &traces[&Table::poseidon16()],
-        POSEIDON_16_COL_INPUT_START,
-        Some(&traces[&Table::poseidon16()].base[POSEIDON_16_COL_COMPRESSION]),
-    );
-
     let commitmenent_extension_helper = traces
         .iter()
         .filter(|(table, _)| table.n_commited_columns_ef() > 0)
@@ -126,19 +116,10 @@ pub fn prove_execution(
     let base_dims = get_base_dims(
         log_public_memory,
         private_memory.len(),
-        &p16_gkr_layers,
         &traces.iter().map(|(table, trace)| (*table, trace.height)).collect(),
     );
 
-    let mut base_pols = [
-        vec![memory.as_slice(), acc.as_slice()],
-        p16_witness
-            .committed_cubes
-            .iter()
-            .map(|s| FPacking::<F>::unpack_slice(s))
-            .collect::<Vec<_>>(),
-    ]
-    .concat();
+    let mut base_pols = vec![memory.as_slice(), acc.as_slice()];
     for (table, trace) in &traces {
         base_pols.extend(table.committed_columns(trace, commitmenent_extension_helper.get(table)));
     }
@@ -286,19 +267,6 @@ pub fn prove_execution(
     assert!(lookup_into_memory.on_values_ef.is_empty());
     assert!(lookup_into_memory.on_values_vec.is_empty());
 
-    let p16_gkr = prove_poseidon_gkr(
-        &mut prover_state,
-        &p16_witness,
-        air_points[&Table::poseidon16()].0.clone(),
-        UNIVARIATE_SKIPS,
-        &p16_gkr_layers,
-    );
-    assert_eq!(&p16_gkr.output_statements.point, &air_points[&Table::poseidon16()]);
-    assert_eq!(
-        &p16_gkr.output_statements.values,
-        &evals_f[&Table::poseidon16()][POSEIDON_16_COL_OUTPUT_START..][..16]
-    );
-
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(traces[&Table::execution()].log_padded());
 
@@ -308,22 +276,9 @@ pub fn prove_execution(
             initial_pc_statement,
             final_pc_statement,
         ]);
-    let statements_p16_core = final_statements.get_mut(&Table::poseidon16()).unwrap();
-    for (stmts, gkr_value) in statements_p16_core[POSEIDON_16_COL_INPUT_START..][..16]
-        .iter_mut()
-        .zip(&p16_gkr.input_statements.values)
-    {
-        stmts.push(Evaluation::new(p16_gkr.input_statements.point.clone(), *gkr_value));
-    }
-    statements_p16_core[POSEIDON_16_COL_COMPRESSION].push(p16_gkr.on_compression_selector.unwrap());
 
     // First Opening
-    let mut all_base_statements = [
-        vec![memory_statements],
-        vec![acc_statements],
-        encapsulate_vec(p16_gkr.cubes_statements.split()),
-    ]
-    .concat();
+    let mut all_base_statements = vec![memory_statements, acc_statements];
     all_base_statements.extend(final_statements.into_values().flatten());
 
     let global_statements_base = packed_pcs_global_statements_for_prover(

@@ -21,9 +21,9 @@ pub struct PackedLookupStatements<EF> {
 fn tweak_acc_vector<EF: ExtensionField<PF<EF>>>(
     at_start: bool,
     acc: &mut [PF<EF>],
-    index_columns: &Vec<&[PF<EF>]>,
-    n_cols_per_group: &Vec<usize>,
-    default_indexes: &Vec<usize>,
+    index_columns: &[&[PF<EF>]],
+    n_cols_per_group: &[usize],
+    default_indexes: &[usize],
     chunks: &MultilinearChunks,
 ) {
     let selector = if at_start { PF::<EF>::ONE } else { PF::<EF>::NEG_ONE };
@@ -34,9 +34,9 @@ fn tweak_acc_vector<EF: ExtensionField<PF<EF>>>(
         offset += n_cols;
         let full_height = index_columns[i].len();
         assert!(full_height.is_power_of_two());
-        for j in 0..*n_cols {
+        for (j, chunk) in my_chunks.iter().enumerate().take(*n_cols) {
             total_size += full_height;
-            let chunk_height = my_chunks[j].iter().map(|c| 1 << c.n_vars).sum();
+            let chunk_height = chunk.iter().map(|c| 1 << c.n_vars).sum();
             let default_index = default_indexes[i] + j;
             let height_diff = PF::<EF>::from_usize(full_height.checked_sub(chunk_height).unwrap());
             acc[default_index] -= height_diff * selector;
@@ -49,9 +49,9 @@ fn tweak_acc_vector<EF: ExtensionField<PF<EF>>>(
 
 fn tweak_acc_statement<EF: ExtensionField<PF<EF>>>(
     acc_statement: &mut Evaluation<EF>,
-    n_cols_per_group: &Vec<usize>,
-    heights: &Vec<usize>,
-    default_indexes: &Vec<usize>,
+    n_cols_per_group: &[usize],
+    heights: &[usize],
+    default_indexes: &[usize],
     chunks: &MultilinearChunks,
     log_table_len: usize,
 ) {
@@ -61,9 +61,9 @@ fn tweak_acc_statement<EF: ExtensionField<PF<EF>>>(
         let my_chunks = &chunks[offset..offset + n_cols];
         offset += n_cols;
         let full_height = heights[i].next_power_of_two();
-        for j in 0..*n_cols {
+        for (j, chunk) in my_chunks.iter().enumerate().take(*n_cols) {
             total_size += full_height;
-            let chunk_height = my_chunks[j].iter().map(|c| 1 << c.n_vars).sum();
+            let chunk_height = chunk.iter().map(|c| 1 << c.n_vars).sum();
             let default_index = default_indexes[i] + j;
             let height_diff = PF::<EF>::from_usize(full_height.checked_sub(chunk_height).unwrap());
 
@@ -151,8 +151,8 @@ impl GenericPackedLookupProver {
             prover_state,
             &concatenated_indexes,
             &concatenated_values,
-            &table,
-            &acc,
+            table,
+            acc,
             Some(non_zero_memory_size),
         );
 

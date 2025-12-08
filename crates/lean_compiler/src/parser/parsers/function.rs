@@ -205,7 +205,7 @@ impl FunctionCallParser {
                 Ok(Line::DecomposeCustom { args })
             }
             "private_input_start" => {
-                if args.len() != 0 || return_data.len() != 1 {
+                if !args.is_empty() || return_data.len() != 1 {
                     return Err(SemanticError::new("Invalid private_input_start call").into());
                 }
                 Ok(Line::PrivateInputStart {

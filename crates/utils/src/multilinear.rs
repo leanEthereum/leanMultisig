@@ -164,8 +164,8 @@ mod tests {
         let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<F>>();
         let eval = mle_of_01234567_etc(&point);
         let mut pol = F::zero_vec(1 << n_vars);
-        for i in 0..(1 << n_vars) {
-            pol[i] = F::from_usize(i);
+        for (i, p) in pol.iter_mut().enumerate().take(1 << n_vars) {
+            *p = F::from_usize(i);
         }
         assert_eq!(eval, pol.evaluate(&MultilinearPoint(point)));
     }
