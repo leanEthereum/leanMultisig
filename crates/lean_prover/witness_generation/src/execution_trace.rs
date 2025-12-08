@@ -96,16 +96,8 @@ pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionR
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
-    // TODO avoid reallocation
     let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
-    let completed_poseidon_trace = generate_trace_poseidon_16(
-        &std::array::from_fn(|i| std::mem::take(&mut poseidon_trace.base[POSEIDON_16_COL_INPUT_START + i])),
-        &std::mem::take(&mut poseidon_trace.base[POSEIDON_16_COL_INDEX_A]),
-        &std::mem::take(&mut poseidon_trace.base[POSEIDON_16_COL_INDEX_B]),
-        &std::mem::take(&mut poseidon_trace.base[POSEIDON_16_COL_INDEX_RES]),
-        &std::mem::take(&mut poseidon_trace.base[POSEIDON_16_COL_COMPRESSION]),
-    );
-    poseidon_trace.base = completed_poseidon_trace;
+    fill_trace_poseidon_16(&mut poseidon_trace.base);
 
     traces.insert(
         Table::execution(),

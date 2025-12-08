@@ -1,6 +1,8 @@
 use crate::{
-    EF, ExtraDataForBuses, F, Poseidon16Precompile,
-    tables::poseidon_16::trace_gen::{default_poseidon_row, generate_trace_poseidon_16},
+    EF, ExtraDataForBuses, F, POSEIDON_16_COL_COMPRESSION, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INDEX_A, POSEIDON_16_COL_INDEX_B, POSEIDON_16_COL_INDEX_RES, POSEIDON_16_COL_INDEX_RES_BIS, POSEIDON_16_COL_INPUT_START, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, Poseidon16Precompile, ZERO_VEC_PTR, tables::{
+        WIDTH, num_cols,
+        poseidon_16::trace_gen::{default_poseidon_row, fill_trace_poseidon_16},
+    }
 };
 use air::{check_air_validity, prove_air, verify_air};
 use multilinear_toolkit::prelude::*;
@@ -16,7 +18,7 @@ const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 13;
 
 #[test]
 fn test_benchmark_air_poseidon_16() {
-    benchmark_prove_poseidon_16(1 << 12, false);
+    benchmark_prove_poseidon_16(1026, false);
 }
 
 pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
@@ -24,15 +26,27 @@ pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
         init_tracing();
     }
     let mut rng = StdRng::seed_from_u64(0);
-    let input: [Vec<F>; 16] = std::array::from_fn(|_| (0..n_rows).map(|_| rng.random()).collect());
-    let index_a: Vec<F> = (0..n_rows).map(|_| rng.random()).collect();
-    let index_b: Vec<F> = (0..n_rows).map(|_| rng.random()).collect();
-    let index_res: Vec<F> = (0..n_rows).map(|_| rng.random()).collect();
-    let compress: Vec<F> = (0..n_rows).map(|_| F::from_bool(rng.random())).collect();
-    let trace = generate_trace_poseidon_16(&input, &index_a, &index_b, &index_res, &compress);
-    assert_eq!(trace[0].len(), n_rows.next_power_of_two());
+    let mut trace = vec![vec![F::ZERO; n_rows]; num_cols()];
+    for i in POSEIDON_16_COL_INPUT_START..POSEIDON_16_COL_INPUT_START + WIDTH {
+        trace[i] = (0..n_rows).map(|_| rng.random()).collect();
+    }
+    trace[POSEIDON_16_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
+    trace[POSEIDON_16_COL_INDEX_RES] = (0..n_rows).map(|_| F::from_usize(POSEIDON_16_NULL_HASH_PTR)).collect();
+    trace[POSEIDON_16_COL_INDEX_RES_BIS] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    trace[POSEIDON_16_COL_COMPRESSION] = (0..n_rows)
+        .map(|_| F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION))
+        .collect();
+    trace[POSEIDON_16_COL_INDEX_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    trace[POSEIDON_16_COL_INDEX_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    fill_trace_poseidon_16(&mut trace);
+
 
     let default_row = default_poseidon_row();
+
+    // padding
+    for (col, default_value) in trace.iter_mut().zip(&default_row) {
+        col.resize(n_rows.next_power_of_two(), *default_value);
+    }
     let dims = default_row
         .iter()
         .map(|v| ColDims::padded(n_rows, *v))

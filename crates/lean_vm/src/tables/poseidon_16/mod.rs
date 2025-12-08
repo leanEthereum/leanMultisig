@@ -12,7 +12,7 @@ use utils::{ToUsize, poseidon16_permute};
 mod test;
 mod trace_gen;
 
-pub use trace_gen::generate_trace_poseidon_16;
+pub use trace_gen::fill_trace_poseidon_16;
 pub use test::benchmark_prove_poseidon_16;
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;

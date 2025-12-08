@@ -1,6 +1,5 @@
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 use tracing::instrument;
-use utils::assert_eq_many;
 
 use crate::{
     F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
@@ -13,67 +12,38 @@ use p3_koala_bear::{
 };
 
 #[instrument(name = "generate Poseidon2 trace", skip_all)]
-pub fn generate_trace_poseidon_16(
-    inputs: &[Vec<F>; WIDTH],
-    index_a: &[F],
-    index_b: &[F],
-    index_res: &[F],
-    compress: &[F],
-) -> Vec<Vec<F>> {
-    // return columns padded to the next power of two
-    let n = inputs[0].len();
-    assert!(inputs.iter().all(|col| col.len() == n));
-    assert_eq_many!(index_a.len(), index_b.len(), index_res.len(), compress.len(), n);
+pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
+    let n = trace.iter().map(|col| col.len()).max().unwrap();
+    for col in trace.iter_mut() {
+        if col.len() != n {
+            col.resize(n, F::ZERO);
+        }
+    }
 
-    let mut res = (0..num_cols())
-        .map(|_| unsafe { uninitialized_vec::<F>(n.next_power_of_two()) })
-        .collect::<Vec<_>>();
     let m = n - (n % packing_width::<F>());
-    let inputs_packed: [_; WIDTH] = std::array::from_fn(|i| FPacking::<F>::pack_slice(&inputs[i][..m]));
-    let index_a_packed = FPacking::<F>::pack_slice(&index_a[..m]);
-    let index_b_packed = FPacking::<F>::pack_slice(&index_b[..m]);
-    let index_res_packed = FPacking::<F>::pack_slice(&index_res[..m]);
-    let compress_packed = FPacking::<F>::pack_slice(&compress[..m]);
-    let res_packed: Vec<_> = res.iter().map(|col| FPacking::<F>::pack_slice(&col[..m])).collect();
+    let trace_packed: Vec<_> = trace.iter().map(|col| FPacking::<F>::pack_slice(&col[..m])).collect();
 
     // fill the packed rows
     (0..n / packing_width::<F>()).into_par_iter().for_each(|i| {
-        let state: [_; WIDTH] = std::array::from_fn(|j| inputs_packed[j][i]);
-        let ptrs: Vec<*mut FPacking<F>> = res_packed
+        let ptrs: Vec<*mut FPacking<F>> = trace_packed
             .iter()
             .map(|col| unsafe { (col.as_ptr() as *mut FPacking<F>).add(i) })
             .collect();
         let perm: &mut Poseidon2Cols<&mut FPacking<F>> =
             unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon2Cols<&mut FPacking<F>>) };
 
-        generate_trace_rows_for_perm(
-            perm,
-            FPacking::<F>::ONE,
-            index_a_packed[i],
-            index_b_packed[i],
-            index_res_packed[i],
-            compress_packed[i],
-            state,
-        );
+        generate_trace_rows_for_perm(perm);
     });
 
     // fill the remaining rows (non packed)
     for i in m..n {
-        let state: [F; WIDTH] = std::array::from_fn(|j| inputs[j][i]);
-        let ptrs: Vec<*mut F> = res
+        let ptrs: Vec<*mut F> = trace
             .iter()
             .map(|col| unsafe { (col.as_ptr() as *mut F).add(i) })
             .collect();
         let perm: &mut Poseidon2Cols<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon2Cols<&mut F>) };
-        generate_trace_rows_for_perm(perm, F::ONE, index_a[i], index_b[i], index_res[i], compress[i], state);
+        generate_trace_rows_for_perm(perm);
     }
-
-    // fill the padding rows
-    res.par_iter_mut().zip(default_poseidon_row()).for_each(|(col, v)| {
-        col[n..].fill(v);
-    });
-
-    res
 }
 
 pub fn default_poseidon_row() -> Vec<F> {
@@ -81,36 +51,23 @@ pub fn default_poseidon_row() -> Vec<F> {
     let ptrs: [*mut F; num_cols()] = std::array::from_fn(|i| unsafe { row.as_mut_ptr().add(i) });
 
     let perm: &mut Poseidon2Cols<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon2Cols<&mut F>) };
+    perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
+    *perm.flag = F::ZERO;
+    *perm.index_a = F::from_usize(ZERO_VEC_PTR);
+    *perm.index_b = F::from_usize(ZERO_VEC_PTR);
+    *perm.index_res = F::from_usize(POSEIDON_16_NULL_HASH_PTR);
+    *perm.index_res_bis = if POSEIDON_16_DEFAULT_COMPRESSION {
+        F::from_usize(ZERO_VEC_PTR)
+    } else {
+        F::from_usize(POSEIDON_16_NULL_HASH_PTR + 1)
+    };
+    *perm.compress = F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION);
 
-    generate_trace_rows_for_perm(
-        perm,
-        F::ZERO,
-        F::from_usize(ZERO_VEC_PTR),
-        F::from_usize(ZERO_VEC_PTR),
-        F::from_usize(POSEIDON_16_NULL_HASH_PTR),
-        F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION),
-        [F::ZERO; WIDTH],
-    );
+    generate_trace_rows_for_perm(perm);
     row
 }
-fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(
-    perm: &mut Poseidon2Cols<&mut F>,
-    flag: F,
-    index_a: F,
-    index_b: F,
-    index_res: F,
-    compress: F,
-    mut state: [F; WIDTH],
-) {
-    *perm.flag = flag;
-    *perm.index_a = index_a;
-    *perm.index_b = index_b;
-    *perm.index_res = index_res;
-    *perm.index_res_bis = (F::ONE - compress) * (index_res + F::ONE);
-    *perm.compress = compress;
-    perm.inputs.iter_mut().zip(state.iter()).for_each(|(input, &x)| {
-        **input = x;
-    });
+fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon2Cols<&mut F>) {
+    let mut state: [F; WIDTH] = std::array::from_fn(|i| *perm.inputs[i]);
 
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut state);
 
@@ -137,7 +94,7 @@ fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(
     perm.ending_full_rounds.last_mut().unwrap()[8..16]
         .iter_mut()
         .for_each(|x| {
-            **x = (F::ONE - compress) * **x;
+            **x = (F::ONE - *perm.compress) * **x;
         });
 }
 
