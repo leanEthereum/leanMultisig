@@ -1,18 +1,27 @@
-use crate::{EF, ExtraDataForBuses, F, Poseidon16Precompile, tables::poseidon_16::trace_gen::generate_trace_rows_16};
+use crate::{
+    EF, ExtraDataForBuses, F, Poseidon16Precompile,
+    tables::poseidon_16::trace_gen::{default_poseidon_row, generate_trace_rows_16},
+};
 use air::{check_air_validity, prove_air, verify_air};
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{build_prover_state, build_verifier_state};
+use sub_protocols::packed_pcs_global_statements_for_verifier;
+use sub_protocols::{ColDims, packed_pcs_global_statements_for_prover};
+use sub_protocols::{packed_pcs_commit, packed_pcs_parse_commitment};
+use utils::{build_prover_state, build_verifier_state, collect_refs, init_tracing};
+use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder};
 
 const UNIVARIATE_SKIPS: usize = 3;
+const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 13;
 
 #[test]
 fn test_benchmark_air_poseidon_16() {
-    benchmark_air_poseidon_16(12);
+    benchmark_air_poseidon_16(1 << 20);
 }
 
-pub fn benchmark_air_poseidon_16(log_n_rows: usize) {
-    let n_rows = 1 << log_n_rows;
+pub fn benchmark_air_poseidon_16(n_rows: usize) {
+    init_tracing();
+
     let mut rng = StdRng::seed_from_u64(0);
     let input: [Vec<F>; 16] = std::array::from_fn(|_| (0..n_rows).map(|_| rng.random()).collect());
     let index_a: Vec<F> = (0..n_rows).map(|_| rng.random()).collect();
@@ -20,7 +29,22 @@ pub fn benchmark_air_poseidon_16(log_n_rows: usize) {
     let index_res: Vec<F> = (0..n_rows).map(|_| rng.random()).collect();
     let compress: Vec<F> = (0..n_rows).map(|_| F::from_bool(rng.random())).collect();
     let trace = generate_trace_rows_16(&input, &index_a, &index_b, &index_res, &compress);
-    assert_eq!(trace[0].len(), n_rows);
+    assert_eq!(trace[0].len(), n_rows.next_power_of_two());
+
+    let default_row = default_poseidon_row();
+    let dims = default_row
+        .iter()
+        .map(|v| ColDims::padded(n_rows, *v))
+        .collect::<Vec<_>>();
+    let whir_config = WhirConfigBuilder {
+        folding_factor: FoldingFactor::new(7, 4),
+        soundness_type: SecurityAssumption::CapacityBound,
+        pow_bits: 16,
+        max_num_variables_to_send_coeffs: 6,
+        rs_domain_initial_reduction_factor: 5,
+        security_level: 128,
+        starting_log_inv_rate: 1,
+    };
 
     let air = Poseidon16Precompile::<false>;
 
@@ -35,6 +59,17 @@ pub fn benchmark_air_poseidon_16(log_n_rows: usize) {
     .unwrap();
 
     let mut prover_state = build_prover_state(false);
+
+    let time = std::time::Instant::now();
+
+    let witness = packed_pcs_commit(
+        &whir_config,
+        &collect_refs(&trace),
+        &dims,
+        &mut prover_state,
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
+    );
+
     let prover_statements = prove_air::<EF, _>(
         &mut prover_state,
         &air,
@@ -48,16 +83,72 @@ pub fn benchmark_air_poseidon_16(log_n_rows: usize) {
         true,
     );
 
+    let global_statements_prover = packed_pcs_global_statements_for_prover(
+        &collect_refs(&trace),
+        &dims,
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
+        &prover_statements
+            .1
+            .iter()
+            .map(|v| vec![Evaluation::new(prover_statements.0.clone(), *v)])
+            .collect::<Vec<_>>(),
+        &mut prover_state,
+    );
+
+    WhirConfig::new(whir_config.clone(), witness.packed_polynomial.by_ref().n_vars()).prove(
+        &mut prover_state,
+        global_statements_prover,
+        witness.inner_witness,
+        &witness.packed_polynomial.by_ref(),
+    );
+
+    println!(
+        "{} Poseidons / s",
+        (n_rows as f64 / time.elapsed().as_secs_f64()) as usize
+    );
+
     let mut verifier_state = build_verifier_state(prover_state);
+
+    let parsed_commitment_base = packed_pcs_parse_commitment(
+        &whir_config,
+        &mut verifier_state,
+        &dims,
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
+    )
+    .unwrap();
+
     let verifier_statements = verify_air(
         &mut verifier_state,
         &air,
         ExtraDataForBuses::default(),
         UNIVARIATE_SKIPS,
-        log_n_rows,
+        log2_ceil_usize(n_rows),
         &[],
         &[],
         None,
     )
     .unwrap();
+
+    let global_statements_verifier = packed_pcs_global_statements_for_verifier(
+        &dims,
+        LOG_SMALLEST_DECOMPOSITION_CHUNK,
+        &verifier_statements
+            .1
+            .iter()
+            .map(|v| vec![Evaluation::new(verifier_statements.0.clone(), *v)])
+            .collect::<Vec<_>>(),
+        &mut verifier_state,
+        &Default::default(),
+    )
+    .unwrap();
+
+    WhirConfig::new(whir_config, parsed_commitment_base.num_variables)
+        .verify(&mut verifier_state, &parsed_commitment_base, global_statements_verifier)
+        .unwrap();
+
+    assert_eq!(&prover_statements, &verifier_statements);
+    assert!(prover_statements.2.is_empty());
+    for (v, col) in prover_statements.1.iter().zip(trace) {
+        assert_eq!(col.evaluate(&prover_statements.0), *v);
+    }
 }

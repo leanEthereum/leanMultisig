@@ -1,7 +1,7 @@
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 use std::{any::TypeId, array};
 
-use crate::*;
+use crate::{tables::poseidon_16::trace_gen::default_poseidon_row, *};
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{
     GenericPoseidon2LinearLayersKoalaBear, KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL,
@@ -85,7 +85,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     }
 
     fn padding_row_f(&self) -> Vec<F> {
-        todo!()
+        default_poseidon_row()
     }
 
     fn padding_row_ef(&self) -> Vec<EF> {
