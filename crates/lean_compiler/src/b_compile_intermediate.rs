@@ -184,7 +184,7 @@ fn compile_lines(
                 let arg0 = IntermediateValue::from_simple_expr(arg0, compiler);
                 let arg1 = IntermediateValue::from_simple_expr(arg1, compiler);
 
-                if let VarOrConstMallocAccess::Var(var) = var {
+                if let VarOrConstMallocAccess::Var(var) = var && !compiler.is_in_scope(var) {
                     declared_vars.insert(var.clone());
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
@@ -230,7 +230,7 @@ fn compile_lines(
                         &mut arm_declared_vars,
                     )?;
                     compiled_arms.push(arm_instructions);
-                    *declared_vars = if i == 0 {
+                    *declared_vars = if i == 0 { // TODO: is this right?
                         arm_declared_vars
                     } else {
                         declared_vars.intersection(&arm_declared_vars).cloned().collect()
@@ -443,10 +443,12 @@ fn compile_lines(
                 validate_vars_declared(args, declared_vars)?;
                 declared_vars.extend(return_data.iter().cloned());
                 for var in return_data.iter() {
-                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                    declared_vars.insert(var.clone());
-                    compiler.stack_pos += 1;
+                    if !compiler.is_in_scope(var) {
+                        let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                        current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                        declared_vars.insert(var.clone());
+                        compiler.stack_pos += 1;
+                    }
                 }
 
                 let after_call = {
@@ -524,10 +526,12 @@ fn compile_lines(
                 vectorized,
                 vectorized_len,
             } => {
-                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                compiler.stack_pos += 1;
-                declared_vars.insert(var.clone());
+                if !compiler.is_in_scope(var) {
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    compiler.stack_pos += 1;
+                    declared_vars.insert(var.clone());
+                }
                 instructions.push(IntermediateInstruction::RequestMemory {
                     offset: compiler.get_offset(&var.clone().into()),
                     size: IntermediateValue::from_simple_expr(size, compiler),
@@ -537,10 +541,12 @@ fn compile_lines(
             }
             SimpleLine::ConstMalloc { var, size, label } => {
                 let size = size.naive_eval().unwrap().to_usize(); // TODO not very good;
-                declared_vars.insert(var.clone());
-                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                compiler.stack_pos += 1;
+                if !compiler.is_in_scope(var) {
+                    declared_vars.insert(var.clone());
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    compiler.stack_pos += 1;
+                }
                 handle_const_malloc(&mut instructions, compiler, var, size, label);
             }
             SimpleLine::DecomposeBits {
@@ -548,10 +554,12 @@ fn compile_lines(
                 to_decompose,
                 label,
             } => {
-                declared_vars.insert(var.clone());
-                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                compiler.stack_pos += 1;
+                if !compiler.is_in_scope(var) {
+                    declared_vars.insert(var.clone());
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    compiler.stack_pos += 1;
+                }
 
                 instructions.push(IntermediateInstruction::DecomposeBits {
                     res_offset: compiler.stack_pos,
@@ -574,10 +582,12 @@ fn compile_lines(
                 to_decompose,
                 label,
             } => {
-                declared_vars.insert(var.clone());
-                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                compiler.stack_pos += 1;
+                if !compiler.is_in_scope(var) {
+                    declared_vars.insert(var.clone());
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    compiler.stack_pos += 1;
+                }
 
                 instructions.push(IntermediateInstruction::DecomposeCustom {
                     res_offset: compiler.stack_pos,
@@ -596,10 +606,12 @@ fn compile_lines(
                 );
             }
             SimpleLine::CounterHint { var } => {
-                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                compiler.stack_pos += 1;
-                declared_vars.insert(var.clone());
+                if !compiler.is_in_scope(var) {
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    compiler.stack_pos += 1;
+                    declared_vars.insert(var.clone());
+                }
                 instructions.push(IntermediateInstruction::CounterHint {
                     res_offset: compiler
                         .get_offset(&var.clone().into())
