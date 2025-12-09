@@ -307,7 +307,9 @@ pub enum Line {
         value: Expression,
         arms: Vec<(usize, Vec<Self>)>,
     },
-    ForwardDeclaration { var: Var },
+    ForwardDeclaration {
+        var: Var,
+    },
     Assignment {
         var: Var,
         value: Expression,

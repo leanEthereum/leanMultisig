@@ -399,7 +399,6 @@ fn test_inlined_2() {
     }
    "#;
     compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
-
 }
 
 #[test]
