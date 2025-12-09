@@ -16,17 +16,18 @@ pub fn compile_program(program: String) -> Bytecode {
     let (parsed_program, function_locations) = parse_program(&program).unwrap();
     // println!("Parsed program: {}", parsed_program.to_string());
     let simple_program = simplify_program(parsed_program);
-    println!("Simplified program: {}", simple_program.to_string());
+    // println!("Simplified program: {}", simple_program);
     let intermediate_bytecode = compile_to_intermediate_bytecode(simple_program).unwrap();
-    println!("Intermediate Bytecode:\n\n{}", intermediate_bytecode.to_string());
+    // println!("Intermediate Bytecode:\n\n{}", intermediate_bytecode.to_string());
 
     // println!("Function Locations: \n");
     // for (loc, name) in function_locations.iter() {
     //     println!("{name}: {loc}");
     // }
-    let compiled = compile_to_low_level_bytecode(intermediate_bytecode, program, function_locations).unwrap();
-    println!("\n\nCompiled Program:\n\n{compiled}");
-    compiled
+    /* let compiled = */
+    compile_to_low_level_bytecode(intermediate_bytecode, program, function_locations).unwrap() //;
+    // println!("\n\nCompiled Program:\n\n{compiled}");
+    // compiled
 }
 
 pub fn compile_and_run(
