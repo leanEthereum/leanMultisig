@@ -147,13 +147,11 @@ fn compile_function(
     compiler.stack_size = stack_pos;
     compiler.args_count = function.arguments.len();
 
-    let mut declared_vars: BTreeSet<Var> = function.arguments.iter().cloned().collect();
     compile_lines(
         &Label::function(function.name.clone()),
         &function.instructions,
         compiler,
         None,
-        &mut declared_vars,
     )
 }
 
@@ -162,7 +160,6 @@ fn compile_lines(
     lines: &[SimpleLine],
     compiler: &mut Compiler,
     final_jump: Option<Label>,
-    declared_vars: &mut BTreeSet<Var>,
 ) -> Result<Vec<IntermediateInstruction>, String> {
     let mut instructions = Vec::new();
 
@@ -171,7 +168,6 @@ fn compile_lines(
             SimpleLine::ForwardDeclaration { var } => {
                 let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                 current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                declared_vars.insert(var.clone());
                 compiler.stack_pos += 1;
             }
 
@@ -185,7 +181,6 @@ fn compile_lines(
                 let arg1 = IntermediateValue::from_simple_expr(arg1, compiler);
 
                 if let VarOrConstMallocAccess::Var(var) = var && !compiler.is_in_scope(var) {
-                    declared_vars.insert(var.clone());
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
@@ -220,21 +215,14 @@ fn compile_lines(
                 let saved_stack_pos = compiler.stack_pos;
                 let mut new_stack_pos = saved_stack_pos;
                 for (i, arm) in arms.iter().enumerate() {
-                    let mut arm_declared_vars = declared_vars.clone();
                     compiler.stack_pos = saved_stack_pos;
                     let arm_instructions = compile_lines(
                         function_name,
                         arm,
                         compiler,
                         Some(end_label.clone()),
-                        &mut arm_declared_vars,
                     )?;
                     compiled_arms.push(arm_instructions);
-                    *declared_vars = if i == 0 { // TODO: is this right?
-                        arm_declared_vars
-                    } else {
-                        declared_vars.intersection(&arm_declared_vars).cloned().collect()
-                    };
                     new_stack_pos = new_stack_pos.max(compiler.stack_pos);
                 }
                 compiler.stack_pos = new_stack_pos;
@@ -269,7 +257,7 @@ fn compile_lines(
                     updated_fp: None,
                 });
 
-                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump, declared_vars)?;
+                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?;
                 compiler.bytecode.insert(end_label, remaining);
 
                 compiler.stack_frame_layout.scopes.pop();
@@ -287,8 +275,6 @@ fn compile_lines(
                 line_number,
             } => {
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
-
-                validate_vars_declared(&[condition], declared_vars)?;
 
                 let if_id = compiler.if_counter;
                 compiler.if_counter += 1;
@@ -364,24 +350,20 @@ fn compile_lines(
 
                 let saved_stack_pos = compiler.stack_pos;
 
-                let mut then_declared_vars = declared_vars.clone();
                 let then_instructions = compile_lines(
                     function_name,
                     then_branch,
                     compiler,
                     Some(end_label.clone()),
-                    &mut then_declared_vars,
                 )?;
 
                 let then_stack_pos = compiler.stack_pos;
                 compiler.stack_pos = saved_stack_pos;
-                let mut else_declared_vars = declared_vars.clone();
                 let else_instructions = compile_lines(
                     function_name,
                     else_branch,
                     compiler,
                     Some(end_label.clone()),
-                    &mut else_declared_vars,
                 )?;
 
                 compiler.bytecode.insert(if_label, then_instructions);
@@ -390,7 +372,7 @@ fn compile_lines(
                 compiler.stack_frame_layout.scopes.pop();
                 compiler.stack_pos = compiler.stack_pos.max(then_stack_pos);
 
-                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump, declared_vars)?;
+                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?;
                 compiler.bytecode.insert(end_label, remaining);
                 // It is not necessary to update compiler.stack_size here because the preceding call to
                 // compile_lines should have done so.
@@ -399,10 +381,7 @@ fn compile_lines(
             }
 
             SimpleLine::RawAccess { res, index, shift } => {
-                // TODO: why is validate_vars_declared here?
-                validate_vars_declared(&[index], declared_vars)?;
                 if let SimpleExpr::Var(var) = res && !compiler.is_in_scope(var) {
-                    declared_vars.insert(var.clone());
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
@@ -439,14 +418,10 @@ fn compile_lines(
                     compiler,
                 )?);
 
-                // TODO: why is validate_vars_declared here?
-                validate_vars_declared(args, declared_vars)?;
-                declared_vars.extend(return_data.iter().cloned());
                 for var in return_data.iter() {
                     if !compiler.is_in_scope(var) {
                         let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                         current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
-                        declared_vars.insert(var.clone());
                         compiler.stack_pos += 1;
                     }
                 }
@@ -470,7 +445,6 @@ fn compile_lines(
                         &lines[i + 1..],
                         compiler,
                         final_jump,
-                        declared_vars,
                     )?);
 
                     instructions
@@ -530,7 +504,6 @@ fn compile_lines(
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
-                    declared_vars.insert(var.clone());
                 }
                 instructions.push(IntermediateInstruction::RequestMemory {
                     offset: compiler.get_offset(&var.clone().into()),
@@ -542,7 +515,6 @@ fn compile_lines(
             SimpleLine::ConstMalloc { var, size, label } => {
                 let size = size.naive_eval().unwrap().to_usize(); // TODO not very good;
                 if !compiler.is_in_scope(var) {
-                    declared_vars.insert(var.clone());
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
@@ -555,7 +527,6 @@ fn compile_lines(
                 label,
             } => {
                 if !compiler.is_in_scope(var) {
-                    declared_vars.insert(var.clone());
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
@@ -583,7 +554,6 @@ fn compile_lines(
                 label,
             } => {
                 if !compiler.is_in_scope(var) {
-                    declared_vars.insert(var.clone());
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
@@ -610,7 +580,6 @@ fn compile_lines(
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
-                    declared_vars.insert(var.clone());
                 }
                 instructions.push(IntermediateInstruction::CounterHint {
                     res_offset: compiler
@@ -665,18 +634,6 @@ fn handle_const_malloc(
         },
     });
     compiler.stack_pos += size;
-}
-
-// Helper functions
-fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &BTreeSet<Var>) -> Result<(), String> {
-    for voc in vocs {
-        if let SimpleExpr::Var(v) = voc.borrow()
-            && !declared.contains(v)
-        {
-            return Err(format!("Variable {v} not declared"));
-        }
-    }
-    Ok(())
 }
 
 fn setup_function_call(
