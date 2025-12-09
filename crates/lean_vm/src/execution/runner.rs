@@ -245,7 +245,9 @@ fn execute_bytecode_helper(
             n_poseidon16_precomputed_used: &mut n_poseidon16_precomputed_used,
             n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
-        instruction.execute_instruction(&mut instruction_ctx).map_err(|e| (pc, e))?;
+        instruction
+            .execute_instruction(&mut instruction_ctx)
+            .map_err(|e| (pc, e))?;
     }
 
     assert_eq!(
