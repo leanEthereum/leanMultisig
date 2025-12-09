@@ -22,7 +22,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>();
-    let private_memory_len = dims[0];
+    let non_zero_memory_size = dims[0];
     let table_heights: BTreeMap<Table, TableHeight> = (0..N_TABLES)
         .map(|i| (ALL_TABLES[i], TableHeight(dims[i + 1])))
         .collect();
@@ -37,14 +37,11 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
 
     let public_memory = build_public_memory(public_input);
 
-    let log_public_memory = log2_strict_usize(public_memory.len());
-    let log_memory = log2_ceil_usize(public_memory.len() + private_memory_len);
-
-    if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
+    if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log2_ceil_usize(non_zero_memory_size)) {
         return Err(ProofError::InvalidProof);
     }
 
-    let base_dims = get_base_dims(log_public_memory, private_memory_len, &table_heights);
+    let base_dims = get_base_dims(non_zero_memory_size, &table_heights);
     let parsed_commitment_base = packed_pcs_parse_commitment(
         &whir_config_builder_a(),
         &mut verifier_state,
@@ -89,7 +86,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
 
     let mut lookup_into_memory = NormalPackedLookupVerifier::run(
         &mut verifier_state,
-        log_memory,
+        log2_ceil_usize(non_zero_memory_size),
         table_heights
             .iter()
             .flat_map(|(table, height)| vec![height.n_rows_non_padded_maxed(); table.num_normal_lookups_f()])
@@ -135,7 +132,19 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
     {
         return Err(ProofError::InvalidProof);
     }
-    let memory_statements = vec![lookup_into_memory.on_table.clone()];
+
+    let mut public_memory_random_point =
+        MultilinearPoint(verifier_state.sample_vec(log2_strict_usize(public_memory.len())));
+    let public_memory_eval = public_memory.evaluate(&public_memory_random_point);
+    public_memory_random_point.0.splice(
+        0..0,
+        EF::zero_vec(log2_strict_usize(
+            non_zero_memory_size.next_power_of_two() / public_memory.len(),
+        )),
+    );
+    let public_memory_statement = Evaluation::new(public_memory_random_point, public_memory_eval);
+
+    let memory_statements = vec![lookup_into_memory.on_table, public_memory_statement];
     let acc_statements = vec![lookup_into_memory.on_acc];
 
     let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
@@ -181,7 +190,6 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &all_base_statements,
         &mut verifier_state,
-        &[(0, public_memory.clone())].into_iter().collect(),
     )?;
 
     WhirConfig::new(whir_config_builder_a(), parsed_commitment_base.num_variables).verify(

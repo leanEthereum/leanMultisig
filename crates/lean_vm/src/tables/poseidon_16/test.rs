@@ -155,7 +155,6 @@ pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
             .map(|v| vec![Evaluation::new(verifier_statements.0.clone(), *v)])
             .collect::<Vec<_>>(),
         &mut verifier_state,
-        &Default::default(),
     )
     .unwrap();
 

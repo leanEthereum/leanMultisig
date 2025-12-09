@@ -9,14 +9,10 @@ use lean_vm::*;
 
 pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2;
 
-pub(crate) fn get_base_dims(
-    log_public_memory: usize,
-    private_memory_len: usize,
-    table_heights: &BTreeMap<Table, TableHeight>,
-) -> Vec<ColDims<F>> {
+pub(crate) fn get_base_dims(non_zero_memory_len: usize, table_heights: &BTreeMap<Table, TableHeight>) -> Vec<ColDims<F>> {
     let mut dims = [vec![
-        ColDims::padded_with_public_data(Some(log_public_memory), private_memory_len, F::ZERO), //  memory
-        ColDims::padded((1 << log_public_memory) + private_memory_len, F::ZERO), //  memory access counts (logup)
+        ColDims::padded(non_zero_memory_len, F::ZERO), //  memory
+        ColDims::padded(non_zero_memory_len, F::ZERO), //  memory access counts (logup)
     ]]
     .concat();
     for (table, height) in table_heights {

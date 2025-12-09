@@ -3,9 +3,7 @@ use std::{any::TypeId, cmp::Reverse, collections::BTreeMap};
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::instrument;
-use utils::{
-    FSProver, FSVerifier, from_end, multilinear_eval_constants_at_right, to_big_endian_bits, to_big_endian_in_field,
-};
+use utils::{FSProver, FSVerifier, multilinear_eval_constants_at_right, to_big_endian_bits, to_big_endian_in_field};
 use whir_p3::*;
 
 #[derive(Debug, Clone)]
@@ -42,7 +40,6 @@ General layout: [public data][committed data][repeated value] (the thing has len
 #[derive(Debug, Clone, Copy)]
 pub struct ColDims<F: Field> {
     pub n_vars: usize,
-    pub log_public_data_size: Option<usize>,
     pub committed_size: usize,
     pub default_value: F,
 }
@@ -51,26 +48,15 @@ impl<F: Field> ColDims<F> {
     pub fn full(n_vars: usize) -> Self {
         Self {
             n_vars,
-            log_public_data_size: None,
             committed_size: 1 << n_vars,
             default_value: F::ZERO,
         }
     }
 
     pub fn padded(committed_size: usize, default_value: F) -> Self {
-        Self::padded_with_public_data(None, committed_size, default_value)
-    }
-
-    pub fn padded_with_public_data(
-        log_public_data_size: Option<usize>,
-        committed_size: usize,
-        default_value: F,
-    ) -> Self {
-        let public_data_size = log_public_data_size.map_or(0, |l| 1 << l);
-        let n_vars = log2_ceil_usize(public_data_size + committed_size);
+        let n_vars = log2_ceil_usize(committed_size);
         Self {
             n_vars,
-            log_public_data_size,
             committed_size,
             default_value,
         }
@@ -84,32 +70,14 @@ fn split_in_chunks<F: Field>(
 ) -> Vec<Chunk> {
     let mut offset_in_original = 0;
     let mut res = Vec::new();
-    if let Some(log_public) = dims.log_public_data_size {
-        assert!(
-            log_public >= log_smallest_decomposition_chunk,
-            "poly {poly_index}: {log_public} < {log_smallest_decomposition_chunk}"
-        );
-        res.push(Chunk {
-            original_poly_index: poly_index,
-            original_n_vars: dims.n_vars,
-            n_vars: log_public,
-            offset_in_original,
-            public_data: true,
-            offset_in_packed: None,
-        });
-        offset_in_original += 1 << log_public;
-    }
     let mut remaining = dims.committed_size;
 
     loop {
-        let mut chunk_size = if remaining.next_power_of_two() - remaining <= 1 << log_smallest_decomposition_chunk {
+        let chunk_size = if remaining.next_power_of_two() - remaining <= 1 << log_smallest_decomposition_chunk {
             log2_ceil_usize(remaining)
         } else {
             remaining.ilog2() as usize
         };
-        if let Some(log_public) = dims.log_public_data_size {
-            chunk_size = chunk_size.min(log_public);
-        }
 
         res.push(Chunk {
             original_poly_index: poly_index,
@@ -391,8 +359,7 @@ pub fn packed_pcs_global_statements_for_prover<F: Field, EF: ExtensionField<F> +
                 let initial_missing_vars = statement.point.0.len() - chunks[0].n_vars;
                 let initial_offset_in_original_booleans =
                     to_big_endian_bits(chunks[0].offset_in_original >> chunks[0].n_vars, initial_missing_vars);
-                if initial_booleans.len() < initial_offset_in_original_booleans.len() // if the statement only concern the first chunk, no need to send more data
-                    && dim.log_public_data_size.is_none()
+                if initial_booleans.len() < initial_offset_in_original_booleans.len()
                 // if the first value is public, no need to recompute it
                 {
                     let retrieved_eval = compute_multilinear_value_from_chunks(
@@ -448,14 +415,12 @@ pub fn packed_pcs_global_statements_for_verifier<F: Field, EF: ExtensionField<F>
     log_smallest_decomposition_chunk: usize,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    public_data: &BTreeMap<usize, Vec<F>>, // poly_index -> public data slice (power of 2)
 ) -> Result<Vec<Evaluation<EF>>, ProofError> {
     assert_eq!(dims.len(), statements_per_polynomial.len());
     let all_chunks = MultilinearChunks::compute(dims, log_smallest_decomposition_chunk);
     let mut packed_statements = Vec::new();
     for (poly_index, statements) in statements_per_polynomial.iter().enumerate() {
         let dim = &dims[poly_index];
-        let has_public_data = dim.log_public_data_size.is_some();
         let chunks = &all_chunks[poly_index];
         assert!(!chunks.is_empty());
         for statement in statements {
@@ -480,12 +445,6 @@ pub fn packed_pcs_global_statements_for_verifier<F: Field, EF: ExtensionField<F>
                     .map(|&x| x == EF::ONE)
                     .collect::<Vec<_>>();
                 let mut sub_values = vec![];
-                if has_public_data {
-                    sub_values.push(
-                        public_data[&poly_index]
-                            .evaluate(&MultilinearPoint(from_end(&statement.point, chunks[0].n_vars).to_vec())),
-                    );
-                }
                 for chunk in chunks {
                     if chunk.public_data {
                         continue;
@@ -578,49 +537,39 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
         let log_smallest_decomposition_chunk = 4;
-        let committed_length_lengths_and_default_value_and_log_public_data: [(usize, F, Option<usize>); _] = [
-            (916, F::from_usize(8), Some(5)),
-            (854, F::from_usize(0), Some(7)),
-            (854, F::from_usize(1), Some(5)),
-            (16, F::from_usize(0), Some(5)),
-            (1127, F::from_usize(0), Some(6)),
-            (595, F::from_usize(3), Some(6)),
-            (17, F::from_usize(0), None),
-            (95, F::from_usize(3), None),
-            (256, F::from_usize(8), None),
-            (1088, F::from_usize(9), None),
-            (512, F::from_usize(0), None),
-            (256, F::from_usize(8), Some(6)),
-            (1088, F::from_usize(9), Some(5)),
-            (512, F::from_usize(0), Some(5)),
-            (754, F::from_usize(4), Some(5)),
-            (1023, F::from_usize(7), Some(5)),
-            (2025, F::from_usize(11), Some(8)),
-            (16, F::from_usize(8), None),
-            (854, F::from_usize(0), None),
-            (854, F::from_usize(1), None),
-            (16, F::from_usize(0), None),
-            (754, F::from_usize(4), None),
-            (1023, F::from_usize(7), None),
-            (2025, F::from_usize(15), None),
-            (600, F::from_usize(100), None),
+        let committed_length_lengths_and_default_value: [(usize, F); _] = [
+            (916, F::from_usize(8)),
+            (854, F::from_usize(0)),
+            (854, F::from_usize(1)),
+            (16, F::from_usize(0)),
+            (1127, F::from_usize(0)),
+            (595, F::from_usize(3)),
+            (17, F::from_usize(0)),
+            (95, F::from_usize(3)),
+            (256, F::from_usize(8)),
+            (1088, F::from_usize(9)),
+            (512, F::from_usize(0)),
+            (256, F::from_usize(8)),
+            (1088, F::from_usize(9)),
+            (512, F::from_usize(0)),
+            (754, F::from_usize(4)),
+            (1023, F::from_usize(7)),
+            (2025, F::from_usize(11)),
+            (16, F::from_usize(8)),
+            (854, F::from_usize(0)),
+            (854, F::from_usize(1)),
+            (16, F::from_usize(0)),
+            (754, F::from_usize(4)),
+            (1023, F::from_usize(7)),
+            (2025, F::from_usize(15)),
+            (600, F::from_usize(100)),
         ];
-        let mut public_data = BTreeMap::new();
         let mut polynomials = Vec::new();
         let mut dims = Vec::new();
         let mut statements_per_polynomial = Vec::new();
-        for (pol_index, &(committed_length, default_value, log_public_data)) in
-            committed_length_lengths_and_default_value_and_log_public_data
-                .iter()
-                .enumerate()
-        {
-            let mut poly = (0..committed_length + log_public_data.map_or(0, |l| 1 << l))
-                .map(|_| rng.random())
-                .collect::<Vec<F>>();
+        for &(committed_length, default_value) in committed_length_lengths_and_default_value.iter() {
+            let mut poly = (0..committed_length).map(|_| rng.random()).collect::<Vec<F>>();
             poly.resize(poly.len().next_power_of_two(), default_value);
-            if let Some(log_public) = log_public_data {
-                public_data.insert(pol_index, poly[..1 << log_public].to_vec());
-            }
             let n_vars = log2_strict_usize(poly.len());
             let n_points = rng.random_range(1..5);
             let mut statements = Vec::new();
@@ -632,7 +581,6 @@ mod tests {
             polynomials.push(poly);
             dims.push(ColDims {
                 n_vars,
-                log_public_data_size: log_public_data,
                 committed_size: committed_length,
                 default_value,
             });
@@ -684,7 +632,6 @@ mod tests {
             log_smallest_decomposition_chunk,
             &statements_per_polynomial,
             &mut verifier_state,
-            &public_data,
         )
         .unwrap();
         WhirConfig::new(whir_config_builder, num_variables)

@@ -1,5 +1,4 @@
 use lean_compiler::*;
-use lean_prover::LOG_SMALLEST_DECOMPOSITION_CHUNK;
 use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
@@ -42,8 +41,6 @@ fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message_hash: [F; 8], slo
         acc += F::from_usize(1 + V + pk.log_lifetime); // signature size in memory (vectorized)
     }
 
-    let min_public_input_size = (1 << LOG_SMALLEST_DECOMPOSITION_CHUNK) - NONRESERVED_PROGRAM_INPUT_START;
-    public_input.extend(F::zero_vec(min_public_input_size.saturating_sub(public_input.len())));
     public_input.splice(
         0..0,
         [vec![F::from_usize(xmss_pub_keys.len())], vec![F::ZERO; 7]].concat(),

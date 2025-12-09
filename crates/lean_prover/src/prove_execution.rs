@@ -8,7 +8,7 @@ use lean_vm::*;
 use lookup::{compute_pushforward, prove_gkr_quotient, prove_logup_star};
 use multilinear_toolkit::prelude::*;
 
-use p3_util::{log2_ceil_usize, log2_strict_usize};
+use p3_util::log2_ceil_usize;
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
@@ -46,14 +46,11 @@ pub fn prove_execution(
         memory.resize(1 << MIN_LOG_MEMORY_SIZE, F::ZERO);
         non_zero_memory_size = 1 << MIN_LOG_MEMORY_SIZE;
     }
-    let public_memory = &memory[..public_memory_size];
-    let private_memory = &memory[public_memory_size..non_zero_memory_size];
-    let log_public_memory = log2_strict_usize(public_memory.len());
 
     let mut prover_state = build_prover_state::<EF>(false);
     prover_state.add_base_scalars(
         &[
-            vec![private_memory.len()],
+            vec![non_zero_memory_size],
             traces.values().map(|t| t.n_rows_non_padded()).collect::<Vec<_>>(),
         ]
         .concat()
@@ -114,8 +111,7 @@ pub fn prove_execution(
         .collect::<BTreeMap<_, _>>();
 
     let base_dims = get_base_dims(
-        log_public_memory,
-        private_memory.len(),
+        non_zero_memory_size,
         &traces.iter().map(|(table, trace)| (*table, trace.height)).collect(),
     );
 
@@ -239,7 +235,15 @@ pub fn prove_execution(
         Some(bytecode.instructions.len()),
     );
 
-    let memory_statements = vec![lookup_into_memory.on_table];
+    let mut public_memory_random_point =
+        MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
+    let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
+    public_memory_random_point
+        .0
+        .splice(0..0, EF::zero_vec(log2_strict_usize(memory.len() / public_memory_size)));
+    let public_memory_statement = Evaluation::new(public_memory_random_point, public_memory_eval);
+
+    let memory_statements = vec![lookup_into_memory.on_table, public_memory_statement];
     let acc_statements = vec![lookup_into_memory.on_acc];
 
     let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
