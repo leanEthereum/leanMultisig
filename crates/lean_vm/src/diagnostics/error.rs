@@ -25,8 +25,8 @@ pub enum RunnerError {
     #[error("Computation invalid: {0} != {1}")]
     NotEqual(F, F),
 
-    #[error("Undefined memory access")]
-    UndefinedMemory,
+    #[error("Undefined memory access: {0}")]
+    UndefinedMemory(usize),
 
     #[error("Program counter out of bounds")]
     PCOutOfBounds,

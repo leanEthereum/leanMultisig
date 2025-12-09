@@ -302,15 +302,16 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     fs_states_b = malloc(num_queries + 1);
     fs_states_b[0] = fs_state_9;
     
+    var n_chunks_per_answer;
     // the number of chunk of 8 field elements per merkle leaf opened
     if merkle_leaves_in_basefield == 1 {
-        n_chuncks_per_answer = two_pow_folding_factor / 8; // "/ 8" because initial merkle leaves are in the basefield
+        n_chunks_per_answer = two_pow_folding_factor / 8; // "/ 8" because initial merkle leaves are in the basefield
     } else {
-        n_chuncks_per_answer = two_pow_folding_factor * DIM / 8;
+        n_chunks_per_answer = two_pow_folding_factor * DIM / 8;
     }
 
     for i in 0..num_queries {
-        new_fs_state, answer = fs_hint(fs_states_b[i], n_chuncks_per_answer); 
+        new_fs_state, answer = fs_hint(fs_states_b[i], n_chunks_per_answer); 
         fs_states_b[i + 1] = new_fs_state;
         answers[i] = answer;
     }
