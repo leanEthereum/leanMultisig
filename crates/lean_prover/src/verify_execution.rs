@@ -84,7 +84,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
             .evaluate(&bytecode_compression_challenges),
     );
 
-    let mut lookup_into_memory = NormalPackedLookupVerifier::run(
+    let mut lookup_into_memory = NormalLookupVerifier::run(
         &mut verifier_state,
         log2_ceil_usize(non_zero_memory_size),
         table_heights

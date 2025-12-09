@@ -339,8 +339,7 @@ pub trait TableT: Air {
             )?);
         }
         for lookup in self.normal_lookups_f() {
-            statements[self.find_committed_column_index_f(lookup.index)]
-                .push(lookup_statements_on_indexes_f.remove(0));
+            statements[self.find_committed_column_index_f(lookup.index)].push(lookup_statements_on_indexes_f.remove(0));
         }
         for lookup in self.normal_lookups_ef() {
             statements[self.find_committed_column_index_f(lookup.index)]
@@ -352,8 +351,7 @@ pub trait TableT: Air {
         }
 
         for lookup in self.normal_lookups_f() {
-            statements[self.find_committed_column_index_f(lookup.values)]
-                .push(lookup_statements_on_values_f.remove(0));
+            statements[self.find_committed_column_index_f(lookup.values)].push(lookup_statements_on_values_f.remove(0));
         }
         for lookup in self.normal_lookups_ef() {
             let my_statements = &mut statements

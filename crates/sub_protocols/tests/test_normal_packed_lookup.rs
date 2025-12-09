@@ -3,7 +3,7 @@ use std::array;
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sub_protocols::{CustomPackedLookupProver, NormalPackedLookupVerifier};
+use sub_protocols::{CustomLookupProver, NormalLookupVerifier};
 use utils::{ToUsize, build_prover_state, build_verifier_state, collect_refs, transpose_slice_to_basis_coefficients};
 
 type F = KoalaBear;
@@ -88,7 +88,7 @@ fn test_normal_packed_lookup() {
 
     let mut prover_state = build_prover_state(false);
 
-    let remaining_claims_to_prove = CustomPackedLookupProver::run(
+    let remaining_claims_to_prove = CustomLookupProver::run(
         &mut prover_state,
         &memory,
         &acc,
@@ -106,7 +106,7 @@ fn test_normal_packed_lookup() {
 
     let mut verifier_state = build_verifier_state(prover_state);
 
-    let remaining_claims_to_verify = NormalPackedLookupVerifier::run::<EF, DIM, VECTOR_LEN>(
+    let remaining_claims_to_verify = NormalLookupVerifier::run::<EF, DIM, VECTOR_LEN>(
         &mut verifier_state,
         log_memory_size,
         log_cols_heights_f,

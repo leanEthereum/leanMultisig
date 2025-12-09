@@ -165,7 +165,7 @@ pub fn prove_execution(
         &bytecode_poly_eq_point,
     ));
 
-    let mut lookup_into_memory = CustomPackedLookupProver::run::<EF, DIMENSION, VECTOR_LEN>(
+    let mut lookup_into_memory = CustomLookupProver::run::<EF, DIMENSION, VECTOR_LEN>(
         &mut prover_state,
         &memory,
         &acc,

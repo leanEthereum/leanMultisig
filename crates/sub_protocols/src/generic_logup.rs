@@ -196,7 +196,7 @@ impl GeneralizedLogupVerifier {
         if sum != EF::ZERO {
             return Err(ProofError::InvalidProof);
         }
-        
+
         let mut retrieved_numerators_value = EF::ZERO;
         let mut retrieved_denominators_value = EF::ZERO;
 

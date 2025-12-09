@@ -7,11 +7,11 @@ use utils::transpose_slice_to_basis_coefficients;
 use crate::{GeneralizedLogupProver, GeneralizedLogupVerifier};
 
 #[derive(Debug)]
-pub struct CustomPackedLookupProver;
+pub struct CustomLookupProver;
 
 /// claims contain sparse points (TODO take advantage of it)
 #[derive(Debug, PartialEq)]
-pub struct CustomPackedLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize> {
+pub struct CustomLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize> {
     pub on_table: Evaluation<EF>,
     pub on_acc: Evaluation<EF>,
     pub on_indexes_f: Vec<Evaluation<EF>>,
@@ -22,7 +22,7 @@ pub struct CustomPackedLookupStatements<EF, const DIM: usize, const VECTOR_LEN: 
     pub on_values_vec: Vec<[Evaluation<EF>; VECTOR_LEN]>,
 }
 
-impl CustomPackedLookupProver {
+impl CustomLookupProver {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize, const VECTOR_LEN: usize>(
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -34,7 +34,7 @@ impl CustomPackedLookupProver {
         value_columns_f: Vec<&[PF<EF>]>,
         value_columns_ef: Vec<&[EF]>,
         value_columns_vec: Vec<[&[PF<EF>]; VECTOR_LEN]>,
-    ) -> CustomPackedLookupStatements<EF, DIM, VECTOR_LEN> {
+    ) -> CustomLookupStatements<EF, DIM, VECTOR_LEN> {
         assert_eq!(index_columns_f.len(), value_columns_f.len(),);
         assert_eq!(index_columns_ef.len(), value_columns_ef.len(),);
         assert_eq!(index_columns_vec.len(), value_columns_vec.len(),);
@@ -77,7 +77,7 @@ impl CustomPackedLookupProver {
             statement.value *= inv_vector_len;
         }
 
-        CustomPackedLookupStatements {
+        CustomLookupStatements {
             on_table: generic.on_table,
             on_acc: generic.on_acc,
             on_indexes_f: generic.on_indexes[..n_cols_f].to_vec(),
@@ -103,9 +103,9 @@ impl CustomPackedLookupProver {
 }
 
 #[derive(Debug)]
-pub struct NormalPackedLookupVerifier;
+pub struct NormalLookupVerifier;
 
-impl NormalPackedLookupVerifier {
+impl NormalLookupVerifier {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize, const VECTOR_LEN: usize>(
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
@@ -113,7 +113,7 @@ impl NormalPackedLookupVerifier {
         log_heights_f: Vec<usize>,
         log_heights_ef: Vec<usize>,
         log_heights_vec: Vec<usize>,
-    ) -> ProofResult<CustomPackedLookupStatements<EF, DIM, VECTOR_LEN>> {
+    ) -> ProofResult<CustomLookupStatements<EF, DIM, VECTOR_LEN>> {
         let log_heights = [log_heights_f.clone(), log_heights_ef.clone(), log_heights_vec.clone()].concat();
         let n_cols_per_group = [
             vec![1; log_heights_f.len()],
@@ -129,7 +129,7 @@ impl NormalPackedLookupVerifier {
             statement.value *= inv_vector_len;
         }
 
-        Ok(CustomPackedLookupStatements {
+        Ok(CustomLookupStatements {
             on_table: generic.on_table,
             on_acc: generic.on_acc,
             on_indexes_f: generic.on_indexes[..log_heights_f.len()].to_vec(),
