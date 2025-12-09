@@ -136,6 +136,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime) -> 1 {
     wots_pubkey_hashed = public_key_hashed + (V / 2 - 1);
 
     // TODO unroll
+    var merkle_hash;
     match log_lifetime {
         0 => { merkle_hash = verify_merkle_path(0, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
         1 => { merkle_hash = verify_merkle_path(1, merkle_are_left, wots_pubkey_hashed, merkle_neighbours); }
