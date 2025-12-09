@@ -1,5 +1,5 @@
-mod generic_packed_lookup;
-pub use generic_packed_lookup::*;
+mod generic_logup;
+pub use generic_logup::*;
 
 mod packed_pcs;
 pub use packed_pcs::*;
