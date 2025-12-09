@@ -636,8 +636,6 @@ fn simplify_lines(
                     counter: const_malloc.counter,
                     ..ConstMalloc::default()
                 };
-                // TODO: what is array manager, and does it need to be updated
-                // to make block-level scoping work?
                 let valid_aux_vars_in_array_manager_before = array_manager.valid.clone();
                 array_manager.valid.clear();
                 let simplified_body = simplify_lines(
