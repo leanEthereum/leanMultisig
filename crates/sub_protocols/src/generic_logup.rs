@@ -18,6 +18,7 @@ pub struct GeneralizedLogupStatements<EF> {
     pub on_values: Vec<Vec<Evaluation<EF>>>,
 }
 
+#[derive(Debug)]
 struct Dim {
     index: Option<usize>, // None represents "table"
     n_vars: usize,
@@ -99,10 +100,12 @@ impl GeneralizedLogupProver {
                 }
                 None => {
                     // table
+
+                    // TODO embedding overhead
                     numerators[offset..]
                         .par_iter_mut()
                         .zip(acc)
-                        .for_each(|(num, a)| *num = EF::from(-*a)); // TODO embedding overhead
+                        .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here
                     denominators[offset..]
                         .par_iter_mut()
                         .zip(table.par_iter().enumerate())
@@ -193,6 +196,7 @@ impl GeneralizedLogupVerifier {
         if sum != EF::ZERO {
             return Err(ProofError::InvalidProof);
         }
+        
         let mut retrieved_numerators_value = EF::ZERO;
         let mut retrieved_denominators_value = EF::ZERO;
 
@@ -217,7 +221,7 @@ impl GeneralizedLogupVerifier {
                         statement_on_values[group_index].push(Evaluation::new(inner_point.clone(), value_eval));
 
                         let pos = offset + (col_index << dim.n_vars);
-                        let bits = to_big_endian_in_field::<EF>(pos / dim.n_vars, n_missing_vars);
+                        let bits = to_big_endian_in_field::<EF>(pos >> dim.n_vars, n_missing_vars);
                         let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
                         retrieved_numerators_value += pref;
                         retrieved_denominators_value +=
@@ -226,12 +230,12 @@ impl GeneralizedLogupVerifier {
                 }
                 None => {
                     // table
-                    let bits = to_big_endian_in_field::<EF>(offset / dim.n_vars, n_missing_vars);
+                    let bits = to_big_endian_in_field::<EF>(offset >> dim.n_vars, n_missing_vars);
                     let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
 
                     let value_acc = verifier_state.next_extension_scalar()?;
                     statement_on_acc = Some(Evaluation::new(inner_point.clone(), value_acc));
-                    retrieved_numerators_value += pref * value_acc;
+                    retrieved_numerators_value -= pref * value_acc;
 
                     let value_table = verifier_state.next_extension_scalar()?;
                     statement_on_table = Some(Evaluation::new(inner_point.clone(), value_table));
@@ -242,9 +246,11 @@ impl GeneralizedLogupVerifier {
             offset += dim.n_cols << dim.n_vars;
         }
 
-        retrieved_numerators_value += mle_of_zeros_then_ones(offset, &claim_point_gkr); // to compensate for the final padding: XYZ111111...1
-
-        if retrieved_numerators_value != numerators_value || retrieved_denominators_value != denominators_value {
+        retrieved_denominators_value += mle_of_zeros_then_ones(offset, &claim_point_gkr); // to compensate for the final padding: XYZ111111...1
+        if retrieved_numerators_value != numerators_value {
+            return Err(ProofError::InvalidProof);
+        }
+        if retrieved_denominators_value != denominators_value {
             return Err(ProofError::InvalidProof);
         }
 

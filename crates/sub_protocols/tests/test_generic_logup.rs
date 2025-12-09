@@ -11,7 +11,7 @@ const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 #[test]
 fn test_generic_logup() {
     let log_memory_size: usize = 12;
-    let lookups_log_height_and_cols: Vec<(usize, usize)> = vec![(11, 1), (3, 3), (5, 1), (0, 2)];
+    let lookups_log_height_and_cols: Vec<(usize, usize)> = vec![(11, 1), (3, 3), (0, 2), (5, 1)];
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = (0..(1 << log_memory_size))
