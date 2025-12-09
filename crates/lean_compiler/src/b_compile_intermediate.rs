@@ -1,10 +1,7 @@
 use crate::{F, a_simplify_lang::*, ir::*, lang::*};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
-use std::{
-    borrow::Borrow,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::collections::{BTreeMap, BTreeSet};
 use utils::ToUsize;
 
 #[derive(Default)]
@@ -220,7 +217,7 @@ fn compile_lines(
                 let mut compiled_arms = vec![];
                 let saved_stack_pos = compiler.stack_pos;
                 let mut new_stack_pos = saved_stack_pos;
-                for (i, arm) in arms.iter().enumerate() {
+                for arm in arms.iter() {
                     compiler.stack_pos = saved_stack_pos;
                     let arm_instructions = compile_lines(function_name, arm, compiler, Some(end_label.clone()))?;
                     compiled_arms.push(arm_instructions);

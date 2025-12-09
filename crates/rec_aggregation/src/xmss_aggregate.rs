@@ -124,8 +124,7 @@ fn compile_xmss_aggregation_program() -> XmssAggregationProgram {
         assert_eq!(
             result.no_vec_runtime_memory,
             res.compute_non_vec_memory(&log_lifetimes),
-            "inconsistent no-vec memory for log_lifetimes : {:?}: non linear formula, TODO",
-            log_lifetimes
+            "inconsistent no-vec memory for log_lifetimes : {log_lifetimes:?}: non linear formula, TODO",
         );
     }
     res

@@ -205,15 +205,14 @@ fn check_program_scoping(program: &Program) {
 }
 
 /// Analyzes the block to verify that each variable is defined in each context where it is used.
-fn check_block_scoping(block: &Vec<Line>, ctx: &mut Context) {
+fn check_block_scoping(block: &[Line], ctx: &mut Context) {
     for line in block.iter() {
         match line {
             Line::ForwardDeclaration { var } => {
                 let last_scope = ctx.scopes.last_mut().unwrap();
                 assert!(
                     !last_scope.vars.contains(var),
-                    "Variable declared multiple times in the same scope: {:?}",
-                    var
+                    "Variable declared multiple times in the same scope: {var}",
                 );
                 last_scope.vars.insert(var.clone());
             }
@@ -230,8 +229,7 @@ fn check_block_scoping(block: &Vec<Line>, ctx: &mut Context) {
                 let last_scope = ctx.scopes.last_mut().unwrap();
                 assert!(
                     !last_scope.vars.contains(var),
-                    "Variable declared multiple times in the same scope: {:?}",
-                    var
+                    "Variable declared multiple times in the same scope: {var}",
                 );
                 last_scope.vars.insert(var.clone());
             }
@@ -286,8 +284,7 @@ fn check_block_scoping(block: &Vec<Line>, ctx: &mut Context) {
                 for var in return_data {
                     assert!(
                         !last_scope.vars.contains(var),
-                        "Variable declared multiple times in the same scope: {:?}",
-                        var
+                        "Variable declared multiple times in the same scope: {var}",
                     );
                     last_scope.vars.insert(var.clone());
                 }
@@ -319,8 +316,7 @@ fn check_block_scoping(block: &Vec<Line>, ctx: &mut Context) {
                 let last_scope = ctx.scopes.last_mut().unwrap();
                 assert!(
                     !last_scope.vars.contains(var),
-                    "Variable declared multiple times in the same scope: {:?}",
-                    var
+                    "Variable declared multiple times in the same scope: {var}",
                 );
                 last_scope.vars.insert(var.clone());
             },
@@ -331,8 +327,7 @@ fn check_block_scoping(block: &Vec<Line>, ctx: &mut Context) {
                 let last_scope = ctx.scopes.last_mut().unwrap();
                 assert!(
                     !last_scope.vars.contains(var),
-                    "Variable declared multiple times in the same scope: {:?}",
-                    var
+                    "Variable declared multiple times in the same scope: {var}",
                 );
                 last_scope.vars.insert(var.clone());
             },
@@ -358,18 +353,18 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
         }
         Expression::ArrayAccess { array, index } => {
             check_simple_expr_scoping(array, ctx);
-            check_expr_scoping(&*index, ctx);
+            check_expr_scoping(index, ctx);
         }
         Expression::Binary {
             left,
             operation: _,
             right,
         } => {
-            check_expr_scoping(&*left, ctx);
-            check_expr_scoping(&*right, ctx);
+            check_expr_scoping(left, ctx);
+            check_expr_scoping(right, ctx);
         }
         Expression::Log2Ceil { value } => {
-            check_expr_scoping(&*value, ctx);
+            check_expr_scoping(value, ctx);
         }
     }
 }
@@ -378,7 +373,7 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
 fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
     match expr {
         SimpleExpr::Var(v) => {
-            assert!(ctx.defines(&v), "Variable used but not defined: {:?}", v)
+            assert!(ctx.defines(v), "Variable used but not defined: {v}");
         }
         SimpleExpr::Constant(_) => {}
         SimpleExpr::ConstMallocAccess { .. } => {}
