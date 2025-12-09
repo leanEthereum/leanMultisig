@@ -1,7 +1,6 @@
 use multilinear_toolkit::prelude::*;
 use utils::FSProver;
 use utils::VecOrSlice;
-use utils::assert_eq_many;
 use utils::collect_refs;
 use utils::transpose_slice_to_basis_coefficients;
 
@@ -32,34 +31,13 @@ impl CustomPackedLookupProver {
         index_columns_f: Vec<&[PF<EF>]>,
         index_columns_ef: Vec<&[PF<EF>]>,
         index_columns_vec: Vec<&[PF<EF>]>,
-        heights_f: Vec<usize>,
-        heights_ef: Vec<usize>,
-        heights_vec: Vec<usize>,
-        default_indexes_f: Vec<usize>,
-        default_indexes_ef: Vec<usize>,
-        default_indexes_vec: Vec<usize>,
         value_columns_f: Vec<&[PF<EF>]>,
         value_columns_ef: Vec<&[EF]>,
         value_columns_vec: Vec<[&[PF<EF>]; VECTOR_LEN]>,
     ) -> CustomPackedLookupStatements<EF, DIM, VECTOR_LEN> {
-        assert_eq_many!(
-            index_columns_f.len(),
-            heights_f.len(),
-            default_indexes_f.len(),
-            value_columns_f.len(),
-        );
-        assert_eq_many!(
-            index_columns_ef.len(),
-            heights_ef.len(),
-            default_indexes_ef.len(),
-            value_columns_ef.len(),
-        );
-        assert_eq_many!(
-            index_columns_vec.len(),
-            heights_vec.len(),
-            default_indexes_vec.len(),
-            value_columns_vec.len(),
-        );
+        assert_eq!(index_columns_f.len(), value_columns_f.len(),);
+        assert_eq!(index_columns_ef.len(), value_columns_ef.len(),);
+        assert_eq!(index_columns_vec.len(), value_columns_vec.len(),);
         let n_cols_f = value_columns_f.len();
         let n_cols_ef = value_columns_ef.len();
 
