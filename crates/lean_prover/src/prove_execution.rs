@@ -169,7 +169,6 @@ pub fn prove_execution(
         &mut prover_state,
         &memory,
         &acc,
-        non_zero_memory_size,
         traces
             .iter()
             .flat_map(|(table, trace)| table.normal_lookup_index_columns_f(trace))
@@ -184,30 +183,6 @@ pub fn prove_execution(
             .collect(),
         traces
             .iter()
-            .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_normal_lookups_f()])
-            .collect(),
-        traces
-            .iter()
-            .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_normal_lookups_ef()])
-            .collect(),
-        traces
-            .iter()
-            .flat_map(|(table, trace)| vec![trace.n_rows_non_padded_maxed(); table.num_vector_lookups()])
-            .collect(),
-        traces
-            .keys()
-            .flat_map(|table| table.normal_lookup_default_indexes_f())
-            .collect(),
-        traces
-            .keys()
-            .flat_map(|table| table.normal_lookup_default_indexes_ef())
-            .collect(),
-        traces
-            .keys()
-            .flat_map(|table| table.vector_lookup_default_indexes())
-            .collect(),
-        traces
-            .iter()
             .flat_map(|(table, trace)| table.normal_lookup_f_value_columns(trace))
             .collect(),
         traces
@@ -218,7 +193,6 @@ pub fn prove_execution(
             .iter()
             .flat_map(|(table, trace)| table.vector_lookup_values_columns(trace))
             .collect(),
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
 
     let bytecode_pushforward_commitment =

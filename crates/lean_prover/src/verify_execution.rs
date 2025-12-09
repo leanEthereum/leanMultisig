@@ -89,30 +89,16 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         log2_ceil_usize(non_zero_memory_size),
         table_heights
             .iter()
-            .flat_map(|(table, height)| vec![height.n_rows_non_padded_maxed(); table.num_normal_lookups_f()])
+            .flat_map(|(table, height)| vec![height.log_padded(); table.num_normal_lookups_f()])
             .collect(),
         table_heights
             .iter()
-            .flat_map(|(table, height)| vec![height.n_rows_non_padded_maxed(); table.num_normal_lookups_ef()])
+            .flat_map(|(table, height)| vec![height.log_padded(); table.num_normal_lookups_ef()])
             .collect(),
         table_heights
             .iter()
-            .flat_map(|(table, height)| vec![height.n_rows_non_padded_maxed(); table.num_vector_lookups()])
+            .flat_map(|(table, height)| vec![height.log_padded(); table.num_vector_lookups()])
             .collect(),
-        table_heights
-            .keys()
-            .flat_map(|table| table.normal_lookup_default_indexes_f())
-            .collect(),
-        table_heights
-            .keys()
-            .flat_map(|table| table.normal_lookup_default_indexes_ef())
-            .collect(),
-        table_heights
-            .keys()
-            .flat_map(|table| table.vector_lookup_default_indexes())
-            .collect(),
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &public_memory, // we need to pass the first few values of memory, public memory is enough
     )?;
 
     let bytecode_pushforward_parsed_commitment =
