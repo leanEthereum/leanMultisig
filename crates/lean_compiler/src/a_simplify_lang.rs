@@ -326,7 +326,7 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
 fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
     match expr {
         SimpleExpr::Var(v) => {
-            assert!(ctx.defines(&v), "Variable defined but not used: {:?}", v)
+            assert!(ctx.defines(&v), "Variable used but not defined: {:?}", v)
         },
         SimpleExpr::Constant(_) => {},
         SimpleExpr::ConstMallocAccess { .. } => {},
@@ -636,8 +636,6 @@ fn simplify_lines(
                     counter: const_malloc.counter,
                     ..ConstMalloc::default()
                 };
-                // TODO: what is array manager, and does it need to be updated
-                // to make block-level scoping work?
                 let valid_aux_vars_in_array_manager_before = array_manager.valid.clone();
                 array_manager.valid.clear();
                 let simplified_body = simplify_lines(
@@ -1596,6 +1594,10 @@ fn handle_inlined_functions_helper(
             } => {
                 if let Some(func) = inlined_functions.get(&*function_name) {
                     let mut inlined_lines = vec![];
+
+                    for var in return_data.iter() {
+                        inlined_lines.push(Line::ForwardDeclaration { var : var.clone() });
+                    }
 
                     let mut simplified_args = vec![];
                     for arg in args {
