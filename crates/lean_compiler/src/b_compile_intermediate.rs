@@ -28,7 +28,7 @@ struct StackFrameLayout {
 
 #[derive(Default)]
 struct ScopeLayout {
-    var_positions: BTreeMap<Var, usize>, // var -> memory offset from fp
+    var_positions: BTreeMap<Var, usize>,              // var -> memory offset from fp
     const_mallocs: BTreeMap<ConstMallocLabel, usize>, // const_malloc_label -> start = memory offset from fp
 }
 
@@ -95,7 +95,7 @@ impl IntermediateValue {
             SimpleExpr::ConstMallocAccess { malloc_label, offset } => Self::MemoryAfterFp {
                 offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
                     malloc_label: *malloc_label,
-                    offset: offset.clone()
+                    offset: offset.clone(),
                 }),
             },
         }
@@ -167,7 +167,9 @@ fn compile_lines(
         match line {
             SimpleLine::ForwardDeclaration { var } => {
                 let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                current_scope_layout
+                    .var_positions
+                    .insert(var.clone(), compiler.stack_pos);
                 compiler.stack_pos += 1;
             }
 
@@ -180,9 +182,13 @@ fn compile_lines(
                 let arg0 = IntermediateValue::from_simple_expr(arg0, compiler);
                 let arg1 = IntermediateValue::from_simple_expr(arg1, compiler);
 
-                if let VarOrConstMallocAccess::Var(var) = var && !compiler.is_in_scope(var) {
+                if let VarOrConstMallocAccess::Var(var) = var
+                    && !compiler.is_in_scope(var)
+                {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    current_scope_layout
+                        .var_positions
+                        .insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
 
@@ -216,12 +222,7 @@ fn compile_lines(
                 let mut new_stack_pos = saved_stack_pos;
                 for (i, arm) in arms.iter().enumerate() {
                     compiler.stack_pos = saved_stack_pos;
-                    let arm_instructions = compile_lines(
-                        function_name,
-                        arm,
-                        compiler,
-                        Some(end_label.clone()),
-                    )?;
+                    let arm_instructions = compile_lines(function_name, arm, compiler, Some(end_label.clone()))?;
                     compiled_arms.push(arm_instructions);
                     new_stack_pos = new_stack_pos.max(compiler.stack_pos);
                 }
@@ -350,21 +351,11 @@ fn compile_lines(
 
                 let saved_stack_pos = compiler.stack_pos;
 
-                let then_instructions = compile_lines(
-                    function_name,
-                    then_branch,
-                    compiler,
-                    Some(end_label.clone()),
-                )?;
+                let then_instructions = compile_lines(function_name, then_branch, compiler, Some(end_label.clone()))?;
 
                 let then_stack_pos = compiler.stack_pos;
                 compiler.stack_pos = saved_stack_pos;
-                let else_instructions = compile_lines(
-                    function_name,
-                    else_branch,
-                    compiler,
-                    Some(end_label.clone()),
-                )?;
+                let else_instructions = compile_lines(function_name, else_branch, compiler, Some(end_label.clone()))?;
 
                 compiler.bytecode.insert(if_label, then_instructions);
                 compiler.bytecode.insert(else_label, else_instructions);
@@ -381,9 +372,13 @@ fn compile_lines(
             }
 
             SimpleLine::RawAccess { res, index, shift } => {
-                if let SimpleExpr::Var(var) = res && !compiler.is_in_scope(var) {
+                if let SimpleExpr::Var(var) = res
+                    && !compiler.is_in_scope(var)
+                {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    current_scope_layout
+                        .var_positions
+                        .insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
                 let shift_0 = match index {
@@ -421,7 +416,9 @@ fn compile_lines(
                 for var in return_data.iter() {
                     if !compiler.is_in_scope(var) {
                         let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                        current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                        current_scope_layout
+                            .var_positions
+                            .insert(var.clone(), compiler.stack_pos);
                         compiler.stack_pos += 1;
                     }
                 }
@@ -440,12 +437,7 @@ fn compile_lines(
                         });
                     }
 
-                    instructions.extend(compile_lines(
-                        function_name,
-                        &lines[i + 1..],
-                        compiler,
-                        final_jump,
-                    )?);
+                    instructions.extend(compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?);
 
                     instructions
                 };
@@ -502,7 +494,9 @@ fn compile_lines(
             } => {
                 if !compiler.is_in_scope(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    current_scope_layout
+                        .var_positions
+                        .insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
                 instructions.push(IntermediateInstruction::RequestMemory {
@@ -516,7 +510,9 @@ fn compile_lines(
                 let size = size.naive_eval().unwrap().to_usize(); // TODO not very good;
                 if !compiler.is_in_scope(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    current_scope_layout
+                        .var_positions
+                        .insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
                 handle_const_malloc(&mut instructions, compiler, var, size, label);
@@ -528,7 +524,9 @@ fn compile_lines(
             } => {
                 if !compiler.is_in_scope(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout.var_positions.insert(var.clone(), compiler.stack_pos);
+                    current_scope_layout
+                        .var_positions
+                        .insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
 
@@ -540,13 +538,7 @@ fn compile_lines(
                         .collect(),
                 });
 
-                handle_const_malloc(
-                    &mut instructions,
-                    compiler,
-                    var,
-                    F::bits() * to_decompose.len(),
-                    label,
-                );
+                handle_const_malloc(&mut instructions, compiler, var, F::bits() * to_decompose.len(), label);
             }
             SimpleLine::DecomposeCustom { args } => {
                 assert!(args.len() >= 3);
