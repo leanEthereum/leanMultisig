@@ -2,8 +2,8 @@ use crate::{
     Counter, F,
     ir::HighLevelOperation,
     lang::{
-        AssumeBoolean, Boolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue, Expression, Function,
-        Line, Program, SimpleExpr, Var,
+        AssumeBoolean, Boolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue, Context, Expression,
+        Function, Line, Program, Scope, SimpleExpr, Var,
     },
 };
 use lean_vm::{SourceLineNumber, Table, TableT};
@@ -71,6 +71,9 @@ pub enum SimpleLine {
     Match {
         value: SimpleExpr,
         arms: Vec<Vec<Self>>, // patterns = 0, 1, ...
+    },
+    ForwardDeclaration {
+        var: Var,
     },
     Assignment {
         var: VarOrConstMallocAccess,
@@ -148,6 +151,7 @@ pub enum SimpleLine {
 }
 
 pub fn simplify_program(mut program: Program) -> SimpleProgram {
+    check_program_scoping(&program);
     handle_inlined_functions(&mut program);
     handle_const_arguments(&mut program);
     let mut new_functions = BTreeMap::new();
@@ -187,6 +191,218 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
     }
 }
 
+/// Analyzes the program to verify that each variable is defined in each context where it is used.
+fn check_program_scoping(program: &Program) {
+    for (_, function) in program.functions.iter() {
+        let mut scope = Scope { vars: BTreeSet::new() };
+        for (arg, _) in function.arguments.iter() {
+            scope.vars.insert(arg.clone());
+        }
+        let mut ctx = Context { scopes: vec![scope] };
+
+        check_block_scoping(&function.body, &mut ctx);
+    }
+}
+
+/// Analyzes the block to verify that each variable is defined in each context where it is used.
+fn check_block_scoping(block: &[Line], ctx: &mut Context) {
+    for line in block.iter() {
+        match line {
+            Line::ForwardDeclaration { var } => {
+                let last_scope = ctx.scopes.last_mut().unwrap();
+                assert!(
+                    !last_scope.vars.contains(var),
+                    "Variable declared multiple times in the same scope: {var}",
+                );
+                last_scope.vars.insert(var.clone());
+            }
+            Line::Match { value, arms } => {
+                check_expr_scoping(value, ctx);
+                for (_, arm) in arms {
+                    ctx.scopes.push(Scope { vars: BTreeSet::new() });
+                    check_block_scoping(arm, ctx);
+                    ctx.scopes.pop();
+                }
+            }
+            Line::Assignment { var, value } => {
+                check_expr_scoping(value, ctx);
+                let last_scope = ctx.scopes.last_mut().unwrap();
+                assert!(
+                    !last_scope.vars.contains(var),
+                    "Variable declared multiple times in the same scope: {var}",
+                );
+                last_scope.vars.insert(var.clone());
+            }
+            Line::ArrayAssign { array, index, value } => {
+                check_simple_expr_scoping(array, ctx);
+                check_expr_scoping(index, ctx);
+                check_expr_scoping(value, ctx);
+            }
+            Line::Assert(boolean, _) => {
+                check_boolean_scoping(boolean, ctx);
+            }
+            Line::IfCondition {
+                condition,
+                then_branch,
+                else_branch,
+                line_number: _,
+            } => {
+                check_condition_scoping(condition, ctx);
+                for branch in [then_branch, else_branch] {
+                    ctx.scopes.push(Scope { vars: BTreeSet::new() });
+                    check_block_scoping(branch, ctx);
+                    ctx.scopes.pop();
+                }
+            }
+            Line::ForLoop {
+                iterator,
+                start,
+                end,
+                body,
+                rev: _,
+                unroll: _,
+                line_number: _,
+            } => {
+                check_expr_scoping(start, ctx);
+                check_expr_scoping(end, ctx);
+                let mut new_scope_vars = BTreeSet::new();
+                new_scope_vars.insert(iterator.clone());
+                ctx.scopes.push(Scope { vars: new_scope_vars });
+                check_block_scoping(body, ctx);
+                ctx.scopes.pop();
+            }
+            Line::FunctionCall {
+                function_name: _,
+                args,
+                return_data,
+                line_number: _,
+            } => {
+                for arg in args {
+                    check_expr_scoping(arg, ctx);
+                }
+                let last_scope = ctx.scopes.last_mut().unwrap();
+                for var in return_data {
+                    assert!(
+                        !last_scope.vars.contains(var),
+                        "Variable declared multiple times in the same scope: {var}",
+                    );
+                    last_scope.vars.insert(var.clone());
+                }
+            }
+            Line::FunctionRet { return_data } => {
+                for expr in return_data {
+                    check_expr_scoping(expr, ctx);
+                }
+            }
+            Line::Precompile { table: _, args } => {
+                for arg in args {
+                    check_expr_scoping(arg, ctx);
+                }
+            }
+            Line::Break | Line::Panic | Line::LocationReport { .. } => {}
+            Line::Print { line_info: _, content } => {
+                for expr in content {
+                    check_expr_scoping(expr, ctx);
+                }
+            }
+            Line::MAlloc {
+                var,
+                size,
+                vectorized: _,
+                vectorized_len,
+            } => {
+                check_expr_scoping(size, ctx);
+                check_expr_scoping(vectorized_len, ctx);
+                let last_scope = ctx.scopes.last_mut().unwrap();
+                assert!(
+                    !last_scope.vars.contains(var),
+                    "Variable declared multiple times in the same scope: {var}",
+                );
+                last_scope.vars.insert(var.clone());
+            }
+            Line::DecomposeBits { var, to_decompose } => {
+                for expr in to_decompose {
+                    check_expr_scoping(expr, ctx);
+                }
+                let last_scope = ctx.scopes.last_mut().unwrap();
+                assert!(
+                    !last_scope.vars.contains(var),
+                    "Variable declared multiple times in the same scope: {var}",
+                );
+                last_scope.vars.insert(var.clone());
+            }
+            Line::DecomposeCustom { args } => {
+                for arg in args {
+                    check_expr_scoping(arg, ctx);
+                }
+            }
+            Line::PrivateInputStart { result } => {
+                let last_scope = ctx.scopes.last_mut().unwrap();
+                assert!(
+                    !last_scope.vars.contains(result),
+                    "Variable declared multiple times in the same scope: {result}"
+                );
+                last_scope.vars.insert(result.clone());
+            }
+        }
+    }
+}
+
+/// Analyzes the expression to verify that each variable is defined in the given context.
+fn check_expr_scoping(expr: &Expression, ctx: &Context) {
+    match expr {
+        Expression::Value(simple_expr) => {
+            check_simple_expr_scoping(simple_expr, ctx);
+        }
+        Expression::ArrayAccess { array, index } => {
+            check_simple_expr_scoping(array, ctx);
+            check_expr_scoping(index, ctx);
+        }
+        Expression::Binary {
+            left,
+            operation: _,
+            right,
+        } => {
+            check_expr_scoping(left, ctx);
+            check_expr_scoping(right, ctx);
+        }
+        Expression::Log2Ceil { value } => {
+            check_expr_scoping(value, ctx);
+        }
+    }
+}
+
+/// Analyzes the simple expression to verify that each variable is defined in the given context.
+fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
+    match expr {
+        SimpleExpr::Var(v) => {
+            assert!(ctx.defines(v), "Variable used but not defined: {v}");
+        }
+        SimpleExpr::Constant(_) => {}
+        SimpleExpr::ConstMallocAccess { .. } => {}
+    }
+}
+
+fn check_boolean_scoping(boolean: &Boolean, ctx: &Context) {
+    match boolean {
+        Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+            check_expr_scoping(left, ctx);
+            check_expr_scoping(right, ctx);
+        }
+    }
+}
+
+fn check_condition_scoping(condition: &Condition, ctx: &Context) {
+    match condition {
+        Condition::Expression(expr, _) => {
+            check_expr_scoping(expr, ctx);
+        }
+        Condition::Comparison(boolean) => {
+            check_boolean_scoping(boolean, ctx);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct Counters {
     aux_vars: usize,
@@ -205,7 +421,6 @@ struct ArrayManager {
 pub struct ConstMalloc {
     counter: usize,
     map: BTreeMap<Var, ConstMallocLabel>,
-    forbidden_vars: BTreeSet<Var>, // vars shared between branches of an if/else
 }
 
 impl ArrayManager {
@@ -231,6 +446,9 @@ fn simplify_lines(
     let mut res = Vec::new();
     for line in lines {
         match line {
+            Line::ForwardDeclaration { var } => {
+                res.push(SimpleLine::ForwardDeclaration { var: var.clone() });
+            }
             Line::Match { value, arms } => {
                 let simple_value = simplify_expr(value, &mut res, counters, array_manager, const_malloc);
                 let mut simple_arms = vec![];
@@ -320,7 +538,7 @@ fn simplify_lines(
                     } else if let Ok(right) = right.clone().try_into() {
                         (right, left)
                     } else {
-                        unreachable!("Weird: {:?}, {:?}", left, right)
+                        panic!("Unsupported equality assertion: {left:?}, {right:?}")
                     };
                     res.push(SimpleLine::Assignment {
                         var,
@@ -386,17 +604,6 @@ fn simplify_lines(
                     }
                 };
 
-                let forbidden_vars_before = const_malloc.forbidden_vars.clone();
-
-                let then_internal_vars = find_variable_usage(then_branch).0;
-                let else_internal_vars = find_variable_usage(else_branch).0;
-                let new_forbidden_vars = then_internal_vars
-                    .intersection(&else_internal_vars)
-                    .cloned()
-                    .collect::<BTreeSet<_>>();
-
-                const_malloc.forbidden_vars.extend(new_forbidden_vars);
-
                 let mut array_manager_then = array_manager.clone();
                 let then_branch_simplified = simplify_lines(
                     then_branch,
@@ -417,8 +624,6 @@ fn simplify_lines(
                     &mut array_manager_else,
                     const_malloc,
                 );
-
-                const_malloc.forbidden_vars = forbidden_vars_before;
 
                 *array_manager = array_manager_else.clone();
                 // keep the intersection both branches
@@ -612,12 +817,8 @@ fn simplify_lines(
                 let simplified_size = simplify_expr(size, &mut res, counters, array_manager, const_malloc);
                 let simplified_vectorized_len =
                     simplify_expr(vectorized_len, &mut res, counters, array_manager, const_malloc);
-                if simplified_size.is_constant() && !*vectorized && const_malloc.forbidden_vars.contains(var) {
-                    println!("TODO: Optimization missed: Requires to align const malloc in if/else branches");
-                }
                 match simplified_size {
-                    SimpleExpr::Constant(const_size) if !*vectorized && !const_malloc.forbidden_vars.contains(var) => {
-                        // TODO do this optimization even if we are in an if/else branch
+                    SimpleExpr::Constant(const_size) if !*vectorized => {
                         let label = const_malloc.counter;
                         const_malloc.counter += 1;
                         const_malloc.map.insert(var.clone(), label);
@@ -638,7 +839,6 @@ fn simplify_lines(
                 }
             }
             Line::DecomposeBits { var, to_decompose } => {
-                assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
                 let simplified_to_decompose = to_decompose
                     .iter()
                     .map(|expr| simplify_expr(expr, &mut res, counters, array_manager, const_malloc))
@@ -772,6 +972,9 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
 
     for line in lines {
         match line {
+            Line::ForwardDeclaration { var } => {
+                internal_vars.insert(var.clone());
+            }
             Line::Match { value, arms } => {
                 on_new_expr(value, &internal_vars, &mut external_vars);
                 for (_, statements) in arms {
@@ -921,7 +1124,7 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
     let inline_internal_var = |var: &mut Var| {
         assert!(
             !args.contains_key(var),
-            "Variable {var} is both an argument and assigned in the inlined function"
+            "Variable {var} is both an argument and declared in the inlined function"
         );
         *var = format!("@inlined_var_{inlining_count}_{var}");
     };
@@ -929,6 +1132,9 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
     let mut lines_to_replace = vec![];
     for (i, line) in lines.iter_mut().enumerate() {
         match line {
+            Line::ForwardDeclaration { var } => {
+                inline_internal_var(var);
+            }
             Line::Match { value, arms } => {
                 inline_expr(value, args, inlining_count);
                 for (_, statements) in arms {
@@ -1239,6 +1445,9 @@ fn replace_vars_for_unroll(
                     replace_vars_for_unroll(statements, iterator, unroll_index, iterator_value, internal_vars);
                 }
             }
+            Line::ForwardDeclaration { var } => {
+                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
+            }
             Line::Assignment { var, value } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
@@ -1443,6 +1652,10 @@ fn handle_inlined_functions_helper(
             } => {
                 if let Some(func) = inlined_functions.get(&*function_name) {
                     let mut inlined_lines = vec![];
+
+                    for var in return_data.iter() {
+                        inlined_lines.push(Line::ForwardDeclaration { var: var.clone() });
+                    }
 
                     let mut simplified_args = vec![];
                     for arg in args {
@@ -1699,6 +1912,7 @@ fn get_function_called(lines: &[Line], function_called: &mut Vec<String>) {
                 get_function_called(body, function_called);
             }
             Line::Assignment { .. }
+            | Line::ForwardDeclaration { .. }
             | Line::ArrayAssign { .. }
             | Line::Assert { .. }
             | Line::FunctionRet { .. }
@@ -1723,6 +1937,9 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 for (_, statements) in arms {
                     replace_vars_by_const_in_lines(statements, map);
                 }
+            }
+            Line::ForwardDeclaration { var } => {
+                assert!(!map.contains_key(var), "Variable {var} is a constant");
             }
             Line::Assignment { var, value } => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
@@ -1831,6 +2048,9 @@ impl SimpleLine {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
         let line_str = match self {
+            Self::ForwardDeclaration { var } => {
+                format!("var {var}")
+            }
             Self::Match { value, arms } => {
                 let arms_str = arms
                     .iter()
@@ -1880,7 +2100,7 @@ impl SimpleLine {
                 )
             }
             Self::RawAccess { res, index, shift } => {
-                format!("memory[{index} + {shift}] = {res}")
+                format!("{res} = memory[{index} + {shift}]")
             }
             Self::TestZero { operation, arg0, arg1 } => {
                 format!("0 = {arg0} {operation} {arg1}")

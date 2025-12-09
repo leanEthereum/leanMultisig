@@ -19,6 +19,7 @@ impl Parse<Line> for StatementParser {
         let inner = next_inner_pair(&mut pair.into_inner(), "statement body")?;
 
         match inner.as_rule() {
+            Rule::forward_declaration => ForwardDeclarationParser::parse(inner, ctx),
             Rule::single_assignment => AssignmentParser::parse(inner, ctx),
             Rule::array_assign => ArrayAssignParser::parse(inner, ctx),
             Rule::if_statement => IfStatementParser::parse(inner, ctx),
@@ -32,6 +33,17 @@ impl Parse<Line> for StatementParser {
             Rule::continue_statement => Err(SemanticError::new("Continue statement not implemented yet").into()),
             _ => Err(SemanticError::new("Unknown statement").into()),
         }
+    }
+}
+
+/// Parser for forward declarations of variables.
+pub struct ForwardDeclarationParser;
+
+impl Parse<Line> for ForwardDeclarationParser {
+    fn parse(pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
+        let mut inner = pair.into_inner();
+        let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
+        Ok(Line::ForwardDeclaration { var })
     }
 }
 
