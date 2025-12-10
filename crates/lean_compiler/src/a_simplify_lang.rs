@@ -538,7 +538,7 @@ fn simplify_lines(
                     } else if let Ok(right) = right.clone().try_into() {
                         (right, left)
                     } else {
-                        panic!("Unsupported equality assertion: {:?}, {:?}", left, right)
+                        panic!("Unsupported equality assertion: {left:?}, {right:?}")
                     };
                     res.push(SimpleLine::Assignment {
                         var,
