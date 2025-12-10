@@ -212,8 +212,8 @@ pub fn prove_execution(
             trace,
             bus_challenge,
             fingerprint_challenge,
-            &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
             &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
+            &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
         );
         air_points.insert(*table, this_air_point);
         evals_f.insert(*table, this_evals_f);

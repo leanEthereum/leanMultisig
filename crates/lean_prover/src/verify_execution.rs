@@ -17,7 +17,8 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
     let mut verifier_state = VerifierState::new(proof, build_challenger());
 
     let dims = verifier_state
-        .next_base_scalars_vec(1 + N_TABLES)?
+        .next_base_scalars_vec(1 + N_TABLES)
+        .unwrap()
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>();
@@ -46,7 +47,8 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         &mut verifier_state,
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    )?;
+    )
+    .unwrap();
 
     let bus_challenge = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
@@ -71,7 +73,8 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
             .flat_map(|(table, height)| vec![height.log_padded(); table.num_buses()])
             .collect(),
         UNIVARIATE_SKIPS,
-    )?;
+    )
+    .unwrap();
 
     let mut air_points: BTreeMap<Table, MultilinearPoint<EF>> = Default::default();
     let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
@@ -85,15 +88,20 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
             *height,
             bus_challenge,
             fingerprint_challenge,
-            &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
             &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
-        )?;
+            &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
+        )
+        .unwrap();
         air_points.insert(*table, this_air_point);
         evals_f.insert(*table, this_evals_f);
         evals_ef.insert(*table, this_evals_ef);
         bus_offset += table.buses().len();
     }
-    assert_eq_many!(bus_offset, lookup_into_memory.on_bus_numerators.len(), lookup_into_memory.on_bus_denominators.len());
+    assert_eq_many!(
+        bus_offset,
+        lookup_into_memory.on_bus_numerators.len(),
+        lookup_into_memory.on_bus_denominators.len()
+    );
 
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -106,7 +114,8 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
 
     let bytecode_pushforward_parsed_commitment =
         WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len()))
-            .parse_commitment::<EF>(&mut verifier_state)?;
+            .parse_commitment::<EF>(&mut verifier_state)
+            .unwrap();
 
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
@@ -114,7 +123,8 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         table_heights[&Table::execution()].log_padded(),
         &[bytecode_lookup_claim],
         EF::ONE,
-    )?;
+    )
+    .unwrap();
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
     if folded_bytecode.evaluate(&bytecode_logup_star_statements.on_table.point)
         != bytecode_logup_star_statements.on_table.value
@@ -140,18 +150,20 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
     for table in table_heights.keys() {
         final_statements.insert(
             *table,
-            table.committed_statements_verifier(
-                &mut verifier_state,
-                &air_points[table],
-                &evals_f[table],
-                &evals_ef[table],
-                &mut lookup_into_memory.on_indexes_f,
-                &mut lookup_into_memory.on_indexes_ef,
-                &mut lookup_into_memory.on_indexes_vec,
-                &mut lookup_into_memory.on_values_f,
-                &mut lookup_into_memory.on_values_ef,
-                &mut lookup_into_memory.on_values_vec,
-            )?,
+            table
+                .committed_statements_verifier(
+                    &mut verifier_state,
+                    &air_points[table],
+                    &evals_f[table],
+                    &evals_ef[table],
+                    &mut lookup_into_memory.on_indexes_f,
+                    &mut lookup_into_memory.on_indexes_ef,
+                    &mut lookup_into_memory.on_indexes_vec,
+                    &mut lookup_into_memory.on_values_f,
+                    &mut lookup_into_memory.on_values_ef,
+                    &mut lookup_into_memory.on_values_vec,
+                )
+                .unwrap(),
         );
     }
     assert!(lookup_into_memory.on_indexes_f.is_empty());
@@ -179,19 +191,20 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
         &all_base_statements,
         &mut verifier_state,
-    )?;
+    )
+    .unwrap();
 
-    WhirConfig::new(whir_config_builder_a(), parsed_commitment_base.num_variables).verify(
-        &mut verifier_state,
-        &parsed_commitment_base,
-        global_statements_base,
-    )?;
+    WhirConfig::new(whir_config_builder_a(), parsed_commitment_base.num_variables)
+        .verify(&mut verifier_state, &parsed_commitment_base, global_statements_base)
+        .unwrap();
 
-    WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len())).verify(
-        &mut verifier_state,
-        &bytecode_pushforward_parsed_commitment,
-        bytecode_logup_star_statements.on_pushforward,
-    )?;
+    WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len()))
+        .verify(
+            &mut verifier_state,
+            &bytecode_pushforward_parsed_commitment,
+            bytecode_logup_star_statements.on_pushforward,
+        )
+        .unwrap();
 
     Ok(())
 }
@@ -255,7 +268,8 @@ fn verify_bus_and_air(
                     &t.air_padding_row_f(),
                     &t.air_padding_row_ef(),
                     Some(bus_virtual_statement),
-                )?
+                )
+                .unwrap()
             };
         }
         delegate_to_inner!(t => verify_air_for_table)
