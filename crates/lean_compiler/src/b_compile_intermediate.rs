@@ -1,7 +1,7 @@
 use crate::{F, a_simplify_lang::*, ir::*, lang::*};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use utils::ToUsize;
 
 #[derive(Default)]
