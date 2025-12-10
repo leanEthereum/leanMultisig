@@ -20,6 +20,10 @@ pub struct CustomLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize>
     pub on_values_f: Vec<Evaluation<EF>>,
     pub on_values_ef: Vec<[Evaluation<EF>; DIM]>,
     pub on_values_vec: Vec<[Evaluation<EF>; VECTOR_LEN]>,
+
+    // buses
+    pub on_bus_selectors: Vec<Evaluation<EF>>,
+    pub on_bus_data: Vec<Evaluation<EF>>,
 }
 
 impl CustomLookupProver {
@@ -34,6 +38,10 @@ impl CustomLookupProver {
         value_columns_f: Vec<&[PF<EF>]>,
         value_columns_ef: Vec<&[EF]>,
         value_columns_vec: Vec<[&[PF<EF>]; VECTOR_LEN]>,
+
+        // parameters for "buses" = information flow between different tables
+        bus_selectors: Vec<&[PF<EF>]>,
+        bus_data: Vec<&[EF]>,
     ) -> CustomLookupStatements<EF, DIM, VECTOR_LEN> {
         assert_eq!(index_columns_f.len(), value_columns_f.len(),);
         assert_eq!(index_columns_ef.len(), value_columns_ef.len(),);
@@ -69,7 +77,15 @@ impl CustomLookupProver {
 
         let index_columns = [index_columns_f, index_columns_ef, collect_refs(&index_columns_vec)].concat();
 
-        let generic = GeneralizedLogupProver::run(prover_state, table, acc, index_columns, all_value_columns);
+        let generic = GeneralizedLogupProver::run(
+            prover_state,
+            table,
+            acc,
+            index_columns,
+            all_value_columns,
+            bus_selectors,
+            bus_data,
+        );
 
         let mut on_indexes_vec = generic.on_indexes[n_cols_f + n_cols_ef..].to_vec();
         let inv_vector_len = PF::<EF>::from_usize(VECTOR_LEN).inverse();
@@ -98,6 +114,8 @@ impl CustomLookupProver {
                 .iter()
                 .map(|e| e.to_vec().try_into().unwrap())
                 .collect(),
+            on_bus_selectors: generic.on_bus_selectors,
+            on_bus_data: generic.on_bus_data,
         }
     }
 }
@@ -113,6 +131,7 @@ impl NormalLookupVerifier {
         log_heights_f: Vec<usize>,
         log_heights_ef: Vec<usize>,
         log_heights_vec: Vec<usize>,
+        bus_n_vars: Vec<usize>,
     ) -> ProofResult<CustomLookupStatements<EF, DIM, VECTOR_LEN>> {
         let log_heights = [log_heights_f.clone(), log_heights_ef.clone(), log_heights_vec.clone()].concat();
         let n_cols_per_group = [
@@ -121,7 +140,8 @@ impl NormalLookupVerifier {
             vec![VECTOR_LEN; log_heights_vec.len()],
         ]
         .concat();
-        let generic = GeneralizedLogupVerifier::run(verifier_state, table_log_len, log_heights, n_cols_per_group)?;
+        let generic =
+            GeneralizedLogupVerifier::run(verifier_state, table_log_len, log_heights, n_cols_per_group, bus_n_vars)?;
 
         let mut on_indexes_vec = generic.on_indexes[log_heights_f.len() + log_heights_ef.len()..].to_vec();
         let inv_vector_len = PF::<EF>::from_usize(VECTOR_LEN).inverse();
@@ -150,6 +170,8 @@ impl NormalLookupVerifier {
                 .iter()
                 .map(|e| e.to_vec().try_into().unwrap())
                 .collect(),
+            on_bus_selectors: generic.on_bus_selectors,
+            on_bus_data: generic.on_bus_data,
         })
     }
 }
