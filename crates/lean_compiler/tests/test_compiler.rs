@@ -521,3 +521,29 @@ fn test_nested_inline_functions() {
 
     compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
 }
+
+#[test]
+fn test_const_and_nonconst_malloc_sharing_name() {
+    let program = r#"
+    fn main() {
+        f(1);
+        return;
+    }
+    
+    fn f(n) {
+        if 0 == 0 {
+            res = malloc(2);
+            res[1] = 0; // deleting this makes the test pass
+              // replacing res[1] with res[0] makes the test pass
+            return;
+        } else {
+            res = malloc(n * 1); // deleting this or any part of it makes the test pass
+              // changing the name res to something else makes the test pass
+    
+            return;
+        }
+    }
+    "#;
+
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
