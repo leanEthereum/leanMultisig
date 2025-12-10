@@ -16,7 +16,7 @@ pub(super) fn exec_dot_product_be(
 ) -> Result<(), RunnerError> {
     assert!(size > 0);
 
-    let slice_0 = memory.slice(ptr_arg_0.to_usize(), size)?;
+    let slice_0 = memory.get_slice(ptr_arg_0.to_usize(), size)?;
     let slice_1 = memory.get_continuous_slice_of_ef_elements(ptr_arg_1.to_usize(), size)?;
     let dot_product_result = dot_product::<EF, _, _>(slice_1.iter().copied(), slice_0.iter().copied());
 
@@ -62,7 +62,7 @@ pub(super) fn exec_dot_product_ee(
 
     let slice_0 = memory.get_continuous_slice_of_ef_elements(ptr_arg_0.to_usize(), size)?;
 
-    let (slice_1, dot_product_result) = if ptr_arg_1.to_usize() == ONE_VEC_PTR * VECTOR_LEN {
+    let (slice_1, dot_product_result) = if ptr_arg_1.to_usize() == ONE_VEC_PTR {
         if size != 1 {
             unimplemented!("weird use case");
         }

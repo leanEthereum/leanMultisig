@@ -30,21 +30,9 @@ pub fn compile_program(program: String) -> Bytecode {
     // compiled
 }
 
-pub fn compile_and_run(
-    program: String,
-    (public_input, private_input): (&[F], &[F]),
-    no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
-    profiler: bool,
-) {
+pub fn compile_and_run(program: String, (public_input, private_input): (&[F], &[F]), profiler: bool) {
     let bytecode = compile_program(program);
-    let summary = execute_bytecode(
-        &bytecode,
-        (public_input, private_input),
-        no_vec_runtime_memory,
-        profiler,
-        &vec![],
-    )
-    .summary;
+    let summary = execute_bytecode(&bytecode, (public_input, private_input), profiler, &vec![]).summary;
     println!("{summary}");
 }
 

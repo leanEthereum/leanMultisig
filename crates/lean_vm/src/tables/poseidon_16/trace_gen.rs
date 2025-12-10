@@ -2,8 +2,7 @@ use p3_poseidon2::GenericPoseidon2LinearLayers;
 use tracing::instrument;
 
 use crate::{
-    F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
-    tables::{Poseidon2Cols, WIDTH, num_cols},
+    F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR, tables::{Poseidon2Cols, WIDTH, num_cols}
 };
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{
@@ -59,7 +58,7 @@ pub fn default_poseidon_row() -> Vec<F> {
     *perm.index_res_bis = if POSEIDON_16_DEFAULT_COMPRESSION {
         F::from_usize(ZERO_VEC_PTR)
     } else {
-        F::from_usize(POSEIDON_16_NULL_HASH_PTR + 1)
+        F::from_usize(POSEIDON_16_NULL_HASH_PTR + VECTOR_LEN)
     };
     *perm.compress = F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION);
 

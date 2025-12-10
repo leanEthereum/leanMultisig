@@ -8,20 +8,21 @@ const MAX_LOG_LIFETIME = 30;
 
 const V_HALF = V / 2; // V should be even
 
+const VECTOR_LEN = 8;
+
 fn main() {
     public_input_start_ = public_input_start;
     n_signatures = public_input_start_[0];
-    message_hash = public_input_start / 8 + 1;
-    all_public_keys = message_hash + 1;
-    all_log_lifetimes = (all_public_keys + n_signatures) * 8;
+    message_hash = public_input_start + 1;
+    all_public_keys = message_hash + VECTOR_LEN;
+    all_log_lifetimes = all_public_keys + n_signatures * VECTOR_LEN;
     all_merkle_indexes = all_log_lifetimes + n_signatures;
     sig_sizes = all_merkle_indexes + n_signatures * MAX_LOG_LIFETIME;
 
-    signatures_start_no_vec = private_input_start();
-    signatures_start = signatures_start_no_vec / 8;
+    signatures_start = private_input_start();
 
     for i in 0..n_signatures {
-        xmss_public_key = all_public_keys + i;
+        xmss_public_key = all_public_keys + i * VECTOR_LEN;
         signature = signatures_start + sig_sizes[i];
         log_lifetime = all_log_lifetimes[i];
         merkle_index = all_merkle_indexes + i * MAX_LOG_LIFETIME;
@@ -32,27 +33,25 @@ fn main() {
 }
 
 fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 1 {
-    // message_hash: vectorized pointers (of length 1)
-    // signature: vectorized pointer = randomness | chain_tips
-    // return a vectorized pointer (of length 1), the hashed xmss public key
-    randomness = signature; // vectorized
-    chain_tips = signature + 1; // vectorized
-    merkle_path = chain_tips + V; 
+    // signature: randomness | chain_tips
+    // return the hashed xmss public key
+    randomness = signature;
+    chain_tips = signature + VECTOR_LEN;
+    merkle_path = chain_tips + V * VECTOR_LEN; 
 
     // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
-    compressed = malloc_vec(1);
+    compressed = malloc(VECTOR_LEN);
     poseidon16(message_hash, randomness, compressed, COMPRESSION);
-    compressed_ptr = compressed * 8;
     compressed_vals = malloc(6);
-    dot_product_ee(compressed_ptr, pointer_to_one_vector * 8, compressed_vals, 1);
-    compressed_vals[5] = compressed_ptr[5];
+    dot_product_ee(compressed, pointer_to_one_vector, compressed_vals, 1);
+    compressed_vals[5] = compressed[5];
 
     encoding = malloc(12 * 6);
     remaining = malloc(6);
 
     decompose_custom(encoding, remaining, compressed_vals[0], compressed_vals[1], compressed_vals[2], compressed_vals[3], compressed_vals[4], compressed_vals[5]);
-    
+
     // check that the decomposition is correct
     for i in 0..6 unroll {
         for j in 0..12 unroll {
@@ -90,41 +89,38 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     }
     assert sums[V - 1] == TARGET_SUM;
 
-    public_key = malloc_vec(V);
-
-    chain_tips_ptr = 8 * chain_tips;
-    public_key_ptr = 8 * public_key;
+    public_key = malloc(V * VECTOR_LEN);
 
     for i in 0..V unroll {
         match encoding[i] {
             0 => {
-                var_1 = chain_tips + i;
-                var_2 = public_key + i;
-                var_3 = malloc_vec(1);
-                var_4 = malloc_vec(1);
+                var_1 = chain_tips + i * VECTOR_LEN;
+                var_2 = public_key + i * VECTOR_LEN;
+                var_3 = malloc(VECTOR_LEN);
+                var_4 = malloc(VECTOR_LEN);
                 poseidon16(var_1, pointer_to_zero_vector, var_3, COMPRESSION);
                 poseidon16(var_3, pointer_to_zero_vector, var_4, COMPRESSION);
                 poseidon16(var_4, pointer_to_zero_vector, var_2, COMPRESSION);
             }
             1 => {
-                var_3 = malloc_vec(1);
-                var_1 = chain_tips + i;
-                var_2 = public_key + i;
+                var_3 = malloc(VECTOR_LEN);
+                var_1 = chain_tips + i * VECTOR_LEN;
+                var_2 = public_key + i * VECTOR_LEN;
                 poseidon16(var_1, pointer_to_zero_vector, var_3, COMPRESSION);
                 poseidon16(var_3, pointer_to_zero_vector, var_2, COMPRESSION);
             }
             2 => {
-                var_1 = chain_tips + i;
-                var_2 = public_key + i;
+                var_1 = chain_tips + i * VECTOR_LEN;
+                var_2 = public_key + i * VECTOR_LEN;
                 poseidon16(var_1, pointer_to_zero_vector, var_2, COMPRESSION);
             }
             3 => {
-                var_1 = chain_tips_ptr + (i * 8);
-                var_2 = public_key_ptr + (i * 8);
+                var_1 = chain_tips + (i * VECTOR_LEN);
+                var_2 = public_key + (i * VECTOR_LEN);
                 var_3 = var_1 + 3;
                 var_4 = var_2 + 3;
-                dot_product_ee(var_1, pointer_to_one_vector * 8, var_2, 1);
-                dot_product_ee(var_3, pointer_to_one_vector * 8, var_4, 1);
+                dot_product_ee(var_1, pointer_to_one_vector, var_2, 1);
+                dot_product_ee(var_3, pointer_to_one_vector, var_4, 1);
             }
         }
     }
@@ -166,6 +162,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
         31 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 31); }
         32 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 32); }
     }           
+
     return merkle_root;
 }
 
@@ -175,13 +172,13 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, const height) -> 
     states[0] = leaf_digest;
     for j in 0..height unroll {
         if leaf_position_bits[j] == 1 {
-            left = merkle_path + j;
+            left = merkle_path + j * VECTOR_LEN;
             right = states[j];
         } else {
             left = states[j];
-            right = merkle_path + j;
+            right = merkle_path + j * VECTOR_LEN;
         }
-        state_j_plus_1 = malloc_vec(1);
+        state_j_plus_1 = malloc(VECTOR_LEN);
         poseidon16(left, right, state_j_plus_1, COMPRESSION);
         states[j + 1] = state_j_plus_1;
     }
@@ -192,8 +189,8 @@ fn slice_hash(seed, data, const half_len) -> 1 {
     internal_states = malloc(1 + half_len * 2);
     internal_states[0] = pointer_to_zero_vector; // initial state
     for j in 0..(half_len * 2) unroll {
-        h = malloc_vec(1);
-        poseidon16(internal_states[j], data + j, h, COMPRESSION);
+        h = malloc(VECTOR_LEN);
+        poseidon16(internal_states[j], data + j * VECTOR_LEN, h, COMPRESSION);
         internal_states[j + 1] = h;
     }
     return internal_states[half_len * 2];
@@ -201,9 +198,7 @@ fn slice_hash(seed, data, const half_len) -> 1 {
 
 fn assert_eq_vec(x, y) inline {
     // x and y are vectorized pointer of len 1 each
-    ptr_x = x * 8;
-    ptr_y = y * 8;
-    dot_product_ee(ptr_x, pointer_to_one_vector * 8, ptr_y, 1);
-    dot_product_ee(ptr_x + 3, pointer_to_one_vector * 8, ptr_y + 3, 1);
+    dot_product_ee(x, pointer_to_one_vector, y, 1);
+    dot_product_ee(x + 3, pointer_to_one_vector, y + 3, 1);
     return;
 }

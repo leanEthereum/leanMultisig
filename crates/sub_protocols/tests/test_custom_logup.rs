@@ -48,7 +48,7 @@ fn test_custom_logup() {
     }
     for log_height in log_cols_heights_vec.iter() {
         let indexes = (0..(1 << log_height))
-            .map(|_| F::from_usize(rng.random_range(0..(1 << log_memory_size) / VECTOR_LEN)))
+            .map(|_| F::from_usize(rng.random_range(0..(1 << log_memory_size) - VECTOR_LEN)))
             .collect::<Vec<F>>();
         all_indexe_columns_vec.push(indexes);
     }
@@ -79,10 +79,9 @@ fn test_custom_logup() {
     for vec_col in &all_indexe_columns_vec {
         let mut values: [Vec<PF<EF>>; VECTOR_LEN] = array::from_fn(|_| vec![]);
         for index in vec_col {
-            let base_idx = index.to_usize() * VECTOR_LEN;
             for i in 0..VECTOR_LEN {
-                values[i].push(memory[base_idx + i]);
-                acc[base_idx + i] += F::ONE;
+                values[i].push(memory[index.to_usize() + i]);
+                acc[index.to_usize() + i] += F::ONE;
             }
         }
         value_columns_vec.push(values);

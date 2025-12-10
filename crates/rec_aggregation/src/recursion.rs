@@ -128,24 +128,11 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
 
     let bytecode = compile_program(program_str);
 
-    // in practice we will precompute all the possible values
-    // (depending on the number of recursions + the number of xmss signatures)
-    // (or even better: find a linear relation)
-    let no_vec_runtime_memory = execute_bytecode(
-        &bytecode,
-        (&public_input, &[]),
-        1 << 23,
-        false,
-        &vec![], // TODO
-    )
-    .no_vec_runtime_memory;
-
     let time = Instant::now();
 
     let (proof, summary) = prove_execution(
         &bytecode,
         (&public_input, &[]),
-        no_vec_runtime_memory,
         false,
         &vec![], // TODO precompute poseidons
     );

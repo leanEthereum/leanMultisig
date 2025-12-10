@@ -132,8 +132,6 @@ pub enum SimpleLine {
     HintMAlloc {
         var: Var,
         size: SimpleExpr,
-        vectorized: bool,
-        vectorized_len: SimpleExpr,
     },
     ConstMalloc {
         // always not vectorized
@@ -606,17 +604,13 @@ fn simplify_lines(
             Line::MAlloc {
                 var,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
                 let simplified_size = simplify_expr(size, &mut res, counters, array_manager, const_malloc);
-                let simplified_vectorized_len =
-                    simplify_expr(vectorized_len, &mut res, counters, array_manager, const_malloc);
-                if simplified_size.is_constant() && !*vectorized && const_malloc.forbidden_vars.contains(var) {
+                if simplified_size.is_constant() && const_malloc.forbidden_vars.contains(var) {
                     println!("TODO: Optimization missed: Requires to align const malloc in if/else branches");
                 }
                 match simplified_size {
-                    SimpleExpr::Constant(const_size) if !*vectorized && !const_malloc.forbidden_vars.contains(var) => {
+                    SimpleExpr::Constant(const_size) if !const_malloc.forbidden_vars.contains(var) => {
                         // TODO do this optimization even if we are in an if/else branch
                         let label = const_malloc.counter;
                         const_malloc.counter += 1;
@@ -631,8 +625,6 @@ fn simplify_lines(
                         res.push(SimpleLine::HintMAlloc {
                             var: var.clone(),
                             size: simplified_size,
-                            vectorized: *vectorized,
-                            vectorized_len: simplified_vectorized_len,
                         });
                     }
                 }
@@ -1331,13 +1323,10 @@ fn replace_vars_for_unroll(
             Line::MAlloc {
                 var,
                 size,
-                vectorized: _,
-                vectorized_len,
             } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(size, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll_in_expr(vectorized_len, iterator, unroll_index, iterator_value, internal_vars);
             }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
@@ -1953,14 +1942,8 @@ impl SimpleLine {
             Self::HintMAlloc {
                 var,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
-                if *vectorized {
-                    format!("{var} = malloc_vec({size}, {vectorized_len})")
-                } else {
-                    format!("{var} = malloc({size})")
-                }
+                format!("{var} = malloc({size})")
             }
             Self::ConstMalloc { var, size, label: _ } => {
                 format!("{var} = malloc({size})")

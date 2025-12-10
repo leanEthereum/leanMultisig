@@ -1057,7 +1057,7 @@ fn sub_extension(a, b, c) inline {
 }
 
 fn assert_eq_extension(a, b) inline {
-    dot_product_ee(a, pointer_to_one_vector * 8, b, 1);
+    dot_product_ee(a, pointer_to_one_vector, b, 1);
     return;
 }
 
@@ -1065,8 +1065,8 @@ fn assert_eq_extension(a, b) inline {
 fn assert_eq_vec(a, b) inline {
     a_ptr = a * 8;
     b_ptr = b * 8;
-    dot_product_ee(a_ptr, pointer_to_one_vector * 8, b_ptr, 1);
-    dot_product_ee(a_ptr + (8 - DIM), pointer_to_one_vector * 8, b_ptr + (8 - DIM), 1);
+    dot_product_ee(a_ptr, pointer_to_one_vector, b_ptr, 1);
+    dot_product_ee(a_ptr + (8 - DIM), pointer_to_one_vector, b_ptr + (8 - DIM), 1);
     return;
 }
 
