@@ -49,7 +49,7 @@ impl TableT for ExecutionTable {
         vec![Bus {
             table: BusTable::Variable(COL_INDEX_PRECOMPILE_INDEX),
             direction: BusDirection::Push,
-            selector: BusSelector::Column(COL_INDEX_IS_PRECOMPILE),
+            selector: COL_INDEX_IS_PRECOMPILE,
             data: vec![
                 COL_INDEX_EXEC_NU_A,
                 COL_INDEX_EXEC_NU_B,

@@ -305,28 +305,16 @@ fn prove_bus_and_air(
 
     let mut numerators = F::zero_vec(n_buses_padded * n_rows);
     for (bus, numerators_chunk) in t.buses().iter().zip(numerators.chunks_mut(n_rows)) {
-        match bus.selector {
-            BusSelector::Column(selector_col) => {
-                assert!(selector_col < trace.base.len());
-                trace.base[selector_col]
-                    .par_iter()
-                    .zip(numerators_chunk)
-                    .for_each(|(&selector, v)| {
-                        *v = match bus.direction {
-                            BusDirection::Pull => -selector,
-                            BusDirection::Push => selector,
-                        }
-                    });
-            }
-            BusSelector::ConstantOne => {
-                numerators_chunk.par_iter_mut().for_each(|v| {
-                    *v = match bus.direction {
-                        BusDirection::Pull => F::NEG_ONE,
-                        BusDirection::Push => F::ONE,
-                    }
-                });
-            }
-        }
+        assert!(bus.selector < trace.base.len());
+        trace.base[bus.selector]
+            .par_iter()
+            .zip(numerators_chunk)
+            .for_each(|(&selector, v)| {
+                *v = match bus.direction {
+                    BusDirection::Pull => -selector,
+                    BusDirection::Push => selector,
+                }
+            });
     }
 
     let mut denominators = unsafe { uninitialized_vec(n_buses_padded * n_rows) };
@@ -357,7 +345,7 @@ fn prove_bus_and_air(
     // TODO avoid reallocation due to packing (pack directly when constructing)
     let numerators_packed = pack_extension(&numerators_embedded);
     let denominators_packed = pack_extension(&denominators);
-    let (mut quotient, bus_point_global, numerator_value_global, denominator_value_global) =
+    let (quotient, bus_point_global, numerator_value_global, denominator_value_global) =
         prove_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
             prover_state,
             &MleGroupRef::ExtensionPacked(vec![&numerators_packed, &denominators_packed]),
@@ -439,10 +427,6 @@ fn prove_bus_and_air(
         .collect::<Vec<_>>();
 
     let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
-
-    for bus in t.buses() {
-        quotient -= bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
-    }
 
     let extra_data = ExtraDataForBuses {
         fingerprint_challenge_powers: fingerprint_challenge.powers().collect_n(max_bus_width()),

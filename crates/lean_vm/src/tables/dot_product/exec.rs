@@ -36,6 +36,8 @@ pub(super) fn exec_dot_product_be(
 
         trace.base[COL_FLAG].push(F::ONE);
         trace.base[COL_FLAG].extend(F::zero_vec(size - 1));
+        trace.base[COL_START].push(F::ONE);
+        trace.base[COL_START].extend(F::zero_vec(size - 1));
         trace.base[COL_LEN].extend(((1..=size).rev()).map(F::from_usize));
         trace.base[COL_INDEX_A].extend((0..size).map(|i| F::from_usize(ptr_arg_0.to_usize() + i)));
         trace.base[COL_INDEX_B].extend((0..size).map(|i| F::from_usize(ptr_arg_1.to_usize() + i * DIMENSION)));
@@ -87,6 +89,8 @@ pub(super) fn exec_dot_product_ee(
 
         trace.base[COL_FLAG].push(F::ONE);
         trace.base[COL_FLAG].extend(F::zero_vec(size - 1));
+        trace.base[COL_START].push(F::ONE);
+        trace.base[COL_START].extend(F::zero_vec(size - 1));
         trace.base[COL_LEN].extend(((1..=size).rev()).map(F::from_usize));
         trace.base[COL_INDEX_A].extend((0..size).map(|i| F::from_usize(ptr_arg_0.to_usize() + i * DIMENSION)));
         trace.base[COL_INDEX_B].extend((0..size).map(|i| F::from_usize(ptr_arg_1.to_usize() + i * DIMENSION)));

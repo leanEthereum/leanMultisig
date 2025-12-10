@@ -207,7 +207,7 @@ fn verify_bus_and_air(
 
     assert!(n_buses > 0, "Table {} has no buses", t.name());
 
-    let (mut quotient, bus_point_global, numerator_value_global, denominator_value_global) =
+    let (quotient, bus_point_global, numerator_value_global, denominator_value_global) =
         verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(verifier_state, log_n_rows + log_n_buses)?;
 
     let (bus_point, bus_selector_values, bus_data_values) = if n_buses == 1 {
@@ -273,10 +273,6 @@ fn verify_bus_and_air(
         .collect::<Vec<_>>();
 
     let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
-
-    for bus in t.buses() {
-        quotient -= bus.padding_contribution(t, table_height.padding_len(), bus_challenge, fingerprint_challenge);
-    }
 
     let extra_data = ExtraDataForBuses {
         fingerprint_challenge_powers: fingerprint_challenge.powers().collect_n(max_bus_width()),

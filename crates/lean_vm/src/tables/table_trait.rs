@@ -54,16 +54,10 @@ impl BusDirection {
 }
 
 #[derive(Debug)]
-pub enum BusSelector {
-    Column(ColIndex),
-    ConstantOne,
-}
-
-#[derive(Debug)]
 pub struct Bus {
     pub direction: BusDirection,
     pub table: BusTable,
-    pub selector: BusSelector,
+    pub selector: ColIndex,
     pub data: Vec<ColIndex>, // For now, we only supports F (base field) columns as bus data
 }
 
@@ -517,27 +511,4 @@ pub trait TableT: Air {
 
 pub fn finger_print<F: Field, EF: ExtensionField<F>>(table: F, data: &[F], challenge: EF) -> EF {
     dot_product::<EF, _, _>(challenge.powers().skip(1), data.iter().copied()) + table
-}
-
-impl Bus {
-    pub fn padding_contribution<T: TableT>(
-        &self,
-        table: &T,
-        padding: usize,
-        bus_challenge: EF,
-        fingerprint_challenge: EF,
-    ) -> EF {
-        let padding_row_f = table.padding_row_f();
-        let default_selector = match &self.selector {
-            BusSelector::ConstantOne => F::ONE,
-            BusSelector::Column(col) => padding_row_f[*col],
-        };
-        let default_table = match &self.table {
-            BusTable::Constant(t) => F::from_usize(t.index()),
-            BusTable::Variable(col) => padding_row_f[*col],
-        };
-        let default_data = self.data.iter().map(|&col| padding_row_f[col]).collect::<Vec<_>>();
-        EF::from(default_selector * self.direction.to_field_flag() * F::from_usize(padding))
-            / (bus_challenge + finger_print(default_table, &default_data, fingerprint_challenge))
-    }
 }
