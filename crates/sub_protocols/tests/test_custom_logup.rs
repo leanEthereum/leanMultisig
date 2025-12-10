@@ -13,12 +13,13 @@ const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 const VECTOR_LEN: usize = 8;
 
 #[test]
-fn test_normal_packed_lookup() {
+fn test_custom_logup() {
     let log_memory_size: usize = 12;
     let log_cols_heights_f: Vec<usize> = vec![12, 11, 13, 1];
     let log_cols_heights_ef: Vec<usize> = vec![8, 10];
     let log_cols_heights_vec: Vec<usize> = vec![11, 6, 2];
-    let bus_n_vars: Vec<usize> = vec![1, 8, 3];
+    let bus_n_vars: Vec<usize> = vec![5, 8, 3];
+    let univariate_skips: usize = 3;
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = (0..(1 << log_memory_size))
@@ -126,6 +127,7 @@ fn test_normal_packed_lookup() {
             .collect(),
         collect_refs(&bus_numerators),
         collect_refs(&bus_denominators),
+        univariate_skips,
     );
     let final_prover_state = prover_state.challenger().state();
 
@@ -138,6 +140,7 @@ fn test_normal_packed_lookup() {
         log_cols_heights_ef,
         log_cols_heights_vec,
         bus_n_vars,
+        univariate_skips,
     )
     .unwrap();
     assert_eq!(final_prover_state, verifier_state.challenger().state());
@@ -183,16 +186,29 @@ fn test_normal_packed_lookup() {
             assert_eq!(col.evaluate(&statement.point), statement.value);
         }
     }
-    for (selector_col, statement) in bus_numerators
+    let univariate_selectors = univariate_selectors::<PF<EF>>(univariate_skips);
+
+    for (numerators, statement) in bus_numerators
         .iter()
         .zip(remaining_claims_to_verify.on_bus_numerators.iter())
     {
-        assert_eq!(selector_col.evaluate(&statement.point), statement.value);
+        assert_eq!(
+            evaluate_univariate_multilinear::<_, _, _, true>(numerators, &statement.point, &univariate_selectors, None),
+            statement.value
+        );
     }
-    for (data_col, statement) in bus_denominators
+    for (denominators, statement) in bus_denominators
         .iter()
         .zip(remaining_claims_to_verify.on_bus_denominators.iter())
     {
-        assert_eq!(data_col.evaluate(&statement.point), statement.value);
+        assert_eq!(
+            evaluate_univariate_multilinear::<_, _, _, true>(
+                denominators,
+                &statement.point,
+                &univariate_selectors,
+                None
+            ),
+            statement.value
+        );
     }
 }

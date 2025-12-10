@@ -11,8 +11,9 @@ const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 #[test]
 fn test_generic_logup() {
     let log_memory_size: usize = 12;
+    let univariate_skips: usize = 3;
     let lookups_log_height_and_cols: Vec<(usize, usize)> = vec![(11, 1), (3, 3), (0, 2), (5, 1)];
-    let bus_n_vars: Vec<usize> = vec![2, 5, 3];
+    let bus_n_vars: Vec<usize> = vec![4, 5, 3];
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = (0..(1 << log_memory_size))
@@ -77,6 +78,7 @@ fn test_generic_logup() {
             .collect(),
         collect_refs(&bus_numerators),
         collect_refs(&bus_denominators),
+        univariate_skips,
     );
     let final_prover_state = prover_state.challenger().state();
 
@@ -88,6 +90,7 @@ fn test_generic_logup() {
         lookups_log_height_and_cols.iter().map(|(h, _)| *h).collect(),
         lookups_log_height_and_cols.iter().map(|(_, n_cols)| *n_cols).collect(),
         bus_n_vars,
+        univariate_skips,
     )
     .unwrap();
     let final_verifier_state = verifier_state.challenger().state();
@@ -119,13 +122,29 @@ fn test_generic_logup() {
         }
     }
 
-    for (selector_col, statement) in bus_numerators
+    let univariate_selectors = univariate_selectors::<PF<EF>>(univariate_skips);
+
+    for (numerators, statement) in bus_numerators
         .iter()
         .zip(remaining_claims_to_verify.on_bus_numerators.iter())
     {
-        assert_eq!(selector_col.evaluate(&statement.point), statement.value);
+        assert_eq!(
+            evaluate_univariate_multilinear::<_, _, _, true>(numerators, &statement.point, &univariate_selectors, None),
+            statement.value
+        );
     }
-    for (data_col, statement) in bus_denominators.iter().zip(remaining_claims_to_verify.on_bus_denominators.iter()) {
-        assert_eq!(data_col.evaluate(&statement.point), statement.value);
+    for (denominators, statement) in bus_denominators
+        .iter()
+        .zip(remaining_claims_to_verify.on_bus_denominators.iter())
+    {
+        assert_eq!(
+            evaluate_univariate_multilinear::<_, _, _, true>(
+                denominators,
+                &statement.point,
+                &univariate_selectors,
+                None
+            ),
+            statement.value
+        );
     }
 }

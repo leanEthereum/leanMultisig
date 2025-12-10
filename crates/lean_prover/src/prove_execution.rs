@@ -165,6 +165,55 @@ pub fn prove_execution(
         &bytecode_poly_eq_point,
     ));
 
+    let mut bus_numerators = vec![];
+    let mut bus_denominators = vec![];
+    for (table, trace) in &traces {
+        for bus in table.buses() {
+            let numerator = match bus.selector {
+                BusSelector::Column(selector_col) => {
+                    assert!(selector_col < trace.base.len());
+                    trace.base[selector_col]
+                        .par_iter()
+                        .map(|&selector| match bus.direction {
+                            BusDirection::Pull => -selector,
+                            BusDirection::Push => selector,
+                        })
+                        .collect::<Vec<_>>()
+                }
+                BusSelector::ConstantOne => {
+                    vec![
+                        match bus.direction {
+                            BusDirection::Pull => F::NEG_ONE,
+                            BusDirection::Push => F::ONE,
+                        };
+                        trace.n_rows_padded()
+                    ]
+                }
+            };
+            let denominator = (0..trace.n_rows_padded())
+                .into_par_iter()
+                .map(|i| {
+                    bus_challenge
+                        + finger_print(
+                            match &bus.table {
+                                BusTable::Constant(table) => table.embed(),
+                                BusTable::Variable(col) => trace.base[*col][i],
+                            },
+                            bus.data
+                                .iter()
+                                .map(|col| trace.base[*col][i])
+                                .collect::<Vec<_>>()
+                                .as_slice(),
+                            fingerprint_challenge,
+                        )
+                })
+                .collect::<Vec<_>>();
+
+            bus_numerators.push(numerator);
+            bus_denominators.push(denominator);
+        }
+    }
+
     let mut lookup_into_memory = CustomLookupProver::run::<EF, DIMENSION, VECTOR_LEN>(
         &mut prover_state,
         &memory,
@@ -193,6 +242,9 @@ pub fn prove_execution(
             .iter()
             .flat_map(|(table, trace)| table.vector_lookup_values_columns(trace))
             .collect(),
+        collect_refs(&bus_numerators),
+        collect_refs(&bus_denominators),
+        UNIVARIATE_SKIPS,
     );
 
     let bytecode_pushforward_commitment =
@@ -294,147 +346,29 @@ fn prove_bus_and_air(
     trace: &TableTrace,
     bus_challenge: EF,
     fingerprint_challenge: EF,
+    bus_numerator_statements: &[Evaluation<EF>],
+    bus_denominator_statements: &[Evaluation<EF>],
 ) -> (EF, MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
-    let n_buses = t.buses().len();
-    let n_buses_padded = n_buses.next_power_of_two();
-    let log_n_buses = log2_ceil_usize(n_buses);
-    let n_rows = trace.n_rows_padded();
-    let log_n_rows = trace.log_padded();
+    // bus_point, bus_selector_values, bus_data_values
 
-    assert!(n_buses > 0, "Table {} has no buses", t.name());
-
-    let mut numerators = F::zero_vec(n_buses_padded * n_rows);
-    for (bus, numerators_chunk) in t.buses().iter().zip(numerators.chunks_mut(n_rows)) {
-        match bus.selector {
-            BusSelector::Column(selector_col) => {
-                assert!(selector_col < trace.base.len());
-                trace.base[selector_col]
-                    .par_iter()
-                    .zip(numerators_chunk)
-                    .for_each(|(&selector, v)| {
-                        *v = match bus.direction {
-                            BusDirection::Pull => -selector,
-                            BusDirection::Push => selector,
-                        }
-                    });
-            }
-            BusSelector::ConstantOne => {
-                numerators_chunk.par_iter_mut().for_each(|v| {
-                    *v = match bus.direction {
-                        BusDirection::Pull => F::NEG_ONE,
-                        BusDirection::Push => F::ONE,
-                    }
-                });
-            }
-        }
-    }
-
-    let mut denominators = unsafe { uninitialized_vec(n_buses_padded * n_rows) };
-    for (bus, denomniators_chunk) in t.buses().iter().zip(denominators.chunks_exact_mut(n_rows)) {
-        denomniators_chunk.par_iter_mut().enumerate().for_each(|(i, v)| {
-            *v = bus_challenge
-                + finger_print(
-                    match &bus.table {
-                        BusTable::Constant(table) => table.embed(),
-                        BusTable::Variable(col) => trace.base[*col][i],
-                    },
-                    bus.data
-                        .iter()
-                        .map(|col| trace.base[*col][i])
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                    fingerprint_challenge,
-                );
-        });
-    }
-    denominators[n_rows * n_buses..]
-        .par_iter_mut()
-        .for_each(|v| *v = EF::ONE);
-
-    // TODO avoid embedding !!
-    let numerators_embedded = numerators.par_iter().copied().map(EF::from).collect::<Vec<_>>();
-
-    // TODO avoid reallocation due to packing (pack directly when constructing)
-    let numerators_packed = pack_extension(&numerators_embedded);
-    let denominators_packed = pack_extension(&denominators);
-    let (mut quotient, bus_point_global, numerator_value_global, denominator_value_global) =
-        prove_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(
-            prover_state,
-            &MleGroupRef::ExtensionPacked(vec![&numerators_packed, &denominators_packed]),
-        );
-
-    let (bus_point, bus_selector_values, bus_data_values) = if n_buses == 1 {
-        // easy case
-        (
-            bus_point_global,
-            vec![numerator_value_global],
-            vec![denominator_value_global],
-        )
-    } else {
-        let uni_selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
-
-        let sub_numerators_evals = numerators
-            .par_chunks_exact(1 << (log_n_rows - UNIVARIATE_SKIPS))
-            .take(n_buses << UNIVARIATE_SKIPS)
-            .map(|chunk| chunk.evaluate(&MultilinearPoint(bus_point_global[1 + log_n_buses..].to_vec())))
-            .collect::<Vec<_>>();
-        prover_state.add_extension_scalars(&sub_numerators_evals);
-        // sanity check:
-        assert_eq!(
-            numerator_value_global,
-            evaluate_univariate_multilinear::<_, _, _, false>(
-                &padd_with_zero_to_next_power_of_two(&sub_numerators_evals),
-                &bus_point_global[..1 + log_n_buses],
-                &uni_selectors,
-                None
-            ),
-        );
-
-        let sub_denominators_evals = denominators
-            .par_chunks_exact(1 << (log_n_rows - UNIVARIATE_SKIPS))
-            .take(n_buses << UNIVARIATE_SKIPS)
-            .map(|chunk| chunk.evaluate(&MultilinearPoint(bus_point_global[1 + log_n_buses..].to_vec())))
-            .collect::<Vec<_>>();
-        prover_state.add_extension_scalars(&sub_denominators_evals);
-        // sanity check:
-        assert_eq!(
-            denominator_value_global,
-            evaluate_univariate_multilinear::<_, _, _, false>(
-                &padd_to_next_power_of_two(&sub_denominators_evals, EF::ONE),
-                &bus_point_global[..1 + log_n_buses],
-                &uni_selectors,
-                None
-            ),
-        );
-
-        let epsilon = prover_state.sample();
-        let bus_point = MultilinearPoint([vec![epsilon], bus_point_global[1 + log_n_buses..].to_vec()].concat());
-
-        let bus_selector_values = sub_numerators_evals
-            .chunks_exact(1 << UNIVARIATE_SKIPS)
-            .map(|chunk| evaluate_univariate_multilinear::<_, _, _, false>(chunk, &[epsilon], &uni_selectors, None))
-            .collect();
-        let bus_data_values = sub_denominators_evals
-            .chunks_exact(1 << UNIVARIATE_SKIPS)
-            .map(|chunk| evaluate_univariate_multilinear::<_, _, _, false>(chunk, &[epsilon], &uni_selectors, None))
-            .collect();
-
-        (bus_point, bus_selector_values, bus_data_values)
-    };
+    assert_eq!(t.buses().len(), bus_numerator_statements.len());
+    let bus_point = bus_numerator_statements[0].point.clone();
+    assert!(t.buses().iter().all(|_| bus_numerator_statements[0].point == bus_point));
+    assert!(t.buses().iter().all(|_| bus_denominator_statements[0].point == bus_point));
 
     let bus_beta = prover_state.sample();
 
-    let bus_final_values = bus_selector_values
+    let bus_final_values = bus_numerator_statements
         .iter()
-        .zip_eq(&bus_data_values)
-        .zip_eq(&t.buses())
-        .map(|((&bus_selector_value, &bus_data_value), bus)| {
-            bus_selector_value
+        .zip_eq(bus_denominator_statements)
+        .zip_eq(t.buses())
+        .map(|((&bus_selector_statement, &bus_data_statement), bus)| {
+            bus_selector_statement.value
                 * match bus.direction {
                     BusDirection::Pull => EF::NEG_ONE,
                     BusDirection::Push => EF::ONE,
                 }
-                + bus_beta * (bus_data_value - bus_challenge)
+                + bus_beta * (bus_data_statement.value - bus_challenge)
         })
         .collect::<Vec<_>>();
 
@@ -454,7 +388,7 @@ fn prove_bus_and_air(
         alpha_powers: vec![], // filled later
     };
 
-    let (air_point, evals_f, evals_ef) = info_span!("Table AIR proof", table = t.name()).in_scope(|| {
+    let (air_point, evals_f, evals_ef) = info_span!("AIR proof", table = t.name()).in_scope(|| {
         macro_rules! prove_air_for_table {
             ($t:expr) => {
                 prove_air(

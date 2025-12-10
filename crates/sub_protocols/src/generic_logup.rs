@@ -88,15 +88,19 @@ impl GeneralizedLogupProver {
         // parameters for "buses" = information flow between different tables
         bus_numerators: Vec<&[PF<EF>]>,
         bus_denominators: Vec<&[EF]>,
+        univariate_skips: usize,
     ) -> GeneralizedLogupStatements<EF> {
         assert!(table[0].is_zero());
         assert!(table.len().is_power_of_two());
         assert_eq!(table.len(), acc.len());
         assert_eq_many!(index_columns.len(), value_columns.len());
         assert_eq!(bus_numerators.len(), bus_denominators.len());
-        bus_numerators.iter().zip(bus_denominators.iter()).for_each(|(&sel, &data)| {
-            assert_eq!(sel.len(), data.len());
-        });
+        bus_numerators
+            .iter()
+            .zip(bus_denominators.iter())
+            .for_each(|(&sel, &data)| {
+                assert_eq!(sel.len(), data.len());
+            });
 
         let bus_n_vars = bus_numerators
             .iter()
@@ -228,26 +232,59 @@ impl GeneralizedLogupProver {
                     statement_on_table = Some(Evaluation::new(inner_point, value_table));
                 }
                 Dim::Bus { index, .. } => {
-                    let eval_on_selector = bus_numerators[*index].evaluate(&inner_point);
-                    prover_state.add_extension_scalar(eval_on_selector);
-                    bus_numerators_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_selector));
+                    let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
+                    let evals_on_selector = bus_numerators[*index]
+                        .par_chunks_exact(bus_numerators[*index].len() >> univariate_skips)
+                        .map(|chunk| chunk.evaluate(&inner_inner_point))
+                        .collect::<Vec<EF>>();
+                    prover_state.add_extension_scalars(&evals_on_selector);
+                    bus_numerators_statements[*index] =
+                        Some(MultiEvaluation::new(inner_inner_point.clone(), evals_on_selector));
 
-                    let eval_on_data = bus_denominators[*index].evaluate(&inner_point);
-                    prover_state.add_extension_scalar(eval_on_data);
-                    bus_denominators_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_data));
+                    let eval_on_data = bus_denominators[*index]
+                        .par_chunks_exact(bus_denominators[*index].len() >> univariate_skips)
+                        .map(|chunk| chunk.evaluate(&inner_inner_point))
+                        .collect::<Vec<EF>>();
+                    prover_state.add_extension_scalars(&eval_on_data);
+                    bus_denominators_statements[*index] = Some(MultiEvaluation::new(inner_inner_point, eval_on_data));
                 }
             }
         }
+
+        let gamma = prover_state.sample();
+
+        let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
+            .iter()
+            .map(|p| p.evaluate(gamma))
+            .collect::<Vec<EF>>();
 
         GeneralizedLogupStatements {
             on_table: statement_on_table.unwrap(),
             on_acc: statement_on_acc.unwrap(),
             on_indexes: statement_on_indexes.into_iter().map(Option::unwrap).collect(),
             on_values: statement_on_values,
-            on_bus_numerators: bus_numerators_statements.into_iter().map(Option::unwrap).collect(),
-            on_bus_denominators: bus_denominators_statements.into_iter().map(Option::unwrap).collect(),
+            on_bus_numerators: bus_numerators_statements
+                .into_iter()
+                .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
+                .collect::<Vec<_>>(),
+            on_bus_denominators: bus_denominators_statements
+                .into_iter()
+                .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
+                .collect::<Vec<_>>(),
         }
     }
+}
+
+fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
+    s: Option<MultiEvaluation<EF>>,
+    gamma: EF,
+    unvariate_selectors_evals: &[EF],
+) -> Evaluation<EF> {
+    let s = s.unwrap();
+    let mut new_point = s.point.clone();
+    new_point.insert(0, gamma);
+    let new_value = dot_product(unvariate_selectors_evals.iter().copied(), s.values.into_iter());
+    Evaluation::new(new_point, new_value)
 }
 
 #[derive(Debug)]
@@ -260,6 +297,7 @@ impl GeneralizedLogupVerifier {
         log_heights: Vec<usize>,
         n_cols_per_group: Vec<usize>,
         bus_n_vars: Vec<usize>,
+        univariate_skips: usize,
     ) -> ProofResult<GeneralizedLogupStatements<EF>> {
         let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, table_log_len, &bus_n_vars);
         let total_len = all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
@@ -327,15 +365,21 @@ impl GeneralizedLogupVerifier {
                         pref * (c - (alpha * mle_of_01234567_etc(&inner_point) + value_table));
                 }
                 Dim::Bus { index, .. } => {
-                    let eval_on_selector = verifier_state.next_extension_scalar()?;
-                    bus_numerators_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_selector));
+                    let missing_inner_point = MultilinearPoint(inner_point[..univariate_skips].to_vec());
+                    let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
+                    let evals_on_numerators = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
+                    bus_numerators_statements[*index] = Some(MultiEvaluation::new(
+                        inner_inner_point.clone(),
+                        evals_on_numerators.clone(),
+                    ));
                     let bits = to_big_endian_in_field::<EF>(offset >> dim.n_vars(), n_missing_vars);
                     let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
-                    retrieved_numerators_value += pref * beta * eval_on_selector;
+                    retrieved_numerators_value += pref * beta * evals_on_numerators.evaluate(&missing_inner_point);
 
-                    let eval_on_data = verifier_state.next_extension_scalar()?;
-                    bus_denominators_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_data));
-                    retrieved_denominators_value += pref * eval_on_data;
+                    let evals_on_denominators = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
+                    bus_denominators_statements[*index] =
+                        Some(MultiEvaluation::new(inner_inner_point.clone(), evals_on_denominators.clone()));
+                    retrieved_denominators_value += pref * evals_on_denominators.evaluate(&missing_inner_point);
                 }
             }
             offset += dim.n_cols() << dim.n_vars();
@@ -349,13 +393,26 @@ impl GeneralizedLogupVerifier {
             return Err(ProofError::InvalidProof);
         }
 
+        let gamma = verifier_state.sample();
+
+        let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
+            .iter()
+            .map(|p| p.evaluate(gamma))
+            .collect::<Vec<EF>>();
+
         Ok(GeneralizedLogupStatements {
             on_table: statement_on_table.unwrap(),
             on_acc: statement_on_acc.unwrap(),
             on_indexes: statement_on_indexes.into_iter().map(Option::unwrap).collect(),
             on_values: statement_on_values,
-            on_bus_numerators: bus_numerators_statements.into_iter().map(Option::unwrap).collect(),
-            on_bus_denominators: bus_denominators_statements.into_iter().map(Option::unwrap).collect(),
+            on_bus_numerators: bus_numerators_statements
+                .into_iter()
+                .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
+                .collect::<Vec<_>>(),
+            on_bus_denominators: bus_denominators_statements
+                .into_iter()
+                .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
+                .collect::<Vec<_>>(),
         })
     }
 }
