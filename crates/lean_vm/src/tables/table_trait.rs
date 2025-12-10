@@ -459,6 +459,9 @@ pub trait TableT: Air {
     fn num_vector_lookups(&self) -> usize {
         self.vector_lookups().len()
     }
+    fn num_buses(&self) -> usize {
+        self.buses().len()
+    }
     fn normal_lookup_f_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [F]> {
         let mut cols = Vec::new();
         for lookup in self.normal_lookups_f() {
