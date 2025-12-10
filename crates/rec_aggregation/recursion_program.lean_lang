@@ -377,18 +377,21 @@ fn merkle_verif_batch_dynamic(n_paths, leaves_digests, leave_positions, root, he
     if height == MERKLE_HEIGHT_0 {
         merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_0);
         return;
-    }
-    if height == MERKLE_HEIGHT_1 {
-        merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_1);
-        return;
-    }
-    if height == MERKLE_HEIGHT_2 {
-        merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_2);
-        return;
-    }
-    if height == MERKLE_HEIGHT_3 {
-        merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_3);
-        return;
+    } else {
+        if height == MERKLE_HEIGHT_1 {
+            merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_1);
+            return;
+        } else {
+            if height == MERKLE_HEIGHT_2 {
+                merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_2);
+                return;
+            } else {
+                if height == MERKLE_HEIGHT_3 {
+                    merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_3);
+                    return;
+                }
+            }
+        }
     }
 
     print(12345555);
@@ -502,10 +505,22 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         dot_product_ee(a, b, res, 16);
         return;
     }
+
+    dot_product_ee_dynamic_helper_1(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_1(a, b, res, n) {
     if n == NUM_QUERIES_0 {
         dot_product_ee(a, b, res, NUM_QUERIES_0);
         return;
     }
+
+    dot_product_ee_dynamic_helper_2(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_2(a, b, res, n) {
     if n == NUM_QUERIES_1 {
         dot_product_ee(a, b, res, NUM_QUERIES_1);
         return;
@@ -514,6 +529,12 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         dot_product_ee(a, b, res, NUM_QUERIES_2);
         return;
     }
+
+    dot_product_ee_dynamic_helper_3(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_3(a, b, res, n) {
     if n == NUM_QUERIES_3 {
         dot_product_ee(a, b, res, NUM_QUERIES_3);
         return;
@@ -522,6 +543,12 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         dot_product_ee(a, b, res, NUM_QUERIES_0 + 1);
         return;
     }
+
+    dot_product_ee_dynamic_helper_4(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_4(a, b, res, n) {
     if n == NUM_QUERIES_1 + 1 {
         dot_product_ee(a, b, res, NUM_QUERIES_1 + 1);
         return;
@@ -530,6 +557,12 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         dot_product_ee(a, b, res, NUM_QUERIES_2 + 1);
         return;
     }
+
+    dot_product_ee_dynamic_helper_5(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_5(a, b, res, n) {
     if n == NUM_QUERIES_3 + 1 {
         dot_product_ee(a, b, res, NUM_QUERIES_3 + 1);
         return;
@@ -687,21 +720,26 @@ fn pow(a, b) -> 1 {
 }
 
 fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
+    var new_fs_state;
+    var sampled_bits;
     if n_samples == NUM_QUERIES_0 {
         new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_0, K);
         return new_fs_state, sampled_bits;
-    }
-    if n_samples == NUM_QUERIES_1 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
-        return new_fs_state, sampled_bits;
-    }
-    if n_samples == NUM_QUERIES_2 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
-        return new_fs_state, sampled_bits;
-    }
-    if n_samples == NUM_QUERIES_3 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
-        return new_fs_state, sampled_bits;
+    } else {
+        if n_samples == NUM_QUERIES_1 {
+            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
+            return new_fs_state, sampled_bits;
+        } else {
+            if n_samples == NUM_QUERIES_2 {
+                new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
+                return new_fs_state, sampled_bits;
+            } else {
+                if n_samples == NUM_QUERIES_3 {
+                    new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
+                    return new_fs_state, sampled_bits;
+                }
+            }
+        }
     }
     print(n_samples);
     print(999333);
@@ -861,26 +899,25 @@ fn fs_sample_helper(fs_state, n, res) -> 1 {
         new_fs_state[2] = fs_state[2];
         new_fs_state[3] = output_buffer_size - n;
         return new_fs_state;
+    } else {
+        // duplexing
+        l_r = malloc_vec(2);
+        poseidon16(fs_state[1], fs_state[2], l_r, PERMUTATION);
+        new_fs_state = malloc(4);
+        new_fs_state[0] = fs_state[0];
+        new_fs_state[1] = l_r;
+        new_fs_state[2] = l_r + 1;
+        new_fs_state[3] = 8; // output_buffer_size
+
+        remaining = n - output_buffer_size;
+        if remaining == 0 {
+            return new_fs_state;
+        }
+
+        shifted_res = res + output_buffer_size;
+        final_res = fs_sample_helper(new_fs_state, remaining, shifted_res);
+        return final_res;
     }
-
-    // duplexing
-    l_r = malloc_vec(2);
-    poseidon16(fs_state[1], fs_state[2], l_r, PERMUTATION);
-    new_fs_state = malloc(4);
-    new_fs_state[0] = fs_state[0];
-    new_fs_state[1] = l_r;
-    new_fs_state[2] = l_r + 1;
-    new_fs_state[3] = 8; // output_buffer_size
-
-    remaining = n - output_buffer_size;
-    if remaining == 0 {
-        return new_fs_state;
-    }
-
-    shifted_res = res + output_buffer_size;
-    final_res = fs_sample_helper(new_fs_state, remaining, shifted_res);
-    return final_res;
-
 }
 
 fn fs_hint(fs_state, n) -> 2 {
