@@ -18,6 +18,7 @@ fn test_normal_packed_lookup() {
     let log_cols_heights_f: Vec<usize> = vec![12, 11, 13, 1];
     let log_cols_heights_ef: Vec<usize> = vec![8, 10];
     let log_cols_heights_vec: Vec<usize> = vec![11, 6, 2];
+    let bus_n_vars: Vec<usize> = vec![1, 8, 3];
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = (0..(1 << log_memory_size))
@@ -86,6 +87,28 @@ fn test_normal_packed_lookup() {
         value_columns_vec.push(values);
     }
 
+    let mut bus_numerators = Vec::new();
+    let mut bus_denominators = Vec::new();
+    let mut q = EF::ZERO;
+    for n_vars in &bus_n_vars {
+        let mut selector = Vec::new();
+        let mut data = Vec::new();
+        for _ in 0..(1 << *n_vars) {
+            let num: F = rng.random();
+            selector.push(num);
+            let d: EF = rng.random();
+            data.push(d);
+            q += d.inverse() * num;
+        }
+        bus_numerators.push(selector);
+        bus_denominators.push(data);
+    }
+    let last_num = bus_numerators.last_mut().unwrap().last_mut().unwrap();
+    let last_den = bus_denominators.last_mut().unwrap().last_mut().unwrap();
+    q -= last_den.inverse() * *last_num;
+    *last_num = F::NEG_ONE;
+    *last_den = q.inverse();
+
     let mut prover_state = build_prover_state(false);
 
     let remaining_claims_to_prove = CustomLookupProver::run(
@@ -101,6 +124,8 @@ fn test_normal_packed_lookup() {
             .iter()
             .map(|cols| array::from_fn(|i| &cols[i][..]))
             .collect(),
+        collect_refs(&bus_numerators),
+        collect_refs(&bus_denominators),
     );
     let final_prover_state = prover_state.challenger().state();
 
@@ -112,6 +137,7 @@ fn test_normal_packed_lookup() {
         log_cols_heights_f,
         log_cols_heights_ef,
         log_cols_heights_vec,
+        bus_n_vars,
     )
     .unwrap();
     assert_eq!(final_prover_state, verifier_state.challenger().state());
@@ -156,5 +182,17 @@ fn test_normal_packed_lookup() {
         for (col, statement) in value_cols.iter().zip(statements_for_cols.iter()) {
             assert_eq!(col.evaluate(&statement.point), statement.value);
         }
+    }
+    for (selector_col, statement) in bus_numerators
+        .iter()
+        .zip(remaining_claims_to_verify.on_bus_numerators.iter())
+    {
+        assert_eq!(selector_col.evaluate(&statement.point), statement.value);
+    }
+    for (data_col, statement) in bus_denominators
+        .iter()
+        .zip(remaining_claims_to_verify.on_bus_denominators.iter())
+    {
+        assert_eq!(data_col.evaluate(&statement.point), statement.value);
     }
 }

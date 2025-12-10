@@ -18,8 +18,8 @@ pub struct GeneralizedLogupStatements<EF> {
     pub on_indexes: Vec<Evaluation<EF>>,
     pub on_values: Vec<Vec<Evaluation<EF>>>,
     // buses
-    pub on_bus_selectors: Vec<Evaluation<EF>>,
-    pub on_bus_data: Vec<Evaluation<EF>>,
+    pub on_bus_numerators: Vec<Evaluation<EF>>,
+    pub on_bus_denominators: Vec<Evaluation<EF>>,
 }
 
 #[derive(Debug)]
@@ -86,19 +86,19 @@ impl GeneralizedLogupProver {
         value_columns: Vec<Vec<VecOrSlice<'_, PF<EF>>>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
 
         // parameters for "buses" = information flow between different tables
-        bus_selectors: Vec<&[PF<EF>]>,
-        bus_data: Vec<&[EF]>,
+        bus_numerators: Vec<&[PF<EF>]>,
+        bus_denominators: Vec<&[EF]>,
     ) -> GeneralizedLogupStatements<EF> {
         assert!(table[0].is_zero());
         assert!(table.len().is_power_of_two());
         assert_eq!(table.len(), acc.len());
         assert_eq_many!(index_columns.len(), value_columns.len());
-        assert_eq!(bus_selectors.len(), bus_data.len());
-        bus_selectors.iter().zip(bus_data.iter()).for_each(|(&sel, &data)| {
+        assert_eq!(bus_numerators.len(), bus_denominators.len());
+        bus_numerators.iter().zip(bus_denominators.iter()).for_each(|(&sel, &data)| {
             assert_eq!(sel.len(), data.len());
         });
 
-        let bus_n_vars = bus_selectors
+        let bus_n_vars = bus_numerators
             .iter()
             .map(|sel| log2_strict_usize(sel.len()))
             .collect::<Vec<usize>>();
@@ -168,11 +168,11 @@ impl GeneralizedLogupProver {
                 Dim::Bus { index, .. } => {
                     numerators[offset..]
                         .par_iter_mut()
-                        .zip(bus_selectors[*index])
+                        .zip(bus_numerators[*index])
                         .for_each(|(num, sel)| *num = beta * *sel); // TODO often sel = ONE, so this is innefficient
                     denominators[offset..]
                         .par_iter_mut()
-                        .zip(bus_data[*index].par_iter())
+                        .zip(bus_denominators[*index].par_iter())
                         .for_each(|(denom, &data)| *denom = data);
                 }
             }
@@ -199,8 +199,8 @@ impl GeneralizedLogupProver {
         let mut statement_on_values = vec![vec![]; n_groups];
 
         // bus statements
-        let mut bus_selectors_statements = vec![None; bus_selectors.len()];
-        let mut bus_data_statements = vec![None; bus_data.len()];
+        let mut bus_numerators_statements = vec![None; bus_numerators.len()];
+        let mut bus_denominators_statements = vec![None; bus_denominators.len()];
 
         for dim in &all_dims {
             let inner_point = MultilinearPoint(from_end(&claim_point_gkr, dim.n_vars()).to_vec());
@@ -228,13 +228,13 @@ impl GeneralizedLogupProver {
                     statement_on_table = Some(Evaluation::new(inner_point, value_table));
                 }
                 Dim::Bus { index, .. } => {
-                    let eval_on_selector = bus_selectors[*index].evaluate(&inner_point);
+                    let eval_on_selector = bus_numerators[*index].evaluate(&inner_point);
                     prover_state.add_extension_scalar(eval_on_selector);
-                    bus_selectors_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_selector));
+                    bus_numerators_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_selector));
 
-                    let eval_on_data = bus_data[*index].evaluate(&inner_point);
+                    let eval_on_data = bus_denominators[*index].evaluate(&inner_point);
                     prover_state.add_extension_scalar(eval_on_data);
-                    bus_data_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_data));
+                    bus_denominators_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_data));
                 }
             }
         }
@@ -244,8 +244,8 @@ impl GeneralizedLogupProver {
             on_acc: statement_on_acc.unwrap(),
             on_indexes: statement_on_indexes.into_iter().map(Option::unwrap).collect(),
             on_values: statement_on_values,
-            on_bus_selectors: bus_selectors_statements.into_iter().map(Option::unwrap).collect(),
-            on_bus_data: bus_data_statements.into_iter().map(Option::unwrap).collect(),
+            on_bus_numerators: bus_numerators_statements.into_iter().map(Option::unwrap).collect(),
+            on_bus_denominators: bus_denominators_statements.into_iter().map(Option::unwrap).collect(),
         }
     }
 }
@@ -287,8 +287,8 @@ impl GeneralizedLogupVerifier {
         let mut statement_on_acc = None;
         let mut statement_on_indexes = vec![None; n_cols_per_group.len()];
         let mut statement_on_values = vec![vec![]; n_cols_per_group.len()];
-        let mut bus_selectors_statements = vec![None; bus_n_vars.len()];
-        let mut bus_data_statements = vec![None; bus_n_vars.len()];
+        let mut bus_numerators_statements = vec![None; bus_n_vars.len()];
+        let mut bus_denominators_statements = vec![None; bus_n_vars.len()];
 
         for dim in &all_dims {
             let inner_point = MultilinearPoint(from_end(&claim_point_gkr, dim.n_vars()).to_vec());
@@ -328,13 +328,13 @@ impl GeneralizedLogupVerifier {
                 }
                 Dim::Bus { index, .. } => {
                     let eval_on_selector = verifier_state.next_extension_scalar()?;
-                    bus_selectors_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_selector));
+                    bus_numerators_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_selector));
                     let bits = to_big_endian_in_field::<EF>(offset >> dim.n_vars(), n_missing_vars);
                     let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
                     retrieved_numerators_value += pref * beta * eval_on_selector;
 
                     let eval_on_data = verifier_state.next_extension_scalar()?;
-                    bus_data_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_data));
+                    bus_denominators_statements[*index] = Some(Evaluation::new(inner_point.clone(), eval_on_data));
                     retrieved_denominators_value += pref * eval_on_data;
                 }
             }
@@ -354,8 +354,8 @@ impl GeneralizedLogupVerifier {
             on_acc: statement_on_acc.unwrap(),
             on_indexes: statement_on_indexes.into_iter().map(Option::unwrap).collect(),
             on_values: statement_on_values,
-            on_bus_selectors: bus_selectors_statements.into_iter().map(Option::unwrap).collect(),
-            on_bus_data: bus_data_statements.into_iter().map(Option::unwrap).collect(),
+            on_bus_numerators: bus_numerators_statements.into_iter().map(Option::unwrap).collect(),
+            on_bus_denominators: bus_denominators_statements.into_iter().map(Option::unwrap).collect(),
         })
     }
 }

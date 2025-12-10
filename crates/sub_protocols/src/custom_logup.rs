@@ -22,8 +22,8 @@ pub struct CustomLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize>
     pub on_values_vec: Vec<[Evaluation<EF>; VECTOR_LEN]>,
 
     // buses
-    pub on_bus_selectors: Vec<Evaluation<EF>>,
-    pub on_bus_data: Vec<Evaluation<EF>>,
+    pub on_bus_numerators: Vec<Evaluation<EF>>,
+    pub on_bus_denominators: Vec<Evaluation<EF>>,
 }
 
 impl CustomLookupProver {
@@ -114,8 +114,8 @@ impl CustomLookupProver {
                 .iter()
                 .map(|e| e.to_vec().try_into().unwrap())
                 .collect(),
-            on_bus_selectors: generic.on_bus_selectors,
-            on_bus_data: generic.on_bus_data,
+            on_bus_numerators: generic.on_bus_numerators,
+            on_bus_denominators: generic.on_bus_denominators,
         }
     }
 }
@@ -170,8 +170,8 @@ impl NormalLookupVerifier {
                 .iter()
                 .map(|e| e.to_vec().try_into().unwrap())
                 .collect(),
-            on_bus_selectors: generic.on_bus_selectors,
-            on_bus_data: generic.on_bus_data,
+            on_bus_numerators: generic.on_bus_numerators,
+            on_bus_denominators: generic.on_bus_denominators,
         })
     }
 }
