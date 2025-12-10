@@ -91,19 +91,23 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
 
     public_key = malloc(V * VECTOR_LEN);
 
+    // This is a trick to avoid the compiler to allocate memory "on stack".
+    // (Heap allocation is better here, to keep the memmory use of the different "match arms" balanced)
+    vector_len = VECTOR_LEN;
+
     for i in 0..V unroll {
         match encoding[i] {
             0 => {
                 var_1 = chain_tips + i * VECTOR_LEN;
                 var_2 = public_key + i * VECTOR_LEN;
-                var_3 = malloc(VECTOR_LEN);
-                var_4 = malloc(VECTOR_LEN);
+                var_3 = malloc(vector_len);
+                var_4 = malloc(vector_len);
                 poseidon16(var_1, pointer_to_zero_vector, var_3, COMPRESSION);
                 poseidon16(var_3, pointer_to_zero_vector, var_4, COMPRESSION);
                 poseidon16(var_4, pointer_to_zero_vector, var_2, COMPRESSION);
             }
             1 => {
-                var_3 = malloc(VECTOR_LEN);
+                var_3 = malloc(vector_len);
                 var_1 = chain_tips + i * VECTOR_LEN;
                 var_2 = public_key + i * VECTOR_LEN;
                 poseidon16(var_1, pointer_to_zero_vector, var_3, COMPRESSION);
@@ -168,21 +172,30 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
 
 
 fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, const height) -> 1 {
-    states = malloc(1 + height);
-    states[0] = leaf_digest;
-    for j in 0..height unroll {
+    states = malloc(height * VECTOR_LEN);
+    
+    // First merkle round
+    if leaf_position_bits[0] == 1 {
+        left = merkle_path;
+        right = leaf_digest;
+    } else {
+        left = leaf_digest;
+        right = merkle_path;
+    }
+    poseidon16(left, right, states, COMPRESSION);
+
+    // Remaining merkle rounds
+    for j in 1..height unroll {
         if leaf_position_bits[j] == 1 {
             left = merkle_path + j * VECTOR_LEN;
-            right = states[j];
+            right = states + (j-1) * VECTOR_LEN;
         } else {
-            left = states[j];
+            left = states + (j-1) * VECTOR_LEN;
             right = merkle_path + j * VECTOR_LEN;
         }
-        state_j_plus_1 = malloc(VECTOR_LEN);
-        poseidon16(left, right, state_j_plus_1, COMPRESSION);
-        states[j + 1] = state_j_plus_1;
+        poseidon16(left, right, states + (j * VECTOR_LEN), COMPRESSION);
     }
-    return states[height];
+    return states + (height - 1) * VECTOR_LEN;
 }
 
 fn slice_hash(seed, data, const half_len) -> 1 {
