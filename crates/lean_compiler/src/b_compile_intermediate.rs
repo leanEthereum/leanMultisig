@@ -219,8 +219,10 @@ fn compile_lines(
                 let mut new_stack_pos = saved_stack_pos;
                 for arm in arms.iter() {
                     compiler.stack_pos = saved_stack_pos;
+                    compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
                     let arm_instructions = compile_lines(function_name, arm, compiler, Some(end_label.clone()))?;
                     compiled_arms.push(arm_instructions);
+                    compiler.stack_frame_layout.scopes.pop();
                     new_stack_pos = new_stack_pos.max(compiler.stack_pos);
                 }
                 compiler.stack_pos = new_stack_pos;
