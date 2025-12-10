@@ -453,6 +453,29 @@ fn test_match() {
     compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
 }
 
+#[test]
+fn test_match_shrink() {
+    let program = r#"
+    fn main() {
+        match 1 {
+            0 => {
+                y = 90;
+            }
+            1 => {
+                y = 10;
+                z = func_2(y);
+            }
+        }
+        return;
+    }
+
+    fn func_2(x) inline -> 1 {
+        return x * x;
+    }
+   "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
+
 // #[test]
 // fn inline_bug_mre() {
 //     let program = r#"
