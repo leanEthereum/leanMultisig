@@ -183,17 +183,19 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, const height) -> 
         right = merkle_path;
     }
     poseidon16(left, right, states, COMPRESSION);
-
+    state_indexes = malloc(height);
+    state_indexes[0] = states;
     // Remaining merkle rounds
     for j in 1..height unroll {
+        state_indexes[j] = state_indexes[j-1] + VECTOR_LEN;
         if leaf_position_bits[j] == 1 {
             left = merkle_path + j * VECTOR_LEN;
-            right = states + (j-1) * VECTOR_LEN;
+            right = state_indexes[j-1];
         } else {
-            left = states + (j-1) * VECTOR_LEN;
+            left = state_indexes[j-1];
             right = merkle_path + j * VECTOR_LEN;
         }
-        poseidon16(left, right, states + (j * VECTOR_LEN), COMPRESSION);
+        poseidon16(left, right, state_indexes[j], COMPRESSION);
     }
     return states + (height - 1) * VECTOR_LEN;
 }
@@ -201,8 +203,11 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, const height) -> 
 fn slice_hash(seed, data, const half_len) -> 1 {
     internal_states = malloc(half_len * 2 * VECTOR_LEN);
     poseidon16(pointer_to_zero_vector, data, internal_states, COMPRESSION);
+    indexes = malloc(half_len * 2);
+    indexes[0] = internal_states;
     for j in 1..(half_len * 2) unroll {
-        poseidon16(internal_states + (j - 1) * VECTOR_LEN, data + j * VECTOR_LEN, internal_states + j * VECTOR_LEN, COMPRESSION);
+        indexes[j] = indexes[j-1] + VECTOR_LEN;
+        poseidon16(indexes[j-1], data + j * VECTOR_LEN, indexes[j], COMPRESSION);
     }
     return internal_states + (half_len * 2 - 1) * VECTOR_LEN;
 }
