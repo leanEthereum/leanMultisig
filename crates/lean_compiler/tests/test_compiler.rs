@@ -529,17 +529,14 @@ fn test_const_and_nonconst_malloc_sharing_name() {
         f(1);
         return;
     }
-    
+
     fn f(n) {
         if 0 == 0 {
             res = malloc(2);
-            res[1] = 0; // deleting this makes the test pass
-              // replacing res[1] with res[0] makes the test pass
+            res[1] = 0;
             return;
         } else {
-            res = malloc(n * 1); // deleting this or any part of it makes the test pass
-              // changing the name res to something else makes the test pass
-    
+            res = malloc(n * 1);
             return;
         }
     }

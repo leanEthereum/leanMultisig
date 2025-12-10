@@ -319,7 +319,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                     "Variable declared multiple times in the same scope: {var}",
                 );
                 last_scope.vars.insert(var.clone());
-            },
+            }
             Line::DecomposeBits { var, to_decompose } => {
                 for expr in to_decompose {
                     check_expr_scoping(expr, ctx);
@@ -330,15 +330,18 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                     "Variable declared multiple times in the same scope: {var}",
                 );
                 last_scope.vars.insert(var.clone());
-            },
+            }
             Line::DecomposeCustom { args } => {
                 for arg in args {
                     check_expr_scoping(arg, ctx);
                 }
-            },
+            }
             Line::PrivateInputStart { result } => {
                 let last_scope = ctx.scopes.last_mut().unwrap();
-                assert!(!last_scope.vars.contains(result), "Variable declared multiple times in the same scope: {result}");
+                assert!(
+                    !last_scope.vars.contains(result),
+                    "Variable declared multiple times in the same scope: {result}"
+                );
                 last_scope.vars.insert(result.clone());
             }
         }

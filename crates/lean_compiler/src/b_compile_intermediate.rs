@@ -552,10 +552,12 @@ fn compile_lines(
                         .collect(),
                 });
             }
-            SimpleLine::PrivateInputStart { result } => { 
+            SimpleLine::PrivateInputStart { result } => {
                 if !compiler.is_in_scope(result) {
                     let mut current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout.var_positions.insert(result.clone(), compiler.stack_pos);
+                    current_scope_layout
+                        .var_positions
+                        .insert(result.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
                 instructions.push(IntermediateInstruction::PrivateInputStart {

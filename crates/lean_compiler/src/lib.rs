@@ -24,8 +24,7 @@ pub fn compile_program(program: String) -> Bytecode {
     // for (loc, name) in function_locations.iter() {
     //     println!("{name}: {loc}");
     // }
-    let compiled =
-    compile_to_low_level_bytecode(intermediate_bytecode, program, function_locations).unwrap() ;
+    let compiled = compile_to_low_level_bytecode(intermediate_bytecode, program, function_locations).unwrap();
     println!("\n\nCompiled Program:\n\n{compiled}");
     compiled
 }
