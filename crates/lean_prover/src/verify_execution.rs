@@ -5,7 +5,6 @@ use crate::*;
 use air::verify_air;
 use itertools::Itertools;
 use lean_vm::*;
-use lookup::verify_gkr_quotient;
 use lookup::verify_logup_star;
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
@@ -52,38 +51,6 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
     let bus_challenge = verifier_state.sample();
     let fingerprint_challenge = verifier_state.sample();
 
-    let mut bus_quotients: BTreeMap<Table, EF> = Default::default();
-    let mut air_points: BTreeMap<Table, MultilinearPoint<EF>> = Default::default();
-    let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
-    let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
-
-    for (table, height) in &table_heights {
-        let (this_bus_quotient, this_air_point, this_evals_f, this_evals_ef) = verify_bus_and_air(
-            &mut verifier_state,
-            table,
-            *height,
-            bus_challenge,
-            fingerprint_challenge,
-        )?;
-        bus_quotients.insert(*table, this_bus_quotient);
-        air_points.insert(*table, this_air_point);
-        evals_f.insert(*table, this_evals_f);
-        evals_ef.insert(*table, this_evals_ef);
-    }
-
-    if bus_quotients.values().copied().sum::<EF>() != EF::ZERO {
-        return Err(ProofError::InvalidProof);
-    }
-
-    let bytecode_compression_challenges =
-        MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
-
-    let bytecode_lookup_claim = Evaluation::new(
-        air_points[&Table::execution()].clone(),
-        padd_with_zero_to_next_power_of_two(&evals_f[&Table::execution()][..N_INSTRUCTION_COLUMNS])
-            .evaluate(&bytecode_compression_challenges),
-    );
-
     let mut lookup_into_memory = NormalLookupVerifier::run(
         &mut verifier_state,
         log2_ceil_usize(non_zero_memory_size),
@@ -99,7 +66,43 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
             .iter()
             .flat_map(|(table, height)| vec![height.log_padded(); table.num_vector_lookups()])
             .collect(),
+        table_heights
+            .iter()
+            .flat_map(|(table, height)| vec![height.log_padded(); table.num_buses()])
+            .collect(),
+        UNIVARIATE_SKIPS,
     )?;
+
+    let mut air_points: BTreeMap<Table, MultilinearPoint<EF>> = Default::default();
+    let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
+    let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
+
+    let mut bus_offset = 0;
+    for (table, height) in &table_heights {
+        let (this_air_point, this_evals_f, this_evals_ef) = verify_bus_and_air(
+            &mut verifier_state,
+            table,
+            *height,
+            bus_challenge,
+            fingerprint_challenge,
+            &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
+            &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
+        )?;
+        air_points.insert(*table, this_air_point);
+        evals_f.insert(*table, this_evals_f);
+        evals_ef.insert(*table, this_evals_ef);
+        bus_offset += table.buses().len();
+    }
+    assert_eq_many!(bus_offset, lookup_into_memory.on_bus_numerators.len(), lookup_into_memory.on_bus_denominators.len());
+
+    let bytecode_compression_challenges =
+        MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
+
+    let bytecode_lookup_claim = Evaluation::new(
+        air_points[&Table::execution()].clone(),
+        padd_with_zero_to_next_power_of_two(&evals_f[&Table::execution()][..N_INSTRUCTION_COLUMNS])
+            .evaluate(&bytecode_compression_challenges),
+    );
 
     let bytecode_pushforward_parsed_commitment =
         WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len()))
@@ -200,75 +203,31 @@ fn verify_bus_and_air(
     table_height: TableHeight,
     bus_challenge: EF,
     fingerprint_challenge: EF,
-) -> ProofResult<(EF, MultilinearPoint<EF>, Vec<EF>, Vec<EF>)> {
-    let n_buses = t.buses().len();
-    let log_n_buses = log2_ceil_usize(n_buses);
-    let log_n_rows = table_height.log_padded();
-
-    assert!(n_buses > 0, "Table {} has no buses", t.name());
-
-    let (quotient, bus_point_global, numerator_value_global, denominator_value_global) =
-        verify_gkr_quotient::<_, TWO_POW_UNIVARIATE_SKIPS>(verifier_state, log_n_rows + log_n_buses)?;
-
-    let (bus_point, bus_selector_values, bus_data_values) = if n_buses == 1 {
-        // easy case
-        (
-            bus_point_global,
-            vec![numerator_value_global],
-            vec![denominator_value_global],
-        )
-    } else {
-        let uni_selectors = univariate_selectors::<F>(UNIVARIATE_SKIPS);
-
-        let sub_numerators_evals = verifier_state.next_extension_scalars_vec(n_buses << UNIVARIATE_SKIPS)?;
-        assert_eq!(
-            numerator_value_global,
-            evaluate_univariate_multilinear::<_, _, _, false>(
-                &padd_with_zero_to_next_power_of_two(&sub_numerators_evals),
-                &bus_point_global[..1 + log_n_buses],
-                &uni_selectors,
-                None
-            ),
-        );
-
-        let sub_denominators_evals = verifier_state.next_extension_scalars_vec(n_buses << UNIVARIATE_SKIPS)?;
-        assert_eq!(
-            denominator_value_global,
-            evaluate_univariate_multilinear::<_, _, _, false>(
-                &padd_to_next_power_of_two(&sub_denominators_evals, EF::ONE),
-                &bus_point_global[..1 + log_n_buses],
-                &uni_selectors,
-                None
-            ),
-        );
-        let epsilon = verifier_state.sample();
-        let bus_point = MultilinearPoint([vec![epsilon], bus_point_global[1 + log_n_buses..].to_vec()].concat());
-
-        let bus_selector_values = sub_numerators_evals
-            .chunks_exact(1 << UNIVARIATE_SKIPS)
-            .map(|chunk| evaluate_univariate_multilinear::<_, _, _, false>(chunk, &[epsilon], &uni_selectors, None))
-            .collect();
-        let bus_data_values = sub_denominators_evals
-            .chunks_exact(1 << UNIVARIATE_SKIPS)
-            .map(|chunk| evaluate_univariate_multilinear::<_, _, _, false>(chunk, &[epsilon], &uni_selectors, None))
-            .collect();
-
-        (bus_point, bus_selector_values, bus_data_values)
-    };
+    bus_numerator_statements: &[Evaluation<EF>],
+    bus_denominator_statements: &[Evaluation<EF>],
+) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>)> {
+    assert_eq!(t.buses().len(), bus_numerator_statements.len());
+    let bus_point = bus_numerator_statements[0].point.clone();
+    assert!(t.buses().iter().all(|_| bus_numerator_statements[0].point == bus_point));
+    assert!(
+        t.buses()
+            .iter()
+            .all(|_| bus_denominator_statements[0].point == bus_point)
+    );
 
     let bus_beta = verifier_state.sample();
 
-    let bus_final_values = bus_selector_values
+    let bus_final_values = bus_numerator_statements
         .iter()
-        .zip_eq(&bus_data_values)
-        .zip_eq(&t.buses())
-        .map(|((&bus_selector_value, &bus_data_value), bus)| {
-            bus_selector_value
+        .zip_eq(bus_denominator_statements)
+        .zip_eq(t.buses())
+        .map(|((bus_selector_statement, bus_data_statement), bus)| {
+            bus_selector_statement.value
                 * match bus.direction {
                     BusDirection::Pull => EF::NEG_ONE,
                     BusDirection::Push => EF::ONE,
                 }
-                + bus_beta * (bus_data_value - bus_challenge)
+                + bus_beta * (bus_data_statement.value - bus_challenge)
         })
         .collect::<Vec<_>>();
 
@@ -292,7 +251,7 @@ fn verify_bus_and_air(
                     $t,
                     extra_data,
                     UNIVARIATE_SKIPS,
-                    log_n_rows,
+                    table_height.log_padded(),
                     &t.air_padding_row_f(),
                     &t.air_padding_row_ef(),
                     Some(bus_virtual_statement),
@@ -302,5 +261,5 @@ fn verify_bus_and_air(
         delegate_to_inner!(t => verify_air_for_table)
     };
 
-    Ok((quotient, air_point, evals_f, evals_ef))
+    Ok((air_point, evals_f, evals_ef))
 }

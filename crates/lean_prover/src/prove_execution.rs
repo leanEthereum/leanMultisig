@@ -5,7 +5,7 @@ use crate::*;
 use air::prove_air;
 use itertools::Itertools;
 use lean_vm::*;
-use lookup::{compute_pushforward, prove_gkr_quotient, prove_logup_star};
+use lookup::{compute_pushforward, prove_logup_star};
 use multilinear_toolkit::prelude::*;
 
 use p3_util::log2_ceil_usize;
@@ -132,64 +132,17 @@ pub fn prove_execution(
     let bus_challenge = prover_state.sample();
     let fingerprint_challenge = prover_state.sample();
 
-    let mut bus_quotients: BTreeMap<Table, EF> = Default::default();
-    let mut air_points: BTreeMap<Table, MultilinearPoint<EF>> = Default::default();
-    let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
-    let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
-
-    for (table, trace) in &traces {
-        let (this_bus_quotient, this_air_point, this_evals_f, this_evals_ef) =
-            prove_bus_and_air(&mut prover_state, table, trace, bus_challenge, fingerprint_challenge);
-        bus_quotients.insert(*table, this_bus_quotient);
-        air_points.insert(*table, this_air_point);
-        evals_f.insert(*table, this_evals_f);
-        evals_ef.insert(*table, this_evals_ef);
-    }
-
-    assert_eq!(bus_quotients.values().copied().sum::<EF>(), EF::ZERO);
-
-    let bytecode_compression_challenges =
-        MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
-
-    let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
-
-    let bytecode_lookup_claim = Evaluation::new(
-        air_points[&Table::execution()].clone(),
-        padd_with_zero_to_next_power_of_two(&evals_f[&Table::execution()][..N_INSTRUCTION_COLUMNS])
-            .evaluate(&bytecode_compression_challenges),
-    );
-    let bytecode_poly_eq_point = eval_eq(&air_points[&Table::execution()]);
-    let bytecode_pushforward = MleOwned::Extension(compute_pushforward(
-        &traces[&Table::execution()].base[COL_INDEX_PC],
-        folded_bytecode.len(),
-        &bytecode_poly_eq_point,
-    ));
-
     let mut bus_numerators = vec![];
     let mut bus_denominators = vec![];
     for (table, trace) in &traces {
         for bus in table.buses() {
-            let numerator = match bus.selector {
-                BusSelector::Column(selector_col) => {
-                    assert!(selector_col < trace.base.len());
-                    trace.base[selector_col]
-                        .par_iter()
-                        .map(|&selector| match bus.direction {
-                            BusDirection::Pull => -selector,
-                            BusDirection::Push => selector,
-                        })
-                        .collect::<Vec<_>>()
-                }
-                BusSelector::ConstantOne => {
-                    vec![
-                        match bus.direction {
-                            BusDirection::Pull => F::NEG_ONE,
-                            BusDirection::Push => F::ONE,
-                        };
-                        trace.n_rows_padded()
-                    ]
-                }
-            };
+            let numerator = trace.base[bus.selector]
+                .par_iter()
+                .map(|&selector| match bus.direction {
+                    BusDirection::Pull => -selector,
+                    BusDirection::Push => selector,
+                })
+                .collect::<Vec<_>>();
             let denominator = (0..trace.n_rows_padded())
                 .into_par_iter()
                 .map(|i| {
@@ -246,6 +199,49 @@ pub fn prove_execution(
         collect_refs(&bus_denominators),
         UNIVARIATE_SKIPS,
     );
+
+    let mut air_points: BTreeMap<Table, MultilinearPoint<EF>> = Default::default();
+    let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
+    let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
+
+    let mut bus_offset = 0;
+    for (table, trace) in &traces {
+        let (this_air_point, this_evals_f, this_evals_ef) = prove_bus_and_air(
+            &mut prover_state,
+            table,
+            trace,
+            bus_challenge,
+            fingerprint_challenge,
+            &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
+            &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
+        );
+        air_points.insert(*table, this_air_point);
+        evals_f.insert(*table, this_evals_f);
+        evals_ef.insert(*table, this_evals_ef);
+        bus_offset += table.buses().len();
+    }
+    assert_eq_many!(
+        bus_offset,
+        lookup_into_memory.on_bus_numerators.len(),
+        lookup_into_memory.on_bus_denominators.len()
+    );
+
+    let bytecode_compression_challenges =
+        MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
+
+    let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
+
+    let bytecode_lookup_claim = Evaluation::new(
+        air_points[&Table::execution()].clone(),
+        padd_with_zero_to_next_power_of_two(&evals_f[&Table::execution()][..N_INSTRUCTION_COLUMNS])
+            .evaluate(&bytecode_compression_challenges),
+    );
+    let bytecode_poly_eq_point = eval_eq(&air_points[&Table::execution()]);
+    let bytecode_pushforward = MleOwned::Extension(compute_pushforward(
+        &traces[&Table::execution()].base[COL_INDEX_PC],
+        folded_bytecode.len(),
+        &bytecode_poly_eq_point,
+    ));
 
     let bytecode_pushforward_commitment =
         WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len()))
@@ -348,13 +344,15 @@ fn prove_bus_and_air(
     fingerprint_challenge: EF,
     bus_numerator_statements: &[Evaluation<EF>],
     bus_denominator_statements: &[Evaluation<EF>],
-) -> (EF, MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
-    // bus_point, bus_selector_values, bus_data_values
-
+) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
     assert_eq!(t.buses().len(), bus_numerator_statements.len());
     let bus_point = bus_numerator_statements[0].point.clone();
     assert!(t.buses().iter().all(|_| bus_numerator_statements[0].point == bus_point));
-    assert!(t.buses().iter().all(|_| bus_denominator_statements[0].point == bus_point));
+    assert!(
+        t.buses()
+            .iter()
+            .all(|_| bus_denominator_statements[0].point == bus_point)
+    );
 
     let bus_beta = prover_state.sample();
 
@@ -362,7 +360,7 @@ fn prove_bus_and_air(
         .iter()
         .zip_eq(bus_denominator_statements)
         .zip_eq(t.buses())
-        .map(|((&bus_selector_statement, &bus_data_statement), bus)| {
+        .map(|((bus_selector_statement, bus_data_statement), bus)| {
             bus_selector_statement.value
                 * match bus.direction {
                     BusDirection::Pull => EF::NEG_ONE,
@@ -404,5 +402,5 @@ fn prove_bus_and_air(
         delegate_to_inner!(t => prove_air_for_table)
     });
 
-    (quotient, air_point, evals_f, evals_ef)
+    (air_point, evals_f, evals_ef)
 }
