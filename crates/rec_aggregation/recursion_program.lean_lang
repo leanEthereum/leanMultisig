@@ -185,6 +185,7 @@ fn eq_mle_extension(a, b, n) -> 1 {
 }
 
 fn eq_mle_extension_base_dynamic(a, b, n) -> 1 {
+    var res;
     match n {
         0 => {  } // unreachable
         1 => { res = eq_poly_base_ext(a, b, 1); }
@@ -239,6 +240,7 @@ fn eq_poly_base_ext(a, b, const n) -> 1 {
 }
 
 fn expand_from_univariate_dynamic(alpha, n) -> 1 {
+    var res;
     match n {
         0 => {  } // unreachable
         1 => { res = expand_from_univariate_const(alpha, 1); }
@@ -326,22 +328,23 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     fs_states_b = malloc(num_queries + 1);
     fs_states_b[0] = fs_state_9;
     
+    var n_chunks_per_answer;
     // the number of chunk of 8 field elements per merkle leaf opened
     if merkle_leaves_in_basefield == 1 {
-        n_chuncks_per_answer = two_pow_folding_factor / 8; // "/ 8" because initial merkle leaves are in the basefield
+        n_chunks_per_answer = two_pow_folding_factor / 8; // "/ 8" because initial merkle leaves are in the basefield
     } else {
-        n_chuncks_per_answer = two_pow_folding_factor * DIM / 8;
+        n_chunks_per_answer = two_pow_folding_factor * DIM / 8;
     }
 
     for i in 0..num_queries {
-        new_fs_state, answer = fs_hint(fs_states_b[i], n_chuncks_per_answer); 
+        new_fs_state, answer = fs_hint(fs_states_b[i], n_chunks_per_answer); 
         fs_states_b[i + 1] = new_fs_state;
         answers[i] = answer;
     }
     fs_state_10 = fs_states_b[num_queries];
 
     leaf_hashes = malloc(num_queries); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
-    batch_hash_slice_dynamic(num_queries, answers, leaf_hashes, n_chuncks_per_answer);
+    batch_hash_slice_dynamic(num_queries, answers, leaf_hashes, n_chunks_per_answer);
 
     fs_state_11, merkle_paths = fs_hint(fs_state_10, folded_domain_size * num_queries);
 
@@ -448,6 +451,8 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, const heigh
     states = malloc(1 + height);
     states[0] = leaf_digest;
     for j in 0..height unroll {
+        var left;
+        var right;
         if leaf_position_bits[j] == 1 {
             left = merkle_path + j;
             right = states[j];
@@ -512,6 +517,7 @@ fn powers(alpha, n) -> 1 {
 
 fn unit_root_pow_dynamic(domain_size, index_bits) -> 1 {
     // index_bits is a pointer to domain_size bits
+    var res;
     match domain_size {
         0 => {  } // unreachable
         1 => { res = unit_root_pow_const(1, index_bits); }
@@ -554,10 +560,22 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         dot_product_ee(a, b, res, 16);
         return;
     }
+
+    dot_product_ee_dynamic_helper_1(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_1(a, b, res, n) {
     if n == NUM_QUERIES_0 {
         dot_product_ee(a, b, res, NUM_QUERIES_0);
         return;
     }
+
+    dot_product_ee_dynamic_helper_2(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_2(a, b, res, n) {
     if n == NUM_QUERIES_1 {
         dot_product_ee(a, b, res, NUM_QUERIES_1);
         return;
@@ -566,6 +584,12 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         dot_product_ee(a, b, res, NUM_QUERIES_2);
         return;
     }
+
+    dot_product_ee_dynamic_helper_3(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_3(a, b, res, n) {
     if n == NUM_QUERIES_3 {
         dot_product_ee(a, b, res, NUM_QUERIES_3);
         return;
@@ -574,6 +598,12 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         dot_product_ee(a, b, res, NUM_QUERIES_0 + 1);
         return;
     }
+
+    dot_product_ee_dynamic_helper_4(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_4(a, b, res, n) {
     if n == NUM_QUERIES_1 + 1 {
         dot_product_ee(a, b, res, NUM_QUERIES_1 + 1);
         return;
@@ -582,6 +612,12 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         dot_product_ee(a, b, res, NUM_QUERIES_2 + 1);
         return;
     }
+
+    dot_product_ee_dynamic_helper_5(a, b, res, n);
+    return;
+}
+
+fn dot_product_ee_dynamic_helper_5(a, b, res, n) {
     if n == NUM_QUERIES_3 + 1 {
         dot_product_ee(a, b, res, NUM_QUERIES_3 + 1);
         return;
@@ -599,23 +635,24 @@ fn poly_eq_extension(point, n, two_pow_n) -> 1 {
         res = malloc(DIM);
         set_to_one(res);
         return res;
+    } else {
+        res = malloc(two_pow_n * DIM);
+
+        inner_res = poly_eq_extension(point + DIM, n - 1, two_pow_n / 2);
+
+        two_pow_n_minus_1 = two_pow_n / 2;
+
+        for i in 0..two_pow_n_minus_1 {
+            mul_extension(point, inner_res + i*DIM, res + (two_pow_n_minus_1 + i) * DIM);
+            sub_extension(inner_res + i*DIM, res + (two_pow_n_minus_1 + i) * DIM, res + i*DIM);
+        }
+        
+        return res;
     }
-
-    res = malloc(two_pow_n * DIM);
-
-    inner_res = poly_eq_extension(point + DIM, n - 1, two_pow_n / 2);
-
-    two_pow_n_minus_1 = two_pow_n / 2;
-
-    for i in 0..two_pow_n_minus_1 {
-        mul_extension(point, inner_res + i*DIM, res + (two_pow_n_minus_1 + i) * DIM);
-        sub_extension(inner_res + i*DIM, res + (two_pow_n_minus_1 + i) * DIM, res + i*DIM);
-    }
-    
-    return res;
 }
 
 fn poly_eq_base(point, n) -> 1 {
+    var res;
     match n {
         0 => {  } // unreachable
         1 => { res = poly_eq_base_1(point); }
@@ -738,21 +775,26 @@ fn pow(a, b) -> 1 {
 }
 
 fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
+    var new_fs_state;
+    var sampled_bits;
     if n_samples == NUM_QUERIES_0 {
         new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_0, K);
         return new_fs_state, sampled_bits;
-    }
-    if n_samples == NUM_QUERIES_1 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
-        return new_fs_state, sampled_bits;
-    }
-    if n_samples == NUM_QUERIES_2 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
-        return new_fs_state, sampled_bits;
-    }
-    if n_samples == NUM_QUERIES_3 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
-        return new_fs_state, sampled_bits;
+    } else {
+        if n_samples == NUM_QUERIES_1 {
+            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
+            return new_fs_state, sampled_bits;
+        } else {
+            if n_samples == NUM_QUERIES_2 {
+                new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
+                return new_fs_state, sampled_bits;
+            } else {
+                if n_samples == NUM_QUERIES_3 {
+                    new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
+                    return new_fs_state, sampled_bits;
+                }
+            }
+        }
     }
     print(n_samples);
     print(999333);
@@ -910,26 +952,25 @@ fn fs_sample_helper(fs_state, n, res) -> 1 {
         new_fs_state[2] = fs_state[2];
         new_fs_state[3] = output_buffer_size - n;
         return new_fs_state;
+    } else {
+        // duplexing
+        l_r = malloc_vec(2);
+        poseidon16(fs_state[1], fs_state[2], l_r, PERMUTATION);
+        new_fs_state = malloc(4);
+        new_fs_state[0] = fs_state[0];
+        new_fs_state[1] = l_r;
+        new_fs_state[2] = l_r + 1;
+        new_fs_state[3] = 8; // output_buffer_size
+
+        remaining = n - output_buffer_size;
+        if remaining == 0 {
+            return new_fs_state;
+        }
+
+        shifted_res = res + output_buffer_size;
+        final_res = fs_sample_helper(new_fs_state, remaining, shifted_res);
+        return final_res;
     }
-
-    // duplexing
-    l_r = malloc_vec(2);
-    poseidon16(fs_state[1], fs_state[2], l_r, PERMUTATION);
-    new_fs_state = malloc(4);
-    new_fs_state[0] = fs_state[0];
-    new_fs_state[1] = l_r;
-    new_fs_state[2] = l_r + 1;
-    new_fs_state[3] = 8; // output_buffer_size
-
-    remaining = n - output_buffer_size;
-    if remaining == 0 {
-        return new_fs_state;
-    }
-
-    shifted_res = res + output_buffer_size;
-    final_res = fs_sample_helper(new_fs_state, remaining, shifted_res);
-    return final_res;
-
 }
 
 fn fs_hint(fs_state, n) -> 2 {
@@ -945,6 +986,8 @@ fn fs_hint(fs_state, n) -> 2 {
 }
 
 fn fs_receive_ef(fs_state, n) -> 2 {
+    var final_fs_state;
+    var res;
     match n {
         0 => {  } // unreachable
         1 => { final_fs_state, res = fs_receive_ef_const(fs_state, 1); }

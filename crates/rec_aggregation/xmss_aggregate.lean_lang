@@ -130,7 +130,8 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     }
 
     wots_pubkey_hashed = slice_hash(pointer_to_zero_vector, public_key, V_HALF);
-
+    
+    var merkle_root;
     match log_lifetime {
         0 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 0); }
         1 => { merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 1); }
@@ -174,6 +175,8 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, const height) -> 
     states = malloc(1 + height);
     states[0] = leaf_digest;
     for j in 0..height unroll {
+        var left;
+        var right;
         if leaf_position_bits[j] == 1 {
             left = merkle_path + j;
             right = states[j];
