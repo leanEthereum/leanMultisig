@@ -272,8 +272,6 @@ fn compile_lines(
                 else_branch,
                 line_number,
             } => {
-                compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
-
                 let if_id = compiler.if_counter;
                 compiler.if_counter += 1;
 
@@ -348,10 +346,14 @@ fn compile_lines(
 
                 let saved_stack_pos = compiler.stack_pos;
 
+                compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
                 let then_instructions = compile_lines(function_name, then_branch, compiler, Some(end_label.clone()))?;
 
                 let then_stack_pos = compiler.stack_pos;
                 compiler.stack_pos = saved_stack_pos;
+                compiler.stack_frame_layout.scopes.pop();
+                compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
+
                 let else_instructions = compile_lines(function_name, else_branch, compiler, Some(end_label.clone()))?;
 
                 compiler.bytecode.insert(if_label, then_instructions);
