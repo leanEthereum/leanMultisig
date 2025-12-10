@@ -6,7 +6,7 @@ use multilinear_toolkit::prelude::*;
 /*
 (DIMENSION = 5)
 
-|    Flag   | Len | IndexA | IndexB | IndexRes | ValueA        | ValueB      | Res                | Computation                              |
+|    Start  | Len | IndexA | IndexB | IndexRes | ValueA        | ValueB      | Res                | Computation                              |
 | --------- | --- | ------ | ------ | -------- | ------------- | ----------- | ------------------ | ---------------------------------------- |
 | 1         | 4   | 90     | 211    | 74       | m[90]         | m[211..216] | m[74..79] = r3     | r3 = m[90] x m[211..216] + r2            |
 | 0         | 3   | 91     | 216    | 74       | m[91]         | m[216..221] | m[74..79]          | r2 = m[91] x m[216..221] + r1            |
@@ -21,10 +21,11 @@ use multilinear_toolkit::prelude::*;
 
 // F columns
 pub(super) const COL_FLAG: usize = 0;
-pub(super) const COL_LEN: usize = 1;
-pub(super) const COL_INDEX_A: usize = 2;
-pub(super) const COL_INDEX_B: usize = 3;
-pub(super) const COL_INDEX_RES: usize = 4;
+pub(super) const COL_START: usize = 1;
+pub(super) const COL_LEN: usize = 2;
+pub(super) const COL_INDEX_A: usize = 3;
+pub(super) const COL_INDEX_B: usize = 4;
+pub(super) const COL_INDEX_RES: usize = 5;
 
 // EF columns
 pub(super) const COL_VALUE_B: usize = 0;
@@ -32,11 +33,11 @@ pub(super) const COL_VALUE_RES: usize = 1;
 pub(super) const COL_COMPUTATION: usize = 2;
 
 pub(super) const fn dot_product_air_col_value_a(be: bool) -> usize {
-    if be { 5 } else { 3 }
+    if be { 6 } else { 3 }
 }
 
 pub(super) const fn dot_product_air_n_cols_f(be: bool) -> usize {
-    if be { 6 } else { 5 }
+    if be { 7 } else { 6 }
 }
 
 pub(super) const fn dot_product_air_n_cols_ef(be: bool) -> usize {
@@ -56,10 +57,10 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
         2
     }
     fn n_constraints(&self) -> usize {
-        8
+        10
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        vec![COL_FLAG, COL_LEN, COL_INDEX_A, COL_INDEX_B]
+        vec![COL_START, COL_LEN, COL_INDEX_A, COL_INDEX_B]
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![COL_COMPUTATION]
@@ -73,6 +74,7 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
         let down_ef = builder.down_ef();
 
         let flag = up_f[COL_FLAG].clone();
+        let start = up_f[COL_START].clone();
         let len = up_f[COL_LEN].clone();
         let index_a = up_f[COL_INDEX_A].clone();
         let index_b = up_f[COL_INDEX_B].clone();
@@ -87,7 +89,7 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
         let res = up_ef[COL_VALUE_RES].clone();
         let computation = up_ef[COL_COMPUTATION].clone();
 
-        let flag_down = down_f[0].clone();
+        let start_down = down_f[0].clone();
         let len_down = down_f[1].clone();
         let index_a_down = down_f[2].clone();
         let index_b_down = down_f[3].clone();
@@ -101,20 +103,22 @@ impl<const BE: bool> Air for DotProductPrecompile<BE> {
             &[index_a.clone(), index_b.clone(), index_res.clone(), len.clone()],
         ));
 
+        builder.assert_bool(start.clone());
         builder.assert_bool(flag.clone());
+        builder.assert_zero(flag.clone() * (AB::F::ONE - start.clone()));
 
         let product_up = value_b * value_a;
-        let not_flag_down = AB::F::ONE - flag_down.clone();
+        let not_flag_down = AB::F::ONE - start_down.clone();
         builder.assert_eq_ef(
             computation.clone(),
             product_up.clone() + computation_down * not_flag_down.clone(),
         );
         builder.assert_zero(not_flag_down.clone() * (len.clone() - (len_down + AB::F::ONE)));
-        builder.assert_zero(flag_down * (len - AB::F::ONE));
+        builder.assert_zero(start_down * (len - AB::F::ONE));
         let index_a_increment = AB::F::from_usize(if BE { 1 } else { DIMENSION });
         builder.assert_zero(not_flag_down.clone() * (index_a - (index_a_down - index_a_increment)));
         builder.assert_zero(not_flag_down * (index_b - (index_b_down - AB::F::from_usize(DIMENSION))));
 
-        builder.assert_zero_ef((computation - res) * flag);
+        builder.assert_zero_ef((computation - res) * start);
     }
 }

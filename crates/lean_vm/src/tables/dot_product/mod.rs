@@ -67,7 +67,7 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
         vec![Bus {
             table: BusTable::Constant(self.identifier()),
             direction: BusDirection::Pull,
-            selector: BusSelector::Column(COL_FLAG),
+            selector: COL_FLAG,
             data: vec![COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES, COL_LEN],
         }]
     }
@@ -75,10 +75,11 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
     fn padding_row_f(&self) -> Vec<F> {
         [
             vec![
-                F::ONE, // StartFlag
-                F::ONE, // Len
+                F::ZERO, // Flag
+                F::ONE,  // Start
+                F::ONE,  // Len
             ],
-            vec![F::ZERO; dot_product_air_n_cols_f(BE) - 2],
+            vec![F::ZERO; dot_product_air_n_cols_f(BE) - 3],
         ]
         .concat()
     }

@@ -374,10 +374,6 @@ fn prove_bus_and_air(
 
     let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
 
-    for bus in t.buses() {
-        quotient -= bus.padding_contribution(t, trace.padding_len(), bus_challenge, fingerprint_challenge);
-    }
-
     let extra_data = ExtraDataForBuses {
         fingerprint_challenge_powers: fingerprint_challenge.powers().collect_n(max_bus_width()),
         fingerprint_challenge_powers_packed: EFPacking::<EF>::from(fingerprint_challenge)
