@@ -43,11 +43,13 @@ const TWO_ADICITY = 24;
 const ROOT = 1791270792; // of order 2^TWO_ADICITY
 
 const N_RECURSIONS = N_RECURSIONS_PLACEHOLDER;
-const WHIR_PROOF_SIZE = WHIR_PROOF_SIZE_PLACEHOLDER; // vectorized
+const WHIR_PROOF_SIZE = WHIR_PROOF_SIZE_PLACEHOLDER;
+
+const VECTOR_LEN = 8;
 
 fn main() {
     for i in 0..N_RECURSIONS unroll {
-        whir_recursion((public_input_start / 8) + i * WHIR_PROOF_SIZE);
+        whir_recursion(public_input_start + i * WHIR_PROOF_SIZE);
     }
     return;
 }
@@ -855,21 +857,19 @@ fn degree_two_polynomial_eval(coeffs, point) -> 1 {
 }
 
 fn parse_commitment(fs_state) -> 4 {
-    fs_state_1, root = fs_receive(fs_state, 1); // vectorized pointer of len 1
+    fs_state_1, root = fs_receive(fs_state, 1);
     fs_state_2, ood_point = fs_sample_ef(fs_state_1);
     fs_state_3, ood_eval = fs_receive_ef(fs_state_2, 1);
     return fs_state_3, root, ood_point, ood_eval;
 }
 
 // FIAT SHAMIR layout:
-// 0 -> transcript (vectorized pointer)
+// 0 -> transcript
 // 1 -> vectorized pointer to first half of sponge state
 // 2 -> vectorized pointer to second half of sponge state
 // 3 -> output_buffer_size
 
 fn fs_new(transcript) -> 1 {
-    // transcript is a (vectorized) pointer
-    // TODO domain separator
     fs_state = malloc(4);
     fs_state[0] = transcript;
     fs_state[1] = pointer_to_zero_vector; // first half of sponge state
@@ -886,26 +886,24 @@ fn fs_grinding(fs_state, bits) -> 1 {
         return fs_state; // no grinding
     }
 
-    transcript_ptr = fs_state[0] * 8;
-    l_ptr = fs_state[1] * 8;
+    transcript = fs_state[0];
+    l = fs_state[1];
     
-    new_l = malloc_vec(1);
-    new_l_ptr = new_l * 8;
-    new_l_ptr[0] = transcript_ptr[0];
+    new_l = malloc(VECTOR_LEN);
+    new_l[0] = transcript[0];
     for i in 1..8 unroll {
-        new_l_ptr[i] = l_ptr[i];
+        new_l[i] = l[i];
     }
 
-    l_r_updated = malloc_vec(2);
+    l_r_updated = malloc(2*VECTOR_LEN);
     poseidon16(new_l, fs_state[2], l_r_updated, PERMUTATION);
     new_fs_state = malloc(4);
-    new_fs_state[0] = fs_state[0] + 1; // read one 1 chunk of 8 field elements (7 are useless)
+    new_fs_state[0] = transcript + VECTOR_LEN; // read one 1 chunk of 8 field elements (7 are useless)
     new_fs_state[1] = l_r_updated;
-    new_fs_state[2] = l_r_updated + 1;
+    new_fs_state[2] = l_r_updated + VECTOR_LEN;
     new_fs_state[3] = 7; // output_buffer_size
 
-    l_updated_ptr = l_r_updated* 8;
-    sampled = l_updated_ptr[7];
+    sampled = l_r_updated[7];
     sampled_bits, _ = checked_decompose_bits(sampled, 1); // 1 is useless here, could be anything
     for i in 0..bits {
         assert sampled_bits[i] == 0;
@@ -934,13 +932,13 @@ fn fs_sample_helper(fs_state, n, res) -> 1 {
     // fill res with n field elements
 
     output_buffer_size = fs_state[3];
-    output_buffer_ptr = fs_state[1] * 8;
+    output_buffer = fs_state[1];
 
     for i in 0..n {
         if output_buffer_size - i == 0 {
             break;
         }
-        res[i] = output_buffer_ptr[output_buffer_size - 1 - i];
+        res[i] = output_buffer[output_buffer_size - 1 - i];
     }
 
     finished = less_than_8(output_buffer_size - n);
@@ -954,12 +952,12 @@ fn fs_sample_helper(fs_state, n, res) -> 1 {
         return new_fs_state;
     } else {
         // duplexing
-        l_r = malloc_vec(2);
+        l_r = malloc(2*VECTOR_LEN);
         poseidon16(fs_state[1], fs_state[2], l_r, PERMUTATION);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0];
         new_fs_state[1] = l_r;
-        new_fs_state[2] = l_r + 1;
+        new_fs_state[2] = l_r + VECTOR_LEN;
         new_fs_state[3] = 8; // output_buffer_size
 
         remaining = n - output_buffer_size;
@@ -974,11 +972,11 @@ fn fs_sample_helper(fs_state, n, res) -> 1 {
 }
 
 fn fs_hint(fs_state, n) -> 2 {
-    // return the updated fs_state, and a vectorized pointer to n chunk of 8 field elements
+    // return the updated fs_state, and a pointer to n*8 field elements
 
     res = fs_state[0];
     new_fs_state = malloc(4);
-    new_fs_state[0] = res + n;
+    new_fs_state[0] = res + n*VECTOR_LEN;
     new_fs_state[1] = fs_state[1];
     new_fs_state[2] = fs_state[2];
     new_fs_state[3] = fs_state[3];
@@ -1011,7 +1009,7 @@ fn fs_receive_ef_const(fs_state, const n) -> 2 {
     res = malloc(n * DIM);
     // TODO optimize with dot_product
     for i in 0..n unroll { 
-        ptr = (fs_state[0] + i) * 8;
+        ptr = fs_state[0] + i*VECTOR_LEN;
         for j in 0..DIM unroll {
             res[i * DIM + j] = ptr[j];
         }
@@ -1038,9 +1036,9 @@ fn fs_observe(fs_state, n) -> 1 {
     l_r = malloc_vec(2);
     poseidon16(fs_state[0], fs_state[2], l_r, PERMUTATION);
     new_fs_state = malloc(4);
-    new_fs_state[0] = fs_state[0] + 1;
+    new_fs_state[0] = fs_state[0] + VECTOR_LEN;
     new_fs_state[1] = l_r;
-    new_fs_state[2] = l_r + 1;
+    new_fs_state[2] = l_r + VECTOR_LEN;
     new_fs_state[3] = 8; // output_buffer_size
 
     if n == 1 {
@@ -1052,11 +1050,11 @@ fn fs_observe(fs_state, n) -> 1 {
 }
 
 fn fs_print_state(fs_state) {
-    left = fs_state[1] * 8;
+    left = fs_state[1];
     for i in 0..8 {
         print(left[i]);
     }
-    right = fs_state[2] * 8;
+    right = fs_state[2];
     for i in 0..8 {
         print(right[i]);
     }
@@ -1106,10 +1104,8 @@ fn assert_eq_extension(a, b) inline {
 
 // TODO improve
 fn assert_eq_vec(a, b) inline {
-    a_ptr = a * 8;
-    b_ptr = b * 8;
-    dot_product_ee(a_ptr, pointer_to_one_vector, b_ptr, 1);
-    dot_product_ee(a_ptr + (8 - DIM), pointer_to_one_vector, b_ptr + (8 - DIM), 1);
+    dot_product_ee(a, pointer_to_one_vector, b, 1);
+    dot_product_ee(a + (8 - DIM), pointer_to_one_vector, b + (8 - DIM), 1);
     return;
 }
 

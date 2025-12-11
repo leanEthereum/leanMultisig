@@ -114,11 +114,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
 
     public_input.extend(whir_proof.proof_data[commitment_size..].to_vec());
 
-    assert!(public_input.len().is_multiple_of(VECTOR_LEN));
-    program_str = program_str.replace(
-        "WHIR_PROOF_SIZE_PLACEHOLDER",
-        &(public_input.len() / VECTOR_LEN).to_string(),
-    );
+    program_str = program_str.replace("WHIR_PROOF_SIZE_PLACEHOLDER", &public_input.len().to_string());
 
     public_input = std::iter::repeat_n(public_input, n_recursions).flatten().collect();
 
