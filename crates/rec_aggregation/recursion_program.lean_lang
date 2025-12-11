@@ -61,10 +61,8 @@ fn whir_recursion(transcript_start) {
 
     // In the future point / eval will come from the PIOP
     point_vector_len = next_multiple_of_8(N_VARS * DIM);
-    fs_state_1, pcs_point_vec = fs_hint(fs_state_0, point_vector_len / 8);
-    pcs_point = pcs_point_vec * 8;
-    fs_state_3, pcs_eval_vec = fs_hint(fs_state_1, 1);
-    pcs_eval = pcs_eval_vec * 8;
+    fs_state_1, pcs_point = fs_hint(fs_state_0, point_vector_len / 8);
+    fs_state_3, pcs_eval = fs_hint(fs_state_1, 1);
 
     fs_state_4, combination_randomness_gen_0 = fs_sample_ef(fs_state_3);
 
@@ -88,7 +86,7 @@ fn whir_recursion(transcript_start) {
     fs_state_9, final_coeffcients_unpacked = fs_receive(fs_state_8, 2**FINAL_VARS);
     final_coeffcients = malloc(2**FINAL_VARS * DIM);
     for i in 0..2**FINAL_VARS {
-        assert_eq_extension((final_coeffcients_unpacked + i) * 8, final_coeffcients + i*DIM);
+        assert_eq_extension(final_coeffcients_unpacked + i * VECTOR_LEN, final_coeffcients + i*DIM);
     }
 
     fs_state_10, final_circle_values, final_folds =
@@ -326,7 +324,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     fs_state_8 = fs_grinding(fs_state, grinding_bits);
     fs_state_9, stir_challenges_indexes = sample_bits_dynamic(fs_state_8, num_queries, folded_domain_size);
 
-    answers = malloc(num_queries); // a vector of vectorized pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
+    answers = malloc(num_queries); // a vector of pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
     fs_states_b = malloc(num_queries + 1);
     fs_states_b[0] = fs_state_9;
     
@@ -359,11 +357,11 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
 
     if merkle_leaves_in_basefield == 1 {
         for i in 0..num_queries {
-            dot_product_be(answers[i] * 8, poly_eq, folds + i*DIM, 2**FOLDING_FACTOR_0);
+            dot_product_be(answers[i], poly_eq, folds + i*DIM, 2**FOLDING_FACTOR_0);
         }
     } else {
         for i in 0..num_queries {
-            dot_product_ee_dynamic(answers[i] * 8, poly_eq, folds + i*DIM, two_pow_folding_factor);
+            dot_product_ee_dynamic(answers[i], poly_eq, folds + i*DIM, two_pow_folding_factor);
         }
     }
 
@@ -402,14 +400,15 @@ fn batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, c
 }
 
 fn slice_hash(seed, data, const half_len) -> 1 {
-    internal_states = malloc(1 + half_len * 2);
-    internal_states[0] = pointer_to_zero_vector; // initial state
-    for j in 0..(half_len * 2) unroll {
-        h = malloc_vec(1);
-        poseidon16(internal_states[j], data + j, h, COMPRESSION);
-        internal_states[j + 1] = h;
+    states = malloc(half_len * 2 * VECTOR_LEN);
+    poseidon16(pointer_to_zero_vector, data, states, COMPRESSION);
+    state_indexes = malloc(half_len * 2);
+    state_indexes[0] = states;
+    for j in 1..(half_len * 2) unroll {
+        state_indexes[j] = state_indexes[j-1] + VECTOR_LEN;
+        poseidon16(state_indexes[j-1], data + j * VECTOR_LEN, state_indexes[j], COMPRESSION);
     }
-    return internal_states[half_len * 2];
+    return state_indexes[half_len * 2 - 1];
 }
 
 fn merkle_verif_batch_dynamic(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries) {
@@ -443,33 +442,36 @@ fn merkle_verif_batch_const(const n_paths, merkle_paths, leaves_digests, leave_p
     // height: F
 
     for i in 0..n_paths unroll {
-        merkle_verify(leaves_digests[i], merkle_paths + (i * height), leave_positions[i], root, height);
+        merkle_verify(leaves_digests[i], merkle_paths + (i * height) * VECTOR_LEN, leave_positions[i], root, height);
     }
 
     return;
 }
+
 
 fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, const height) {
-    states = malloc(1 + height);
-    states[0] = leaf_digest;
-    for j in 0..height unroll {
-        var left;
-        var right;
-        if leaf_position_bits[j] == 1 {
-            left = merkle_path + j;
-            right = states[j];
-        } else {
-            left = states[j];
-            right = merkle_path + j;
-        }
-        state_j_plus_1 = malloc_vec(1);
-        poseidon16(left, right, state_j_plus_1, COMPRESSION);
-        states[j + 1] = state_j_plus_1;
+    states = malloc(height * VECTOR_LEN);
+    
+    // First merkle round
+    match leaf_position_bits[0] {
+        0 => { poseidon16(leaf_digest, merkle_path, states, COMPRESSION); }
+        1 => { poseidon16(merkle_path, leaf_digest, states, COMPRESSION); }
     }
-    assert_eq_vec(states[height], root);
+
+    // Remaining merkle rounds
+    state_indexes = malloc(height);
+    state_indexes[0] = states;
+    for j in 1..height unroll {
+        state_indexes[j] = state_indexes[j-1] + VECTOR_LEN;
+        // Warning: this works only if leaf_position_bits[i] is known to be boolean:
+        match leaf_position_bits[j] {
+            0 => { poseidon16(state_indexes[j-1], merkle_path + j * VECTOR_LEN, state_indexes[j], COMPRESSION); }
+            1 => { poseidon16(merkle_path + j * VECTOR_LEN, state_indexes[j-1], state_indexes[j], COMPRESSION); }
+        }
+    }
+    assert_eq_vec(state_indexes[height - 1], root);
     return;
 }
-
 
 fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkle_leaves_in_basefield, num_queries, domain_size, claimed_sum, grinding_bits) -> 7 {
     fs_state_7, folding_randomness, new_claimed_sum_a = sumcheck(fs_state, folding_factor, claimed_sum);
@@ -1033,7 +1035,7 @@ fn fs_observe(fs_state, n) -> 1 {
     // observe n chunk of 8 field elements from the transcript
     // and return the updated fs_state
     // duplexing
-    l_r = malloc_vec(2);
+    l_r = malloc(2 * VECTOR_LEN);
     poseidon16(fs_state[0], fs_state[2], l_r, PERMUTATION);
     new_fs_state = malloc(4);
     new_fs_state[0] = fs_state[0] + VECTOR_LEN;
@@ -1115,20 +1117,11 @@ fn set_to_one(a) inline {
     return;
 }
 
-fn print_vec(a) {
-    print_many_vec(a, 1);
-    return;
-}
 
 fn print_ef(a) {
     for i in 0..DIM unroll {
         print(a[i]);
     }
-    return;
-}
-
-fn print_many_vec(a, n) {
-    print_many(a * 8, n * 8);
     return;
 }
 
