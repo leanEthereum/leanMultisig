@@ -48,7 +48,7 @@ fn test_wrong_n_returned_vars_1() {
         return 0;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(program.to_string(), (&[], &[]), false);
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn test_wrong_n_returned_vars_2() {
         return 0, 1;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(program.to_string(), (&[], &[]), false);
 }
 
 #[test]
