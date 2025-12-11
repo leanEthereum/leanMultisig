@@ -44,6 +44,7 @@ fn test_wrong_n_returned_vars_1() {
     let program = r#"
     fn main() {
         a, b = f();
+        return;
     }
 
     fn f() -> 1 {
@@ -59,10 +60,50 @@ fn test_wrong_n_returned_vars_2() {
     let program = r#"
     fn main() {
         a = f();
+        return;
     }
 
     fn f() -> 1 {
         return 0, 1;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
+
+#[test]
+#[should_panic]
+fn test_no_return() {
+    let program = r#"
+    fn main() {
+        a = f();
+        return;
+    }
+
+    fn f() -> 1 {
+    }
+
+    fn g() -> 1 {
+        return 0;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
+
+#[test]
+fn test_assumed_return() {
+    let program = r#"
+    fn main() {
+        a = f();
+        return;
+    }
+
+    #![assume_always_returns]
+    fn f() -> 1 {
+        if 1 == 1 {
+            return 0;
+        } else {
+            print(1);
+        }
     }
     "#;
     compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
