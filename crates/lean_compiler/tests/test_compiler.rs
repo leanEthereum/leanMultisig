@@ -37,6 +37,36 @@ fn test_duplicate_constant_name() {
 }
 
 #[test]
+#[should_panic]
+fn test_wrong_n_returned_vars_1() {
+    let program = r#"
+    fn main() {
+        a, b = f();
+    }
+
+    fn f() -> 1 {
+        return 0;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[test]
+#[should_panic]
+fn test_wrong_n_returned_vars_2() {
+    let program = r#"
+    fn main() {
+        a = f();
+    }
+
+    fn f() -> 1 {
+        return 0, 1;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[test]
 fn test_fibonacci_program() {
     // a program to check the value of the 30th Fibonacci number (832040)
     let program = r#"
