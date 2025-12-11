@@ -25,7 +25,11 @@ impl Memory {
     ///
     /// Returns an error if the address is uninitialized
     pub fn get(&self, index: usize) -> Result<F, RunnerError> {
-        self.0.get(index).copied().flatten().ok_or(RunnerError::UndefinedMemory)
+        self.0
+            .get(index)
+            .copied()
+            .flatten()
+            .ok_or(RunnerError::UndefinedMemory(index))
     }
 
     /// Sets a value at a memory address

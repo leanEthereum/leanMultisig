@@ -13,7 +13,7 @@ fn test_basic_memory_operations() {
     assert_eq!(memory.get(5).unwrap(), F::from_usize(42));
 
     // Test undefined memory access
-    assert!(matches!(memory.get(1), Err(RunnerError::UndefinedMemory)));
+    assert!(matches!(memory.get(1), Err(RunnerError::UndefinedMemory(1))));
 }
 
 #[test]

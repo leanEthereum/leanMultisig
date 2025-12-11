@@ -245,20 +245,17 @@ fn test_mini_program_2() {
 fn test_mini_program_3() {
     let program = r#"
     fn main() {
-        a = public_input_start / 8;
-        b = a + 1;
+        a = public_input_start;
+        b = a + 8;
         c = malloc(2*8);
         poseidon16(a, b, c, 0);
 
-        c_shifted = c * 8;
-        d_shifted = (c + 1) * 8;
-
         for i in 0..8 {
-            cc = c_shifted[i];
+            cc = c[i];
             print(cc);
         }
         for i in 0..8 {
-            dd = d_shifted[i];
+            dd = c[i+8];
             print(dd);
         }
         return;
@@ -346,6 +343,26 @@ fn test_inlined() {
 }
 
 #[test]
+fn test_inlined_2() {
+    let program = r#"
+    fn main() {
+        b = is_one();
+        c = b;
+        return;
+    }
+
+    fn is_one() inline -> 1 {
+        if 1 {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+   "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[test]
 fn test_match() {
     let program = r#"
     fn main() {
@@ -392,6 +409,29 @@ fn test_match() {
 
     fn func_2(x) inline -> 1 {
         return x * x * x * x * x * x;
+    }
+   "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[test]
+fn test_match_shrink() {
+    let program = r#"
+    fn main() {
+        match 1 {
+            0 => {
+                y = 90;
+            }
+            1 => {
+                y = 10;
+                z = func_2(y);
+            }
+        }
+        return;
+    }
+
+    fn func_2(x) inline -> 1 {
+        return x * x;
     }
    "#;
     compile_and_run(program.to_string(), (&[], &[]), false);
@@ -482,6 +522,29 @@ fn test_nested_inline_functions() {
 
     fn level_three(z) inline -> 1 {
         return z * z * z;
+    }
+    "#;
+
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[test]
+fn test_const_and_nonconst_malloc_sharing_name() {
+    let program = r#"
+    fn main() {
+        f(1);
+        return;
+    }
+
+    fn f(n) {
+        if 0 == 0 {
+            res = malloc(2);
+            res[1] = 0;
+            return;
+        } else {
+            res = malloc(n * 1);
+            return;
+        }
     }
     "#;
 
