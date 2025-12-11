@@ -39,6 +39,21 @@ fn test_duplicate_constant_name() {
 }
 
 #[test]
+#[should_panic]
+fn test_wrong_n_returned_vars() {
+    let program = r#"
+    fn main() {
+        a, b = f();
+    }
+
+    fn f() -> 1 {
+        return 0;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
+
+#[test]
 fn test_fibonacci_program() {
     // a program to check the value of the 30th Fibonacci number (832040)
     let program = r#"
