@@ -1,4 +1,4 @@
-use crate::core::{F, LOG_VECTOR_LEN, Label, SourceLineNumber, VECTOR_LEN};
+use crate::core::{F, Label, SourceLineNumber};
 use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;
@@ -25,10 +25,6 @@ pub enum Hint {
         offset: usize,
         /// The requested memory size
         size: MemOrConstant,
-        /// Whether memory should be vectorized (aligned)
-        vectorized: bool,
-        /// Length for vectorized memory allocation
-        vectorized_len: usize,
     },
     /// Decompose values into their bit representations
     DecomposeBits {
@@ -81,7 +77,6 @@ pub struct HintExecutionContext<'a> {
     pub private_input_start: usize, // normal pointer
     pub fp: usize,
     pub ap: &'a mut usize,
-    pub ap_vec: &'a mut usize,
     pub counter_hint: &'a mut usize,
     pub std_out: &'a mut String,
     pub instruction_history: &'a mut ExecutionHistory,
@@ -89,7 +84,6 @@ pub struct HintExecutionContext<'a> {
     pub cpu_cycles: usize,
     pub last_checkpoint_cpu_cycles: &'a mut usize,
     pub checkpoint_ap: &'a mut usize,
-    pub checkpoint_ap_vec: &'a mut usize,
     pub profiling: bool,
     pub memory_profile: &'a mut MemoryProfile,
 }
@@ -103,52 +97,22 @@ impl Hint {
                 function_name,
                 offset,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
                 let size = size.read_value(ctx.memory, ctx.fp)?.to_usize();
 
-                if *vectorized {
-                    assert!(*vectorized_len >= LOG_VECTOR_LEN, "TODO");
+                let allocation_start_addr = *ctx.ap;
+                ctx.memory.set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
+                *ctx.ap += size;
 
-                    // padding:
-                    while !(*ctx.ap_vec * VECTOR_LEN).is_multiple_of(1 << *vectorized_len) {
-                        *ctx.ap_vec += 1;
-                    }
-                    let allocation_start_addr = *ctx.ap_vec;
-                    ctx.memory.set(
-                        ctx.fp + *offset,
-                        F::from_usize(allocation_start_addr >> (*vectorized_len - LOG_VECTOR_LEN)),
-                    )?;
-                    let size_vectors = size << (*vectorized_len - LOG_VECTOR_LEN);
-                    let size_words = size_vectors * VECTOR_LEN;
-                    *ctx.ap_vec += size_vectors;
-
-                    if ctx.profiling {
-                        ctx.memory_profile.objects.insert(
-                            allocation_start_addr * VECTOR_LEN,
-                            MemoryObject {
-                                object_type: MemoryObjectType::VectorHeapObject,
-                                function_name: function_name.clone(),
-                                size: size_words,
-                            },
-                        );
-                    }
-                } else {
-                    let allocation_start_addr = *ctx.ap;
-                    ctx.memory.set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
-                    *ctx.ap += size;
-
-                    if ctx.profiling {
-                        ctx.memory_profile.objects.insert(
-                            allocation_start_addr,
-                            MemoryObject {
-                                object_type: MemoryObjectType::NonVectorHeapObject,
-                                function_name: function_name.clone(),
-                                size,
-                            },
-                        );
-                    }
+                if ctx.profiling {
+                    ctx.memory_profile.objects.insert(
+                        allocation_start_addr,
+                        MemoryObject {
+                            object_type: MemoryObjectType::NonVectorHeapObject,
+                            function_name: function_name.clone(),
+                            size,
+                        },
+                    );
                 }
             }
             Self::DecomposeBits {
@@ -200,19 +164,16 @@ impl Hint {
                     } else {
                         assert_eq!(values.len(), 2);
                         let new_no_vec_memory = *ctx.ap - *ctx.checkpoint_ap;
-                        let new_vec_memory = (*ctx.ap_vec - *ctx.checkpoint_ap_vec) * VECTOR_LEN;
                         *ctx.std_out += &format!(
-                            "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {} ({:.1}% vec)\n",
+                            "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {}\n",
                             values[1],
                             pretty_integer(ctx.cpu_cycles - *ctx.last_checkpoint_cpu_cycles),
-                            pretty_integer(new_no_vec_memory + new_vec_memory),
-                            new_vec_memory as f64 / (new_no_vec_memory + new_vec_memory) as f64 * 100.0
+                            pretty_integer(new_no_vec_memory),
                         );
                     }
 
                     *ctx.last_checkpoint_cpu_cycles = ctx.cpu_cycles;
                     *ctx.checkpoint_ap = *ctx.ap;
-                    *ctx.checkpoint_ap_vec = *ctx.ap_vec;
                 }
 
                 let line_info = line_info.replace(';', "");
@@ -254,14 +215,8 @@ impl Display for Hint {
                 function_name: _,
                 offset,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
-                if *vectorized {
-                    write!(f, "m[fp + {offset}] = request_memory_vec({size}, {vectorized_len})")
-                } else {
-                    write!(f, "m[fp + {offset}] = request_memory({size})")
-                }
+                write!(f, "m[fp + {offset}] = request_memory({size})")
             }
             Self::PrivateInputStart { res_offset } => {
                 write!(f, "m[fp + {res_offset}] = private_input_start()")

@@ -33,16 +33,10 @@ pub const ENDING_PC: usize = 0;
 pub const ZERO_VEC_PTR: usize = 0;
 
 /// Convention: vectorized pointer of size 1, pointing to 10000000
-pub const ONE_VEC_PTR: usize = 2;
+pub const ONE_VEC_PTR: usize = 2 * VECTOR_LEN;
 
 /// Convention: vectorized pointer of size 2, = the 16 elements of poseidon_16(0)
-pub const POSEIDON_16_NULL_HASH_PTR: usize = 3;
+pub const POSEIDON_16_NULL_HASH_PTR: usize = 3 * VECTOR_LEN;
 
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * 8;
-
-/// Precompiles Indexes
-pub const TABLE_INDEX_POSEIDONS_16: usize = 1; // should be != 0
-pub const TABLE_INDEX_POSEIDONS_24: usize = 2;
-pub const TABLE_INDEX_DOT_PRODUCTS: usize = 3;
-pub const TABLE_INDEX_MULTILINEAR_EVAL: usize = 4;
+pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * VECTOR_LEN;

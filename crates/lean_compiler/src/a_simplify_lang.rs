@@ -135,8 +135,6 @@ pub enum SimpleLine {
     HintMAlloc {
         var: Var,
         size: SimpleExpr,
-        vectorized: bool,
-        vectorized_len: SimpleExpr,
     },
     ConstMalloc {
         // always not vectorized
@@ -308,11 +306,8 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
             Line::MAlloc {
                 var,
                 size,
-                vectorized: _,
-                vectorized_len,
             } => {
                 check_expr_scoping(size, ctx);
-                check_expr_scoping(vectorized_len, ctx);
                 let last_scope = ctx.scopes.last_mut().unwrap();
                 assert!(
                     !last_scope.vars.contains(var),
@@ -808,17 +803,10 @@ fn simplify_lines(
                 assert!(in_a_loop, "Break statement outside of a loop");
                 res.push(SimpleLine::FunctionRet { return_data: vec![] });
             }
-            Line::MAlloc {
-                var,
-                size,
-                vectorized,
-                vectorized_len,
-            } => {
+            Line::MAlloc { var, size } => {
                 let simplified_size = simplify_expr(size, &mut res, counters, array_manager, const_malloc);
-                let simplified_vectorized_len =
-                    simplify_expr(vectorized_len, &mut res, counters, array_manager, const_malloc);
                 match simplified_size {
-                    SimpleExpr::Constant(const_size) if !*vectorized => {
+                    SimpleExpr::Constant(const_size) => {
                         let label = const_malloc.counter;
                         const_malloc.counter += 1;
                         const_malloc.map.insert(var.clone(), label);
@@ -832,8 +820,6 @@ fn simplify_lines(
                         res.push(SimpleLine::HintMAlloc {
                             var: var.clone(),
                             size: simplified_size,
-                            vectorized: *vectorized,
-                            vectorized_len: simplified_vectorized_len,
                         });
                     }
                 }
@@ -1537,16 +1523,10 @@ fn replace_vars_for_unroll(
                     replace_vars_for_unroll_in_expr(var, iterator, unroll_index, iterator_value, internal_vars);
                 }
             }
-            Line::MAlloc {
-                var,
-                size,
-                vectorized: _,
-                vectorized_len,
-            } => {
+            Line::MAlloc { var, size } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(size, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll_in_expr(vectorized_len, iterator, unroll_index, iterator_value, internal_vars);
             }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
@@ -2170,17 +2150,8 @@ impl SimpleLine {
                 let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
                 format!("print({content_str})")
             }
-            Self::HintMAlloc {
-                var,
-                size,
-                vectorized,
-                vectorized_len,
-            } => {
-                if *vectorized {
-                    format!("{var} = malloc_vec({size}, {vectorized_len})")
-                } else {
-                    format!("{var} = malloc({size})")
-                }
+            Self::HintMAlloc { var, size } => {
+                format!("{var} = malloc({size})")
             }
             Self::ConstMalloc { var, size, label: _ } => {
                 format!("{var} = malloc({size})")

@@ -1,7 +1,6 @@
 use multilinear_toolkit::prelude::*;
 use utils::FSProver;
 use utils::VecOrSlice;
-use utils::collect_refs;
 use utils::transpose_slice_to_basis_coefficients;
 
 use crate::{GeneralizedLogupProver, GeneralizedLogupVerifier};
@@ -66,17 +65,7 @@ impl CustomLookupProver {
             all_value_columns.push(col_vec.iter().map(|s| VecOrSlice::Slice(s)).collect());
         }
 
-        // TODO remove
-        let index_columns_vec = index_columns_vec
-            .par_iter()
-            .map(|col| {
-                col.par_iter()
-                    .map(|&v| v * PF::<EF>::from_usize(VECTOR_LEN))
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-
-        let index_columns = [index_columns_f, index_columns_ef, collect_refs(&index_columns_vec)].concat();
+        let index_columns = [index_columns_f, index_columns_ef, index_columns_vec].concat();
 
         let generic = GeneralizedLogupProver::run(
             prover_state,
@@ -89,18 +78,12 @@ impl CustomLookupProver {
             univariate_skips,
         );
 
-        let mut on_indexes_vec = generic.on_indexes[n_cols_f + n_cols_ef..].to_vec();
-        let inv_vector_len = PF::<EF>::from_usize(VECTOR_LEN).inverse();
-        for statement in &mut on_indexes_vec {
-            statement.value *= inv_vector_len;
-        }
-
         CustomLookupStatements {
             on_table: generic.on_table,
             on_acc: generic.on_acc,
             on_indexes_f: generic.on_indexes[..n_cols_f].to_vec(),
             on_indexes_ef: generic.on_indexes[n_cols_f..][..n_cols_ef].to_vec(),
-            on_indexes_vec,
+            on_indexes_vec: generic.on_indexes[n_cols_f + n_cols_ef..].to_vec(),
             on_values_f: generic.on_values[..n_cols_f]
                 .iter()
                 .map(|e| {
@@ -152,18 +135,12 @@ impl NormalLookupVerifier {
             univariate_skips,
         )?;
 
-        let mut on_indexes_vec = generic.on_indexes[log_heights_f.len() + log_heights_ef.len()..].to_vec();
-        let inv_vector_len = PF::<EF>::from_usize(VECTOR_LEN).inverse();
-        for statement in &mut on_indexes_vec {
-            statement.value *= inv_vector_len;
-        }
-
         Ok(CustomLookupStatements {
             on_table: generic.on_table,
             on_acc: generic.on_acc,
             on_indexes_f: generic.on_indexes[..log_heights_f.len()].to_vec(),
             on_indexes_ef: generic.on_indexes[log_heights_f.len()..][..log_heights_ef.len()].to_vec(),
-            on_indexes_vec,
+            on_indexes_vec: generic.on_indexes[log_heights_f.len() + log_heights_ef.len()..].to_vec(),
             on_values_f: generic.on_values[..log_heights_f.len()]
                 .iter()
                 .map(|e| {

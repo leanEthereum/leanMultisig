@@ -16,12 +16,11 @@ fn test_zk_vm_all_precompiles() {
     const LEAF_POS_1 = 781;
     const MERKLE_HEIGHT_2 = 15;
     const LEAF_POS_2 = 178;
+    const VECTOR_LEN = 8;
     fn main() {
         pub_start = public_input_start;
-        pub_start_vec = pub_start / 8;
-
-        poseidon16(pub_start_vec, pub_start_vec + 1, pub_start_vec + 2, PERMUTATION);
-        poseidon16(pub_start_vec + 4, pub_start_vec + 5, pub_start_vec + 6, COMPRESSION);
+        poseidon16(pub_start, pub_start + VECTOR_LEN, pub_start + 2 * VECTOR_LEN, PERMUTATION);
+        poseidon16(pub_start + 4 * VECTOR_LEN, pub_start + 5 * VECTOR_LEN, pub_start + 6 * VECTOR_LEN, COMPRESSION);
         dot_product_be(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N);
         dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
         
@@ -110,7 +109,7 @@ fn test_zk_vm_all_precompiles() {
         merkle_path
     }
 
-    test_zk_vm_helper(program_str, (&public_input, &[]), 0);
+    test_zk_vm_helper(program_str, (&public_input, &[]));
 }
 
 #[test]
@@ -152,17 +151,16 @@ fn test_prove_fibonacci() {
         .unwrap();
     let program_str = program_str.replace("FIB_N_PLACEHOLDER", &n.to_string());
 
-    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), 0);
+    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]));
 }
 
-fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F]), no_vec_runtime_memory: usize) {
+fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F])) {
     utils::init_tracing();
     let bytecode = compile_program(program_str.to_string());
     let time = std::time::Instant::now();
     let (proof, summary) = prove_execution(
         &bytecode,
         (public_input, private_input),
-        no_vec_runtime_memory,
         false,
         &vec![],
     );

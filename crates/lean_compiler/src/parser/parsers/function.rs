@@ -10,7 +10,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{ALL_TABLES, LOG_VECTOR_LEN, Table, TableT};
+use lean_vm::{ALL_TABLES, Table, TableT};
 
 /// Parser for complete function definitions.
 pub struct FunctionParser;
@@ -160,24 +160,6 @@ impl FunctionCallParser {
                 Ok(Line::MAlloc {
                     var: return_data[0].clone(),
                     size: args[0].clone(),
-                    vectorized: false,
-                    vectorized_len: Expression::zero(),
-                })
-            }
-            "malloc_vec" => {
-                let vectorized_len = if args.len() == 1 {
-                    Expression::scalar(LOG_VECTOR_LEN)
-                } else if args.len() == 2 {
-                    args[1].clone()
-                } else {
-                    return Err(SemanticError::new("Invalid malloc_vec call").into());
-                };
-
-                Ok(Line::MAlloc {
-                    var: return_data[0].clone(),
-                    size: args[0].clone(),
-                    vectorized: true,
-                    vectorized_len,
                 })
             }
             "print" => {

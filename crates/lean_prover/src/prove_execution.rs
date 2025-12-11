@@ -18,7 +18,6 @@ use xmss::Poseidon16History;
 pub fn prove_execution(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
-    no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     vm_profiler: bool,
     poseidons_16_precomputed: &Poseidon16History,
 ) -> (Proof<F>, String) {
@@ -33,7 +32,6 @@ pub fn prove_execution(
             execute_bytecode(
                 bytecode,
                 (public_input, private_input),
-                no_vec_runtime_memory,
                 vm_profiler,
                 poseidons_16_precomputed,
             )
@@ -86,7 +84,7 @@ pub fn prove_execution(
             for lookup in table.vector_lookups() {
                 for i in &trace.base[lookup.index] {
                     for j in 0..VECTOR_LEN {
-                        acc[i.to_usize() * VECTOR_LEN + j] += F::ONE;
+                        acc[i.to_usize() + j] += F::ONE;
                     }
                 }
             }

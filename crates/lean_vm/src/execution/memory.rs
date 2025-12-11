@@ -1,5 +1,5 @@
 //! Memory management for the VM
-use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE, VECTOR_LEN};
+use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE};
 use crate::diagnostics::RunnerError;
 use multilinear_toolkit::prelude::*;
 
@@ -62,11 +62,6 @@ impl Memory {
         self.0.len()
     }
 
-    /// Get a vector from vectorized memory
-    pub fn get_vector(&self, index: usize) -> Result<[F; VECTOR_LEN], RunnerError> {
-        Ok(self.get_vectorized_slice(index, 1)?.try_into().unwrap())
-    }
-
     /// Get an extension field element from memory
     pub fn get_ef_element(&self, index: usize) -> Result<EF, RunnerError> {
         // index: non vectorized pointer
@@ -75,12 +70,6 @@ impl Memory {
             *coeff = self.get(index + offset)?;
         }
         Ok(EF::from_basis_coefficients_slice(&coeffs).unwrap())
-    }
-
-    pub fn get_vectorized_slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        let start = index * VECTOR_LEN;
-        let total_len = len * VECTOR_LEN;
-        (0..total_len).map(|i| self.get(start + i)).collect()
     }
 
     /// Get a continuous slice of extension field elements
@@ -100,16 +89,14 @@ impl Memory {
         Ok(())
     }
 
-    /// Set a vector in vectorized memory
-    pub fn set_vector(&mut self, index: usize, value: [F; VECTOR_LEN]) -> Result<(), RunnerError> {
-        for (i, v) in value.iter().enumerate() {
-            let idx = VECTOR_LEN * index + i;
-            self.set(idx, *v)?;
-        }
-        Ok(())
+    pub fn get_slice(&self, start: usize, len: usize) -> Result<Vec<F>, RunnerError> {
+        (0..len).map(|i| self.get(start + i)).collect()
     }
 
-    pub fn slice(&self, start: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        (0..len).map(|i| self.get(start + i)).collect()
+    pub fn set_slice(&mut self, start: usize, values: &[F]) -> Result<(), RunnerError> {
+        for (i, v) in values.iter().enumerate() {
+            self.set(start + i, *v)?;
+        }
+        Ok(())
     }
 }

@@ -27,20 +27,18 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory[NONRESERVED_PROGRAM_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
 
     // "zero" vector
-    let zero_start = ZERO_VEC_PTR * VECTOR_LEN;
+    let zero_start = ZERO_VEC_PTR;
     for slot in public_memory.iter_mut().skip(zero_start).take(2 * VECTOR_LEN) {
         *slot = F::ZERO;
     }
 
     // "one" vector
-    public_memory[ONE_VEC_PTR * VECTOR_LEN] = F::ONE;
-    let one_start = ONE_VEC_PTR * VECTOR_LEN + 1;
-    for slot in public_memory.iter_mut().skip(one_start).take(VECTOR_LEN - 1) {
+    public_memory[ONE_VEC_PTR] = F::ONE;
+    for slot in public_memory.iter_mut().skip(ONE_VEC_PTR + 1).take(VECTOR_LEN - 1) {
         *slot = F::ZERO;
     }
 
-    public_memory[POSEIDON_16_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_16_NULL_HASH_PTR + 2) * VECTOR_LEN]
-        .copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
+    public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * VECTOR_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
     public_memory
 }
 
@@ -51,7 +49,6 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
 pub fn execute_bytecode(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
-    no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     profiling: bool,
     poseidons_16_precomputed: &Poseidon16History,
 ) -> ExecutionResult {
@@ -62,7 +59,6 @@ pub fn execute_bytecode(
         (public_input, private_input),
         &mut std_out,
         &mut instruction_history,
-        no_vec_runtime_memory,
         profiling,
         poseidons_16_precomputed,
     )
@@ -140,7 +136,6 @@ fn execute_bytecode_helper(
     (public_input, private_input): (&[F], &[F]),
     std_out: &mut String,
     instruction_history: &mut ExecutionHistory,
-    no_vec_runtime_memory: usize,
     profiling: bool,
     poseidons_16_precomputed: &Poseidon16History,
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
@@ -165,17 +160,14 @@ fn execute_bytecode_helper(
     fp = fp.next_multiple_of(DIMENSION);
 
     let initial_ap = fp + bytecode.starting_frame_memory;
-    let initial_ap_vec = (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
 
     let mut pc = STARTING_PC;
     let mut ap = initial_ap;
-    let mut ap_vec = initial_ap_vec;
 
     let mut cpu_cycles = 0;
 
     let mut last_checkpoint_cpu_cycles = 0;
     let mut checkpoint_ap = initial_ap;
-    let mut checkpoint_ap_vec = ap_vec;
 
     let mut pcs = Vec::new();
     let mut fps = Vec::new();
@@ -209,7 +201,6 @@ fn execute_bytecode_helper(
                 private_input_start: public_memory_size,
                 fp,
                 ap: &mut ap,
-                ap_vec: &mut ap_vec,
                 counter_hint: &mut counter_hint,
                 std_out,
                 instruction_history,
@@ -217,7 +208,6 @@ fn execute_bytecode_helper(
                 cpu_cycles,
                 last_checkpoint_cpu_cycles: &mut last_checkpoint_cpu_cycles,
                 checkpoint_ap: &mut checkpoint_ap,
-                checkpoint_ap_vec: &mut checkpoint_ap_vec,
                 profiling,
                 memory_profile: &mut mem_profile,
             };
@@ -288,12 +278,7 @@ fn execute_bytecode_helper(
         "Private input size: {}\n",
         pretty_integer(private_input.len())
     ));
-    summary.push_str(&format!(
-        "Runtime memory: {} ({:.2}% vec) (no vec mem: {})\n",
-        pretty_integer(runtime_memory_size),
-        (VECTOR_LEN * (ap_vec - initial_ap_vec)) as f64 / runtime_memory_size as f64 * 100.0,
-        no_vec_runtime_memory
-    ));
+    summary.push_str(&format!("Runtime memory: {}\n", pretty_integer(runtime_memory_size),));
     let used_memory_cells = memory
         .0
         .iter()

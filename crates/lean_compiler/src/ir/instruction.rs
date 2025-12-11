@@ -44,8 +44,6 @@ pub enum IntermediateInstruction {
     RequestMemory {
         offset: ConstExpression, // m[fp + offset] where the hint will be stored
         size: IntermediateValue, // the hint
-        vectorized: bool, // if true, will be (2^vectorized_len)-alligned, and the returned pointer will be "divied" by 2^vectorized_len
-        vectorized_len: IntermediateValue,
     },
     DecomposeBits {
         res_offset: usize, // m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)] will contain the decomposed bits
@@ -171,14 +169,8 @@ impl Display for IntermediateInstruction {
             Self::RequestMemory {
                 offset,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
-                if *vectorized {
-                    write!(f, "m[fp + {offset}] = request_memory_vec({size}, {vectorized_len})")
-                } else {
-                    write!(f, "m[fp + {offset}] = request_memory({size})")
-                }
+                write!(f, "m[fp + {offset}] = request_memory({size})")
             }
             Self::DecomposeBits {
                 res_offset,

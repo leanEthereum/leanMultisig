@@ -486,8 +486,6 @@ fn compile_lines(
             SimpleLine::HintMAlloc {
                 var,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
                 if !compiler.is_in_scope(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
@@ -499,8 +497,6 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::RequestMemory {
                     offset: compiler.get_offset(&var.clone().into()),
                     size: IntermediateValue::from_simple_expr(size, compiler),
-                    vectorized: *vectorized,
-                    vectorized_len: IntermediateValue::from_simple_expr(vectorized_len, compiler),
                 });
             }
             SimpleLine::ConstMalloc { var, size, label } => {
@@ -620,8 +616,6 @@ fn setup_function_call(
         IntermediateInstruction::RequestMemory {
             offset: new_fp_pos.into(),
             size: ConstExpression::function_size(Label::function(func_name)).into(),
-            vectorized: false,
-            vectorized_len: IntermediateValue::Constant(ConstExpression::zero()),
         },
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),

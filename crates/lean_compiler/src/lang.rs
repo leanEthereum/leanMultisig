@@ -359,8 +359,6 @@ pub enum Line {
     MAlloc {
         var: Var,
         size: Expression,
-        vectorized: bool,
-        vectorized_len: Expression,
     },
     DecomposeBits {
         var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
@@ -551,14 +549,8 @@ impl Line {
             Self::MAlloc {
                 var,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
-                if *vectorized {
-                    format!("{var} = malloc_vec({size}, {vectorized_len})")
-                } else {
-                    format!("{var} = malloc({size})")
-                }
+                format!("{var} = malloc({size})")
             }
             Self::DecomposeBits { var, to_decompose } => {
                 format!(

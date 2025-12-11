@@ -108,8 +108,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let is_compression = is_compression == 1;
         let trace = ctx.traces.get_mut(&self.identifier()).unwrap();
 
-        let arg0 = ctx.memory.get_vector(arg_a.to_usize())?;
-        let arg1 = ctx.memory.get_vector(arg_b.to_usize())?;
+        let arg0 = ctx.memory.get_slice(arg_a.to_usize(), VECTOR_LEN)?;
+        let arg1 = ctx.memory.get_slice(arg_b.to_usize(), VECTOR_LEN)?;
 
         let mut input = [F::ZERO; VECTOR_LEN * 2];
         input[..VECTOR_LEN].copy_from_slice(&arg0);
@@ -127,11 +127,11 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let (index_res_b, res_b): (F, [F; VECTOR_LEN]) = if is_compression {
             (F::from_usize(ZERO_VEC_PTR), [F::ZERO; VECTOR_LEN])
         } else {
-            (index_res_a + F::ONE, output[VECTOR_LEN..].try_into().unwrap())
+            (index_res_a + F::from_usize(VECTOR_LEN), output[VECTOR_LEN..].try_into().unwrap())
         };
 
-        ctx.memory.set_vector(index_res_a.to_usize(), res_a)?;
-        ctx.memory.set_vector(index_res_b.to_usize(), res_b)?;
+        ctx.memory.set_slice(index_res_a.to_usize(), &res_a)?;
+        ctx.memory.set_slice(index_res_b.to_usize(), &res_b)?;
 
         trace.base[POSEIDON_16_COL_FLAG].push(F::ONE);
         trace.base[POSEIDON_16_COL_INDEX_A].push(arg_a);
@@ -197,7 +197,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         builder.assert_bool(cols.compress.clone());
         builder.assert_eq(
             cols.index_res_bis.clone(),
-            (cols.index_res.clone() + AB::F::ONE) * (AB::F::ONE - cols.compress.clone()),
+            (cols.index_res.clone() + AB::F::from_usize(VECTOR_LEN)) * (AB::F::ONE - cols.compress.clone()),
         );
 
         eval(builder, &cols)

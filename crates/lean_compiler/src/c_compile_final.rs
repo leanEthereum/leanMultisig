@@ -337,17 +337,12 @@ fn compile_block(
             IntermediateInstruction::RequestMemory {
                 offset,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
                 let size = try_as_mem_or_constant(&size).unwrap();
-                let vectorized_len = try_as_constant(&vectorized_len, compiler).unwrap().to_usize();
                 let hint = Hint::RequestMemory {
                     function_name: function_name.clone(),
                     offset: eval_const_expression_usize(&offset, compiler),
-                    vectorized,
                     size,
-                    vectorized_len,
                 };
                 hints.entry(pc).or_default().push(hint);
             }
