@@ -8,6 +8,7 @@ pub use xmss::{
     XMSS_MIN_LOG_LIFETIME,
     XmssPublicKey,
     XmssSecretKey,
+    XmssSignature,
     xmss_generate_phony_signatures, // useful for tests
     xmss_key_gen,
     xmss_sign,
