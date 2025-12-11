@@ -46,7 +46,6 @@ cast_sign_loss = "allow"
 air = { path = "crates/air" }
 utils = { path = "crates/utils" }
 lean_vm = { path = "crates/lean_vm" }
-xmss = { path = "crates/xmss" }
 sub_protocols = { path = "crates/sub_protocols" }
 lookup = { path = "crates/lookup" }
 lean_compiler = { path = "crates/lean_compiler" }
@@ -82,11 +81,11 @@ p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "l
 
 whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "lean-vm-simple" }
 multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "lean-vm-simple" }
+leansig = { git = "https://github.com/TomWambsgans/leansig.git", branch = "lean-vm-friendly-tweaks" }
 
 [dependencies]
 clap.workspace = true
 rec_aggregation.workspace = true
-xmss.workspace = true
 p3-koala-bear.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true

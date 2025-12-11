@@ -8,7 +8,6 @@ workspace = true
 
 [dependencies]
 utils.workspace = true
-xmss.workspace = true
 rand.workspace = true
 p3-poseidon2.workspace = true
 p3-koala-bear.workspace = true
@@ -27,3 +26,4 @@ lean_prover.workspace = true
 multilinear-toolkit.workspace = true
 bincode.workspace = true
 serde.workspace = true
+leansig.workspace = true

@@ -13,7 +13,6 @@ use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
 use whir_p3::WhirConfig;
-use xmss::{Poseidon16History, Poseidon24History};
 
 pub fn prove_execution(
     bytecode: &Bytecode,
