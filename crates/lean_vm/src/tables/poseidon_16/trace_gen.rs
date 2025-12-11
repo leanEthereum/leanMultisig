@@ -90,6 +90,13 @@ fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseido
         generate_full_round(&mut state, full_round, &constants[0], &constants[1]);
     }
 
+    perm.ending_full_rounds.last_mut().unwrap()[0..8]
+        .iter_mut()
+        .zip(&perm.inputs[..8])
+        .for_each(|(x, input)| {
+            **x += *perm.compress * **input;
+        });
+
     perm.ending_full_rounds.last_mut().unwrap()[8..16]
         .iter_mut()
         .for_each(|x| {

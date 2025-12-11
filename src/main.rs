@@ -1,6 +1,6 @@
 use clap::Parser;
 use lean_vm::benchmark_prove_poseidon_16;
-use rec_aggregation::{recursion::run_whir_recursion_benchmark, xmss_aggregate::run_xmss_benchmark};
+use rec_aggregation::xmss_aggregate::run_xmss_benchmark;
 use xmss::XMSS_MAX_LOG_LIFETIME;
 
 #[derive(Parser)]
@@ -11,13 +11,6 @@ enum Cli {
         n_signatures: usize,
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
-    },
-    #[command(about = "Run 1 WHIR recursive proof")]
-    Recursion {
-        #[arg(long, help = "Enable tracing")]
-        tracing: bool,
-        #[arg(long, default_value_t = 1, help = "Number of recursions")]
-        count: usize,
     },
     #[command(about = "Prove validity of Poseidon2 permutations over 16 field elements")]
     Poseidon {
@@ -35,9 +28,6 @@ fn main() {
         Cli::Xmss { n_signatures, tracing } => {
             let log_lifetimes = (0..n_signatures).map(|_| XMSS_MAX_LOG_LIFETIME).collect::<Vec<_>>();
             run_xmss_benchmark(&log_lifetimes, tracing);
-        }
-        Cli::Recursion { tracing, count } => {
-            run_whir_recursion_benchmark(tracing, count);
         }
         Cli::Poseidon {
             log_n_perms: log_count,

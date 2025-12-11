@@ -39,10 +39,11 @@ fn test_zk_vm_all_precompiles() {
 
     let poseidon_16_compress_input: [F; 16] = rng.random();
     public_input[32..48].copy_from_slice(&poseidon_16_compress_input);
-    public_input[48..56].copy_from_slice(&poseidon16_permute(poseidon_16_compress_input)[..8]);
-
-    let poseidon_24_input: [F; 24] = rng.random();
-    public_input[56..80].copy_from_slice(&poseidon_24_input);
+    let mut compressed_output = poseidon16_permute(poseidon_16_compress_input)[..8].to_vec();
+    for i in 0..8 {
+        compressed_output[i] += poseidon_16_compress_input[i];
+    }
+    public_input[48..56].copy_from_slice(&compressed_output);
 
     let dot_product_slice_base: [F; N] = rng.random();
     let dot_product_slice_ext_a: [EF; N] = rng.random();

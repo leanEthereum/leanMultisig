@@ -123,11 +123,18 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             _ => poseidon16_permute(input),
         };
 
-        let res_a: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
-        let (index_res_b, res_b): (F, [F; VECTOR_LEN]) = if is_compression {
-            (F::from_usize(ZERO_VEC_PTR), [F::ZERO; VECTOR_LEN])
+        let (index_res_b, res_a, res_b): (F, [F; VECTOR_LEN], [F; VECTOR_LEN]) = if is_compression {
+            (
+                F::from_usize(ZERO_VEC_PTR),
+                std::array::from_fn(|i| arg0[i] + output[i]),
+                [F::ZERO; VECTOR_LEN],
+            )
         } else {
-            (index_res_a + F::from_usize(VECTOR_LEN), output[VECTOR_LEN..].try_into().unwrap())
+            (
+                index_res_a + F::from_usize(VECTOR_LEN),
+                output[..VECTOR_LEN].try_into().unwrap(),
+                output[VECTOR_LEN..].try_into().unwrap(),
+            )
         };
 
         ctx.memory.set_slice(index_res_a.to_usize(), &res_a)?;
@@ -251,6 +258,7 @@ fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
 
     eval_last_2_full_rounds(
         &mut state,
+        &local.inputs,
         &local.ending_full_rounds[HALF_FINAL_FULL_ROUNDS - 1],
         &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
         &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1) + 1],
@@ -290,6 +298,7 @@ fn eval_2_full_rounds<AB: AirBuilder>(
 #[inline]
 fn eval_last_2_full_rounds<AB: AirBuilder>(
     state: &mut [AB::F; WIDTH],
+    inputs: &[AB::F; WIDTH],
     post_full_round: &[AB::F; WIDTH],
     round_constants_1: &[F; WIDTH],
     round_constants_2: &[F; WIDTH],
@@ -306,13 +315,13 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
         *s = s.cube();
     }
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
-    for (state_i, post_i) in state.iter_mut().zip(post_full_round).take(WIDTH / 2) {
-        builder.assert_eq(state_i.clone(), post_i.clone());
-        *state_i = post_i.clone();
+    for ((state_i, post_i), input_i) in state.iter_mut().zip(post_full_round).zip(inputs).take(WIDTH / 2) {
+        builder.assert_eq(state_i.clone() + compress.clone() * input_i.clone(), post_i.clone());
+        // *state_i = post_i.clone() ;
     }
     for (state_i, post_i) in state.iter_mut().zip(post_full_round).skip(WIDTH / 2) {
         builder.assert_eq(state_i.clone() * -(compress.clone() - AB::F::ONE), post_i.clone());
-        *state_i = post_i.clone();
+        // *state_i = post_i.clone();
     }
 }
 
