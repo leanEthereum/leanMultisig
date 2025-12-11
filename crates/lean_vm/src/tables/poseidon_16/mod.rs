@@ -1,7 +1,7 @@
 use p3_poseidon2::GenericPoseidon2LinearLayers;
 use std::{any::TypeId, array};
 
-use crate::{tables::poseidon_16::trace_gen::default_poseidon_row, *};
+use crate::{tables::poseidon_16::trace_gen::default_poseidon_16_row, *};
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{
     GenericPoseidon2LinearLayersKoalaBear, KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL,
@@ -17,7 +17,7 @@ pub use trace_gen::fill_trace_poseidon_16;
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
 
-pub(super) const WIDTH: usize = 16;
+pub(super) const WIDTH_16: usize = 16;
 const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 2;
 const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
 const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
@@ -29,7 +29,7 @@ pub const POSEIDON_16_COL_COMPRESSION: ColIndex = 3;
 pub const POSEIDON_16_COL_INDEX_A: ColIndex = 4;
 pub const POSEIDON_16_COL_INDEX_B: ColIndex = 5;
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
-const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols() - 16;
+const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_16() - 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile<const BUS: bool>;
@@ -88,7 +88,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     }
 
     fn padding_row_f(&self) -> Vec<F> {
-        default_poseidon_row()
+        default_poseidon_16_row()
     }
 
     fn padding_row_ef(&self) -> Vec<EF> {
@@ -159,7 +159,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
 impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns_f_air(&self) -> usize {
-        num_cols()
+        num_cols_16()
     }
     fn n_columns_ef_air(&self) -> usize {
         0
@@ -177,9 +177,9 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         BUS as usize + 87
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
-        let cols: Poseidon2Cols<AB::F> = {
+        let cols: Poseidon16Cols<AB::F> = {
             let up = builder.up_f();
-            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon2Cols<AB::F>>() };
+            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon16Cols<AB::F>>() };
             debug_assert!(prefix.is_empty(), "Alignment should match");
             debug_assert!(suffix.is_empty(), "Alignment should match");
             debug_assert_eq!(shorts.len(), 1);
@@ -213,7 +213,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 
 #[repr(C)]
 #[derive(Debug)]
-pub(super) struct Poseidon2Cols<T> {
+pub(super) struct Poseidon16Cols<T> {
     pub flag: T,
     pub index_res: T,
     pub index_res_bis: T,
@@ -221,14 +221,14 @@ pub(super) struct Poseidon2Cols<T> {
     pub index_a: T,
     pub index_b: T,
 
-    pub inputs: [T; WIDTH],
-    pub beginning_full_rounds: [[T; WIDTH]; HALF_INITIAL_FULL_ROUNDS],
+    pub inputs: [T; WIDTH_16],
+    pub beginning_full_rounds: [[T; WIDTH_16]; HALF_INITIAL_FULL_ROUNDS],
     pub partial_rounds: [T; PARTIAL_ROUNDS],
-    pub ending_full_rounds: [[T; WIDTH]; HALF_FINAL_FULL_ROUNDS],
+    pub ending_full_rounds: [[T; WIDTH_16]; HALF_FINAL_FULL_ROUNDS],
 }
 
-fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
-    let mut state: [_; WIDTH] = local.inputs.clone().map(|x| x);
+fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon16Cols<AB::F>) {
+    let mut state: [_; WIDTH_16] = local.inputs.clone().map(|x| x);
 
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut state);
 
@@ -267,16 +267,16 @@ fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
     );
 }
 
-pub(super) const fn num_cols() -> usize {
-    size_of::<Poseidon2Cols<u8>>()
+pub(super) const fn num_cols_16() -> usize {
+    size_of::<Poseidon16Cols<u8>>()
 }
 
 #[inline]
 fn eval_2_full_rounds<AB: AirBuilder>(
-    state: &mut [AB::F; WIDTH],
-    post_full_round: &[AB::F; WIDTH],
-    round_constants_1: &[F; WIDTH],
-    round_constants_2: &[F; WIDTH],
+    state: &mut [AB::F; WIDTH_16],
+    post_full_round: &[AB::F; WIDTH_16],
+    round_constants_1: &[F; WIDTH_16],
+    round_constants_2: &[F; WIDTH_16],
     builder: &mut AB,
 ) {
     for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
@@ -297,11 +297,11 @@ fn eval_2_full_rounds<AB: AirBuilder>(
 
 #[inline]
 fn eval_last_2_full_rounds<AB: AirBuilder>(
-    state: &mut [AB::F; WIDTH],
-    inputs: &[AB::F; WIDTH],
-    post_full_round: &[AB::F; WIDTH],
-    round_constants_1: &[F; WIDTH],
-    round_constants_2: &[F; WIDTH],
+    state: &mut [AB::F; WIDTH_16],
+    inputs: &[AB::F; WIDTH_16],
+    post_full_round: &[AB::F; WIDTH_16],
+    round_constants_1: &[F; WIDTH_16],
+    round_constants_2: &[F; WIDTH_16],
     compress: AB::F,
     builder: &mut AB,
 ) {
@@ -315,11 +315,11 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
         *s = s.cube();
     }
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
-    for ((state_i, post_i), input_i) in state.iter_mut().zip(post_full_round).zip(inputs).take(WIDTH / 2) {
+    for ((state_i, post_i), input_i) in state.iter_mut().zip(post_full_round).zip(inputs).take(WIDTH_16 / 2) {
         builder.assert_eq(state_i.clone() + compress.clone() * input_i.clone(), post_i.clone());
         // *state_i = post_i.clone() ;
     }
-    for (state_i, post_i) in state.iter_mut().zip(post_full_round).skip(WIDTH / 2) {
+    for (state_i, post_i) in state.iter_mut().zip(post_full_round).skip(WIDTH_16 / 2) {
         builder.assert_eq(state_i.clone() * -(compress.clone() - AB::F::ONE), post_i.clone());
         // *state_i = post_i.clone();
     }
@@ -327,7 +327,7 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
 
 #[inline]
 fn eval_partial_round<AB: AirBuilder>(
-    state: &mut [AB::F; WIDTH],
+    state: &mut [AB::F; WIDTH_16],
     post_partial_round: &AB::F,
     round_constant: F,
     builder: &mut AB,

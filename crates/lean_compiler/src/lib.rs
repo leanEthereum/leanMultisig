@@ -32,7 +32,7 @@ pub fn compile_program(program: String) -> Bytecode {
 
 pub fn compile_and_run(program: String, (public_input, private_input): (&[F], &[F]), profiler: bool) {
     let bytecode = compile_program(program);
-    let summary = execute_bytecode(&bytecode, (public_input, private_input), profiler, &vec![]).summary;
+    let summary = execute_bytecode(&bytecode, (public_input, private_input), profiler, &vec![], &vec![]).summary;
     println!("{summary}");
 }
 

@@ -1,11 +1,8 @@
 use crate::{
-    EF, ExtraDataForBuses, F, POSEIDON_16_COL_COMPRESSION, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INDEX_A,
-    POSEIDON_16_COL_INDEX_B, POSEIDON_16_COL_INDEX_RES, POSEIDON_16_COL_INDEX_RES_BIS, POSEIDON_16_COL_INPUT_START,
-    POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, Poseidon16Precompile, ZERO_VEC_PTR,
-    tables::{
-        WIDTH_16, num_cols_16,
-        poseidon_16::trace_gen::{default_poseidon_16_row, fill_trace_poseidon_16},
-    },
+    EF, ExtraDataForBuses, F, POSEIDON_24_COL_FLAG, POSEIDON_24_COL_INDEX_A, POSEIDON_24_COL_INDEX_A_BIS, POSEIDON_24_COL_INDEX_B, POSEIDON_24_COL_INDEX_RES, POSEIDON_24_COL_INDEX_RES_BIS, POSEIDON_24_COL_INDEX_RES_BIS_BIS, POSEIDON_24_COL_INPUT_START, POSEIDON_24_NULL_HASH_PTR, Poseidon24Precompile, VECTOR_LEN, ZERO_VEC_PTR, tables::{
+        WIDTH_24, num_cols_24,
+        poseidon_24::trace_gen::{default_poseidon_24_row, fill_trace_poseidon_24},
+    }
 };
 use air::{check_air_validity, prove_air, verify_air};
 use multilinear_toolkit::prelude::*;
@@ -20,30 +17,29 @@ const UNIVARIATE_SKIPS: usize = 3;
 const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 13;
 
 #[test]
-fn test_benchmark_air_poseidon_16() {
-    benchmark_prove_poseidon_16(1026, false);
+fn test_benchmark_air_poseidon_24() {
+    benchmark_prove_poseidon_24(1026, false);
 }
 
-pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
+pub fn benchmark_prove_poseidon_24(n_rows: usize, tracing: bool) {
     if tracing {
         init_tracing();
     }
     let mut rng = StdRng::seed_from_u64(0);
-    let mut trace = vec![vec![F::ZERO; n_rows]; num_cols_16()];
-    for t in trace.iter_mut().skip(POSEIDON_16_COL_INPUT_START).take(WIDTH_16) {
+    let mut trace = vec![vec![F::ZERO; n_rows]; num_cols_24()];
+    for t in trace.iter_mut().skip(POSEIDON_24_COL_INPUT_START).take(WIDTH_24) {
         *t = (0..n_rows).map(|_| rng.random()).collect();
     }
-    trace[POSEIDON_16_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
-    trace[POSEIDON_16_COL_INDEX_RES] = (0..n_rows).map(|_| F::from_usize(POSEIDON_16_NULL_HASH_PTR)).collect();
-    trace[POSEIDON_16_COL_INDEX_RES_BIS] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
-    trace[POSEIDON_16_COL_COMPRESSION] = (0..n_rows)
-        .map(|_| F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION))
-        .collect();
-    trace[POSEIDON_16_COL_INDEX_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
-    trace[POSEIDON_16_COL_INDEX_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
-    fill_trace_poseidon_16(&mut trace);
+    trace[POSEIDON_24_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
+    trace[POSEIDON_24_COL_INDEX_RES] = (0..n_rows).map(|_| F::from_usize(POSEIDON_24_NULL_HASH_PTR)).collect();
+    trace[POSEIDON_24_COL_INDEX_RES_BIS] = (0..n_rows).map(|_| F::from_usize(POSEIDON_24_NULL_HASH_PTR + VECTOR_LEN)).collect();
+    trace[POSEIDON_24_COL_INDEX_RES_BIS_BIS] = (0..n_rows).map(|_| F::from_usize(POSEIDON_24_NULL_HASH_PTR + 2 * VECTOR_LEN)).collect();
+    trace[POSEIDON_24_COL_INDEX_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    trace[POSEIDON_24_COL_INDEX_A_BIS] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR + VECTOR_LEN)).collect();
+    trace[POSEIDON_24_COL_INDEX_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    fill_trace_poseidon_24(&mut trace);
 
-    let default_row = default_poseidon_16_row();
+    let default_row = default_poseidon_24_row();
 
     // padding
     for (col, default_value) in trace.iter_mut().zip(&default_row) {
@@ -63,7 +59,7 @@ pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
         starting_log_inv_rate: 1,
     };
 
-    let air = Poseidon16Precompile::<false>;
+    let air = Poseidon24Precompile::<false>;
 
     check_air_validity(
         &air,

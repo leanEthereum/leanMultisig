@@ -13,13 +13,14 @@ use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
 use whir_p3::WhirConfig;
-use xmss::Poseidon16History;
+use xmss::{Poseidon16History, Poseidon24History};
 
 pub fn prove_execution(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
     vm_profiler: bool,
     poseidons_16_precomputed: &Poseidon16History,
+    poseidons_24_precomputed: &Poseidon24History,
 ) -> (Proof<F>, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
@@ -34,6 +35,7 @@ pub fn prove_execution(
                 (public_input, private_input),
                 vm_profiler,
                 poseidons_16_precomputed,
+                poseidons_24_precomputed,
             )
         });
         exec_summary = std::mem::take(&mut execution_result.summary);

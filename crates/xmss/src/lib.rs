@@ -22,6 +22,7 @@ pub const XMSS_MIN_LOG_LIFETIME: usize = 2;
 pub const XMSS_MAX_LOG_LIFETIME: usize = 30;
 
 pub type Poseidon16History = Vec<([F; 16], [F; 16])>;
+pub type Poseidon24History = Vec<([F; 24], [F; 24])>;
 
 fn poseidon16_compress(a: &Digest, b: &Digest) -> Digest {
     poseidon16_permute([*a, *b].concat().try_into().unwrap())[0..8]

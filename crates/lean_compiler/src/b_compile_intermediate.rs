@@ -451,7 +451,11 @@ fn compile_lines(
             }
 
             SimpleLine::Precompile { table, args, .. } => {
-                assert_eq!(args.len(), 4);
+                if *table == Table::poseidon24() {
+                    assert_eq!(args.len(), 3);
+                } else {
+                    assert_eq!(args.len(), 4);
+                }
                 instructions.push(IntermediateInstruction::Precompile {
                     table: *table,
                     arg_a: IntermediateValue::from_simple_expr(&args[0], compiler),
@@ -483,10 +487,7 @@ fn compile_lines(
                 }
             }
             SimpleLine::Panic => instructions.push(IntermediateInstruction::Panic),
-            SimpleLine::HintMAlloc {
-                var,
-                size,
-            } => {
+            SimpleLine::HintMAlloc { var, size } => {
                 if !compiler.is_in_scope(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout

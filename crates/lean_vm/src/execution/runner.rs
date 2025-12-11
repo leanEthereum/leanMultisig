@@ -8,13 +8,13 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, N_TABLES, STARTING_PC, SourceLineNumber, Table,
-    TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, N_TABLES, POSEIDON_24_NULL_HASH_PTR, STARTING_PC,
+    SourceLineNumber, Table, TableTrace,
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
-use utils::{poseidon16_permute, pretty_integer};
-use xmss::Poseidon16History;
+use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
+use xmss::{Poseidon16History, Poseidon24History};
 
 /// Number of instructions to show in stack trace
 const STACK_TRACE_INSTRUCTIONS: usize = 5000;
@@ -39,6 +39,7 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     }
 
     public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * VECTOR_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
+    public_memory[POSEIDON_24_NULL_HASH_PTR..][..3 * VECTOR_LEN].copy_from_slice(&poseidon24_permute([F::ZERO; 24]));
     public_memory
 }
 
@@ -51,6 +52,7 @@ pub fn execute_bytecode(
     (public_input, private_input): (&[F], &[F]),
     profiling: bool,
     poseidons_16_precomputed: &Poseidon16History,
+    poseidons_24_precomputed: &Poseidon24History,
 ) -> ExecutionResult {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
@@ -61,6 +63,7 @@ pub fn execute_bytecode(
         &mut instruction_history,
         profiling,
         poseidons_16_precomputed,
+        poseidons_24_precomputed,
     )
     .unwrap_or_else(|(last_pc, err)| {
         let lines_history = &instruction_history.lines;
@@ -138,6 +141,7 @@ fn execute_bytecode_helper(
     instruction_history: &mut ExecutionHistory,
     profiling: bool,
     poseidons_16_precomputed: &Poseidon16History,
+    poseidons_24_precomputed: &Poseidon24History,
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
@@ -173,6 +177,7 @@ fn execute_bytecode_helper(
     let mut fps = Vec::new();
 
     let mut n_poseidon16_precomputed_used = 0;
+    let mut n_poseidon24_precomputed_used = 0;
 
     let mut traces = BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i], TableTrace::new(&ALL_TABLES[i]))));
 
@@ -226,7 +231,9 @@ fn execute_bytecode_helper(
             deref_counts: &mut deref_counts,
             jump_counts: &mut jump_counts,
             poseidon16_precomputed: poseidons_16_precomputed,
+            poseidon24_precomputed: poseidons_24_precomputed,
             n_poseidon16_precomputed_used: &mut n_poseidon16_precomputed_used,
+            n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
         instruction
             .execute_instruction(&mut instruction_ctx)

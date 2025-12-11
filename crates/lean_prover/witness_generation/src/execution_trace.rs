@@ -96,8 +96,11 @@ pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionR
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
-    let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
-    fill_trace_poseidon_16(&mut poseidon_trace.base);
+    let poseidon_trace_16 = traces.get_mut(&Table::poseidon16()).unwrap();
+    fill_trace_poseidon_16(&mut poseidon_trace_16.base);
+
+    let poseidon_trace_24 = traces.get_mut(&Table::poseidon24()).unwrap();
+    fill_trace_poseidon_24(&mut poseidon_trace_24.base);
 
     traces.insert(
         Table::execution(),

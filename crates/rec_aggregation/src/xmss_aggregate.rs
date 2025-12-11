@@ -80,7 +80,7 @@ fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionRes
     let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, slot);
     let public_input = build_public_input(&xmss_pub_keys, message_hash, slot);
     let private_input = build_private_input(&all_signatures);
-    execute_bytecode(bytecode, (&public_input, &private_input), false, &vec![])
+    execute_bytecode(bytecode, (&public_input, &private_input), false, &vec![], &vec![])
 }
 
 pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
@@ -150,6 +150,7 @@ fn xmss_aggregate_signatures_helper(
         (&public_input, &private_input),
         false,
         &poseidons_16_precomputed,
+        &vec![], // TODO
     );
 
     let proof_bytes = info_span!("Proof serialization").in_scope(|| bincode::serialize(&proof).unwrap());

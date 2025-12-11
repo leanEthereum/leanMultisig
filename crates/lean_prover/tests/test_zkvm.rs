@@ -21,6 +21,7 @@ fn test_zk_vm_all_precompiles() {
         pub_start = public_input_start;
         poseidon16(pub_start, pub_start + VECTOR_LEN, pub_start + 2 * VECTOR_LEN, PERMUTATION);
         poseidon16(pub_start + 4 * VECTOR_LEN, pub_start + 5 * VECTOR_LEN, pub_start + 6 * VECTOR_LEN, COMPRESSION);
+        poseidon24(pub_start + 1200, pub_start + 1216, pub_start + 1300);
         dot_product_be(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N);
         dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
         
@@ -82,33 +83,11 @@ fn test_zk_vm_all_precompiles() {
     );
     public_input[1100 + 3 + 3 * DIMENSION..][..DIMENSION].copy_from_slice(poly_eq.as_basis_coefficients_slice());
 
-    fn add_merkle_path(
-        rng: &mut StdRng,
-        public_input: &mut [F],
-        merkle_height: usize,
-        leaf_position: usize,
-    ) -> Vec<[F; 8]> {
-        let leaf: [F; VECTOR_LEN] = rng.random();
-        public_input[..VECTOR_LEN].copy_from_slice(&leaf);
-        let mut merkle_path = Vec::new();
-        let mut current_digest = leaf;
-        for i in 0..merkle_height {
-            let sibling: [F; VECTOR_LEN] = rng.random();
-            merkle_path.push(sibling);
-            let (left, right) = if (leaf_position >> i) & 1 == 0 {
-                (current_digest, sibling)
-            } else {
-                (sibling, current_digest)
-            };
-            current_digest = poseidon16_permute([left.to_vec(), right.to_vec()].concat().try_into().unwrap())
-                [..VECTOR_LEN]
-                .try_into()
-                .unwrap();
-        }
-        let root = current_digest;
-        public_input[VECTOR_LEN..][..VECTOR_LEN].copy_from_slice(&root);
-        merkle_path
-    }
+
+    let poseidon24_input: [F; 24] = rng.random();
+    public_input[1200..][..24].copy_from_slice(&poseidon24_input);
+    let poseidon24_output = utils::poseidon24_permute(poseidon24_input);
+    public_input[1300..][..24].copy_from_slice(&poseidon24_output);
 
     test_zk_vm_helper(program_str, (&public_input, &[]));
 }
@@ -159,12 +138,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
     utils::init_tracing();
     let bytecode = compile_program(program_str.to_string());
     let time = std::time::Instant::now();
-    let (proof, summary) = prove_execution(
-        &bytecode,
-        (public_input, private_input),
-        false,
-        &vec![],
-    );
+    let (proof, summary) = prove_execution(&bytecode, (public_input, private_input), false, &vec![], &vec![]);
     let proof_time = time.elapsed();
     verify_execution(&bytecode, public_input, proof).unwrap();
     println!("{}", summary);

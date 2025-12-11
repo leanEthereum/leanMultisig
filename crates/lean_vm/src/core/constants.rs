@@ -24,19 +24,22 @@ pub const ENDING_PC: usize = 0;
 ///
 /// [public_data] = [reserved_area] [program_input]
 ///
-/// reserved_area: reserved for special constants (size = 48 field elements)
+/// reserved_area: reserved for special constants (size = 64 field elements)
 /// program_input: the input of the program we want to prove
 ///
-/// [reserved_area] = [00000000] [00000000] [10000000] [poseidon_16(0) (16 field elements)] [poseidon_24(0) (8 last field elements)]
+/// [reserved_area] = [00000000] [00000000] [10000000] [poseidon_16(0) (16 field elements)] [poseidon_24(0) (24 field elements)]
 ///
-/// Convention: vectorized pointer of size 2, pointing to 16 zeros
+/// Convention: 16 zeros
 pub const ZERO_VEC_PTR: usize = 0;
 
-/// Convention: vectorized pointer of size 1, pointing to 10000000
+/// Convention: 10000000
 pub const ONE_VEC_PTR: usize = 2 * VECTOR_LEN;
 
-/// Convention: vectorized pointer of size 2, = the 16 elements of poseidon_16(0)
+/// Convention: the 16 elements of poseidon_16(0)
 pub const POSEIDON_16_NULL_HASH_PTR: usize = 3 * VECTOR_LEN;
 
+/// Convention: the 24 elements of poseidon_24(0)
+pub const POSEIDON_24_NULL_HASH_PTR: usize = 5 * VECTOR_LEN;
+
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * VECTOR_LEN;
+pub const NONRESERVED_PROGRAM_INPUT_START: usize = 8 * VECTOR_LEN;
