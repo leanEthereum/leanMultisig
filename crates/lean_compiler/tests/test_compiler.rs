@@ -40,7 +40,7 @@ fn test_duplicate_constant_name() {
 
 #[test]
 #[should_panic]
-fn test_wrong_n_returned_vars() {
+fn test_wrong_n_returned_vars_1() {
     let program = r#"
     fn main() {
         a, b = f();
@@ -48,6 +48,21 @@ fn test_wrong_n_returned_vars() {
 
     fn f() -> 1 {
         return 0;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
+
+#[test]
+#[should_panic]
+fn test_wrong_n_returned_vars_2() {
+    let program = r#"
+    fn main() {
+        a = f();
+    }
+
+    fn f() -> 1 {
+        return 0, 1;
     }
     "#;
     compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);

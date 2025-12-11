@@ -161,6 +161,7 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
         let mut array_manager = ArrayManager::default();
         let simplified_instructions = simplify_lines(
             &program.functions,
+            func.n_returned_vars,
             &func.body,
             &mut counters,
             &mut new_functions,
@@ -436,8 +437,10 @@ impl ArrayManager {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn simplify_lines(
     functions: &BTreeMap<String, Function>,
+    n_returned_vars: usize,
     lines: &[Line],
     counters: &mut Counters,
     new_functions: &mut BTreeMap<String, SimpleFunction>,
@@ -458,6 +461,7 @@ fn simplify_lines(
                     assert_eq!(*pattern, i, "match patterns should be consecutive, starting from 0");
                     simple_arms.push(simplify_lines(
                         functions,
+                        n_returned_vars,
                         statements,
                         counters,
                         new_functions,
@@ -610,6 +614,7 @@ fn simplify_lines(
                 let mut array_manager_then = array_manager.clone();
                 let then_branch_simplified = simplify_lines(
                     functions,
+                    n_returned_vars,
                     then_branch,
                     counters,
                     new_functions,
@@ -622,6 +627,7 @@ fn simplify_lines(
 
                 let else_branch_simplified = simplify_lines(
                     functions,
+                    n_returned_vars,
                     else_branch,
                     counters,
                     new_functions,
@@ -672,6 +678,7 @@ fn simplify_lines(
                         replace_vars_for_unroll(&mut body_copy, iterator, unroll_index, i, &internal_variables);
                         unrolled_lines.extend(simplify_lines(
                             functions,
+                            0,
                             &body_copy,
                             counters,
                             new_functions,
@@ -696,6 +703,7 @@ fn simplify_lines(
                 array_manager.valid.clear();
                 let simplified_body = simplify_lines(
                     functions,
+                    0,
                     body,
                     counters,
                     new_functions,
@@ -793,6 +801,11 @@ fn simplify_lines(
             }
             Line::FunctionRet { return_data } => {
                 assert!(!in_a_loop, "Function return inside a loop is not currently supported");
+                assert!(
+                    return_data.len() == n_returned_vars,
+                    "Wrong number of return values in return statement; expected {n_returned_vars} but got {}",
+                    return_data.len()
+                );
                 let simplified_return_data = return_data
                     .iter()
                     .map(|ret| simplify_expr(ret, &mut res, counters, array_manager, const_malloc))
