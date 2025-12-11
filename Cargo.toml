@@ -81,7 +81,7 @@ p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "l
 
 whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "lean-vm-simple" }
 multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "lean-vm-simple" }
-leansig = { git = "https://github.com/TomWambsgans/leansig.git", branch = "lean-vm-friendly-tweaks" }
+leansig = { path = "../zk/leansig" }
 
 [dependencies]
 clap.workspace = true

@@ -1,13 +1,18 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
+use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized as leansig_module;
+
 pub mod xmss_aggregate;
 
+pub type LeanSigScheme = leansig_module::SIGTopLevelTargetSumLifetime32Dim64Base8;
+pub type LeanSigPubKey = leansig_module::PubKeyTopLevelTargetSumLifetime32Dim64Base8;
+pub type LeanSigSignature = leansig_module::SigTopLevelTargetSumLifetime32Dim64Base8;
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use leansig::signature::{SignatureScheme, SignatureSchemeSecretKey};
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    pub type LeanSigScheme = leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
 
     #[test]
     fn test() {

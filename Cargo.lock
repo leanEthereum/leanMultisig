@@ -1186,7 +1186,6 @@ dependencies = [
 [[package]]
 name = "leansig"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/leansig.git?branch=lean-vm-friendly-tweaks#773c0fec6d8e60dbf7aa629c011b3dc60e45b543"
 dependencies = [
  "dashmap",
  "ethereum_ssz",
