@@ -214,8 +214,8 @@ impl GeneralizedLogupProver {
                     let index_eval = index_columns[*group_index].evaluate(&inner_point);
                     prover_state.add_extension_scalar(index_eval);
                     statement_on_indexes[*group_index] = Some(Evaluation::new(inner_point.clone(), index_eval));
-                    for col_index in 0..dim.n_cols() {
-                        let value_eval = value_columns[*group_index][col_index].as_slice().evaluate(&inner_point);
+                    for col in &value_columns[*group_index] {
+                        let value_eval = col.as_slice().evaluate(&inner_point);
                         prover_state.add_extension_scalar(value_eval);
                         statement_on_values[*group_index].push(Evaluation::new(inner_point.clone(), value_eval));
                     }
@@ -377,8 +377,10 @@ impl GeneralizedLogupVerifier {
                     retrieved_numerators_value += pref * beta * evals_on_numerators.evaluate(&missing_inner_point);
 
                     let evals_on_denominators = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
-                    bus_denominators_statements[*index] =
-                        Some(MultiEvaluation::new(inner_inner_point.clone(), evals_on_denominators.clone()));
+                    bus_denominators_statements[*index] = Some(MultiEvaluation::new(
+                        inner_inner_point.clone(),
+                        evals_on_denominators.clone(),
+                    ));
                     retrieved_denominators_value += pref * evals_on_denominators.evaluate(&missing_inner_point);
                 }
             }
