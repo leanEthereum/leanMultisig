@@ -34,7 +34,11 @@ fn build_public_input(
     epoch: u32,
 ) -> Vec<F> {
     assert_eq!(pub_keys.len(), encoding_randomness.len());
-    let mut public_input = vec![F::from_usize(pub_keys.len()), F::from_u32(epoch)];
+    let mut public_input = vec![
+        F::from_usize(pub_keys.len()),
+        F::from_u32(epoch & ((1 << 30) - 1)),
+        F::from_u32(epoch >> 30),
+    ];
     for (pub_key, randomness) in pub_keys.iter().zip(encoding_randomness.iter()) {
         let encoding = MH::apply(&pub_key.parameter, epoch, unsafe { transmute(randomness) }, message);
         assert_eq!(encoding.len(), MH::DIMENSION);
