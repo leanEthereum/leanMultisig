@@ -547,10 +547,7 @@ impl Line {
                 let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
                 format!("print({content_str})")
             }
-            Self::MAlloc {
-                var,
-                size,
-            } => {
+            Self::MAlloc { var, size } => {
                 format!("{var} = malloc({size})")
             }
             Self::DecomposeBits { var, to_decompose } => {

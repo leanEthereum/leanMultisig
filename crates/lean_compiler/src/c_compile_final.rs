@@ -334,10 +334,7 @@ fn compile_block(
                 };
                 hints.entry(pc).or_default().push(hint);
             }
-            IntermediateInstruction::RequestMemory {
-                offset,
-                size,
-            } => {
+            IntermediateInstruction::RequestMemory { offset, size } => {
                 let size = try_as_mem_or_constant(&size).unwrap();
                 let hint = Hint::RequestMemory {
                     function_name: function_name.clone(),

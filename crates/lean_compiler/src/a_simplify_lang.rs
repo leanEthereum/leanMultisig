@@ -339,10 +339,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                     check_expr_scoping(expr, ctx);
                 }
             }
-            Line::MAlloc {
-                var,
-                size,
-            } => {
+            Line::MAlloc { var, size } => {
                 check_expr_scoping(size, ctx);
                 let last_scope = ctx.scopes.last_mut().unwrap();
                 assert!(

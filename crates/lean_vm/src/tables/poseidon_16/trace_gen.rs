@@ -2,7 +2,8 @@ use p3_poseidon2::GenericPoseidon2LinearLayers;
 use tracing::instrument;
 
 use crate::{
-    F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR, tables::{Poseidon16Cols, WIDTH_16, num_cols_16}
+    F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
+    tables::{Poseidon16Cols, WIDTH_16, num_cols_16},
 };
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{

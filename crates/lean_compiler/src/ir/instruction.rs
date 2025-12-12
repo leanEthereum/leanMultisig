@@ -166,10 +166,7 @@ impl Display for IntermediateInstruction {
             Self::Inverse { arg, res_offset } => {
                 write!(f, "m[fp + {res_offset}] = inverse({arg})")
             }
-            Self::RequestMemory {
-                offset,
-                size,
-            } => {
+            Self::RequestMemory { offset, size } => {
                 write!(f, "m[fp + {offset}] = request_memory({size})")
             }
             Self::DecomposeBits {

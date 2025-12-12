@@ -1,8 +1,12 @@
 use crate::{
-    EF, ExtraDataForBuses, F, POSEIDON_24_COL_FLAG, POSEIDON_24_COL_INDEX_A, POSEIDON_24_COL_INDEX_A_BIS, POSEIDON_24_COL_INDEX_B, POSEIDON_24_COL_INDEX_RES, POSEIDON_24_COL_INDEX_RES_BIS, POSEIDON_24_COL_INDEX_RES_BIS_BIS, POSEIDON_24_COL_INPUT_START, POSEIDON_24_NULL_HASH_PTR, Poseidon24Precompile, VECTOR_LEN, ZERO_VEC_PTR, tables::{
+    EF, ExtraDataForBuses, F, POSEIDON_24_COL_FLAG, POSEIDON_24_COL_INDEX_A, POSEIDON_24_COL_INDEX_A_BIS,
+    POSEIDON_24_COL_INDEX_B, POSEIDON_24_COL_INDEX_RES, POSEIDON_24_COL_INDEX_RES_BIS,
+    POSEIDON_24_COL_INDEX_RES_BIS_BIS, POSEIDON_24_COL_INPUT_START, POSEIDON_24_NULL_HASH_PTR, Poseidon24Precompile,
+    VECTOR_LEN, ZERO_VEC_PTR,
+    tables::{
         WIDTH_24, num_cols_24,
         poseidon_24::trace_gen::{default_poseidon_24_row, fill_trace_poseidon_24},
-    }
+    },
 };
 use air::{check_air_validity, prove_air, verify_air};
 use multilinear_toolkit::prelude::*;
@@ -32,8 +36,12 @@ pub fn benchmark_prove_poseidon_24(n_rows: usize, tracing: bool) {
     }
     trace[POSEIDON_24_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
     trace[POSEIDON_24_COL_INDEX_RES] = (0..n_rows).map(|_| F::from_usize(POSEIDON_24_NULL_HASH_PTR)).collect();
-    trace[POSEIDON_24_COL_INDEX_RES_BIS] = (0..n_rows).map(|_| F::from_usize(POSEIDON_24_NULL_HASH_PTR + VECTOR_LEN)).collect();
-    trace[POSEIDON_24_COL_INDEX_RES_BIS_BIS] = (0..n_rows).map(|_| F::from_usize(POSEIDON_24_NULL_HASH_PTR + 2 * VECTOR_LEN)).collect();
+    trace[POSEIDON_24_COL_INDEX_RES_BIS] = (0..n_rows)
+        .map(|_| F::from_usize(POSEIDON_24_NULL_HASH_PTR + VECTOR_LEN))
+        .collect();
+    trace[POSEIDON_24_COL_INDEX_RES_BIS_BIS] = (0..n_rows)
+        .map(|_| F::from_usize(POSEIDON_24_NULL_HASH_PTR + 2 * VECTOR_LEN))
+        .collect();
     trace[POSEIDON_24_COL_INDEX_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
     trace[POSEIDON_24_COL_INDEX_A_BIS] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR + VECTOR_LEN)).collect();
     trace[POSEIDON_24_COL_INDEX_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();

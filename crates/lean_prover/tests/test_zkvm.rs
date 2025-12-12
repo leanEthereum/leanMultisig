@@ -83,7 +83,6 @@ fn test_zk_vm_all_precompiles() {
     );
     public_input[1100 + 3 + 3 * DIMENSION..][..DIMENSION].copy_from_slice(poly_eq.as_basis_coefficients_slice());
 
-
     let poseidon24_input: [F; 24] = rng.random();
     public_input[1200..][..24].copy_from_slice(&poseidon24_input);
     let poseidon24_output = utils::poseidon24_permute(poseidon24_input);
