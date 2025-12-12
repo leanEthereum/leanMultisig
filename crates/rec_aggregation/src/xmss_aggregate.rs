@@ -4,7 +4,7 @@ use lean_vm::*;
 use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized as leansig_module;
 use leansig::signature::{SignatureScheme, SignatureSchemeSecretKey};
 use leansig::symmetric::message_hash::MessageHash;
-use leansig_module::{MH, RAND_LEN_FE};
+use leansig_module::{HASH_LEN_FE, MH, RAND_LEN_FE};
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::sync::OnceLock;
@@ -43,8 +43,12 @@ fn build_public_input(
         let encoding = MH::apply(&pub_key.parameter, epoch, unsafe { transmute(randomness) }, message);
         assert_eq!(encoding.len(), MH::DIMENSION);
         assert_eq!(MH::DIMENSION, 64); // TODO remove this later
-        public_input.extend(unsafe { transmute::<_, Vec<F>>(pub_key.root.to_vec()) }); // 8 field elements
-        public_input.extend(unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) }); // 5 field elements
+        let merkle_root = unsafe { transmute::<_, Vec<F>>(pub_key.root.to_vec()) };
+        assert_eq!(merkle_root.len(), 8);
+        let public_param = unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) };
+        assert_eq!(public_param.len(), 5);
+        public_input.extend(merkle_root);
+        public_input.extend(public_param);
         public_input.extend(encoding.iter().map(|&x| F::from_u8(x)));
     }
     public_input
@@ -53,7 +57,9 @@ fn build_public_input(
 fn build_private_input(all_signatures: &[LeanSigSignature]) -> Vec<F> {
     let mut private_input = Vec::<F>::new();
     for signature in all_signatures {
-        private_input.extend(unsafe { transmute::<_, Vec<F>>(signature.hashes.clone()) });
+        let chain_tips = unsafe { transmute::<_, Vec<[F; HASH_LEN_FE]>>(signature.hashes.clone()) };
+        assert_eq!(chain_tips.len(), 64); // TODO remove this later
+        private_input.extend(chain_tips.into_iter().flatten());
     }
     private_input
 }
@@ -191,7 +197,7 @@ pub fn xmss_verify_aggregated_signatures(
 
 #[test]
 fn test_xmss_aggregate() {
-    let n_xmss = 1;
+    let n_xmss = 2;
     let mut rng = StdRng::seed_from_u64(0);
     let log_lifetimes = (0..n_xmss).map(|_| rng.random_range(5..13)).collect::<Vec<_>>();
     run_xmss_benchmark(&log_lifetimes, false);
