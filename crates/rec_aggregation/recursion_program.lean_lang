@@ -784,21 +784,15 @@ fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
     if n_samples == NUM_QUERIES_0 {
         new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_0, K);
         return new_fs_state, sampled_bits;
-    } else {
-        if n_samples == NUM_QUERIES_1 {
-            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
-            return new_fs_state, sampled_bits;
-        } else {
-            if n_samples == NUM_QUERIES_2 {
-                new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
-                return new_fs_state, sampled_bits;
-            } else {
-                if n_samples == NUM_QUERIES_3 {
-                    new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
-                    return new_fs_state, sampled_bits;
-                }
-            }
-        }
+    } else if n_samples == NUM_QUERIES_1 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
+        return new_fs_state, sampled_bits;
+    } else if n_samples == NUM_QUERIES_2 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
+        return new_fs_state, sampled_bits;
+    } else if n_samples == NUM_QUERIES_3 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
+        return new_fs_state, sampled_bits;
     }
     print(n_samples);
     print(999333);

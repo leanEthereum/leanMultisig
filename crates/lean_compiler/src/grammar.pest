@@ -42,11 +42,13 @@ single_assignment = { identifier ~ "=" ~ expression ~ ";" }
 
 array_assign = { identifier ~ "[" ~ expression ~ "]" ~ "=" ~ expression ~ ";" }
 
-if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_clause? }
+if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_if_clause* ~ else_clause? }
 
 condition = { expression | assumed_bool_expr }
 
 assumed_bool_expr = { "!!assume_bool" ~ "(" ~ expression ~ ")" }
+
+else_if_clause = { "else" ~ "if" ~ condition ~ "{" ~ statement* ~ "}" }
 
 else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 
