@@ -504,73 +504,67 @@ fn dot_product_ee_dynamic(a, b, res, n) {
     if n == 16 {
         dot_product_ee(a, b, res, 16);
         return;
+    } else {
+        if n == NUM_QUERIES_0 {
+            dot_product_ee(a, b, res, NUM_QUERIES_0);
+            return;
+        } else {
+            dot_product_ee_dynamic_helper_1(a, b, res, n);
+            return;
+        }
     }
 
-    dot_product_ee_dynamic_helper_1(a, b, res, n);
-    return;
 }
 
 fn dot_product_ee_dynamic_helper_1(a, b, res, n) {
-    if n == NUM_QUERIES_0 {
-        dot_product_ee(a, b, res, NUM_QUERIES_0);
-        return;
-    }
-
-    dot_product_ee_dynamic_helper_2(a, b, res, n);
-    return;
-}
-
-fn dot_product_ee_dynamic_helper_2(a, b, res, n) {
     if n == NUM_QUERIES_1 {
         dot_product_ee(a, b, res, NUM_QUERIES_1);
         return;
+    } else {
+        if n == NUM_QUERIES_2 {
+            dot_product_ee(a, b, res, NUM_QUERIES_2);
+            return;
+        } else {
+            dot_product_ee_dynamic_helper_3(a, b, res, n);
+            return;
+        }
     }
-    if n == NUM_QUERIES_2 {
-        dot_product_ee(a, b, res, NUM_QUERIES_2);
-        return;
-    }
-
-    dot_product_ee_dynamic_helper_3(a, b, res, n);
-    return;
 }
 
 fn dot_product_ee_dynamic_helper_3(a, b, res, n) {
     if n == NUM_QUERIES_3 {
         dot_product_ee(a, b, res, NUM_QUERIES_3);
         return;
+    } else {
+        if n == NUM_QUERIES_0 + 1 {
+            dot_product_ee(a, b, res, NUM_QUERIES_0 + 1);
+            return;
+        } else {
+            dot_product_ee_dynamic_helper_4(a, b, res, n);
+            return;
+        }
     }
-    if n == NUM_QUERIES_0 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_0 + 1);
-        return;
-    }
-
-    dot_product_ee_dynamic_helper_4(a, b, res, n);
-    return;
 }
 
 fn dot_product_ee_dynamic_helper_4(a, b, res, n) {
     if n == NUM_QUERIES_1 + 1 {
         dot_product_ee(a, b, res, NUM_QUERIES_1 + 1);
         return;
-    }
-    if n == NUM_QUERIES_2 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_2 + 1);
-        return;
-    }
+    } else {
+        if n == NUM_QUERIES_2 + 1 {
+            dot_product_ee(a, b, res, NUM_QUERIES_2 + 1);
+            return;
+        } else {
+            if n == NUM_QUERIES_3 + 1 {
+                dot_product_ee(a, b, res, NUM_QUERIES_3 + 1);
+                return;
+            }
 
-    dot_product_ee_dynamic_helper_5(a, b, res, n);
-    return;
-}
-
-fn dot_product_ee_dynamic_helper_5(a, b, res, n) {
-    if n == NUM_QUERIES_3 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_3 + 1);
-        return;
+            TODO_dot_product_ee_dynamic = 0;
+            print(TODO_dot_product_ee_dynamic, n);
+            panic();
+        }
     }
-
-    TODO_dot_product_ee_dynamic = 0;
-    print(TODO_dot_product_ee_dynamic, n);
-    panic();
 }
 
 fn poly_eq_extension(point, n, two_pow_n) -> 1 {
