@@ -1,14 +1,11 @@
 const COMPRESSION = 1;
-const PERMUTATION = 0;
 
 const V = 64;
 const W = 8;
 const LOG_LIFETIME = 32;
-
 const HASH_LEN = 8;
 const PUB_PARAM_LEN = 5;
 const PUBKEY_LEN = HASH_LEN + PUB_PARAM_LEN;
-
 const TWEAK_LEN_FE = 2;
 
 // CAPACITY initial value for Poseidon24 - sponge mode
@@ -48,10 +45,6 @@ fn main() {
 
 fn xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, wots_tips) -> 1 {
     merkle_leaf_to_hash = malloc(MERKLE_DATA_PADDED_LEN);
-
-    // This is a trick to avoid the compiler to allocate memory "on stack".
-    // (Heap allocation is better here, to keep the memmory use of the different "match arms" balanced)
-    hash_len = HASH_LEN;
 
     for chain_index in 0..V unroll {
         my_tweaks = tweaks + chain_index * (W-1) * TWEAK_LEN_FE;
@@ -124,10 +117,7 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, wots_ti
             merkle_nodes[(i+1) * HASH_LEN + j] = outputs[j] + inputs[j];
         }
     }
-
-    merkle_root_recovered = merkle_nodes + HASH_LEN * LOG_LIFETIME;
-
-    return merkle_root_recovered;
+    return merkle_nodes + HASH_LEN * LOG_LIFETIME;
 }
 
 fn wots_chain_hash(source_digest, my_tweaks, xi, public_param) -> 1 {
@@ -154,15 +144,7 @@ fn copy_5(src, dest) inline {
 }
 
 fn copy_8(x, y) inline {
-    // x and y are vectorized pointer of len 1 each
     dot_product_ee(x, pointer_to_one_vector, y, 1);
     dot_product_ee(x + 3, pointer_to_one_vector, y + 3, 1);
-    return;
-}
-
-fn print_vec(vec) {
-    for i in 0..HASH_LEN unroll {
-        print(vec[i]);
-    }
     return;
 }
