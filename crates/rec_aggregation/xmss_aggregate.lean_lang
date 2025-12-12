@@ -41,7 +41,7 @@ fn main() {
         wots_tips = signatures_start + i * ((V + LOG_LIFETIME) * HASH_LEN);
         merkle_path = wots_tips + V * HASH_LEN;
         merkle_root_recovered = xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, wots_tips);
-        // copy_8(merkle_root, merkle_root_recovered);
+        copy_8(merkle_root, merkle_root_recovered);
     }
     return;
 }
@@ -127,9 +127,7 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, wots_ti
 
     merkle_root_recovered = merkle_nodes + HASH_LEN * LOG_LIFETIME;
 
-    print_vec(merkle_root_recovered);
-
-    return 0;
+    return merkle_root_recovered;
 }
 
 fn wots_chain_hash(source_digest, my_tweaks, xi, public_param) -> 1 {

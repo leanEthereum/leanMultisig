@@ -64,8 +64,6 @@ fn build_public_input(
         let public_param = unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) };
         assert_eq!(public_param.len(), 5);
 
-        dbg!(&merkle_root);
-
         public_input.extend(merkle_root);
         public_input.extend(public_param);
         public_input.extend(encoding.iter().map(|&x| F::from_u8(x)));
@@ -93,7 +91,27 @@ fn compile_xmss_aggregation_program() -> Bytecode {
     compile_program(program_str)
 }
 
-pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
+pub fn gen_pubkey_and_signature(
+    log_lifetime: u32,
+    activation_epoch: u32,
+    epoch: u32,
+    message: &[u8; 32],
+) -> (LeanSigPubKey, LeanSigSignature) {
+    let lifetime = 1 << log_lifetime;
+    let mut rng = StdRng::seed_from_u64(0);
+    let (pk, mut sk) = LeanSigScheme::key_gen(&mut rng, activation_epoch as usize, lifetime as usize);
+    let mut iterations = 0;
+    while !sk.get_prepared_interval().contains(&(epoch as u64)) && iterations < epoch {
+        sk.advance_preparation();
+        iterations += 1;
+    }
+    let sig = LeanSigScheme::sign(&sk, epoch as u32, &message).unwrap();
+    assert!(LeanSigScheme::verify(&pk, epoch as u32, &message, &sig));
+
+    (pk, sig)
+}
+
+pub fn run_xmss_benchmark(n_xmss: usize, tracing: bool) {
     if tracing {
         utils::init_tracing();
     }
@@ -104,23 +122,38 @@ pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
     let message: [u8; 32] = rng.random();
     let epoch: u32 = 1000;
 
+    let log_lifetimes = (0..n_xmss).map(|_| rng.random_range(5..10)).collect::<Vec<u32>>();
+
     let mut pub_keys = Vec::new();
     let mut signatures = Vec::new();
-    for log_lifetime in log_lifetimes {
-        let lifetime = 1 << log_lifetime;
-        let activation_epoch = epoch.saturating_sub(rng.random_range(0..lifetime - 1));
-        let (pk, mut sk) = LeanSigScheme::key_gen(&mut rng, activation_epoch as usize, lifetime as usize);
-        let mut iterations = 0;
-        while !sk.get_prepared_interval().contains(&(epoch as u64)) && iterations < epoch {
-            sk.advance_preparation();
-            iterations += 1;
-        }
-        let sig = LeanSigScheme::sign(&sk, epoch as u32, &message).unwrap();
-        dbg!("VERIFYING SIGNATURE");
-        assert!(LeanSigScheme::verify(&pk, epoch as u32, &message, &sig));
+    for &log_lifetime in &log_lifetimes {
+        let activation_epoch = epoch - log_lifetime;
 
-        pub_keys.push(pk);
-        signatures.push(sig);
+        let file_name = format!(
+            "xmss_example_{}_{}_{}_{}.bin",
+            log_lifetime,
+            activation_epoch,
+            epoch,
+            hex::encode(message)
+        );
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("test_data").join(file_name);
+        if path.exists() {
+            let data = std::fs::read(&path).unwrap();
+            let (pk, sig): (LeanSigPubKey, LeanSigSignature) = bincode::deserialize(&data).unwrap();
+            pub_keys.push(pk);
+            signatures.push(sig);
+        } else {
+            println!(
+                "Generating XMSS keypair and signature for log_lifetime = {}",
+                log_lifetime
+            );
+            let (pk, sig) = gen_pubkey_and_signature(log_lifetime, activation_epoch, epoch, &message);
+            let data = bincode::serialize(&(pk.clone(), sig.clone())).unwrap();
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &data).unwrap();
+            pub_keys.push(pk);
+            signatures.push(sig);
+        }
     }
 
     let time = Instant::now();
@@ -220,8 +253,5 @@ pub fn xmss_verify_aggregated_signatures(
 
 #[test]
 fn test_xmss_aggregate() {
-    let n_xmss = 1;
-    let mut rng = StdRng::seed_from_u64(0);
-    let log_lifetimes = (0..n_xmss).map(|_| rng.random_range(5..10)).collect::<Vec<_>>();
-    run_xmss_benchmark(&log_lifetimes, false);
+    run_xmss_benchmark(3, false);
 }
