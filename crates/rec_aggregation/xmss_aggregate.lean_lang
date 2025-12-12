@@ -23,7 +23,8 @@ const CAP_7 = 1948506587;
 const CAP_8 = 660369959;
 
 const SPONGE_N_PERMS = 35; // (5 + 2 + 64 * 8) / (24 - 9)
-
+const SPONGE_FINAL_ZERO_PADDING = 6;
+const MERKLE_DATA_PADDED_LEN = PUB_PARAM_LEN + TWEAK_LEN_FE + V * HASH_LEN + SPONGE_FINAL_ZERO_PADDING;
 
 fn main() {
     pub_input_start = public_input_start;
@@ -47,7 +48,7 @@ fn main() {
 fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
     wots_tips = signature;
 
-    merkle_leaf_to_hash = malloc(PUB_PARAM_LEN + TWEAK_LEN_FE + V * HASH_LEN);
+    merkle_leaf_to_hash = malloc(MERKLE_DATA_PADDED_LEN);
 
     // This is a trick to avoid the compiler to allocate memory "on stack".
     // (Heap allocation is better here, to keep the memmory use of the different "match arms" balanced)
@@ -64,9 +65,12 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
     copy_5(public_param, merkle_leaf_to_hash);
     merkle_leaf_to_hash[5] = tree_tweaks[0];
     merkle_leaf_to_hash[6] = tree_tweaks[1];
+    for i in 0..SPONGE_FINAL_ZERO_PADDING unroll {
+        merkle_leaf_to_hash[MERKLE_DATA_PADDED_LEN - SPONGE_FINAL_ZERO_PADDING + i] = 0;
+    }
 
     // sponge
-    sponge_buff = malloc(24 * 2 * (SPONGE_N_PERMS + 1));
+    sponge_buff = malloc(24 * (2 * SPONGE_N_PERMS + 1));
     copy_5(merkle_leaf_to_hash, sponge_buff);
     copy_5(merkle_leaf_to_hash + 5, sponge_buff + 5);
     copy_5(merkle_leaf_to_hash + 10, sponge_buff + 10);
@@ -80,7 +84,7 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
     sponge_buff[22] = CAP_7;
     sponge_buff[23] = CAP_8;
 
-    for i in 0..SPONGE_N_PERMS unroll {
+    for i in 0..SPONGE_N_PERMS - 1 unroll {
         curr = sponge_buff + i * 48;
         permuted = curr + 24;
         next = curr + 48;
@@ -91,8 +95,9 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
             next[j] = permuted[j] + merkle_leaf_to_hash[15 * (i + 1) + j];
         }
     }
-
-    merkle_leaf_hashed = sponge_buff + 24 * 2 * SPONGE_N_PERMS;
+    curr = sponge_buff + (SPONGE_N_PERMS - 1) * 48;
+    merkle_leaf_hashed = curr + 24;
+    poseidon24(curr, curr + 16, merkle_leaf_hashed);
 
     print_vec(merkle_leaf_hashed);
 

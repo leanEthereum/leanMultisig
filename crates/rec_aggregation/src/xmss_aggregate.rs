@@ -215,7 +215,7 @@ pub fn xmss_verify_aggregated_signatures(
 
 #[test]
 fn test_xmss_aggregate() {
-    let n_xmss = 1;
+    let n_xmss = 2;
     let mut rng = StdRng::seed_from_u64(0);
     let log_lifetimes = (0..n_xmss).map(|_| rng.random_range(5..10)).collect::<Vec<_>>();
     run_xmss_benchmark(&log_lifetimes, false);
