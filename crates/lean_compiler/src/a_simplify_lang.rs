@@ -809,7 +809,7 @@ fn simplify_lines(
             } => {
                 let function = functions
                     .get(function_name)
-                    .expect("Function used but not defined: {function_name}");
+                    .unwrap_or_else(|| panic!("Function used but not defined: {function_name}"));
                 if return_data.len() != function.n_returned_vars {
                     panic!(
                         "Expected {} returned vars in call to {function_name}",
