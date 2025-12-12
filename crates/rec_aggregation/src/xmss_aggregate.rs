@@ -51,7 +51,7 @@ fn build_public_input(
     for level in 0..=LeanSigScheme::LIFETIME.ilog2() as u8 {
         let tree_tweak = PoseidonTweak::TreeTweak { pos_in_level, level }.to_field_elements::<TWEAK_LEN_FE>();
         public_input.extend(unsafe { transmute::<_, [F; TWEAK_LEN_FE]>(tree_tweak) });
-        public_input.push(F::from_u32(pos_in_level & 1));
+        public_input.push(F::from_u32((!pos_in_level) & 1));
         pos_in_level >>= 1;
     }
 
