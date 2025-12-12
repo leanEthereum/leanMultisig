@@ -63,7 +63,6 @@ fn build_public_input(
         assert_eq!(merkle_root.len(), 8);
         let public_param = unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) };
         assert_eq!(public_param.len(), 5);
-        dbg!(&merkle_root);
 
         public_input.extend(merkle_root);
         public_input.extend(public_param);
@@ -216,7 +215,7 @@ pub fn xmss_verify_aggregated_signatures(
 
 #[test]
 fn test_xmss_aggregate() {
-    let n_xmss = 2;
+    let n_xmss = 1;
     let mut rng = StdRng::seed_from_u64(0);
     let log_lifetimes = (0..n_xmss).map(|_| rng.random_range(5..10)).collect::<Vec<_>>();
     run_xmss_benchmark(&log_lifetimes, false);

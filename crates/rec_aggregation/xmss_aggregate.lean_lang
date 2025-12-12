@@ -11,6 +11,20 @@ const PUBKEY_LEN = HASH_LEN + PUB_PARAM_LEN;
 
 const TWEAK_LEN_FE = 2;
 
+// CAPACITY initial value for Poseidon24 - sponge mode
+const CAP_0 = 287609684;
+const CAP_1 = 1664498138;
+const CAP_2 = 719484663;
+const CAP_3 = 1366363664;
+const CAP_4 = 1775736341;
+const CAP_5 = 1392984152;
+const CAP_6 = 1281304957;
+const CAP_7 = 1948506587;
+const CAP_8 = 660369959;
+
+const SPONGE_N_PERMS = 35; // (5 + 2 + 64 * 8) / (24 - 9)
+
+
 fn main() {
     pub_input_start = public_input_start;
     signatures_start = private_input_start();
@@ -33,7 +47,7 @@ fn main() {
 fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
     wots_tips = signature;
 
-    wots_public_key = malloc(V * HASH_LEN);
+    merkle_leaf_to_hash = malloc(PUB_PARAM_LEN + TWEAK_LEN_FE + V * HASH_LEN);
 
     // This is a trick to avoid the compiler to allocate memory "on stack".
     // (Heap allocation is better here, to keep the memmory use of the different "match arms" balanced)
@@ -42,10 +56,45 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
     for chain_index in 0..V unroll {
         my_tweaks = tweaks + chain_index * (W-1) * TWEAK_LEN_FE;
         chain_end = wots_chain_hash(wots_tips + chain_index * HASH_LEN, my_tweaks, encoding[chain_index], public_param);
-        assert_eq_vec(chain_end, wots_public_key + chain_index * HASH_LEN);
-        print(chain_index);
-        print_vec(chain_end);
+        assert_eq_vec(chain_end, merkle_leaf_to_hash + PUB_PARAM_LEN + TWEAK_LEN_FE + chain_index * HASH_LEN);
     }
+
+    tree_tweaks = tweaks + V * (W-1) * TWEAK_LEN_FE;
+
+    copy_5(public_param, merkle_leaf_to_hash);
+    merkle_leaf_to_hash[5] = tree_tweaks[0];
+    merkle_leaf_to_hash[6] = tree_tweaks[1];
+
+    // sponge
+    sponge_buff = malloc(24 * 2 * (SPONGE_N_PERMS + 1));
+    copy_5(merkle_leaf_to_hash, sponge_buff);
+    copy_5(merkle_leaf_to_hash + 5, sponge_buff + 5);
+    copy_5(merkle_leaf_to_hash + 10, sponge_buff + 10);
+    sponge_buff[15] = CAP_0;
+    sponge_buff[16] = CAP_1;
+    sponge_buff[17] = CAP_2;
+    sponge_buff[18] = CAP_3;
+    sponge_buff[19] = CAP_4;
+    sponge_buff[20] = CAP_5;
+    sponge_buff[21] = CAP_6;
+    sponge_buff[22] = CAP_7;
+    sponge_buff[23] = CAP_8;
+
+    for i in 0..SPONGE_N_PERMS unroll {
+        curr = sponge_buff + i * 48;
+        permuted = curr + 24;
+        next = curr + 48;
+        poseidon24(curr, curr + 16, permuted);
+        copy_5(permuted + 15, next + 15);
+        copy_5(permuted + 19, next + 19);
+        for j in 0..15 {
+            next[j] = permuted[j] + merkle_leaf_to_hash[15 * (i + 1) + j];
+        }
+    }
+
+    merkle_leaf_hashed = sponge_buff + 24 * 2 * SPONGE_N_PERMS;
+
+    print_vec(merkle_leaf_hashed);
 
     return 0;
 }
