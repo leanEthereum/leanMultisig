@@ -3,36 +3,34 @@ const PERMUTATION = 0;
 
 const V = 64;
 const W = 8;
-const MAX_LOG_LIFETIME = 32;
+const LOG_LIFETIME = 32;
 
 const HASH_LEN = 8;
 const PUB_PARAM_LEN = 5;
 const PUBKEY_LEN = HASH_LEN + PUB_PARAM_LEN;
 
-const TWEAK_SEPARATOR_FOR_CHAIN_HASH = 0;
-const TWEAK_SEPARATOR_FOR_TREE_HASH = 1;
+const TWEAK_LEN_FE = 2;
 
 fn main() {
     pub_input_start = public_input_start;
     signatures_start = private_input_start();
 
     n_signatures = pub_input_start[0];
-    epoch_l = pub_input_start[1]; // epoch & ((1 << 30) - 1)
-    epoch_r = pub_input_start[2]; // epoch >> 30;
-    pubkeys_and_encodings = pub_input_start + 3;
+    tweaks = pub_input_start + 1;
+    pubkeys_and_encodings = tweaks + (V * (W-1) * TWEAK_LEN_FE) + ((LOG_LIFETIME + 1) * (TWEAK_LEN_FE + 1));
 
     for i in 0..n_signatures {
         merkle_root = pubkeys_and_encodings + i * (PUBKEY_LEN + V);
         public_param = merkle_root + HASH_LEN;
         encoding = public_param + PUB_PARAM_LEN;
         signature = signatures_start + i * (V * HASH_LEN);
-        merkle_root_recovered = xmss_recover_merkle_root(epoch_l, epoch_r, public_param, encoding, signature);
+        merkle_root_recovered = xmss_recover_merkle_root(tweaks, public_param, encoding, signature);
         // assert_eq_vec(merkle_root, merkle_root_recovered);
     }
     return;
 }
 
-fn xmss_recover_merkle_root(epoch_l, epoch_r, public_param, encoding, signature) -> 1 {
+fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
     wots_tips = signature;
 
     wots_public_key = malloc(V * HASH_LEN);
@@ -42,7 +40,8 @@ fn xmss_recover_merkle_root(epoch_l, epoch_r, public_param, encoding, signature)
     hash_len = HASH_LEN;
 
     for chain_index in 0..V unroll {
-        chain_end = wots_chain_hash(wots_tips + chain_index * HASH_LEN, epoch_l, epoch_r, chain_index, encoding[chain_index], public_param);
+        my_tweaks = tweaks + chain_index * (W-1) * TWEAK_LEN_FE;
+        chain_end = wots_chain_hash(wots_tips + chain_index * HASH_LEN, my_tweaks, encoding[chain_index], public_param);
         assert_eq_vec(chain_end, wots_public_key + chain_index * HASH_LEN);
         print(chain_index);
         print_vec(chain_end);
@@ -51,23 +50,20 @@ fn xmss_recover_merkle_root(epoch_l, epoch_r, public_param, encoding, signature)
     return 0;
 }
 
-fn wots_chain_hash(source_digest, epoch_l, epoch_r, chain_index, xi, public_param) -> 1 {
-    n_iters = W - 1 - xi;
-    buff = malloc(HASH_LEN * (n_iters + 1));
+fn wots_chain_hash(source_digest, my_tweaks, xi, public_param) -> 1 {
+    buff = malloc(HASH_LEN * (W - xi));
     assert_eq_vec(source_digest, buff);
-
+    print(xi);
     // TODO unroll
-    for j in 0..n_iters {
-        pos_in_chain = xi + j + 1;
+    for j in xi..W - 1 {
         to_hash_left = malloc(HASH_LEN);
         copy_5(public_param, to_hash_left);
-        to_hash_left[5] = epoch_l;
-        to_hash_left[6] = epoch_r;
-        to_hash_left[7] = chain_index * 2**16 + pos_in_chain * 2**8 + TWEAK_SEPARATOR_FOR_CHAIN_HASH;
+        to_hash_left[5] = my_tweaks[j * TWEAK_LEN_FE];
+        to_hash_left[6] = my_tweaks[j * TWEAK_LEN_FE + 1];
         poseidon16(to_hash_left, buff + j * HASH_LEN, buff + (j+1) * HASH_LEN, COMPRESSION);
     }
 
-    return buff + n_iters * HASH_LEN;
+    return buff + (W - xi - 1) * HASH_LEN;
 }
 
 fn copy_5(src, dest) inline {

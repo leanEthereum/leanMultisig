@@ -4,7 +4,8 @@ use lean_vm::*;
 use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized as leansig_module;
 use leansig::signature::{SignatureScheme, SignatureSchemeSecretKey};
 use leansig::symmetric::message_hash::MessageHash;
-use leansig_module::{HASH_LEN_FE, MH, RAND_LEN_FE};
+use leansig::symmetric::tweak_hash::poseidon::PoseidonTweak;
+use leansig_module::{HASH_LEN_FE, MH, RAND_LEN_FE, TWEAK_LEN_FE};
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::sync::OnceLock;
@@ -34,11 +35,26 @@ fn build_public_input(
     epoch: u32,
 ) -> Vec<F> {
     assert_eq!(pub_keys.len(), encoding_randomness.len());
-    let mut public_input = vec![
-        F::from_usize(pub_keys.len()),
-        F::from_u32(epoch & ((1 << 30) - 1)),
-        F::from_u32(epoch >> 30),
-    ];
+    let mut public_input = vec![F::from_usize(pub_keys.len())];
+    for chain_index in 0..MH::DIMENSION as u8 {
+        for pos_in_chain in 0..MH::BASE as u8 - 1 {
+            let chain_tweak = PoseidonTweak::ChainTweak {
+                epoch,
+                chain_index,
+                pos_in_chain,
+            }
+            .to_field_elements::<TWEAK_LEN_FE>();
+            public_input.extend(unsafe { transmute::<_, Vec<F>>(chain_tweak.to_vec()) });
+        }
+    }
+    let mut pos_in_level = epoch;
+    for level in 0..=LeanSigScheme::LIFETIME.ilog2() as u8 {
+        let tree_tweak = PoseidonTweak::TreeTweak { pos_in_level, level }.to_field_elements::<TWEAK_LEN_FE>();
+        public_input.extend(unsafe { transmute::<_, Vec<F>>(tree_tweak.to_vec()) });
+        public_input.push(F::from_u32(pos_in_level & 1));
+        pos_in_level >>= 1;
+    }
+
     for (pub_key, randomness) in pub_keys.iter().zip(encoding_randomness.iter()) {
         let encoding = MH::apply(&pub_key.parameter, epoch, unsafe { transmute(randomness) }, message);
         assert_eq!(encoding.len(), MH::DIMENSION);
@@ -47,9 +63,12 @@ fn build_public_input(
         assert_eq!(merkle_root.len(), 8);
         let public_param = unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) };
         assert_eq!(public_param.len(), 5);
+        dbg!(&merkle_root);
+
         public_input.extend(merkle_root);
         public_input.extend(public_param);
         public_input.extend(encoding.iter().map(|&x| F::from_u8(x)));
+
     }
     public_input
 }
