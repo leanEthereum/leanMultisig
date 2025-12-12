@@ -105,8 +105,8 @@ pub fn gen_pubkey_and_signature(
         sk.advance_preparation();
         iterations += 1;
     }
-    let sig = LeanSigScheme::sign(&sk, epoch as u32, &message).unwrap();
-    assert!(LeanSigScheme::verify(&pk, epoch as u32, &message, &sig));
+    let sig = LeanSigScheme::sign(&sk, epoch, message).unwrap();
+    assert!(LeanSigScheme::verify(&pk, epoch, message, &sig));
 
     (pk, sig)
 }
@@ -217,7 +217,7 @@ fn xmss_aggregate_signatures_helper(
     let private_input = build_private_input(signatures);
 
     let (proof, summary) = prove_execution(
-        &program,
+        program,
         (&public_input, &private_input),
         false,
         &vec![], // TODO
@@ -248,7 +248,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(pub_keys, &agg_signature.encoding_randomness, message, epoch);
 
-    verify_execution(&program, &public_input, proof)
+    verify_execution(program, &public_input, proof)
 }
 
 #[test]
