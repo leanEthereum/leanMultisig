@@ -7,7 +7,8 @@ program = { SOI ~ constant_declaration* ~ function+ ~ EOI }
 constant_declaration = { "const" ~ identifier ~ "=" ~ expression ~ ";" }
 
 // Functions
-function = { "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ inlined_statement? ~ return_count? ~ "{" ~ statement* ~ "}" }
+function = { pragma? ~ "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ inlined_statement? ~ return_count? ~ "{" ~ statement* ~ "}" }
+pragma = { "#![assume_always_returns]" }
 parameter_list = { parameter ~ ("," ~ parameter)* }
 parameter = { (const_keyword)? ~ identifier }
 const_keyword = { "const" }

@@ -175,19 +175,53 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
                 v.clone()
             })
             .collect::<Vec<_>>();
-        new_functions.insert(
-            name.clone(),
-            SimpleFunction {
-                name: name.clone(),
-                arguments,
-                n_returned_vars: func.n_returned_vars,
-                instructions: simplified_instructions,
-            },
-        );
+        let simplified_function = SimpleFunction {
+            name: name.clone(),
+            arguments,
+            n_returned_vars: func.n_returned_vars,
+            instructions: simplified_instructions,
+        };
+        if !func.assume_always_returns {
+            check_function_always_returns(&simplified_function);
+        }
+        new_functions.insert(name.clone(), simplified_function);
         const_malloc.map.clear();
     }
     SimpleProgram {
         functions: new_functions,
+    }
+}
+
+/// Analyzes a simplified function to verify that it returns on each code path.
+fn check_function_always_returns(func: &SimpleFunction) {
+    check_block_always_returns(&func.name, &func.instructions);
+}
+
+fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine]) {
+    match instructions.last() {
+        Some(SimpleLine::Match { value: _, arms }) => {
+            for arm in arms {
+                check_block_always_returns(function_name, arm);
+            }
+        }
+        Some(SimpleLine::IfNotZero {
+            condition: _,
+            then_branch,
+            else_branch,
+            line_number: _,
+        }) => {
+            check_block_always_returns(function_name, then_branch);
+            check_block_always_returns(function_name, else_branch);
+        }
+        Some(SimpleLine::FunctionRet { return_data: _ }) => {
+            // good
+        }
+        Some(SimpleLine::Panic) => {
+            // good
+        }
+        _ => {
+            panic!("Cannot prove that function always returns: {function_name}");
+        }
     }
 }
 
@@ -1844,6 +1878,7 @@ fn handle_const_arguments_helper(
                             inlined: false,
                             body: new_body,
                             n_returned_vars: func.n_returned_vars,
+                            assume_always_returns: func.assume_always_returns,
                         },
                     );
                 }

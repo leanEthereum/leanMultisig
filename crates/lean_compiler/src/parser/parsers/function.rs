@@ -17,7 +17,14 @@ pub struct FunctionParser;
 
 impl Parse<Function> for FunctionParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Function> {
-        let mut inner = pair.into_inner();
+        let mut inner = pair.into_inner().peekable();
+        let assume_always_returns = match inner.peek().map(|x| x.as_rule()) {
+            Some(Rule::pragma) => {
+                inner.next();
+                true
+            }
+            _ => false,
+        };
         let name = next_inner_pair(&mut inner, "function name")?.as_str().to_string();
 
         let mut arguments = Vec::new();
@@ -53,6 +60,7 @@ impl Parse<Function> for FunctionParser {
             inlined,
             n_returned_vars,
             body,
+            assume_always_returns,
         })
     }
 }
