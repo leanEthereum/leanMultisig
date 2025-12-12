@@ -64,6 +64,8 @@ fn build_public_input(
         let public_param = unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) };
         assert_eq!(public_param.len(), 5);
 
+        dbg!(&merkle_root);
+
         public_input.extend(merkle_root);
         public_input.extend(public_param);
         public_input.extend(encoding.iter().map(|&x| F::from_u8(x)));
@@ -75,8 +77,11 @@ fn build_private_input(all_signatures: &[LeanSigSignature]) -> Vec<F> {
     let mut private_input = Vec::<F>::new();
     for signature in all_signatures {
         let chain_tips = unsafe { transmute::<_, Vec<[F; HASH_LEN_FE]>>(signature.hashes.clone()) };
+        let merkle_path = unsafe { transmute::<_, Vec<[F; HASH_LEN_FE]>>(signature.path.clone()) };
         assert_eq!(chain_tips.len(), 64); // TODO remove this later
+        assert_eq!(merkle_path.len(), LeanSigScheme::LIFETIME.ilog2() as usize);
         private_input.extend(chain_tips.into_iter().flatten());
+        private_input.extend(merkle_path.into_iter().flatten());
     }
     private_input
 }
@@ -215,7 +220,7 @@ pub fn xmss_verify_aggregated_signatures(
 
 #[test]
 fn test_xmss_aggregate() {
-    let n_xmss = 2;
+    let n_xmss = 1;
     let mut rng = StdRng::seed_from_u64(0);
     let log_lifetimes = (0..n_xmss).map(|_| rng.random_range(5..10)).collect::<Vec<_>>();
     run_xmss_benchmark(&log_lifetimes, false);

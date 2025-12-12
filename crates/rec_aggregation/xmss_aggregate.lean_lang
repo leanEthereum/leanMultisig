@@ -38,14 +38,15 @@ fn main() {
         merkle_root = pubkeys_and_encodings + i * (PUBKEY_LEN + V);
         public_param = merkle_root + HASH_LEN;
         encoding = public_param + PUB_PARAM_LEN;
-        signature = signatures_start + i * (V * HASH_LEN);
-        merkle_root_recovered = xmss_recover_merkle_root(tweaks, public_param, encoding, signature);
-        // assert_eq_vec(merkle_root, merkle_root_recovered);
+        merkle_path = encoding + V * HASH_LEN;
+        signature = signatures_start + i * ((V + LOG_LIFETIME) * HASH_LEN);
+        merkle_root_recovered = xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, signature);
+        // copy_8(merkle_root, merkle_root_recovered);
     }
     return;
 }
 
-fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
+fn xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, signature) -> 1 {
     wots_tips = signature;
 
     merkle_leaf_to_hash = malloc(MERKLE_DATA_PADDED_LEN);
@@ -57,7 +58,7 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
     for chain_index in 0..V unroll {
         my_tweaks = tweaks + chain_index * (W-1) * TWEAK_LEN_FE;
         chain_end = wots_chain_hash(wots_tips + chain_index * HASH_LEN, my_tweaks, encoding[chain_index], public_param);
-        assert_eq_vec(chain_end, merkle_leaf_to_hash + PUB_PARAM_LEN + TWEAK_LEN_FE + chain_index * HASH_LEN);
+        copy_8(chain_end, merkle_leaf_to_hash + PUB_PARAM_LEN + TWEAK_LEN_FE + chain_index * HASH_LEN);
     }
 
     tree_tweaks = tweaks + V * (W-1) * TWEAK_LEN_FE;
@@ -99,7 +100,36 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
     merkle_leaf_hashed = curr + 24;
     poseidon24(curr, curr + 16, merkle_leaf_hashed);
 
-    print_vec(merkle_leaf_hashed);
+    merkle_nodes = malloc(HASH_LEN * (LOG_LIFETIME + 1));
+    copy_8(merkle_leaf_hashed, merkle_nodes);
+
+    for i in 0..LOG_LIFETIME unroll {
+        inputs = malloc(24);
+        outputs = malloc(24);
+        copy_5(public_param, inputs);
+        inputs[5] = tree_tweaks[3 * (i+1)];
+        inputs[6] = tree_tweaks[3 * (i+1) + 1];
+        inputs[23] = 0;
+        current_pos = tree_tweaks[3*i + 2];
+        match current_pos {
+            0 => {
+                copy_8(merkle_nodes + i * HASH_LEN, inputs + 15);
+                copy_8(merkle_path + i * HASH_LEN, inputs + 7);
+            }
+            1 => {
+                copy_8(merkle_nodes + i * HASH_LEN, inputs + 7);
+                copy_8(merkle_path + i * HASH_LEN, inputs + 15);
+            }
+        }
+        poseidon24(inputs, inputs + 16, outputs);
+        for j in 0..HASH_LEN unroll {
+            merkle_nodes[(i+1) * HASH_LEN + j] = outputs[j] + inputs[j];
+        }
+    }
+
+    merkle_root_recovered = merkle_nodes + HASH_LEN * LOG_LIFETIME;
+
+    print_vec(merkle_root_recovered);
 
     return 0;
 }
@@ -107,7 +137,7 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
 fn wots_chain_hash(source_digest, my_tweaks, xi, public_param) -> 1 {
     n_iters = W - 1 - xi;
     buff = malloc(HASH_LEN * (n_iters + 1) * 2);
-    assert_eq_vec(source_digest, buff + 7);
+    copy_8(source_digest, buff + 7);
 
     // TODO unroll
     for j in 0..n_iters {
@@ -127,7 +157,7 @@ fn copy_5(src, dest) inline {
     return;
 }
 
-fn assert_eq_vec(x, y) inline {
+fn copy_8(x, y) inline {
     // x and y are vectorized pointer of len 1 each
     dot_product_ee(x, pointer_to_one_vector, y, 1);
     dot_product_ee(x + 3, pointer_to_one_vector, y + 3, 1);
