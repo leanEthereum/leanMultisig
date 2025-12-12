@@ -13,13 +13,13 @@ const TWEAK_SEPARATOR_FOR_CHAIN_HASH = 0;
 const TWEAK_SEPARATOR_FOR_TREE_HASH = 1;
 
 fn main() {
-    public_input_start_ = public_input_start;
+    pub_input_start = public_input_start;
     signatures_start = private_input_start();
 
-    n_signatures = public_input_start_[0];
-    epoch_l = public_input_start_[1]; // epoch & ((1 << 30) - 1)
-    epoch_r = public_input_start_[2]; // epoch >> 30;
-    pubkeys_and_encodings = public_input_start_ + 3;
+    n_signatures = pub_input_start[0];
+    epoch_l = pub_input_start[1]; // epoch & ((1 << 30) - 1)
+    epoch_r = pub_input_start[2]; // epoch >> 30;
+    pubkeys_and_encodings = pub_input_start + 3;
 
     for i in 0..n_signatures {
         merkle_root = pubkeys_and_encodings + i * (PUBKEY_LEN + V);
