@@ -377,21 +377,15 @@ fn merkle_verif_batch_dynamic(n_paths, leaves_digests, leave_positions, root, he
     if height == MERKLE_HEIGHT_0 {
         merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_0);
         return;
-    } else {
-        if height == MERKLE_HEIGHT_1 {
-            merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_1);
-            return;
-        } else {
-            if height == MERKLE_HEIGHT_2 {
-                merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_2);
-                return;
-            } else {
-                if height == MERKLE_HEIGHT_3 {
-                    merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_3);
-                    return;
-                }
-            }
-        }
+    } else if height == MERKLE_HEIGHT_1 {
+        merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_1);
+        return;
+    } else if height == MERKLE_HEIGHT_2 {
+        merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_2);
+        return;
+    } else if height == MERKLE_HEIGHT_3 {
+        merkle_verif_batch_const(n_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_3);
+        return;
     }
 
     print(12345555);
@@ -725,21 +719,15 @@ fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
     if n_samples == NUM_QUERIES_0 {
         new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_0, K);
         return new_fs_state, sampled_bits;
-    } else {
-        if n_samples == NUM_QUERIES_1 {
-            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
-            return new_fs_state, sampled_bits;
-        } else {
-            if n_samples == NUM_QUERIES_2 {
-                new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
-                return new_fs_state, sampled_bits;
-            } else {
-                if n_samples == NUM_QUERIES_3 {
-                    new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
-                    return new_fs_state, sampled_bits;
-                }
-            }
-        }
+    } else if n_samples == NUM_QUERIES_1 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
+        return new_fs_state, sampled_bits;
+    } else if n_samples == NUM_QUERIES_2 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
+        return new_fs_state, sampled_bits;
+    } else if n_samples == NUM_QUERIES_3 {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
+        return new_fs_state, sampled_bits;
     }
     print(n_samples);
     print(999333);

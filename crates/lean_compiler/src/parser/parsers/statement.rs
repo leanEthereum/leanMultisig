@@ -3,6 +3,7 @@ use super::function::{FunctionCallParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
+    SourceLineNumber,
     ir::HighLevelOperation,
     lang::{AssumeBoolean, Boolean, Condition, Expression, Line},
     parser::{
@@ -88,13 +89,25 @@ impl Parse<Line> for IfStatementParser {
         let mut inner = pair.into_inner();
         let condition = ConditionParser::parse(next_inner_pair(&mut inner, "if condition")?, ctx)?;
 
-        let mut then_branch = Vec::new();
-        let mut else_branch = Vec::new();
+        let mut then_branch: Vec<Line> = Vec::new();
+        let mut else_if_branches: Vec<(Condition, Vec<Line>, SourceLineNumber)> = Vec::new();
+        let mut else_branch: Vec<Line> = Vec::new();
 
         for item in inner {
             match item.as_rule() {
                 Rule::statement => {
                     Self::add_statement_with_location(&mut then_branch, item, ctx)?;
+                }
+                Rule::else_if_clause => {
+                    let line_number = item.line_col().0;
+                    let mut inner = item.into_inner();
+                    let else_if_condition =
+                        ConditionParser::parse(next_inner_pair(&mut inner, "else if condition")?, ctx)?;
+                    let mut else_if_branch = Vec::new();
+                    for else_if_item in inner {
+                        Self::add_statement_with_location(&mut else_if_branch, else_if_item, ctx)?;
+                    }
+                    else_if_branches.push((else_if_condition, else_if_branch, line_number));
                 }
                 Rule::else_clause => {
                     for else_item in item.into_inner() {
@@ -107,10 +120,28 @@ impl Parse<Line> for IfStatementParser {
             }
         }
 
+        let mut outer_else_branch = Vec::new();
+        let mut inner_else_branch = &mut outer_else_branch;
+
+        for (else_if_condition, else_if_branch, line_number) in else_if_branches.into_iter() {
+            inner_else_branch.push(Line::IfCondition {
+                condition: else_if_condition,
+                then_branch: else_if_branch,
+                else_branch: Vec::new(),
+                line_number,
+            });
+            inner_else_branch = match &mut inner_else_branch[0] {
+                Line::IfCondition { else_branch, .. } => else_branch,
+                _ => unreachable!("Expected Line::IfCondition"),
+            };
+        }
+
+        inner_else_branch.extend(else_branch);
+
         Ok(Line::IfCondition {
             condition,
             then_branch,
-            else_branch,
+            else_branch: outer_else_branch,
             line_number,
         })
     }
