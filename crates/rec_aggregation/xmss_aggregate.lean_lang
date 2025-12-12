@@ -51,19 +51,21 @@ fn xmss_recover_merkle_root(tweaks, public_param, encoding, signature) -> 1 {
 }
 
 fn wots_chain_hash(source_digest, my_tweaks, xi, public_param) -> 1 {
-    buff = malloc(HASH_LEN * (W - xi));
-    assert_eq_vec(source_digest, buff);
-    print(xi);
+    n_iters = W - 1 - xi;
+    buff = malloc(HASH_LEN * (n_iters + 1) * 2);
+    assert_eq_vec(source_digest, buff + 7);
+
     // TODO unroll
-    for j in xi..W - 1 {
-        to_hash_left = malloc(HASH_LEN);
-        copy_5(public_param, to_hash_left);
-        to_hash_left[5] = my_tweaks[j * TWEAK_LEN_FE];
-        to_hash_left[6] = my_tweaks[j * TWEAK_LEN_FE + 1];
-        poseidon16(to_hash_left, buff + j * HASH_LEN, buff + (j+1) * HASH_LEN, COMPRESSION);
+    for j in 0..n_iters {
+        start = buff + j * (2 * HASH_LEN);
+        copy_5(public_param, start);
+        start[5] = my_tweaks[(xi + j) * TWEAK_LEN_FE];
+        start[6] = my_tweaks[(xi + j) * TWEAK_LEN_FE + 1];
+        start[15] = 0;
+        poseidon16(start, start + 8, start + (16 + 7), COMPRESSION);
     }
 
-    return buff + (W - xi - 1) * HASH_LEN;
+    return buff + n_iters * HASH_LEN * 2 + 7;
 }
 
 fn copy_5(src, dest) inline {

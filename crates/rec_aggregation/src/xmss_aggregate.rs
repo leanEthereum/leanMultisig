@@ -37,20 +37,20 @@ fn build_public_input(
     assert_eq!(pub_keys.len(), encoding_randomness.len());
     let mut public_input = vec![F::from_usize(pub_keys.len())];
     for chain_index in 0..MH::DIMENSION as u8 {
-        for pos_in_chain in 0..MH::BASE as u8 - 1 {
+        for pos_in_chain in 1..MH::BASE as u8 {
             let chain_tweak = PoseidonTweak::ChainTweak {
                 epoch,
                 chain_index,
                 pos_in_chain,
             }
             .to_field_elements::<TWEAK_LEN_FE>();
-            public_input.extend(unsafe { transmute::<_, Vec<F>>(chain_tweak.to_vec()) });
+            public_input.extend(unsafe { transmute::<_, [F; TWEAK_LEN_FE]>(chain_tweak) });
         }
     }
     let mut pos_in_level = epoch;
     for level in 0..=LeanSigScheme::LIFETIME.ilog2() as u8 {
         let tree_tweak = PoseidonTweak::TreeTweak { pos_in_level, level }.to_field_elements::<TWEAK_LEN_FE>();
-        public_input.extend(unsafe { transmute::<_, Vec<F>>(tree_tweak.to_vec()) });
+        public_input.extend(unsafe { transmute::<_, [F; TWEAK_LEN_FE]>(tree_tweak) });
         public_input.push(F::from_u32(pos_in_level & 1));
         pos_in_level >>= 1;
     }
@@ -68,7 +68,6 @@ fn build_public_input(
         public_input.extend(merkle_root);
         public_input.extend(public_param);
         public_input.extend(encoding.iter().map(|&x| F::from_u8(x)));
-
     }
     public_input
 }
@@ -113,6 +112,7 @@ pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
             iterations += 1;
         }
         let sig = LeanSigScheme::sign(&sk, epoch as u32, &message).unwrap();
+        dbg!("VERIFYING SIGNATURE");
         assert!(LeanSigScheme::verify(&pk, epoch as u32, &message, &sig));
 
         pub_keys.push(pk);
