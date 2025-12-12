@@ -17,6 +17,7 @@ mod tests {
 
     use super::*;
 
+    // Should be run in release mode
     #[test]
     fn test_aggregate_xmss_signature() {
         // Not mandatory, but avoid to slow down the first aggregation proof
