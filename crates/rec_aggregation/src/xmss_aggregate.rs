@@ -73,16 +73,6 @@ fn compile_xmss_aggregation_program() -> Bytecode {
     compile_program(program_str)
 }
 
-fn exec_phony_xmss(bytecode: &Bytecode, log_lifetimes: &[usize]) -> ExecutionResult {
-    let mut rng = StdRng::seed_from_u64(0);
-    let message_hash: [F; 8] = rng.random();
-    let slot = 1111;
-    let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, slot);
-    let public_input = build_public_input(&xmss_pub_keys, message_hash, slot);
-    let private_input = build_private_input(&all_signatures);
-    execute_bytecode(bytecode, (&public_input, &private_input), false, &vec![])
-}
-
 pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
     if tracing {
         utils::init_tracing();
