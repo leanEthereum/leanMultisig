@@ -19,6 +19,7 @@ pub struct Function {
     pub inlined: bool,
     pub n_returned_vars: usize,
     pub body: Vec<Line>,
+    pub assume_always_returns: bool,
 }
 
 impl Function {
