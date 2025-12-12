@@ -58,7 +58,7 @@ fn wots_chain_hash(source_digest, epoch_l, epoch_r, chain_index, xi, public_para
 
     // TODO unroll
     for j in 0..n_iters {
-        pos_in_chain = xi + j;
+        pos_in_chain = xi + j + 1;
         to_hash_left = malloc(HASH_LEN);
         copy_5(public_param, to_hash_left);
         to_hash_left[5] = epoch_l;
