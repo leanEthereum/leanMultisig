@@ -38,17 +38,15 @@ fn main() {
         merkle_root = pubkeys_and_encodings + i * (PUBKEY_LEN + V);
         public_param = merkle_root + HASH_LEN;
         encoding = public_param + PUB_PARAM_LEN;
-        merkle_path = encoding + V * HASH_LEN;
-        signature = signatures_start + i * ((V + LOG_LIFETIME) * HASH_LEN);
-        merkle_root_recovered = xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, signature);
+        wots_tips = signatures_start + i * ((V + LOG_LIFETIME) * HASH_LEN);
+        merkle_path = wots_tips + V * HASH_LEN;
+        merkle_root_recovered = xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, wots_tips);
         // copy_8(merkle_root, merkle_root_recovered);
     }
     return;
 }
 
-fn xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, signature) -> 1 {
-    wots_tips = signature;
-
+fn xmss_recover_merkle_root(tweaks, public_param, encoding, merkle_path, wots_tips) -> 1 {
     merkle_leaf_to_hash = malloc(MERKLE_DATA_PADDED_LEN);
 
     // This is a trick to avoid the compiler to allocate memory "on stack".
