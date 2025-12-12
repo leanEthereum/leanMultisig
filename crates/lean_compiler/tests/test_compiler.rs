@@ -257,17 +257,13 @@ fn test_mini_program_1() {
         for i in 0..N {
             if i == 0 {
                 arr[i] = 10;
+            } else if i == 1 {
+                arr[i] = 20;
+            } else if i == 2 {
+                arr[i] = 30;
             } else {
-                if i == 1 {
-                    arr[i] = 20;
-                } else {
-                    if i == 2 {
-                        arr[i] = 30;
-                    } else {
-                        i_plus_one = i + 1;
-                        arr[i] = i_plus_one;
-                    }
-                }
+                i_plus_one = i + 1;
+                arr[i] = i_plus_one;
             }
         }
         return;
