@@ -39,9 +39,8 @@ fn build_public_input(
         let encoding = MH::apply(&pub_key.parameter, epoch, unsafe { transmute(randomness) }, message);
         assert_eq!(encoding.len(), MH::DIMENSION);
         assert_eq!(MH::DIMENSION, 64); // TODO remove this later
-        public_input.extend(unsafe { transmute::<_, Vec<F>>(pub_key.root.to_vec()) });
-        public_input.extend(unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) });
-        public_input.extend(unsafe { transmute::<_, Vec<F>>(randomness.to_vec()) });
+        public_input.extend(unsafe { transmute::<_, Vec<F>>(pub_key.root.to_vec()) }); // 8 field elements
+        public_input.extend(unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) }); // 5 field elements
         public_input.extend(encoding.iter().map(|&x| F::from_u8(x)));
     }
     public_input

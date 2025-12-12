@@ -1,28 +1,28 @@
 const COMPRESSION = 1;
 const PERMUTATION = 0;
 
-const V = 66;
-const W = 4;
-const TARGET_SUM = 118;
-const MAX_LOG_LIFETIME = 30;
+const V = 64;
+const W = 8;
+const MAX_LOG_LIFETIME = 32;
 
-const V_HALF = V / 2; // V should be even
-
-const VECTOR_LEN = 8;
+const HASH_LEN = 8;
+const PUB_PARAM_LEN = 5;
+const PUBKEY_LEN = HASH_LEN + PUB_PARAM_LEN;
 
 fn main() {
     public_input_start_ = public_input_start;
+    signatures_start = private_input_start();
+
     n_signatures = public_input_start_[0];
-    message_hash = public_input_start + 1;
-    all_public_keys = message_hash + VECTOR_LEN;
-    all_log_lifetimes = all_public_keys + n_signatures * VECTOR_LEN;
+    epoch = public_input_start_[1];
+    all_public_keys = public_input_start_ + 2;
+    all_log_lifetimes = all_public_keys + n_signatures * HASH_LEN;
     all_merkle_indexes = all_log_lifetimes + n_signatures;
     sig_sizes = all_merkle_indexes + n_signatures * MAX_LOG_LIFETIME;
 
-    signatures_start = private_input_start();
 
     for i in 0..n_signatures {
-        xmss_public_key = all_public_keys + i * VECTOR_LEN;
+        xmss_public_key = all_public_keys + i * HASH_LEN;
         signature = signatures_start + sig_sizes[i];
         log_lifetime = all_log_lifetimes[i];
         merkle_index = all_merkle_indexes + i * MAX_LOG_LIFETIME;
@@ -36,12 +36,12 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     // signature: randomness | chain_tips
     // return the hashed xmss public key
     randomness = signature;
-    chain_tips = signature + VECTOR_LEN;
-    merkle_path = chain_tips + V * VECTOR_LEN; 
+    chain_tips = signature + HASH_LEN;
+    merkle_path = chain_tips + V * HASH_LEN; 
 
     // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
-    compressed = malloc(VECTOR_LEN);
+    compressed = malloc(HASH_LEN);
     poseidon16(message_hash, randomness, compressed, COMPRESSION);
     compressed_vals = malloc(6);
     dot_product_ee(compressed, pointer_to_one_vector, compressed_vals, 1);
@@ -89,38 +89,38 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     }
     assert sums[V - 1] == TARGET_SUM;
 
-    public_key = malloc(V * VECTOR_LEN);
+    public_key = malloc(V * HASH_LEN);
 
     // This is a trick to avoid the compiler to allocate memory "on stack".
     // (Heap allocation is better here, to keep the memmory use of the different "match arms" balanced)
-    vector_len = VECTOR_LEN;
+    HASH_LEN = HASH_LEN;
 
     for i in 0..V unroll {
         match encoding[i] {
             0 => {
-                var_1 = chain_tips + i * VECTOR_LEN;
-                var_2 = public_key + i * VECTOR_LEN;
-                var_3 = malloc(vector_len);
-                var_4 = malloc(vector_len);
+                var_1 = chain_tips + i * HASH_LEN;
+                var_2 = public_key + i * HASH_LEN;
+                var_3 = malloc(HASH_LEN);
+                var_4 = malloc(HASH_LEN);
                 poseidon16(var_1, pointer_to_zero_vector, var_3, COMPRESSION);
                 poseidon16(var_3, pointer_to_zero_vector, var_4, COMPRESSION);
                 poseidon16(var_4, pointer_to_zero_vector, var_2, COMPRESSION);
             }
             1 => {
-                var_3 = malloc(vector_len);
-                var_1 = chain_tips + i * VECTOR_LEN;
-                var_2 = public_key + i * VECTOR_LEN;
+                var_3 = malloc(HASH_LEN);
+                var_1 = chain_tips + i * HASH_LEN;
+                var_2 = public_key + i * HASH_LEN;
                 poseidon16(var_1, pointer_to_zero_vector, var_3, COMPRESSION);
                 poseidon16(var_3, pointer_to_zero_vector, var_2, COMPRESSION);
             }
             2 => {
-                var_1 = chain_tips + i * VECTOR_LEN;
-                var_2 = public_key + i * VECTOR_LEN;
+                var_1 = chain_tips + i * HASH_LEN;
+                var_2 = public_key + i * HASH_LEN;
                 poseidon16(var_1, pointer_to_zero_vector, var_2, COMPRESSION);
             }
             3 => {
-                var_1 = chain_tips + (i * VECTOR_LEN);
-                var_2 = public_key + (i * VECTOR_LEN);
+                var_1 = chain_tips + (i * HASH_LEN);
+                var_2 = public_key + (i * HASH_LEN);
                 var_3 = var_1 + 3;
                 var_4 = var_2 + 3;
                 dot_product_ee(var_1, pointer_to_one_vector, var_2, 1);
@@ -173,7 +173,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
 
 
 fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, const height) -> 1 {
-    states = malloc(height * VECTOR_LEN);
+    states = malloc(height * HASH_LEN);
     
     // First merkle round
     match leaf_position_bits[0] {
@@ -185,24 +185,24 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, const height) -> 
     state_indexes = malloc(height);
     state_indexes[0] = states;
     for j in 1..height unroll {
-        state_indexes[j] = state_indexes[j-1] + VECTOR_LEN;
+        state_indexes[j] = state_indexes[j-1] + HASH_LEN;
         // Warning: this works only if leaf_position_bits[i] is known to be boolean:
         match leaf_position_bits[j] {
-            0 => { poseidon16(state_indexes[j-1], merkle_path + j * VECTOR_LEN, state_indexes[j], COMPRESSION); }
-            1 => { poseidon16(merkle_path + j * VECTOR_LEN, state_indexes[j-1], state_indexes[j], COMPRESSION); }
+            0 => { poseidon16(state_indexes[j-1], merkle_path + j * HASH_LEN, state_indexes[j], COMPRESSION); }
+            1 => { poseidon16(merkle_path + j * HASH_LEN, state_indexes[j-1], state_indexes[j], COMPRESSION); }
         }
     }
     return state_indexes[height - 1];
 }
 
 fn slice_hash(seed, data, const half_len) -> 1 {
-    states = malloc(half_len * 2 * VECTOR_LEN);
+    states = malloc(half_len * 2 * HASH_LEN);
     poseidon16(pointer_to_zero_vector, data, states, COMPRESSION);
     state_indexes = malloc(half_len * 2);
     state_indexes[0] = states;
     for j in 1..(half_len * 2) unroll {
-        state_indexes[j] = state_indexes[j-1] + VECTOR_LEN;
-        poseidon16(state_indexes[j-1], data + j * VECTOR_LEN, state_indexes[j], COMPRESSION);
+        state_indexes[j] = state_indexes[j-1] + HASH_LEN;
+        poseidon16(state_indexes[j-1], data + j * HASH_LEN, state_indexes[j], COMPRESSION);
     }
     return state_indexes[half_len * 2 - 1];
 }
