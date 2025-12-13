@@ -10,11 +10,10 @@ use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use sub_protocols::*;
 use utils::ToUsize;
-use utils::build_challenger;
 use whir_p3::WhirConfig;
 
-pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>) -> Result<(), ProofError> {
-    let mut verifier_state = VerifierState::new(proof, build_challenger());
+pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Vec<F>) -> Result<(), ProofError> {
+    let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
 
     let dims = verifier_state
         .next_base_scalars_vec(1 + N_TABLES)
@@ -211,7 +210,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>
 
 #[allow(clippy::type_complexity)]
 fn verify_bus_and_air(
-    verifier_state: &mut VerifierState<PF<EF>, EF, impl FSChallenger<EF>>,
+    verifier_state: &mut impl FSVerifier<EF>,
     t: &Table,
     table_height: TableHeight,
     bus_challenge: EF,

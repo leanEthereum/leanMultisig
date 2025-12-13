@@ -36,7 +36,7 @@ impl<EF: ExtensionField<PF<EF>>> ExtensionCommitmentFromBaseProver<EF> {
 
     pub fn after_commitment(
         &self,
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        prover_state: &mut impl FSProver<EF>,
         evaluation_point: &MultilinearPoint<EF>,
     ) -> Vec<Vec<Evaluation<EF>>> {
         let sub_evals = self
@@ -59,7 +59,7 @@ pub struct ExtensionCommitmentFromBaseVerifier {}
 
 impl ExtensionCommitmentFromBaseVerifier {
     pub fn after_commitment<EF: ExtensionField<PF<EF>>>(
-        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        verifier_state: &mut impl FSVerifier<EF>,
         claim: &MultiEvaluation<EF>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
         let sub_evals = verifier_state.next_extension_scalars_vec(EF::DIMENSION * claim.num_values())?;

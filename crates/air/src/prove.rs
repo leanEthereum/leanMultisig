@@ -1,7 +1,7 @@
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::{info_span, instrument};
-use utils::{FSProver, fold_multilinear_chunks, multilinears_linear_combination};
+use utils::{fold_multilinear_chunks, multilinears_linear_combination};
 
 use crate::{uni_skip_utils::matrix_next_mle_folded, utils::column_shifted};
 
@@ -14,7 +14,7 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 #[instrument(name = "prove air", skip_all)]
 #[allow(clippy::too_many_arguments)]
 pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
     air: &A,
     mut extra_data: A::ExtraData,
     univariate_skips: usize,
@@ -122,7 +122,7 @@ where
 
 #[instrument(skip_all)]
 fn open_columns<EF: ExtensionField<PF<EF>>>(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
     univariate_skips: usize,
     columns_with_shift_f: &[usize],
     columns_with_shift_ef: &[usize],

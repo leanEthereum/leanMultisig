@@ -144,7 +144,7 @@ fn xmss_aggregate_signatures_helper(
 
     let proof_bytes = info_span!("Proof serialization").in_scope(|| bincode::serialize(&proof).unwrap());
 
-    Ok((proof_bytes, proof.proof_size, summary))
+    Ok((proof_bytes, proof.len(), summary))
 }
 
 pub fn xmss_verify_aggregated_signatures(

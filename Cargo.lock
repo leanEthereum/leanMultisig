@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "air"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#e06cba2e214879c00c7fbc0e5b12908ddfcba588"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#568be965e2b2550587e90d887c95e4a3556e07ba"
 dependencies = [
  "p3-field",
 ]
@@ -99,9 +99,8 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#e06cba2e214879c00c7fbc0e5b12908ddfcba588"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#568be965e2b2550587e90d887c95e4a3556e07ba"
 dependencies = [
- "fiat-shamir",
  "itertools",
  "p3-field",
  "p3-util",
@@ -192,10 +191,10 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#e06cba2e214879c00c7fbc0e5b12908ddfcba588"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#568be965e2b2550587e90d887c95e4a3556e07ba"
 dependencies = [
  "air 0.3.0",
- "fiat-shamir",
+ "backend",
  "p3-field",
 ]
 
@@ -300,11 +299,11 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=lean-vm-simple#9d4dc22f06cfa65f15bf5f1b07912a64c7feff0f"
+source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=lean-vm-simple#fb6168e397efed5d0f42c7e2580fc13c05779f6c"
 dependencies = [
- "p3-challenger",
  "p3-field",
- "p3-koala-bear",
+ "p3-symmetric",
+ "rayon",
  "serde",
 ]
 
@@ -409,7 +408,6 @@ dependencies = [
  "lean_vm",
  "lookup",
  "multilinear-toolkit",
- "p3-challenger",
  "p3-koala-bear",
  "p3-poseidon2",
  "p3-symmetric",
@@ -434,7 +432,6 @@ dependencies = [
  "lean_vm",
  "lookup",
  "multilinear-toolkit",
- "p3-challenger",
  "p3-koala-bear",
  "p3-poseidon2",
  "p3-symmetric",
@@ -461,7 +458,6 @@ dependencies = [
  "lookup",
  "multilinear-toolkit",
  "num_enum",
- "p3-challenger",
  "p3-koala-bear",
  "p3-poseidon2",
  "p3-symmetric",
@@ -494,7 +490,6 @@ name = "lookup"
 version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
- "p3-challenger",
  "p3-koala-bear",
  "p3-util",
  "rand",
@@ -521,7 +516,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#e06cba2e214879c00c7fbc0e5b12908ddfcba588"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#568be965e2b2550587e90d887c95e4a3556e07ba"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -961,7 +956,6 @@ dependencies = [
  "lean_vm",
  "lookup",
  "multilinear-toolkit",
- "p3-challenger",
  "p3-koala-bear",
  "p3-poseidon2",
  "p3-symmetric",
@@ -1129,7 +1123,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#e06cba2e214879c00c7fbc0e5b12908ddfcba588"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#568be965e2b2550587e90d887c95e4a3556e07ba"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1191,9 +1185,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.23.7"
+version = "0.23.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6485ef6d0d9b5d0ec17244ff7eb05310113c3f316f2d14200d4de56b3cb98f8d"
+checksum = "5d7cbc3b4b49633d57a0509303158ca50de80ae32c265093b24c414705807832"
 dependencies = [
  "indexmap",
  "toml_datetime",
@@ -1347,7 +1341,6 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
- "p3-challenger",
  "p3-koala-bear",
  "p3-poseidon2",
  "p3-symmetric",
@@ -1382,12 +1375,11 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#f74bc197415a597b1ca316a4ee207f43c8adee85"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#e5d2f1a07c969be930376a504fa75481d5848a15"
 dependencies = [
  "itertools",
  "multilinear-toolkit",
  "p3-baby-bear",
- "p3-challenger",
  "p3-commit",
  "p3-dft",
  "p3-field",
@@ -1541,7 +1533,6 @@ dependencies = [
  "lean_vm",
  "lookup",
  "multilinear-toolkit",
- "p3-challenger",
  "p3-koala-bear",
  "p3-monty-31",
  "p3-poseidon2",

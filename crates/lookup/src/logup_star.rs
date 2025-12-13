@@ -9,7 +9,6 @@ use multilinear_toolkit::prelude::*;
 use utils::ToUsize;
 
 use tracing::{info_span, instrument};
-use utils::{FSProver, FSVerifier};
 
 use crate::{
     MIN_VARS_FOR_PACKING,
@@ -25,7 +24,7 @@ pub struct LogupStarStatements<EF> {
 
 #[instrument(skip_all)]
 pub fn prove_logup_star<EF>(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
     table: &MleRef<'_, EF>,
     indexes: &[PF<EF>],
     claimed_value: EF,
@@ -123,7 +122,7 @@ where
 }
 
 pub fn verify_logup_star<EF>(
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    verifier_state: &mut impl FSVerifier<EF>,
     log_table_len: usize,
     log_indexes_len: usize,
     claims: &[Evaluation<EF>],
@@ -256,7 +255,7 @@ mod tests {
 
         let point = MultilinearPoint((0..log_indexes_len).map(|_| rng.random()).collect::<Vec<EF>>());
 
-        let mut prover_state = build_prover_state(false);
+        let mut prover_state = build_prover_state();
         let eval = values.evaluate(&point);
 
         let time = std::time::Instant::now();
@@ -275,13 +274,13 @@ mod tests {
         );
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
-        let last_prover_state = prover_state.challenger().state();
+        let last_prover_state = prover_state.state();
         let mut verifier_state = build_verifier_state(prover_state);
         let verifier_statements =
             verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &[claim], EF::ONE).unwrap();
 
         assert_eq!(&verifier_statements, &prover_statements);
-        assert_eq!(last_prover_state, verifier_state.challenger().state());
+        assert_eq!(last_prover_state, verifier_state.state());
 
         assert_eq!(
             indexes.evaluate(&verifier_statements.on_indexes.point),

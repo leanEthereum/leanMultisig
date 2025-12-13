@@ -20,7 +20,7 @@ pub fn prove_execution(
     (public_input, private_input): (&[F], &[F]),
     vm_profiler: bool,
     poseidons_16_precomputed: &Poseidon16History,
-) -> (Proof<F>, String) {
+) -> (Vec<F>, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
         traces,
@@ -45,7 +45,7 @@ pub fn prove_execution(
         non_zero_memory_size = 1 << MIN_LOG_MEMORY_SIZE;
     }
 
-    let mut prover_state = build_prover_state::<EF>(false);
+    let mut prover_state = build_prover_state();
     prover_state.add_base_scalars(
         &[
             vec![non_zero_memory_size],
@@ -335,7 +335,7 @@ pub fn prove_execution(
 }
 
 fn prove_bus_and_air(
-    prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
     t: &Table,
     trace: &TableTrace,
     bus_challenge: EF,

@@ -9,7 +9,7 @@ use multilinear_toolkit::prelude::*;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use utils::build_challenger;
+use utils::get_poseidon16;
 use utils::{build_prover_state, padd_with_zero_to_next_multiple_of};
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
@@ -82,7 +82,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     let eval = polynomial.evaluate(&point);
     statement.push(Evaluation::new(point.clone(), eval));
 
-    let mut prover_state = build_prover_state(true);
+    let mut prover_state = build_prover_state();
 
     precompute_dft_twiddles::<F>(1 << 24);
 
@@ -91,7 +91,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     let whir_proof = prover_state.into_proof();
 
     {
-        let mut verifier_state = VerifierState::new(whir_proof.clone(), build_challenger());
+        let mut verifier_state = VerifierState::<EF, _>::new(whir_proof.clone(), get_poseidon16().clone());
         let parsed_commitment = recursion_config.parse_commitment::<F>(&mut verifier_state).unwrap();
         recursion_config
             .verify(&mut verifier_state, &parsed_commitment, statement)
@@ -99,7 +99,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     }
 
     let commitment_size = 16;
-    let mut public_input = whir_proof.proof_data[..commitment_size].to_vec();
+    let mut public_input = whir_proof[..commitment_size].to_vec();
     public_input.extend(padd_with_zero_to_next_multiple_of(
         &point
             .iter()
@@ -112,7 +112,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         VECTOR_LEN,
     ));
 
-    public_input.extend(whir_proof.proof_data[commitment_size..].to_vec());
+    public_input.extend(whir_proof[commitment_size..].to_vec());
 
     program_str = program_str.replace("WHIR_PROOF_SIZE_PLACEHOLDER", &public_input.len().to_string());
 
@@ -132,7 +132,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         false,
         &vec![], // TODO precompute poseidons
     );
-    let proof_size = proof.proof_size;
+    let proof_size = proof.len();
     let proving_time = time.elapsed();
     verify_execution(&bytecode, &public_input, proof).unwrap();
 

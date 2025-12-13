@@ -2,10 +2,10 @@ use lookup::prove_gkr_quotient;
 use lookup::verify_gkr_quotient;
 use multilinear_toolkit::prelude::*;
 use utils::VecOrSlice;
+use utils::assert_eq_many;
 use utils::from_end;
 use utils::mle_of_01234567_etc;
 use utils::to_big_endian_in_field;
-use utils::{FSProver, assert_eq_many};
 
 #[derive(Debug)]
 pub struct GeneralizedLogupProver;
@@ -77,7 +77,7 @@ fn get_sorted_dims(
 impl GeneralizedLogupProver {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>>(
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        prover_state: &mut impl FSProver<EF>,
 
         // parmeters for lookup into memory
         table: &[PF<EF>], // table[0] is assumed to be zero
@@ -292,7 +292,7 @@ pub struct GeneralizedLogupVerifier;
 
 impl GeneralizedLogupVerifier {
     pub fn run<EF: ExtensionField<PF<EF>>>(
-        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        verifier_state: &mut impl FSVerifier<EF>,
         table_log_len: usize,
         log_heights: Vec<usize>,
         n_cols_per_group: Vec<usize>,

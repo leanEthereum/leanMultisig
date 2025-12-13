@@ -3,7 +3,7 @@ use std::{any::TypeId, cmp::Reverse, collections::BTreeMap};
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::instrument;
-use utils::{FSProver, FSVerifier, multilinear_eval_constants_at_right, to_big_endian_bits, to_big_endian_in_field};
+use utils::{multilinear_eval_constants_at_right, to_big_endian_bits, to_big_endian_in_field};
 use whir_p3::*;
 
 #[derive(Debug, Clone)]
@@ -225,7 +225,7 @@ pub fn packed_pcs_commit<F, EF>(
     whir_config_builder: &WhirConfigBuilder,
     polynomials: &[&[F]],
     dims: &[ColDims<F>],
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
     log_smallest_decomposition_chunk: usize,
 ) -> MultiCommitmentWitness<EF>
 where
@@ -260,7 +260,7 @@ pub fn packed_pcs_global_statements_for_prover<F: Field, EF: ExtensionField<F> +
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
 ) -> Vec<Evaluation<EF>> {
     // TODO:
     // - cache the "eq" poly, and then use dot product
@@ -399,7 +399,7 @@ pub fn packed_pcs_parse_commitment<
     EF: ExtensionField<F> + TwoAdicField + ExtensionField<PF<EF>>,
 >(
     whir_config_builder: &WhirConfigBuilder,
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    verifier_state: &mut impl FSVerifier<EF>,
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
 ) -> Result<ParsedCommitment<F, EF>, ProofError>
@@ -414,7 +414,7 @@ pub fn packed_pcs_global_statements_for_verifier<F: Field, EF: ExtensionField<F>
     dims: &[ColDims<F>],
     log_smallest_decomposition_chunk: usize,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    verifier_state: &mut impl FSVerifier<EF>,
 ) -> Result<Vec<Evaluation<EF>>, ProofError> {
     assert_eq!(dims.len(), statements_per_polynomial.len());
     let all_chunks = MultilinearChunks::compute(dims, log_smallest_decomposition_chunk);
@@ -591,7 +591,7 @@ mod tests {
             .unwrap()
             .push(Evaluation::new(vec![EF::ONE; 10], EF::from_usize(100)));
 
-        let mut prover_state = build_prover_state(false);
+        let mut prover_state = build_prover_state();
         precompute_dft_twiddles::<F>(1 << 24);
 
         let polynomials_ref = polynomials.iter().map(|p| p.as_slice()).collect::<Vec<_>>();
