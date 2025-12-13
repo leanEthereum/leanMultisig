@@ -743,22 +743,39 @@ fn sample_bits_const(fs_state, const n_samples, K) -> 2 {
     return new_fs_state, sampled_bits;
 }
 
-// TODO this is not sound (can overflow)
+// p = 2^31 - 2^24 + 1
+// in binary: p = 1111111000000000000000000000001
+//        p - 1 = 1111111000000000000000000000000
+//        p - 2 = 1111110111111111111111111111111
+//        p - 3 = 1111110111111111111111111111110
+//        ...
+// Any field element (< p) is either:
+// -   1111111    | 00...00
+// - not(1111111) | xx...xx
 fn checked_decompose_bits(a, k) -> 2 {
     // return a pointer to the 31 bits of a
-    // .. and the partial value, reading the first K bits
+    // .. and the partial value, reading the first K bits (with k <= 24)
     bits = decompose_bits(a); // hint
 
     for i in 0..F_BITS unroll {
         assert bits[i] * (1 - bits[i]) == 0;
     }
-    sums = malloc(F_BITS);
-    sums[0] = bits[0];
-    for i in 1..F_BITS unroll {
-        sums[i] = sums[i - 1] + bits[i] * 2**i;
+    sums_24_first_bits = malloc(24);
+    sums_24_first_bits[0] = bits[0];
+    for i in 1..24 unroll {
+        sums_24_first_bits[i] = sums_24_first_bits[i - 1] + bits[i] * 2**i;
     }
-    assert a == sums[F_BITS - 1];
-    partial_sum = sums[k - 1];
+    sums_7_last_bits = malloc(7);
+    sums_7_last_bits[0] = bits[24];
+    for i in 1..7 unroll {
+        sums_7_last_bits[i] = sums_7_last_bits[i - 1] + bits[24 + i] * 2**i;
+    }
+    if sums_7_last_bits[6] == 127 {
+        assert sums_24_first_bits[23] == 0;
+    }
+
+    assert a == sums_24_first_bits[23] + sums_7_last_bits[6] * 2**24;
+    partial_sum = sums_24_first_bits[k - 1];
     return bits, partial_sum;
 }
 
