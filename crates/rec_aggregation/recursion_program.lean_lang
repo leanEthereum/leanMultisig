@@ -853,10 +853,8 @@ fn fs_grinding(fs_state, bits) -> 1 {
 
     l_updated_ptr = l_r_updated* 8;
     sampled = l_updated_ptr[7];
-    sampled_bits, _ = checked_decompose_bits(sampled, 1); // 1 is useless here, could be anything
-    for i in 0..bits {
-        assert sampled_bits[i] == 0;
-    }
+    _, sampled_low_bits_value = checked_decompose_bits(sampled, bits);
+    assert sampled_low_bits_value == 0;
     return new_fs_state;
 }
 
