@@ -1,6 +1,8 @@
 pub use multilinear_toolkit::prelude::ProofError;
 
-pub use rec_aggregation::xmss_aggregate::{xmss_aggregate_signatures, xmss_verify_aggregated_signatures};
+pub use rec_aggregation::xmss_aggregate::{
+    Devnet2XmssAggregateSignature, xmss_aggregate_signatures, xmss_verify_aggregated_signatures,
+};
 
 pub fn xmss_aggregation_setup_prover() {
     rec_aggregation::xmss_aggregate::xmss_setup_aggregation_program();
