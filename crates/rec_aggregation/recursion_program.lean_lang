@@ -743,6 +743,7 @@ fn sample_bits_const(fs_state, const n_samples, K) -> 2 {
     return new_fs_state, sampled_bits;
 }
 
+// TODO this is not sound (can overflow)
 fn checked_decompose_bits(a, k) -> 2 {
     // return a pointer to the 31 bits of a
     // .. and the partial value, reading the first K bits
