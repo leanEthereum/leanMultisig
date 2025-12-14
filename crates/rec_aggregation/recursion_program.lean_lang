@@ -934,10 +934,11 @@ fn fs_sample_ef(fs) -> 2 {
 fn fs_hint(fs, n) -> 2 {
     // return the updated fiat-shamir, and a pointer to n field elements from the transcript
 
+    transcript_ptr = fs[16];
     new_fs = malloc(17);
     copy_16(fs, new_fs);
     new_fs[16] = fs[16] + n; // advance transcript pointer
-    return new_fs, fs;
+    return new_fs, transcript_ptr;
 }
 
 fn fs_receive_chunks(fs, const n_chunks) -> 2 {
