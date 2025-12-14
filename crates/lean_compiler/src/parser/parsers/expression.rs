@@ -75,6 +75,7 @@ impl Parse<Expression> for PrimaryExpressionParser {
             }
             Rule::array_access_expr => ArrayAccessParser::parse(inner, ctx),
             Rule::log2_ceil_expr => Log2CeilParser::parse(inner, ctx),
+            Rule::next_multiple_of_expr => NextMultipleOfParser::parse(inner, ctx),
             _ => Err(SemanticError::new("Invalid primary expression").into()),
         }
     }
@@ -105,5 +106,21 @@ impl Parse<Expression> for Log2CeilParser {
         let expr = ExpressionParser::parse(next_inner_pair(&mut inner, "log2_ceil value")?, ctx)?;
 
         Ok(Expression::Log2Ceil { value: Box::new(expr) })
+    }
+}
+
+/// Parser for next_multiple_of function calls.
+pub struct NextMultipleOfParser;
+
+impl Parse<Expression> for NextMultipleOfParser {
+    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+        let mut inner = pair.into_inner();
+        let value = ExpressionParser::parse(next_inner_pair(&mut inner, "next_multiple_of value")?, ctx)?;
+        let multiple = ExpressionParser::parse(next_inner_pair(&mut inner, "next_multiple_of multiple")?, ctx)?;
+
+        Ok(Expression::NextMultipleOf {
+            value: Box::new(value),
+            multiple: Box::new(multiple),
+        })
     }
 }

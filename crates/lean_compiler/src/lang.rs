@@ -117,6 +117,10 @@ pub enum ConstExpression {
     Log2Ceil {
         value: Box<Self>,
     },
+    NextMultipleOf {
+        value: Box<Self>,
+        multiple: Box<Self>,
+    },
 }
 
 impl From<usize> for ConstExpression {
@@ -146,6 +150,14 @@ impl TryFrom<Expression> for ConstExpression {
                 let value_expr = Self::try_from(*value)?;
                 Ok(Self::Log2Ceil {
                     value: Box::new(value_expr),
+                })
+            }
+            Expression::NextMultipleOf { value, multiple } => {
+                let value_expr = Self::try_from(*value)?;
+                let multiple_expr = Self::try_from(*multiple)?;
+                Ok(Self::NextMultipleOf {
+                    value: Box::new(value_expr),
+                    multiple: Box::new(multiple_expr),
                 })
             }
         }
@@ -184,6 +196,14 @@ impl ConstExpression {
             Self::Log2Ceil { value } => {
                 let value = value.eval_with(func)?;
                 Some(F::from_usize(log2_ceil_usize(value.to_usize())))
+            }
+            Self::NextMultipleOf { value, multiple } => {
+                let value = value.eval_with(func)?;
+                let multiple = multiple.eval_with(func)?;
+                let value_usize = value.to_usize();
+                let multiple_usize = multiple.to_usize();
+                let res = value_usize.next_multiple_of(multiple_usize);
+                Some(F::from_usize(res))
             }
         }
     }
@@ -249,6 +269,10 @@ pub enum Expression {
     Log2Ceil {
         value: Box<Expression>,
     }, // only for const expressions
+    NextMultipleOf {
+        value: Box<Expression>,
+        multiple: Box<Expression>,
+    }, // only for const expressions
 }
 
 impl From<SimpleExpr> for Expression {
@@ -283,6 +307,14 @@ impl Expression {
             Self::Log2Ceil { value } => {
                 let value = value.eval_with(value_fn, array_fn)?;
                 Some(F::from_usize(log2_ceil_usize(value.to_usize())))
+            }
+            Self::NextMultipleOf { value, multiple } => {
+                let value = value.eval_with(value_fn, array_fn)?;
+                let multiple = multiple.eval_with(value_fn, array_fn)?;
+                let value_usize = value.to_usize();
+                let multiple_usize = multiple.to_usize();
+                let res = value_usize.next_multiple_of(multiple_usize);
+                Some(F::from_usize(res))
             }
         }
     }
@@ -414,6 +446,9 @@ impl Display for Expression {
             }
             Self::Log2Ceil { value } => {
                 write!(f, "log2_ceil({value})")
+            }
+            Self::NextMultipleOf { value, multiple } => {
+                write!(f, "next_multiple_of({value}, {multiple})")
             }
         }
     }
@@ -618,6 +653,9 @@ impl Display for ConstExpression {
             }
             Self::Log2Ceil { value } => {
                 write!(f, "log2_ceil({value})")
+            }
+            Self::NextMultipleOf { value, multiple } => {
+                write!(f, "next_multiple_of({value}, {multiple})")
             }
         }
     }

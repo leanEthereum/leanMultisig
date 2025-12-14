@@ -398,6 +398,10 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
         Expression::Log2Ceil { value } => {
             check_expr_scoping(value, ctx);
         }
+        Expression::NextMultipleOf { value, multiple } => {
+            check_expr_scoping(value, ctx);
+            check_expr_scoping(multiple, ctx);
+        }
     }
 }
 
@@ -528,7 +532,7 @@ fn simplify_lines(
                         arg1: right,
                     });
                 }
-                Expression::Log2Ceil { .. } => unreachable!(),
+                Expression::Log2Ceil { .. } | Expression::NextMultipleOf { .. } => unreachable!(),
             },
             Line::ArrayAssign { array, index, value } => {
                 handle_array_assignment(
@@ -1004,6 +1008,18 @@ fn simplify_expr(
                 value: Box::new(const_value),
             })
         }
+        Expression::NextMultipleOf { value, multiple } => {
+            let const_value = simplify_expr(value, lines, counters, array_manager, const_malloc)
+                .as_constant()
+                .unwrap();
+            let const_multiple = simplify_expr(multiple, lines, counters, array_manager, const_malloc)
+                .as_constant()
+                .unwrap();
+            SimpleExpr::Constant(ConstExpression::NextMultipleOf {
+                value: Box::new(const_value),
+                multiple: Box::new(const_multiple),
+            })
+        }
     }
 }
 
@@ -1167,6 +1183,10 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
         Expression::Log2Ceil { value } => {
             inline_expr(value, args, inlining_count);
         }
+        Expression::NextMultipleOf { value, multiple } => {
+            inline_expr(value, args, inlining_count);
+            inline_expr(multiple, args, inlining_count);
+        }
     }
 }
 
@@ -1327,6 +1347,10 @@ fn vars_in_expression(expr: &Expression) -> BTreeSet<Var> {
         Expression::Log2Ceil { value } => {
             vars.extend(vars_in_expression(value));
         }
+        Expression::NextMultipleOf { value, multiple } => {
+            vars.extend(vars_in_expression(value));
+            vars.extend(vars_in_expression(multiple));
+        }
     }
     vars
 }
@@ -1486,6 +1510,10 @@ fn replace_vars_for_unroll_in_expr(
         }
         Expression::Log2Ceil { value } => {
             replace_vars_for_unroll_in_expr(value, iterator, unroll_index, iterator_value, internal_vars);
+        }
+        Expression::NextMultipleOf { value, multiple } => {
+            replace_vars_for_unroll_in_expr(value, iterator, unroll_index, iterator_value, internal_vars);
+            replace_vars_for_unroll_in_expr(multiple, iterator, unroll_index, iterator_value, internal_vars);
         }
     }
 }
@@ -1964,6 +1992,10 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
         }
         Expression::Log2Ceil { value } => {
             replace_vars_by_const_in_expr(value, map);
+        }
+        Expression::NextMultipleOf { value, multiple } => {
+            replace_vars_by_const_in_expr(value, map);
+            replace_vars_by_const_in_expr(multiple, map);
         }
     }
 }

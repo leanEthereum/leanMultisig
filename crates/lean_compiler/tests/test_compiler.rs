@@ -674,3 +674,19 @@ fn test_debug_assert_lt_fail() {
     "#;
     compile_and_run(program.to_string(), (&[], &[]), false);
 }
+
+#[test]
+fn test_next_multiple_of() {
+    let program = r#"
+    fn main() {
+        a = double(next_multiple_of(12, 8));
+        assert a == 32;
+        return;
+    }
+
+    fn double(const n) -> 1 {
+        return next_multiple_of(n, n) * 2;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
