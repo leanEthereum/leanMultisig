@@ -825,10 +825,10 @@ fn simplify_lines(
             } => {
                 let function = functions
                     .get(function_name)
-                    .unwrap_or_else(|| panic!("Function used but not defined: {function_name}"));
+                    .unwrap_or_else(|| panic!("Function used but not defined: {function_name}, at line {line_number}"));
                 if return_data.len() != function.n_returned_vars {
                     panic!(
-                        "Expected {} returned vars in call to {function_name}",
+                        "Expected {} returned vars in call to {function_name}, at line {line_number}",
                         function.n_returned_vars
                     );
                 }

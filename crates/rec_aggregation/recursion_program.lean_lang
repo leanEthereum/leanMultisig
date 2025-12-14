@@ -82,11 +82,7 @@ fn whir_recursion(transcript_start) {
     domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
     fs_state_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_state_7, FOLDING_FACTOR_3, claimed_sum_3);
     
-    fs_state_9, final_coeffcients_unpacked = fs_receive(fs_state_8, 2**FINAL_VARS);
-    final_coeffcients = malloc(2**FINAL_VARS * DIM);
-    for i in 0..2**FINAL_VARS {
-        copy_5(final_coeffcients_unpacked + i * VECTOR_LEN, final_coeffcients + i*DIM);
-    }
+    fs_state_9, final_coeffcients = fs_receive_ef(fs_state_8, 2**FINAL_VARS);
 
     fs_state_10, final_circle_values, final_folds =
         sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4, GRINDING_BITS_3);
@@ -798,10 +794,9 @@ fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
     panic();
 }
 
-fn sample_bits_const(fs_state, const n_samples, K) -> 2 {
-    // return the updated fs_state, and a pointer to n pointers, each pointing to 31 (boolean) field elements,
-    samples = malloc(n_samples);
-    new_fs_state = fs_sample_helper(fs_state, n_samples, samples);
+fn sample_bits_const(fs, const n_samples, K) -> 2 {
+    // return the updated fiat-shamir, and a pointer to n pointers, each pointing to 31 (boolean) field elements,
+    new_fs, samples = fs_sample_helper(fs, n_samples, samples);
     sampled_bits = malloc(n_samples);
     for i in 0..n_samples unroll {
         bits, partial_sum = checked_decompose_bits(samples[i], K);
@@ -870,7 +865,7 @@ fn degree_two_polynomial_eval(coeffs, point) -> 1 {
 }
 
 fn parse_commitment(fs_state) -> 4 {
-    fs_state_1, root = fs_receive(fs_state, 1);
+    fs_state_1, root = fs_receive_chunks(fs_state, 1);
     fs_state_2, ood_point = fs_sample_ef(fs_state_1);
     fs_state_3, ood_eval = fs_receive_ef(fs_state_2, 1);
     return fs_state_3, root, ood_point, ood_eval;
@@ -893,12 +888,13 @@ fn fs_new(transcript) -> 1 {
 }
 
 // bits should  <= 16 (to use range checks)
-fn fs_grinding(fs, two_powbits_bits) -> 1 {
+fn fs_grinding(fs, bits) -> 1 {
     if bits == 0 {
         return fs; // no grinding
     }
     left = malloc(8);
-    left[0] = read_memory(fs[0]); // grinding witness
+    grinding_witness = read_memory(fs[0]);
+    left[0] = grinding_witness;
     set_to_7_zeros(left + 1);
 
     new_fs = malloc(18);
@@ -914,25 +910,26 @@ fn fs_grinding(fs, two_powbits_bits) -> 1 {
 }
 
 fn fs_sample_ef(fs) -> 2 {
-    (new_fs, ef_sampled) = fs_sample_8(fs);
-    return (new_fs, ef_sampled);
+    new_fs, ef_sampled = fs_sample_chunks(fs, 1);
+    return new_fs, ef_sampled;
 }
 
-fn fs_sample_8(fs) -> 2 {
-    // return the updated fiat-shamir, and 8 sampled field elements
+fn fs_sample_chunks(fs, n_chunks) -> 2 {
+    // each chunk = 8 field elements
+    // return the updated fiat-shamir, and n_chunks*8 sampled field elements
     if !!assume_bool(fs[1]) {
         // already sampled, need to duplex
         new_fs = malloc(18);
         poseidon16(fs[2], fs[10], new_fs + 2, PERMUTATION);
         new_fs[0] = fs[0]; // same transcript pointer
         new_fs[1] = 1; // has_sampled
-        return (new_fs, fs + 2);
+        return new_fs, fs + 2;
     } else {
         new_fs = malloc(18);
         new_fs[0] = fs[0]; // same transcript pointer
         new_fs[1] = 1; // has_sampled
         copy_16(fs + 2, new_fs + 2);
-        return (new_fs, fs + 2);
+        return new_fs, fs + 2;
     }
 }
 
@@ -942,7 +939,7 @@ fn fs_hint(fs, n) -> 2 {
     new_fs = malloc(18);
     new_fs[0] = fs[0] + n; // advance transcript pointer
     new_fs[1] = fs[1];
-    copy_16(fs_state + 2, new_fs + 2);
+    copy_16(fs + 2, new_fs + 2);
     return new_fs, fs;
 }
 
@@ -961,37 +958,12 @@ fn fs_receive_chunks(fs, const n_chunks) -> 2 {
     return new_fs + 16 * (n_chunks - 1), transcript_ptr;
 }
 
-
-
 fn fs_receive_ef(fs, const n) -> 2 {
-    match 
-}
-
-
-fn fs_receive_ef_const(fs_state, const n) -> 2 {
-    // return the updated fs_state, and a (normal) pointer to n consecutive EF elements
-    final_fs_state = fs_observe(fs_state, n);
-    res = malloc(n * DIM);
-    // TODO optimize with dot_product
-    for i in 0..n unroll { 
-        ptr = fs_state[0] + i*VECTOR_LEN;
-        for j in 0..DIM unroll {
-            res[i * DIM + j] = ptr[j];
-        }
-        for j in DIM..8 unroll {
-            assert ptr[j] == 0;
-        }
+    new_fs, ef_ptr = fs_receive_chunks(fs, next_multiple_of(n * DIM, 8) / 8);
+    for i in n * DIM..next_multiple_of(n * DIM, 8) unroll {
+        assert ef_ptr[i] == 0;
     }
-
-    return final_fs_state, res;
-}
-
-fn fs_receive(fs_state, n) -> 2 {
-    // return the updated fs_state, and a vectorized pointer to n chunk of 8 field elements
-
-    res = fs_state[0];
-    final_fs_state = fs_observe(fs_state, n);
-    return final_fs_state, res;
+    return new_fs, ef_ptr;
 }
 
 fn fs_observe(fs_state, n) -> 1 {
@@ -1076,9 +1048,9 @@ fn set_to_7_zeros(a) inline {
 
 fn copy_8(a, b) inline {
     dot_product_ee(a, pointer_to_one_vector, b, 1);
-    assert a[5] = b[5];
-    assert a[6] = b[6];
-    assert a[7] = b[7];
+    assert a[5] == b[5];
+    assert a[6] == b[6];
+    assert a[7] == b[7];
     return;
 }
 
@@ -1115,7 +1087,7 @@ fn next_multiple_of_8(const a) -> 1 {
     return a + (8 - (a % 8)) % 8;
 }
 
-fn read_memory(ptr) -> 1 inline {
+fn read_memory(ptr) inline -> 1  {
     mem = 0;
     return mem[ptr];
 }
