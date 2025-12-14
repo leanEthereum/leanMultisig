@@ -804,20 +804,21 @@ fn sample_bits_const(fs, const n_samples, K) -> 2 {
     }
     sampled_bits = malloc(n_samples);
     for i in 0..(next_multiple_of(n_samples, 8) / 8) - 1 unroll {
-        fs = all_fs[i];
+        my_fs = all_fs[i];
         for j in 0..8 unroll {
-            bits, _ = checked_decompose_bits(fs[j], K);
+            bits, _ = checked_decompose_bits(my_fs[j], K);
             sampled_bits[i * 8 + j] = bits;
         }
     }
     // Last batch (may be partial)
-    new_fs = all_fs[(next_multiple_of(n_samples, 8) / 8) - 1];
+    last_fs = all_fs[(next_multiple_of(n_samples, 8) / 8) - 1];
     for j in 0..(n_samples % 8) unroll {
-        bits, _ = checked_decompose_bits(new_fs[j], K);
+        bits, _ = checked_decompose_bits(last_fs[j], K);
         sampled_bits[((next_multiple_of(n_samples, 8) / 8) - 1) * 8 + j] = bits;
     }
+    final_fs = duplexing(last_fs);
 
-    return new_fs, sampled_bits;
+    return final_fs, sampled_bits;
 }
 
 // p = 2^31 - 2^24 + 1
@@ -1053,6 +1054,13 @@ fn set_to_one(a) inline {
 
 fn print_ef(a) {
     for i in 0..DIM unroll {
+        print(a[i]);
+    }
+    return;
+}
+
+fn print_vec(a) {
+    for i in 0..VECTOR_LEN unroll {
         print(a[i]);
     }
     return;
