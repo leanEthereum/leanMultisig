@@ -20,7 +20,7 @@ pub fn prove_execution(
     (public_input, private_input): (&[F], &[F]),
     vm_profiler: bool,
     poseidons_16_precomputed: &Poseidon16History,
-) -> (Vec<F>, String) {
+) -> (Vec<F>, usize, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
         traces,
@@ -331,7 +331,8 @@ pub fn prove_execution(
         &bytecode_pushforward.by_ref(),
     );
 
-    (prover_state.into_proof(), exec_summary)
+    let proof_size_fe = prover_state.proof_size_fe();
+    (prover_state.into_proof(), proof_size_fe, exec_summary)
 }
 
 fn prove_bus_and_air(
