@@ -656,3 +656,60 @@ fn test_const_and_nonconst_malloc_sharing_name() {
 
     compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
 }
+
+#[test]
+fn test_debug_assert_eq() {
+    let program = r#"
+    fn main() {
+        a = 10;
+        b = 20;
+        debug_assert a * 2 == b;
+        debug_assert a != b;
+        debug_assert a < b;
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
+
+#[should_panic]
+#[test]
+fn test_debug_assert_eq_fail() {
+    let program = r#"
+    fn main() {
+        a = 10;
+        b = 25;
+        debug_assert a * 2 == b;
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
+
+#[should_panic]
+#[test]
+fn test_debug_assert_not_eq_fail() {
+    let program = r#"
+    fn main() {
+        a = 10;
+        b = 10;
+        debug_assert a != b;
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
+
+#[should_panic]
+#[test]
+fn test_debug_assert_lt_fail() {
+    let program = r#"
+    fn main() {
+        a = 30;
+        b = 20;
+        debug_assert a < b;
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}

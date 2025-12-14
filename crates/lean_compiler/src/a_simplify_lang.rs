@@ -2,11 +2,11 @@ use crate::{
     Counter, F,
     ir::HighLevelOperation,
     lang::{
-        AssumeBoolean, Boolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue, Context, Expression,
-        Function, Line, Program, Scope, SimpleExpr, Var,
+        AssumeBoolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue, Context, Expression, Function,
+        Line, Program, Scope, SimpleExpr, Var,
     },
 };
-use lean_vm::{SourceLineNumber, Table, TableT};
+use lean_vm::{Boolean, BooleanExpr, SourceLineNumber, Table, TableT};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -148,6 +148,7 @@ pub enum SimpleLine {
     LocationReport {
         location: SourceLineNumber,
     },
+    DebugAssert(BooleanExpr<SimpleExpr>, SourceLineNumber),
 }
 
 pub fn simplify_program(mut program: Program) -> SimpleProgram {
@@ -274,7 +275,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 check_expr_scoping(index, ctx);
                 check_expr_scoping(value, ctx);
             }
-            Line::Assert(boolean, _) => {
+            Line::Assert { boolean, .. } => {
                 check_boolean_scoping(boolean, ctx);
             }
             Line::IfCondition {
@@ -419,13 +420,9 @@ fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
     }
 }
 
-fn check_boolean_scoping(boolean: &Boolean, ctx: &Context) {
-    match boolean {
-        Boolean::Equal { left, right } | Boolean::Different { left, right } => {
-            check_expr_scoping(left, ctx);
-            check_expr_scoping(right, ctx);
-        }
-    }
+fn check_boolean_scoping(boolean: &BooleanExpr<Expression>, ctx: &Context) {
+    check_expr_scoping(&boolean.left, ctx);
+    check_expr_scoping(&boolean.right, ctx);
 }
 
 fn check_condition_scoping(condition: &Condition, ctx: &Context) {
@@ -552,43 +549,60 @@ fn simplify_lines(
                     const_malloc,
                 );
             }
-            Line::Assert(boolean, line_number) => match boolean {
-                Boolean::Different { left, right } => {
-                    let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
-                    let right = simplify_expr(right, &mut res, counters, array_manager, const_malloc);
-                    let diff_var = format!("@aux_var_{}", counters.aux_vars);
-                    counters.aux_vars += 1;
-                    res.push(SimpleLine::Assignment {
-                        var: diff_var.clone().into(),
-                        operation: HighLevelOperation::Sub,
-                        arg0: left,
-                        arg1: right,
-                    });
-                    res.push(SimpleLine::IfNotZero {
-                        condition: diff_var.into(),
-                        then_branch: vec![],
-                        else_branch: vec![SimpleLine::Panic],
-                        line_number: *line_number,
-                    });
+            Line::Assert {
+                boolean,
+                line_number,
+                debug,
+            } => {
+                let left = simplify_expr(&boolean.left, &mut res, counters, array_manager, const_malloc);
+                let right = simplify_expr(&boolean.right, &mut res, counters, array_manager, const_malloc);
+
+                if *debug {
+                    res.push(SimpleLine::DebugAssert(
+                        BooleanExpr {
+                            left,
+                            right,
+                            kind: boolean.kind,
+                        },
+                        *line_number,
+                    ));
+                } else {
+                    match boolean.kind {
+                        Boolean::Different => {
+                            let diff_var = format!("@aux_var_{}", counters.aux_vars);
+                            counters.aux_vars += 1;
+                            res.push(SimpleLine::Assignment {
+                                var: diff_var.clone().into(),
+                                operation: HighLevelOperation::Sub,
+                                arg0: left,
+                                arg1: right,
+                            });
+                            res.push(SimpleLine::IfNotZero {
+                                condition: diff_var.into(),
+                                then_branch: vec![],
+                                else_branch: vec![SimpleLine::Panic],
+                                line_number: *line_number,
+                            });
+                        }
+                        Boolean::Equal => {
+                            let (var, other) = if let Ok(left) = left.clone().try_into() {
+                                (left, right)
+                            } else if let Ok(right) = right.clone().try_into() {
+                                (right, left)
+                            } else {
+                                panic!("Unsupported equality assertion: {left:?}, {right:?}")
+                            };
+                            res.push(SimpleLine::Assignment {
+                                var,
+                                operation: HighLevelOperation::Add,
+                                arg0: other,
+                                arg1: SimpleExpr::zero(),
+                            });
+                        }
+                        Boolean::LessThan => unreachable!(),
+                    }
                 }
-                Boolean::Equal { left, right } => {
-                    let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
-                    let right = simplify_expr(right, &mut res, counters, array_manager, const_malloc);
-                    let (var, other) = if let Ok(left) = left.clone().try_into() {
-                        (left, right)
-                    } else if let Ok(right) = right.clone().try_into() {
-                        (right, left)
-                    } else {
-                        panic!("Unsupported equality assertion: {left:?}, {right:?}")
-                    };
-                    res.push(SimpleLine::Assignment {
-                        var,
-                        operation: HighLevelOperation::Add,
-                        arg0: other,
-                        arg1: SimpleExpr::zero(),
-                    });
-                }
-            },
+            }
             Line::IfCondition {
                 condition,
                 then_branch,
@@ -599,9 +613,10 @@ fn simplify_lines(
                     Condition::Comparison(condition) => {
                         // Transform if a == b then X else Y into if a != b then Y else X
 
-                        let (left, right, then_branch, else_branch) = match condition {
-                            Boolean::Equal { left, right } => (left, right, else_branch, then_branch), // switched
-                            Boolean::Different { left, right } => (left, right, then_branch, else_branch),
+                        let (left, right, then_branch, else_branch) = match condition.kind {
+                            Boolean::Equal => (&condition.left, &condition.right, else_branch, then_branch), // switched
+                            Boolean::Different => (&condition.left, &condition.right, then_branch, else_branch),
+                            Boolean::LessThan => unreachable!(),
                         };
 
                         let left_simplified = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
@@ -1024,10 +1039,9 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
 
     let on_new_condition =
         |condition: &Condition, internal_vars: &BTreeSet<Var>, external_vars: &mut BTreeSet<Var>| match condition {
-            Condition::Comparison(Boolean::Equal { left, right })
-            | Condition::Comparison(Boolean::Different { left, right }) => {
-                on_new_expr(left, internal_vars, external_vars);
-                on_new_expr(right, internal_vars, external_vars);
+            Condition::Comparison(comp) => {
+                on_new_expr(&comp.left, internal_vars, external_vars);
+                on_new_expr(&comp.right, internal_vars, external_vars);
             }
             Condition::Expression(expr, _assume_boolean) => {
                 on_new_expr(expr, internal_vars, external_vars);
@@ -1076,9 +1090,9 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 }
                 internal_vars.extend(return_data.iter().cloned());
             }
-            Line::Assert(condition, _line_number) => {
+            Line::Assert { boolean, .. } => {
                 on_new_condition(
-                    &Condition::Comparison(condition.clone()),
+                    &Condition::Comparison(boolean.clone()),
                     &internal_vars,
                     &mut external_vars,
                 );
@@ -1174,10 +1188,9 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
 }
 
 pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res: &[Var], inlining_count: usize) {
-    let inline_comparison = |comparison: &mut Boolean| {
-        let (Boolean::Equal { left, right } | Boolean::Different { left, right }) = comparison;
-        inline_expr(left, args, inlining_count);
-        inline_expr(right, args, inlining_count);
+    let inline_comparison = |comparison: &mut BooleanExpr<Expression>| {
+        inline_expr(&mut comparison.left, args, inlining_count);
+        inline_expr(&mut comparison.right, args, inlining_count);
     };
 
     let inline_condition = |condition: &mut Condition| match condition {
@@ -1232,8 +1245,8 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
                     inline_internal_var(return_var);
                 }
             }
-            Line::Assert(condition, _line_number) => {
-                inline_comparison(condition);
+            Line::Assert { boolean, .. } => {
+                inline_comparison(boolean);
             }
             Line::FunctionRet { return_data } => {
                 assert_eq!(return_data.len(), res.len());
@@ -1532,9 +1545,21 @@ fn replace_vars_for_unroll(
                 replace_vars_for_unroll_in_expr(index, iterator, unroll_index, iterator_value, internal_vars);
                 replace_vars_for_unroll_in_expr(value, iterator, unroll_index, iterator_value, internal_vars);
             }
-            Line::Assert(Boolean::Equal { left, right } | Boolean::Different { left, right }, _line_number) => {
-                replace_vars_for_unroll_in_expr(left, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll_in_expr(right, iterator, unroll_index, iterator_value, internal_vars);
+            Line::Assert { boolean, .. } => {
+                replace_vars_for_unroll_in_expr(
+                    &mut boolean.left,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll_in_expr(
+                    &mut boolean.right,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
             }
             Line::IfCondition {
                 condition,
@@ -1543,9 +1568,21 @@ fn replace_vars_for_unroll(
                 line_number: _,
             } => {
                 match condition {
-                    Condition::Comparison(Boolean::Equal { left, right } | Boolean::Different { left, right }) => {
-                        replace_vars_for_unroll_in_expr(left, iterator, unroll_index, iterator_value, internal_vars);
-                        replace_vars_for_unroll_in_expr(right, iterator, unroll_index, iterator_value, internal_vars);
+                    Condition::Comparison(cond) => {
+                        replace_vars_for_unroll_in_expr(
+                            &mut cond.left,
+                            iterator,
+                            unroll_index,
+                            iterator_value,
+                            internal_vars,
+                        );
+                        replace_vars_for_unroll_in_expr(
+                            &mut cond.right,
+                            iterator,
+                            unroll_index,
+                            iterator_value,
+                            internal_vars,
+                        );
                     }
                     Condition::Expression(expr, _assume_bool) => {
                         replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
@@ -2032,10 +2069,9 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 line_number: _,
             } => {
                 match condition {
-                    Condition::Comparison(Boolean::Equal { left, right })
-                    | Condition::Comparison(Boolean::Different { left, right }) => {
-                        replace_vars_by_const_in_expr(left, map);
-                        replace_vars_by_const_in_expr(right, map);
+                    Condition::Comparison(cond) => {
+                        replace_vars_by_const_in_expr(&mut cond.left, map);
+                        replace_vars_by_const_in_expr(&mut cond.right, map);
                     }
                     Condition::Expression(expr, _assume_boolean) => {
                         replace_vars_by_const_in_expr(expr, map);
@@ -2049,12 +2085,10 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 replace_vars_by_const_in_expr(end, map);
                 replace_vars_by_const_in_lines(body, map);
             }
-            Line::Assert(condition, _line_number) => match condition {
-                Boolean::Equal { left, right } | Boolean::Different { left, right } => {
-                    replace_vars_by_const_in_expr(left, map);
-                    replace_vars_by_const_in_expr(right, map);
-                }
-            },
+            Line::Assert { boolean, .. } => {
+                replace_vars_by_const_in_expr(&mut boolean.left, map);
+                replace_vars_by_const_in_expr(&mut boolean.right, map);
+            }
             Line::FunctionRet { return_data } => {
                 for ret in return_data {
                     replace_vars_by_const_in_expr(ret, map);
@@ -2255,6 +2289,9 @@ impl SimpleLine {
             }
             Self::Panic => "panic".to_string(),
             Self::LocationReport { .. } => Default::default(),
+            Self::DebugAssert(bool, _) => {
+                format!("debug_assert({})", bool)
+            }
         };
         format!("{spaces}{line_str}")
     }

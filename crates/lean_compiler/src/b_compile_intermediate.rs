@@ -578,6 +578,14 @@ fn compile_lines(
             SimpleLine::LocationReport { location } => {
                 instructions.push(IntermediateInstruction::LocationReport { location: *location });
             }
+            SimpleLine::DebugAssert(boolean, line_number) => {
+                let boolean_simplified = BooleanExpr {
+                    kind: boolean.kind,
+                    left: IntermediateValue::from_simple_expr(&boolean.left, compiler),
+                    right: IntermediateValue::from_simple_expr(&boolean.right, compiler),
+                };
+                instructions.push(IntermediateInstruction::DebugAssert(boolean_simplified, *line_number));
+            }
         }
     }
 

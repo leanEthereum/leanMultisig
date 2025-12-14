@@ -129,6 +129,8 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     wots_pubkey_hashed = malloc_vec(1);
     slice_hash(pointer_to_zero_vector, public_key, wots_pubkey_hashed, V_HALF);
 
+    debug_assert log_lifetime < 33;
+
     merkle_root = malloc_vec(1);
     match log_lifetime {
         0 => { merkle_verify(wots_pubkey_hashed, merkle_index, merkle_root, 0); }

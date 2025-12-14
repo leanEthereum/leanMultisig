@@ -13,7 +13,8 @@ impl IntermediateInstruction {
             | Self::DecomposeCustom { .. }
             | Self::PrivateInputStart { .. }
             | Self::Inverse { .. }
-            | Self::LocationReport { .. } => true,
+            | Self::LocationReport { .. }
+            | Self::DebugAssert { .. } => true,
             Self::Computation { .. }
             | Self::Panic
             | Self::Deref { .. }
@@ -363,6 +364,17 @@ fn compile_block(
             }
             IntermediateInstruction::LocationReport { location } => {
                 let hint = Hint::LocationReport { location };
+                hints.entry(pc).or_default().push(hint);
+            }
+            IntermediateInstruction::DebugAssert(boolean, line_number) => {
+                let hint = Hint::DebugAssert(
+                    BooleanExpr {
+                        left: try_as_mem_or_constant(&boolean.left).unwrap(),
+                        right: try_as_mem_or_constant(&boolean.right).unwrap(),
+                        kind: boolean.kind,
+                    },
+                    line_number,
+                );
                 hints.entry(pc).or_default().push(hint);
             }
         }

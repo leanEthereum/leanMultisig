@@ -95,12 +95,6 @@ impl SimpleExpr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Boolean {
-    Equal { left: Expression, right: Expression },
-    Different { left: Expression, right: Expression },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstantValue {
     Scalar(usize),
     PublicInputStart,
@@ -225,7 +219,7 @@ pub enum AssumeBoolean {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Condition {
     Expression(Expression, AssumeBoolean),
-    Comparison(Boolean),
+    Comparison(BooleanExpr<Expression>),
 }
 
 impl Display for Condition {
@@ -321,7 +315,11 @@ pub enum Line {
         index: Expression,
         value: Expression,
     },
-    Assert(Boolean, SourceLineNumber),
+    Assert {
+        debug: bool,
+        boolean: BooleanExpr<Expression>,
+        line_number: SourceLineNumber,
+    },
     IfCondition {
         condition: Condition,
         then_branch: Vec<Self>,
@@ -458,7 +456,11 @@ impl Line {
             Self::PrivateInputStart { result } => {
                 format!("{result} = private_input_start()")
             }
-            Self::Assert(condition, _line_number) => format!("assert {condition}"),
+            Self::Assert {
+                debug,
+                boolean,
+                line_number: _,
+            } => format!("{}assert {}", if *debug { "debug_" } else { "" }, boolean),
             Self::IfCondition {
                 condition,
                 then_branch,
@@ -582,19 +584,6 @@ impl Line {
             Self::Panic => "panic".to_string(),
         };
         format!("{spaces}{line_str}")
-    }
-}
-
-impl Display for Boolean {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Equal { left, right } => {
-                write!(f, "{left} == {right}")
-            }
-            Self::Different { left, right } => {
-                write!(f, "{left} != {right}")
-            }
-        }
     }
 }
 
