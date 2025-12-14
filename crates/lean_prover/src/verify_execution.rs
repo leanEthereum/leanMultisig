@@ -52,6 +52,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Vec<F>) 
     let bus_challenge = verifier_state.sample();
     verifier_state.duplexing();
     let fingerprint_challenge = verifier_state.sample();
+    verifier_state.duplexing();
 
     let mut lookup_into_memory = NormalLookupVerifier::run(
         &mut verifier_state,

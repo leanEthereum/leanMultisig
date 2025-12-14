@@ -47,6 +47,7 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
             .sum::<EF>();
 
     let mut point = MultilinearPoint(vec![prover_state.sample()]);
+    prover_state.duplexing();
     let mut claims = last_nums_and_dens
         .iter()
         .map(|nd| nd.evaluate(&point))
@@ -94,6 +95,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
 
     prover_state.add_extension_scalars(&inner_evals);
     let beta = prover_state.sample();
+    prover_state.duplexing();
 
     let next_claims = if univariate_skip {
         let selectors = univariate_selectors(log2_strict_usize(N_GROUPS));
@@ -129,6 +131,7 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
             .sum::<EF>();
 
     let mut point = MultilinearPoint(vec![verifier_state.sample()]);
+    verifier_state.duplexing();
     let mut claims = last_nums_and_dens
         .iter()
         .map(|nd| nd.evaluate(&point))
@@ -180,6 +183,8 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     }
 
     let beta = verifier_state.sample();
+    verifier_state.duplexing();
+    
     let next_claims = if univariate_skip {
         let selectors = univariate_selectors(log2_strict_usize(N_GROUPS));
         vec![

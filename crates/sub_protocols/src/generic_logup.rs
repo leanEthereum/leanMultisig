@@ -127,7 +127,9 @@ impl GeneralizedLogupProver {
 
         // logup (GKR)
         let c = prover_state.sample();
+        prover_state.duplexing();
         let alpha = prover_state.sample();
+        prover_state.duplexing();
 
         // challenge to separate the logup claims to the bus claims
         let beta = prover_state.sample();
@@ -305,7 +307,9 @@ impl GeneralizedLogupVerifier {
 
         // logup (GKR)
         let c = verifier_state.sample();
+        verifier_state.duplexing();
         let alpha = verifier_state.sample();
+        verifier_state.duplexing();
 
         // challenge to separate the logup claims to the bus claims
         let beta = verifier_state.sample();

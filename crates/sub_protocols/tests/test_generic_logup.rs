@@ -67,6 +67,7 @@ fn test_generic_logup() {
     *last_num = F::NEG_ONE;
     *last_den = q.inverse();
     let mut prover_state = build_prover_state();
+    prover_state.duplexing();
     let remaining_claims_to_prove = GeneralizedLogupProver::run::<EF>(
         &mut prover_state,
         &memory,
@@ -83,7 +84,7 @@ fn test_generic_logup() {
     let final_prover_state = prover_state.state();
 
     let mut verifier_state = build_verifier_state(prover_state);
-
+    verifier_state.duplexing();
     let remaining_claims_to_verify = GeneralizedLogupVerifier::run(
         &mut verifier_state,
         log_memory_size,
