@@ -92,6 +92,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
 
     {
         let mut verifier_state = VerifierState::<EF, _>::new(whir_proof.clone(), get_poseidon16().clone());
+        verifier_state.duplexing();
         let parsed_commitment = recursion_config.parse_commitment::<F>(&mut verifier_state).unwrap();
         recursion_config
             .verify(&mut verifier_state, &parsed_commitment, statement)

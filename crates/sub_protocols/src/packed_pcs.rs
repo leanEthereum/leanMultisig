@@ -12,7 +12,6 @@ pub struct Chunk {
     pub original_n_vars: usize,
     pub n_vars: usize,
     pub offset_in_original: usize,
-    pub public_data: bool,
     pub offset_in_packed: Option<usize>,
 }
 
@@ -84,7 +83,6 @@ fn split_in_chunks<F: Field>(
             original_n_vars: dims.n_vars,
             n_vars: chunk_size,
             offset_in_original,
-            public_data: false,
             offset_in_packed: None,
         });
         offset_in_original += 1 << chunk_size;
@@ -118,27 +116,19 @@ impl MultilinearChunks {
         for (i, dim) in dims.iter().enumerate() {
             all_chunks.extend(split_in_chunks(i, dim, log_smallest_decomposition_chunk));
         }
-        all_chunks.sort_by_key(|c| (Reverse(c.public_data), Reverse(c.n_vars)));
+        all_chunks.sort_by_key(|c| Reverse(c.n_vars));
 
         let mut offset_in_packed = 0;
         let mut chunks_decomposition: BTreeMap<_, Vec<_>> = BTreeMap::new();
         for chunk in &mut all_chunks {
-            if !chunk.public_data {
-                chunk.offset_in_packed = Some(offset_in_packed);
-                offset_in_packed += 1 << chunk.n_vars;
-            }
+            chunk.offset_in_packed = Some(offset_in_packed);
+            offset_in_packed += 1 << chunk.n_vars;
             chunks_decomposition
                 .entry(chunk.original_poly_index)
                 .or_default()
                 .push(chunk.clone());
         }
-        let packed_n_vars = log2_ceil_usize(
-            all_chunks
-                .iter()
-                .filter(|c| !c.public_data)
-                .map(|c| 1 << c.n_vars)
-                .sum::<usize>(),
-        );
+        let packed_n_vars = log2_ceil_usize(all_chunks.iter().map(|c| 1 << c.n_vars).sum::<usize>());
         let chunks_decomposition = chunks_decomposition.values().cloned().collect::<Vec<_>>();
         assert_eq!(chunks_decomposition.len(), dims.len());
         Self {
@@ -152,23 +142,18 @@ impl MultilinearChunks {
         F: Field,
     {
         let packed_polynomial = F::zero_vec(1 << self.packed_n_vars); // TODO avoid this huge cloning of all witness data
-        self.iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .par_iter()
-            .filter(|chunk| !chunk.public_data)
-            .for_each(|chunk| {
-                let start = chunk.offset_in_packed.unwrap();
-                let end = start + (1 << chunk.n_vars);
-                let original_poly = &polynomials[chunk.original_poly_index];
-                unsafe {
-                    let slice =
-                        std::slice::from_raw_parts_mut((packed_polynomial.as_ptr() as *mut F).add(start), end - start);
-                    slice.copy_from_slice(
-                        &original_poly[chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)],
-                    );
-                }
-            });
+        self.iter().flatten().collect::<Vec<_>>().par_iter().for_each(|chunk| {
+            let start = chunk.offset_in_packed.unwrap();
+            let end = start + (1 << chunk.n_vars);
+            let original_poly = &polynomials[chunk.original_poly_index];
+            unsafe {
+                let slice =
+                    std::slice::from_raw_parts_mut((packed_polynomial.as_ptr() as *mut F).add(start), end - start);
+                slice.copy_from_slice(
+                    &original_poly[chunk.offset_in_original..chunk.offset_in_original + (1 << chunk.n_vars)],
+                );
+            }
+        });
 
         packed_polynomial
     }
@@ -199,12 +184,7 @@ where
     {
         // logging
         let total_commited_data: usize = dims.iter().map(|d| d.committed_size).sum();
-        let packed_commited_data: usize = chunks
-            .iter()
-            .flatten()
-            .filter(|c| !c.public_data)
-            .map(|c| 1 << c.n_vars)
-            .sum();
+        let packed_commited_data: usize = chunks.iter().flatten().map(|c| 1 << c.n_vars).sum();
 
         tracing::info!(
             "Total committed data (full granularity): {} = 2^{:.3} | packed to 2^{:.3} -> 2^{}",
@@ -285,7 +265,6 @@ pub fn packed_pcs_global_statements_for_prover<F: Field, EF: ExtensionField<F> +
             let mut sub_packed_statements = Vec::new();
             let mut evals_to_send = Vec::new();
             if chunks.len() == 1 {
-                assert!(!chunks[0].public_data, "TODO");
                 assert_eq!(chunks[0].n_vars, statement.point.0.len(), "poly: {poly_index}");
                 assert!(
                     chunks[0]
@@ -389,7 +368,10 @@ pub fn packed_pcs_global_statements_for_prover<F: Field, EF: ExtensionField<F> +
     let mut packed_statements = Vec::new();
     for (sub_packed_statements, evals_to_send) in sub_packed_statements_and_evals_to_send {
         packed_statements.extend(sub_packed_statements);
-        prover_state.add_extension_scalars(&evals_to_send);
+        // TODO add the vector directly (need to modify verifier)
+        for eval in evals_to_send {
+            prover_state.add_extension_scalar(eval);
+        }
     }
     packed_statements
 }
@@ -425,7 +407,6 @@ pub fn packed_pcs_global_statements_for_verifier<F: Field, EF: ExtensionField<F>
         assert!(!chunks.is_empty());
         for statement in statements {
             if chunks.len() == 1 {
-                assert!(!chunks[0].public_data, "TODO");
                 assert_eq!(chunks[0].n_vars, statement.point.0.len());
                 assert!(
                     chunks[0]
@@ -446,9 +427,6 @@ pub fn packed_pcs_global_statements_for_verifier<F: Field, EF: ExtensionField<F>
                     .collect::<Vec<_>>();
                 let mut sub_values = vec![];
                 for chunk in chunks {
-                    if chunk.public_data {
-                        continue;
-                    }
                     let missing_vars = statement.point.0.len() - chunk.n_vars;
                     let offset_in_original_booleans =
                         to_big_endian_bits(chunk.offset_in_original >> chunk.n_vars, missing_vars);

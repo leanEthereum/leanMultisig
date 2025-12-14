@@ -136,7 +136,7 @@ fn xmss_aggregate_signatures_helper(
     let private_input = build_private_input(all_signatures);
 
     let (proof, proof_size, summary) = prove_execution(
-        &program,
+        program,
         (&public_input, &private_input),
         false,
         &poseidons_16_precomputed,
@@ -162,7 +162,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
 
-    verify_execution(&program, &public_input, proof)
+    verify_execution(program, &public_input, proof)
 }
 
 #[instrument(skip_all)]

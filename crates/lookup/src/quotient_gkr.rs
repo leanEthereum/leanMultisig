@@ -184,7 +184,7 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
 
     let beta = verifier_state.sample();
     verifier_state.duplexing();
-    
+
     let next_claims = if univariate_skip {
         let selectors = univariate_selectors(log2_strict_usize(N_GROUPS));
         vec![

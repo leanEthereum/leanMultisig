@@ -254,6 +254,7 @@ impl GeneralizedLogupProver {
         }
 
         let gamma = prover_state.sample();
+        prover_state.duplexing();
 
         let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
             .iter()
@@ -400,6 +401,7 @@ impl GeneralizedLogupVerifier {
         }
 
         let gamma = verifier_state.sample();
+        verifier_state.duplexing();
 
         let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
             .iter()

@@ -220,6 +220,7 @@ pub fn prove_execution(
         evals_ef.insert(*table, this_evals_ef);
         bus_offset += table.buses().len();
     }
+
     assert_eq_many!(
         bus_offset,
         lookup_into_memory.on_bus_numerators.len(),
@@ -332,7 +333,6 @@ pub fn prove_execution(
         bytecode_pushforward_commitment,
         &bytecode_pushforward.by_ref(),
     );
-
     let proof_size_fe = prover_state.proof_size_fe();
     (prover_state.into_proof(), proof_size_fe, exec_summary)
 }
@@ -356,6 +356,7 @@ fn prove_bus_and_air(
     );
 
     let bus_beta = prover_state.sample();
+    prover_state.duplexing();
 
     let bus_final_values = bus_numerator_statements
         .iter()

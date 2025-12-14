@@ -151,6 +151,9 @@ fn whir_recursion(transcript_start) {
     dot_product_ee(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS);
     evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
     copy_5(evaluation_of_weights_times_final_value, end_sum);
+
+    fs_final = duplexing(fs_11);
+    
     return;
 }
 
@@ -896,7 +899,8 @@ fn fs_new(transcript_ptr) -> 1 {
     fs_state = malloc(17);
     set_to_16_zeros(fs_state);
     fs_state[16] = transcript_ptr;
-    return fs_state;
+    duplexed = duplexing(fs_state);
+    return duplexed;
 }
 
 fn duplexing(fs) -> 1 {

@@ -299,7 +299,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=lean-vm-simple#7cf5756dc7ae878170ebadba7b549648e87642e0"
+source = "git+https://github.com/leanEthereum/fiat-shamir.git?branch=lean-vm-simple#fa890ca018d2af4c837332fd4917ec05beddd470"
 dependencies = [
  "p3-field",
  "p3-symmetric",
@@ -1375,7 +1375,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#6dea74c80d2c537b2d1c7beb00e3f185c7305b3e"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#98f3a23f68ab18489aac9ad54469a23189c378b1"
 dependencies = [
  "itertools",
  "multilinear-toolkit",
