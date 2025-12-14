@@ -158,12 +158,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
     utils::init_tracing();
     let bytecode = compile_program(program_str.to_string());
     let time = std::time::Instant::now();
-    let (proof, _, summary) = prove_execution(
-        &bytecode,
-        (public_input, private_input),
-        false,
-        &vec![],
-    );
+    let (proof, _, summary) = prove_execution(&bytecode, (public_input, private_input), false, &vec![]);
     let proof_time = time.elapsed();
     verify_execution(&bytecode, public_input, proof).unwrap();
     println!("{}", summary);

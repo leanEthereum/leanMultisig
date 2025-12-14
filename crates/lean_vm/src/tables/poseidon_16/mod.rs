@@ -127,7 +127,10 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let (index_res_b, res_b): (F, [F; VECTOR_LEN]) = if is_compression {
             (F::from_usize(ZERO_VEC_PTR), [F::ZERO; VECTOR_LEN])
         } else {
-            (index_res_a + F::from_usize(VECTOR_LEN), output[VECTOR_LEN..].try_into().unwrap())
+            (
+                index_res_a + F::from_usize(VECTOR_LEN),
+                output[VECTOR_LEN..].try_into().unwrap(),
+            )
         };
 
         ctx.memory.set_slice(index_res_a.to_usize(), &res_a)?;

@@ -28,7 +28,10 @@ statement = {
     continue_statement |
     function_call |
     assert_eq_statement |
-    assert_not_eq_statement
+    assert_not_eq_statement  |
+    debug_assert_eq_statement |
+    debug_assert_not_eq_statement |
+    debug_assert_lt_statement
 }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
@@ -66,6 +69,10 @@ var_list = { identifier ~ ("," ~ identifier)* }
 
 assert_eq_statement = { "assert" ~ add_expr ~ "==" ~ add_expr ~ ";" }
 assert_not_eq_statement = { "assert" ~ add_expr ~ "!=" ~ add_expr ~ ";" }
+
+debug_assert_eq_statement = { "debug_assert" ~ add_expr ~ "==" ~ add_expr ~ ";" }
+debug_assert_not_eq_statement = { "debug_assert" ~ add_expr ~ "!=" ~ add_expr ~ ";" }
+debug_assert_lt_statement = { "debug_assert" ~ add_expr ~ "<" ~ add_expr ~ ";" }
 
 // Expressions
 tuple_expression = { expression ~ ("," ~ expression)* }
