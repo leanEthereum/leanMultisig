@@ -339,7 +339,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     fs_10 = fs_states_b[num_queries];
 
     leaf_hashes = malloc(num_queries); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
-    batch_hash_slice_dynamic(num_queries, answers, leaf_hashes, n_chunks_per_answer);
+    batch_hash_slice_dynamic(num_queries, answers, leaf_hashes, n_chunks_per_answer / VECTOR_LEN);
 
     fs_11, merkle_paths = fs_hint(fs_10, folded_domain_size * num_queries * VECTOR_LEN);
 
