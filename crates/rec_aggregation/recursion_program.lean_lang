@@ -891,7 +891,6 @@ fn parse_commitment(fs_state) -> 4 {
 // 8..16 -> second half of sponge state
 // 16 -> transcript pointer
 
-
 fn fs_new(transcript_ptr) -> 1 {
     fs_state = malloc(17);
     set_to_16_zeros(fs_state);
@@ -950,7 +949,7 @@ fn fs_receive_chunks(fs, const n_chunks) -> 2 {
 
     poseidon16(transcript_ptr, fs + 8, new_fs, PERMUTATION);
     for i in 1..n_chunks unroll {
-        poseidon16(transcript_ptr + i * 8, new_fs + (i-1) * 16, new_fs + i * 16, PERMUTATION);
+        poseidon16(transcript_ptr + i * 8, new_fs + ((i-1) * 16 + 8), new_fs + i * 16, PERMUTATION);
     }
     return new_fs + 16 * (n_chunks - 1), transcript_ptr;
 }
