@@ -236,7 +236,7 @@ pub trait TableT: Air {
     #[allow(clippy::too_many_arguments)]
     fn committed_statements_prover(
         &self,
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        prover_state: &mut impl FSProver<EF>,
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
         ext_commitment_helper: Option<&ExtensionCommitmentFromBaseProver<EF>>,
@@ -300,7 +300,7 @@ pub trait TableT: Air {
     #[allow(clippy::too_many_arguments)]
     fn committed_statements_verifier(
         &self,
-        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        verifier_state: &mut impl FSVerifier<EF>,
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
         air_values_ef: &[EF],

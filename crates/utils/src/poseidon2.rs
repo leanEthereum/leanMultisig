@@ -19,7 +19,7 @@ static POSEIDON_16_INSTANCE: OnceLock<Poseidon16> = OnceLock::new();
 static POSEIDON_16_OF_ZERO: OnceLock<[KoalaBear; 16]> = OnceLock::new();
 
 #[inline(always)]
-pub(crate) fn get_poseidon16() -> &'static Poseidon16 {
+pub fn get_poseidon16() -> &'static Poseidon16 {
     POSEIDON_16_INSTANCE.get_or_init(|| {
         let external_constants = ExternalLayerConstants::new(
             KOALABEAR_RC16_EXTERNAL_INITIAL.to_vec(),

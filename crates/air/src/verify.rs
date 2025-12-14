@@ -6,7 +6,7 @@ use crate::utils::next_mle;
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    verifier_state: &mut impl FSVerifier<EF>,
     air: &A,
     mut extra_data: A::ExtraData,
     univariate_skips: usize,
@@ -19,6 +19,7 @@ where
     A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
 {
     let alpha = verifier_state.sample(); // random challenge for batching constraints
+    verifier_state.duplexing();
 
     *extra_data.alpha_powers_mut() = alpha
         .powers()
@@ -93,7 +94,7 @@ where
 #[allow(clippy::too_many_arguments)] // TODO
 #[allow(clippy::type_complexity)]
 fn open_columns<EF: ExtensionField<PF<EF>>>(
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    verifier_state: &mut impl FSVerifier<EF>,
     n_columns_f: usize,
     n_columns_ef: usize,
     univariate_skips: usize,

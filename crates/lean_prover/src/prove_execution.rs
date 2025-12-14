@@ -20,7 +20,7 @@ pub fn prove_execution(
     (public_input, private_input): (&[F], &[F]),
     vm_profiler: bool,
     poseidons_16_precomputed: &Poseidon16History,
-) -> (Proof<F>, String) {
+) -> (Vec<F>, usize, String) {
     let mut exec_summary = String::new();
     let ExecutionTrace {
         traces,
@@ -45,7 +45,7 @@ pub fn prove_execution(
         non_zero_memory_size = 1 << MIN_LOG_MEMORY_SIZE;
     }
 
-    let mut prover_state = build_prover_state::<EF>(false);
+    let mut prover_state = build_prover_state();
     prover_state.add_base_scalars(
         &[
             vec![non_zero_memory_size],
@@ -128,7 +128,9 @@ pub fn prove_execution(
     );
 
     let bus_challenge = prover_state.sample();
+    prover_state.duplexing();
     let fingerprint_challenge = prover_state.sample();
+    prover_state.duplexing();
 
     let mut bus_numerators = vec![];
     let mut bus_denominators = vec![];
@@ -218,6 +220,7 @@ pub fn prove_execution(
         evals_ef.insert(*table, this_evals_ef);
         bus_offset += table.buses().len();
     }
+
     assert_eq_many!(
         bus_offset,
         lookup_into_memory.on_bus_numerators.len(),
@@ -330,12 +333,12 @@ pub fn prove_execution(
         bytecode_pushforward_commitment,
         &bytecode_pushforward.by_ref(),
     );
-
-    (prover_state.into_proof(), exec_summary)
+    let proof_size_fe = prover_state.proof_size_fe();
+    (prover_state.into_proof(), proof_size_fe, exec_summary)
 }
 
 fn prove_bus_and_air(
-    prover_state: &mut multilinear_toolkit::prelude::FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
     t: &Table,
     trace: &TableTrace,
     bus_challenge: EF,
@@ -353,6 +356,7 @@ fn prove_bus_and_air(
     );
 
     let bus_beta = prover_state.sample();
+    prover_state.duplexing();
 
     let bus_final_values = bus_numerator_statements
         .iter()

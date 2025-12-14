@@ -135,8 +135,8 @@ fn xmss_aggregate_signatures_helper(
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
     let private_input = build_private_input(all_signatures);
 
-    let (proof, summary) = prove_execution(
-        &program,
+    let (proof, proof_size, summary) = prove_execution(
+        program,
         (&public_input, &private_input),
         false,
         &poseidons_16_precomputed,
@@ -144,7 +144,7 @@ fn xmss_aggregate_signatures_helper(
 
     let proof_bytes = info_span!("Proof serialization").in_scope(|| bincode::serialize(&proof).unwrap());
 
-    Ok((proof_bytes, proof.proof_size, summary))
+    Ok((proof_bytes, proof_size, summary))
 }
 
 pub fn xmss_verify_aggregated_signatures(
@@ -162,7 +162,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
 
-    verify_execution(&program, &public_input, proof)
+    verify_execution(program, &public_input, proof)
 }
 
 #[instrument(skip_all)]

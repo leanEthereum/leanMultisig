@@ -95,12 +95,6 @@ impl SimpleExpr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Boolean {
-    Equal { left: Expression, right: Expression },
-    Different { left: Expression, right: Expression },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstantValue {
     Scalar(usize),
     PublicInputStart,
@@ -122,6 +116,10 @@ pub enum ConstExpression {
     },
     Log2Ceil {
         value: Box<Self>,
+    },
+    NextMultipleOf {
+        value: Box<Self>,
+        multiple: Box<Self>,
     },
 }
 
@@ -152,6 +150,14 @@ impl TryFrom<Expression> for ConstExpression {
                 let value_expr = Self::try_from(*value)?;
                 Ok(Self::Log2Ceil {
                     value: Box::new(value_expr),
+                })
+            }
+            Expression::NextMultipleOf { value, multiple } => {
+                let value_expr = Self::try_from(*value)?;
+                let multiple_expr = Self::try_from(*multiple)?;
+                Ok(Self::NextMultipleOf {
+                    value: Box::new(value_expr),
+                    multiple: Box::new(multiple_expr),
                 })
             }
         }
@@ -191,6 +197,14 @@ impl ConstExpression {
                 let value = value.eval_with(func)?;
                 Some(F::from_usize(log2_ceil_usize(value.to_usize())))
             }
+            Self::NextMultipleOf { value, multiple } => {
+                let value = value.eval_with(func)?;
+                let multiple = multiple.eval_with(func)?;
+                let value_usize = value.to_usize();
+                let multiple_usize = multiple.to_usize();
+                let res = value_usize.next_multiple_of(multiple_usize);
+                Some(F::from_usize(res))
+            }
         }
     }
 
@@ -225,7 +239,7 @@ pub enum AssumeBoolean {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Condition {
     Expression(Expression, AssumeBoolean),
-    Comparison(Boolean),
+    Comparison(BooleanExpr<Expression>),
 }
 
 impl Display for Condition {
@@ -254,6 +268,10 @@ pub enum Expression {
     },
     Log2Ceil {
         value: Box<Expression>,
+    }, // only for const expressions
+    NextMultipleOf {
+        value: Box<Expression>,
+        multiple: Box<Expression>,
     }, // only for const expressions
 }
 
@@ -290,6 +308,14 @@ impl Expression {
                 let value = value.eval_with(value_fn, array_fn)?;
                 Some(F::from_usize(log2_ceil_usize(value.to_usize())))
             }
+            Self::NextMultipleOf { value, multiple } => {
+                let value = value.eval_with(value_fn, array_fn)?;
+                let multiple = multiple.eval_with(value_fn, array_fn)?;
+                let value_usize = value.to_usize();
+                let multiple_usize = multiple.to_usize();
+                let res = value_usize.next_multiple_of(multiple_usize);
+                Some(F::from_usize(res))
+            }
         }
     }
 
@@ -321,7 +347,11 @@ pub enum Line {
         index: Expression,
         value: Expression,
     },
-    Assert(Boolean, SourceLineNumber),
+    Assert {
+        debug: bool,
+        boolean: BooleanExpr<Expression>,
+        line_number: SourceLineNumber,
+    },
     IfCondition {
         condition: Condition,
         then_branch: Vec<Self>,
@@ -417,6 +447,9 @@ impl Display for Expression {
             Self::Log2Ceil { value } => {
                 write!(f, "log2_ceil({value})")
             }
+            Self::NextMultipleOf { value, multiple } => {
+                write!(f, "next_multiple_of({value}, {multiple})")
+            }
         }
     }
 }
@@ -456,7 +489,11 @@ impl Line {
             Self::PrivateInputStart { result } => {
                 format!("{result} = private_input_start()")
             }
-            Self::Assert(condition, _line_number) => format!("assert {condition}"),
+            Self::Assert {
+                debug,
+                boolean,
+                line_number: _,
+            } => format!("{}assert {}", if *debug { "debug_" } else { "" }, boolean),
             Self::IfCondition {
                 condition,
                 then_branch,
@@ -547,10 +584,7 @@ impl Line {
                 let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
                 format!("print({content_str})")
             }
-            Self::MAlloc {
-                var,
-                size,
-            } => {
+            Self::MAlloc { var, size } => {
                 format!("{var} = malloc({size})")
             }
             Self::DecomposeBits { var, to_decompose } => {
@@ -574,19 +608,6 @@ impl Line {
             Self::Panic => "panic".to_string(),
         };
         format!("{spaces}{line_str}")
-    }
-}
-
-impl Display for Boolean {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Equal { left, right } => {
-                write!(f, "{left} == {right}")
-            }
-            Self::Different { left, right } => {
-                write!(f, "{left} != {right}")
-            }
-        }
     }
 }
 
@@ -632,6 +653,9 @@ impl Display for ConstExpression {
             }
             Self::Log2Ceil { value } => {
                 write!(f, "log2_ceil({value})")
+            }
+            Self::NextMultipleOf { value, multiple } => {
+                write!(f, "next_multiple_of({value}, {multiple})")
             }
         }
     }

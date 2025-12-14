@@ -617,3 +617,76 @@ fn test_const_and_nonconst_malloc_sharing_name() {
 
     compile_and_run(program.to_string(), (&[], &[]), false);
 }
+
+#[test]
+fn test_debug_assert_eq() {
+    let program = r#"
+    fn main() {
+        a = 10;
+        b = 20;
+        debug_assert a * 2 == b;
+        debug_assert a != b;
+        debug_assert a < b;
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[should_panic]
+#[test]
+fn test_debug_assert_eq_fail() {
+    let program = r#"
+    fn main() {
+        a = 10;
+        b = 25;
+        debug_assert a * 2 == b;
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[should_panic]
+#[test]
+fn test_debug_assert_not_eq_fail() {
+    let program = r#"
+    fn main() {
+        a = 10;
+        b = 10;
+        debug_assert a != b;
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[should_panic]
+#[test]
+fn test_debug_assert_lt_fail() {
+    let program = r#"
+    fn main() {
+        a = 30;
+        b = 20;
+        debug_assert a < b;
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[test]
+fn test_next_multiple_of() {
+    let program = r#"
+    fn main() {
+        a = double(next_multiple_of(12, 8));
+        assert a == 32;
+        return;
+    }
+
+    fn double(const n) -> 1 {
+        return next_multiple_of(n, n) * 2;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}

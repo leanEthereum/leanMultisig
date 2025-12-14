@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use utils::FSProver;
 use utils::VecOrSlice;
 use utils::transpose_slice_to_basis_coefficients;
 
@@ -28,7 +27,7 @@ pub struct CustomLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize>
 impl CustomLookupProver {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize, const VECTOR_LEN: usize>(
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        prover_state: &mut impl FSProver<EF>,
         table: &[PF<EF>], // table[0] is assumed to be zero
         acc: &[PF<EF>],
         index_columns_f: Vec<&[PF<EF>]>,
@@ -111,7 +110,7 @@ pub struct NormalLookupVerifier;
 impl NormalLookupVerifier {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize, const VECTOR_LEN: usize>(
-        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        verifier_state: &mut impl FSVerifier<EF>,
         table_log_len: usize,
         log_heights_f: Vec<usize>,
         log_heights_ef: Vec<usize>,

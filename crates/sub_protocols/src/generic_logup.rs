@@ -2,10 +2,10 @@ use lookup::prove_gkr_quotient;
 use lookup::verify_gkr_quotient;
 use multilinear_toolkit::prelude::*;
 use utils::VecOrSlice;
+use utils::assert_eq_many;
 use utils::from_end;
 use utils::mle_of_01234567_etc;
 use utils::to_big_endian_in_field;
-use utils::{FSProver, assert_eq_many};
 
 #[derive(Debug)]
 pub struct GeneralizedLogupProver;
@@ -77,7 +77,7 @@ fn get_sorted_dims(
 impl GeneralizedLogupProver {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>>(
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        prover_state: &mut impl FSProver<EF>,
 
         // parmeters for lookup into memory
         table: &[PF<EF>], // table[0] is assumed to be zero
@@ -127,7 +127,9 @@ impl GeneralizedLogupProver {
 
         // logup (GKR)
         let c = prover_state.sample();
+        prover_state.duplexing();
         let alpha = prover_state.sample();
+        prover_state.duplexing();
 
         // challenge to separate the logup claims to the bus claims
         let beta = prover_state.sample();
@@ -252,6 +254,7 @@ impl GeneralizedLogupProver {
         }
 
         let gamma = prover_state.sample();
+        prover_state.duplexing();
 
         let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
             .iter()
@@ -292,7 +295,7 @@ pub struct GeneralizedLogupVerifier;
 
 impl GeneralizedLogupVerifier {
     pub fn run<EF: ExtensionField<PF<EF>>>(
-        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        verifier_state: &mut impl FSVerifier<EF>,
         table_log_len: usize,
         log_heights: Vec<usize>,
         n_cols_per_group: Vec<usize>,
@@ -305,7 +308,9 @@ impl GeneralizedLogupVerifier {
 
         // logup (GKR)
         let c = verifier_state.sample();
+        verifier_state.duplexing();
         let alpha = verifier_state.sample();
+        verifier_state.duplexing();
 
         // challenge to separate the logup claims to the bus claims
         let beta = verifier_state.sample();
@@ -396,6 +401,7 @@ impl GeneralizedLogupVerifier {
         }
 
         let gamma = verifier_state.sample();
+        verifier_state.duplexing();
 
         let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
             .iter()

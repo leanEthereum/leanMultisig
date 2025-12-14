@@ -75,7 +75,7 @@ pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
     )
     .unwrap();
 
-    let mut prover_state = build_prover_state(false);
+    let mut prover_state = build_prover_state();
 
     let time = std::time::Instant::now();
 

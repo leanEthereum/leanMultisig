@@ -109,7 +109,7 @@ fn test_custom_logup() {
     *last_num = F::NEG_ONE;
     *last_den = q.inverse();
 
-    let mut prover_state = build_prover_state(false);
+    let mut prover_state = build_prover_state();
 
     let remaining_claims_to_prove = CustomLookupProver::run(
         &mut prover_state,
@@ -128,7 +128,7 @@ fn test_custom_logup() {
         collect_refs(&bus_denominators),
         univariate_skips,
     );
-    let final_prover_state = prover_state.challenger().state();
+    let final_prover_state = prover_state.state();
 
     let mut verifier_state = build_verifier_state(prover_state);
 
@@ -142,7 +142,7 @@ fn test_custom_logup() {
         univariate_skips,
     )
     .unwrap();
-    assert_eq!(final_prover_state, verifier_state.challenger().state());
+    assert_eq!(final_prover_state, verifier_state.state());
 
     assert_eq!(&remaining_claims_to_prove, &remaining_claims_to_verify);
 

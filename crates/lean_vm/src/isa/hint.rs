@@ -68,6 +68,22 @@ pub enum Hint {
         label: Label,
         size: usize,
     },
+    /// Assert a boolean expression for debugging purposes
+    DebugAssert(BooleanExpr<MemOrConstant>, SourceLineNumber),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Boolean {
+    Equal,
+    Different,
+    LessThan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BooleanExpr<E> {
+    pub left: E,
+    pub right: E,
+    pub kind: Boolean,
 }
 
 /// Execution state for hint processing
@@ -203,6 +219,21 @@ impl Hint {
                     );
                 }
             }
+            Self::DebugAssert(bool_expr, line_number) => {
+                let left = bool_expr.left.read_value(ctx.memory, ctx.fp)?;
+                let right = bool_expr.right.read_value(ctx.memory, ctx.fp)?;
+                let condition_holds = match bool_expr.kind {
+                    Boolean::Equal => left == right,
+                    Boolean::Different => left != right,
+                    Boolean::LessThan => left < right,
+                };
+                if !condition_holds {
+                    return Err(RunnerError::DebugAssertFailed(
+                        format!("{} {} {}", left, bool_expr.kind, right),
+                        *line_number,
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -270,6 +301,25 @@ impl Display for Hint {
             Self::StackFrame { label, size } => {
                 write!(f, "stack frame for {label} size {size}")
             }
+            Self::DebugAssert(bool_expr, line_number) => {
+                write!(f, "debug_assert {bool_expr} at line {line_number}")
+            }
+        }
+    }
+}
+
+impl<E: Display> Display for BooleanExpr<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.left, self.kind, self.right)
+    }
+}
+
+impl Display for Boolean {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Equal => write!(f, "=="),
+            Self::Different => write!(f, "!="),
+            Self::LessThan => write!(f, "<"),
         }
     }
 }

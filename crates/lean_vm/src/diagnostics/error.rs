@@ -1,7 +1,7 @@
-use crate::TableTrace;
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
+use crate::{TableTrace, error};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]
@@ -30,6 +30,9 @@ pub enum RunnerError {
 
     #[error("Program counter out of bounds")]
     PCOutOfBounds,
+
+    #[error("DebugAssert failed: {0} at line {1}")]
+    DebugAssertFailed(String, usize),
 }
 
 pub type VMResult<T> = Result<T, RunnerError>;

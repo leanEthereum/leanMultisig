@@ -2,7 +2,6 @@ use std::array;
 
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
-use utils::{FSProver, FSVerifier};
 
 use crate::MIN_VARS_FOR_PACKING;
 
@@ -12,7 +11,7 @@ GKR to compute sum of fractions.
 
 #[instrument(skip_all)]
 pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
     numerators_and_denominators: &MleGroupRef<'_, EF>,
 ) -> (EF, MultilinearPoint<EF>, EF, EF) {
     assert!(N_GROUPS.is_power_of_two() && N_GROUPS >= 2);
@@ -48,6 +47,7 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
             .sum::<EF>();
 
     let mut point = MultilinearPoint(vec![prover_state.sample()]);
+    prover_state.duplexing();
     let mut claims = last_nums_and_dens
         .iter()
         .map(|nd| nd.evaluate(&point))
@@ -62,7 +62,7 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
 }
 
 fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut impl FSProver<EF>,
     numerators_and_denominators: MleGroupRef<'_, EF>,
     claim_point: &MultilinearPoint<EF>,
     claims: Vec<EF>,
@@ -95,6 +95,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
 
     prover_state.add_extension_scalars(&inner_evals);
     let beta = prover_state.sample();
+    prover_state.duplexing();
 
     let next_claims = if univariate_skip {
         let selectors = univariate_selectors(log2_strict_usize(N_GROUPS));
@@ -115,7 +116,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
 }
 
 pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    verifier_state: &mut impl FSVerifier<EF>,
     n_vars: usize,
 ) -> Result<(EF, MultilinearPoint<EF>, EF, EF), ProofError> {
     let last_nums_and_dens: [[_; 2]; N_GROUPS] = array::from_fn(|_| {
@@ -130,6 +131,7 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
             .sum::<EF>();
 
     let mut point = MultilinearPoint(vec![verifier_state.sample()]);
+    verifier_state.duplexing();
     let mut claims = last_nums_and_dens
         .iter()
         .map(|nd| nd.evaluate(&point))
@@ -151,7 +153,7 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
 }
 
 fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    verifier_state: &mut impl FSVerifier<EF>,
     n_vars: usize,
     point: &MultilinearPoint<EF>,
     claims: Vec<EF>,
@@ -181,6 +183,8 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     }
 
     let beta = verifier_state.sample();
+    verifier_state.duplexing();
+
     let next_claims = if univariate_skip {
         let selectors = univariate_selectors(log2_strict_usize(N_GROUPS));
         vec![
@@ -311,7 +315,7 @@ mod tests {
             .collect::<Vec<_>>();
         let denominators = denominators_indexes.iter().map(|&i| c - i).collect::<Vec<EF>>();
         let real_quotient = sum_all_quotients(&numerators, &denominators);
-        let mut prover_state = build_prover_state(false);
+        let mut prover_state = build_prover_state();
 
         let time = Instant::now();
         let prover_statements = prove_gkr_quotient::<EF, N_GROUPS>(
