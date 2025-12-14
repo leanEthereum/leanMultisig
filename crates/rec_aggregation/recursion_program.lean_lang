@@ -796,14 +796,28 @@ fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
 
 fn sample_bits_const(fs, const n_samples, K) -> 2 {
     // return the updated fiat-shamir, and a pointer to n pointers, each pointing to 31 (boolean) field elements,
-    new_fs, samples = fs_sample_helper(fs, n_samples, samples);
+    all_fs = malloc(1 + next_multiple_of(n_samples, 8) / 8);
+    all_fs[0] = fs;
+    for i in 0..next_multiple_of(n_samples, 8) / 8 unroll {
+        duplexed = duplexing(all_fs[i]);
+        all_fs[i + 1] = duplexed;
+    }
     sampled_bits = malloc(n_samples);
-    for i in 0..n_samples unroll {
-        bits, partial_sum = checked_decompose_bits(samples[i], K);
-        sampled_bits[i] = bits;
+    for i in 0..(next_multiple_of(n_samples, 8) / 8) - 1 unroll {
+        fs = all_fs[i];
+        for j in 0..8 unroll {
+            bits, _ = checked_decompose_bits(fs[j], K);
+            sampled_bits[i * 8 + j] = bits;
+        }
+    }
+    // Last batch (may be partial)
+    new_fs = all_fs[(next_multiple_of(n_samples, 8) / 8) - 1];
+    for j in 0..(n_samples % 8) unroll {
+        bits, _ = checked_decompose_bits(new_fs[j], K);
+        sampled_bits[((next_multiple_of(n_samples, 8) / 8) - 1) * 8 + j] = bits;
     }
 
-    return new_fs_state, sampled_bits;
+    return new_fs, sampled_bits;
 }
 
 // p = 2^31 - 2^24 + 1
@@ -871,23 +885,26 @@ fn parse_commitment(fs_state) -> 4 {
     return fs_state_3, root, ood_point, ood_eval;
 }
 
-// FIAT SHAMIR layout: 18 field elements
-// 0 -> transcript
-// 1 -> has_sampled?
-// 2..10 -> first half of sponge state
-// 10..18 -> second half of sponge state
+// FIAT SHAMIR layout: 17 field elements
+// 0..8 -> first half of sponge state
+// 8..16 -> second half of sponge state
+// 16 -> transcript pointer
 
-fn fs_new(transcript) -> 1 {
-    fs_state = malloc(18);
-    fs_state[0] = transcript;
-    fs_state[1] = 0; // has_sampled
-    for i in 2..18 unroll {
-        fs_state[0] = 0; // initial sponge state to zero
-    }
+
+fn fs_new(transcript_ptr) -> 1 {
+    fs_state = malloc(17);
+    set_to_16_zeros(fs_state);
+    fs_state[16] = transcript_ptr;
     return fs_state;
 }
 
-// bits should  <= 16 (to use range checks)
+fn duplexing(fs) -> 1 {
+    new_fs = malloc(17);
+    poseidon16(fs, fs + 8, new_fs, PERMUTATION);
+    new_fs[16] = fs[16];
+    return new_fs;
+}
+
 fn fs_grinding(fs, bits) -> 1 {
     if bits == 0 {
         return fs; // no grinding
@@ -897,61 +914,40 @@ fn fs_grinding(fs, bits) -> 1 {
     left[0] = grinding_witness;
     set_to_7_zeros(left + 1);
 
-    new_fs = malloc(18);
-    poseidon16(left, fs + 10, new_fs + 2, PERMUTATION);
-    new_fs[0] = fs[0] + 1; // one element read from transcript
-    new_fs[1] = 1; // has_sampled
+    fs_1 = malloc(17);
+    poseidon16(left, fs + 8, fs_1, PERMUTATION);
+    fs_1[16] = fs[16] + 1; // one element read from transcript
 
-    sampled = new_fs[2];
+    sampled = fs_1[0];
     _, sampled_low_bits_value = checked_decompose_bits(sampled, bits);
     assert sampled_low_bits_value == 0;
+
+    fs_2 = duplexing(fs_1);
     
-    return new_fs;
+    return fs_2;
 }
 
 fn fs_sample_ef(fs) -> 2 {
-    new_fs, ef_sampled = fs_sample_chunks(fs, 1);
-    return new_fs, ef_sampled;
-}
-
-fn fs_sample_chunks(fs, n_chunks) -> 2 {
-    // each chunk = 8 field elements
-    // return the updated fiat-shamir, and n_chunks*8 sampled field elements
-    if !!assume_bool(fs[1]) {
-        // already sampled, need to duplex
-        new_fs = malloc(18);
-        poseidon16(fs[2], fs[10], new_fs + 2, PERMUTATION);
-        new_fs[0] = fs[0]; // same transcript pointer
-        new_fs[1] = 1; // has_sampled
-        return new_fs, fs + 2;
-    } else {
-        new_fs = malloc(18);
-        new_fs[0] = fs[0]; // same transcript pointer
-        new_fs[1] = 1; // has_sampled
-        copy_16(fs + 2, new_fs + 2);
-        return new_fs, fs + 2;
-    }
+    ef_sampled = fs[16];
+    return fs, ef_sampled;
 }
 
 fn fs_hint(fs, n) -> 2 {
     // return the updated fiat-shamir, and a pointer to n field elements from the transcript
 
-    new_fs = malloc(18);
-    new_fs[0] = fs[0] + n; // advance transcript pointer
-    new_fs[1] = fs[1];
-    copy_16(fs + 2, new_fs + 2);
+    new_fs = malloc(17);
+    copy_16(fs, new_fs);
+    new_fs[16] = fs[16] + n; // advance transcript pointer
     return new_fs, fs;
 }
 
-// TODO some allocations here could be avoided
 fn fs_receive_chunks(fs, const n_chunks) -> 2 {
     // each chunk = 8 field elements
-    new_fs = malloc(2 + 16 * n_chunks);
-    transcript_ptr = fs[0];
-    new_fs[16 * (n_chunks - 1)] = transcript_ptr + 8 * n_chunks; // advance transcript pointer
-    new_fs[16 * (n_chunks - 1) + 1] = 0; // has_sampled
+    new_fs = malloc(1 + 16 * n_chunks);
+    transcript_ptr = fs[16];
+    new_fs[16 * n_chunks] = transcript_ptr + 8 * n_chunks; // advance transcript pointer
 
-    poseidon16(transcript_ptr, fs[10], new_fs, PERMUTATION);
+    poseidon16(transcript_ptr, fs + 8, new_fs, PERMUTATION);
     for i in 1..n_chunks unroll {
         poseidon16(transcript_ptr + i * 8, new_fs + (i-1) * 16, new_fs + i * 16, PERMUTATION);
     }
@@ -966,34 +962,10 @@ fn fs_receive_ef(fs, const n) -> 2 {
     return new_fs, ef_ptr;
 }
 
-fn fs_observe(fs_state, n) -> 1 {
-    // observe n chunk of 8 field elements from the transcript
-    // and return the updated fs_state
-    // duplexing
-    l_r = malloc(2 * VECTOR_LEN);
-    poseidon16(fs_state[0], fs_state[2], l_r, PERMUTATION);
-    new_fs_state = malloc(4);
-    new_fs_state[0] = fs_state[0] + VECTOR_LEN;
-    new_fs_state[1] = l_r;
-    new_fs_state[2] = l_r + VECTOR_LEN;
-    new_fs_state[3] = 8; // output_buffer_size
-
-    if n == 1 {
-        return new_fs_state;
-    } else {
-        final_fs_state = fs_observe(new_fs_state, n - 1);
-        return final_fs_state;
-    }
-}
 
 fn fs_print_state(fs_state) {
-    left = fs_state[1];
-    for i in 0..8 {
-        print(left[i]);
-    }
-    right = fs_state[2];
-    for i in 0..8 {
-        print(right[i]);
+    for i in 0..17 unroll {
+        print(i, fs_state[i]);
     }
     return;
 }
@@ -1040,9 +1012,19 @@ fn copy_5(a, b) inline {
 }
 
 fn set_to_7_zeros(a) inline {
-    dot_product_ee(a, pointer_to_one_vector, pointer_to_zero_vector, 1);
+    zero_ptr = pointer_to_zero_vector;
+    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
     a[5] = 0;
     a[6] = 0;
+    return;
+}
+
+fn set_to_16_zeros(a) inline {
+    zero_ptr = pointer_to_zero_vector;
+    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
+    dot_product_ee(a + 5, pointer_to_one_vector, zero_ptr, 1);
+    dot_product_ee(a + 10, pointer_to_one_vector, zero_ptr, 1);
+    a[15] = 0;
     return;
 }
 
