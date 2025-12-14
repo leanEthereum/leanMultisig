@@ -128,6 +128,7 @@ pub fn prove_execution(
     );
 
     let bus_challenge = prover_state.sample();
+    prover_state.duplexing();
     let fingerprint_challenge = prover_state.sample();
 
     let mut bus_numerators = vec![];
