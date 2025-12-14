@@ -19,6 +19,7 @@ where
     A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
 {
     let alpha = verifier_state.sample(); // random challenge for batching constraints
+    verifier_state.duplexing();
 
     *extra_data.alpha_powers_mut() = alpha
         .powers()

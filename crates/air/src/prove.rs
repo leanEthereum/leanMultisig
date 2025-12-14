@@ -50,6 +50,7 @@ where
     // .unwrap();
 
     let alpha = prover_state.sample(); // random challenge for batching constraints
+    prover_state.duplexing();
 
     *extra_data.alpha_powers_mut() = alpha
         .powers()
