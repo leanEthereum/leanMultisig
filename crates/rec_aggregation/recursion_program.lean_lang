@@ -88,7 +88,7 @@ fn whir_recursion(transcript_start) {
         sample_stir_indexes_and_fold(fs_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4, GRINDING_BITS_3);
     
     for i in 0..NUM_QUERIES_3 {
-        powers_of_2_rev = expand_from_univariate_const(final_circle_values[i], FINAL_VARS);
+        powers_of_2_rev = expand_from_univariate_base_const(final_circle_values[i], FINAL_VARS);
         poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS);
         final_pol_evaluated_on_circle = malloc(DIM);
         dot_product_be(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS); 
@@ -115,7 +115,7 @@ fn whir_recursion(transcript_start) {
         }
     }
 
-    ood_0_expanded_from_univariate = expand_from_univariate(ood_point_0, N_VARS);
+    ood_0_expanded_from_univariate = expand_from_univariate_ext(ood_point_0, N_VARS);
     s0 = eq_mle_extension(ood_0_expanded_from_univariate, folding_randomness_global, N_VARS);
     s1 = eq_mle_extension(pcs_point, folding_randomness_global, N_VARS);
     s3 = mul_extension_ret(s1, combination_randomness_gen_0);
@@ -130,14 +130,14 @@ fn whir_recursion(transcript_start) {
     combination_randomness_powers = malloc(N_ROUNDS); combination_randomness_powers[0] = combination_randomness_powers_1; combination_randomness_powers[1] = combination_randomness_powers_2; combination_randomness_powers[2] = combination_randomness_powers_3;
 
     for i in 0..N_ROUNDS {
-        ood_expanded_from_univariate = expand_from_univariate(ood_points[i + 1], N_VARS - ffs_sums[i+1]);
+        ood_expanded_from_univariate = expand_from_univariate_ext(ood_points[i + 1], N_VARS - ffs_sums[i+1]);
         s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
         s6s = malloc((num_queries[i] + 1) * DIM);
         copy_5(s5, s6s);
         circle_value_i = circle_values[i];
         for j in 0..num_queries[i] {
-            expanded_from_univariate = expand_from_univariate_dynamic(circle_value_i[j], N_VARS - ffs_sums[i+1]);
-            temp = eq_mle_extension_base_dynamic(expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
+            expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], N_VARS - ffs_sums[i+1]);
+            temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
             copy_5(temp, s6s + (j + 1) * DIM);
         }
         s7 = malloc(DIM);
@@ -182,37 +182,38 @@ fn eq_mle_extension(a, b, n) -> 1 {
     return prods + (n - 1) * DIM;
 }
 
-fn eq_mle_extension_base_dynamic(a, b, n) -> 1 {
+fn eq_mle_extension_base(a, b, n) -> 1 {
     var res;
+    debug_assert n < 23;
     match n {
         0 => {  } // unreachable
-        1 => { res = eq_poly_base_ext(a, b, 1); }
-        2 => { res = eq_poly_base_ext(a, b, 2); }
-        3 => { res = eq_poly_base_ext(a, b, 3); }
-        4 => { res = eq_poly_base_ext(a, b, 4); }
-        5 => { res = eq_poly_base_ext(a, b, 5); }
-        6 => { res = eq_poly_base_ext(a, b, 6); }
-        7 => { res = eq_poly_base_ext(a, b, 7); }
-        8 => { res = eq_poly_base_ext(a, b, 8); }
-        9 => { res = eq_poly_base_ext(a, b, 9); }
-        10 => { res = eq_poly_base_ext(a, b, 10); }
-        11 => { res = eq_poly_base_ext(a, b, 11); }
-        12 => { res = eq_poly_base_ext(a, b, 12); }
-        13 => { res = eq_poly_base_ext(a, b, 13); }
-        14 => { res = eq_poly_base_ext(a, b, 14); }
-        15 => { res = eq_poly_base_ext(a, b, 15); }
-        16 => { res = eq_poly_base_ext(a, b, 16); }
-        17 => { res = eq_poly_base_ext(a, b, 17); }
-        18 => { res = eq_poly_base_ext(a, b, 18); }
-        19 => { res = eq_poly_base_ext(a, b, 19); }
-        20 => { res = eq_poly_base_ext(a, b, 20); }
-        21 => { res = eq_poly_base_ext(a, b, 21); }
-        22 => { res = eq_poly_base_ext(a, b, 22); }
+        1 => { res = eq_mle_extension_base_const(a, b, 1); }
+        2 => { res = eq_mle_extension_base_const(a, b, 2); }
+        3 => { res = eq_mle_extension_base_const(a, b, 3); }
+        4 => { res = eq_mle_extension_base_const(a, b, 4); }
+        5 => { res = eq_mle_extension_base_const(a, b, 5); }
+        6 => { res = eq_mle_extension_base_const(a, b, 6); }
+        7 => { res = eq_mle_extension_base_const(a, b, 7); }
+        8 => { res = eq_mle_extension_base_const(a, b, 8); }
+        9 => { res = eq_mle_extension_base_const(a, b, 9); }
+        10 => { res = eq_mle_extension_base_const(a, b, 10); }
+        11 => { res = eq_mle_extension_base_const(a, b, 11); }
+        12 => { res = eq_mle_extension_base_const(a, b, 12); }
+        13 => { res = eq_mle_extension_base_const(a, b, 13); }
+        14 => { res = eq_mle_extension_base_const(a, b, 14); }
+        15 => { res = eq_mle_extension_base_const(a, b, 15); }
+        16 => { res = eq_mle_extension_base_const(a, b, 16); }
+        17 => { res = eq_mle_extension_base_const(a, b, 17); }
+        18 => { res = eq_mle_extension_base_const(a, b, 18); }
+        19 => { res = eq_mle_extension_base_const(a, b, 19); }
+        20 => { res = eq_mle_extension_base_const(a, b, 20); }
+        21 => { res = eq_mle_extension_base_const(a, b, 21); }
+        22 => { res = eq_mle_extension_base_const(a, b, 22); }
     }
     return res;
 }
 
-fn eq_poly_base_ext(a, b, const n) -> 1 {
+fn eq_mle_extension_base_const(a, b, const n) -> 1 {
     // a: base
     // b: extension
 
@@ -237,37 +238,38 @@ fn eq_poly_base_ext(a, b, const n) -> 1 {
     return prods + (n - 1) * DIM;
 }
 
-fn expand_from_univariate_dynamic(alpha, n) -> 1 {
+fn expand_from_univariate_base(alpha, n) -> 1 {
     var res;
+    debug_assert n < 23;
     match n {
         0 => {  } // unreachable
-        1 => { res = expand_from_univariate_const(alpha, 1); }
-        2 => { res = expand_from_univariate_const(alpha, 2); }
-        3 => { res = expand_from_univariate_const(alpha, 3); }
-        4 => { res = expand_from_univariate_const(alpha, 4); }
-        5 => { res = expand_from_univariate_const(alpha, 5); }
-        6 => { res = expand_from_univariate_const(alpha, 6); }
-        7 => { res = expand_from_univariate_const(alpha, 7); }
-        8 => { res = expand_from_univariate_const(alpha, 8); }
-        9 => { res = expand_from_univariate_const(alpha, 9); }
-        10 => { res = expand_from_univariate_const(alpha, 10); }
-        11 => { res = expand_from_univariate_const(alpha, 11); }
-        12 => { res = expand_from_univariate_const(alpha, 12); }
-        13 => { res = expand_from_univariate_const(alpha, 13); }
-        14 => { res = expand_from_univariate_const(alpha, 14); }
-        15 => { res = expand_from_univariate_const(alpha, 15); }
-        16 => { res = expand_from_univariate_const(alpha, 16); }
-        17 => { res = expand_from_univariate_const(alpha, 17); }
-        18 => { res = expand_from_univariate_const(alpha, 18); }
-        19 => { res = expand_from_univariate_const(alpha, 19); }
-        20 => { res = expand_from_univariate_const(alpha, 20); }
-        21 => { res = expand_from_univariate_const(alpha, 21); }
-        22 => { res = expand_from_univariate_const(alpha, 22); }
+        1 => { res = expand_from_univariate_base_const(alpha, 1); }
+        2 => { res = expand_from_univariate_base_const(alpha, 2); }
+        3 => { res = expand_from_univariate_base_const(alpha, 3); }
+        4 => { res = expand_from_univariate_base_const(alpha, 4); }
+        5 => { res = expand_from_univariate_base_const(alpha, 5); }
+        6 => { res = expand_from_univariate_base_const(alpha, 6); }
+        7 => { res = expand_from_univariate_base_const(alpha, 7); }
+        8 => { res = expand_from_univariate_base_const(alpha, 8); }
+        9 => { res = expand_from_univariate_base_const(alpha, 9); }
+        10 => { res = expand_from_univariate_base_const(alpha, 10); }
+        11 => { res = expand_from_univariate_base_const(alpha, 11); }
+        12 => { res = expand_from_univariate_base_const(alpha, 12); }
+        13 => { res = expand_from_univariate_base_const(alpha, 13); }
+        14 => { res = expand_from_univariate_base_const(alpha, 14); }
+        15 => { res = expand_from_univariate_base_const(alpha, 15); }
+        16 => { res = expand_from_univariate_base_const(alpha, 16); }
+        17 => { res = expand_from_univariate_base_const(alpha, 17); }
+        18 => { res = expand_from_univariate_base_const(alpha, 18); }
+        19 => { res = expand_from_univariate_base_const(alpha, 19); }
+        20 => { res = expand_from_univariate_base_const(alpha, 20); }
+        21 => { res = expand_from_univariate_base_const(alpha, 21); }
+        22 => { res = expand_from_univariate_base_const(alpha, 22); }
     }
     return res;
 }
 
-fn expand_from_univariate_const(alpha, const n) -> 1 {
+fn expand_from_univariate_base_const(alpha, const n) -> 1 {
     // "expand_from_univariate"
     // alpha: F
 
@@ -279,7 +281,7 @@ fn expand_from_univariate_const(alpha, const n) -> 1 {
     return res;
 }
 
-fn expand_from_univariate(alpha, n) -> 1 {
+fn expand_from_univariate_ext(alpha, n) -> 1 {
     res = malloc(n*DIM);
     copy_5(alpha, res);
     for i in 0..n-1 {
@@ -342,12 +344,12 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     fs_10 = fs_states_b[num_queries];
 
     leaf_hashes = malloc(num_queries); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
-    batch_hash_slice_dynamic(num_queries, answers, leaf_hashes, n_chunks_per_answer / VECTOR_LEN);
+    batch_hash_slice(num_queries, answers, leaf_hashes, n_chunks_per_answer / VECTOR_LEN);
 
     fs_11, merkle_paths = fs_hint(fs_10, folded_domain_size * num_queries * VECTOR_LEN);
 
     // Merkle verification
-    merkle_verif_batch_dynamic(num_queries, merkle_paths, leaf_hashes, stir_challenges_indexes, prev_root, folded_domain_size, num_queries);
+    merkle_verif_batch(num_queries, merkle_paths, leaf_hashes, stir_challenges_indexes, prev_root, folded_domain_size, num_queries);
 
     folds = malloc(num_queries * DIM);
 
@@ -373,7 +375,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     return fs_11, circle_values, folds;
 }
 
-fn batch_hash_slice_dynamic(num_queries, all_data_to_hash, all_resulting_hashes, len) {
+fn batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len) {
     if len == DIM * 2 {
         batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM);
         return;
@@ -382,9 +384,9 @@ fn batch_hash_slice_dynamic(num_queries, all_data_to_hash, all_resulting_hashes,
         batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 8);
         return;
     }
-    TODO_batch_hash_slice_dynamic = len;
+    TODO_batch_hash_slice = len;
     print(77777123);
-    print(len);
+    print(TODO_batch_hash_slice);
     panic();
 }
 
@@ -409,7 +411,7 @@ fn slice_hash(seed, data, const half_len) -> 1 {
     return state_indexes[half_len * 2 - 1];
 }
 
-fn merkle_verif_batch_dynamic(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries) {
+fn merkle_verif_batch(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries) {
     if height + num_queries * 1000 == MERKLE_HEIGHT_0 + NUM_QUERIES_0 * 1000 {
         merkle_verif_batch_const(NUM_QUERIES_0, merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_0);
         return;
