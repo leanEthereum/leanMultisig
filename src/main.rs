@@ -14,10 +14,12 @@ enum Cli {
     },
     #[command(about = "Run 1 WHIR recursive proof")]
     Recursion {
-        #[arg(long, help = "Enable tracing")]
-        tracing: bool,
         #[arg(long, default_value_t = 1, help = "Number of recursions")]
         count: usize,
+        #[arg(long, help = "Enable tracing")]
+        tracing: bool,
+        #[arg(long, help = "Enable VM profiler")]
+        profiler: bool,
     },
     #[command(about = "Prove validity of Poseidon2 permutations over 16 field elements")]
     Poseidon {
@@ -36,8 +38,12 @@ fn main() {
             let log_lifetimes = (0..n_signatures).map(|_| XMSS_MAX_LOG_LIFETIME).collect::<Vec<_>>();
             run_xmss_benchmark(&log_lifetimes, tracing);
         }
-        Cli::Recursion { tracing, count } => {
-            run_whir_recursion_benchmark(tracing, count);
+        Cli::Recursion {
+            count,
+            tracing,
+            profiler,
+        } => {
+            run_whir_recursion_benchmark(count, tracing, profiler);
         }
         Cli::Poseidon {
             log_n_perms: log_count,
