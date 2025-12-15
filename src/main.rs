@@ -1,6 +1,6 @@
 use clap::Parser;
 use poseidon_circuit::tests::run_poseidon_benchmark;
-use rec_aggregation::{recursion::run_whir_recursion_benchmark, xmss_aggregate::run_xmss_benchmark};
+use rec_aggregation::{whir_recursion::run_whir_recursion_benchmark, xmss_aggregate::run_xmss_benchmark};
 use xmss::XMSS_MAX_LOG_LIFETIME;
 
 #[derive(Parser)]

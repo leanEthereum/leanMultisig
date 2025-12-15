@@ -18,7 +18,7 @@ use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, 
 const NUM_VARIABLES: usize = 25;
 
 pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
-    let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("recursion_program.lean_lang");
+    let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("whir_recursion.snark");
     let mut program_str = std::fs::read_to_string(src_file).unwrap();
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
