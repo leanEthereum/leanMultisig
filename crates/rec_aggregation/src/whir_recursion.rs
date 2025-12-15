@@ -34,17 +34,19 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
 
     // TODO remove overriding this
     {
-        recursion_config.committment_ood_samples = 1;
         for round in &mut recursion_config.round_parameters {
             round.ood_samples = 1;
         }
     }
 
-    assert_eq!(recursion_config.committment_ood_samples, 1);
-    // println!("Whir parameters: {}", params.to_string());
+    program_str = program_str.replace(
+        &format!("NUM_OOD_COMMIT_PLACEHOLDER"),
+        &recursion_config.committment_ood_samples.to_string(),
+    );
     for (i, round) in recursion_config.round_parameters.iter().enumerate() {
         program_str = program_str
             .replace(&format!("NUM_QUERIES_{i}_PLACEHOLDER"), &round.num_queries.to_string())
+            .replace(&format!("NUM_OOD_{}_PLACEHOLDER", i), &round.ood_samples.to_string())
             .replace(&format!("GRINDING_BITS_{i}_PLACEHOLDER"), &round.pow_bits.to_string());
     }
     program_str = program_str
@@ -87,6 +89,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
     precompute_dft_twiddles::<F>(1 << 24);
 
     let witness = recursion_config.commit(&mut prover_state, &polynomial);
+    let commitment_size = prover_state.proof().len();
     recursion_config.prove(&mut prover_state, statement.clone(), witness, &polynomial.by_ref());
     let whir_proof = prover_state.into_proof();
 
@@ -99,7 +102,6 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
             .unwrap();
     }
 
-    let commitment_size = 16;
     let mut public_input = whir_proof[..commitment_size].to_vec();
     public_input.extend(
         &point

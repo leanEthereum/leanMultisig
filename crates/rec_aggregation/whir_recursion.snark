@@ -1,7 +1,3 @@
-
-// 1 OOD QUERY PER ROUND -> TODO
-// 0 GRINDING IN SUMCHECK -> TODO
-
 const COMPRESSION = 1;
 const PERMUTATION = 0;
 
@@ -23,6 +19,11 @@ const RS_REDUCTION_FACTOR_0 = RS_REDUCTION_FACTOR_0_PLACEHOLDER;
 const RS_REDUCTION_FACTOR_1 = 1;
 const RS_REDUCTION_FACTOR_2 = 1;
 const RS_REDUCTION_FACTOR_3 = 1;
+
+const NUM_OOD_COMMIT = NUM_OOD_COMMIT_PLACEHOLDER;
+const NUM_OOD_0 = NUM_OOD_0_PLACEHOLDER;
+const NUM_OOD_1 = NUM_OOD_1_PLACEHOLDER;
+const NUM_OOD_2 = NUM_OOD_2_PLACEHOLDER;
 
 const NUM_QUERIES_0 = NUM_QUERIES_0_PLACEHOLDER;
 const NUM_QUERIES_1 = NUM_QUERIES_1_PLACEHOLDER;
@@ -57,27 +58,29 @@ fn main() {
 fn whir_recursion(transcript_start) {
     fs_state = fs_new(transcript_start);
 
-    fs_0, root_0, ood_point_0, ood_eval_0 = parse_commitment(fs_state);
+    fs_0, root_0, ood_points_commit, ood_evals_commit = parse_commitment_const(fs_state, NUM_OOD_COMMIT);
 
     // In the future point / eval will come from the PIOP
     fs_1, pcs_point = fs_hint(fs_0, N_VARS * DIM);
     fs_3, pcs_eval = fs_hint(fs_1, 5);
 
     fs_4, combination_randomness_gen_0 = fs_sample_ef(fs_3);
+    combination_randomness_powers_0 = powers(combination_randomness_gen_0, NUM_OOD_COMMIT + 1);
 
-    claimed_sum_side = mul_extension_ret(combination_randomness_gen_0, pcs_eval);
-    claimed_sum_0 = add_extension_ret(ood_eval_0, claimed_sum_side);
+    claimed_sum_0_0 = malloc(DIM);
+    dot_product_ee(ood_evals_commit, combination_randomness_powers_0, claimed_sum_0_0, NUM_OOD_COMMIT);
+    claimed_sum_0_1 = mul_extension_ret(combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM, pcs_eval);
+    claimed_sum_0 = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
     domain_size_0 = N_VARS + LOG_INV_RATE;
     fs_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
-        whir_round(fs_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0);
+        whir_round(fs_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0, NUM_OOD_0);
 
     domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
     fs_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
-        whir_round(fs_5, root_1, FOLDING_FACTOR_1, 2**FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1, GRINDING_BITS_1);
-
+        whir_round(fs_5, root_1, FOLDING_FACTOR_1, 2**FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1, GRINDING_BITS_1, NUM_OOD_1);
     domain_size_2 = domain_size_1 - RS_REDUCTION_FACTOR_1;
     fs_7, folding_randomness_3, ood_point_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
-        whir_round(fs_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2, GRINDING_BITS_2);
+        whir_round(fs_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2, GRINDING_BITS_2, NUM_OOD_2);
 
     domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
     fs_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_7, FOLDING_FACTOR_3, claimed_sum_3);
@@ -115,22 +118,29 @@ fn whir_recursion(transcript_start) {
         }
     }
 
-    ood_0_expanded_from_univariate = expand_from_univariate_ext(ood_point_0, N_VARS);
-    s0 = eq_mle_extension(ood_0_expanded_from_univariate, folding_randomness_global, N_VARS);
-    s1 = eq_mle_extension(pcs_point, folding_randomness_global, N_VARS);
-    s3 = mul_extension_ret(s1, combination_randomness_gen_0);
-    s4 = add_extension_ret(s0, s3);
+    all_ood_recovered_evals = malloc(NUM_OOD_COMMIT * DIM);
+    for i in 0..NUM_OOD_COMMIT unroll {
+        expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, N_VARS);
+        ood_rec = eq_mle_extension(expanded_from_univariate, folding_randomness_global, N_VARS);
+        copy_5(ood_rec, all_ood_recovered_evals + i * DIM);
+    }
+    s1 = malloc(DIM);
+    dot_product_ee(all_ood_recovered_evals, combination_randomness_powers_0, s1, NUM_OOD_COMMIT);
+
+    s2 = eq_mle_extension(pcs_point, folding_randomness_global, N_VARS);
+    s3 = mul_extension_ret(s2, combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM);
+    s4 = add_extension_ret(s1, s3);
 
     weight_sums = malloc(N_ROUNDS + 1);
     weight_sums[0] = s4;
 
-    ood_points = malloc(N_ROUNDS + 1); ood_points[0] = ood_point_0; ood_points[1] = ood_point_1; ood_points[2] = ood_point_2; ood_points[3] = ood_point_3;
+    ood_points = malloc(N_ROUNDS); ood_points[0] = ood_point_1; ood_points[1] = ood_point_2; ood_points[2] = ood_point_3;
     num_queries = malloc(N_ROUNDS + 1); num_queries[0] = NUM_QUERIES_0; num_queries[1] = NUM_QUERIES_1; num_queries[2] = NUM_QUERIES_2; num_queries[3] = NUM_QUERIES_3;
     circle_values = malloc(N_ROUNDS + 1); circle_values[0] = circle_values_1; circle_values[1] = circle_values_2; circle_values[2] = circle_values_3; circle_values[3] = final_circle_values;
     combination_randomness_powers = malloc(N_ROUNDS); combination_randomness_powers[0] = combination_randomness_powers_1; combination_randomness_powers[1] = combination_randomness_powers_2; combination_randomness_powers[2] = combination_randomness_powers_3;
 
     for i in 0..N_ROUNDS {
-        ood_expanded_from_univariate = expand_from_univariate_ext(ood_points[i + 1], N_VARS - ffs_sums[i+1]);
+        ood_expanded_from_univariate = expand_from_univariate_ext(ood_points[i], N_VARS - ffs_sums[i+1]);
         s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
         s6s = malloc((num_queries[i] + 1) * DIM);
         copy_5(s5, s6s);
@@ -473,19 +483,19 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, const heigh
     return;
 }
 
-fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkle_leaves_in_basefield, num_queries, domain_size, claimed_sum, grinding_bits) -> 7 {
+fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkle_leaves_in_basefield, num_queries, domain_size, claimed_sum, grinding_bits, num_ood) -> 7 {
     fs_7, folding_randomness, new_claimed_sum_a = sumcheck(fs_state, folding_factor, claimed_sum);
 
-    fs_8, root, ood_point, ood_eval = parse_commitment(fs_7);
+    fs_8, root, ood_point, ood_eval = parse_commitment(fs_7, num_ood);
 
     fs_11, circle_values, folds = 
         sample_stir_indexes_and_fold(fs_8, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits);
 
     fs_12, combination_randomness_gen = fs_sample_ef(fs_11);
 
-    combination_randomness_powers = powers(combination_randomness_gen, num_queries + 1); // "+ 1" because of one OOD sample
+    combination_randomness_powers = powers(combination_randomness_gen, num_queries + num_ood);
 
-    claimed_sum_supplement_side = malloc(5);
+    claimed_sum_supplement_side = malloc(DIM);
     dot_product_ee_dynamic(folds, combination_randomness_powers + DIM, claimed_sum_supplement_side, num_queries);
 
     claimed_sum_supplement = add_extension_ret(claimed_sum_supplement_side, ood_eval);
@@ -884,12 +894,37 @@ fn degree_two_polynomial_eval(coeffs, point) -> 1 {
     return res_1;
 }
 
-fn parse_commitment(fs_state) -> 4 {
+
+fn parse_commitment(fs_state, num_ood) -> 4 {
+    var fs_4;
+    var root;
+    var ood_points;
+    var ood_evals;
+    debug_assert num_ood < 4;
+    debug_assert num_ood != 0;
+    match num_ood {
+        0 => {  } // unreachable
+        1 => { fs_4, root, ood_points, ood_evals = parse_commitment_const(fs_state, 1); }
+        2 => { fs_4, root, ood_points, ood_evals = parse_commitment_const(fs_state, 2); }
+        3 => { fs_4, root, ood_points, ood_evals = parse_commitment_const(fs_state, 3); }
+        4 => { fs_4, root, ood_points, ood_evals = parse_commitment_const(fs_state, 4); }
+    }
+    return fs_4, root, ood_points, ood_evals;
+}
+
+fn parse_commitment_const(fs_state, const num_ood) -> 4 {
     fs_1, root = fs_receive_chunks(fs_state, 1);
-    fs_2, ood_point = fs_sample_ef(fs_1);
-    fs_3 = duplexing(fs_2);
-    fs_4, ood_eval = fs_receive_ef(fs_3, 1);
-    return fs_4, root, ood_point, ood_eval;
+    ood_points = malloc(num_ood * DIM);
+    all_fs = malloc(num_ood + 1);
+    all_fs[0] = fs_1;
+    for i in 0..num_ood unroll {
+        next_fs, ood_point = fs_sample_ef(all_fs[i]);
+        copy_5(ood_point, ood_points + i * DIM);
+        duplexed = duplexing(next_fs);
+        all_fs[i + 1] = duplexed;
+    }
+    fs_4, ood_evals = fs_receive_ef(all_fs[num_ood], num_ood);
+    return fs_4, root, ood_points, ood_evals;
 }
 
 // FIAT SHAMIR layout: 17 field elements
@@ -1015,6 +1050,12 @@ fn sub_extension(a, b, c) inline {
 
 fn copy_5(a, b) inline {
     dot_product_ee(a, pointer_to_one_vector, b, 1);
+    return;
+}
+
+fn set_to_5_zeros(a) inline {
+    zero_ptr = pointer_to_zero_vector;
+    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
     return;
 }
 
