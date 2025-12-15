@@ -72,14 +72,14 @@ fn whir_recursion(transcript_start) {
     claimed_sum_0_1 = mul_extension_ret(combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM, pcs_eval);
     claimed_sum_0 = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
     domain_size_0 = N_VARS + LOG_INV_RATE;
-    fs_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
+    fs_5, folding_randomness_1, ood_points_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
         whir_round(fs_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0, NUM_OOD_0);
 
     domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
-    fs_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
+    fs_6, folding_randomness_2, ood_points_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
         whir_round(fs_5, root_1, FOLDING_FACTOR_1, 2**FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1, GRINDING_BITS_1, NUM_OOD_1);
     domain_size_2 = domain_size_1 - RS_REDUCTION_FACTOR_1;
-    fs_7, folding_randomness_3, ood_point_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
+    fs_7, folding_randomness_3, ood_points_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
         whir_round(fs_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2, GRINDING_BITS_2, NUM_OOD_2);
 
     domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
@@ -134,26 +134,39 @@ fn whir_recursion(transcript_start) {
     weight_sums = malloc(N_ROUNDS + 1);
     weight_sums[0] = s4;
 
-    ood_points = malloc(N_ROUNDS); ood_points[0] = ood_point_1; ood_points[1] = ood_point_2; ood_points[2] = ood_point_3;
+    all_ood_points = malloc(N_ROUNDS); all_ood_points[0] = ood_points_1; all_ood_points[1] = ood_points_2; all_ood_points[2] = ood_points_3;
+    all_num_oods = malloc(N_ROUNDS); all_num_oods[0] = NUM_OOD_0; all_num_oods[1] = NUM_OOD_1; all_num_oods[2] = NUM_OOD_2;
     num_queries = malloc(N_ROUNDS + 1); num_queries[0] = NUM_QUERIES_0; num_queries[1] = NUM_QUERIES_1; num_queries[2] = NUM_QUERIES_2; num_queries[3] = NUM_QUERIES_3;
     circle_values = malloc(N_ROUNDS + 1); circle_values[0] = circle_values_1; circle_values[1] = circle_values_2; circle_values[2] = circle_values_3; circle_values[3] = final_circle_values;
-    combination_randomness_powers = malloc(N_ROUNDS); combination_randomness_powers[0] = combination_randomness_powers_1; combination_randomness_powers[1] = combination_randomness_powers_2; combination_randomness_powers[2] = combination_randomness_powers_3;
+    all_combination_randomness_powers = malloc(N_ROUNDS); all_combination_randomness_powers[0] = combination_randomness_powers_1; all_combination_randomness_powers[1] = combination_randomness_powers_2; all_combination_randomness_powers[2] = combination_randomness_powers_3;
 
     for i in 0..N_ROUNDS {
-        ood_expanded_from_univariate = expand_from_univariate_ext(ood_points[i], N_VARS - ffs_sums[i+1]);
-        s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
-        s6s = malloc((num_queries[i] + 1) * DIM);
-        copy_5(s5, s6s);
+        num_ood = all_num_oods[i];
+        ood_points = all_ood_points[i];
+        n_vars = N_VARS - ffs_sums[i+1];
+        my_ood_recovered_evals = malloc(num_ood * DIM);
+        combination_randomness_powers = all_combination_randomness_powers[i];
+        my_folding_randomness = folding_randomness_global + ffs_sums[i+1]*DIM;
+        for i in 0..num_ood {
+            expanded_from_univariate = expand_from_univariate_ext(ood_points + i * DIM, n_vars);
+            ood_rec = eq_mle_extension(expanded_from_univariate, my_folding_randomness, n_vars);
+            copy_5(ood_rec, my_ood_recovered_evals + i * DIM);
+        }
+        summed_ood = malloc(DIM);
+        dot_product_ee_dynamic(my_ood_recovered_evals, combination_randomness_powers, summed_ood, num_ood);
+
+        s6s = malloc((num_queries[i]) * DIM);
         circle_value_i = circle_values[i];
         for j in 0..num_queries[i] {
-            expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], N_VARS - ffs_sums[i+1]);
-            temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global + ffs_sums[i+1]*DIM, N_VARS - ffs_sums[i+1]);
-            copy_5(temp, s6s + (j + 1) * DIM);
+            expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars);
+            temp = eq_mle_extension_base(expanded_from_univariate, my_folding_randomness, n_vars);
+            copy_5(temp, s6s + j * DIM);
         }
         s7 = malloc(DIM);
-        dot_product_ee_dynamic(s6s, combination_randomness_powers[i], s7, num_queries[i] + 1);
-        wsum = add_extension_ret(weight_sums[i], s7);
-        weight_sums[i+1] = wsum;
+        dot_product_ee_dynamic(s6s, combination_randomness_powers + num_ood * DIM, s7, num_queries[i]);
+        s8 = add_extension_ret(summed_ood, s7);
+        s9 = add_extension_ret(weight_sums[i], s8);
+        weight_sums[i+1] = s9;
     }
     evaluation_of_weights = weight_sums[N_ROUNDS]; // not good
     poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, 2**FINAL_VARS);
@@ -486,7 +499,7 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, const heigh
 fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkle_leaves_in_basefield, num_queries, domain_size, claimed_sum, grinding_bits, num_ood) -> 7 {
     fs_7, folding_randomness, new_claimed_sum_a = sumcheck(fs_state, folding_factor, claimed_sum);
 
-    fs_8, root, ood_point, ood_eval = parse_commitment(fs_7, num_ood);
+    fs_8, root, ood_points, ood_evals = parse_commitment(fs_7, num_ood);
 
     fs_11, circle_values, folds = 
         sample_stir_indexes_and_fold(fs_8, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits);
@@ -495,13 +508,17 @@ fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkl
 
     combination_randomness_powers = powers(combination_randomness_gen, num_queries + num_ood);
 
-    claimed_sum_supplement_side = malloc(DIM);
-    dot_product_ee_dynamic(folds, combination_randomness_powers + DIM, claimed_sum_supplement_side, num_queries);
+    claimed_sum_0 = malloc(DIM);
+    dot_product_ee_dynamic(ood_evals, combination_randomness_powers, claimed_sum_0, num_ood);
+    
+    claimed_sum_1 = malloc(DIM);
+    dot_product_ee_dynamic(folds, combination_randomness_powers + num_ood * DIM, claimed_sum_1, num_queries);
 
-    claimed_sum_supplement = add_extension_ret(claimed_sum_supplement_side, ood_eval);
-    new_claimed_sum_b = add_extension_ret(claimed_sum_supplement, new_claimed_sum_a);
+    new_claimed_sum_b = add_extension_ret(claimed_sum_0, claimed_sum_1);
 
-    return fs_12, folding_randomness, ood_point, root, circle_values, combination_randomness_powers, new_claimed_sum_b;
+    final_sum = add_extension_ret(new_claimed_sum_a, new_claimed_sum_b);
+
+    return fs_12, folding_randomness, ood_points, root, circle_values, combination_randomness_powers, final_sum;
 }
 
 fn copy_chunk(src, dst) {
@@ -572,6 +589,14 @@ fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
 fn dot_product_ee_dynamic(a, b, res, n) { 
     if n == 16 {
         dot_product_ee(a, b, res, 16);
+        return;
+    }
+    if n == 1 {
+        dot_product_ee(a, b, res, 1);
+        return;
+    }
+    if n == 2 {
+        dot_product_ee(a, b, res, 2);
         return;
     }
 

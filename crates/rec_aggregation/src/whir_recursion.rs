@@ -30,14 +30,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
 
     program_str = program_str.replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string());
 
-    let mut recursion_config = WhirConfig::<EF>::new(recursion_config_builder.clone(), NUM_VARIABLES);
-
-    // TODO remove overriding this
-    {
-        for round in &mut recursion_config.round_parameters {
-            round.ood_samples = 1;
-        }
-    }
+    let recursion_config = WhirConfig::<EF>::new(recursion_config_builder.clone(), NUM_VARIABLES);
 
     program_str = program_str.replace(
         &format!("NUM_OOD_COMMIT_PLACEHOLDER"),
