@@ -61,10 +61,7 @@ pub fn run_end2end_recursion_benchmark() {
         "RS_REDUCTION_FACTOR_0_PLACEHOLDER",
         &snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
     );
-    program_str = program_str.replace(
-        "N_TABLES_PLACEHOLDER",
-        &N_TABLES.to_string(),
-    );
+    program_str = program_str.replace("N_TABLES_PLACEHOLDER", &N_TABLES.to_string());
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;

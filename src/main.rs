@@ -49,7 +49,7 @@ fn main() {
             log_n_perms: log_count,
             tracing,
         } => {
-            benchmark_prove_poseidon_16(1 << log_count, tracing);
+            benchmark_prove_poseidon_16(log_count, tracing);
         }
     }
 }

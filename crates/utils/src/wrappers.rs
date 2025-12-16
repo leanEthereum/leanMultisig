@@ -4,6 +4,8 @@ use p3_koala_bear::QuinticExtensionFieldKB;
 use crate::Poseidon16;
 use crate::get_poseidon16;
 
+pub type VarCount = usize;
+
 pub fn build_prover_state() -> ProverState<QuinticExtensionFieldKB, Poseidon16> {
     let mut prover_state = ProverState::new(get_poseidon16().clone());
     prover_state.duplexing();

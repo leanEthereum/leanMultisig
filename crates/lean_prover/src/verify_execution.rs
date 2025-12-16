@@ -27,6 +27,7 @@ pub fn verify_execution(
         .map(|x| x.to_usize())
         .collect::<Vec<_>>();
     let non_zero_memory_size = dims[0];
+    let log_memory = log2_ceil_usize(non_zero_memory_size);
     let table_heights: BTreeMap<Table, TableHeight> = (0..N_TABLES)
         .map(|i| (ALL_TABLES[i], TableHeight(dims[i + 1])))
         .collect();
@@ -45,13 +46,10 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let base_dims = get_base_dims(non_zero_memory_size, &table_heights);
-    let parsed_commitment_base = packed_pcs_parse_commitment(
-        &params.first_whir,
-        &mut verifier_state,
-        &base_dims,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    )?;
+    let base_dims = get_base_dims(log_memory, &table_heights);
+    let base_packed_dims = PackedDims::compute(&base_dims);
+    let parsed_commitment_base =
+        packed_pcs_parse_commitment::<F, EF>(&params.first_whir, &mut verifier_state, &base_packed_dims)?;
 
     let bus_challenge = verifier_state.sample();
     verifier_state.duplexing();
@@ -185,12 +183,7 @@ pub fn verify_execution(
     let mut all_base_statements = vec![memory_statements, acc_statements];
 
     all_base_statements.extend(final_statements.into_values().flatten());
-    let global_statements_base = packed_pcs_global_statements_for_verifier(
-        &base_dims,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &all_base_statements,
-        &mut verifier_state,
-    )?;
+    let global_statements_base = packed_pcs_global_statements(&base_packed_dims, &all_base_statements);
 
     WhirConfig::new(&params.first_whir, parsed_commitment_base.num_variables).verify(
         &mut verifier_state,

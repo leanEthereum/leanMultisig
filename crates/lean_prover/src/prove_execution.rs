@@ -28,7 +28,7 @@ pub fn prove_execution(
     (public_input, private_input): (&[F], &[F]),
     poseidons_16_precomputed: &Poseidon16History,
     params: &SnarkParams,
-    vm_profiler: bool
+    vm_profiler: bool,
 ) -> ExecutionProof {
     let mut exec_summary = String::new();
     let ExecutionTrace {
@@ -117,24 +117,13 @@ pub fn prove_execution(
         })
         .collect::<BTreeMap<_, _>>();
 
-    let base_dims = get_base_dims(
-        non_zero_memory_size,
-        &traces.iter().map(|(table, trace)| (*table, trace.height)).collect(),
-    );
-
     let mut base_pols = vec![memory.as_slice(), acc.as_slice()];
     for (table, trace) in &traces {
         base_pols.extend(table.committed_columns(trace, commitmenent_extension_helper.get(table)));
     }
 
     // 1st Commitment
-    let packed_pcs_witness_base = packed_pcs_commit(
-        &params.first_whir,
-        &base_pols,
-        &base_dims,
-        &mut prover_state,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-    );
+    let packed_pcs_witness_base = packed_pcs_commit(&params.first_whir, &base_pols, &mut prover_state);
     let first_whir_n_vars = packed_pcs_witness_base.packed_polynomial.by_ref().n_vars();
 
     let bus_challenge = prover_state.sample();
@@ -318,13 +307,7 @@ pub fn prove_execution(
     let mut all_base_statements = vec![memory_statements, acc_statements];
     all_base_statements.extend(final_statements.into_values().flatten());
 
-    let global_statements_base = packed_pcs_global_statements_for_prover(
-        &base_pols,
-        &base_dims,
-        LOG_SMALLEST_DECOMPOSITION_CHUNK,
-        &all_base_statements,
-        &mut prover_state,
-    );
+    let global_statements_base = packed_pcs_global_statements(&packed_pcs_witness_base.dims, &all_base_statements);
 
     WhirConfig::new(
         &params.first_whir,

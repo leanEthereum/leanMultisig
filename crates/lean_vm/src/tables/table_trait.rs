@@ -8,9 +8,7 @@ use multilinear_toolkit::prelude::*;
 use std::{any::TypeId, array, mem::transmute};
 use utils::ToUsize;
 
-use sub_protocols::{
-    ColDims, ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier, committed_dims_extension_from_base,
-};
+use sub_protocols::{ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier};
 
 // Zero padding will be added to each at least, if this minimum is not reached
 // (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)
@@ -211,22 +209,11 @@ pub trait TableT: Air {
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
         (0..self.n_columns_ef_air()).collect()
     }
-    fn committed_dims(&self, n_rows: usize) -> Vec<ColDims<F>> {
-        let mut dims = self
-            .commited_columns_f()
-            .iter()
-            .map(|&c| ColDims::padded(n_rows, self.padding_row_f()[c]))
-            .collect::<Vec<_>>();
-        dims.extend(committed_dims_extension_from_base(
-            n_rows,
-            self.commited_columns_ef()
-                .iter()
-                .map(|&c| self.padding_row_ef()[c])
-                .collect(),
-        ));
-        dims
+    fn committed_dims(&self, n_rows: usize) -> Vec<usize> {
+        let n_vars = log2_ceil_usize(n_rows);
+        vec![n_vars; self.n_commited_columns_f() + self.n_commited_columns_ef() * DIMENSION]
     }
-    fn num_commited_columns_f(&self) -> usize {
+    fn n_commited_columns_f(&self) -> usize {
         self.commited_columns_f().len()
     }
     fn n_commited_columns_ef(&self) -> usize {
@@ -275,7 +262,7 @@ pub trait TableT: Air {
         }
         for lookup in self.normal_lookups_ef() {
             let my_statements = &mut statements
-                [self.num_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
+                [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
                 [..DIMENSION];
             my_statements
                 .iter_mut()
@@ -349,7 +336,7 @@ pub trait TableT: Air {
         }
         for lookup in self.normal_lookups_ef() {
             let my_statements = &mut statements
-                [self.num_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
+                [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
                 [..DIMENSION];
             my_statements
                 .iter_mut()

@@ -1,4 +1,3 @@
-use crate::ColDims;
 use multilinear_toolkit::prelude::*;
 use utils::dot_product_with_base;
 use utils::transpose_slice_to_basis_coefficients;
@@ -8,21 +7,6 @@ use utils::transpose_slice_to_basis_coefficients;
 #[derive(Debug)]
 pub struct ExtensionCommitmentFromBaseProver<EF: ExtensionField<PF<EF>>> {
     pub sub_columns_to_commit: Vec<Vec<PF<EF>>>,
-}
-
-pub fn committed_dims_extension_from_base<EF: ExtensionField<PF<EF>>>(
-    non_zero_height: usize,
-    default_values: Vec<EF>,
-) -> Vec<ColDims<PF<EF>>> {
-    default_values
-        .into_iter()
-        .flat_map(|default_value| {
-            EF::as_basis_coefficients_slice(&default_value)
-                .iter()
-                .map(|&d| ColDims::padded(non_zero_height, d))
-                .collect::<Vec<_>>()
-        })
-        .collect()
 }
 
 impl<EF: ExtensionField<PF<EF>>> ExtensionCommitmentFromBaseProver<EF> {

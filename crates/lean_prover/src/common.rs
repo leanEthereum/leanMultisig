@@ -2,22 +2,17 @@ use std::collections::BTreeMap;
 
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::KOALABEAR_RC16_INTERNAL;
-use sub_protocols::ColDims;
 
 use crate::*;
 use lean_vm::*;
 
 pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2;
 
-pub(crate) fn get_base_dims(
-    non_zero_memory_len: usize,
-    table_heights: &BTreeMap<Table, TableHeight>,
-) -> Vec<ColDims<F>> {
-    let mut dims = [vec![
-        ColDims::padded(non_zero_memory_len, F::ZERO), //  memory
-        ColDims::padded(non_zero_memory_len, F::ZERO), //  memory access counts (logup)
-    ]]
-    .concat();
+pub(crate) fn get_base_dims(log_memory: usize, table_heights: &BTreeMap<Table, TableHeight>) -> Vec<VarCount> {
+    let mut dims = vec![
+        log_memory, //  memory
+        log_memory, //  memory access counts (logup)
+    ];
     for (table, height) in table_heights {
         dims.extend(table.committed_dims(height.n_rows_non_padded_maxed()));
     }
