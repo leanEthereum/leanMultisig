@@ -81,12 +81,11 @@ Proving time:
 
 ### Proof size
 
-With conjecture "up to capacity", current proofs with rate = 1/2 are about ≈ 400 - 500 KiB, of which ≈ 300 KiB comes from WHIR.
+With conjecture "up to capacity", and rate = 1/2, current proofs are about ≈ 400 - 500 KiB. On the [lean-vm-simple](https://github.com/leanEthereum/leanMultisig/tree/lean-vm-simple) branch, proofs are ≈ 300 KiB. This part has not (at all) been optimized (no Merkle pruning...): big gains are expected.
 
-- The remaining 100 - 200 KiB will be significantly reduced in the future (this part has not been optimized at all).
-- WHIR proof size will also be reduced, thanks to merkle pruning (TODO).
-
-Target: 256 KiB for fast proof, 128 KiB for slower proofs (rate = 1/4 or 1/8).
+Target: 
+- 256 KiB for fast proof (rate = 1/2)
+- close to 128 KiB for slower proofs (rate = 1/4 or 1/8)
 
 ## Credits
 
