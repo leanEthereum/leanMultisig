@@ -227,7 +227,7 @@ where
         panic!("Unsupported field type for packed PCS: {}", std::any::type_name::<F>());
     };
 
-    let inner_witness = WhirConfig::new(whir_config_builder.clone(), packed_n_vars).commit(prover_state, &mle);
+    let inner_witness = WhirConfig::new(whir_config_builder, packed_n_vars).commit(prover_state, &mle);
     MultiCommitmentWitness {
         inner_witness,
         packed_polynomial: mle,
@@ -389,7 +389,7 @@ where
     PF<EF>: TwoAdicField,
 {
     let all_chunks = MultilinearChunks::compute(dims, log_smallest_decomposition_chunk);
-    WhirConfig::new(whir_config_builder.clone(), all_chunks.packed_n_vars).parse_commitment(verifier_state)
+    WhirConfig::new(whir_config_builder, all_chunks.packed_n_vars).parse_commitment(verifier_state)
 }
 
 pub fn packed_pcs_global_statements_for_verifier<F: Field, EF: ExtensionField<F> + ExtensionField<PF<EF>>>(
@@ -589,7 +589,7 @@ mod tests {
             &mut prover_state,
         );
         let num_variables = witness.packed_polynomial.by_ref().n_vars();
-        WhirConfig::new(whir_config_builder.clone(), num_variables).prove(
+        WhirConfig::new(&whir_config_builder, num_variables).prove(
             &mut prover_state,
             packed_statements,
             witness.inner_witness,
@@ -612,7 +612,7 @@ mod tests {
             &mut verifier_state,
         )
         .unwrap();
-        WhirConfig::new(whir_config_builder, num_variables)
+        WhirConfig::new(&whir_config_builder, num_variables)
             .verify(&mut verifier_state, &parsed_commitment, packed_statements)
             .unwrap();
     }

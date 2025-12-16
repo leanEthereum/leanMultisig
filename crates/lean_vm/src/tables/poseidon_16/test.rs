@@ -112,7 +112,7 @@ pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
         &mut prover_state,
     );
 
-    WhirConfig::new(whir_config.clone(), witness.packed_polynomial.by_ref().n_vars()).prove(
+    WhirConfig::new(&whir_config, witness.packed_polynomial.by_ref().n_vars()).prove(
         &mut prover_state,
         global_statements_prover,
         witness.inner_witness,
@@ -158,7 +158,7 @@ pub fn benchmark_prove_poseidon_16(n_rows: usize, tracing: bool) {
     )
     .unwrap();
 
-    WhirConfig::new(whir_config, parsed_commitment_base.num_variables)
+    WhirConfig::new(&whir_config, parsed_commitment_base.num_variables)
         .verify(&mut verifier_state, &parsed_commitment_base, global_statements_verifier)
         .unwrap();
 

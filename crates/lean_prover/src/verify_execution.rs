@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use crate::common::*;
 use crate::*;
+use crate::{SnarkParams, common::*};
 use air::verify_air;
 use itertools::Itertools;
 use lean_vm::*;
@@ -12,7 +12,12 @@ use sub_protocols::*;
 use utils::ToUsize;
 use whir_p3::WhirConfig;
 
-pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Vec<F>) -> Result<(), ProofError> {
+pub fn verify_execution(
+    bytecode: &Bytecode,
+    public_input: &[F],
+    proof: Vec<F>,
+    params: &SnarkParams,
+) -> Result<(), ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
     verifier_state.duplexing();
 
@@ -42,7 +47,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Vec<F>) 
 
     let base_dims = get_base_dims(non_zero_memory_size, &table_heights);
     let parsed_commitment_base = packed_pcs_parse_commitment(
-        &whir_config_builder_a(),
+        &params.first_whir,
         &mut verifier_state,
         &base_dims,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
@@ -111,7 +116,7 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Vec<F>) 
     );
 
     let bytecode_pushforward_parsed_commitment =
-        WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len()))
+        WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len()))
             .parse_commitment::<EF>(&mut verifier_state)?;
 
     let bytecode_logup_star_statements = verify_logup_star(
@@ -187,13 +192,13 @@ pub fn verify_execution(bytecode: &Bytecode, public_input: &[F], proof: Vec<F>) 
         &mut verifier_state,
     )?;
 
-    WhirConfig::new(whir_config_builder_a(), parsed_commitment_base.num_variables).verify(
+    WhirConfig::new(&params.first_whir, parsed_commitment_base.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment_base,
         global_statements_base,
     )?;
 
-    WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len())).verify(
+    WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len())).verify(
         &mut verifier_state,
         &bytecode_pushforward_parsed_commitment,
         bytecode_logup_star_statements.on_pushforward,

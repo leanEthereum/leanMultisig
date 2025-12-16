@@ -1,5 +1,5 @@
 use lean_compiler::*;
-use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
+use lean_prover::{SnarkParams, prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -85,7 +85,6 @@ pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
     let slot = 1111;
 
     let (xmss_pub_keys, all_signatures) = xmss_generate_phony_signatures(log_lifetimes, message_hash, slot);
-
     let time = Instant::now();
     let (proof_data, n_field_elements_in_proof, summary) =
         xmss_aggregate_signatures_helper(&xmss_pub_keys, &all_signatures, message_hash, slot).unwrap();
@@ -135,16 +134,17 @@ fn xmss_aggregate_signatures_helper(
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
     let private_input = build_private_input(all_signatures);
 
-    let (proof, proof_size, summary) = prove_execution(
+    let proof = prove_execution(
         program,
         (&public_input, &private_input),
-        false,
         &poseidons_16_precomputed,
+        &SnarkParams::default(),
+        false,
     );
 
-    let proof_bytes = info_span!("Proof serialization").in_scope(|| bincode::serialize(&proof).unwrap());
+    let proof_bytes = info_span!("Proof serialization").in_scope(|| bincode::serialize(&proof.proof).unwrap());
 
-    Ok((proof_bytes, proof_size, summary))
+    Ok((proof_bytes, proof.proof_size_fe, proof.exec_summary))
 }
 
 pub fn xmss_verify_aggregated_signatures(
@@ -162,7 +162,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
 
-    verify_execution(program, &public_input, proof)
+    verify_execution(program, &public_input, proof, &SnarkParams::default())
 }
 
 #[instrument(skip_all)]

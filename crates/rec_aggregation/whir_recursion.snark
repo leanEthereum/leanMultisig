@@ -58,7 +58,7 @@ fn main() {
 fn whir_recursion(transcript_start) {
     fs_state = fs_new(transcript_start);
 
-    fs_0, root_0, ood_points_commit, ood_evals_commit = parse_commitment_const(fs_state, NUM_OOD_COMMIT);
+    fs_0, root_0, ood_points_commit, ood_evals_commit = parse_whir_commitment_const(fs_state, NUM_OOD_COMMIT);
 
     // In the future point / eval will come from the PIOP
     fs_1, pcs_point = fs_hint(fs_0, N_VARS * DIM);
@@ -929,15 +929,15 @@ fn parse_commitment(fs_state, num_ood) -> 4 {
     debug_assert num_ood != 0;
     match num_ood {
         0 => {  } // unreachable
-        1 => { fs_4, root, ood_points, ood_evals = parse_commitment_const(fs_state, 1); }
-        2 => { fs_4, root, ood_points, ood_evals = parse_commitment_const(fs_state, 2); }
-        3 => { fs_4, root, ood_points, ood_evals = parse_commitment_const(fs_state, 3); }
-        4 => { fs_4, root, ood_points, ood_evals = parse_commitment_const(fs_state, 4); }
+        1 => { fs_4, root, ood_points, ood_evals = parse_whir_commitment_const(fs_state, 1); }
+        2 => { fs_4, root, ood_points, ood_evals = parse_whir_commitment_const(fs_state, 2); }
+        3 => { fs_4, root, ood_points, ood_evals = parse_whir_commitment_const(fs_state, 3); }
+        4 => { fs_4, root, ood_points, ood_evals = parse_whir_commitment_const(fs_state, 4); }
     }
     return fs_4, root, ood_points, ood_evals;
 }
 
-fn parse_commitment_const(fs_state, const num_ood) -> 4 {
+fn parse_whir_commitment_const(fs_state, const num_ood) -> 4 {
     fs_1, root = fs_receive_chunks(fs_state, 1);
     ood_points = malloc(num_ood * DIM);
     all_fs = malloc(num_ood + 1);

@@ -15,12 +15,21 @@ use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
 use whir_p3::WhirConfig;
 use xmss::Poseidon16History;
 
+#[derive(Debug)]
+pub struct ExecutionProof {
+    pub proof: Vec<F>,
+    pub proof_size_fe: usize,
+    pub exec_summary: String,
+    pub first_whir_n_vars: usize,
+}
+
 pub fn prove_execution(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
-    vm_profiler: bool,
     poseidons_16_precomputed: &Poseidon16History,
-) -> (Vec<F>, usize, String) {
+    params: &SnarkParams,
+    vm_profiler: bool
+) -> ExecutionProof {
     let mut exec_summary = String::new();
     let ExecutionTrace {
         traces,
@@ -120,12 +129,13 @@ pub fn prove_execution(
 
     // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
-        &whir_config_builder_a(),
+        &params.first_whir,
         &base_pols,
         &base_dims,
         &mut prover_state,
         LOG_SMALLEST_DECOMPOSITION_CHUNK,
     );
+    let first_whir_n_vars = packed_pcs_witness_base.packed_polynomial.by_ref().n_vars();
 
     let bus_challenge = prover_state.sample();
     prover_state.duplexing();
@@ -245,7 +255,7 @@ pub fn prove_execution(
     ));
 
     let bytecode_pushforward_commitment =
-        WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len()))
+        WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len()))
             .commit(&mut prover_state, &bytecode_pushforward);
 
     let bytecode_logup_star_statements = prove_logup_star(
@@ -317,7 +327,7 @@ pub fn prove_execution(
     );
 
     WhirConfig::new(
-        whir_config_builder_a(),
+        &params.first_whir,
         packed_pcs_witness_base.packed_polynomial.by_ref().n_vars(),
     )
     .prove(
@@ -327,14 +337,19 @@ pub fn prove_execution(
         &packed_pcs_witness_base.packed_polynomial.by_ref(),
     );
 
-    WhirConfig::new(whir_config_builder_b(), log2_ceil_usize(bytecode.instructions.len())).prove(
+    WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len())).prove(
         &mut prover_state,
         bytecode_logup_star_statements.on_pushforward,
         bytecode_pushforward_commitment,
         &bytecode_pushforward.by_ref(),
     );
     let proof_size_fe = prover_state.proof_size_fe();
-    (prover_state.into_proof(), proof_size_fe, exec_summary)
+    ExecutionProof {
+        proof: prover_state.into_proof(),
+        proof_size_fe,
+        exec_summary,
+        first_whir_n_vars,
+    }
 }
 
 fn prove_bus_and_air(

@@ -2,6 +2,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use lean_compiler::compile_program;
+use lean_prover::SnarkParams;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
@@ -30,7 +31,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
 
     program_str = program_str.replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string());
 
-    let recursion_config = WhirConfig::<EF>::new(recursion_config_builder.clone(), NUM_VARIABLES);
+    let recursion_config = WhirConfig::<EF>::new(&recursion_config_builder, NUM_VARIABLES);
 
     program_str = program_str.replace(
         &format!("NUM_OOD_COMMIT_PLACEHOLDER"),
@@ -115,23 +116,23 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
     }
 
     let bytecode = compile_program(program_str);
-
+    let snark_params = SnarkParams::default();
     let time = Instant::now();
 
-    let (proof, proof_size, summary) = prove_execution(
+    let proof = prove_execution(
         &bytecode,
         (&public_input, &[]),
-        vm_profiler,
         &vec![], // TODO precompute poseidons
+        &snark_params,
+        vm_profiler,
     );
     let proving_time = time.elapsed();
-    verify_execution(&bytecode, &public_input, proof).unwrap();
-
-    println!("{summary}");
+    verify_execution(&bytecode, &public_input, proof.proof, &snark_params).unwrap();
+    println!("{}", proof.exec_summary);
     println!(
         "Proving time: {} ms / WHIR recursion, proof size: {} KiB (not optimized)",
         proving_time.as_millis() / n_recursions as u128,
-        proof_size * F::bits() / (8 * 1024)
+        proof.proof_size_fe * F::bits() / (8 * 1024)
     );
 }
 
