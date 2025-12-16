@@ -14,7 +14,7 @@ use sub_protocols::{ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBa
 // (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)
 // Long term, we should find a more elegant solution.
 pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8;
-pub const MIN_N_ROWS_PER_TABLE: usize = 1 << MIN_LOG_N_ROWS_PER_TABLE;
+pub const MAX_LOG_N_ROWS_PER_TABLE: usize = 100; // Avoid "DOS attack"
 
 pub type ColIndex = usize;
 

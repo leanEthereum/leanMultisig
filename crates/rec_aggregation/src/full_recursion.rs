@@ -24,7 +24,7 @@ pub fn run_end2end_recursion_benchmark() {
     let proof_to_prove = prove_execution(&bytecode_to_prove, (&[], &[]), &vec![], &snark_params, false);
     verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
 
-    let first_whir_config = WhirConfig::<F>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
+    let first_whir_config = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
 
     program_str = program_str.replace(
         "NUM_OOD_COMMIT_PLACEHOLDER",
@@ -62,6 +62,10 @@ pub fn run_end2end_recursion_benchmark() {
         &snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
     );
     program_str = program_str.replace("N_TABLES_PLACEHOLDER", &N_TABLES.to_string());
+    program_str = program_str.replace("MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER", &MIN_LOG_N_ROWS_PER_TABLE.to_string());
+    program_str = program_str.replace("MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER", &MAX_LOG_N_ROWS_PER_TABLE.to_string());
+    program_str = program_str.replace("MIN_LOG_MEMORY_SIZE_PLACEHOLDER", &MIN_LOG_MEMORY_SIZE.to_string());
+    program_str = program_str.replace("MAX_LOG_MEMORY_SIZE_PLACEHOLDER", &MAX_LOG_MEMORY_SIZE.to_string());
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;

@@ -29,11 +29,8 @@ pub fn verify_execution(
     let log_memory = dims[0];
     let table_heights: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 1])).collect();
     for &n_vars in table_heights.values() {
-        if n_vars > 100 {
-            return Err(ProofError::InvalidProof); // avoid DDOS
-        }
-        if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
-            return Err(ProofError::InvalidProof); // TODO is it really necessary ?
+        if !(MIN_LOG_N_ROWS_PER_TABLE..=MAX_LOG_N_ROWS_PER_TABLE).contains(&n_vars) {
+            return Err(ProofError::InvalidProof);
         }
     }
 

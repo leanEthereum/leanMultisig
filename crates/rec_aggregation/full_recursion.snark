@@ -46,16 +46,33 @@ const ROOT = 1791270792; // of order 2^TWO_ADICITY
 const VECTOR_LEN = 8;
 
 const N_TABLES = N_TABLES_PLACEHOLDER;
+const MIN_LOG_N_ROWS_PER_TABLE = MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER;
+const MAX_LOG_N_ROWS_PER_TABLE = MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER;
+const MIN_LOG_MEMORY_SIZE = MIN_LOG_MEMORY_SIZE_PLACEHOLDER;
+const MAX_LOG_MEMORY_SIZE = MAX_LOG_MEMORY_SIZE_PLACEHOLDER;
 
 fn main() {
     proof_transcript = private_input_start();
     fs_1 = fs_new(proof_transcript);
 
     // table dims
-    debug_assert N_TABLES + 1 < VECTOR_LEN;
-    mem_and_table_dims = fs_1[16];
-    non_zero_memory_size = mem_and_table_dims[0];
+    debug_assert N_TABLES + 1 < VECTOR_LEN; // (because duplex only once bellow)
+    fs_2, mem_and_table_dims = fs_receive_chunks(fs_1, 1);
+    for i in N_TABLES + 1..8 unroll {
+        assert mem_and_table_dims[i] == 0;
+    }
+    log_memory = mem_and_table_dims[0];
     table_dims = mem_and_table_dims + 1;
+
+    for i in 0..N_TABLES unroll {
+        n_vars_for_table = table_dims[i];
+        full_range_check(MIN_LOG_N_ROWS_PER_TABLE - 1, n_vars_for_table, MAX_LOG_N_ROWS_PER_TABLE + 1);
+    }
+    full_range_check(MIN_LOG_MEMORY_SIZE - 1, log_memory, MAX_LOG_MEMORY_SIZE + 1);
+
+    // parse 1st whir commitment
+    print(NUM_OOD_COMMIT);
+    fs_3, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs_2, NUM_OOD_COMMIT);
 
     return;
 }
@@ -468,10 +485,16 @@ fn read_memory(ptr) inline -> 1  {
     return mem[ptr];
 }
 
-fn range_check(a, b) inline {
+fn full_range_check(l, x, r) inline {
+    // ensure that l < x < r
     // TODO (for now we simulate the cost)
-    dummy1 = a + b;
-    dummy2 = dummy1 * a;
-    dummy3 = dummy2 + b;
+    // cf section 2.5.3 of the minimal_zkVM.pdf
+    debug_assert l < x;
+    debug_assert x < r;
+    dummy1 = l + r;
+    dummy2 = dummy1 * 2;
+    dummy3 = dummy2 + 3;
+    dummy4 = dummy3 + 4;
+    dummy5 = dummy4 + 5;
     return;
 }
