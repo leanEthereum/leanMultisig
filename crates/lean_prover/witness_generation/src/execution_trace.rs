@@ -12,19 +12,8 @@ pub struct ExecutionTrace {
     pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
-pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionResult) -> ExecutionTrace {
+pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResult) -> ExecutionTrace {
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
-
-    // padding to make proof work even on small programs (TODO make this more elegant)
-    let min_cycles = 32 << MIN_LOG_N_ROWS_PER_TABLE;
-    if execution_result.pcs.len() < min_cycles {
-        execution_result
-            .pcs
-            .resize(min_cycles, *execution_result.pcs.last().unwrap());
-        execution_result
-            .fps
-            .resize(min_cycles, *execution_result.fps.last().unwrap());
-    }
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
