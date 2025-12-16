@@ -34,7 +34,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
     let recursion_config = WhirConfig::<EF>::new(&recursion_config_builder, NUM_VARIABLES);
 
     program_str = program_str.replace(
-        &format!("NUM_OOD_COMMIT_PLACEHOLDER"),
+        "NUM_OOD_COMMIT_PLACEHOLDER",
         &recursion_config.committment_ood_samples.to_string(),
     );
     for (i, round) in recursion_config.round_parameters.iter().enumerate() {

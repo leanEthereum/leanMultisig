@@ -100,7 +100,7 @@ where
         .zip(&dims.indexes_and_vars)
         .for_each(|(packed_chunk, &(poly_index, _))| {
             let original_poly = &polynomials[poly_index];
-            packed_chunk.copy_from_slice(&original_poly);
+            packed_chunk.copy_from_slice(original_poly);
         });
 
     let packed_polynomial = if TypeId::of::<F>() == TypeId::of::<PF<EF>>() {

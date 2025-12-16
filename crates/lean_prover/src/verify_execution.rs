@@ -26,11 +26,16 @@ pub fn verify_execution(
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>();
-    let non_zero_memory_size = dims[0];
-    let log_memory = log2_ceil_usize(non_zero_memory_size);
-    let table_heights: BTreeMap<Table, TableHeight> = (0..N_TABLES)
-        .map(|i| (ALL_TABLES[i], TableHeight(dims[i + 1])))
-        .collect();
+    let log_memory = dims[0];
+    let table_heights: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 1])).collect();
+    for &n_vars in table_heights.values() {
+        if n_vars > 100 {
+            return Err(ProofError::InvalidProof); // avoid DDOS
+        }
+        if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
+            return Err(ProofError::InvalidProof); // TODO is it really necessary ?
+        }
+    }
 
     // // only keep tables with non-zero rows
     // let table_heights: BTreeMap<_, _> = table_heights
@@ -42,7 +47,7 @@ pub fn verify_execution(
 
     let public_memory = build_public_memory(public_input);
 
-    if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log2_ceil_usize(non_zero_memory_size)) {
+    if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
         return Err(ProofError::InvalidProof);
     }
 
@@ -58,22 +63,22 @@ pub fn verify_execution(
 
     let mut lookup_into_memory = NormalLookupVerifier::run(
         &mut verifier_state,
-        log2_ceil_usize(non_zero_memory_size),
+        log_memory,
         table_heights
             .iter()
-            .flat_map(|(table, height)| vec![height.log_padded(); table.num_normal_lookups_f()])
+            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_normal_lookups_f()])
             .collect(),
         table_heights
             .iter()
-            .flat_map(|(table, height)| vec![height.log_padded(); table.num_normal_lookups_ef()])
+            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_normal_lookups_ef()])
             .collect(),
         table_heights
             .iter()
-            .flat_map(|(table, height)| vec![height.log_padded(); table.num_vector_lookups()])
+            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_vector_lookups()])
             .collect(),
         table_heights
             .iter()
-            .flat_map(|(table, height)| vec![height.log_padded(); table.num_buses()])
+            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_buses()])
             .collect(),
         UNIVARIATE_SKIPS,
     )?;
@@ -83,11 +88,11 @@ pub fn verify_execution(
     let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
 
     let mut bus_offset = 0;
-    for (table, height) in &table_heights {
+    for (table, log_n_rows) in &table_heights {
         let (this_air_point, this_evals_f, this_evals_ef) = verify_bus_and_air(
             &mut verifier_state,
             table,
-            *height,
+            *log_n_rows,
             bus_challenge,
             fingerprint_challenge,
             &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
@@ -120,7 +125,7 @@ pub fn verify_execution(
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
         log2_ceil_usize(bytecode.instructions.len()),
-        table_heights[&Table::execution()].log_padded(),
+        table_heights[&Table::execution()],
         &[bytecode_lookup_claim],
         EF::ONE,
     )?;
@@ -136,9 +141,7 @@ pub fn verify_execution(
     let public_memory_eval = public_memory.evaluate(&public_memory_random_point);
     public_memory_random_point.0.splice(
         0..0,
-        EF::zero_vec(log2_strict_usize(
-            non_zero_memory_size.next_power_of_two() / public_memory.len(),
-        )),
+        EF::zero_vec(log2_strict_usize((1 << log_memory) / public_memory.len())),
     );
     let public_memory_statement = Evaluation::new(public_memory_random_point, public_memory_eval);
 
@@ -171,7 +174,7 @@ pub fn verify_execution(
     assert!(lookup_into_memory.on_values_vec.is_empty());
 
     let (initial_pc_statement, final_pc_statement) =
-        initial_and_final_pc_conditions(table_heights[&Table::execution()].log_padded());
+        initial_and_final_pc_conditions(table_heights[&Table::execution()]);
 
     final_statements.get_mut(&Table::execution()).unwrap()[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
         .extend(vec![
@@ -181,8 +184,8 @@ pub fn verify_execution(
         ]);
 
     let mut all_base_statements = vec![memory_statements, acc_statements];
-
     all_base_statements.extend(final_statements.into_values().flatten());
+
     let global_statements_base = packed_pcs_global_statements(&base_packed_dims, &all_base_statements);
 
     WhirConfig::new(&params.first_whir, parsed_commitment_base.num_variables).verify(
@@ -204,7 +207,7 @@ pub fn verify_execution(
 fn verify_bus_and_air(
     verifier_state: &mut impl FSVerifier<EF>,
     t: &Table,
-    table_height: TableHeight,
+    log_n_nrows: usize,
     bus_challenge: EF,
     fingerprint_challenge: EF,
     bus_numerator_statements: &[Evaluation<EF>],
@@ -256,7 +259,7 @@ fn verify_bus_and_air(
                     $t,
                     extra_data,
                     UNIVARIATE_SKIPS,
-                    table_height.log_padded(),
+                    log_n_nrows,
                     &t.air_padding_row_f(),
                     &t.air_padding_row_ef(),
                     Some(bus_virtual_statement),

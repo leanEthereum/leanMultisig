@@ -6,7 +6,7 @@ use crate::{
 use multilinear_toolkit::prelude::*;
 
 use std::{any::TypeId, array, mem::transmute};
-use utils::ToUsize;
+use utils::{ToUsize, VarCount};
 
 use sub_protocols::{ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier};
 
@@ -65,33 +65,11 @@ pub enum BusTable {
     Variable(ColIndex),
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct TableHeight(pub usize);
-
-impl TableHeight {
-    pub fn n_rows_non_padded(self) -> usize {
-        self.0
-    }
-    pub fn n_rows_non_padded_maxed(self) -> usize {
-        self.0.max(MIN_N_ROWS_PER_TABLE)
-    }
-    pub fn n_rows_padded(self) -> usize {
-        self.0.next_power_of_two().max(MIN_N_ROWS_PER_TABLE)
-    }
-    pub fn padding_len(self) -> usize {
-        self.n_rows_padded() - self.0
-    }
-    pub fn log_padded(self) -> usize {
-        log2_strict_usize(self.n_rows_padded())
-    }
-}
-
-#[derive(Debug, Default, derive_more::Deref)]
+#[derive(Debug, Default)]
 pub struct TableTrace {
     pub base: Vec<Vec<F>>,
     pub ext: Vec<Vec<EF>>,
-    #[deref]
-    pub height: TableHeight,
+    pub log_n_rows: VarCount,
 }
 
 impl TableTrace {
@@ -99,7 +77,7 @@ impl TableTrace {
         Self {
             base: vec![Vec::new(); air.n_columns_f_total()],
             ext: vec![Vec::new(); air.n_columns_ef_total()],
-            height: TableHeight::default(), // filled later
+            log_n_rows: 0, // filled later
         }
     }
 }
@@ -209,9 +187,8 @@ pub trait TableT: Air {
     fn commited_columns_ef(&self) -> Vec<ColIndex> {
         (0..self.n_columns_ef_air()).collect()
     }
-    fn committed_dims(&self, n_rows: usize) -> Vec<usize> {
-        let n_vars = log2_ceil_usize(n_rows);
-        vec![n_vars; self.n_commited_columns_f() + self.n_commited_columns_ef() * DIMENSION]
+    fn committed_dims(&self, log_n_rows: usize) -> Vec<VarCount> {
+        vec![log_n_rows; self.n_commited_columns_f() + self.n_commited_columns_ef() * DIMENSION]
     }
     fn n_commited_columns_f(&self) -> usize {
         self.commited_columns_f().len()

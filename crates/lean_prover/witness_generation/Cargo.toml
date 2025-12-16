@@ -23,6 +23,5 @@ sub_protocols.workspace = true
 lookup.workspace = true
 lean_vm.workspace = true
 lean_compiler.workspace = true
-derive_more.workspace = true
 multilinear-toolkit.workspace = true
 p3-monty-31.workspace = true

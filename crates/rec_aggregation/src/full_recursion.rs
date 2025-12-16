@@ -27,7 +27,7 @@ pub fn run_end2end_recursion_benchmark() {
     let first_whir_config = WhirConfig::<F>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
 
     program_str = program_str.replace(
-        &format!("NUM_OOD_COMMIT_PLACEHOLDER"),
+        "NUM_OOD_COMMIT_PLACEHOLDER",
         &first_whir_config.committment_ood_samples.to_string(),
     );
     for (i, round) in first_whir_config.round_parameters.iter().enumerate() {

@@ -8,13 +8,13 @@ use lean_vm::*;
 
 pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2;
 
-pub(crate) fn get_base_dims(log_memory: usize, table_heights: &BTreeMap<Table, TableHeight>) -> Vec<VarCount> {
+pub(crate) fn get_base_dims(log_memory: usize, table_heights: &BTreeMap<Table, VarCount>) -> Vec<VarCount> {
     let mut dims = vec![
         log_memory, //  memory
         log_memory, //  memory access counts (logup)
     ];
-    for (table, height) in table_heights {
-        dims.extend(table.committed_dims(height.n_rows_non_padded_maxed()));
+    for (table, log_n_rows) in table_heights {
+        dims.extend(table.committed_dims(*log_n_rows));
     }
     dims
 }

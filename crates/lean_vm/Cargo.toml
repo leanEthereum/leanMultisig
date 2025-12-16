@@ -23,7 +23,6 @@ air.workspace = true
 sub_protocols.workspace = true
 lookup.workspace = true
 thiserror.workspace = true
-derive_more.workspace = true
 multilinear-toolkit.workspace = true
 num_enum.workspace = true
 itertools.workspace = true

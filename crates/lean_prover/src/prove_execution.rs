@@ -34,8 +34,8 @@ pub fn prove_execution(
     let ExecutionTrace {
         traces,
         public_memory_size,
-        mut non_zero_memory_size,
-        mut memory, // padded with zeros to next power of two
+        non_zero_memory_size: _, // TODO use the information of the ending zeros for speedup
+        mut memory,              // padded with zeros to next power of two
     } = info_span!("Witness generation").in_scope(|| {
         let mut execution_result = info_span!("Executing bytecode").in_scope(|| {
             execute_bytecode(
@@ -51,14 +51,13 @@ pub fn prove_execution(
 
     if memory.len() < 1 << MIN_LOG_MEMORY_SIZE {
         memory.resize(1 << MIN_LOG_MEMORY_SIZE, F::ZERO);
-        non_zero_memory_size = 1 << MIN_LOG_MEMORY_SIZE;
     }
 
     let mut prover_state = build_prover_state();
     prover_state.add_base_scalars(
         &[
-            vec![non_zero_memory_size],
-            traces.values().map(|t| t.n_rows_non_padded()).collect::<Vec<_>>(),
+            vec![log2_strict_usize(memory.len())],
+            traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
         ]
         .concat()
         .into_iter()
@@ -142,7 +141,7 @@ pub fn prove_execution(
                     BusDirection::Push => selector,
                 })
                 .collect::<Vec<_>>();
-            let denominator = (0..trace.n_rows_padded())
+            let denominator = (0..1 << trace.log_n_rows)
                 .into_par_iter()
                 .map(|i| {
                     bus_challenge
@@ -294,7 +293,7 @@ pub fn prove_execution(
     assert!(lookup_into_memory.on_values_vec.is_empty());
 
     let (initial_pc_statement, final_pc_statement) =
-        initial_and_final_pc_conditions(traces[&Table::execution()].log_padded());
+        initial_and_final_pc_conditions(traces[&Table::execution()].log_n_rows);
 
     final_statements.get_mut(&Table::execution()).unwrap()[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
         .extend(vec![
