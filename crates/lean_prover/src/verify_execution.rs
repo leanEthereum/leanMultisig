@@ -31,13 +31,13 @@ pub fn verify_execution(
         .map(|i| (ALL_TABLES[i], TableHeight(dims[i + 1])))
         .collect();
 
-    // only keep tables with non-zero rows
-    let table_heights: BTreeMap<_, _> = table_heights
-        .into_iter()
-        .filter(|(table, height)| {
-            height.n_rows_non_padded() > 0 || table == &Table::execution() || table == &Table::poseidon16()
-        })
-        .collect();
+    // // only keep tables with non-zero rows
+    // let table_heights: BTreeMap<_, _> = table_heights
+    //     .into_iter()
+    //     .filter(|(table, height)| {
+    //         height.n_rows_non_padded() > 0 || table == &Table::execution() || table == &Table::poseidon16()
+    //     })
+    //     .collect();
 
     let public_memory = build_public_memory(public_input);
 

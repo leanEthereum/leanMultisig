@@ -61,8 +61,13 @@ pub fn run_end2end_recursion_benchmark() {
         "RS_REDUCTION_FACTOR_0_PLACEHOLDER",
         &snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
     );
+    program_str = program_str.replace(
+        "N_TABLES_PLACEHOLDER",
+        &N_TABLES.to_string(),
+    );
 
-    let public_input = proof_to_prove.proof;
+    let public_input = vec![];
+    let private_input = proof_to_prove.proof;
 
     let recursion_bytecode = compile_program(program_str);
 
@@ -70,7 +75,7 @@ pub fn run_end2end_recursion_benchmark() {
 
     let recursion_proof = prove_execution(
         &recursion_bytecode,
-        (&public_input, &[]),
+        (&public_input, &private_input),
         &vec![], // TODO precompute poseidons
         &Default::default(),
         false,

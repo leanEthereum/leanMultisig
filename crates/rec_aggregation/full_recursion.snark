@@ -45,8 +45,18 @@ const ROOT = 1791270792; // of order 2^TWO_ADICITY
 
 const VECTOR_LEN = 8;
 
+const N_TABLES = N_TABLES_PLACEHOLDER;
+
 fn main() {
-    
+    proof_transcript = private_input_start();
+    fs_1 = fs_new(proof_transcript);
+
+    // table dims
+    debug_assert N_TABLES + 1 < VECTOR_LEN;
+    mem_and_table_dims = fs_1[16];
+    non_zero_memory_size = mem_and_table_dims[0];
+    table_dims = mem_and_table_dims + 1;
+
     return;
 }
 

@@ -66,13 +66,13 @@ pub fn prove_execution(
         .collect::<Vec<_>>(),
     );
 
-    // only keep tables with non-zero rows
-    let traces: BTreeMap<_, _> = traces
-        .into_iter()
-        .filter(|(table, trace)| {
-            trace.n_rows_non_padded() > 0 || table == &Table::execution() || table == &Table::poseidon16()
-        })
-        .collect();
+    // // only keep tables with non-zero rows
+    // let traces: BTreeMap<_, _> = traces
+    //     .into_iter()
+    //     .filter(|(table, trace)| {
+    //         trace.n_rows_non_padded() > 0 || table == &Table::execution() || table == &Table::poseidon16()
+    //     })
+    //     .collect();
 
     // TODO parrallelize
     let mut acc = F::zero_vec(memory.len());
