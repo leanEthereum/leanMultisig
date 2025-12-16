@@ -9,6 +9,8 @@ use witness_generation::*;
 
 mod common;
 pub mod prove_execution;
+#[cfg(test)]
+mod test_zkvm;
 pub mod verify_execution;
 
 const UNIVARIATE_SKIPS: usize = 3;
