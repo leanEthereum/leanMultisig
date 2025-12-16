@@ -41,6 +41,16 @@ mod tests {
 
     #[test]
     fn test_zk_vm_all_precompiles() {
+        test_zk_vm_all_precompiles_helper(false);
+    }
+
+    #[test]
+    #[ignore] // slow test
+    fn test_zk_vm_fuzzing() {
+        test_zk_vm_all_precompiles_helper(true);
+    }
+
+    fn test_zk_vm_all_precompiles_helper(fuzzing: bool) {
         let program_str = r#"
     const DIM = 5;
     const COMPRESSION = 1;
@@ -118,35 +128,7 @@ mod tests {
         );
         public_input[1100 + 3 + 3 * DIMENSION..][..DIMENSION].copy_from_slice(poly_eq.as_basis_coefficients_slice());
 
-        fn add_merkle_path(
-            rng: &mut StdRng,
-            public_input: &mut [F],
-            merkle_height: usize,
-            leaf_position: usize,
-        ) -> Vec<[F; 8]> {
-            let leaf: [F; VECTOR_LEN] = rng.random();
-            public_input[..VECTOR_LEN].copy_from_slice(&leaf);
-            let mut merkle_path = Vec::new();
-            let mut current_digest = leaf;
-            for i in 0..merkle_height {
-                let sibling: [F; VECTOR_LEN] = rng.random();
-                merkle_path.push(sibling);
-                let (left, right) = if (leaf_position >> i) & 1 == 0 {
-                    (current_digest, sibling)
-                } else {
-                    (sibling, current_digest)
-                };
-                current_digest = poseidon16_permute([left.to_vec(), right.to_vec()].concat().try_into().unwrap())
-                    [..VECTOR_LEN]
-                    .try_into()
-                    .unwrap();
-            }
-            let root = current_digest;
-            public_input[VECTOR_LEN..][..VECTOR_LEN].copy_from_slice(&root);
-            merkle_path
-        }
-
-        test_zk_vm_helper(program_str, (&public_input, &[]));
+        test_zk_vm_helper(program_str, (&public_input, &[]), fuzzing);
     }
 
     #[test]
@@ -157,17 +139,41 @@ mod tests {
             .unwrap();
         let program_str = FIBONNACI_PROGRAM.replace("FIB_N_PLACEHOLDER", &n.to_string());
 
-        test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]));
+        test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), false);
     }
 
-    fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F])) {
-        utils::init_tracing();
+    fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F]), fuzzing: bool) {
+        if !fuzzing {
+            utils::init_tracing();
+        }
         let bytecode = compile_program(program_str.to_string());
         let time = std::time::Instant::now();
-        let proof = prove_execution(&bytecode, (public_input, private_input), &vec![], &Default::default(), false);
+        let proof = prove_execution(
+            &bytecode,
+            (public_input, private_input),
+            &vec![],
+            &Default::default(),
+            false,
+        );
         let proof_time = time.elapsed();
-        verify_execution(&bytecode, public_input, proof.proof, &Default::default()).unwrap();
+        verify_execution(&bytecode, public_input, proof.proof.clone(), &Default::default()).unwrap();
         println!("{}", proof.exec_summary);
         println!("Proof time: {:.3} s", proof_time.as_secs_f32());
+
+        if fuzzing {
+            println!("Starting fuzzing...");
+            let mut percent = 0;
+            for i in 0..proof.proof.len() {
+                let new_percent = i * 100 / proof.proof.len();
+                if new_percent != percent {
+                    percent = new_percent;
+                    println!("{}%", percent);
+                }
+                let mut fuzzed_proof = proof.proof.clone();
+                fuzzed_proof[i] += F::ONE;
+                let verify_result = verify_execution(&bytecode, public_input, fuzzed_proof, &Default::default());
+                assert!(verify_result.is_err(), "Fuzzing failed at index {}", i);
+            }
+        }
     }
 }

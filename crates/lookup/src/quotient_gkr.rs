@@ -119,9 +119,11 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>, const N_GROUPS: usize>(
     verifier_state: &mut impl FSVerifier<EF>,
     n_vars: usize,
 ) -> Result<(EF, MultilinearPoint<EF>, EF, EF), ProofError> {
-    let last_nums_and_dens: [[_; 2]; N_GROUPS] = array::from_fn(|_| {
-        verifier_state.next_extension_scalars_const().unwrap() // TODO avoid unwrap
-    });
+    let last_nums_and_dens: [[_; 2]; N_GROUPS] = (0..N_GROUPS)
+        .map(|_| verifier_state.next_extension_scalars_const())
+        .collect::<Result<Vec<_>, _>>()?
+        .try_into()
+        .unwrap();
 
     let quotient = (0..N_GROUPS / 2)
         .map(|i| last_nums_and_dens[i][0] / last_nums_and_dens[i + N_GROUPS / 2][0])
