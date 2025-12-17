@@ -27,6 +27,7 @@
 - Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306
 - Avoid committing to the 3 index columns, and replace it by a sumcheck? Using this idea, we would only commit to PC and FP for the execution table. Idea by Georg (Powdr). Do we even need to commit to FP then?
 - Avoid the embedding overhead in logup, when denominators = "c - index", as it was previously done
+- SIMD (Packing) for PoW grinding in Fiat-Shamir (has been implemented in the lean-vm-simple branch by [x-senpai-x](https://github.com/x-senpai-x), see [here](https://github.com/leanEthereum/fiat-shamir/blob/d80da40a76c00aaa6d35fe5e51c3bf31eaf8fe17/src/prover.rs#L98))
 
 - About the ordering of the variables in sumchecks, currently we do as follows:
 
