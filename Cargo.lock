@@ -1186,7 +1186,7 @@ dependencies = [
 [[package]]
 name = "leansig"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/leansig.git?branch=make-stuff-public#61088f848bb63cf86e39693f6717739e7b7dec7e"
+source = "git+https://github.com/leanEthereum/leansig.git#14e277b14b994ed9fd56a6e7505ac47ef90dabb3"
 dependencies = [
  "dashmap",
  "ethereum_ssz",

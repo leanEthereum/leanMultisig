@@ -56,12 +56,12 @@ fn build_public_input(
     }
 
     for (pub_key, randomness) in pub_keys.iter().zip(encoding_randomness.iter()) {
-        let encoding = MH::apply(&pub_key.parameter, epoch, unsafe { transmute(randomness) }, message);
+        let encoding = MH::apply(pub_key.parameter(), epoch, unsafe { transmute(randomness) }, message);
         assert_eq!(encoding.len(), MH::DIMENSION);
         assert_eq!(MH::DIMENSION, 64); // TODO remove this later
-        let merkle_root = unsafe { transmute::<_, Vec<F>>(pub_key.root.to_vec()) };
+        let merkle_root = unsafe { transmute::<_, Vec<F>>(pub_key.root().to_vec()) };
         assert_eq!(merkle_root.len(), 8);
-        let public_param = unsafe { transmute::<_, Vec<F>>(pub_key.parameter.to_vec()) };
+        let public_param = unsafe { transmute::<_, Vec<F>>(pub_key.parameter().to_vec()) };
         assert_eq!(public_param.len(), 5);
 
         public_input.extend(merkle_root);
@@ -74,8 +74,8 @@ fn build_public_input(
 fn build_private_input(all_signatures: &[LeanSigSignature]) -> Vec<F> {
     let mut private_input = Vec::<F>::new();
     for signature in all_signatures {
-        let chain_tips = unsafe { transmute::<_, Vec<[F; HASH_LEN_FE]>>(signature.hashes.clone()) };
-        let merkle_path = unsafe { transmute::<_, Vec<[F; HASH_LEN_FE]>>(signature.path.clone()) };
+        let chain_tips = unsafe { transmute::<_, Vec<[F; HASH_LEN_FE]>>(signature.hashes().clone()) };
+        let merkle_path = unsafe { transmute::<_, Vec<[F; HASH_LEN_FE]>>(signature.path().clone()) };
         assert_eq!(chain_tips.len(), 64); // TODO remove this later
         assert_eq!(merkle_path.len(), LeanSigScheme::LIFETIME.ilog2() as usize);
         private_input.extend(chain_tips.into_iter().flatten());
@@ -211,7 +211,7 @@ fn xmss_aggregate_signatures_helper(
 
     let encoding_randomness: Vec<[F; RAND_LEN_FE]> = signatures
         .iter()
-        .map(|sig| unsafe { transmute::<_, [F; RAND_LEN_FE]>(sig.rho) })
+        .map(|sig| unsafe { transmute::<_, [F; RAND_LEN_FE]>(*sig.rho()) })
         .collect();
     let public_input = build_public_input(pub_keys, &encoding_randomness, message, epoch);
     let private_input = build_private_input(signatures);
