@@ -9,15 +9,13 @@ pub struct CustomLookupProver;
 
 /// claims contain sparse points (TODO take advantage of it)
 #[derive(Debug, PartialEq)]
-pub struct CustomLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize> {
+pub struct CustomLookupStatements<EF, const DIM: usize> {
     pub on_table: Evaluation<EF>,
     pub on_acc: Evaluation<EF>,
     pub on_indexes_f: Vec<Evaluation<EF>>,
     pub on_indexes_ef: Vec<Evaluation<EF>>,
-    pub on_indexes_vec: Vec<Evaluation<EF>>,
-    pub on_values_f: Vec<Evaluation<EF>>,
+    pub on_values_f: Vec<Vec<Evaluation<EF>>>,
     pub on_values_ef: Vec<[Evaluation<EF>; DIM]>,
-    pub on_values_vec: Vec<[Evaluation<EF>; VECTOR_LEN]>,
 
     // buses
     pub on_bus_numerators: Vec<Evaluation<EF>>,
@@ -26,31 +24,27 @@ pub struct CustomLookupStatements<EF, const DIM: usize, const VECTOR_LEN: usize>
 
 impl CustomLookupProver {
     #[allow(clippy::too_many_arguments)]
-    pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize, const VECTOR_LEN: usize>(
+    pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize>(
         prover_state: &mut impl FSProver<EF>,
         table: &[PF<EF>], // table[0] is assumed to be zero
         acc: &[PF<EF>],
         index_columns_f: Vec<&[PF<EF>]>,
         index_columns_ef: Vec<&[PF<EF>]>,
-        index_columns_vec: Vec<&[PF<EF>]>,
-        value_columns_f: Vec<&[PF<EF>]>,
+        value_columns_f: Vec<Vec<&[PF<EF>]>>,
         value_columns_ef: Vec<&[EF]>,
-        value_columns_vec: Vec<[&[PF<EF>]; VECTOR_LEN]>,
 
         // parameters for "buses" = information flow between different tables
         bus_numerators: Vec<&[PF<EF>]>,
         bus_denominators: Vec<&[EF]>,
         univariate_skips: usize,
-    ) -> CustomLookupStatements<EF, DIM, VECTOR_LEN> {
+    ) -> CustomLookupStatements<EF, DIM> {
         assert_eq!(index_columns_f.len(), value_columns_f.len(),);
         assert_eq!(index_columns_ef.len(), value_columns_ef.len(),);
-        assert_eq!(index_columns_vec.len(), value_columns_vec.len(),);
         let n_cols_f = value_columns_f.len();
-        let n_cols_ef = value_columns_ef.len();
 
         let mut all_value_columns = vec![];
-        for col_f in value_columns_f {
-            all_value_columns.push(vec![VecOrSlice::Slice(col_f)]);
+        for cols_f in value_columns_f {
+            all_value_columns.push(cols_f.iter().map(|s| VecOrSlice::Slice(s)).collect());
         }
         for col_ef in &value_columns_ef {
             all_value_columns.push(
@@ -60,11 +54,8 @@ impl CustomLookupProver {
                     .collect(),
             );
         }
-        for col_vec in &value_columns_vec {
-            all_value_columns.push(col_vec.iter().map(|s| VecOrSlice::Slice(s)).collect());
-        }
 
-        let index_columns = [index_columns_f, index_columns_ef, index_columns_vec].concat();
+        let index_columns = [index_columns_f, index_columns_ef].concat();
 
         let generic = GeneralizedLogupProver::run(
             prover_state,
@@ -81,20 +72,9 @@ impl CustomLookupProver {
             on_table: generic.on_table,
             on_acc: generic.on_acc,
             on_indexes_f: generic.on_indexes[..n_cols_f].to_vec(),
-            on_indexes_ef: generic.on_indexes[n_cols_f..][..n_cols_ef].to_vec(),
-            on_indexes_vec: generic.on_indexes[n_cols_f + n_cols_ef..].to_vec(),
-            on_values_f: generic.on_values[..n_cols_f]
-                .iter()
-                .map(|e| {
-                    assert_eq!(e.len(), 1);
-                    e[0].clone()
-                })
-                .collect(),
-            on_values_ef: generic.on_values[n_cols_f..][..n_cols_ef]
-                .iter()
-                .map(|e| e.to_vec().try_into().unwrap())
-                .collect(),
-            on_values_vec: generic.on_values[n_cols_f + n_cols_ef..]
+            on_indexes_ef: generic.on_indexes[n_cols_f..].to_vec(),
+            on_values_f: generic.on_values[..n_cols_f].to_vec(),
+            on_values_ef: generic.on_values[n_cols_f..]
                 .iter()
                 .map(|e| e.to_vec().try_into().unwrap())
                 .collect(),
@@ -109,22 +89,18 @@ pub struct NormalLookupVerifier;
 
 impl NormalLookupVerifier {
     #[allow(clippy::too_many_arguments)]
-    pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize, const VECTOR_LEN: usize>(
+    pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize>(
         verifier_state: &mut impl FSVerifier<EF>,
         table_log_len: usize,
         log_heights_f: Vec<usize>,
+        num_values_per_lookup_f: Vec<usize>,
         log_heights_ef: Vec<usize>,
-        log_heights_vec: Vec<usize>,
         bus_n_vars: Vec<usize>,
         univariate_skips: usize,
-    ) -> ProofResult<CustomLookupStatements<EF, DIM, VECTOR_LEN>> {
-        let log_heights = [log_heights_f.clone(), log_heights_ef.clone(), log_heights_vec.clone()].concat();
-        let n_cols_per_group = [
-            vec![1; log_heights_f.len()],
-            vec![DIM; log_heights_ef.len()],
-            vec![VECTOR_LEN; log_heights_vec.len()],
-        ]
-        .concat();
+    ) -> ProofResult<CustomLookupStatements<EF, DIM>> {
+        assert_eq!(log_heights_f.len(), num_values_per_lookup_f.len());
+        let log_heights = [log_heights_f.clone(), log_heights_ef.clone()].concat();
+        let n_cols_per_group = [num_values_per_lookup_f, vec![DIM; log_heights_ef.len()]].concat();
         let generic = GeneralizedLogupVerifier::run(
             verifier_state,
             table_log_len,
@@ -138,20 +114,9 @@ impl NormalLookupVerifier {
             on_table: generic.on_table,
             on_acc: generic.on_acc,
             on_indexes_f: generic.on_indexes[..log_heights_f.len()].to_vec(),
-            on_indexes_ef: generic.on_indexes[log_heights_f.len()..][..log_heights_ef.len()].to_vec(),
-            on_indexes_vec: generic.on_indexes[log_heights_f.len() + log_heights_ef.len()..].to_vec(),
-            on_values_f: generic.on_values[..log_heights_f.len()]
-                .iter()
-                .map(|e| {
-                    assert_eq!(e.len(), 1);
-                    e[0].clone()
-                })
-                .collect(),
+            on_indexes_ef: generic.on_indexes[log_heights_f.len()..].to_vec(),
+            on_values_f: generic.on_values[..log_heights_f.len()].to_vec(),
             on_values_ef: generic.on_values[log_heights_f.len()..][..log_heights_ef.len()]
-                .iter()
-                .map(|e| e.to_vec().try_into().unwrap())
-                .collect(),
-            on_values_vec: generic.on_values[log_heights_f.len() + log_heights_ef.len()..]
                 .iter()
                 .map(|e| e.to_vec().try_into().unwrap())
                 .collect(),

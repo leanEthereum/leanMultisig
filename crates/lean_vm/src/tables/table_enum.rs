@@ -69,14 +69,11 @@ impl TableT for Table {
     fn identifier(&self) -> Table {
         delegate_to_inner!(self, identifier)
     }
-    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
-        delegate_to_inner!(self, normal_lookups_f)
+    fn lookups_f(&self) -> Vec<LookupIntoMemory> {
+        delegate_to_inner!(self, lookups_f)
     }
-    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        delegate_to_inner!(self, normal_lookups_ef)
-    }
-    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
-        delegate_to_inner!(self, vector_lookups)
+    fn ookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
+        delegate_to_inner!(self, ookups_ef)
     }
     fn buses(&self) -> Vec<Bus> {
         delegate_to_inner!(self, buses)

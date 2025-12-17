@@ -1,5 +1,5 @@
 use p3_poseidon2::GenericPoseidon2LinearLayers;
-use std::{any::TypeId, array};
+use std::any::TypeId;
 
 use crate::{tables::poseidon_16::trace_gen::default_poseidon_row, *};
 use multilinear_toolkit::prelude::*;
@@ -43,33 +43,31 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         Table::poseidon16()
     }
 
-    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
-        vec![]
-    }
-
-    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        vec![]
-    }
-
-    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
+    fn lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![
-            VectorLookupIntoMemory {
+            LookupIntoMemory {
                 index: POSEIDON_16_COL_INDEX_A,
-                values: array::from_fn(|i| POSEIDON_16_COL_INPUT_START + i),
+                values: (POSEIDON_16_COL_INPUT_START..POSEIDON_16_COL_INPUT_START + VECTOR_LEN).collect(),
             },
-            VectorLookupIntoMemory {
+            LookupIntoMemory {
                 index: POSEIDON_16_COL_INDEX_B,
-                values: array::from_fn(|i| POSEIDON_16_COL_INPUT_START + VECTOR_LEN + i),
+                values: (POSEIDON_16_COL_INPUT_START + VECTOR_LEN..POSEIDON_16_COL_INPUT_START + VECTOR_LEN * 2)
+                    .collect(),
             },
-            VectorLookupIntoMemory {
+            LookupIntoMemory {
                 index: POSEIDON_16_COL_INDEX_RES,
-                values: array::from_fn(|i| POSEIDON_16_COL_OUTPUT_START + i),
+                values: (POSEIDON_16_COL_OUTPUT_START..POSEIDON_16_COL_OUTPUT_START + VECTOR_LEN).collect(),
             },
-            VectorLookupIntoMemory {
+            LookupIntoMemory {
                 index: POSEIDON_16_COL_INDEX_RES_BIS,
-                values: array::from_fn(|i| POSEIDON_16_COL_OUTPUT_START + VECTOR_LEN + i),
+                values: (POSEIDON_16_COL_OUTPUT_START + VECTOR_LEN..POSEIDON_16_COL_OUTPUT_START + VECTOR_LEN * 2)
+                    .collect(),
             },
         ]
+    }
+
+    fn ookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
+        vec![]
     }
 
     fn buses(&self) -> Vec<Bus> {

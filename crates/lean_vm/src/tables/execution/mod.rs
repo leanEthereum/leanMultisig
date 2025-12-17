@@ -20,28 +20,24 @@ impl TableT for ExecutionTable {
         N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS
     }
 
-    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
+    fn lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![
             LookupIntoMemory {
                 index: COL_INDEX_MEM_ADDRESS_A,
-                values: COL_INDEX_MEM_VALUE_A,
+                values: vec![COL_INDEX_MEM_VALUE_A],
             },
             LookupIntoMemory {
                 index: COL_INDEX_MEM_ADDRESS_B,
-                values: COL_INDEX_MEM_VALUE_B,
+                values: vec![COL_INDEX_MEM_VALUE_B],
             },
             LookupIntoMemory {
                 index: COL_INDEX_MEM_ADDRESS_C,
-                values: COL_INDEX_MEM_VALUE_C,
+                values: vec![COL_INDEX_MEM_VALUE_C],
             },
         ]
     }
 
-    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        vec![]
-    }
-
-    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
+    fn ookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         vec![]
     }
 

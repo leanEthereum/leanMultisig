@@ -77,21 +77,16 @@ pub fn prove_execution(
     let mut acc = F::zero_vec(memory.len());
     info_span!("Building memory access count").in_scope(|| {
         for (table, trace) in &traces {
-            for lookup in table.normal_lookups_f() {
+            for lookup in table.lookups_f() {
                 for i in &trace.base[lookup.index] {
-                    acc[i.to_usize()] += F::ONE;
-                }
-            }
-            for lookup in table.normal_lookups_ef() {
-                for i in &trace.base[lookup.index] {
-                    for j in 0..DIMENSION {
+                    for j in 0..lookup.values.len() {
                         acc[i.to_usize() + j] += F::ONE;
                     }
                 }
             }
-            for lookup in table.vector_lookups() {
+            for lookup in table.ookups_ef() {
                 for i in &trace.base[lookup.index] {
-                    for j in 0..VECTOR_LEN {
+                    for j in 0..DIMENSION {
                         acc[i.to_usize() + j] += F::ONE;
                     }
                 }
@@ -165,33 +160,25 @@ pub fn prove_execution(
         }
     }
 
-    let mut lookup_into_memory = CustomLookupProver::run::<EF, DIMENSION, VECTOR_LEN>(
+    let mut lookup_into_memory = CustomLookupProver::run::<EF, DIMENSION>(
         &mut prover_state,
         &memory,
         &acc,
         traces
             .iter()
-            .flat_map(|(table, trace)| table.normal_lookup_index_columns_f(trace))
+            .flat_map(|(table, trace)| table.lookup_index_columns_f(trace))
             .collect(),
         traces
             .iter()
-            .flat_map(|(table, trace)| table.normal_lookup_index_columns_ef(trace))
+            .flat_map(|(table, trace)| table.lookup_index_columns_ef(trace))
             .collect(),
         traces
             .iter()
-            .flat_map(|(table, trace)| table.vector_lookup_index_columns(trace))
+            .flat_map(|(table, trace)| table.lookup_f_value_columns(trace))
             .collect(),
         traces
             .iter()
-            .flat_map(|(table, trace)| table.normal_lookup_f_value_columns(trace))
-            .collect(),
-        traces
-            .iter()
-            .flat_map(|(table, trace)| table.normal_lookup_ef_value_columns(trace))
-            .collect(),
-        traces
-            .iter()
-            .flat_map(|(table, trace)| table.vector_lookup_values_columns(trace))
+            .flat_map(|(table, trace)| table.lookup_ef_value_columns(trace))
             .collect(),
         collect_refs(&bus_numerators),
         collect_refs(&bus_denominators),
@@ -278,19 +265,15 @@ pub fn prove_execution(
                 commitmenent_extension_helper.get(table),
                 &mut lookup_into_memory.on_indexes_f,
                 &mut lookup_into_memory.on_indexes_ef,
-                &mut lookup_into_memory.on_indexes_vec,
                 &mut lookup_into_memory.on_values_f,
                 &mut lookup_into_memory.on_values_ef,
-                &mut lookup_into_memory.on_values_vec,
             ),
         );
     }
     assert!(lookup_into_memory.on_indexes_f.is_empty());
     assert!(lookup_into_memory.on_indexes_ef.is_empty());
-    assert!(lookup_into_memory.on_indexes_vec.is_empty());
     assert!(lookup_into_memory.on_values_f.is_empty());
     assert!(lookup_into_memory.on_values_ef.is_empty());
-    assert!(lookup_into_memory.on_values_vec.is_empty());
 
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(traces[&Table::execution()].log_n_rows);

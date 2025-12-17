@@ -25,18 +25,18 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
         }
     }
 
-    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory> {
+    fn lookups_f(&self) -> Vec<LookupIntoMemory> {
         if BE {
             vec![LookupIntoMemory {
                 index: COL_INDEX_A,
-                values: dot_product_air_col_value_a(BE),
+                values: vec![dot_product_air_col_value_a(BE)],
             }]
         } else {
             vec![]
         }
     }
 
-    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
+    fn ookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         let mut res = vec![
             ExtensionFieldLookupIntoMemory {
                 index: COL_INDEX_B,
@@ -57,10 +57,6 @@ impl<const BE: bool> TableT for DotProductPrecompile<BE> {
             );
         }
         res
-    }
-
-    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory> {
-        vec![]
     }
 
     fn buses(&self) -> Vec<Bus> {

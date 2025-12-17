@@ -63,15 +63,15 @@ pub fn verify_execution(
         log_memory,
         table_heights
             .iter()
-            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_normal_lookups_f()])
+            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_lookups_f()])
+            .collect(),
+        table_heights
+            .keys()
+            .flat_map(|table| table.lookups_f().iter().map(|l| l.values.len()).collect::<Vec<_>>())
             .collect(),
         table_heights
             .iter()
-            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_normal_lookups_ef()])
-            .collect(),
-        table_heights
-            .iter()
-            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_vector_lookups()])
+            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_lookups_ef()])
             .collect(),
         table_heights
             .iter()
@@ -156,19 +156,15 @@ pub fn verify_execution(
                 &evals_ef[table],
                 &mut lookup_into_memory.on_indexes_f,
                 &mut lookup_into_memory.on_indexes_ef,
-                &mut lookup_into_memory.on_indexes_vec,
                 &mut lookup_into_memory.on_values_f,
                 &mut lookup_into_memory.on_values_ef,
-                &mut lookup_into_memory.on_values_vec,
             )?,
         );
     }
     assert!(lookup_into_memory.on_indexes_f.is_empty());
     assert!(lookup_into_memory.on_indexes_ef.is_empty());
-    assert!(lookup_into_memory.on_indexes_vec.is_empty());
     assert!(lookup_into_memory.on_values_f.is_empty());
     assert!(lookup_into_memory.on_values_ef.is_empty());
-    assert!(lookup_into_memory.on_values_vec.is_empty());
 
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_heights[&Table::execution()]);

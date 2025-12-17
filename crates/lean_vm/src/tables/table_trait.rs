@@ -1,12 +1,12 @@
 use crate::{
     COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C, COL_INDEX_MEM_VALUE_A,
     COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC, DIMENSION, EF, F, InstructionContext, RunnerError,
-    Table, VECTOR_LEN,
+    Table,
 };
 use multilinear_toolkit::prelude::*;
 
-use std::{any::TypeId, array, mem::transmute};
-use utils::{ToUsize, VarCount};
+use std::{any::TypeId, mem::transmute};
+use utils::VarCount;
 
 use sub_protocols::{ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier};
 
@@ -21,19 +21,14 @@ pub type ColIndex = usize;
 #[derive(Debug)]
 pub struct LookupIntoMemory {
     pub index: ColIndex, // should be in base field columns
-    pub values: ColIndex,
+    /// For (i, col_index) in values.iter().enumerate(), For j in 0..num_rows, columns_f[col_index][j] = memory[index[j] + i]
+    pub values: Vec<ColIndex>,
 }
 
 #[derive(Debug)]
 pub struct ExtensionFieldLookupIntoMemory {
     pub index: ColIndex, // should be in base field columns
     pub values: ColIndex,
-}
-
-#[derive(Debug)]
-pub struct VectorLookupIntoMemory {
-    pub index: ColIndex, // should be in base field columns
-    pub values: [ColIndex; 8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,9 +125,8 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
 pub trait TableT: Air {
     fn name(&self) -> &'static str;
     fn identifier(&self) -> Table;
-    fn normal_lookups_f(&self) -> Vec<LookupIntoMemory>;
-    fn normal_lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
-    fn vector_lookups(&self) -> Vec<VectorLookupIntoMemory>;
+    fn lookups_f(&self) -> Vec<LookupIntoMemory>;
+    fn ookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
     fn buses(&self) -> Vec<Bus>;
     fn padding_row_f(&self) -> Vec<F>;
     fn padding_row_ef(&self) -> Vec<EF>;
@@ -206,10 +200,8 @@ pub trait TableT: Air {
         ext_commitment_helper: Option<&ExtensionCommitmentFromBaseProver<EF>>,
         lokup_statements_on_indexes_f: &mut Vec<Evaluation<EF>>,
         lookup_statements_on_indexes_ef: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_indexes_vec: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_values_f: &mut Vec<Evaluation<EF>>,
+        lookup_statements_on_values_f: &mut Vec<Vec<Evaluation<EF>>>,
         lookup_statements_on_values_ef: &mut Vec<[Evaluation<EF>; DIMENSION]>,
-        lookup_statements_on_values_vec: &mut Vec<[Evaluation<EF>; VECTOR_LEN]>,
     ) -> Vec<Vec<Evaluation<EF>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
 
@@ -222,22 +214,24 @@ pub trait TableT: Air {
             statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
         }
 
-        for lookup in self.normal_lookups_f() {
+        for lookup in self.lookups_f() {
             statements[self.find_committed_column_index_f(lookup.index)].push(lokup_statements_on_indexes_f.remove(0));
         }
-        for lookup in self.normal_lookups_ef() {
+        for lookup in self.ookups_ef() {
             statements[self.find_committed_column_index_f(lookup.index)]
                 .push(lookup_statements_on_indexes_ef.remove(0));
         }
-        for lookup in self.vector_lookups() {
-            statements[self.find_committed_column_index_f(lookup.index)]
-                .push(lookup_statements_on_indexes_vec.remove(0));
-        }
 
-        for lookup in self.normal_lookups_f() {
-            statements[self.find_committed_column_index_f(lookup.values)].push(lookup_statements_on_values_f.remove(0));
+        for lookup in self.lookups_f() {
+            for (col_index, col_statements) in lookup
+                .values
+                .iter()
+                .zip(lookup_statements_on_values_f.remove(0).into_iter())
+            {
+                statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
+            }
         }
-        for lookup in self.normal_lookups_ef() {
+        for lookup in self.ookups_ef() {
             let my_statements = &mut statements
                 [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
                 [..DIMENSION];
@@ -247,15 +241,6 @@ pub trait TableT: Air {
                 .for_each(|(stmt, to_add)| {
                     stmt.push(to_add);
                 });
-        }
-        for lookup in self.vector_lookups() {
-            for (col_index, col_statements) in lookup
-                .values
-                .iter()
-                .zip(lookup_statements_on_values_vec.remove(0).into_iter())
-            {
-                statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
-            }
         }
 
         statements
@@ -270,10 +255,8 @@ pub trait TableT: Air {
         air_values_ef: &[EF],
         lookup_statements_on_indexes_f: &mut Vec<Evaluation<EF>>,
         lookup_statements_on_indexes_ef: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_indexes_vec: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_values_f: &mut Vec<Evaluation<EF>>,
+        lookup_statements_on_values_f: &mut Vec<Vec<Evaluation<EF>>>,
         lookup_statements_on_values_ef: &mut Vec<[Evaluation<EF>; DIMENSION]>,
-        lookup_statements_on_values_vec: &mut Vec<[Evaluation<EF>; VECTOR_LEN]>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
         assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
@@ -296,22 +279,24 @@ pub trait TableT: Air {
                 ),
             )?);
         }
-        for lookup in self.normal_lookups_f() {
+        for lookup in self.lookups_f() {
             statements[self.find_committed_column_index_f(lookup.index)].push(lookup_statements_on_indexes_f.remove(0));
         }
-        for lookup in self.normal_lookups_ef() {
+        for lookup in self.ookups_ef() {
             statements[self.find_committed_column_index_f(lookup.index)]
                 .push(lookup_statements_on_indexes_ef.remove(0));
         }
-        for lookup in self.vector_lookups() {
-            statements[self.find_committed_column_index_f(lookup.index)]
-                .push(lookup_statements_on_indexes_vec.remove(0));
-        }
 
-        for lookup in self.normal_lookups_f() {
-            statements[self.find_committed_column_index_f(lookup.values)].push(lookup_statements_on_values_f.remove(0));
+        for lookup in self.lookups_f() {
+            for (col_index, col_statements) in lookup
+                .values
+                .iter()
+                .zip(lookup_statements_on_values_f.remove(0).into_iter())
+            {
+                statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
+            }
         }
-        for lookup in self.normal_lookups_ef() {
+        for lookup in self.ookups_ef() {
             let my_statements = &mut statements
                 [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
                 [..DIMENSION];
@@ -322,56 +307,8 @@ pub trait TableT: Air {
                     stmt.push(to_add);
                 });
         }
-        for lookup in self.vector_lookups() {
-            for (col_index, col_statements) in lookup
-                .values
-                .iter()
-                .zip(lookup_statements_on_values_vec.remove(0).into_iter())
-            {
-                statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
-            }
-        }
 
         Ok(statements)
-    }
-    fn normal_lookups_statements_f(
-        &self,
-        air_point: &MultilinearPoint<EF>,
-        air_values_f: &[EF],
-    ) -> Vec<Vec<Evaluation<EF>>> {
-        assert_eq!(air_values_f.len(), self.n_columns_f_air());
-        let mut statements = Vec::new();
-        for lookup in self.normal_lookups_f() {
-            statements.push(vec![Evaluation::new(air_point.clone(), air_values_f[lookup.values])]);
-        }
-        statements
-    }
-    fn normal_lookups_statements_ef(
-        &self,
-        air_point: &MultilinearPoint<EF>,
-        air_values_ef: &[EF],
-    ) -> Vec<Vec<Evaluation<EF>>> {
-        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
-        let mut statements = Vec::new();
-        for lookup in self.normal_lookups_ef() {
-            statements.push(vec![Evaluation::new(air_point.clone(), air_values_ef[lookup.values])]);
-        }
-        statements
-    }
-    fn vectorized_lookups_statements(
-        &self,
-        air_point: &MultilinearPoint<EF>,
-        air_values_f: &[EF],
-    ) -> Vec<Vec<MultiEvaluation<EF>>> {
-        assert_eq!(air_values_f.len(), self.n_columns_f_air());
-        let mut statements = Vec::new();
-        for lookup in self.vector_lookups() {
-            statements.push(vec![MultiEvaluation::new(
-                air_point.clone(),
-                lookup.values.map(|col| air_values_f[col]).to_vec(),
-            )]);
-        }
-        statements
     }
     fn committed_columns<'a>(
         &self,
@@ -395,78 +332,40 @@ pub trait TableT: Air {
         }
         cols
     }
-    fn normal_lookup_index_columns_f<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
-        self.normal_lookups_f()
+    fn lookup_index_columns_f<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
+        self.lookups_f()
             .iter()
             .map(|lookup| &trace.base[lookup.index][..])
             .collect()
     }
-    fn normal_lookup_index_columns_ef<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
-        self.normal_lookups_ef()
+    fn lookup_index_columns_ef<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
+        self.ookups_ef()
             .iter()
             .map(|lookup| &trace.base[lookup.index][..])
             .collect()
     }
-    fn vector_lookup_index_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [F]> {
-        let mut cols = Vec::new();
-        for lookup in self.vector_lookups() {
-            cols.push(&trace.base[lookup.index][..]);
-        }
-        cols
+    fn num_lookups_f(&self) -> usize {
+        self.lookups_f().len()
     }
-    fn num_normal_lookups_f(&self) -> usize {
-        self.normal_lookups_f().len()
-    }
-    fn num_normal_lookups_ef(&self) -> usize {
-        self.normal_lookups_ef().len()
-    }
-    fn num_vector_lookups(&self) -> usize {
-        self.vector_lookups().len()
+    fn num_lookups_ef(&self) -> usize {
+        self.ookups_ef().len()
     }
     fn num_buses(&self) -> usize {
         self.buses().len()
     }
-    fn normal_lookup_f_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [F]> {
+    fn lookup_f_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<Vec<&'a [F]>> {
         let mut cols = Vec::new();
-        for lookup in self.normal_lookups_f() {
-            cols.push(&trace.base[lookup.values][..]);
+        for lookup in self.lookups_f() {
+            cols.push(lookup.values.iter().map(|&c| &trace.base[c][..]).collect());
         }
         cols
     }
-    fn normal_lookup_ef_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [EF]> {
+    fn lookup_ef_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [EF]> {
         let mut cols = Vec::new();
-        for lookup in self.normal_lookups_ef() {
+        for lookup in self.ookups_ef() {
             cols.push(&trace.ext[lookup.values][..]);
         }
         cols
-    }
-    fn vector_lookup_values_columns<'a>(&self, trace: &'a TableTrace) -> Vec<[&'a [F]; VECTOR_LEN]> {
-        let mut cols = Vec::new();
-        for lookup in self.vector_lookups() {
-            cols.push(array::from_fn(|i| &trace.base[lookup.values[i]][..]));
-        }
-        cols
-    }
-    fn normal_lookup_default_indexes_f(&self) -> Vec<usize> {
-        let mut default_indexes = Vec::new();
-        for lookup in self.normal_lookups_f() {
-            default_indexes.push(self.padding_row_f()[lookup.index].to_usize());
-        }
-        default_indexes
-    }
-    fn normal_lookup_default_indexes_ef(&self) -> Vec<usize> {
-        let mut default_indexes = Vec::new();
-        for lookup in self.normal_lookups_ef() {
-            default_indexes.push(self.padding_row_f()[lookup.index].to_usize());
-        }
-        default_indexes
-    }
-    fn vector_lookup_default_indexes(&self) -> Vec<usize> {
-        let mut default_indexes = Vec::new();
-        for lookup in self.vector_lookups() {
-            default_indexes.push(self.padding_row_f()[lookup.index].to_usize());
-        }
-        default_indexes
     }
     fn find_committed_column_index_f(&self, col: ColIndex) -> usize {
         self.commited_columns_f().iter().position(|&c| c == col).unwrap()

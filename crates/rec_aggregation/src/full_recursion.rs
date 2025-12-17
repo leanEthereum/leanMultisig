@@ -62,8 +62,14 @@ pub fn run_end2end_recursion_benchmark() {
         &snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
     );
     program_str = program_str.replace("N_TABLES_PLACEHOLDER", &N_TABLES.to_string());
-    program_str = program_str.replace("MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER", &MIN_LOG_N_ROWS_PER_TABLE.to_string());
-    program_str = program_str.replace("MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER", &MAX_LOG_N_ROWS_PER_TABLE.to_string());
+    program_str = program_str.replace(
+        "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER",
+        &MIN_LOG_N_ROWS_PER_TABLE.to_string(),
+    );
+    program_str = program_str.replace(
+        "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER",
+        &MAX_LOG_N_ROWS_PER_TABLE.to_string(),
+    );
     program_str = program_str.replace("MIN_LOG_MEMORY_SIZE_PLACEHOLDER", &MIN_LOG_MEMORY_SIZE.to_string());
     program_str = program_str.replace("MAX_LOG_MEMORY_SIZE_PLACEHOLDER", &MAX_LOG_MEMORY_SIZE.to_string());
 
