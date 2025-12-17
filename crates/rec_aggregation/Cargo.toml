@@ -28,3 +28,6 @@ multilinear-toolkit.workspace = true
 bincode.workspace = true
 serde.workspace = true
 leansig.workspace = true
+
+[features]
+test_config = []
