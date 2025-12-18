@@ -340,6 +340,21 @@ impl Expression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AssignmentTarget {
+    Var(Var),
+    ArrayAccess { array: SimpleExpr, index: Box<Expression> },
+}
+
+impl Display for AssignmentTarget {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Var(var) => write!(f, "{}", var),
+            Self::ArrayAccess { array, index } => write!(f, "{}[{}]", array, index),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Match {
         value: Expression,
@@ -381,7 +396,7 @@ pub enum Line {
     FunctionCall {
         function_name: String,
         args: Vec<Expression>,
-        return_data: Vec<Var>,
+        return_data: Vec<AssignmentTarget>, // Changed from Vec<Var>
         line_number: SourceLineNumber,
     },
     FunctionRet {
@@ -570,7 +585,7 @@ impl Line {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 let return_data_str = return_data
                     .iter()
-                    .map(|var| var.to_string())
+                    .map(|target| target.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
 
