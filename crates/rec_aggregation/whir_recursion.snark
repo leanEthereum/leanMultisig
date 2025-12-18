@@ -6,39 +6,22 @@ const DIM = 5; // extension degree
 
 const N_VARS = N_VARS_PLACEHOLDER;
 const LOG_INV_RATE = LOG_INV_RATE_PLACEHOLDER; 
-const N_ROUNDS = 3; // TODO make it a parameter
 
-const FOLDING_FACTOR_0 = FOLDING_FACTOR_0_PLACEHOLDER;
-const FOLDING_FACTOR_1 = FOLDING_FACTOR_1_PLACEHOLDER;
-const FOLDING_FACTOR_2 = FOLDING_FACTOR_2_PLACEHOLDER;
-const FOLDING_FACTOR_3 = FOLDING_FACTOR_3_PLACEHOLDER;
+const FOLDING_FACTORS = FOLDING_FACTORS_PLACEHOLDER;
 
-const FINAL_VARS = N_VARS - (FOLDING_FACTOR_0 + FOLDING_FACTOR_1 + FOLDING_FACTOR_2 + FOLDING_FACTOR_3);
+const FINAL_VARS = FINAL_VARS_PLACEHOLDER;
 
-const RS_REDUCTION_FACTOR_0 = RS_REDUCTION_FACTOR_0_PLACEHOLDER;
-const RS_REDUCTION_FACTOR_1 = 1;
-const RS_REDUCTION_FACTOR_2 = 1;
-const RS_REDUCTION_FACTOR_3 = 1;
+const RS_REDUCTION_FACTORS = RS_REDUCTION_FACTORS_PLACEHOLDER;
 
 const NUM_OOD_COMMIT = NUM_OOD_COMMIT_PLACEHOLDER;
-const NUM_OOD_0 = NUM_OOD_0_PLACEHOLDER;
-const NUM_OOD_1 = NUM_OOD_1_PLACEHOLDER;
-const NUM_OOD_2 = NUM_OOD_2_PLACEHOLDER;
+const NUM_OODS = NUM_OODS_PLACEHOLDER;
 
-const NUM_QUERIES_0 = NUM_QUERIES_0_PLACEHOLDER;
-const NUM_QUERIES_1 = NUM_QUERIES_1_PLACEHOLDER;
-const NUM_QUERIES_2 = NUM_QUERIES_2_PLACEHOLDER;
-const NUM_QUERIES_3 = NUM_QUERIES_3_PLACEHOLDER;
+const NUM_QUERIES = NUM_QUERIES_PLACEHOLDER;
+const N_ROUNDS = len(NUM_QUERIES) - 1;
 
-const GRINDING_BITS_0 = GRINDING_BITS_0_PLACEHOLDER;
-const GRINDING_BITS_1 = GRINDING_BITS_1_PLACEHOLDER;
-const GRINDING_BITS_2 = GRINDING_BITS_2_PLACEHOLDER;
-const GRINDING_BITS_3 = GRINDING_BITS_3_PLACEHOLDER;
+const GRINDING_BITS = GRINDING_BITS_PLACEHOLDER;
 
-const MERKLE_HEIGHT_0 = N_VARS + LOG_INV_RATE - FOLDING_FACTOR_0;
-const MERKLE_HEIGHT_1 = N_VARS + LOG_INV_RATE - FOLDING_FACTOR_1 - RS_REDUCTION_FACTOR_0;
-const MERKLE_HEIGHT_2 = MERKLE_HEIGHT_1 - RS_REDUCTION_FACTOR_1;
-const MERKLE_HEIGHT_3 = MERKLE_HEIGHT_2 - RS_REDUCTION_FACTOR_2;
+const MERKLE_HEIGHTS = MERKLE_HEIGHTS_PLACEHOLDER;
 
 const TWO_ADICITY = 24;
 const ROOT = 1791270792; // of order 2^TWO_ADICITY
@@ -73,24 +56,24 @@ fn whir_recursion(transcript_start) {
     claimed_sum_0 = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
     domain_size_0 = N_VARS + LOG_INV_RATE;
     fs_5, folding_randomness_1, ood_points_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
-        whir_round(fs_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0, NUM_OOD_0);
+        whir_round(fs_4, root_0, FOLDING_FACTORS[0], 2**FOLDING_FACTORS[0], 1, NUM_QUERIES[0], domain_size_0, claimed_sum_0, GRINDING_BITS[0], NUM_OODS[0]);
 
-    domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
+    domain_size_1 = domain_size_0 - RS_REDUCTION_FACTORS[0];
     fs_6, folding_randomness_2, ood_points_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
-        whir_round(fs_5, root_1, FOLDING_FACTOR_1, 2**FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1, GRINDING_BITS_1, NUM_OOD_1);
-    domain_size_2 = domain_size_1 - RS_REDUCTION_FACTOR_1;
+        whir_round(fs_5, root_1, FOLDING_FACTORS[1], 2**FOLDING_FACTORS[1], 0, NUM_QUERIES[1], domain_size_1, claimed_sum_1, GRINDING_BITS[1], NUM_OODS[1]);
+    domain_size_2 = domain_size_1 - RS_REDUCTION_FACTORS[1];
     fs_7, folding_randomness_3, ood_points_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
-        whir_round(fs_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2, GRINDING_BITS_2, NUM_OOD_2);
+        whir_round(fs_6, root_2, FOLDING_FACTORS[2], 2**FOLDING_FACTORS[2], 0, NUM_QUERIES[2], domain_size_2, claimed_sum_2, GRINDING_BITS[2], NUM_OODS[2]);
 
-    domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
-    fs_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_7, FOLDING_FACTOR_3, claimed_sum_3);
+    domain_size_3 = domain_size_2 - RS_REDUCTION_FACTORS[2];
+    fs_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_7, FOLDING_FACTORS[3], claimed_sum_3);
     
     fs_9, final_coeffcients = fs_receive_ef(fs_8, 2**FINAL_VARS);
 
     fs_10, final_circle_values, final_folds =
-        sample_stir_indexes_and_fold(fs_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4, GRINDING_BITS_3);
+        sample_stir_indexes_and_fold(fs_9, NUM_QUERIES[3], 0, FOLDING_FACTORS[3], 2**FOLDING_FACTORS[3], domain_size_3, root_3, folding_randomness_4, GRINDING_BITS[3]);
     
-    for i in 0..NUM_QUERIES_3 {
+    for i in 0..NUM_QUERIES[3] {
         powers_of_2_rev = expand_from_univariate_base_const(final_circle_values[i], FINAL_VARS);
         poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS);
         final_pol_evaluated_on_circle = malloc(DIM);
@@ -103,7 +86,7 @@ fn whir_recursion(transcript_start) {
     folding_randomness_global = malloc(N_VARS * DIM);
 
     ffs = malloc(N_ROUNDS + 2);
-    ffs[0] = FOLDING_FACTOR_0; ffs[1] = FOLDING_FACTOR_1; ffs[2] = FOLDING_FACTOR_2; ffs[3] = FOLDING_FACTOR_3; ffs[4] = FINAL_VARS;
+    ffs[0] = FOLDING_FACTORS[0]; ffs[1] = FOLDING_FACTORS[1]; ffs[2] = FOLDING_FACTORS[2]; ffs[3] = FOLDING_FACTORS[3]; ffs[4] = FINAL_VARS;
     frs = malloc(N_ROUNDS + 2);
     frs[0] = folding_randomness_1; frs[1] = folding_randomness_2; frs[2] = folding_randomness_3; frs[3] = folding_randomness_4; frs[4] = folding_randomness_5;
     ffs_sums = malloc(N_ROUNDS + 3);
@@ -135,8 +118,8 @@ fn whir_recursion(transcript_start) {
     weight_sums[0] = s4;
 
     all_ood_points = malloc(N_ROUNDS); all_ood_points[0] = ood_points_1; all_ood_points[1] = ood_points_2; all_ood_points[2] = ood_points_3;
-    all_num_oods = malloc(N_ROUNDS); all_num_oods[0] = NUM_OOD_0; all_num_oods[1] = NUM_OOD_1; all_num_oods[2] = NUM_OOD_2;
-    num_queries = malloc(N_ROUNDS + 1); num_queries[0] = NUM_QUERIES_0; num_queries[1] = NUM_QUERIES_1; num_queries[2] = NUM_QUERIES_2; num_queries[3] = NUM_QUERIES_3;
+    all_num_oods = malloc(N_ROUNDS); all_num_oods[0] = NUM_OODS[0]; all_num_oods[1] = NUM_OODS[1]; all_num_oods[2] = NUM_OODS[2];
+    num_queries = malloc(N_ROUNDS + 1); num_queries[0] = NUM_QUERIES[0]; num_queries[1] = NUM_QUERIES[1]; num_queries[2] = NUM_QUERIES[2]; num_queries[3] = NUM_QUERIES[3];
     circle_values = malloc(N_ROUNDS + 1); circle_values[0] = circle_values_1; circle_values[1] = circle_values_2; circle_values[2] = circle_values_3; circle_values[3] = final_circle_values;
     all_combination_randomness_powers = malloc(N_ROUNDS); all_combination_randomness_powers[0] = combination_randomness_powers_1; all_combination_randomness_powers[1] = combination_randomness_powers_2; all_combination_randomness_powers[2] = combination_randomness_powers_3;
 
@@ -380,7 +363,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
 
     if merkle_leaves_in_basefield == 1 {
         for i in 0..num_queries {
-            dot_product_be(answers[i], poly_eq, folds + i*DIM, 2**FOLDING_FACTOR_0);
+            dot_product_be(answers[i], poly_eq, folds + i*DIM, 2**FOLDING_FACTORS[0]);
         }
     } else {
         for i in 0..num_queries {
@@ -435,20 +418,20 @@ fn slice_hash(seed, data, const half_len) -> 1 {
 }
 
 fn merkle_verif_batch(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries) {
-    if height + num_queries * 1000 == MERKLE_HEIGHT_0 + NUM_QUERIES_0 * 1000 {
-        merkle_verif_batch_const(NUM_QUERIES_0, merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_0);
+    if height + num_queries * 1000 == MERKLE_HEIGHTS[0] + NUM_QUERIES[0] * 1000 {
+        merkle_verif_batch_const(NUM_QUERIES[0], merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHTS[0]);
         return;
     }
-    if height + num_queries * 1000 == MERKLE_HEIGHT_1 + NUM_QUERIES_1 * 1000 {
-        merkle_verif_batch_const(NUM_QUERIES_1, merkle_paths,leaves_digests, leave_positions, root, MERKLE_HEIGHT_1);
+    if height + num_queries * 1000 == MERKLE_HEIGHTS[1] + NUM_QUERIES[1] * 1000 {
+        merkle_verif_batch_const(NUM_QUERIES[1], merkle_paths,leaves_digests, leave_positions, root, MERKLE_HEIGHTS[1]);
         return;
     }
-    if height + num_queries * 1000 == MERKLE_HEIGHT_2 + NUM_QUERIES_2 * 1000 {
-        merkle_verif_batch_const(NUM_QUERIES_2, merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_2);
+    if height + num_queries * 1000 == MERKLE_HEIGHTS[2] + NUM_QUERIES[2] * 1000 {
+        merkle_verif_batch_const(NUM_QUERIES[2], merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHTS[2]);
         return;
     }
-    if height + num_queries * 1000 == MERKLE_HEIGHT_3 + NUM_QUERIES_3 * 1000 {
-        merkle_verif_batch_const(NUM_QUERIES_3, merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHT_3);
+    if height + num_queries * 1000 == MERKLE_HEIGHTS[3] + NUM_QUERIES[3] * 1000 {
+        merkle_verif_batch_const(NUM_QUERIES[3], merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHTS[3]);
         return;
     }
 
@@ -605,8 +588,8 @@ fn dot_product_ee_dynamic(a, b, res, n) {
 }
 
 fn dot_product_ee_dynamic_helper_1(a, b, res, n) {
-    if n == NUM_QUERIES_0 {
-        dot_product_ee(a, b, res, NUM_QUERIES_0);
+    if n == NUM_QUERIES[0] {
+        dot_product_ee(a, b, res, NUM_QUERIES[0]);
         return;
     }
 
@@ -615,12 +598,12 @@ fn dot_product_ee_dynamic_helper_1(a, b, res, n) {
 }
 
 fn dot_product_ee_dynamic_helper_2(a, b, res, n) {
-    if n == NUM_QUERIES_1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_1);
+    if n == NUM_QUERIES[1] {
+        dot_product_ee(a, b, res, NUM_QUERIES[1]);
         return;
     }
-    if n == NUM_QUERIES_2 {
-        dot_product_ee(a, b, res, NUM_QUERIES_2);
+    if n == NUM_QUERIES[2] {
+        dot_product_ee(a, b, res, NUM_QUERIES[2]);
         return;
     }
 
@@ -629,12 +612,12 @@ fn dot_product_ee_dynamic_helper_2(a, b, res, n) {
 }
 
 fn dot_product_ee_dynamic_helper_3(a, b, res, n) {
-    if n == NUM_QUERIES_3 {
-        dot_product_ee(a, b, res, NUM_QUERIES_3);
+    if n == NUM_QUERIES[3] {
+        dot_product_ee(a, b, res, NUM_QUERIES[3]);
         return;
     }
-    if n == NUM_QUERIES_0 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_0 + 1);
+    if n == NUM_QUERIES[0] + 1 {
+        dot_product_ee(a, b, res, NUM_QUERIES[0] + 1);
         return;
     }
 
@@ -643,12 +626,12 @@ fn dot_product_ee_dynamic_helper_3(a, b, res, n) {
 }
 
 fn dot_product_ee_dynamic_helper_4(a, b, res, n) {
-    if n == NUM_QUERIES_1 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_1 + 1);
+    if n == NUM_QUERIES[1] + 1 {
+        dot_product_ee(a, b, res, NUM_QUERIES[1] + 1);
         return;
     }
-    if n == NUM_QUERIES_2 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_2 + 1);
+    if n == NUM_QUERIES[2] + 1 {
+        dot_product_ee(a, b, res, NUM_QUERIES[2] + 1);
         return;
     }
 
@@ -657,8 +640,8 @@ fn dot_product_ee_dynamic_helper_4(a, b, res, n) {
 }
 
 fn dot_product_ee_dynamic_helper_5(a, b, res, n) {
-    if n == NUM_QUERIES_3 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_3 + 1);
+    if n == NUM_QUERIES[3] + 1 {
+        dot_product_ee(a, b, res, NUM_QUERIES[3] + 1);
         return;
     }
 
@@ -816,17 +799,17 @@ fn pow(a, b) -> 1 {
 fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
     var new_fs_state;
     var sampled_bits;
-    if n_samples == NUM_QUERIES_0 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_0, K);
+    if n_samples == NUM_QUERIES[0] {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES[0], K);
         return new_fs_state, sampled_bits;
-    } else if n_samples == NUM_QUERIES_1 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_1, K);
+    } else if n_samples == NUM_QUERIES[1] {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES[1], K);
         return new_fs_state, sampled_bits;
-    } else if n_samples == NUM_QUERIES_2 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_2, K);
+    } else if n_samples == NUM_QUERIES[2] {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES[2], K);
         return new_fs_state, sampled_bits;
-    } else if n_samples == NUM_QUERIES_3 {
-        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_3, K);
+    } else if n_samples == NUM_QUERIES[3] {
+        new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES[3], K);
         return new_fs_state, sampled_bits;
     }
     print(n_samples);

@@ -18,7 +18,6 @@ const NUM_VARIABLES: usize = 25;
 
 pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profiler: bool) {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("whir_recursion.snark");
-    let mut program_str = std::fs::read_to_string(src_file).unwrap();
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
@@ -29,45 +28,59 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
         rs_domain_initial_reduction_factor: 3,
     };
 
-    program_str = program_str.replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string());
-
     let recursion_config = WhirConfig::<EF>::new(&recursion_config_builder, NUM_VARIABLES);
 
-    program_str = program_str.replace(
-        "NUM_OOD_COMMIT_PLACEHOLDER",
-        &recursion_config.committment_ood_samples.to_string(),
-    );
-    for (i, round) in recursion_config.round_parameters.iter().enumerate() {
-        program_str = program_str
-            .replace(&format!("NUM_QUERIES_{i}_PLACEHOLDER"), &round.num_queries.to_string())
-            .replace(&format!("NUM_OOD_{}_PLACEHOLDER", i), &round.ood_samples.to_string())
-            .replace(&format!("GRINDING_BITS_{i}_PLACEHOLDER"), &round.pow_bits.to_string());
+    let mut num_queries = vec![];
+    let mut ood_samples = vec![];
+    let mut grinding_bits = vec![];
+    let merkle_heights = (0..=recursion_config.n_rounds())
+        .map(|r| recursion_config.merkle_tree_height(r).to_string())
+        .collect::<Vec<_>>();
+    let mut folding_factors = vec![];
+    for round in &recursion_config.round_parameters {
+        num_queries.push(round.num_queries.to_string());
+        ood_samples.push(round.ood_samples.to_string());
+        grinding_bits.push(round.pow_bits.to_string());
+        folding_factors.push(round.folding_factor.to_string());
     }
-    program_str = program_str
+    folding_factors.push(recursion_config.final_round_config().folding_factor.to_string());
+    grinding_bits.push(recursion_config.final_pow_bits.to_string());
+    num_queries.push(recursion_config.final_queries.to_string());
+    let mut rs_reduction_factors = vec![recursion_config_builder.rs_domain_initial_reduction_factor.to_string()];
+    rs_reduction_factors.extend(vec!["1".to_string(); recursion_config.n_rounds()]);
+
+    let mut program_str = std::fs::read_to_string(src_file)
+        .unwrap()
+        .replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string())
         .replace(
-            &format!("NUM_QUERIES_{}_PLACEHOLDER", recursion_config.n_rounds()),
-            &recursion_config.final_queries.to_string(),
+            "MERKLE_HEIGHTS_PLACEHOLDER",
+            &format!("[{}]", merkle_heights.join(", ")),
         )
+        .replace("NUM_QUERIES_PLACEHOLDER", &format!("[{}]", num_queries.join(", ")))
         .replace(
-            &format!("GRINDING_BITS_{}_PLACEHOLDER", recursion_config.n_rounds()),
-            &recursion_config.final_pow_bits.to_string(),
+            "NUM_OOD_COMMIT_PLACEHOLDER",
+            &recursion_config.committment_ood_samples.to_string(),
+        )
+        .replace("NUM_OODS_PLACEHOLDER", &format!("[{}]", ood_samples.join(", ")))
+        .replace("GRINDING_BITS_PLACEHOLDER", &format!("[{}]", grinding_bits.join(", ")))
+        .replace(
+            "FOLDING_FACTORS_PLACEHOLDER",
+            &format!("[{}]", folding_factors.join(", ")),
         )
         .replace("N_VARS_PLACEHOLDER", &NUM_VARIABLES.to_string())
         .replace(
             "LOG_INV_RATE_PLACEHOLDER",
             &recursion_config_builder.starting_log_inv_rate.to_string(),
+        )
+        .replace(
+            "FINAL_VARS_PLACEHOLDER",
+            &recursion_config.n_vars_of_final_polynomial().to_string(),
+        )
+        .replace(
+            "RS_REDUCTION_FACTORS_PLACEHOLDER",
+            &format!("[{}]", rs_reduction_factors.join(", ")),
         );
     assert_eq!(recursion_config.n_rounds(), 3); // this is hardcoded in the program above
-    for round in 0..=recursion_config.n_rounds() {
-        program_str = program_str.replace(
-            &format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
-            &recursion_config_builder.folding_factor.at_round(round).to_string(),
-        );
-    }
-    program_str = program_str.replace(
-        "RS_REDUCTION_FACTOR_0_PLACEHOLDER",
-        &recursion_config_builder.rs_domain_initial_reduction_factor.to_string(),
-    );
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = MleOwned::Base((0..1 << NUM_VARIABLES).map(|_| rng.random()).collect::<Vec<F>>());
