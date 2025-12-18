@@ -727,3 +727,21 @@ fn test_const_array() {
     "#;
     compile_and_run(program.to_string(), (&[], &[]), false);
 }
+
+#[test]
+fn test_const_malloc_end_iterator_loop() {
+    let program = r#"
+    fn main() {
+        x = malloc(2);
+        x[0] = 3;
+        x[1] = 5;
+        for i in 0..2 unroll {
+            for j in 0..x[i] {
+                print(i, j);
+            }
+        }
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
