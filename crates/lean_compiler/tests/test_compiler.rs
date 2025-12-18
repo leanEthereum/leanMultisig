@@ -799,3 +799,24 @@ fn test_array_return_targets_with_expressions() {
     "#;
     compile_and_run(program.to_string(), (&[], &[]), false);
 }
+
+// TODO fix this test
+
+// #[test]
+// fn bug() {
+//     let program = r#"
+//         const ARR = [10, 20];
+//         fn main() {
+//             for i in 0..2 unroll {
+//                 my_print(ARR[i]);
+//             }
+//             return;
+//         }
+
+//     fn my_print(const x) {
+//         print(x);
+//         return;
+//     }
+//     "#;
+//     compile_and_run(program.to_string(), (&[], &[]), false);
+// }
