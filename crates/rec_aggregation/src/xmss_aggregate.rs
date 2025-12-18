@@ -7,6 +7,7 @@ use leansig::symmetric::message_hash::MessageHash;
 use leansig::symmetric::tweak_hash::poseidon::PoseidonTweak;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use std::time::Instant;
 use std::{mem::transmute, path::Path};
@@ -218,7 +219,7 @@ pub fn xmss_aggregate_signatures(
     Ok(xmss_aggregate_signatures_helper(pub_keys, signatures, message, epoch)?.0)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Devnet2XmssAggregateSignature {
     pub proof_bytes: Vec<u8>,
     pub encoding_randomness: Vec<[F; RAND_LEN_FE]>,
