@@ -814,7 +814,20 @@ fn simplify_lines(
 
                 let start_simplified =
                     simplify_expr(start, &mut res, counters, array_manager, const_malloc, const_arrays);
-                let end_simplified = simplify_expr(end, &mut res, counters, array_manager, const_malloc, const_arrays);
+                let mut end_simplified =
+                    simplify_expr(end, &mut res, counters, array_manager, const_malloc, const_arrays);
+                if let SimpleExpr::ConstMallocAccess { malloc_label, offset } = end_simplified.clone() {
+                    // we use an auxilary variable to store the end value (const malloc inside non-unrolled loops does not work)
+                    let aux_end_var = format!("@aux_end_{}", counters.aux_vars);
+                    counters.aux_vars += 1;
+                    res.push(SimpleLine::Assignment {
+                        var: aux_end_var.clone().into(),
+                        operation: HighLevelOperation::Add,
+                        arg0: SimpleExpr::ConstMallocAccess { malloc_label, offset },
+                        arg1: SimpleExpr::zero(),
+                    });
+                    end_simplified = SimpleExpr::Var(aux_end_var);
+                }
 
                 for (simplified, original) in [
                     (start_simplified.clone(), start.clone()),
