@@ -824,8 +824,6 @@ fn simplify_lines(
                 let mut func_args = vec![iterator.clone()];
                 func_args.extend(external_vars.clone());
 
-                dbg!(&end_simplified);
-
                 // Create recursive function body
                 let recursive_func = create_recursive_function(
                     func_name.clone(),
