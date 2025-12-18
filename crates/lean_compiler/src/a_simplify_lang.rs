@@ -2,8 +2,8 @@ use crate::{
     Counter, F,
     ir::HighLevelOperation,
     lang::{
-        AssumeBoolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue, Context, Expression, Function,
-        Line, Program, Scope, SimpleExpr, Var,
+        AssignmentTarget, AssumeBoolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue, Context,
+        Expression, Function, Line, Program, Scope, SimpleExpr, Var,
     },
 };
 use lean_vm::{Boolean, BooleanExpr, SourceLineNumber, Table, TableT};
@@ -321,12 +321,26 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                     check_expr_scoping(arg, ctx);
                 }
                 let last_scope = ctx.scopes.last_mut().unwrap();
-                for var in return_data {
-                    assert!(
-                        !last_scope.vars.contains(var),
-                        "Variable declared multiple times in the same scope: {var}",
-                    );
-                    last_scope.vars.insert(var.clone());
+                for target in return_data {
+                    match target {
+                        AssignmentTarget::Var(var) => {
+                            assert!(
+                                !last_scope.vars.contains(var),
+                                "Variable declared multiple times in the same scope: {var}",
+                            );
+                            last_scope.vars.insert(var.clone());
+                        }
+                        AssignmentTarget::ArrayAccess { .. } => {}
+                    }
+                }
+                for target in return_data {
+                    match target {
+                        AssignmentTarget::Var(_) => {}
+                        AssignmentTarget::ArrayAccess { array, index } => {
+                            check_simple_expr_scoping(array, ctx);
+                            check_expr_scoping(index, ctx);
+                        }
+                    }
                 }
             }
             Line::FunctionRet { return_data } => {
@@ -806,7 +820,8 @@ fn simplify_lines(
 
                 let start_simplified =
                     simplify_expr(start, &mut res, counters, array_manager, const_malloc, const_arrays);
-                let mut end_simplified = simplify_expr(end, &mut res, counters, array_manager, const_malloc, const_arrays);
+                let mut end_simplified =
+                    simplify_expr(end, &mut res, counters, array_manager, const_malloc, const_arrays);
                 if let SimpleExpr::ConstMallocAccess { malloc_label, offset } = end_simplified.clone() {
                     // we use an auxilary variable to store the end value (const malloc inside non-unrolled loops does not work)
                     let aux_end_var = format!("@aux_end_{}", counters.aux_vars);
@@ -817,7 +832,7 @@ fn simplify_lines(
                         arg0: SimpleExpr::ConstMallocAccess { malloc_label, offset },
                         arg1: SimpleExpr::zero(),
                     });
-                    end_simplified = SimpleExpr::Var(aux_end_var.into());
+                    end_simplified = SimpleExpr::Var(aux_end_var);
                 }
 
                 for (simplified, original) in [
@@ -879,12 +894,45 @@ fn simplify_lines(
                     .iter()
                     .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc, const_arrays))
                     .collect::<Vec<_>>();
+
+                // Generate temp vars for all return values and track array targets
+                let mut temp_vars = Vec::new();
+                let mut array_targets: Vec<(usize, SimpleExpr, Box<Expression>)> = Vec::new();
+
+                for (i, target) in return_data.iter().enumerate() {
+                    match target {
+                        AssignmentTarget::Var(var) => {
+                            temp_vars.push(var.clone());
+                        }
+                        AssignmentTarget::ArrayAccess { array, index } => {
+                            let temp_var = format!("@ret_temp_{}", counters.aux_vars);
+                            counters.aux_vars += 1;
+                            temp_vars.push(temp_var);
+                            array_targets.push((i, array.clone(), index.clone()));
+                        }
+                    }
+                }
+
                 res.push(SimpleLine::FunctionCall {
                     function_name: function_name.clone(),
                     args: simplified_args,
-                    return_data: return_data.clone(),
+                    return_data: temp_vars.clone(),
                     line_number: *line_number,
                 });
+
+                // For array access targets, add DEREF instructions to copy temp to array element
+                for (i, array, index) in array_targets {
+                    handle_array_assignment(
+                        counters,
+                        &mut res,
+                        array,
+                        &index,
+                        ArrayAccessType::ArrayIsAssigned(Expression::Value(SimpleExpr::Var(temp_vars[i].clone()))),
+                        array_manager,
+                        const_malloc,
+                        const_arrays,
+                    );
+                }
             }
             Line::FunctionRet { return_data } => {
                 assert!(!in_a_loop, "Function return inside a loop is not currently supported");
@@ -1161,7 +1209,22 @@ pub fn find_variable_usage(
                 for arg in args {
                     on_new_expr(arg, &internal_vars, &mut external_vars);
                 }
-                internal_vars.extend(return_data.iter().cloned());
+                for target in return_data {
+                    match target {
+                        AssignmentTarget::Var(var) => {
+                            internal_vars.insert(var.clone());
+                        }
+                        AssignmentTarget::ArrayAccess { array, index } => {
+                            if let SimpleExpr::Var(var) = array {
+                                assert!(!const_arrays.contains_key(var), "Cannot assign to const array");
+                                if !internal_vars.contains(var) {
+                                    external_vars.insert(var.clone());
+                                }
+                            }
+                            on_new_expr(index, &internal_vars, &mut external_vars);
+                        }
+                    }
+                }
             }
             Line::Assert { boolean, .. } => {
                 on_new_condition(
@@ -1264,7 +1327,12 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
     }
 }
 
-pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res: &[Var], inlining_count: usize) {
+fn inline_lines(
+    lines: &mut Vec<Line>,
+    args: &BTreeMap<Var, SimpleExpr>,
+    res: &[AssignmentTarget],
+    inlining_count: usize,
+) {
     let inline_comparison = |comparison: &mut BooleanExpr<Expression>| {
         inline_expr(&mut comparison.left, args, inlining_count);
         inline_expr(&mut comparison.right, args, inlining_count);
@@ -1318,8 +1386,16 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
                 for arg in func_args {
                     inline_expr(arg, args, inlining_count);
                 }
-                for return_var in return_data {
-                    inline_internal_var(return_var);
+                for target in return_data {
+                    match target {
+                        AssignmentTarget::Var(var) => {
+                            inline_internal_var(var);
+                        }
+                        AssignmentTarget::ArrayAccess { array, index } => {
+                            inline_simple_expr(array, args, inlining_count);
+                            inline_expr(index, args, inlining_count);
+                        }
+                    }
                 }
             }
             Line::Assert { boolean, .. } => {
@@ -1335,9 +1411,16 @@ pub fn inline_lines(lines: &mut Vec<Line>, args: &BTreeMap<Var, SimpleExpr>, res
                     i,
                     res.iter()
                         .zip(return_data)
-                        .map(|(res_var, expr)| Line::Assignment {
-                            var: res_var.clone(),
-                            value: expr.clone(),
+                        .map(|(target, expr)| match target {
+                            AssignmentTarget::Var(res_var) => Line::Assignment {
+                                var: res_var.clone(),
+                                value: expr.clone(),
+                            },
+                            AssignmentTarget::ArrayAccess { array, index } => Line::ArrayAssign {
+                                array: array.clone(),
+                                index: (**index).clone(),
+                                value: expr.clone(),
+                            },
                         })
                         .collect::<Vec<_>>(),
                 ));
@@ -1704,12 +1787,29 @@ fn replace_vars_for_unroll(
                 return_data,
                 line_number: _,
             } => {
-                // Function calls are not unrolled, so we don't need to change them
                 for arg in args {
                     replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
                 }
-                for ret in return_data {
-                    *ret = format!("@unrolled_{unroll_index}_{iterator_value}_{ret}");
+                for target in return_data {
+                    match target {
+                        AssignmentTarget::Var(ret) => {
+                            *ret = format!("@unrolled_{unroll_index}_{iterator_value}_{ret}");
+                        }
+                        AssignmentTarget::ArrayAccess { array, index } => {
+                            if let SimpleExpr::Var(array_var) = array
+                                && internal_vars.contains(array_var)
+                            {
+                                *array_var = format!("@unrolled_{unroll_index}_{iterator_value}_{array_var}");
+                            }
+                            replace_vars_for_unroll_in_expr(
+                                index,
+                                iterator,
+                                unroll_index,
+                                iterator_value,
+                                internal_vars,
+                            );
+                        }
+                    }
                 }
             }
             Line::FunctionRet { return_data } => {
@@ -1839,8 +1939,11 @@ fn handle_inlined_functions_helper(
                 if let Some(func) = inlined_functions.get(&*function_name) {
                     let mut inlined_lines = vec![];
 
-                    for var in return_data.iter() {
-                        inlined_lines.push(Line::ForwardDeclaration { var: var.clone() });
+                    // Only add forward declarations for variable targets, not array accesses
+                    for target in return_data.iter() {
+                        if let AssignmentTarget::Var(var) = target {
+                            inlined_lines.push(Line::ForwardDeclaration { var: var.clone() });
+                        }
                     }
 
                     let mut simplified_args = vec![];
@@ -2118,8 +2221,18 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 for arg in args {
                     replace_vars_by_const_in_expr(arg, map);
                 }
-                for ret in return_data {
-                    assert!(!map.contains_key(ret), "Return variable {ret} is a constant");
+                for target in return_data {
+                    match target {
+                        AssignmentTarget::Var(ret) => {
+                            assert!(!map.contains_key(ret), "Return variable {ret} is a constant");
+                        }
+                        AssignmentTarget::ArrayAccess { array, index } => {
+                            if let SimpleExpr::Var(array_var) = array {
+                                assert!(!map.contains_key(array_var), "Array {array_var} is a constant");
+                            }
+                            replace_vars_by_const_in_expr(index, map);
+                        }
+                    }
                 }
             }
             Line::IfCondition {

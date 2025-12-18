@@ -1,10 +1,9 @@
 use super::expression::ExpressionParser;
-use super::literal::VarListParser;
 use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{Expression, Function, Line, SimpleExpr},
+    lang::{AssignmentTarget, Expression, Function, Line, SimpleExpr},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -111,12 +110,46 @@ impl Parse<usize> for ReturnCountParser {
     }
 }
 
+/// Parser for return target lists (used in function calls).
+pub struct ReturnTargetListParser;
+
+impl Parse<Vec<AssignmentTarget>> for ReturnTargetListParser {
+    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<AssignmentTarget>> {
+        pair.into_inner()
+            .map(|item| ReturnTargetParser::parse(item, ctx))
+            .collect()
+    }
+}
+
+/// Parser for individual return targets (variable or array access).
+pub struct ReturnTargetParser;
+
+impl Parse<AssignmentTarget> for ReturnTargetParser {
+    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<AssignmentTarget> {
+        let inner = next_inner_pair(&mut pair.into_inner(), "return target")?;
+
+        match inner.as_rule() {
+            Rule::array_access_expr => {
+                let mut inner_pairs = inner.into_inner();
+                let array = next_inner_pair(&mut inner_pairs, "array name")?.as_str().to_string();
+                let index = ExpressionParser::parse(next_inner_pair(&mut inner_pairs, "array index")?, ctx)?;
+                Ok(AssignmentTarget::ArrayAccess {
+                    array: SimpleExpr::Var(array),
+                    index: Box::new(index),
+                })
+            }
+            Rule::identifier => Ok(AssignmentTarget::Var(inner.as_str().to_string())),
+            _ => Err(SemanticError::new("Expected identifier or array access").into()),
+        }
+    }
+}
+
 /// Parser for function calls with special handling for built-in functions.
 pub struct FunctionCallParser;
 
 impl Parse<Line> for FunctionCallParser {
     fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
-        let mut return_data = Vec::new();
+        let mut return_data: Vec<AssignmentTarget> = Vec::new();
         let mut function_name = String::new();
         let mut args = Vec::new();
         let line_number = pair.line_col().0;
@@ -125,11 +158,8 @@ impl Parse<Line> for FunctionCallParser {
             match item.as_rule() {
                 Rule::function_res => {
                     for res_item in item.into_inner() {
-                        if res_item.as_rule() == Rule::var_list {
-                            return_data = VarListParser::parse(res_item, ctx)?
-                                .into_iter()
-                                .filter_map(|v| if let SimpleExpr::Var(var) = v { Some(var) } else { None })
-                                .collect();
+                        if res_item.as_rule() == Rule::return_target_list {
+                            return_data = ReturnTargetListParser::parse(res_item, ctx)?;
                         }
                     }
                 }
@@ -142,8 +172,10 @@ impl Parse<Line> for FunctionCallParser {
         }
 
         // Replace trash variables with unique names
-        for var in &mut return_data {
-            if var == "_" {
+        for target in &mut return_data {
+            if let AssignmentTarget::Var(var) = target
+                && var == "_"
+            {
                 *var = ctx.next_trash_var();
             }
         }
@@ -158,15 +190,30 @@ impl FunctionCallParser {
         line_number: SourceLineNumber,
         function_name: String,
         args: Vec<Expression>,
-        return_data: Vec<String>,
+        return_data: Vec<AssignmentTarget>,
     ) -> ParseResult<Line> {
+        // Helper to extract a single variable from return_data for builtins
+        let require_single_var = |return_data: &[AssignmentTarget], builtin_name: &str| -> ParseResult<String> {
+            if return_data.len() != 1 {
+                return Err(SemanticError::new(format!("Invalid {builtin_name} call: expected 1 return value")).into());
+            }
+            match &return_data[0] {
+                AssignmentTarget::Var(v) => Ok(v.clone()),
+                AssignmentTarget::ArrayAccess { .. } => Err(SemanticError::new(format!(
+                    "{builtin_name} does not support array access as return target"
+                ))
+                .into()),
+            }
+        };
+
         match function_name.as_str() {
             "malloc" => {
-                if args.len() != 1 || return_data.len() != 1 {
+                if args.len() != 1 {
                     return Err(SemanticError::new("Invalid malloc call").into());
                 }
+                let var = require_single_var(&return_data, "malloc")?;
                 Ok(Line::MAlloc {
-                    var: return_data[0].clone(),
+                    var,
                     size: args[0].clone(),
                 })
             }
@@ -180,11 +227,12 @@ impl FunctionCallParser {
                 })
             }
             "decompose_bits" => {
-                if args.is_empty() || return_data.len() != 1 {
+                if args.is_empty() {
                     return Err(SemanticError::new("Invalid decompose_bits call").into());
                 }
+                let var = require_single_var(&return_data, "decompose_bits")?;
                 Ok(Line::DecomposeBits {
-                    var: return_data[0].clone(),
+                    var,
                     to_decompose: args,
                 })
             }
@@ -195,12 +243,11 @@ impl FunctionCallParser {
                 Ok(Line::DecomposeCustom { args })
             }
             "private_input_start" => {
-                if !args.is_empty() || return_data.len() != 1 {
+                if !args.is_empty() {
                     return Err(SemanticError::new("Invalid private_input_start call").into());
                 }
-                Ok(Line::PrivateInputStart {
-                    result: return_data[0].clone(),
-                })
+                let result = require_single_var(&return_data, "private_input_start")?;
+                Ok(Line::PrivateInputStart { result })
             }
             "panic" => {
                 if !return_data.is_empty() || !args.is_empty() {
@@ -216,7 +263,7 @@ impl FunctionCallParser {
                     return Ok(Line::Precompile { table, args });
                 }
 
-                // fall back to regular function call
+                // Regular function call - allow array access targets
                 Ok(Line::FunctionCall {
                     function_name,
                     args,

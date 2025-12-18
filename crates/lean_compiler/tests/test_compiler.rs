@@ -745,3 +745,57 @@ fn test_const_malloc_end_iterator_loop() {
     "#;
     compile_and_run(program.to_string(), (&[], &[]), false);
 }
+
+#[test]
+fn test_array_return_targets() {
+    let program = r#"
+    fn main() {
+        a = malloc(10);
+        b = malloc(10);
+        a[1], b[4] = get_two_values();
+        assert a[1] == 42;
+        assert b[4] == 99;
+        
+        i = 2;
+        j = 3;
+        a[i], b[j] = get_two_values();
+        assert a[2] == 42;
+        assert b[3] == 99;
+        
+        x, a[5] = get_two_values();
+        assert x == 42;
+        assert a[5] == 99;
+        
+        return;
+    }
+
+    fn get_two_values() -> 2 {
+        return 42, 99;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[test]
+fn test_array_return_targets_with_expressions() {
+    let program = r#"
+    fn main() {
+        arr = malloc(20);
+        for i in 0..5 {
+            arr[i * 2], arr[i * 2 + 1] = compute_pair(i);
+        }
+        assert arr[0] == 0;
+        assert arr[1] == 0;
+        assert arr[2] == 1;
+        assert arr[3] == 2;
+        assert arr[4] == 2;
+        assert arr[5] == 4;
+        return;
+    }
+
+    fn compute_pair(n) -> 2 {
+        return n, n * 2;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}

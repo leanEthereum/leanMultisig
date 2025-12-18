@@ -65,8 +65,9 @@ match_arm = { pattern ~ "=>" ~ "{" ~ statement* ~ "}" }
 pattern = { constant_value }
 
 function_call = { function_res? ~ identifier ~ "(" ~ tuple_expression? ~ ")" ~ ";" }
-function_res = { var_list ~ "=" }
-var_list = { identifier ~ ("," ~ identifier)* }
+function_res = { return_target_list ~ "=" }
+return_target_list = { return_target ~ ("," ~ return_target)* }
+return_target = { array_access_expr | identifier }
 
 assert_eq_statement = { "assert" ~ add_expr ~ "==" ~ add_expr ~ ";" }
 assert_not_eq_statement = { "assert" ~ add_expr ~ "!=" ~ add_expr ~ ";" }
