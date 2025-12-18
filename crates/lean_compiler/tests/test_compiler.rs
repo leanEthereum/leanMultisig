@@ -690,3 +690,40 @@ fn test_next_multiple_of() {
     "#;
     compile_and_run(program.to_string(), (&[], &[]), false);
 }
+
+#[test]
+fn test_const_array() {
+    let program = r#"
+    const FIVE = 5;
+    const ARR = [4, FIVE, 4 + 2, 3 * 2 + 1];
+    fn main() {
+        for i in 1..len(ARR) unroll {
+            x = i + 4;
+            assert ARR[i] == x;
+        }
+        four = 4;
+        assert len(ARR) == four;
+        res = func(2);
+        six = 6;
+        assert res == six;
+        nothing(ARR[0]);
+        mem_arr = malloc(len(ARR));
+        for i in 0..len(ARR) unroll {
+            mem_arr[i] = ARR[i];
+        }
+        for i in 0..ARR[0] {
+            print(2**ARR[0]);
+        }
+        print(2**ARR[1]);
+        return;
+    }
+
+    fn func(const x) -> 1 {
+        return ARR[x];
+    }
+    fn nothing(x) {
+        return;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}

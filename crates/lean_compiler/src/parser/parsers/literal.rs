@@ -1,5 +1,5 @@
 use super::expression::ExpressionParser;
-use super::{Parse, ParseContext, next_inner_pair};
+use super::{Parse, ParseContext, ParsedConstant, next_inner_pair};
 use crate::{
     F,
     lang::{ConstExpression, ConstantValue, SimpleExpr},
@@ -14,30 +14,61 @@ use utils::ToUsize;
 /// Parser for constant declarations.
 pub struct ConstantDeclarationParser;
 
-impl Parse<(String, usize)> for ConstantDeclarationParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<(String, usize)> {
+impl Parse<(String, ParsedConstant)> for ConstantDeclarationParser {
+    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<(String, ParsedConstant)> {
         let mut inner = pair.into_inner();
         let name = next_inner_pair(&mut inner, "constant name")?.as_str().to_string();
         let value_pair = next_inner_pair(&mut inner, "constant value")?;
 
-        // Parse the expression and evaluate it
-        let expr = ExpressionParser::parse(value_pair, ctx)?;
+        match value_pair.as_rule() {
+            Rule::array_literal => {
+                let values: Vec<usize> = value_pair
+                    .into_inner()
+                    .map(|expr_pair| {
+                        let expr = ExpressionParser::parse(expr_pair, ctx).unwrap();
+                        expr.eval_with(
+                            &|simple_expr| match simple_expr {
+                                SimpleExpr::Constant(cst) => cst.naive_eval(),
+                                SimpleExpr::Var(var) => ctx.get_constant(var).map(F::from_usize),
+                                SimpleExpr::ConstMallocAccess { .. } => None,
+                            },
+                            &|_, _| None,
+                        )
+                        .ok_or_else(|| {
+                            SemanticError::with_context(
+                                format!("Failed to evaluate array element in constant: {name}"),
+                                "constant declaration",
+                            )
+                        })
+                        .map(|f| f.to_usize())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((name, ParsedConstant::Array(values)))
+            }
+            _ => {
+                // Parse the expression and evaluate it
+                let expr = ExpressionParser::parse(value_pair, ctx)?;
 
-        let value = expr
-            .eval_with(
-                &|simple_expr| match simple_expr {
-                    SimpleExpr::Constant(cst) => cst.naive_eval(),
-                    SimpleExpr::Var(var) => ctx.get_constant(var).map(F::from_usize),
-                    SimpleExpr::ConstMallocAccess { .. } => None, // Not allowed in constants
-                },
-                &|_, _| None,
-            )
-            .ok_or_else(|| {
-                SemanticError::with_context(format!("Failed to evaluate constant: {name}"), "constant declaration")
-            })?
-            .to_usize();
+                let value = expr
+                    .eval_with(
+                        &|simple_expr| match simple_expr {
+                            SimpleExpr::Constant(cst) => cst.naive_eval(),
+                            SimpleExpr::Var(var) => ctx.get_constant(var).map(F::from_usize),
+                            SimpleExpr::ConstMallocAccess { .. } => None,
+                        },
+                        &|_, _| None,
+                    )
+                    .ok_or_else(|| {
+                        SemanticError::with_context(
+                            format!("Failed to evaluate constant: {name}"),
+                            "constant declaration",
+                        )
+                    })?
+                    .to_usize();
 
-        Ok((name, value))
+                Ok((name, ParsedConstant::Scalar(value)))
+            }
+        }
     }
 }
 
@@ -73,6 +104,15 @@ impl VarOrConstantParser {
                 ConstantValue::PointerToOneVector,
             ))),
             _ => {
+                // Check if it's a const array (error case - can't use array as value)
+                if ctx.get_const_array(text).is_some() {
+                    return Err(SemanticError::with_context(
+                        format!("Cannot use const array '{text}' as a value directly (use indexing or len())"),
+                        "variable reference",
+                    )
+                    .into());
+                }
+
                 // Try to resolve as defined constant
                 if let Some(value) = ctx.get_constant(text) {
                     Ok(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(

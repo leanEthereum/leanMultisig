@@ -10,6 +10,7 @@ use crate::{F, ir::HighLevelOperation};
 #[derive(Debug, Clone)]
 pub struct Program {
     pub functions: BTreeMap<String, Function>,
+    pub const_arrays: BTreeMap<String, Vec<usize>>,
 }
 
 #[derive(Debug, Clone)]
@@ -288,8 +289,18 @@ impl From<Var> for Expression {
 }
 
 impl Expression {
-    pub fn naive_eval(&self) -> Option<F> {
-        self.eval_with(&|value: &SimpleExpr| value.as_constant()?.naive_eval(), &|_, _| None)
+    pub fn naive_eval(&self, const_arrays: &BTreeMap<String, Vec<usize>>) -> Option<F> {
+        self.eval_with(
+            &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
+            &|arr, index| {
+                let SimpleExpr::Var(name) = arr else {
+                    return None;
+                };
+                let index_usize = index.to_usize();
+                let array = const_arrays.get(name)?;
+                Some(F::from_usize(*array.get(index_usize)?))
+            },
+        )
     }
 
     pub fn eval_with<ValueFn, ArrayFn>(&self, value_fn: &ValueFn, array_fn: &ArrayFn) -> Option<F>
@@ -415,10 +426,15 @@ pub enum Line {
 pub struct Context {
     /// A list of lexical scopes, innermost scope last.
     pub scopes: Vec<Scope>,
+    /// A mapping from constant array names to their values.
+    pub const_arrays: BTreeMap<String, Vec<usize>>,
 }
 
 impl Context {
     pub fn defines(&self, var: &Var) -> bool {
+        if self.const_arrays.contains_key(var) {
+            return true;
+        }
         for scope in self.scopes.iter() {
             if scope.vars.contains(var) {
                 return true;
@@ -669,7 +685,19 @@ impl Display for Line {
 
 impl Display for Program {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut first = true;
+        // Print const arrays
+        for (name, values) in &self.const_arrays {
+            write!(f, "const {name} = [")?;
+            for (i, v) in values.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{v}")?;
+            }
+            writeln!(f, "];")?;
+        }
+
+        let mut first = self.const_arrays.is_empty();
         for function in self.functions.values() {
             if !first {
                 writeln!(f)?;

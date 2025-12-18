@@ -2,7 +2,7 @@ use super::literal::VarOrConstantParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     ir::HighLevelOperation,
-    lang::Expression,
+    lang::{ConstExpression, ConstantValue, Expression, SimpleExpr},
     parser::{
         error::{ParseError, ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -76,6 +76,7 @@ impl Parse<Expression> for PrimaryExpressionParser {
             Rule::array_access_expr => ArrayAccessParser::parse(inner, ctx),
             Rule::log2_ceil_expr => Log2CeilParser::parse(inner, ctx),
             Rule::next_multiple_of_expr => NextMultipleOfParser::parse(inner, ctx),
+            Rule::len_expr => LenParser::parse(inner, ctx),
             _ => Err(SemanticError::new("Invalid primary expression").into()),
         }
     }
@@ -122,5 +123,27 @@ impl Parse<Expression> for NextMultipleOfParser {
             value: Box::new(value),
             multiple: Box::new(multiple),
         })
+    }
+}
+
+/// Parser for len() expressions on const arrays.
+pub struct LenParser;
+
+impl Parse<Expression> for LenParser {
+    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+        let mut inner = pair.into_inner();
+        let ident = next_inner_pair(&mut inner, "len argument")?.as_str();
+
+        if let Some(arr) = ctx.get_const_array(ident) {
+            Ok(Expression::Value(SimpleExpr::Constant(ConstExpression::Value(
+                ConstantValue::Scalar(arr.len()),
+            ))))
+        } else {
+            Err(SemanticError::with_context(
+                format!("len() argument '{ident}' is not a const array"),
+                "len expression",
+            )
+            .into())
+        }
     }
 }

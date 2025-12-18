@@ -1,6 +1,6 @@
 use super::function::FunctionParser;
 use super::literal::ConstantDeclarationParser;
-use super::{Parse, ParseContext};
+use super::{Parse, ParseContext, ParsedConstant};
 use crate::{
     lang::Program,
     parser::{
@@ -23,7 +23,10 @@ impl Parse<(Program, BTreeMap<usize, String>)> for ProgramParser {
             match item.as_rule() {
                 Rule::constant_declaration => {
                     let (name, value) = ConstantDeclarationParser::parse(item, &mut ctx)?;
-                    ctx.add_constant(name, value)?;
+                    match value {
+                        ParsedConstant::Scalar(v) => ctx.add_constant(name, v)?,
+                        ParsedConstant::Array(arr) => ctx.add_const_array(name, arr)?,
+                    }
                 }
                 Rule::function => {
                     let location = item.line_col().0;
@@ -45,6 +48,12 @@ impl Parse<(Program, BTreeMap<usize, String>)> for ProgramParser {
             }
         }
 
-        Ok((Program { functions }, function_locations))
+        Ok((
+            Program {
+                functions,
+                const_arrays: ctx.const_arrays,
+            },
+            function_locations,
+        ))
     }
 }
