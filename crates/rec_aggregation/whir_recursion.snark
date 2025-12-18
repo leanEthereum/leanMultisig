@@ -54,24 +54,27 @@ fn whir_recursion(transcript_start) {
     dot_product_ee(ood_evals_commit, combination_randomness_powers_0, claimed_sum_0_0, NUM_OOD_COMMIT);
     claimed_sum_0_1 = mul_extension_ret(combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM, pcs_eval);
     claimed_sum_0 = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
-    domain_size_0 = N_VARS + LOG_INV_RATE;
+    
+    domain_size = malloc(N_ROUNDS + 1);
+    domain_size[0] = N_VARS + LOG_INV_RATE;
+    for i in 0..N_ROUNDS unroll { domain_size[i + 1] = domain_size[i] - RS_REDUCTION_FACTORS[i]; }
+
+    is_first_round = malloc(N_ROUNDS);
+    is_first_round[0] = 1;
+    for i in 1..N_ROUNDS unroll { is_first_round[i] = 0; }
+
     fs_5, folding_randomness_1, ood_points_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
-        whir_round(fs_4, root_0, FOLDING_FACTORS[0], 2**FOLDING_FACTORS[0], 1, NUM_QUERIES[0], domain_size_0, claimed_sum_0, GRINDING_BITS[0], NUM_OODS[0]);
-
-    domain_size_1 = domain_size_0 - RS_REDUCTION_FACTORS[0];
+        whir_round(fs_4, root_0, FOLDING_FACTORS[0], 2**FOLDING_FACTORS[0], is_first_round[0], NUM_QUERIES[0], domain_size[0], claimed_sum_0, GRINDING_BITS[0], NUM_OODS[0]);
     fs_6, folding_randomness_2, ood_points_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
-        whir_round(fs_5, root_1, FOLDING_FACTORS[1], 2**FOLDING_FACTORS[1], 0, NUM_QUERIES[1], domain_size_1, claimed_sum_1, GRINDING_BITS[1], NUM_OODS[1]);
-    domain_size_2 = domain_size_1 - RS_REDUCTION_FACTORS[1];
+        whir_round(fs_5, root_1, FOLDING_FACTORS[1], 2**FOLDING_FACTORS[1], is_first_round[1], NUM_QUERIES[1], domain_size[1], claimed_sum_1, GRINDING_BITS[1], NUM_OODS[1]);
     fs_7, folding_randomness_3, ood_points_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
-        whir_round(fs_6, root_2, FOLDING_FACTORS[2], 2**FOLDING_FACTORS[2], 0, NUM_QUERIES[2], domain_size_2, claimed_sum_2, GRINDING_BITS[2], NUM_OODS[2]);
-
-    domain_size_3 = domain_size_2 - RS_REDUCTION_FACTORS[2];
+        whir_round(fs_6, root_2, FOLDING_FACTORS[2], 2**FOLDING_FACTORS[2], is_first_round[2], NUM_QUERIES[2], domain_size[2], claimed_sum_2, GRINDING_BITS[2], NUM_OODS[2]);
     fs_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_7, FOLDING_FACTORS[3], claimed_sum_3);
     
     fs_9, final_coeffcients = fs_receive_ef(fs_8, 2**FINAL_VARS);
 
     fs_10, final_circle_values, final_folds =
-        sample_stir_indexes_and_fold(fs_9, NUM_QUERIES[3], 0, FOLDING_FACTORS[3], 2**FOLDING_FACTORS[3], domain_size_3, root_3, folding_randomness_4, GRINDING_BITS[3]);
+        sample_stir_indexes_and_fold(fs_9, NUM_QUERIES[3], 0, FOLDING_FACTORS[3], 2**FOLDING_FACTORS[3], domain_size[3], root_3, folding_randomness_4, GRINDING_BITS[3]);
     
     for i in 0..NUM_QUERIES[3] {
         powers_of_2_rev = expand_from_univariate_base_const(final_circle_values[i], FINAL_VARS);
