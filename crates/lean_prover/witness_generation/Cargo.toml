@@ -20,7 +20,6 @@ whir-p3.workspace = true
 tracing.workspace = true
 air.workspace = true
 sub_protocols.workspace = true
-lookup.workspace = true
 lean_vm.workspace = true
 lean_compiler.workspace = true
 multilinear-toolkit.workspace = true

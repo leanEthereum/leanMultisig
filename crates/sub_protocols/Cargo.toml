@@ -12,7 +12,6 @@ utils.workspace = true
 whir-p3.workspace = true
 p3-util.workspace = true
 multilinear-toolkit.workspace = true
-lookup.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

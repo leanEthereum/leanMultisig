@@ -1,5 +1,4 @@
-use lookup::prove_gkr_quotient;
-use lookup::verify_gkr_quotient;
+use crate::{prove_gkr_quotient, verify_gkr_quotient};
 use multilinear_toolkit::prelude::*;
 use utils::MEMORY_TABLE_INDEX;
 use utils::VecOrSlice;

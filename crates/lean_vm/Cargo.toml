@@ -21,7 +21,6 @@ whir-p3.workspace = true
 tracing.workspace = true
 air.workspace = true
 sub_protocols.workspace = true
-lookup.workspace = true
 thiserror.workspace = true
 multilinear-toolkit.workspace = true
 num_enum.workspace = true

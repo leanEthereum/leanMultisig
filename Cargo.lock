@@ -374,7 +374,6 @@ version = "0.1.0"
 dependencies = [
  "air 0.1.0",
  "lean_vm",
- "lookup",
  "multilinear-toolkit",
  "p3-koala-bear",
  "p3-poseidon2",
@@ -398,7 +397,6 @@ dependencies = [
  "itertools",
  "lean_compiler",
  "lean_vm",
- "lookup",
  "multilinear-toolkit",
  "p3-koala-bear",
  "p3-poseidon2",
@@ -422,7 +420,6 @@ dependencies = [
  "air 0.1.0",
  "colored",
  "itertools",
- "lookup",
  "multilinear-toolkit",
  "num_enum",
  "p3-koala-bear",
@@ -451,19 +448,6 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
-
-[[package]]
-name = "lookup"
-version = "0.1.0"
-dependencies = [
- "multilinear-toolkit",
- "p3-koala-bear",
- "p3-util",
- "rand",
- "tracing",
- "utils",
- "whir-p3",
-]
 
 [[package]]
 name = "matchers"
@@ -921,7 +905,6 @@ dependencies = [
  "lean_compiler",
  "lean_prover",
  "lean_vm",
- "lookup",
  "multilinear-toolkit",
  "p3-koala-bear",
  "p3-poseidon2",
@@ -1061,7 +1044,6 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "sub_protocols"
 version = "0.1.0"
 dependencies = [
- "lookup",
  "multilinear-toolkit",
  "p3-koala-bear",
  "p3-util",
@@ -1469,7 +1451,6 @@ dependencies = [
  "air 0.1.0",
  "lean_compiler",
  "lean_vm",
- "lookup",
  "multilinear-toolkit",
  "p3-koala-bear",
  "p3-monty-31",

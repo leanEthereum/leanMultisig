@@ -5,7 +5,7 @@ use crate::{SnarkParams, common::*};
 use air::verify_air;
 use itertools::Itertools;
 use lean_vm::*;
-use lookup::verify_logup_star;
+use sub_protocols::verify_logup_star;
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use sub_protocols::*;

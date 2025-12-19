@@ -5,7 +5,6 @@ use crate::*;
 use air::prove_air;
 use itertools::Itertools;
 use lean_vm::*;
-use lookup::{compute_pushforward, prove_logup_star};
 use multilinear_toolkit::prelude::*;
 
 use p3_util::log2_ceil_usize;
