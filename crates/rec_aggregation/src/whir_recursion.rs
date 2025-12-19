@@ -14,9 +14,7 @@ use utils::build_prover_state;
 use utils::get_poseidon16;
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
-const NUM_VARIABLES: usize = 25;
-
-pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profiler: bool) {
+pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, tracing: bool, vm_profiler: bool) {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("whir_recursion.snark");
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
@@ -28,7 +26,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
         rs_domain_initial_reduction_factor: 3,
     };
 
-    let recursion_config = WhirConfig::<EF>::new(&recursion_config_builder, NUM_VARIABLES);
+    let recursion_config = WhirConfig::<EF>::new(&recursion_config_builder, num_variables);
 
     let mut num_queries = vec![];
     let mut ood_samples = vec![];
@@ -67,7 +65,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
             "FOLDING_FACTORS_PLACEHOLDER",
             &format!("[{}]", folding_factors.join(", ")),
         )
-        .replace("N_VARS_PLACEHOLDER", &NUM_VARIABLES.to_string())
+        .replace("N_VARS_PLACEHOLDER", &num_variables.to_string())
         .replace(
             "LOG_INV_RATE_PLACEHOLDER",
             &recursion_config_builder.starting_log_inv_rate.to_string(),
@@ -80,12 +78,11 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
             "RS_REDUCTION_FACTORS_PLACEHOLDER",
             &format!("[{}]", rs_reduction_factors.join(", ")),
         );
-    assert_eq!(recursion_config.n_rounds(), 3); // this is hardcoded in the program above
 
     let mut rng = StdRng::seed_from_u64(0);
-    let polynomial = MleOwned::Base((0..1 << NUM_VARIABLES).map(|_| rng.random()).collect::<Vec<F>>());
+    let polynomial = MleOwned::Base((0..1 << num_variables).map(|_| rng.random()).collect::<Vec<F>>());
 
-    let point = MultilinearPoint::<EF>((0..NUM_VARIABLES).map(|_| rng.random()).collect());
+    let point = MultilinearPoint::<EF>((0..num_variables).map(|_| rng.random()).collect());
 
     let mut statement = Vec::new();
     let eval = polynomial.evaluate(&point);
@@ -151,5 +148,5 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, tracing: bool, vm_profi
 
 #[test]
 fn test_whir_recursion() {
-    run_whir_recursion_benchmark(1, false, false);
+    run_whir_recursion_benchmark(1, 18, false, false);
 }

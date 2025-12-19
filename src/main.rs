@@ -43,7 +43,7 @@ fn main() {
             tracing,
             profiler,
         } => {
-            run_whir_recursion_benchmark(count, tracing, profiler);
+            run_whir_recursion_benchmark(count, 25, tracing, profiler);
         }
         Cli::Poseidon {
             log_n_perms: log_count,
