@@ -154,7 +154,34 @@ pub enum SimpleLine {
 pub fn simplify_program(mut program: Program) -> SimpleProgram {
     check_program_scoping(&program);
     handle_inlined_functions(&mut program);
-    handle_const_arguments(&mut program);
+
+    // Iterate between unrolling and const argument handling until fixed point
+    let mut unroll_counter = Counter::new();
+    let mut max_iterations = 100;
+    loop {
+        let mut any_change = false;
+
+        any_change |= unroll_loops_in_program(&mut program, &mut unroll_counter);
+        any_change |= handle_const_arguments(&mut program);
+
+        max_iterations -= 1;
+        assert!(max_iterations > 0, "Too many iterations while simplifying program");
+        if !any_change {
+            break;
+        }
+    }
+
+    // Remove all const functions - they should all have been specialized by now
+    let const_func_names: Vec<_> = program
+        .functions
+        .iter()
+        .filter(|(_, func)| func.has_const_arguments())
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in const_func_names {
+        program.functions.remove(&name);
+    }
+
     let mut new_functions = BTreeMap::new();
     let mut counters = Counters::default();
     let mut const_malloc = ConstMalloc::default();
@@ -195,6 +222,88 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
     SimpleProgram {
         functions: new_functions,
     }
+}
+
+fn unroll_loops_in_program(program: &mut Program, unroll_counter: &mut Counter) -> bool {
+    let mut changed = false;
+    for func in program.functions.values_mut() {
+        changed |= unroll_loops_in_lines(&mut func.body, &program.const_arrays, unroll_counter);
+    }
+    changed
+}
+
+fn unroll_loops_in_lines(
+    lines: &mut Vec<Line>,
+    const_arrays: &BTreeMap<String, Vec<usize>>,
+    unroll_counter: &mut Counter,
+) -> bool {
+    let mut changed = false;
+    let mut i = 0;
+    while i < lines.len() {
+        // First, recursively process nested structures
+        match &mut lines[i] {
+            Line::ForLoop { body, .. } => {
+                changed |= unroll_loops_in_lines(body, const_arrays, unroll_counter);
+            }
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                changed |= unroll_loops_in_lines(then_branch, const_arrays, unroll_counter);
+                changed |= unroll_loops_in_lines(else_branch, const_arrays, unroll_counter);
+            }
+            Line::Match { arms, .. } => {
+                for (_, arm_body) in arms {
+                    changed |= unroll_loops_in_lines(arm_body, const_arrays, unroll_counter);
+                }
+            }
+            _ => {}
+        }
+
+        // Now try to unroll if it's an unrollable loop
+        if let Line::ForLoop {
+            iterator,
+            start,
+            end,
+            body,
+            rev,
+            unroll: true,
+            line_number: _,
+        } = &lines[i]
+            && let (Some(start_val), Some(end_val)) = (start.naive_eval(const_arrays), end.naive_eval(const_arrays))
+        {
+            let start_usize = start_val.to_usize();
+            let end_usize = end_val.to_usize();
+            let unroll_index = unroll_counter.next();
+
+            let (internal_vars, _) = find_variable_usage(body, const_arrays);
+
+            let mut range: Vec<_> = (start_usize..end_usize).collect();
+            if *rev {
+                range.reverse();
+            }
+
+            let iterator = iterator.clone();
+            let body = body.clone();
+
+            let mut unrolled = Vec::new();
+            for j in range {
+                let mut body_copy = body.clone();
+                replace_vars_for_unroll(&mut body_copy, &iterator, unroll_index, j, &internal_vars);
+                unrolled.extend(body_copy);
+            }
+
+            let num_inserted = unrolled.len();
+            lines.splice(i..=i, unrolled);
+            changed = true;
+            i += num_inserted;
+            continue;
+        }
+
+        i += 1;
+    }
+    changed
 }
 
 /// Analyzes a simplified function to verify that it returns on each code path.
@@ -463,7 +572,6 @@ fn check_condition_scoping(condition: &Condition, ctx: &Context) {
 struct Counters {
     aux_vars: usize,
     loops: usize,
-    unrolls: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -754,37 +862,7 @@ fn simplify_lines(
                 unroll,
                 line_number,
             } => {
-                if *unroll {
-                    let (internal_variables, _) = find_variable_usage(body, const_arrays);
-                    let mut unrolled_lines = Vec::new();
-                    let start_evaluated = start.naive_eval(const_arrays).unwrap().to_usize();
-                    let end_evaluated = end.naive_eval(const_arrays).unwrap().to_usize();
-                    let unroll_index = counters.unrolls;
-                    counters.unrolls += 1;
-
-                    let mut range = (start_evaluated..end_evaluated).collect::<Vec<_>>();
-                    if *rev {
-                        range.reverse();
-                    }
-
-                    for i in range {
-                        let mut body_copy = body.clone();
-                        replace_vars_for_unroll(&mut body_copy, iterator, unroll_index, i, &internal_variables);
-                        unrolled_lines.extend(simplify_lines(
-                            functions,
-                            0,
-                            &body_copy,
-                            counters,
-                            new_functions,
-                            in_a_loop,
-                            array_manager,
-                            const_malloc,
-                            const_arrays,
-                        ));
-                    }
-                    res.extend(unrolled_lines);
-                    continue;
-                }
+                assert!(!*unroll, "Unrolled loops should have been handled already");
 
                 if *rev {
                     unimplemented!("Reverse for non-unrolled loops are not implemented yet");
@@ -2034,7 +2112,8 @@ fn handle_inlined_functions_helper(
     }
 }
 
-fn handle_const_arguments(program: &mut Program) {
+fn handle_const_arguments(program: &mut Program) -> bool {
+    let mut any_changes = false;
     let mut new_functions = BTreeMap::<String, Function>::new();
     let constant_functions = program
         .functions
@@ -2046,7 +2125,7 @@ fn handle_const_arguments(program: &mut Program) {
     // First pass: process non-const functions that call const functions
     for func in program.functions.values_mut() {
         if !func.has_const_arguments() {
-            handle_const_arguments_helper(
+            any_changes |= handle_const_arguments_helper(
                 &mut func.body,
                 &constant_functions,
                 &mut new_functions,
@@ -2055,7 +2134,7 @@ fn handle_const_arguments(program: &mut Program) {
         }
     }
 
-    // Process newly created const functions recursively until no more changes
+    // Process newly created functions recursively until no more changes
     let mut changed = true;
     let mut const_depth = 0;
     while changed {
@@ -2078,6 +2157,7 @@ fn handle_const_arguments(program: &mut Program) {
                 );
                 if additional_functions.len() > initial_count {
                     changed = true;
+                    any_changes = true;
                 }
             }
         }
@@ -2087,17 +2167,22 @@ fn handle_const_arguments(program: &mut Program) {
             if let std::collections::btree_map::Entry::Vacant(e) = new_functions.entry(name) {
                 e.insert(func);
                 changed = true;
+                any_changes = true;
             }
         }
     }
 
+    any_changes |= !new_functions.is_empty();
+
     for (name, func) in new_functions {
-        assert!(!program.functions.contains_key(&name),);
+        assert!(!program.functions.contains_key(&name));
         program.functions.insert(name, func);
     }
-    for const_func in constant_functions.keys() {
-        program.functions.remove(const_func);
-    }
+
+    // DON'T remove const functions here - they might be needed in subsequent iterations
+    // They will be removed at the end of simplify_program
+
+    any_changes
 }
 
 fn handle_const_arguments_helper(
@@ -2105,8 +2190,9 @@ fn handle_const_arguments_helper(
     constant_functions: &BTreeMap<String, Function>,
     new_functions: &mut BTreeMap<String, Function>,
     const_arrays: &BTreeMap<String, Vec<usize>>,
-) {
-    for line in lines {
+) -> bool {
+    let mut changed = false;
+    'outer: for line in lines {
         match line {
             Line::FunctionCall {
                 function_name,
@@ -2115,16 +2201,19 @@ fn handle_const_arguments_helper(
                 line_number: _,
             } => {
                 if let Some(func) = constant_functions.get(function_name) {
-                    // If the function has constant arguments, we need to handle them
+                    // Check if all const arguments can be evaluated
                     let mut const_evals = Vec::new();
                     for (arg_expr, (arg_var, is_constant)) in args.iter().zip(&func.arguments) {
                         if *is_constant {
-                            let const_eval = arg_expr
-                                .naive_eval(const_arrays)
-                                .unwrap_or_else(|| panic!("Failed to evaluate constant argument: {arg_expr}"));
-                            const_evals.push((arg_var.clone(), const_eval));
+                            if let Some(const_eval) = arg_expr.naive_eval(const_arrays) {
+                                const_evals.push((arg_var.clone(), const_eval));
+                            } else {
+                                // Skip this call, will be handled in a later pass after more unrolling
+                                continue 'outer;
+                            }
                         }
                     }
+
                     let const_funct_name = format!(
                         "{function_name}_{}",
                         const_evals
@@ -2143,6 +2232,8 @@ fn handle_const_arguments_helper(
                         .filter(|(_, (_, is_const))| !is_const)
                         .map(|(arg_expr, _)| arg_expr.clone())
                         .collect();
+
+                    changed = true;
 
                     if new_functions.contains_key(&const_funct_name) {
                         continue;
@@ -2173,21 +2264,21 @@ fn handle_const_arguments_helper(
                 else_branch,
                 ..
             } => {
-                handle_const_arguments_helper(then_branch, constant_functions, new_functions, const_arrays);
-                handle_const_arguments_helper(else_branch, constant_functions, new_functions, const_arrays);
+                changed |= handle_const_arguments_helper(then_branch, constant_functions, new_functions, const_arrays);
+                changed |= handle_const_arguments_helper(else_branch, constant_functions, new_functions, const_arrays);
             }
             Line::ForLoop { body, unroll: _, .. } => {
-                // TODO we should unroll before const arguments handling
-                handle_const_arguments_helper(body, constant_functions, new_functions, const_arrays);
+                changed |= handle_const_arguments_helper(body, constant_functions, new_functions, const_arrays);
             }
             Line::Match { arms, .. } => {
                 for (_, arm) in arms {
-                    handle_const_arguments_helper(arm, constant_functions, new_functions, const_arrays);
+                    changed |= handle_const_arguments_helper(arm, constant_functions, new_functions, const_arrays);
                 }
             }
             _ => {}
         }
     }
+    changed
 }
 
 fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) {

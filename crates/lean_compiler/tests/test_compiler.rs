@@ -838,3 +838,46 @@ fn test_array_return_targets_with_expressions() {
     "#;
     compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
 }
+
+#[test]
+fn intertwined_unrolled_loops_and_const_function_arguments() {
+    let program = r#"
+        const ARR = [10, 100];
+        fn main() {
+            buff = malloc(3);
+            buff[0] = 0;
+            for i in 0..2 unroll {
+                res = f1(ARR[i]);
+                buff[i + 1] = res;
+            }
+            assert buff[2] == 1390320454;
+            return;
+        }
+
+        fn f1(const x) -> 1 {
+            buff = malloc(9);
+            buff[0] = 1;
+            for i in x..x+4 unroll {
+                for j in i..i+2 unroll {
+                    index = (i - x) * 2 + (j - i);
+                    res = f2(i, j);
+                    buff[index+1] = buff[index] * res;
+                }
+            }
+            return buff[8];
+        }
+
+        fn f2(const x, const y) -> 1 {
+            buff = malloc(7);
+            buff[0] = 0;
+            for i in x..x+2 unroll {
+                for j in i..i+3 unroll {
+                    index = (i - x) * 3 + (j - i);
+                    buff[index+1] = buff[index] + i + j;
+                }
+            }
+            return buff[4];
+        }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
