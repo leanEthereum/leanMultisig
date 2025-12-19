@@ -120,10 +120,13 @@ pub fn prove_execution(
     let packed_pcs_witness_base = packed_pcs_commit(&params.first_whir, &base_pols, &mut prover_state);
     let first_whir_n_vars = packed_pcs_witness_base.packed_polynomial.by_ref().n_vars();
 
-    let bus_challenge = prover_state.sample();
+    // logup (GKR)
+    let logup_c = prover_state.sample();
     prover_state.duplexing();
-    let fingerprint_challenge = prover_state.sample();
+    let logup_alpha = prover_state.sample();
     prover_state.duplexing();
+
+    let logup_alpha_powers: Vec<EF> = logup_alpha.powers().collect_n(max_bus_width());
 
     let mut bus_numerators = vec![];
     let mut bus_denominators = vec![];
@@ -139,7 +142,7 @@ pub fn prove_execution(
             let denominator = (0..1 << trace.log_n_rows)
                 .into_par_iter()
                 .map(|i| {
-                    bus_challenge
+                    logup_c
                         + finger_print(
                             match &bus.table {
                                 BusTable::Constant(table) => table.embed(),
@@ -150,7 +153,7 @@ pub fn prove_execution(
                                 .map(|col| trace.base[*col][i])
                                 .collect::<Vec<_>>()
                                 .as_slice(),
-                            fingerprint_challenge,
+                            &logup_alpha_powers,
                         )
                 })
                 .collect::<Vec<_>>();
@@ -162,6 +165,8 @@ pub fn prove_execution(
 
     let mut lookup_into_memory = CustomLookupProver::run::<EF, DIMENSION>(
         &mut prover_state,
+        logup_c,
+        logup_alpha,
         &memory,
         &acc,
         traces
@@ -195,8 +200,8 @@ pub fn prove_execution(
             &mut prover_state,
             table,
             trace,
-            bus_challenge,
-            fingerprint_challenge,
+            logup_c,
+            logup_alpha,
             &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
             &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
         );
@@ -321,8 +326,8 @@ fn prove_bus_and_air(
     prover_state: &mut impl FSProver<EF>,
     t: &Table,
     trace: &TableTrace,
-    bus_challenge: EF,
-    fingerprint_challenge: EF,
+    logup_c: EF,
+    logup_alpha: EF,
     bus_numerator_statements: &[Evaluation<EF>],
     bus_denominator_statements: &[Evaluation<EF>],
 ) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
@@ -348,15 +353,15 @@ fn prove_bus_and_air(
                     BusDirection::Pull => EF::NEG_ONE,
                     BusDirection::Push => EF::ONE,
                 }
-                + bus_beta * (bus_data_statement.value - bus_challenge)
+                + bus_beta * (bus_data_statement.value - logup_c)
         })
         .collect::<Vec<_>>();
 
     let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
 
     let extra_data = ExtraDataForBuses {
-        fingerprint_challenge_powers: fingerprint_challenge.powers().collect_n(max_bus_width()),
-        fingerprint_challenge_powers_packed: EFPacking::<EF>::from(fingerprint_challenge)
+        logup_alpha_powers: logup_alpha.powers().collect_n(max_bus_width()),
+        logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha)
             .powers()
             .collect_n(max_bus_width()),
         bus_beta,

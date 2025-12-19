@@ -80,8 +80,8 @@ impl TableTrace {
 #[derive(Debug, Default)]
 pub struct ExtraDataForBuses<EF: ExtensionField<PF<EF>>> {
     // GKR quotient challenges
-    pub fingerprint_challenge_powers: Vec<EF>,
-    pub fingerprint_challenge_powers_packed: Vec<EFPacking<EF>>,
+    pub logup_alpha_powers: Vec<EF>,
+    pub logup_alpha_powers_packed: Vec<EFPacking<EF>>,
     pub bus_beta: EF,
     pub bus_beta_packed: EFPacking<EF>,
     pub alpha_powers: Vec<EF>,
@@ -102,17 +102,12 @@ impl AlphaPowers<EF> for ExtraDataForBuses<EF> {
 impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
     pub fn transmute_bus_data<NewEF: 'static>(&self) -> (&Vec<NewEF>, &NewEF) {
         if TypeId::of::<NewEF>() == TypeId::of::<EF>() {
-            unsafe {
-                transmute::<(&Vec<EF>, &EF), (&Vec<NewEF>, &NewEF)>((
-                    &self.fingerprint_challenge_powers,
-                    &self.bus_beta,
-                ))
-            }
+            unsafe { transmute::<(&Vec<EF>, &EF), (&Vec<NewEF>, &NewEF)>((&self.logup_alpha_powers, &self.bus_beta)) }
         } else {
             assert_eq!(TypeId::of::<NewEF>(), TypeId::of::<EFPacking<EF>>());
             unsafe {
                 transmute::<(&Vec<EFPacking<EF>>, &EFPacking<EF>), (&Vec<NewEF>, &NewEF)>((
-                    &self.fingerprint_challenge_powers_packed,
+                    &self.logup_alpha_powers_packed,
                     &self.bus_beta_packed,
                 ))
             }
@@ -373,8 +368,4 @@ pub trait TableT: Air {
     fn find_committed_column_index_ef(&self, col: ColIndex) -> usize {
         self.commited_columns_ef().iter().position(|&c| c == col).unwrap()
     }
-}
-
-pub fn finger_print<F: Field, EF: ExtensionField<F>>(table: F, data: &[F], challenge: EF) -> EF {
-    dot_product::<EF, _, _>(challenge.powers().skip(1), data.iter().copied()) + table
 }

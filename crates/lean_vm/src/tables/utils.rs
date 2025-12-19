@@ -8,10 +8,10 @@ pub(crate) fn eval_virtual_bus_column<AB: AirBuilder, EF: ExtensionField<PF<EF>>
     flag: AB::F,
     data: &[AB::F],
 ) -> AB::EF {
-    let (fingerprint_challenge_powers, bus_beta) = extra_data.transmute_bus_data::<AB::EF>();
+    let (logup_alpha_powers, bus_beta) = extra_data.transmute_bus_data::<AB::EF>();
 
-    assert!(data.len() < fingerprint_challenge_powers.len());
-    (fingerprint_challenge_powers[1..]
+    assert!(data.len() < logup_alpha_powers.len());
+    (logup_alpha_powers[1..]
         .iter()
         .zip(data)
         .map(|(c, d)| c.clone() * d.clone())

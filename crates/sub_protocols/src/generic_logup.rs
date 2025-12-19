@@ -1,8 +1,10 @@
 use lookup::prove_gkr_quotient;
 use lookup::verify_gkr_quotient;
 use multilinear_toolkit::prelude::*;
+use utils::MEMORY_TABLE_INDEX;
 use utils::VecOrSlice;
 use utils::assert_eq_many;
+use utils::finger_print;
 use utils::from_end;
 use utils::mle_of_01234567_etc;
 use utils::to_big_endian_in_field;
@@ -78,6 +80,8 @@ impl GeneralizedLogupProver {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>>(
         prover_state: &mut impl FSProver<EF>,
+        c: EF,
+        alpha: EF,
 
         // parmeters for lookup into memory
         table: &[PF<EF>], // table[0] is assumed to be zero
@@ -125,18 +129,10 @@ impl GeneralizedLogupProver {
         let total_n_vars = log2_ceil_usize(total_len);
         tracing::info!("Logup data: {} = 2^{:.2}", total_len, (total_len as f64).log2());
 
-        // logup (GKR)
-        let c = prover_state.sample();
-        prover_state.duplexing();
-        let alpha = prover_state.sample();
-        prover_state.duplexing();
-
-        // challenge to separate the logup claims to the bus claims
-        let beta = prover_state.sample();
-
         let mut numerators = EF::zero_vec(1 << total_n_vars);
         let mut denominators = EF::zero_vec(1 << total_n_vars);
 
+        let alpha_powers = alpha.powers().collect_n(3);
         let mut offset = 0;
         for dim in &all_dims {
             match dim {
@@ -152,9 +148,13 @@ impl GeneralizedLogupProver {
                         .for_each(|(i, denom_chunk)| {
                             let i_field = PF::<EF>::from_usize(i);
                             denom_chunk.par_iter_mut().enumerate().for_each(|(j, denom)| {
-                                *denom = c
-                                    - (alpha * (index_columns[*group_index][j] + i_field)
-                                        + value_columns[*group_index][i].as_slice()[j]);
+                                let index = index_columns[*group_index][j] + i_field;
+                                let mem_value = value_columns[*group_index][i].as_slice()[j];
+                                *denom = c - finger_print(
+                                    PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
+                                    &[index, mem_value],
+                                    &alpha_powers,
+                                )
                             });
                         });
                 }
@@ -169,13 +169,19 @@ impl GeneralizedLogupProver {
                     denominators[offset..]
                         .par_iter_mut()
                         .zip(table.par_iter().enumerate())
-                        .for_each(|(denom, (i, &t))| *denom = c - (alpha * PF::<EF>::from_usize(i) + t));
+                        .for_each(|(denom, (i, &mem_value))| {
+                            *denom = c - finger_print(
+                                PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
+                                &[PF::<EF>::from_usize(i), mem_value],
+                                &alpha_powers,
+                            )
+                        });
                 }
                 Dim::Bus { index, .. } => {
                     numerators[offset..]
                         .par_iter_mut()
                         .zip(bus_numerators[*index])
-                        .for_each(|(num, sel)| *num = beta * *sel); // TODO often sel = ONE, so this is innefficient
+                        .for_each(|(num, sel)| *num = EF::from(*sel)); // TODO embedding overhead
                     denominators[offset..]
                         .par_iter_mut()
                         .zip(bus_denominators[*index].par_iter())
@@ -296,6 +302,8 @@ pub struct GeneralizedLogupVerifier;
 impl GeneralizedLogupVerifier {
     pub fn run<EF: ExtensionField<PF<EF>>>(
         verifier_state: &mut impl FSVerifier<EF>,
+        c: EF,
+        alpha: EF,
         table_log_len: usize,
         log_heights: Vec<usize>,
         n_cols_per_group: Vec<usize>,
@@ -306,21 +314,14 @@ impl GeneralizedLogupVerifier {
         let total_len = all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
         let total_n_vars = log2_ceil_usize(total_len);
 
-        // logup (GKR)
-        let c = verifier_state.sample();
-        verifier_state.duplexing();
-        let alpha = verifier_state.sample();
-        verifier_state.duplexing();
-
-        // challenge to separate the logup claims to the bus claims
-        let beta = verifier_state.sample();
-
         let (sum, claim_point_gkr, numerators_value, denominators_value) =
             verify_gkr_quotient::<_, 2>(verifier_state, total_n_vars)?;
 
         if sum != EF::ZERO {
             return Err(ProofError::InvalidProof);
         }
+
+        let alpha_powers = alpha.powers().collect_n(3);
 
         let mut retrieved_numerators_value = EF::ZERO;
         let mut retrieved_denominators_value = EF::ZERO;
@@ -351,8 +352,12 @@ impl GeneralizedLogupVerifier {
                         let bits = to_big_endian_in_field::<EF>(pos >> dim.n_vars(), n_missing_vars);
                         let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
                         retrieved_numerators_value += pref;
-                        retrieved_denominators_value +=
-                            pref * (c - (alpha * (index_eval + PF::<EF>::from_usize(col_index)) + value_eval));
+                        retrieved_denominators_value += pref
+                            * (c - finger_print(
+                                PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
+                                &[index_eval + PF::<EF>::from_usize(col_index), value_eval],
+                                &alpha_powers,
+                            ));
                     }
                 }
                 Dim::Table { .. } => {
@@ -365,9 +370,14 @@ impl GeneralizedLogupVerifier {
                     retrieved_numerators_value -= pref * value_acc;
 
                     let value_table = verifier_state.next_extension_scalar()?;
+                    let value_index = mle_of_01234567_etc(&inner_point);
                     statement_on_table = Some(Evaluation::new(inner_point.clone(), value_table));
-                    retrieved_denominators_value +=
-                        pref * (c - (alpha * mle_of_01234567_etc(&inner_point) + value_table));
+                    retrieved_denominators_value += pref
+                        * (c - finger_print(
+                            PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
+                            &[value_index, value_table],
+                            &alpha_powers,
+                        ));
                 }
                 Dim::Bus { index, .. } => {
                     let missing_inner_point = MultilinearPoint(inner_point[..univariate_skips].to_vec());
@@ -379,7 +389,7 @@ impl GeneralizedLogupVerifier {
                     ));
                     let bits = to_big_endian_in_field::<EF>(offset >> dim.n_vars(), n_missing_vars);
                     let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
-                    retrieved_numerators_value += pref * beta * evals_on_numerators.evaluate(&missing_inner_point);
+                    retrieved_numerators_value += pref * evals_on_numerators.evaluate(&missing_inner_point);
 
                     let evals_on_denominators = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
                     bus_denominators_statements[*index] = Some(MultiEvaluation::new(

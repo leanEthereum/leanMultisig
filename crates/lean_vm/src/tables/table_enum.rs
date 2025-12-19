@@ -58,7 +58,8 @@ impl Table {
         PF::from_usize(self.index())
     }
     pub const fn index(&self) -> usize {
-        unsafe { *(self as *const Self as *const usize) }
+        // IMPORTANT: index 0 is reserved for memory
+        unsafe { *(self as *const Self as *const usize) + 1 }
     }
 }
 

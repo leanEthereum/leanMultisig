@@ -26,6 +26,8 @@ impl CustomLookupProver {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize>(
         prover_state: &mut impl FSProver<EF>,
+        c: EF,
+        alpha: EF,
         table: &[PF<EF>], // table[0] is assumed to be zero
         acc: &[PF<EF>],
         index_columns_f: Vec<&[PF<EF>]>,
@@ -59,6 +61,8 @@ impl CustomLookupProver {
 
         let generic = GeneralizedLogupProver::run(
             prover_state,
+            c,
+            alpha,
             table,
             acc,
             index_columns,
@@ -91,6 +95,8 @@ impl NormalLookupVerifier {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize>(
         verifier_state: &mut impl FSVerifier<EF>,
+        c: EF,
+        alpha: EF,
         table_log_len: usize,
         log_heights_f: Vec<usize>,
         num_values_per_lookup_f: Vec<usize>,
@@ -103,6 +109,8 @@ impl NormalLookupVerifier {
         let n_cols_per_group = [num_values_per_lookup_f, vec![DIM; log_heights_ef.len()]].concat();
         let generic = GeneralizedLogupVerifier::run(
             verifier_state,
+            c,
+            alpha,
             table_log_len,
             log_heights,
             n_cols_per_group,

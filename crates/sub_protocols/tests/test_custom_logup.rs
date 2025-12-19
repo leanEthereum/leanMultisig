@@ -103,9 +103,15 @@ fn test_custom_logup() {
     *last_den = q.inverse();
 
     let mut prover_state = build_prover_state();
+    let logup_c = prover_state.sample();
+    prover_state.duplexing();
+    let logup_alpha = prover_state.sample();
+    prover_state.duplexing();
 
     let remaining_claims_to_prove = CustomLookupProver::run(
         &mut prover_state,
+        logup_c,
+        logup_alpha,
         &memory,
         &acc,
         collect_refs(&all_indexe_columns_f),
@@ -119,9 +125,15 @@ fn test_custom_logup() {
     let final_prover_state = prover_state.state();
 
     let mut verifier_state = build_verifier_state(prover_state);
+    let logup_c = verifier_state.sample();
+    verifier_state.duplexing();
+    let logup_alpha = verifier_state.sample();
+    verifier_state.duplexing();
 
     let remaining_claims_to_verify = NormalLookupVerifier::run::<EF, DIM>(
         &mut verifier_state,
+        logup_c,
+        logup_alpha,
         log_memory_size,
         log_cols_heights_f,
         num_values_per_lookup_f,

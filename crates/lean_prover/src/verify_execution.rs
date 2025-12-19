@@ -53,13 +53,15 @@ pub fn verify_execution(
     let parsed_commitment_base =
         packed_pcs_parse_commitment::<F, EF>(&params.first_whir, &mut verifier_state, &base_packed_dims)?;
 
-    let bus_challenge = verifier_state.sample();
+    let logup_c = verifier_state.sample();
     verifier_state.duplexing();
-    let fingerprint_challenge = verifier_state.sample();
+    let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
 
     let mut lookup_into_memory = NormalLookupVerifier::run(
         &mut verifier_state,
+        logup_c,
+        logup_alpha,
         log_memory,
         table_heights
             .iter()
@@ -90,8 +92,8 @@ pub fn verify_execution(
             &mut verifier_state,
             table,
             *log_n_rows,
-            bus_challenge,
-            fingerprint_challenge,
+            logup_c,
+            logup_alpha,
             &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
             &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
         )?;
@@ -201,8 +203,8 @@ fn verify_bus_and_air(
     verifier_state: &mut impl FSVerifier<EF>,
     t: &Table,
     log_n_nrows: usize,
-    bus_challenge: EF,
-    fingerprint_challenge: EF,
+    logup_c: EF,
+    logup_alpha: EF,
     bus_numerator_statements: &[Evaluation<EF>],
     bus_denominator_statements: &[Evaluation<EF>],
 ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>)> {
@@ -228,15 +230,15 @@ fn verify_bus_and_air(
                     BusDirection::Pull => EF::NEG_ONE,
                     BusDirection::Push => EF::ONE,
                 }
-                + bus_beta * (bus_data_statement.value - bus_challenge)
+                + bus_beta * (bus_data_statement.value - logup_c)
         })
         .collect::<Vec<_>>();
 
     let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
 
     let extra_data = ExtraDataForBuses {
-        fingerprint_challenge_powers: fingerprint_challenge.powers().collect_n(max_bus_width()),
-        fingerprint_challenge_powers_packed: EFPacking::<EF>::from(fingerprint_challenge)
+        logup_alpha_powers: logup_alpha.powers().collect_n(max_bus_width()),
+        logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha)
             .powers()
             .collect_n(max_bus_width()),
         bus_beta,

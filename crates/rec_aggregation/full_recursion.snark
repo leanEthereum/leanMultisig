@@ -71,9 +71,14 @@ fn main() {
     full_range_check(MIN_LOG_MEMORY_SIZE - 1, log_memory, MAX_LOG_MEMORY_SIZE + 1);
 
     // parse 1st whir commitment
-    print(NUM_OOD_COMMIT);
     fs_3, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs_2, NUM_OOD_COMMIT);
 
+    fs_5, logup_c = fs_sample_ef(fs_3);
+    fs_6 = duplexing(logup_c);
+    fs_7, logup_alpha = fs_sample_ef(fs_6);
+    fs_8 = duplexing(logup_alpha);
+
+    fs_print_state(fs_8);
     return;
 }
 

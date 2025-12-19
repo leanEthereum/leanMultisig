@@ -67,8 +67,15 @@ fn test_generic_logup() {
     *last_num = F::NEG_ONE;
     *last_den = q.inverse();
     let mut prover_state = build_prover_state();
+     let logup_c = prover_state.sample();
+    prover_state.duplexing();
+    let logup_alpha = prover_state.sample();
+    prover_state.duplexing();
+
     let remaining_claims_to_prove = GeneralizedLogupProver::run::<EF>(
         &mut prover_state,
+        logup_c,
+        logup_alpha,
         &memory,
         &acc,
         all_indexe_columns.iter().map(Vec::as_slice).collect(),
@@ -83,8 +90,14 @@ fn test_generic_logup() {
     let final_prover_state = prover_state.state();
 
     let mut verifier_state = build_verifier_state(prover_state);
+    let logup_c = verifier_state.sample();
+    verifier_state.duplexing();
+    let logup_alpha = verifier_state.sample();
+    verifier_state.duplexing();
     let remaining_claims_to_verify = GeneralizedLogupVerifier::run(
         &mut verifier_state,
+        logup_c,
+        logup_alpha,
         log_memory_size,
         lookups_log_height_and_cols.iter().map(|(h, _)| *h).collect(),
         lookups_log_height_and_cols.iter().map(|(_, n_cols)| *n_cols).collect(),
