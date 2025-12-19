@@ -33,6 +33,9 @@ pub enum RunnerError {
 
     #[error("DebugAssert failed: {0} at line {1}")]
     DebugAssertFailed(String, usize),
+
+    #[error("Invalid dot product")]
+    InvalidDotProduct
 }
 
 pub type VMResult<T> = Result<T, RunnerError>;

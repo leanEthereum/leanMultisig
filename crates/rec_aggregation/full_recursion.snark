@@ -50,6 +50,7 @@ const MIN_LOG_N_ROWS_PER_TABLE = MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER;
 const MAX_LOG_N_ROWS_PER_TABLE = MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER;
 const MIN_LOG_MEMORY_SIZE = MIN_LOG_MEMORY_SIZE_PLACEHOLDER;
 const MAX_LOG_MEMORY_SIZE = MAX_LOG_MEMORY_SIZE_PLACEHOLDER;
+const N_VARS_FIRST_GKR = 18; // TODO do not hardcode
 
 fn main() {
     proof_transcript = private_input_start();
@@ -78,7 +79,22 @@ fn main() {
     fs_7, logup_alpha = fs_sample_ef(fs_6);
     fs_8 = duplexing(logup_alpha);
 
-    fs_print_state(fs_8);
+    verify_gkr_quotient(fs_8, N_VARS_FIRST_GKR);
+
+    return;
+}
+
+fn verify_gkr_quotient(fs, n_vars) {
+    fs1, nums = fs_receive_ef(fs, 2);
+    fs2 = duplexing(fs1);
+    fs3, denoms = fs_receive_ef(fs2, 2);
+    fs4 = duplexing(fs3);
+
+    q1 = div_ext(nums, denoms);
+    q2 = div_ext(nums + DIM, denoms + DIM);
+    q = add_extension_ret(q1, q2);
+    set_to_5_zeros(q);
+
     return;
 }
 
@@ -457,6 +473,12 @@ fn set_to_one(a) inline {
     a[0] = 1;
     for i in 1..DIM unroll { a[i] = 0; }
     return;
+}
+
+fn div_ext(n, d) -> 1 {
+    quotient = malloc(DIM);
+    dot_product_ee(d, quotient, n, 1);
+    return quotient;
 }
 
 

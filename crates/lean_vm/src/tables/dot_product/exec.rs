@@ -70,16 +70,41 @@ pub(super) fn exec_dot_product_ee(
         } else {
             let slice_0 = memory.get_continuous_slice_of_ef_elements(ptr_arg_0.to_usize(), size)?;
             let res = slice_0[0];
+            memory.set_ef_element(ptr_res.to_usize(), res)?;
             (slice_0, vec![EF::ONE], res)
         }
     } else {
-        let slice_0 = memory.get_continuous_slice_of_ef_elements(ptr_arg_0.to_usize(), size)?;
-        let slice_1 = memory.get_continuous_slice_of_ef_elements(ptr_arg_1.to_usize(), size)?;
-        let dot_product_result = dot_product::<EF, _, _>(slice_1.iter().copied(), slice_0.iter().copied());
-        (slice_0, slice_1, dot_product_result)
+        match (
+            memory.get_continuous_slice_of_ef_elements(ptr_arg_0.to_usize(), size),
+            memory.get_continuous_slice_of_ef_elements(ptr_arg_1.to_usize(), size),
+            memory.get_ef_element(ptr_res.to_usize()),
+        ) {
+            (Ok(s0), Ok(s1), Ok(res)) => {
+                if dot_product::<EF, _, _>(s0.iter().copied(), s1.iter().copied()) != res {
+                    return Err(RunnerError::InvalidDotProduct);
+                }
+                (s0, s1, res)
+            }
+            (Ok(s0), Ok(s1), Err(_)) => {
+                let dot_product_result = dot_product::<EF, _, _>(s0.iter().copied(), s1.iter().copied());
+                memory.set_ef_element(ptr_res.to_usize(), dot_product_result)?;
+                (s0, s1, dot_product_result)
+            }
+            (Err(_), Ok(s1), Ok(res)) if size == 1 => {
+                let div = res / s1[0];
+                memory.set_ef_element(ptr_arg_0.to_usize(), div)?;
+                (vec![div], s1, res)
+            }
+            (Ok(s0), Err(_), Ok(res)) if size == 1 => {
+                let div = res / s0[0];
+                memory.set_ef_element(ptr_arg_1.to_usize(), div)?;
+                (s0, vec![div], res)
+            }
+            _ => {
+                return Err(RunnerError::InvalidDotProduct);
+            }
+        }
     };
-
-    memory.set_ef_element(ptr_res.to_usize(), dot_product_result)?;
 
     {
         {

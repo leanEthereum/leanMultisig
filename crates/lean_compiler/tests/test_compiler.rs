@@ -1,5 +1,7 @@
 use lean_compiler::*;
 use lean_vm::*;
+use multilinear_toolkit::prelude::BasedVectorSpace;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon16_permute;
 
 #[test]
@@ -841,4 +843,50 @@ fn intertwined_unrolled_loops_and_const_function_arguments() {
         }
     "#;
     compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
+#[test]
+fn test_div_extension_field() {
+    let program = r#"
+        const DIM = 5;
+        fn main() {
+            n = public_input_start;
+            d = public_input_start + DIM;
+            q = public_input_start + 2 * DIM;
+            computed_q_1 = div_ext_1(n, d);
+            computed_q_2 = div_ext_2(n, d);
+            assert_eq_ext(computed_q_2, q);
+            assert_eq_ext(computed_q_1, q);
+            return;
+        }
+
+        fn assert_eq_ext(x, y) {
+            for i in 0..DIM unroll {
+                assert x[i] == y[i];
+            }
+            return;
+        }
+
+        fn div_ext_1(n, d) -> 1 {
+            quotient = malloc(DIM);
+            dot_product_ee(d, quotient, n, 1);
+            return quotient;
+        }
+        
+        fn div_ext_2(n, d) -> 1 {
+            quotient = malloc(DIM);
+            dot_product_ee(quotient, d, n, 1);
+            return quotient;
+        }
+    "#;
+
+    let mut rng = StdRng::seed_from_u64(0);
+    let n: EF = rng.random();
+    let d: EF = rng.random();
+    let q = n / d;
+    let mut public_input = vec![];
+    public_input.extend(n.as_basis_coefficients_slice());
+    public_input.extend(d.as_basis_coefficients_slice());
+    public_input.extend(q.as_basis_coefficients_slice());
+    compile_and_run(program.to_string(), (&public_input, &[]), false);
 }

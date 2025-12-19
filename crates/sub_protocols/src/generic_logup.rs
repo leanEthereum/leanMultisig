@@ -57,7 +57,7 @@ impl Dim {
 fn get_sorted_dims(
     log_heights: &[usize],
     n_cols_per_group: &[usize],
-    table_log_len: usize,
+    log_memory: usize,
     bus_n_vars: &[usize],
 ) -> Vec<Dim> {
     let mut all_dims = vec![];
@@ -71,7 +71,7 @@ fn get_sorted_dims(
     for (index, &n_vars) in bus_n_vars.iter().enumerate() {
         all_dims.push(Dim::Bus { n_vars, index });
     }
-    all_dims.push(Dim::Table { n_vars: table_log_len });
+    all_dims.push(Dim::Table { n_vars: log_memory });
     all_dims.sort_by_key(|d| std::cmp::Reverse(d.n_vars()));
     all_dims
 }
@@ -304,13 +304,13 @@ impl GeneralizedLogupVerifier {
         verifier_state: &mut impl FSVerifier<EF>,
         c: EF,
         alpha: EF,
-        table_log_len: usize,
+        log_memory: usize,
         log_heights: Vec<usize>,
         n_cols_per_group: Vec<usize>,
         bus_n_vars: Vec<usize>,
         univariate_skips: usize,
     ) -> ProofResult<GeneralizedLogupStatements<EF>> {
-        let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, table_log_len, &bus_n_vars);
+        let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, log_memory, &bus_n_vars);
         let total_len = all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
         let total_n_vars = log2_ceil_usize(total_len);
 
