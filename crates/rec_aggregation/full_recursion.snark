@@ -95,7 +95,30 @@ fn verify_gkr_quotient(fs, n_vars) {
     q = add_extension_ret(q1, q2);
     set_to_5_zeros(q);
 
+    points = malloc(n_vars);
+    claims = malloc(n_vars);
+
+    fs5, points[0] = fs_sample_ef(fs4, 1);
+    fs6 = duplexing(fs5);
+
+    point_poly_eq = malloc(2 * DIM);
+    sub_extension(pointer_to_one_vector, point, point_poly_eq);
+    copy_5(point, point_poly_eq + DIM);
+
+    first_claim = malloc(DIM * 2);
+    dot_product_ee(nums, point_poly_eq, first_claim, 2);
+    dot_product_ee(denoms, point_poly_eq, first_claim + DIM, 2);
+    claims[0] = first_claim;
+
+    for i in 1..n_vars {
+
+    }
+    
     return;
+}
+
+fn verify_gkr_quotient_step(fs, n_vars) {
+
 }
 
 fn eq_mle_extension(a, b, n) -> 1 {

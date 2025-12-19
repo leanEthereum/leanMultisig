@@ -92,9 +92,10 @@ where
         .collect::<Vec<_>>();
     let c_minus_indexes_packed = MleRef::Extension(&c_minus_indexes).pack_if(packing);
 
-    let (_, claim_point_left, _, eval_c_minus_indexes) = prove_gkr_quotient::<_, 2>(
+    let (_, claim_point_left, _, eval_c_minus_indexes) = prove_gkr_quotient(
         prover_state,
-        &MleGroupRef::merge(&[&poly_eq_point_packed.by_ref(), &c_minus_indexes_packed.by_ref()]),
+        &poly_eq_point_packed.by_ref(),
+        &c_minus_indexes_packed.by_ref(),
     );
 
     let c_minus_increments = MleRef::Extension(
@@ -104,9 +105,10 @@ where
             .collect::<Vec<_>>(),
     );
     let c_minus_increments_packed = c_minus_increments.pack_if(packing);
-    let (_, claim_point_right, pushforward_final_eval, _) = prove_gkr_quotient::<_, 2>(
+    let (_, claim_point_right, pushforward_final_eval, _) = prove_gkr_quotient(
         prover_state,
-        &MleGroupRef::merge(&[&pushforward_packed.by_ref(), &c_minus_increments_packed.by_ref()]),
+        &pushforward_packed.by_ref(),
+        &c_minus_increments_packed.by_ref(),
     );
 
     let on_indexes = Evaluation::new(claim_point_left, c - eval_c_minus_indexes);
@@ -151,9 +153,9 @@ where
     let c = verifier_state.sample();
 
     let (quotient_left, claim_point_left, claim_num_left, eval_c_minus_indexes) =
-        verify_gkr_quotient::<_, 2>(verifier_state, log_indexes_len)?;
+        verify_gkr_quotient(verifier_state, log_indexes_len)?;
     let (quotient_right, claim_point_right, pushforward_final_eval, claim_den_right) =
-        verify_gkr_quotient::<_, 2>(verifier_state, log_table_len)?;
+        verify_gkr_quotient(verifier_state, log_table_len)?;
 
     if quotient_left != quotient_right {
         return Err(ProofError::InvalidProof);

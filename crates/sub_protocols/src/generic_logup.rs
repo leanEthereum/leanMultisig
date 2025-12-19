@@ -194,9 +194,10 @@ impl GeneralizedLogupProver {
         let numerators_packed = MleRef::Extension(&numerators).pack();
         let denominators_packed = MleRef::Extension(&denominators).pack();
 
-        let (sum, claim_point_gkr, numerators_value, denominators_value) = prove_gkr_quotient::<_, 2>(
+        let (sum, claim_point_gkr, numerators_value, denominators_value) = prove_gkr_quotient(
             prover_state,
-            &MleGroupRef::merge(&[&numerators_packed.by_ref(), &denominators_packed.by_ref()]),
+            &numerators_packed.by_ref(),
+            &denominators_packed.by_ref(),
         );
 
         let _ = (numerators_value, denominators_value); // TODO use it to avoid some computation below
@@ -314,7 +315,7 @@ impl GeneralizedLogupVerifier {
         let total_n_vars = log2_ceil_usize(total_len);
 
         let (sum, claim_point_gkr, numerators_value, denominators_value) =
-            verify_gkr_quotient::<_, 2>(verifier_state, total_n_vars)?;
+            verify_gkr_quotient(verifier_state, total_n_vars)?;
 
         if sum != EF::ZERO {
             return Err(ProofError::InvalidProof);
