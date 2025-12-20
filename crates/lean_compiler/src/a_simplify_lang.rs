@@ -961,8 +961,16 @@ fn simplify_lines(
                     .unwrap_or_else(|| panic!("Function used but not defined: {function_name}, at line {line_number}"));
                 if return_data.len() != function.n_returned_vars {
                     panic!(
-                        "Expected {} returned vars in call to {function_name}, at line {line_number}",
-                        function.n_returned_vars
+                        "Expected {} returned vars (and not {}) in call to {function_name}, at line {line_number}",
+                        function.n_returned_vars,
+                        return_data.len()
+                    );
+                }
+                if args.len() != function.arguments.len() {
+                    panic!(
+                        "Expected {} arguments (and not {}) in call to {function_name}, at line {line_number}",
+                        function.arguments.len(),
+                        args.len()
                     );
                 }
 

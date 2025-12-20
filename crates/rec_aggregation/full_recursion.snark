@@ -96,32 +96,29 @@ fn verify_gkr_quotient(fs, n_vars) {
     set_to_5_zeros(q);
 
     points = malloc(n_vars);
-    claims = malloc(n_vars);
+    claims_num = malloc(n_vars * DIM);
+    claims_den = malloc(n_vars * DIM);
 
-    fs5, points[0] = fs_sample_ef(fs4, 1);
+    fs5, points[0] = fs_sample_ef(fs4);
     fs6 = duplexing(fs5);
 
-    point_poly_eq = malloc(2 * DIM);
-    sub_extension(pointer_to_one_vector, point, point_poly_eq);
-    copy_5(point, point_poly_eq + DIM);
+    point_poly_eq = poly_eq_extension(points[0], 1);
 
-    first_claim = malloc(DIM * 2);
-    dot_product_ee(nums, point_poly_eq, first_claim, 2);
-    dot_product_ee(denoms, point_poly_eq, first_claim + DIM, 2);
-    claims[0] = first_claim;
+    dot_product_ee(nums, point_poly_eq, claims_num, 2);
+    dot_product_ee(denoms, point_poly_eq, claims_den, 2);
 
     for i in 1..n_vars {
-
+        verify_gkr_quotient_step(fs6, i, points[i - 1], claims_num + (i - 1) * DIM, claims_den + (i - 1) * DIM);
     }
     
     return;
 }
 
 fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) {
-    alpha = fs_sample_ef(fs, 1);
+    fs1, alpha = fs_sample_ef(fs);
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den);
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den);
-    fs2, postponed_point, postponed_value = sumcheck_verify(fs, n_vars, num_plus_alpha_mul_claim_den, 3);
+    fs2, postponed_point, postponed_value = sumcheck_verify(fs1, n_vars, num_plus_alpha_mul_claim_den, 3);
     fs3, inner_evals = fs_receive_ef(fs2, 4);
     a_num = inner_evals;
     b_num = inner_evals + DIM;
@@ -131,6 +128,9 @@ fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) {
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha);
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha);
     poly_eq = poly_eq_extension_dynamic(point, n_vars);
+    mul_extension(sum_num_plus_sum_den_mul_alpha, poly_eq, postponed_value);
+
+    panic();
 
 
     
@@ -440,6 +440,18 @@ fn fs_print_state(fs_state) {
         print(i, fs_state[i]);
     }
     return;
+}
+
+fn powers(alpha, n) -> 1 {
+    // alpha: EF
+    // n: F
+
+    res = malloc(n * DIM);
+    set_to_one(res);
+    for i in 0..n - 1 {
+        mul_extension(res + i*DIM, alpha, res + (i + 1)*DIM);
+    }
+    return res;
 }
 
 fn mul_extension_ret(a, b) inline -> 1 {
