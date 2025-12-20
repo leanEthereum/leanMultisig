@@ -890,3 +890,27 @@ fn test_div_extension_field() {
     public_input.extend(q.as_basis_coefficients_slice());
     compile_and_run(program.to_string(), (&public_input, &[]), false);
 }
+
+// TODO BUG
+
+// #[test]
+// fn bug() {
+//     let program = r#"
+//     fn main() {
+//         x = func();
+//         return;
+//     }
+//     fn func() -> 1 {
+//         var a;
+//         if 0 == 0 {
+//             a = aux();
+//         }
+//         return a;
+//     }
+
+//     fn aux() inline -> 1 {
+//         return 1;
+//     }
+//     "#;
+//     compile_and_run(program.to_string(), (&[], &[]), false);
+// }
