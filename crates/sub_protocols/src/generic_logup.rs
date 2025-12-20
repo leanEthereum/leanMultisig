@@ -194,11 +194,8 @@ impl GeneralizedLogupProver {
         let numerators_packed = MleRef::Extension(&numerators).pack();
         let denominators_packed = MleRef::Extension(&denominators).pack();
 
-        let (sum, claim_point_gkr, numerators_value, denominators_value) = prove_gkr_quotient(
-            prover_state,
-            &numerators_packed.by_ref(),
-            &denominators_packed.by_ref(),
-        );
+        let (sum, claim_point_gkr, numerators_value, denominators_value) =
+            prove_gkr_quotient(prover_state, &numerators_packed.by_ref(), &denominators_packed.by_ref());
 
         let _ = (numerators_value, denominators_value); // TODO use it to avoid some computation below
 
@@ -300,6 +297,7 @@ fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
 pub struct GeneralizedLogupVerifier;
 
 impl GeneralizedLogupVerifier {
+    #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>>(
         verifier_state: &mut impl FSVerifier<EF>,
         c: EF,

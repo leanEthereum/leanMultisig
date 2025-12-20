@@ -67,7 +67,7 @@ fn test_generic_logup() {
     *last_num = F::NEG_ONE;
     *last_den = q.inverse();
     let mut prover_state = build_prover_state();
-     let logup_c = prover_state.sample();
+    let logup_c = prover_state.sample();
     prover_state.duplexing();
     let logup_alpha = prover_state.sample();
     prover_state.duplexing();

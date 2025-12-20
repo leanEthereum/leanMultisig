@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 pub struct ProgramParser;
 
 impl Parse<(Program, BTreeMap<usize, String>)> for ProgramParser {
-    fn parse(pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<(Program, BTreeMap<usize, String>)> {
+    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<(Program, BTreeMap<usize, String>)> {
         let mut ctx = ParseContext::new();
         let mut functions = BTreeMap::new();
         let mut function_locations = BTreeMap::new();
@@ -22,7 +22,7 @@ impl Parse<(Program, BTreeMap<usize, String>)> for ProgramParser {
         for item in pair.into_inner() {
             match item.as_rule() {
                 Rule::constant_declaration => {
-                    let (name, value) = ConstantDeclarationParser::parse(item, &mut ctx)?;
+                    let (name, value) = ConstantDeclarationParser.parse(item, &mut ctx)?;
                     match value {
                         ParsedConstant::Scalar(v) => ctx.add_constant(name, v)?,
                         ParsedConstant::Array(arr) => ctx.add_const_array(name, arr)?,
@@ -30,7 +30,7 @@ impl Parse<(Program, BTreeMap<usize, String>)> for ProgramParser {
                 }
                 Rule::function => {
                     let location = item.line_col().0;
-                    let function = FunctionParser::parse(item, &mut ctx)?;
+                    let function = FunctionParser.parse(item, &mut ctx)?;
                     let name = function.name.clone();
 
                     function_locations.insert(location, name.clone());

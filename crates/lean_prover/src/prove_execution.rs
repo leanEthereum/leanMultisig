@@ -360,9 +360,7 @@ fn prove_bus_and_air(
 
     let extra_data = ExtraDataForBuses {
         logup_alpha_powers: logup_alpha.powers().collect_n(max_bus_width()),
-        logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha)
-            .powers()
-            .collect_n(max_bus_width()),
+        logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha).powers().collect_n(max_bus_width()),
         bus_beta,
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
         alpha_powers: vec![], // filled later

@@ -115,13 +115,7 @@ pub enum ConstExpression {
         operation: HighLevelOperation,
         right: Box<Self>,
     },
-    Log2Ceil {
-        value: Box<Self>,
-    },
-    NextMultipleOf {
-        value: Box<Self>,
-        multiple: Box<Self>,
-    },
+    MathExpr(MathExpr, Vec<Self>),
 }
 
 impl From<usize> for ConstExpression {
@@ -147,19 +141,12 @@ impl TryFrom<Expression> for ConstExpression {
                     right: Box::new(right_expr),
                 })
             }
-            Expression::Log2Ceil { value } => {
-                let value_expr = Self::try_from(*value)?;
-                Ok(Self::Log2Ceil {
-                    value: Box::new(value_expr),
-                })
-            }
-            Expression::NextMultipleOf { value, multiple } => {
-                let value_expr = Self::try_from(*value)?;
-                let multiple_expr = Self::try_from(*multiple)?;
-                Ok(Self::NextMultipleOf {
-                    value: Box::new(value_expr),
-                    multiple: Box::new(multiple_expr),
-                })
+            Expression::MathExpr(math_expr, args) => {
+                let mut const_args = Vec::new();
+                for arg in args {
+                    const_args.push(Self::try_from(arg)?);
+                }
+                Ok(Self::MathExpr(math_expr, const_args))
             }
         }
     }
@@ -194,17 +181,12 @@ impl ConstExpression {
             Self::Binary { left, operation, right } => {
                 Some(operation.eval(left.eval_with(func)?, right.eval_with(func)?))
             }
-            Self::Log2Ceil { value } => {
-                let value = value.eval_with(func)?;
-                Some(F::from_usize(log2_ceil_usize(value.to_usize())))
-            }
-            Self::NextMultipleOf { value, multiple } => {
-                let value = value.eval_with(func)?;
-                let multiple = multiple.eval_with(func)?;
-                let value_usize = value.to_usize();
-                let multiple_usize = multiple.to_usize();
-                let res = value_usize.next_multiple_of(multiple_usize);
-                Some(F::from_usize(res))
+            Self::MathExpr(math_expr, args) => {
+                let mut eval_args = Vec::new();
+                for arg in args {
+                    eval_args.push(arg.eval_with(func)?);
+                }
+                Some(math_expr.eval(&eval_args))
             }
         }
     }
@@ -267,13 +249,50 @@ pub enum Expression {
         operation: HighLevelOperation,
         right: Box<Self>,
     },
-    Log2Ceil {
-        value: Box<Expression>,
-    }, // only for const expressions
-    NextMultipleOf {
-        value: Box<Expression>,
-        multiple: Box<Expression>,
-    }, // only for const expressions
+    MathExpr(MathExpr, Vec<Expression>),
+}
+
+/// For arbitrary compile-time computations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MathExpr {
+    Log2Ceil,
+    NextMultipleOf,
+}
+
+impl Display for MathExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Log2Ceil => write!(f, "log2_ceil"),
+            Self::NextMultipleOf => write!(f, "next_multiple_of"),
+        }
+    }
+}
+
+impl MathExpr {
+    pub fn num_args(&self) -> usize {
+        match self {
+            Self::Log2Ceil => 1,
+            Self::NextMultipleOf => 2,
+        }
+    }
+    pub fn eval(&self, args: &[F]) -> F {
+        match self {
+            Self::Log2Ceil => {
+                assert_eq!(args.len(), 1);
+                let value = args[0];
+                F::from_usize(log2_ceil_usize(value.to_usize()))
+            }
+            Self::NextMultipleOf => {
+                assert_eq!(args.len(), 2);
+                let value = args[0];
+                let multiple = args[1];
+                let value_usize = value.to_usize();
+                let multiple_usize = multiple.to_usize();
+                let res = value_usize.next_multiple_of(multiple_usize);
+                F::from_usize(res)
+            }
+        }
+    }
 }
 
 impl From<SimpleExpr> for Expression {
@@ -315,17 +334,12 @@ impl Expression {
                 left.eval_with(value_fn, array_fn)?,
                 right.eval_with(value_fn, array_fn)?,
             )),
-            Self::Log2Ceil { value } => {
-                let value = value.eval_with(value_fn, array_fn)?;
-                Some(F::from_usize(log2_ceil_usize(value.to_usize())))
-            }
-            Self::NextMultipleOf { value, multiple } => {
-                let value = value.eval_with(value_fn, array_fn)?;
-                let multiple = multiple.eval_with(value_fn, array_fn)?;
-                let value_usize = value.to_usize();
-                let multiple_usize = multiple.to_usize();
-                let res = value_usize.next_multiple_of(multiple_usize);
-                Some(F::from_usize(res))
+            Self::MathExpr(math_expr, args) => {
+                let mut eval_args = Vec::new();
+                for arg in args {
+                    eval_args.push(arg.eval_with(value_fn, array_fn)?);
+                }
+                Some(math_expr.eval(&eval_args))
             }
         }
     }
@@ -475,11 +489,9 @@ impl Display for Expression {
             Self::Binary { left, operation, right } => {
                 write!(f, "({left} {operation} {right})")
             }
-            Self::Log2Ceil { value } => {
-                write!(f, "log2_ceil({value})")
-            }
-            Self::NextMultipleOf { value, multiple } => {
-                write!(f, "next_multiple_of({value}, {multiple})")
+            Self::MathExpr(math_expr, args) => {
+                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
+                write!(f, "{}({})", math_expr, args_str)
             }
         }
     }
@@ -682,11 +694,9 @@ impl Display for ConstExpression {
             Self::Binary { left, operation, right } => {
                 write!(f, "({left} {operation} {right})")
             }
-            Self::Log2Ceil { value } => {
-                write!(f, "log2_ceil({value})")
-            }
-            Self::NextMultipleOf { value, multiple } => {
-                write!(f, "next_multiple_of({value}, {multiple})")
+            Self::MathExpr(math_expr, args) => {
+                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
+                write!(f, "{}({})", math_expr, args_str)
             }
         }
     }

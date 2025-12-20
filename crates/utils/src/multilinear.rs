@@ -119,10 +119,13 @@ pub fn mle_of_01234567_etc<F: Field>(point: &[F]) -> F {
 /// table = 0 is reversed for memory
 pub const MEMORY_TABLE_INDEX: usize = 0;
 
-pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF> + ExtensionField<F>>(table: F, data: &[IF], alpha_powers: &[EF]) -> EF {
+pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF> + ExtensionField<F>>(
+    table: F,
+    data: &[IF],
+    alpha_powers: &[EF],
+) -> EF {
     dot_product::<EF, _, _>(alpha_powers[1..].iter().copied(), data.iter().copied()) + table
 }
-
 
 #[cfg(test)]
 mod tests {

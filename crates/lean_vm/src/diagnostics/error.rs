@@ -35,7 +35,7 @@ pub enum RunnerError {
     DebugAssertFailed(String, usize),
 
     #[error("Invalid dot product")]
-    InvalidDotProduct
+    InvalidDotProduct,
 }
 
 pub type VMResult<T> = Result<T, RunnerError>;

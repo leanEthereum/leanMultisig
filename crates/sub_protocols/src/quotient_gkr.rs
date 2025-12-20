@@ -37,8 +37,8 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     let last_numerators = last_numerators.as_extension().unwrap();
     let last_denominators = last_denominators.as_owned().unwrap();
     let last_denominators = last_denominators.as_extension().unwrap();
-    prover_state.add_extension_scalars(&last_numerators);
-    prover_state.add_extension_scalars(&last_denominators);
+    prover_state.add_extension_scalars(last_numerators);
+    prover_state.add_extension_scalars(last_denominators);
     let quotient = last_numerators[0] / last_denominators[0] + last_numerators[1] / last_denominators[1];
 
     let mut point = MultilinearPoint(vec![prover_state.sample()]);
@@ -168,14 +168,14 @@ fn sum_quotients<EF: ExtensionField<PF<EF>>>(
 ) -> (MleOwned<EF>, MleOwned<EF>) {
     match (numerators, denominators) {
         (MleRef::ExtensionPacked(numerators), MleRef::ExtensionPacked(denominators)) => {
-            let (new_numerators, new_denominators) = sum_quotients_2_by_2(&numerators, &denominators);
+            let (new_numerators, new_denominators) = sum_quotients_2_by_2(numerators, denominators);
             (
                 MleOwned::ExtensionPacked(new_numerators),
                 MleOwned::ExtensionPacked(new_denominators),
             )
         }
         (MleRef::Extension(numerators), MleRef::Extension(denominators)) => {
-            let (new_numerators, new_denominators) = sum_quotients_2_by_2(&numerators, &denominators);
+            let (new_numerators, new_denominators) = sum_quotients_2_by_2(numerators, denominators);
             (
                 MleOwned::Extension(new_numerators),
                 MleOwned::Extension(new_denominators),

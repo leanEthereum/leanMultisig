@@ -5,9 +5,9 @@ use crate::{SnarkParams, common::*};
 use air::verify_air;
 use itertools::Itertools;
 use lean_vm::*;
-use sub_protocols::verify_logup_star;
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
+use sub_protocols::verify_logup_star;
 use sub_protocols::*;
 use utils::ToUsize;
 use whir_p3::WhirConfig;
@@ -238,9 +238,7 @@ fn verify_bus_and_air(
 
     let extra_data = ExtraDataForBuses {
         logup_alpha_powers: logup_alpha.powers().collect_n(max_bus_width()),
-        logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha)
-            .powers()
-            .collect_n(max_bus_width()),
+        logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha).powers().collect_n(max_bus_width()),
         bus_beta,
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
         alpha_powers: vec![], // filled later
