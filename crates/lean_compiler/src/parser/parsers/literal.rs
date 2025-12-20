@@ -15,7 +15,7 @@ use utils::ToUsize;
 pub struct ConstantDeclarationParser;
 
 impl Parse<(String, ParsedConstant)> for ConstantDeclarationParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<(String, ParsedConstant)> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<(String, ParsedConstant)> {
         let mut inner = pair.into_inner();
         let name = next_inner_pair(&mut inner, "constant name")?.as_str().to_string();
         let value_pair = next_inner_pair(&mut inner, "constant value")?;
@@ -25,7 +25,7 @@ impl Parse<(String, ParsedConstant)> for ConstantDeclarationParser {
                 let values: Vec<usize> = value_pair
                     .into_inner()
                     .map(|expr_pair| {
-                        let expr = ExpressionParser::parse(expr_pair, ctx).unwrap();
+                        let expr = ExpressionParser.parse(expr_pair, ctx).unwrap();
                         expr.eval_with(
                             &|simple_expr| match simple_expr {
                                 SimpleExpr::Constant(cst) => cst.naive_eval(),
@@ -47,7 +47,7 @@ impl Parse<(String, ParsedConstant)> for ConstantDeclarationParser {
             }
             _ => {
                 // Parse the expression and evaluate it
-                let expr = ExpressionParser::parse(value_pair, ctx)?;
+                let expr = ExpressionParser.parse(value_pair, ctx)?;
 
                 let value = expr
                     .eval_with(
@@ -76,13 +76,13 @@ impl Parse<(String, ParsedConstant)> for ConstantDeclarationParser {
 pub struct VarOrConstantParser;
 
 impl Parse<SimpleExpr> for VarOrConstantParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<SimpleExpr> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<SimpleExpr> {
         let text = pair.as_str();
 
         match pair.as_rule() {
             Rule::var_or_constant => {
                 let inner = pair.into_inner().next().unwrap();
-                Self::parse(inner, ctx)
+                Self.parse(inner, ctx)
             }
             Rule::identifier | Rule::constant_value => Self::parse_identifier_or_constant(text, ctx),
             _ => Err(SemanticError::new("Expected identifier or constant").into()),
@@ -138,7 +138,7 @@ impl VarOrConstantParser {
 pub struct ConstExprParser;
 
 impl Parse<usize> for ConstExprParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<usize> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<usize> {
         let inner = pair.into_inner().next().unwrap();
 
         match inner.as_rule() {
@@ -176,9 +176,9 @@ impl Parse<usize> for ConstExprParser {
 pub struct VarListParser;
 
 impl Parse<Vec<SimpleExpr>> for VarListParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<SimpleExpr>> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<SimpleExpr>> {
         pair.into_inner()
-            .map(|item| VarOrConstantParser::parse(item, ctx))
+            .map(|item| VarOrConstantParser.parse(item, ctx))
             .collect()
     }
 }

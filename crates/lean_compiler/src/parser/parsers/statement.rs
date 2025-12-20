@@ -18,23 +18,23 @@ use crate::{
 pub struct StatementParser;
 
 impl Parse<Line> for StatementParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let inner = next_inner_pair(&mut pair.into_inner(), "statement body")?;
 
         match inner.as_rule() {
-            Rule::forward_declaration => ForwardDeclarationParser::parse(inner, ctx),
-            Rule::single_assignment => AssignmentParser::parse(inner, ctx),
-            Rule::array_assign => ArrayAssignParser::parse(inner, ctx),
-            Rule::if_statement => IfStatementParser::parse(inner, ctx),
-            Rule::for_statement => ForStatementParser::parse(inner, ctx),
-            Rule::match_statement => MatchStatementParser::parse(inner, ctx),
-            Rule::return_statement => ReturnStatementParser::parse(inner, ctx),
-            Rule::function_call => FunctionCallParser::parse(inner, ctx),
-            Rule::assert_eq_statement => AssertEqParser::<false>::parse(inner, ctx),
-            Rule::assert_not_eq_statement => AssertNotEqParser::<false>::parse(inner, ctx),
-            Rule::debug_assert_eq_statement => AssertEqParser::<true>::parse(inner, ctx),
-            Rule::debug_assert_not_eq_statement => AssertNotEqParser::<true>::parse(inner, ctx),
-            Rule::debug_assert_lt_statement => AssertLtParser::<true>::parse(inner, ctx),
+            Rule::forward_declaration => ForwardDeclarationParser.parse(inner, ctx),
+            Rule::single_assignment => AssignmentParser.parse(inner, ctx),
+            Rule::array_assign => ArrayAssignParser.parse(inner, ctx),
+            Rule::if_statement => IfStatementParser.parse(inner, ctx),
+            Rule::for_statement => ForStatementParser.parse(inner, ctx),
+            Rule::match_statement => MatchStatementParser.parse(inner, ctx),
+            Rule::return_statement => ReturnStatementParser.parse(inner, ctx),
+            Rule::function_call => FunctionCallParser.parse(inner, ctx),
+            Rule::assert_eq_statement => AssertEqParser::<false>.parse(inner, ctx),
+            Rule::assert_not_eq_statement => AssertNotEqParser::<false>.parse(inner, ctx),
+            Rule::debug_assert_eq_statement => AssertEqParser::<true>.parse(inner, ctx),
+            Rule::debug_assert_not_eq_statement => AssertNotEqParser::<true>.parse(inner, ctx),
+            Rule::debug_assert_lt_statement => AssertLtParser::<true>.parse(inner, ctx),
             Rule::break_statement => Ok(Line::Break),
             Rule::continue_statement => Err(SemanticError::new("Continue statement not implemented yet").into()),
             _ => Err(SemanticError::new("Unknown statement").into()),
@@ -46,7 +46,7 @@ impl Parse<Line> for StatementParser {
 pub struct ForwardDeclarationParser;
 
 impl Parse<Line> for ForwardDeclarationParser {
-    fn parse(pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut inner = pair.into_inner();
         let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
         Ok(Line::ForwardDeclaration { var })
@@ -57,11 +57,11 @@ impl Parse<Line> for ForwardDeclarationParser {
 pub struct AssignmentParser;
 
 impl Parse<Line> for AssignmentParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut inner = pair.into_inner();
         let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
         let expr = next_inner_pair(&mut inner, "assignment value")?;
-        let value = ExpressionParser::parse(expr, ctx)?;
+        let value = ExpressionParser.parse(expr, ctx)?;
 
         Ok(Line::Assignment { var, value })
     }
@@ -71,11 +71,11 @@ impl Parse<Line> for AssignmentParser {
 pub struct ArrayAssignParser;
 
 impl Parse<Line> for ArrayAssignParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut inner = pair.into_inner();
         let array = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
-        let index = ExpressionParser::parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
-        let value = ExpressionParser::parse(next_inner_pair(&mut inner, "array value")?, ctx)?;
+        let index = ExpressionParser.parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
+        let value = ExpressionParser.parse(next_inner_pair(&mut inner, "array value")?, ctx)?;
 
         Ok(Line::ArrayAssign {
             array: array.into(),
@@ -89,10 +89,10 @@ impl Parse<Line> for ArrayAssignParser {
 pub struct IfStatementParser;
 
 impl Parse<Line> for IfStatementParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
-        let condition = ConditionParser::parse(next_inner_pair(&mut inner, "if condition")?, ctx)?;
+        let condition = ConditionParser.parse(next_inner_pair(&mut inner, "if condition")?, ctx)?;
 
         let mut then_branch: Vec<Line> = Vec::new();
         let mut else_if_branches: Vec<(Condition, Vec<Line>, SourceLineNumber)> = Vec::new();
@@ -107,7 +107,7 @@ impl Parse<Line> for IfStatementParser {
                     let line_number = item.line_col().0;
                     let mut inner = item.into_inner();
                     let else_if_condition =
-                        ConditionParser::parse(next_inner_pair(&mut inner, "else if condition")?, ctx)?;
+                        ConditionParser.parse(next_inner_pair(&mut inner, "else if condition")?, ctx)?;
                     let mut else_if_branch = Vec::new();
                     for else_if_item in inner {
                         Self::add_statement_with_location(&mut else_if_branch, else_if_item, ctx)?;
@@ -159,7 +159,7 @@ impl IfStatementParser {
         ctx: &mut ParseContext,
     ) -> ParseResult<()> {
         let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
+        let line = StatementParser.parse(pair, ctx)?;
 
         lines.push(Line::LocationReport { location });
         lines.push(line);
@@ -172,13 +172,14 @@ impl IfStatementParser {
 pub struct ConditionParser;
 
 impl Parse<Condition> for ConditionParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
         let inner_pair = next_inner_pair(&mut pair.into_inner(), "inner expression")?;
         if inner_pair.as_rule() == Rule::assumed_bool_expr {
-            ExpressionParser::parse(next_inner_pair(&mut inner_pair.into_inner(), "inner expression")?, ctx)
+            ExpressionParser
+                .parse(next_inner_pair(&mut inner_pair.into_inner(), "inner expression")?, ctx)
                 .map(|e| Condition::Expression(e, AssumeBoolean::AssumeBoolean))
         } else {
-            let expr_result = ExpressionParser::parse(inner_pair, ctx);
+            let expr_result = ExpressionParser.parse(inner_pair, ctx);
             match expr_result {
                 Err(e) => Err(e),
                 Ok(Expression::Binary {
@@ -209,7 +210,7 @@ impl Parse<Condition> for ConditionParser {
 pub struct ForStatementParser;
 
 impl Parse<Line> for ForStatementParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let iterator = next_inner_pair(&mut inner, "loop iterator")?.as_str().to_string();
@@ -223,8 +224,8 @@ impl Parse<Line> for ForStatementParser {
             inner.next(); // Consume the rev clause
         }
 
-        let start = ExpressionParser::parse(next_inner_pair(&mut inner, "loop start")?, ctx)?;
-        let end = ExpressionParser::parse(next_inner_pair(&mut inner, "loop end")?, ctx)?;
+        let start = ExpressionParser.parse(next_inner_pair(&mut inner, "loop start")?, ctx)?;
+        let end = ExpressionParser.parse(next_inner_pair(&mut inner, "loop end")?, ctx)?;
 
         let mut unroll = false;
         let mut body = Vec::new();
@@ -260,7 +261,7 @@ impl ForStatementParser {
         ctx: &mut ParseContext,
     ) -> ParseResult<()> {
         let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
+        let line = StatementParser.parse(pair, ctx)?;
 
         lines.push(Line::LocationReport { location });
         lines.push(line);
@@ -273,9 +274,9 @@ impl ForStatementParser {
 pub struct MatchStatementParser;
 
 impl Parse<Line> for MatchStatementParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut inner = pair.into_inner();
-        let value = ExpressionParser::parse(next_inner_pair(&mut inner, "match value")?, ctx)?;
+        let value = ExpressionParser.parse(next_inner_pair(&mut inner, "match value")?, ctx)?;
 
         let mut arms = Vec::new();
 
@@ -283,7 +284,7 @@ impl Parse<Line> for MatchStatementParser {
             if arm_pair.as_rule() == Rule::match_arm {
                 let mut arm_inner = arm_pair.into_inner();
                 let const_expr = next_inner_pair(&mut arm_inner, "match pattern")?;
-                let pattern = ConstExprParser::parse(const_expr, ctx)?;
+                let pattern = ConstExprParser.parse(const_expr, ctx)?;
 
                 let mut statements = Vec::new();
                 for stmt in arm_inner {
@@ -307,7 +308,7 @@ impl MatchStatementParser {
         ctx: &mut ParseContext,
     ) -> ParseResult<()> {
         let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
+        let line = StatementParser.parse(pair, ctx)?;
 
         lines.push(Line::LocationReport { location });
         lines.push(line);
@@ -320,12 +321,12 @@ impl MatchStatementParser {
 pub struct ReturnStatementParser;
 
 impl Parse<Line> for ReturnStatementParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut return_data = Vec::new();
 
         for item in pair.into_inner() {
             if item.as_rule() == Rule::tuple_expression {
-                return_data = TupleExpressionParser::parse(item, ctx)?;
+                return_data = TupleExpressionParser.parse(item, ctx)?;
             }
         }
 
@@ -337,11 +338,11 @@ impl Parse<Line> for ReturnStatementParser {
 pub struct AssertEqParser<const DEBUG: bool>;
 
 impl<const DEBUG: bool> Parse<Line> for AssertEqParser<DEBUG> {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
-        let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
-        let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
+        let left = ExpressionParser.parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
+        let right = ExpressionParser.parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
         Ok(Line::Assert {
             debug: DEBUG,
@@ -359,11 +360,11 @@ impl<const DEBUG: bool> Parse<Line> for AssertEqParser<DEBUG> {
 pub struct AssertNotEqParser<const DEBUG: bool>;
 
 impl<const DEBUG: bool> Parse<Line> for AssertNotEqParser<DEBUG> {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
-        let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
-        let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
+        let left = ExpressionParser.parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
+        let right = ExpressionParser.parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
         Ok(Line::Assert {
             debug: DEBUG,
@@ -380,11 +381,11 @@ impl<const DEBUG: bool> Parse<Line> for AssertNotEqParser<DEBUG> {
 pub struct AssertLtParser<const DEBUG: bool>;
 
 impl<const DEBUG: bool> Parse<Line> for AssertLtParser<DEBUG> {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
-        let left = ExpressionParser::parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
-        let right = ExpressionParser::parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
+        let left = ExpressionParser.parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
+        let right = ExpressionParser.parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
 
         Ok(Line::Assert {
             debug: DEBUG,

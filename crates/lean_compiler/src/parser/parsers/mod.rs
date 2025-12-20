@@ -89,7 +89,7 @@ impl Default for ParseContext {
 /// Core trait for all parsers in the system.
 pub trait Parse<T>: Sized {
     /// Parses the given input into the target type.
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<T>;
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<T>;
 }
 
 /// Utility function to expect a specific rule type.

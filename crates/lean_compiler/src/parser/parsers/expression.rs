@@ -1,5 +1,6 @@
 use super::literal::VarOrConstantParser;
 use super::{Parse, ParseContext, next_inner_pair};
+use crate::lang::MathExpr;
 use crate::{
     ir::HighLevelOperation,
     lang::{ConstExpression, ConstantValue, Expression, SimpleExpr},
@@ -13,11 +14,11 @@ use crate::{
 pub struct ExpressionParser;
 
 impl Parse<Expression> for ExpressionParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         match pair.as_rule() {
             Rule::expression => {
                 let inner = next_inner_pair(&mut pair.into_inner(), "expression body")?;
-                Self::parse(inner, ctx)
+                Self.parse(inner, ctx)
             }
             Rule::neq_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::NotEqual),
             Rule::eq_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Equal),
@@ -27,7 +28,7 @@ impl Parse<Expression> for ExpressionParser {
             Rule::mod_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Mod),
             Rule::div_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Div),
             Rule::exp_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Exp),
-            Rule::primary => PrimaryExpressionParser::parse(pair, ctx),
+            Rule::primary => PrimaryExpressionParser.parse(pair, ctx),
             other_rule => Err(ParseError::SemanticError(SemanticError::new(format!(
                 "ExpressionParser: Unexpected rule {other_rule:?}"
             )))),
@@ -45,10 +46,10 @@ impl BinaryExpressionParser {
         operation: HighLevelOperation,
     ) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
-        let mut expr = ExpressionParser::parse(next_inner_pair(&mut inner, "binary left")?, ctx)?;
+        let mut expr = ExpressionParser.parse(next_inner_pair(&mut inner, "binary left")?, ctx)?;
 
         for right in inner {
-            let right_expr = ExpressionParser::parse(right, ctx)?;
+            let right_expr = ExpressionParser.parse(right, ctx)?;
             expr = Expression::Binary {
                 left: Box::new(expr),
                 operation,
@@ -64,19 +65,19 @@ impl BinaryExpressionParser {
 pub struct PrimaryExpressionParser;
 
 impl Parse<Expression> for PrimaryExpressionParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let inner = next_inner_pair(&mut pair.into_inner(), "primary expression")?;
 
         match inner.as_rule() {
-            Rule::expression => ExpressionParser::parse(inner, ctx),
+            Rule::expression => ExpressionParser.parse(inner, ctx),
             Rule::var_or_constant => {
-                let simple_expr = VarOrConstantParser::parse(inner, ctx)?;
+                let simple_expr = VarOrConstantParser.parse(inner, ctx)?;
                 Ok(Expression::Value(simple_expr))
             }
-            Rule::array_access_expr => ArrayAccessParser::parse(inner, ctx),
-            Rule::log2_ceil_expr => Log2CeilParser::parse(inner, ctx),
-            Rule::next_multiple_of_expr => NextMultipleOfParser::parse(inner, ctx),
-            Rule::len_expr => LenParser::parse(inner, ctx),
+            Rule::array_access_expr => ArrayAccessParser.parse(inner, ctx),
+            Rule::log2_ceil_expr => MathExpr::Log2Ceil.parse(inner, ctx),
+            Rule::next_multiple_of_expr => MathExpr::NextMultipleOf.parse(inner, ctx),
+            Rule::len_expr => LenParser.parse(inner, ctx),
             _ => Err(SemanticError::new("Invalid primary expression").into()),
         }
     }
@@ -86,10 +87,10 @@ impl Parse<Expression> for PrimaryExpressionParser {
 pub struct ArrayAccessParser;
 
 impl Parse<Expression> for ArrayAccessParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
         let array = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
-        let index = ExpressionParser::parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
+        let index = ExpressionParser.parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
 
         Ok(Expression::ArrayAccess {
             array: array.into(),
@@ -98,31 +99,16 @@ impl Parse<Expression> for ArrayAccessParser {
     }
 }
 
-/// Parser for log2_ceil function calls.
-pub struct Log2CeilParser;
-
-impl Parse<Expression> for Log2CeilParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+impl Parse<Expression> for MathExpr {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
-        let expr = ExpressionParser::parse(next_inner_pair(&mut inner, "log2_ceil value")?, ctx)?;
-
-        Ok(Expression::Log2Ceil { value: Box::new(expr) })
-    }
-}
-
-/// Parser for next_multiple_of function calls.
-pub struct NextMultipleOfParser;
-
-impl Parse<Expression> for NextMultipleOfParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
-        let mut inner = pair.into_inner();
-        let value = ExpressionParser::parse(next_inner_pair(&mut inner, "next_multiple_of value")?, ctx)?;
-        let multiple = ExpressionParser::parse(next_inner_pair(&mut inner, "next_multiple_of multiple")?, ctx)?;
-
-        Ok(Expression::NextMultipleOf {
-            value: Box::new(value),
-            multiple: Box::new(multiple),
-        })
+        let mut args = Vec::new();
+        for i in 0..self.num_args() {
+            let expr =
+                ExpressionParser.parse(next_inner_pair(&mut inner, &format!("math expr arg {}", i + 1))?, ctx)?;
+            args.push(expr);
+        }
+        Ok(Expression::MathExpr(*self, args))
     }
 }
 
@@ -130,7 +116,7 @@ impl Parse<Expression> for NextMultipleOfParser {
 pub struct LenParser;
 
 impl Parse<Expression> for LenParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
         let ident = next_inner_pair(&mut inner, "len argument")?.as_str();
 

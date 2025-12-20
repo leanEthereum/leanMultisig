@@ -15,7 +15,7 @@ use lean_vm::{ALL_TABLES, LOG_VECTOR_LEN, Table, TableT};
 pub struct FunctionParser;
 
 impl Parse<Function> for FunctionParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Function> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Function> {
         let mut inner = pair.into_inner().peekable();
         let assume_always_returns = match inner.peek().map(|x| x.as_rule()) {
             Some(Rule::pragma) => {
@@ -36,7 +36,7 @@ impl Parse<Function> for FunctionParser {
                 Rule::parameter_list => {
                     for param in pair.into_inner() {
                         if param.as_rule() == Rule::parameter {
-                            arguments.push(ParameterParser::parse(param, ctx)?);
+                            arguments.push(ParameterParser.parse(param, ctx)?);
                         }
                     }
                 }
@@ -44,7 +44,7 @@ impl Parse<Function> for FunctionParser {
                     inlined = true;
                 }
                 Rule::return_count => {
-                    n_returned_vars = ReturnCountParser::parse(pair, ctx)?;
+                    n_returned_vars = ReturnCountParser.parse(pair, ctx)?;
                 }
                 Rule::statement => {
                     Self::add_statement_with_location(&mut body, pair, ctx)?;
@@ -71,7 +71,7 @@ impl FunctionParser {
         ctx: &mut ParseContext,
     ) -> ParseResult<()> {
         let location = pair.line_col().0;
-        let line = StatementParser::parse(pair, ctx)?;
+        let line = StatementParser.parse(pair, ctx)?;
 
         lines.push(Line::LocationReport { location });
         lines.push(line);
@@ -84,7 +84,7 @@ impl FunctionParser {
 pub struct ParameterParser;
 
 impl Parse<(String, bool)> for ParameterParser {
-    fn parse(pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<(String, bool)> {
+    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<(String, bool)> {
         let mut inner = pair.into_inner();
         let first = next_inner_pair(&mut inner, "parameter")?;
 
@@ -101,7 +101,7 @@ impl Parse<(String, bool)> for ParameterParser {
 pub struct ReturnCountParser;
 
 impl Parse<usize> for ReturnCountParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<usize> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<usize> {
         let count_str = next_inner_pair(&mut pair.into_inner(), "return count")?.as_str();
 
         ctx.get_constant(count_str)
@@ -114,9 +114,9 @@ impl Parse<usize> for ReturnCountParser {
 pub struct ReturnTargetListParser;
 
 impl Parse<Vec<AssignmentTarget>> for ReturnTargetListParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<AssignmentTarget>> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<AssignmentTarget>> {
         pair.into_inner()
-            .map(|item| ReturnTargetParser::parse(item, ctx))
+            .map(|item| ReturnTargetParser.parse(item, ctx))
             .collect()
     }
 }
@@ -125,14 +125,14 @@ impl Parse<Vec<AssignmentTarget>> for ReturnTargetListParser {
 pub struct ReturnTargetParser;
 
 impl Parse<AssignmentTarget> for ReturnTargetParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<AssignmentTarget> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<AssignmentTarget> {
         let inner = next_inner_pair(&mut pair.into_inner(), "return target")?;
 
         match inner.as_rule() {
             Rule::array_access_expr => {
                 let mut inner_pairs = inner.into_inner();
                 let array = next_inner_pair(&mut inner_pairs, "array name")?.as_str().to_string();
-                let index = ExpressionParser::parse(next_inner_pair(&mut inner_pairs, "array index")?, ctx)?;
+                let index = ExpressionParser.parse(next_inner_pair(&mut inner_pairs, "array index")?, ctx)?;
                 Ok(AssignmentTarget::ArrayAccess {
                     array: SimpleExpr::Var(array),
                     index: Box::new(index),
@@ -148,7 +148,7 @@ impl Parse<AssignmentTarget> for ReturnTargetParser {
 pub struct FunctionCallParser;
 
 impl Parse<Line> for FunctionCallParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let mut return_data: Vec<AssignmentTarget> = Vec::new();
         let mut function_name = String::new();
         let mut args = Vec::new();
@@ -159,13 +159,13 @@ impl Parse<Line> for FunctionCallParser {
                 Rule::function_res => {
                     for res_item in item.into_inner() {
                         if res_item.as_rule() == Rule::return_target_list {
-                            return_data = ReturnTargetListParser::parse(res_item, ctx)?;
+                            return_data = ReturnTargetListParser.parse(res_item, ctx)?;
                         }
                     }
                 }
                 Rule::identifier => function_name = item.as_str().to_string(),
                 Rule::tuple_expression => {
-                    args = TupleExpressionParser::parse(item, ctx)?;
+                    args = TupleExpressionParser.parse(item, ctx)?;
                 }
                 _ => {}
             }
@@ -297,9 +297,9 @@ impl FunctionCallParser {
 pub struct TupleExpressionParser;
 
 impl Parse<Vec<Expression>> for TupleExpressionParser {
-    fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<Expression>> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<Expression>> {
         pair.into_inner()
-            .map(|item| ExpressionParser::parse(item, ctx))
+            .map(|item| ExpressionParser.parse(item, ctx))
             .collect()
     }
 }
