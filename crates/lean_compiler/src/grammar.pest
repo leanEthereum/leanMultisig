@@ -91,12 +91,14 @@ primary = {
     "(" ~ expression ~ ")" | 
     log2_ceil_expr |
     next_multiple_of_expr |
+    saturating_sub_expr |
     len_expr |
     array_access_expr |
     var_or_constant
 }
 log2_ceil_expr = { "log2_ceil" ~ "(" ~ expression ~ ")" }
 next_multiple_of_expr = { "next_multiple_of" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
+saturating_sub_expr = { "saturating_sub" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 len_expr = { "len" ~ "(" ~ identifier ~ ")" }
 array_access_expr = { identifier ~ "[" ~ expression ~ "]" }
 

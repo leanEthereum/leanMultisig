@@ -891,6 +891,29 @@ fn test_div_extension_field() {
     compile_and_run(program.to_string(), (&public_input, &[]), false);
 }
 
+#[test]
+fn test_const_fibonacci() {
+    let program = r#"
+    fn main() {
+        res = fib(8);
+        assert res == 21;
+        return;
+    }
+    fn fib(const n) -> 1 {
+        if n == 0 {
+            return 0;
+        }
+        if n == 1 {
+            return 1;
+        }
+        a = fib(saturating_sub(n, 1));
+        b = fib(saturating_sub(n, 2));
+        return a + b;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), false);
+}
+
 // TODO BUG
 
 // #[test]

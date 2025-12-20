@@ -257,6 +257,7 @@ pub enum Expression {
 pub enum MathExpr {
     Log2Ceil,
     NextMultipleOf,
+    SaturatingSub,
 }
 
 impl Display for MathExpr {
@@ -264,6 +265,7 @@ impl Display for MathExpr {
         match self {
             Self::Log2Ceil => write!(f, "log2_ceil"),
             Self::NextMultipleOf => write!(f, "next_multiple_of"),
+            Self::SaturatingSub => write!(f, "saturating_sub"),
         }
     }
 }
@@ -273,6 +275,7 @@ impl MathExpr {
         match self {
             Self::Log2Ceil => 1,
             Self::NextMultipleOf => 2,
+            Self::SaturatingSub => 2,
         }
     }
     pub fn eval(&self, args: &[F]) -> F {
@@ -290,6 +293,10 @@ impl MathExpr {
                 let multiple_usize = multiple.to_usize();
                 let res = value_usize.next_multiple_of(multiple_usize);
                 F::from_usize(res)
+            }
+            Self::SaturatingSub => {
+                assert_eq!(args.len(), 2);
+                F::from_usize(args[0].to_usize().saturating_sub(args[1].to_usize()))
             }
         }
     }
