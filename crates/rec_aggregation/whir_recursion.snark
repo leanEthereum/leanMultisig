@@ -78,7 +78,7 @@ fn whir_recursion(transcript_start) {
         whir_round(all_fs[r], all_roots[r], FOLDING_FACTORS[r], 2**FOLDING_FACTORS[r], is_first_round[r], NUM_QUERIES[r], domain_size[r], all_claimed_sums[r], GRINDING_BITS[r], NUM_OODS[r]);
     }
 
-    fs_8, all_folding_randomness[N_ROUNDS], all_claimed_sums[N_ROUNDS + 1] = sumcheck(all_fs[N_ROUNDS], FOLDING_FACTORS[N_ROUNDS], all_claimed_sums[N_ROUNDS]);
+    fs_8, all_folding_randomness[N_ROUNDS], all_claimed_sums[N_ROUNDS + 1] = sumcheck_verify(all_fs[N_ROUNDS], FOLDING_FACTORS[N_ROUNDS], all_claimed_sums[N_ROUNDS], 2);
     
     fs_9, final_coeffcients = fs_receive_ef(fs_8, 2**FINAL_VARS);
 
@@ -94,7 +94,7 @@ fn whir_recursion(transcript_start) {
         copy_5(final_pol_evaluated_on_circle, final_folds + i*DIM);
     }
 
-    fs_11, all_folding_randomness[N_ROUNDS + 1], end_sum = sumcheck(fs_10, FINAL_VARS, all_claimed_sums[N_ROUNDS + 1]);
+    fs_11, all_folding_randomness[N_ROUNDS + 1], end_sum = sumcheck_verify(fs_10, FINAL_VARS, all_claimed_sums[N_ROUNDS + 1], 2);
 
     folding_randomness_global = malloc(N_VARS * DIM);
 
@@ -302,7 +302,7 @@ fn expand_from_univariate_ext(alpha, n) -> 1 {
     return res;
 }
 
-fn sumcheck(fs_state, n_steps, claimed_sum) -> 3 {
+fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
 
     fs_states_a = malloc(n_steps + 1);
     fs_states_a[0] = fs_state;
@@ -310,23 +310,21 @@ fn sumcheck(fs_state, n_steps, claimed_sum) -> 3 {
     claimed_sums = malloc(n_steps + 1);
     claimed_sums[0] = claimed_sum;
 
-    folding_randomness = malloc(n_steps * DIM);
+    challenges = malloc(n_steps * DIM);
 
     for sc_round in 0..n_steps {
-        fs_5, poly = fs_receive_ef(fs_states_a[sc_round], 3);
-        sum_over_boolean_hypercube = degree_two_polynomial_sum_at_0_and_1(poly);
+        fs_5, poly = fs_receive_ef(fs_states_a[sc_round], degree + 1);
+        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree);
         copy_5(sum_over_boolean_hypercube, claimed_sums[sc_round]);
-        fs_6, rand = fs_sample_ef(fs_5);
-        fs_states_a[sc_round + 1] = fs_6;
-        new_claimed_sum = degree_two_polynomial_eval(poly, rand);
-        claimed_sums[sc_round + 1] = new_claimed_sum;
-        copy_5(rand, folding_randomness + sc_round * DIM);
+        fs_states_a[sc_round + 1], rand = fs_sample_ef(fs_5);
+        claimed_sums[sc_round + 1] = univariate_polynomial_eval(poly, rand, 2);
+        copy_5(rand, challenges + sc_round * DIM);
     }
 
     new_state = fs_states_a[n_steps];
     new_claimed_sum = claimed_sums[n_steps];
 
-    return new_state, folding_randomness, new_claimed_sum;
+    return new_state, challenges, new_claimed_sum;
 }
 
 fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits) -> 3 {
@@ -477,7 +475,7 @@ fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, const heigh
 }
 
 fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkle_leaves_in_basefield, num_queries, domain_size, claimed_sum, grinding_bits, num_ood) -> 7 {
-    fs_7, folding_randomness, new_claimed_sum_a = sumcheck(fs_state, folding_factor, claimed_sum);
+    fs_7, folding_randomness, new_claimed_sum_a = sumcheck_verify(fs_state, folding_factor, claimed_sum, 2);
 
     fs_8, root, ood_points, ood_evals = parse_commitment(fs_7, num_ood);
 
@@ -817,26 +815,22 @@ fn checked_decompose_bits(a, k) -> 2 {
     return bits, partial_sum;
 }
 
-fn degree_two_polynomial_sum_at_0_and_1(coeffs) -> 1 {
-    // coeffs is a normal pointer to 3 consecutive EF element
-    // return a normal pointer to 1 ef element
-    a = add_extension_ret(coeffs, coeffs);
-    b = add_extension_ret(a, coeffs + DIM);
-    c = add_extension_ret(b, coeffs + (DIM * 2));
-    return c;
+fn polynomial_sum_at_0_and_1(coeffs, const degree) -> 1 {
+    debug_assert 1 < degree;
+
+    res = malloc(DIM * (1 + degree));
+    add_extension(coeffs, coeffs, res); // constant coefficient is doubled
+    for i in 0..degree unroll {
+        add_extension(res + i * DIM, coeffs + (i + 1) * DIM, res + (i + 1) * DIM); // TODO use the dot_product precompile
+    }
+    return res + degree * DIM;
 }
 
-fn degree_two_polynomial_eval(coeffs, point) -> 1 {
-    // coefs: normal pointer to 3 consecutive EF element
-    // point: normal pointer to 1 EF element
-    // return a normal pointer to 1 EF element
-    point_squared = mul_extension_ret(point, point);
-    a_xx = mul_extension_ret(coeffs + DIM * 2, point_squared);
-    b_x = mul_extension_ret(coeffs + DIM, point);
-    c = coeffs;
-    res_0 = add_extension_ret(a_xx, b_x);
-    res_1 = add_extension_ret(res_0, c);
-    return res_1;
+fn univariate_polynomial_eval(coeffs, point, const degree) -> 1 {
+    powers = powers(point, degree + 1); // TODO use a const parameter version
+    res = malloc(DIM);
+    dot_product_ee(coeffs, powers, res, degree + 1);
+    return res;
 }
 
 

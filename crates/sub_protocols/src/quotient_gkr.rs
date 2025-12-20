@@ -154,12 +154,12 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     let beta = verifier_state.sample();
     verifier_state.duplexing();
 
-    let next_claims_numeators = (&inner_evals[..2]).evaluate(&MultilinearPoint(vec![beta]));
+    let next_claims_numrators = (&inner_evals[..2]).evaluate(&MultilinearPoint(vec![beta]));
     let next_claims_denominators = (&inner_evals[2..]).evaluate(&MultilinearPoint(vec![beta]));
     let mut next_point = postponed.point.clone();
     next_point.0.insert(0, beta);
 
-    Ok((next_point, next_claims_numeators, next_claims_denominators))
+    Ok((next_point, next_claims_numrators, next_claims_denominators))
 }
 
 fn sum_quotients<EF: ExtensionField<PF<EF>>>(
