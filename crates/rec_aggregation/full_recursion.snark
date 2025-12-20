@@ -86,9 +86,7 @@ fn main() {
 
 fn verify_gkr_quotient(fs, n_vars) {
     fs1, nums = fs_receive_ef(fs, 2);
-    fs2 = duplexing(fs1);
-    fs3, denoms = fs_receive_ef(fs2, 2);
-    fs4 = duplexing(fs3);
+    fs4, denoms = fs_receive_ef(fs1, 2);
 
     q1 = div_ext(nums, denoms);
     q2 = div_ext(nums + DIM, denoms + DIM);
@@ -127,10 +125,9 @@ fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) {
     sum_num, sum_den = sum_2_ef_fractions(a_num, a_den, b_num, b_den);
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha);
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha);
-    poly_eq = poly_eq_extension_dynamic(point, n_vars);
-    mul_extension(sum_num_plus_sum_den_mul_alpha, poly_eq, postponed_value);
-
-    panic();
+    eq_factor = eq_mle_extension(point, postponed_point, n_vars);
+    mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value);
+    
 
 
     
@@ -210,7 +207,7 @@ fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree);
         copy_5(sum_over_boolean_hypercube, claimed_sums[sc_round]);
         fs_states_a[sc_round + 1], rand = fs_sample_ef(fs_5);
-        claimed_sums[sc_round + 1] = univariate_polynomial_eval(poly, rand, 2);
+        claimed_sums[sc_round + 1] = univariate_polynomial_eval(poly, rand, degree);
         copy_5(rand, challenges + sc_round * DIM);
     }
 

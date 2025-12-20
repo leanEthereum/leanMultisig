@@ -317,7 +317,7 @@ fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree);
         copy_5(sum_over_boolean_hypercube, claimed_sums[sc_round]);
         fs_states_a[sc_round + 1], rand = fs_sample_ef(fs_5);
-        claimed_sums[sc_round + 1] = univariate_polynomial_eval(poly, rand, 2);
+        claimed_sums[sc_round + 1] = univariate_polynomial_eval(poly, rand, degree);
         copy_5(rand, challenges + sc_round * DIM);
     }
 
