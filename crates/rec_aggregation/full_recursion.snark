@@ -79,44 +79,51 @@ fn main() {
     fs_7, logup_alpha = fs_sample_ef(fs_6);
     fs_8 = duplexing(logup_alpha);
 
-    verify_gkr_quotient(fs_8, N_VARS_FIRST_GKR);
+    fs9, quotient_gkr, point_gkr, claims_num, claims_den = verify_gkr_quotient(fs_8, N_VARS_FIRST_GKR);
+    set_to_5_zeros(quotient_gkr);
 
     return;
 }
 
-fn verify_gkr_quotient(fs, n_vars) {
+fn verify_gkr_quotient(fs, n_vars) -> 5 {
     fs1, nums = fs_receive_ef(fs, 2);
     fs4, denoms = fs_receive_ef(fs1, 2);
 
     q1 = div_ext(nums, denoms);
     q2 = div_ext(nums + DIM, denoms + DIM);
-    q = add_extension_ret(q1, q2);
-    set_to_5_zeros(q);
+    quotient = add_extension_ret(q1, q2);
 
     points = malloc(n_vars);
-    claims_num = malloc(n_vars * DIM);
-    claims_den = malloc(n_vars * DIM);
+    claims_num = malloc(n_vars);
+    claims_den = malloc(n_vars);
 
     fs5, points[0] = fs_sample_ef(fs4);
     fs6 = duplexing(fs5);
 
     point_poly_eq = poly_eq_extension(points[0], 1);
 
-    dot_product_ee(nums, point_poly_eq, claims_num, 2);
-    dot_product_ee(denoms, point_poly_eq, claims_den, 2);
+    first_claim_num = malloc(DIM);
+    first_claim_den = malloc(DIM);
+    dot_product_ee(nums, point_poly_eq, first_claim_num, 2);
+    dot_product_ee(denoms, point_poly_eq, first_claim_den, 2);
+    claims_num[0] = first_claim_num;
+    claims_den[0] = first_claim_den;
 
+    all_fs = malloc(n_vars);
+    all_fs[0] = fs6;
     for i in 1..n_vars {
-        verify_gkr_quotient_step(fs6, i, points[i - 1], claims_num + (i - 1) * DIM, claims_den + (i - 1) * DIM);
+        all_fs[i], points[i], claims_num[i], claims_den[i] = verify_gkr_quotient_step(all_fs[i - 1], i, points[i - 1], claims_num[i - 1], claims_den[i - 1]);
     }
     
-    return;
+    return all_fs[n_vars - 1], quotient, points[n_vars - 1], claims_num[n_vars - 1], claims_den[n_vars - 1];
 }
 
-fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) {
+fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) -> 4 {
     fs1, alpha = fs_sample_ef(fs);
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den);
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den);
-    fs2, postponed_point, postponed_value = sumcheck_verify(fs1, n_vars, num_plus_alpha_mul_claim_den, 3);
+    postponed_point = malloc((n_vars + 1) * DIM);
+    fs2, postponed_value = sumcheck_verify_helper(fs1, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM);
     fs3, inner_evals = fs_receive_ef(fs2, 4);
     a_num = inner_evals;
     b_num = inner_evals + DIM;
@@ -125,11 +132,20 @@ fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) {
     sum_num, sum_den = sum_2_ef_fractions(a_num, a_den, b_num, b_den);
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha);
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha);
-    eq_factor = eq_mle_extension(point, postponed_point, n_vars);
+    eq_factor = eq_mle_extension(point, postponed_point + DIM, n_vars);
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value);
     
+    fs4, beta = fs_sample_ef(fs3);
+    fs5 = duplexing(fs4);
+    point_poly_eq = poly_eq_extension(beta, 1);
+    new_claim_num = malloc(DIM);
+    new_claim_den = malloc(DIM);
+    dot_product_ee(inner_evals, point_poly_eq, new_claim_num, 2);
+    dot_product_ee(inner_evals + 2 * DIM, point_poly_eq, new_claim_den, 2);
 
+    copy_5(beta, postponed_point);
 
+    return fs5, postponed_point, new_claim_num, new_claim_den;
     
 }
 
@@ -193,14 +209,19 @@ fn eq_mle_extension_base_const(a, b, const n) -> 1 {
 
 
 fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
+    challenges = malloc(n_steps * DIM);
+    new_state, new_claimed_sum = sumcheck_verify_helper(fs_state, n_steps, claimed_sum, degree, challenges);
+    return new_state, challenges, new_claimed_sum;
+}
+
+
+fn sumcheck_verify_helper(fs_state, n_steps, claimed_sum, const degree, challenges) -> 2 {
 
     fs_states_a = malloc(n_steps + 1);
     fs_states_a[0] = fs_state;
 
     claimed_sums = malloc(n_steps + 1);
     claimed_sums[0] = claimed_sum;
-
-    challenges = malloc(n_steps * DIM);
 
     for sc_round in 0..n_steps {
         fs_5, poly = fs_receive_ef(fs_states_a[sc_round], degree + 1);
@@ -214,9 +235,8 @@ fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
     new_state = fs_states_a[n_steps];
     new_claimed_sum = claimed_sums[n_steps];
 
-    return new_state, challenges, new_claimed_sum;
+    return new_state, new_claimed_sum;
 }
-
 
 fn dot_product_ee_dynamic(a, b, res, n) { 
     if n == 16 {

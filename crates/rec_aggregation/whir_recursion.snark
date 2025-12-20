@@ -303,14 +303,19 @@ fn expand_from_univariate_ext(alpha, n) -> 1 {
 }
 
 fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
+    challenges = malloc(n_steps * DIM);
+    new_state, new_claimed_sum = sumcheck_verify_helper(fs_state, n_steps, claimed_sum, degree, challenges);
+    return new_state, challenges, new_claimed_sum;
+}
+
+
+fn sumcheck_verify_helper(fs_state, n_steps, claimed_sum, const degree, challenges) -> 2 {
 
     fs_states_a = malloc(n_steps + 1);
     fs_states_a[0] = fs_state;
 
     claimed_sums = malloc(n_steps + 1);
     claimed_sums[0] = claimed_sum;
-
-    challenges = malloc(n_steps * DIM);
 
     for sc_round in 0..n_steps {
         fs_5, poly = fs_receive_ef(fs_states_a[sc_round], degree + 1);
@@ -324,7 +329,7 @@ fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
     new_state = fs_states_a[n_steps];
     new_claimed_sum = claimed_sums[n_steps];
 
-    return new_state, challenges, new_claimed_sum;
+    return new_state, new_claimed_sum;
 }
 
 fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits) -> 3 {
