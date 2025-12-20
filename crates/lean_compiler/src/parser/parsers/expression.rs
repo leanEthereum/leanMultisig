@@ -77,6 +77,7 @@ impl Parse<Expression> for PrimaryExpressionParser {
             Rule::array_access_expr => ArrayAccessParser.parse(inner, ctx),
             Rule::log2_ceil_expr => MathExpr::Log2Ceil.parse(inner, ctx),
             Rule::next_multiple_of_expr => MathExpr::NextMultipleOf.parse(inner, ctx),
+            Rule::saturating_sub_expr => MathExpr::SaturatingSub.parse(inner, ctx),
             Rule::len_expr => LenParser.parse(inner, ctx),
             _ => Err(SemanticError::new("Invalid primary expression").into()),
         }

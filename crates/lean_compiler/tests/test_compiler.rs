@@ -881,3 +881,26 @@ fn intertwined_unrolled_loops_and_const_function_arguments() {
     "#;
     compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
 }
+
+#[test]
+fn test_const_fibonacci() {
+    let program = r#"
+    fn main() {
+        res = fib(8);
+        assert res == 21;
+        return;
+    }
+    fn fib(const n) -> 1 {
+        if n == 0 {
+            return 0;
+        }
+        if n == 1 {
+            return 1;
+        }
+        a = fib(saturating_sub(n, 1));
+        b = fib(saturating_sub(n, 2));
+        return a + b;
+    }
+    "#;
+    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+}
