@@ -58,7 +58,7 @@ pub fn verify_execution(
     let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
 
-    let mut lookup_into_memory = NormalLookupVerifier::run(
+    let mut lookup_into_memory = CustomLookupVerifier::run::<EF, DIMENSION>(
         &mut verifier_state,
         logup_c,
         logup_alpha,

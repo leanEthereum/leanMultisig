@@ -9,15 +9,15 @@ use utils::mle_of_01234567_etc;
 use utils::to_big_endian_in_field;
 
 #[derive(Debug)]
-pub struct GeneralizedLogupProver;
+pub struct GenericLogupProver;
 
 #[derive(Debug, PartialEq)]
-pub struct GeneralizedLogupStatements<EF> {
+pub struct GenericLogupStatements<EF> {
     // lookup into memory
     pub on_table: Evaluation<EF>,
     pub on_acc: Evaluation<EF>,
     pub on_indexes: Vec<Evaluation<EF>>,
-    pub on_values: Vec<Vec<Evaluation<EF>>>,
+    pub on_values: Vec<MultiEvaluation<EF>>,
     // buses
     pub on_bus_numerators: Vec<Evaluation<EF>>,
     pub on_bus_denominators: Vec<Evaluation<EF>>,
@@ -75,7 +75,7 @@ fn get_sorted_dims(
     all_dims
 }
 
-impl GeneralizedLogupProver {
+impl GenericLogupProver {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>>(
         prover_state: &mut impl FSProver<EF>,
@@ -92,7 +92,7 @@ impl GeneralizedLogupProver {
         bus_numerators: Vec<&[PF<EF>]>,
         bus_denominators: Vec<&[EF]>,
         univariate_skips: usize,
-    ) -> GeneralizedLogupStatements<EF> {
+    ) -> GenericLogupStatements<EF> {
         assert!(table[0].is_zero());
         assert!(table.len().is_power_of_two());
         assert_eq!(table.len(), acc.len());
@@ -205,7 +205,7 @@ impl GeneralizedLogupProver {
         let mut statement_on_table = None;
         let mut statement_on_acc = None;
         let mut statement_on_indexes = vec![None; n_groups];
-        let mut statement_on_values = vec![vec![]; n_groups];
+        let mut statement_on_values = vec![None; n_groups];
 
         // bus statements
         let mut bus_numerators_statements = vec![None; bus_numerators.len()];
@@ -219,11 +219,13 @@ impl GeneralizedLogupProver {
                     let index_eval = index_columns[*group_index].evaluate(&inner_point);
                     prover_state.add_extension_scalar(index_eval);
                     statement_on_indexes[*group_index] = Some(Evaluation::new(inner_point.clone(), index_eval));
+                    let mut multi_eval = MultiEvaluation::new(inner_point.clone(), vec![]);
                     for col in &value_columns[*group_index] {
                         let value_eval = col.as_slice().evaluate(&inner_point);
                         prover_state.add_extension_scalar(value_eval);
-                        statement_on_values[*group_index].push(Evaluation::new(inner_point.clone(), value_eval));
+                        multi_eval.values.push(value_eval);
                     }
+                    statement_on_values[*group_index] = Some(multi_eval);
                 }
                 Dim::Table { .. } => {
                     // table
@@ -264,11 +266,11 @@ impl GeneralizedLogupProver {
             .map(|p| p.evaluate(gamma))
             .collect::<Vec<EF>>();
 
-        GeneralizedLogupStatements {
+        GenericLogupStatements {
             on_table: statement_on_table.unwrap(),
             on_acc: statement_on_acc.unwrap(),
             on_indexes: statement_on_indexes.into_iter().map(Option::unwrap).collect(),
-            on_values: statement_on_values,
+            on_values: statement_on_values.into_iter().map(Option::unwrap).collect(),
             on_bus_numerators: bus_numerators_statements
                 .into_iter()
                 .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
@@ -294,9 +296,9 @@ fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
 }
 
 #[derive(Debug)]
-pub struct GeneralizedLogupVerifier;
+pub struct GenericLogupVerifier;
 
-impl GeneralizedLogupVerifier {
+impl GenericLogupVerifier {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>>(
         verifier_state: &mut impl FSVerifier<EF>,
@@ -307,7 +309,7 @@ impl GeneralizedLogupVerifier {
         n_cols_per_group: Vec<usize>,
         bus_n_vars: Vec<usize>,
         univariate_skips: usize,
-    ) -> ProofResult<GeneralizedLogupStatements<EF>> {
+    ) -> ProofResult<GenericLogupStatements<EF>> {
         let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, log_memory, &bus_n_vars);
         let total_len = all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
         let total_n_vars = log2_ceil_usize(total_len);
@@ -328,7 +330,7 @@ impl GeneralizedLogupVerifier {
         let mut statement_on_table = None;
         let mut statement_on_acc = None;
         let mut statement_on_indexes = vec![None; n_cols_per_group.len()];
-        let mut statement_on_values = vec![vec![]; n_cols_per_group.len()];
+        let mut statement_on_values = vec![None; n_cols_per_group.len()];
         let mut bus_numerators_statements = vec![None; bus_n_vars.len()];
         let mut bus_denominators_statements = vec![None; bus_n_vars.len()];
 
@@ -342,9 +344,10 @@ impl GeneralizedLogupVerifier {
                     let index_eval = verifier_state.next_extension_scalar()?;
                     statement_on_indexes[*group_index] = Some(Evaluation::new(inner_point.clone(), index_eval));
 
+                    let mut multi_eval = MultiEvaluation::new(inner_point.clone(), vec![]);
                     for col_index in 0..dim.n_cols() {
                         let value_eval = verifier_state.next_extension_scalar()?;
-                        statement_on_values[*group_index].push(Evaluation::new(inner_point.clone(), value_eval));
+                        multi_eval.values.push(value_eval);
 
                         let pos = offset + (col_index << dim.n_vars());
                         let bits = to_big_endian_in_field::<EF>(pos >> dim.n_vars(), n_missing_vars);
@@ -357,6 +360,7 @@ impl GeneralizedLogupVerifier {
                                 &alpha_powers,
                             ));
                     }
+                    statement_on_values[*group_index] = Some(multi_eval);
                 }
                 Dim::Table { .. } => {
                     // table
@@ -416,11 +420,11 @@ impl GeneralizedLogupVerifier {
             .map(|p| p.evaluate(gamma))
             .collect::<Vec<EF>>();
 
-        Ok(GeneralizedLogupStatements {
+        Ok(GenericLogupStatements {
             on_table: statement_on_table.unwrap(),
             on_acc: statement_on_acc.unwrap(),
             on_indexes: statement_on_indexes.into_iter().map(Option::unwrap).collect(),
-            on_values: statement_on_values,
+            on_values: statement_on_values.into_iter().map(Option::unwrap).collect(),
             on_bus_numerators: bus_numerators_statements
                 .into_iter()
                 .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))

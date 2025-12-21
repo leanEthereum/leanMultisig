@@ -1,7 +1,7 @@
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sub_protocols::{GeneralizedLogupProver, GeneralizedLogupVerifier};
+use sub_protocols::{GenericLogupProver, GenericLogupVerifier};
 use utils::{ToUsize, VecOrSlice, build_prover_state, build_verifier_state, collect_refs};
 
 type F = KoalaBear;
@@ -72,7 +72,7 @@ fn test_generic_logup() {
     let logup_alpha = prover_state.sample();
     prover_state.duplexing();
 
-    let remaining_claims_to_prove = GeneralizedLogupProver::run::<EF>(
+    let remaining_claims_to_prove = GenericLogupProver::run::<EF>(
         &mut prover_state,
         logup_c,
         logup_alpha,
@@ -94,7 +94,7 @@ fn test_generic_logup() {
     verifier_state.duplexing();
     let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
-    let remaining_claims_to_verify = GeneralizedLogupVerifier::run(
+    let remaining_claims_to_verify = GenericLogupVerifier::run(
         &mut verifier_state,
         logup_c,
         logup_alpha,
@@ -129,8 +129,8 @@ fn test_generic_logup() {
         .iter()
         .zip(remaining_claims_to_verify.on_values.iter())
     {
-        for (col, statement) in value_cols.iter().zip(value_statements.iter()) {
-            assert_eq!(col.evaluate(&statement.point), statement.value);
+        for (col, value) in value_cols.iter().zip(value_statements.values.iter()) {
+            assert_eq!(col.evaluate(&value_statements.point), *value);
         }
     }
 

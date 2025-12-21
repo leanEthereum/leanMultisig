@@ -2,7 +2,7 @@ use multilinear_toolkit::prelude::*;
 use utils::VecOrSlice;
 use utils::transpose_slice_to_basis_coefficients;
 
-use crate::{GeneralizedLogupProver, GeneralizedLogupVerifier};
+use crate::{GenericLogupProver, GenericLogupVerifier};
 
 #[derive(Debug)]
 pub struct CustomLookupProver;
@@ -14,8 +14,8 @@ pub struct CustomLookupStatements<EF, const DIM: usize> {
     pub on_acc: Evaluation<EF>,
     pub on_indexes_f: Vec<Evaluation<EF>>,
     pub on_indexes_ef: Vec<Evaluation<EF>>,
-    pub on_values_f: Vec<Vec<Evaluation<EF>>>,
-    pub on_values_ef: Vec<[Evaluation<EF>; DIM]>,
+    pub on_values_f: Vec<MultiEvaluation<EF>>,
+    pub on_values_ef: Vec<MultiEvaluation<EF>>, // `DIM` values for each one
 
     // buses
     pub on_bus_numerators: Vec<Evaluation<EF>>,
@@ -59,7 +59,7 @@ impl CustomLookupProver {
 
         let index_columns = [index_columns_f, index_columns_ef].concat();
 
-        let generic = GeneralizedLogupProver::run(
+        let generic = GenericLogupProver::run(
             prover_state,
             c,
             alpha,
@@ -78,10 +78,7 @@ impl CustomLookupProver {
             on_indexes_f: generic.on_indexes[..n_cols_f].to_vec(),
             on_indexes_ef: generic.on_indexes[n_cols_f..].to_vec(),
             on_values_f: generic.on_values[..n_cols_f].to_vec(),
-            on_values_ef: generic.on_values[n_cols_f..]
-                .iter()
-                .map(|e| e.to_vec().try_into().unwrap())
-                .collect(),
+            on_values_ef: generic.on_values[n_cols_f..].to_vec(),
             on_bus_numerators: generic.on_bus_numerators,
             on_bus_denominators: generic.on_bus_denominators,
         }
@@ -89,9 +86,9 @@ impl CustomLookupProver {
 }
 
 #[derive(Debug)]
-pub struct NormalLookupVerifier;
+pub struct CustomLookupVerifier;
 
-impl NormalLookupVerifier {
+impl CustomLookupVerifier {
     #[allow(clippy::too_many_arguments)]
     pub fn run<EF: ExtensionField<PF<EF>>, const DIM: usize>(
         verifier_state: &mut impl FSVerifier<EF>,
@@ -107,7 +104,7 @@ impl NormalLookupVerifier {
         assert_eq!(log_heights_f.len(), num_values_per_lookup_f.len());
         let log_heights = [log_heights_f.clone(), log_heights_ef.clone()].concat();
         let n_cols_per_group = [num_values_per_lookup_f, vec![DIM; log_heights_ef.len()]].concat();
-        let generic = GeneralizedLogupVerifier::run(
+        let generic = GenericLogupVerifier::run(
             verifier_state,
             c,
             alpha,
@@ -124,10 +121,7 @@ impl NormalLookupVerifier {
             on_indexes_f: generic.on_indexes[..log_heights_f.len()].to_vec(),
             on_indexes_ef: generic.on_indexes[log_heights_f.len()..].to_vec(),
             on_values_f: generic.on_values[..log_heights_f.len()].to_vec(),
-            on_values_ef: generic.on_values[log_heights_f.len()..][..log_heights_ef.len()]
-                .iter()
-                .map(|e| e.to_vec().try_into().unwrap())
-                .collect(),
+            on_values_ef: generic.on_values[log_heights_f.len()..].to_vec(),
             on_bus_numerators: generic.on_bus_numerators,
             on_bus_denominators: generic.on_bus_denominators,
         })

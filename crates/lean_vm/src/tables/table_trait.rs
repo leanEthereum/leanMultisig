@@ -195,8 +195,8 @@ pub trait TableT: Air {
         ext_commitment_helper: Option<&ExtensionCommitmentFromBaseProver<EF>>,
         lokup_statements_on_indexes_f: &mut Vec<Evaluation<EF>>,
         lookup_statements_on_indexes_ef: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_values_f: &mut Vec<Vec<Evaluation<EF>>>,
-        lookup_statements_on_values_ef: &mut Vec<[Evaluation<EF>; DIMENSION]>,
+        lookup_statements_on_values_f: &mut Vec<MultiEvaluation<EF>>,
+        lookup_statements_on_values_ef: &mut Vec<MultiEvaluation<EF>>,
     ) -> Vec<Vec<Evaluation<EF>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
 
@@ -221,7 +221,7 @@ pub trait TableT: Air {
             for (col_index, col_statements) in lookup
                 .values
                 .iter()
-                .zip(lookup_statements_on_values_f.remove(0).into_iter())
+                .zip(lookup_statements_on_values_f.remove(0).split())
             {
                 statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
             }
@@ -232,7 +232,7 @@ pub trait TableT: Air {
                 [..DIMENSION];
             my_statements
                 .iter_mut()
-                .zip(lookup_statements_on_values_ef.remove(0).into_iter())
+                .zip(lookup_statements_on_values_ef.remove(0).split())
                 .for_each(|(stmt, to_add)| {
                     stmt.push(to_add);
                 });
@@ -250,8 +250,8 @@ pub trait TableT: Air {
         air_values_ef: &[EF],
         lookup_statements_on_indexes_f: &mut Vec<Evaluation<EF>>,
         lookup_statements_on_indexes_ef: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_values_f: &mut Vec<Vec<Evaluation<EF>>>,
-        lookup_statements_on_values_ef: &mut Vec<[Evaluation<EF>; DIMENSION]>,
+        lookup_statements_on_values_f: &mut Vec<MultiEvaluation<EF>>,
+        lookup_statements_on_values_ef: &mut Vec<MultiEvaluation<EF>>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
         assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
@@ -286,7 +286,7 @@ pub trait TableT: Air {
             for (col_index, col_statements) in lookup
                 .values
                 .iter()
-                .zip(lookup_statements_on_values_f.remove(0).into_iter())
+                .zip(lookup_statements_on_values_f.remove(0).split())
             {
                 statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
             }
@@ -297,7 +297,7 @@ pub trait TableT: Air {
                 [..DIMENSION];
             my_statements
                 .iter_mut()
-                .zip(lookup_statements_on_values_ef.remove(0).into_iter())
+                .zip(lookup_statements_on_values_ef.remove(0).split())
                 .for_each(|(stmt, to_add)| {
                     stmt.push(to_add);
                 });
