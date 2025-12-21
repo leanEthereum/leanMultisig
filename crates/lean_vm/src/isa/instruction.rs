@@ -54,7 +54,8 @@ pub enum Instruction {
         arg_a: MemOrConstant,
         arg_b: MemOrConstant,
         arg_c: MemOrFp,
-        aux: usize,
+        aux_1: usize,
+        aux_2: usize,
     },
 }
 
@@ -165,13 +166,15 @@ impl Instruction {
                 arg_a,
                 arg_b,
                 arg_c,
-                aux: size,
+                aux_1,
+                aux_2,
             } => {
                 table.execute(
                     arg_a.read_value(ctx.memory, *ctx.fp)?,
                     arg_b.read_value(ctx.memory, *ctx.fp)?,
                     arg_c.read_value(ctx.memory, *ctx.fp)?,
-                    *size,
+                    *aux_1,
+                    *aux_2,
                     ctx,
                 )?;
 
@@ -212,9 +215,10 @@ impl Display for Instruction {
                 arg_a,
                 arg_b,
                 arg_c,
-                aux,
+                aux_1,
+                aux_2,
             } => {
-                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux})", table.name())
+                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux_1}, {aux_2})", table.name())
             }
         }
     }

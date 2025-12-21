@@ -339,6 +339,10 @@ fn test_mini_program_3() {
 #[test]
 fn test_inlined() {
     let program = r#"
+    // Dot product precompile:
+    const BE = 1; // base-extension
+    const EE = 0; // extension-extension
+
     fn main() {
         x = 1;
         y = 2;
@@ -398,13 +402,13 @@ fn test_inlined() {
         return;
     }
     fn assert_eq_4(x, y) {
-        dot_product_ee(x, pointer_to_one_vector, y, 1);
-        dot_product_ee(x + 3, pointer_to_one_vector, y + 3, 1);
+        dot_product(x, pointer_to_one_vector, y, 1, EE);
+        dot_product(x + 3, pointer_to_one_vector, y + 3, 1, EE);
         return;
     }
     fn assert_eq_5(x, y) inline {
-        dot_product_ee(x, pointer_to_one_vector, y, 1);
-        dot_product_ee(x + 3, pointer_to_one_vector, y + 3, 1);
+        dot_product(x, pointer_to_one_vector, y, 1, EE);
+        dot_product(x + 3, pointer_to_one_vector, y + 3, 1, EE);
         return;
     }
    "#;
@@ -848,6 +852,10 @@ fn intertwined_unrolled_loops_and_const_function_arguments() {
 #[test]
 fn test_div_extension_field() {
     let program = r#"
+        // Dot product precompile:
+        const BE = 1; // base-extension
+        const EE = 0; // extension-extension
+
         const DIM = 5;
         fn main() {
             n = public_input_start;
@@ -869,13 +877,13 @@ fn test_div_extension_field() {
 
         fn div_ext_1(n, d) -> 1 {
             quotient = malloc(DIM);
-            dot_product_ee(d, quotient, n, 1);
+            dot_product(d, quotient, n, 1, EE);
             return quotient;
         }
         
         fn div_ext_2(n, d) -> 1 {
             quotient = malloc(DIM);
-            dot_product_ee(quotient, d, n, 1);
+            dot_product(quotient, d, n, 1, EE);
             return quotient;
         }
     "#;

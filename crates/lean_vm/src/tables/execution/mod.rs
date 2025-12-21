@@ -12,8 +12,12 @@ impl TableT for ExecutionTable {
         "execution"
     }
 
-    fn identifier(&self) -> Table {
+    fn table(&self) -> Table {
         Table::execution()
+    }
+
+    fn is_execution_table(&self) -> bool {
+        true
     }
 
     fn n_columns_f_total(&self) -> usize {
@@ -37,7 +41,7 @@ impl TableT for ExecutionTable {
         ]
     }
 
-    fn ookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
+    fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         vec![]
     }
 
@@ -50,7 +54,8 @@ impl TableT for ExecutionTable {
                 COL_INDEX_EXEC_NU_A,
                 COL_INDEX_EXEC_NU_B,
                 COL_INDEX_EXEC_NU_C,
-                COL_INDEX_AUX,
+                COL_INDEX_AUX_1,
+                COL_INDEX_AUX_2,
             ],
         }]
     }
@@ -72,7 +77,7 @@ impl TableT for ExecutionTable {
     }
 
     #[inline(always)]
-    fn execute(&self, _: F, _: F, _: F, _: usize, _: &mut InstructionContext<'_>) -> Result<(), RunnerError> {
+    fn execute(&self, _: F, _: F, _: F, _: usize, _: usize, _: &mut InstructionContext<'_>) -> Result<(), RunnerError> {
         unreachable!()
     }
 }

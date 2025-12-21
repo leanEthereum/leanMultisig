@@ -285,14 +285,16 @@ fn compile_block(
                 arg_a,
                 arg_b,
                 arg_c,
-                aux,
+                aux_1,
+                aux_2,
             } => {
                 low_level_bytecode.push(Instruction::Precompile {
                     table,
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
                     arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
                     arg_c: try_as_mem_or_fp(&arg_c).unwrap(),
-                    aux: eval_const_expression_usize(&aux, compiler),
+                    aux_1: eval_const_expression_usize(&aux_1, compiler),
+                    aux_2: eval_const_expression_usize(&aux_2, compiler),
                 });
             }
             IntermediateInstruction::DecomposeBits {

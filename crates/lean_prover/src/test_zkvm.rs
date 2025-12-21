@@ -61,12 +61,17 @@ mod tests {
     const MERKLE_HEIGHT_2 = 15;
     const LEAF_POS_2 = 178;
     const VECTOR_LEN = 8;
+    
+    // Dot product precompile:
+    const BE = 1; // base-extension
+    const EE = 0; // extension-extension
+
     fn main() {
         pub_start = public_input_start;
         poseidon16(pub_start, pub_start + VECTOR_LEN, pub_start + 2 * VECTOR_LEN, PERMUTATION);
         poseidon16(pub_start + 4 * VECTOR_LEN, pub_start + 5 * VECTOR_LEN, pub_start + 6 * VECTOR_LEN, COMPRESSION);
-        dot_product_be(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N);
-        dot_product_ee(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N);
+        dot_product(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N, BE);
+        dot_product(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N, EE);
         
         return;
     }

@@ -2,10 +2,9 @@ use multilinear_toolkit::prelude::*;
 
 use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 
-pub const N_INSTRUCTION_COLUMNS: usize = 13;
-pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
-pub const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with logup*)
-pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
+pub const N_INSTRUCTION_COLUMNS: usize = 14;
+pub const N_COMMITTED_EXEC_COLUMNS: usize = 8;
+pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS;
 
 // Instruction columns
 pub const COL_INDEX_OPERAND_A: usize = 0;
@@ -18,25 +17,26 @@ pub const COL_INDEX_ADD: usize = 6;
 pub const COL_INDEX_MUL: usize = 7;
 pub const COL_INDEX_DEREF: usize = 8;
 pub const COL_INDEX_JUMP: usize = 9;
-pub const COL_INDEX_AUX: usize = 10;
-pub const COL_INDEX_IS_PRECOMPILE: usize = 11;
-pub const COL_INDEX_PRECOMPILE_INDEX: usize = 12;
+pub const COL_INDEX_AUX_1: usize = 10;
+pub const COL_INDEX_AUX_2: usize = 11;
+pub const COL_INDEX_IS_PRECOMPILE: usize = 12;
+pub const COL_INDEX_PRECOMPILE_INDEX: usize = 13;
 
 // Execution columns
-pub const COL_INDEX_MEM_VALUE_A: usize = 13; // virtual with logup*
-pub const COL_INDEX_MEM_VALUE_B: usize = 14; // virtual with logup*
-pub const COL_INDEX_MEM_VALUE_C: usize = 15; // virtual with logup*
-pub const COL_INDEX_PC: usize = 16;
-pub const COL_INDEX_FP: usize = 17;
-pub const COL_INDEX_MEM_ADDRESS_A: usize = 18;
-pub const COL_INDEX_MEM_ADDRESS_B: usize = 19;
-pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
+pub const COL_INDEX_PC: usize = 14;
+pub const COL_INDEX_FP: usize = 15;
+pub const COL_INDEX_MEM_ADDRESS_A: usize = 16;
+pub const COL_INDEX_MEM_ADDRESS_B: usize = 17;
+pub const COL_INDEX_MEM_ADDRESS_C: usize = 18;
+pub const COL_INDEX_MEM_VALUE_A: usize = 19;
+pub const COL_INDEX_MEM_VALUE_B: usize = 20;
+pub const COL_INDEX_MEM_VALUE_C: usize = 21;
 
 // Temporary columns (stored to avoid duplicate computations)
 pub const N_TEMPORARY_EXEC_COLUMNS: usize = 3;
-pub const COL_INDEX_EXEC_NU_A: usize = 21;
-pub const COL_INDEX_EXEC_NU_B: usize = 22;
-pub const COL_INDEX_EXEC_NU_C: usize = 23;
+pub const COL_INDEX_EXEC_NU_A: usize = 22;
+pub const COL_INDEX_EXEC_NU_B: usize = 23;
+pub const COL_INDEX_EXEC_NU_C: usize = 24;
 
 impl Air for ExecutionTable {
     type ExtraData = ExtraDataForBuses<EF>;
@@ -82,7 +82,8 @@ impl Air for ExecutionTable {
         let mul = up[COL_INDEX_MUL].clone();
         let deref = up[COL_INDEX_DEREF].clone();
         let jump = up[COL_INDEX_JUMP].clone();
-        let aux = up[COL_INDEX_AUX].clone();
+        let aux_1 = up[COL_INDEX_AUX_1].clone();
+        let aux_2 = up[COL_INDEX_AUX_2].clone();
         let is_precompile = up[COL_INDEX_IS_PRECOMPILE].clone();
         let precompile_index = up[COL_INDEX_PRECOMPILE_INDEX].clone();
 
@@ -117,7 +118,7 @@ impl Air for ExecutionTable {
             extra_data,
             precompile_index.clone(),
             is_precompile.clone(),
-            &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()],
+            &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()],
         ));
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
@@ -128,8 +129,8 @@ impl Air for ExecutionTable {
         builder.assert_zero(mul * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
 
         builder.assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
-        builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
-        builder.assert_zero(deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
+        builder.assert_zero(deref.clone() * aux_1.clone() * (value_c.clone() - nu_b.clone()));
+        builder.assert_zero(deref.clone() * (aux_1.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
 
         builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
         builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));

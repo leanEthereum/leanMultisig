@@ -39,7 +39,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         "poseidon16"
     }
 
-    fn identifier(&self) -> Table {
+    fn table(&self) -> Table {
         Table::poseidon16()
     }
 
@@ -66,14 +66,14 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         ]
     }
 
-    fn ookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
+    fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         vec![]
     }
 
     fn buses(&self) -> Vec<Bus> {
         assert!(BUS);
         vec![Bus {
-            table: BusTable::Constant(self.identifier()),
+            table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
             data: vec![
@@ -100,11 +100,12 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         arg_b: F,
         index_res_a: F,
         is_compression: usize,
+        _: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
         assert!(is_compression == 0 || is_compression == 1);
         let is_compression = is_compression == 1;
-        let trace = ctx.traces.get_mut(&self.identifier()).unwrap();
+        let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg0 = ctx.memory.get_slice(arg_a.to_usize(), VECTOR_LEN)?;
         let arg1 = ctx.memory.get_slice(arg_b.to_usize(), VECTOR_LEN)?;
@@ -183,7 +184,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
-                AB::F::from_usize(self.identifier().index()),
+                AB::F::from_usize(self.table().index()),
                 cols.flag.clone(),
                 &[
                     cols.index_a.clone(),

@@ -83,7 +83,7 @@ pub fn prove_execution(
                     }
                 }
             }
-            for lookup in table.ookups_ef() {
+            for lookup in table.lookups_ef() {
                 for i in &trace.base[lookup.index] {
                     for j in 0..DIMENSION {
                         acc[i.to_usize() + j] += F::ONE;

@@ -451,13 +451,18 @@ fn compile_lines(
             }
 
             SimpleLine::Precompile { table, args, .. } => {
-                assert_eq!(args.len(), 4);
+                match table {
+                    Table::DotProduct(_) => assert_eq!(args.len(), 5),
+                    Table::Poseidon16(_) => assert_eq!(args.len(), 4),
+                    _ => unreachable!(),
+                }
                 instructions.push(IntermediateInstruction::Precompile {
                     table: *table,
                     arg_a: IntermediateValue::from_simple_expr(&args[0], compiler),
                     arg_b: IntermediateValue::from_simple_expr(&args[1], compiler),
                     arg_c: IntermediateValue::from_simple_expr(&args[2], compiler),
-                    aux: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
+                    aux_1: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
+                    aux_2: args.get(4).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
                 });
             }
 

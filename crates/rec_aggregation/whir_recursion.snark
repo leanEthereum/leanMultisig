@@ -31,6 +31,11 @@ const WHIR_PROOF_SIZE = WHIR_PROOF_SIZE_PLACEHOLDER;
 
 const VECTOR_LEN = 8;
 
+// Dot product precompile:
+const BE = 1; // base-extension
+const EE = 0; // extension-extension
+
+
 fn main() {
     for i in 0..N_RECURSIONS unroll {
         whir_recursion(public_input_start + i * WHIR_PROOF_SIZE);
@@ -54,7 +59,7 @@ fn whir_recursion(transcript_start) {
     all_claimed_sums = malloc(N_ROUNDS + 2);
 
     claimed_sum_0_0 = malloc(DIM);
-    dot_product_ee(ood_evals_commit, combination_randomness_powers_0, claimed_sum_0_0, NUM_OOD_COMMIT);
+    dot_product(ood_evals_commit, combination_randomness_powers_0, claimed_sum_0_0, NUM_OOD_COMMIT, EE);
     claimed_sum_0_1 = mul_extension_ret(combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM, pcs_eval);
     all_claimed_sums[0] = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
     
@@ -90,7 +95,7 @@ fn whir_recursion(transcript_start) {
         powers_of_2_rev = expand_from_univariate_base_const(final_circle_values[i], FINAL_VARS);
         poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS);
         final_pol_evaluated_on_circle = malloc(DIM);
-        dot_product_be(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS); 
+        dot_product(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS, BE); 
         copy_5(final_pol_evaluated_on_circle, final_folds + i*DIM);
     }
 
@@ -122,7 +127,7 @@ fn whir_recursion(transcript_start) {
         copy_5(ood_rec, all_ood_recovered_evals + i * DIM);
     }
     s1 = malloc(DIM);
-    dot_product_ee(all_ood_recovered_evals, combination_randomness_powers_0, s1, NUM_OOD_COMMIT);
+    dot_product(all_ood_recovered_evals, combination_randomness_powers_0, s1, NUM_OOD_COMMIT, EE);
 
     s2 = eq_mle_extension(pcs_point, folding_randomness_global, N_VARS);
     s3 = mul_extension_ret(s2, combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM);
@@ -152,7 +157,7 @@ fn whir_recursion(transcript_start) {
             copy_5(temp, s6s + j * DIM);
         }
         s7 = malloc(DIM);
-        dot_product_ee(s6s, combination_randomness_powers + NUM_OODS[i] * DIM, s7, NUM_QUERIES[i]);
+        dot_product(s6s, combination_randomness_powers + NUM_OODS[i] * DIM, s7, NUM_QUERIES[i], EE);
         s8 = add_extension_ret(summed_ood, s7);
         s9 = add_extension_ret(weight_sums[i], s8);
         weight_sums[i+1] = s9;
@@ -160,7 +165,7 @@ fn whir_recursion(transcript_start) {
     evaluation_of_weights = weight_sums[N_ROUNDS]; // not good
     poly_eq_final = poly_eq_extension(all_folding_randomness[N_ROUNDS + 1], FINAL_VARS);
     final_value = malloc(DIM);
-    dot_product_ee(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS);
+    dot_product(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS, EE);
     evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
     copy_5(evaluation_of_weights_times_final_value, end_sum);
 
@@ -372,7 +377,7 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
 
     if merkle_leaves_in_basefield == 1 {
         for i in 0..num_queries {
-            dot_product_be(answers[i], poly_eq, folds + i*DIM, 2**FOLDING_FACTORS[0]);
+            dot_product(answers[i], poly_eq, folds + i*DIM, 2**FOLDING_FACTORS[0], BE);
         }
     } else {
         for i in 0..num_queries {
@@ -571,25 +576,25 @@ fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
 
 fn dot_product_ee_dynamic(a, b, res, n) { 
     if n == 16 {
-        dot_product_ee(a, b, res, 16);
+        dot_product(a, b, res, 16, EE);
         return;
     }
     if n == 1 {
-        dot_product_ee(a, b, res, 1);
+        dot_product(a, b, res, 1, EE);
         return;
     }
     if n == 2 {
-        dot_product_ee(a, b, res, 2);
+        dot_product(a, b, res, 2, EE);
         return;
     }
 
     for i in 0..N_ROUNDS + 1 unroll {
         if n == NUM_QUERIES[i] {
-            dot_product_ee(a, b, res, NUM_QUERIES[i]);
+            dot_product(a, b, res, NUM_QUERIES[i], EE);
             return;
         }
         if n == NUM_QUERIES[i] + 1 {
-            dot_product_ee(a, b, res, NUM_QUERIES[i] + 1);
+            dot_product(a, b, res, NUM_QUERIES[i] + 1, EE);
             return;
         }
     }
@@ -846,7 +851,7 @@ fn polynomial_sum_at_0_and_1(coeffs, const degree) -> 1 {
 fn univariate_polynomial_eval(coeffs, point, const degree) -> 1 {
     powers = powers(point, degree + 1); // TODO use a const parameter version
     res = malloc(DIM);
-    dot_product_ee(coeffs, powers, res, degree + 1);
+    dot_product(coeffs, powers, res, degree + 1, EE);
     return res;
 }
 
@@ -970,12 +975,12 @@ fn fs_print_state(fs_state) {
 
 fn mul_extension_ret(a, b) inline -> 1 {
     c = malloc(DIM);
-    dot_product_ee(a, b, c, 1);
+    dot_product(a, b, c, 1, EE);
     return c;
 }
 
 fn mul_extension(a, b, c) inline {
-    dot_product_ee(a, b, c, 1);
+    dot_product(a, b, c, 1, EE);
     return;
 }
 
@@ -1005,19 +1010,19 @@ fn sub_extension(a, b, c) inline {
 }
 
 fn copy_5(a, b) inline {
-    dot_product_ee(a, pointer_to_one_vector, b, 1);
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
     return;
 }
 
 fn set_to_5_zeros(a) inline {
     zero_ptr = pointer_to_zero_vector;
-    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
     return;
 }
 
 fn set_to_7_zeros(a) inline {
     zero_ptr = pointer_to_zero_vector;
-    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
     a[5] = 0;
     a[6] = 0;
     return;
@@ -1025,15 +1030,15 @@ fn set_to_7_zeros(a) inline {
 
 fn set_to_16_zeros(a) inline {
     zero_ptr = pointer_to_zero_vector;
-    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
-    dot_product_ee(a + 5, pointer_to_one_vector, zero_ptr, 1);
-    dot_product_ee(a + 10, pointer_to_one_vector, zero_ptr, 1);
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
+    dot_product(a + 5, pointer_to_one_vector, zero_ptr, 1, EE);
+    dot_product(a + 10, pointer_to_one_vector, zero_ptr, 1, EE);
     a[15] = 0;
     return;
 }
 
 fn copy_8(a, b) inline {
-    dot_product_ee(a, pointer_to_one_vector, b, 1);
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
     assert a[5] == b[5];
     assert a[6] == b[6];
     assert a[7] == b[7];
@@ -1041,9 +1046,9 @@ fn copy_8(a, b) inline {
 }
 
 fn copy_16(a, b) inline {
-    dot_product_ee(a, pointer_to_one_vector, b, 1);
-    dot_product_ee(a + 5, pointer_to_one_vector, b + 5, 1);
-    dot_product_ee(a + 10, pointer_to_one_vector, b + 10, 1);
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
+    dot_product(a + 5, pointer_to_one_vector, b + 5, 1, EE);
+    dot_product(a + 10, pointer_to_one_vector, b + 10, 1, EE);
     a[15] = b[15];
     return;
 }

@@ -4,6 +4,10 @@ const PERMUTATION = 0;
 const F_BITS = 31; // koala-bear = 31 bits
 const DIM = 5; // extension degree
 
+// Dot product precompile:
+const BE = 1; // base-extension
+const EE = 0; // extension-extension
+
 const N_VARS = N_VARS_PLACEHOLDER;
 const LOG_INV_RATE = LOG_INV_RATE_PLACEHOLDER; 
 const N_ROUNDS = 3; // TODO make it a parameter
@@ -104,8 +108,8 @@ fn verify_gkr_quotient(fs, n_vars) -> 5 {
 
     first_claim_num = malloc(DIM);
     first_claim_den = malloc(DIM);
-    dot_product_ee(nums, point_poly_eq, first_claim_num, 2);
-    dot_product_ee(denoms, point_poly_eq, first_claim_den, 2);
+    dot_product(nums, point_poly_eq, first_claim_num, 2, EE);
+    dot_product(denoms, point_poly_eq, first_claim_den, 2, EE);
     claims_num[0] = first_claim_num;
     claims_den[0] = first_claim_den;
 
@@ -140,8 +144,8 @@ fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) -> 4 {
     point_poly_eq = poly_eq_extension(beta, 1);
     new_claim_num = malloc(DIM);
     new_claim_den = malloc(DIM);
-    dot_product_ee(inner_evals, point_poly_eq, new_claim_num, 2);
-    dot_product_ee(inner_evals + 2 * DIM, point_poly_eq, new_claim_den, 2);
+    dot_product(inner_evals, point_poly_eq, new_claim_num, 2, EE);
+    dot_product(inner_evals + 2 * DIM, point_poly_eq, new_claim_den, 2, EE);
 
     copy_5(beta, postponed_point);
 
@@ -240,15 +244,15 @@ fn sumcheck_verify_helper(fs_state, n_steps, claimed_sum, const degree, challeng
 
 fn dot_product_ee_dynamic(a, b, res, n) { 
     if n == 16 {
-        dot_product_ee(a, b, res, 16);
+        dot_product(a, b, res, 16, EE);
         return;
     }
     if n == 1 {
-        dot_product_ee(a, b, res, 1);
+        dot_product(a, b, res, 1, EE);
         return;
     }
     if n == 2 {
-        dot_product_ee(a, b, res, 2);
+        dot_product(a, b, res, 2, EE);
         return;
     }
 
@@ -258,7 +262,7 @@ fn dot_product_ee_dynamic(a, b, res, n) {
 
 fn dot_product_ee_dynamic_helper_1(a, b, res, n) {
     if n == NUM_QUERIES_0 {
-        dot_product_ee(a, b, res, NUM_QUERIES_0);
+        dot_product(a, b, res, NUM_QUERIES_0, EE);
         return;
     }
 
@@ -268,11 +272,11 @@ fn dot_product_ee_dynamic_helper_1(a, b, res, n) {
 
 fn dot_product_ee_dynamic_helper_2(a, b, res, n) {
     if n == NUM_QUERIES_1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_1);
+        dot_product(a, b, res, NUM_QUERIES_1, EE);
         return;
     }
     if n == NUM_QUERIES_2 {
-        dot_product_ee(a, b, res, NUM_QUERIES_2);
+        dot_product(a, b, res, NUM_QUERIES_2, EE);
         return;
     }
 
@@ -282,11 +286,11 @@ fn dot_product_ee_dynamic_helper_2(a, b, res, n) {
 
 fn dot_product_ee_dynamic_helper_3(a, b, res, n) {
     if n == NUM_QUERIES_3 {
-        dot_product_ee(a, b, res, NUM_QUERIES_3);
+        dot_product(a, b, res, NUM_QUERIES_3, EE);
         return;
     }
     if n == NUM_QUERIES_0 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_0 + 1);
+        dot_product(a, b, res, NUM_QUERIES_0 + 1, EE);
         return;
     }
 
@@ -296,11 +300,11 @@ fn dot_product_ee_dynamic_helper_3(a, b, res, n) {
 
 fn dot_product_ee_dynamic_helper_4(a, b, res, n) {
     if n == NUM_QUERIES_1 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_1 + 1);
+        dot_product(a, b, res, NUM_QUERIES_1 + 1, EE);
         return;
     }
     if n == NUM_QUERIES_2 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_2 + 1);
+        dot_product(a, b, res, NUM_QUERIES_2 + 1, EE);
         return;
     }
 
@@ -310,7 +314,7 @@ fn dot_product_ee_dynamic_helper_4(a, b, res, n) {
 
 fn dot_product_ee_dynamic_helper_5(a, b, res, n) {
     if n == NUM_QUERIES_3 + 1 {
-        dot_product_ee(a, b, res, NUM_QUERIES_3 + 1);
+        dot_product(a, b, res, NUM_QUERIES_3 + 1, EE);
         return;
     }
 
@@ -377,7 +381,7 @@ fn polynomial_sum_at_0_and_1(coeffs, const degree) -> 1 {
 fn univariate_polynomial_eval(coeffs, point, const degree) -> 1 {
     powers = powers(point, degree + 1); // TODO use a const parameter version
     res = malloc(DIM);
-    dot_product_ee(coeffs, powers, res, degree + 1);
+    dot_product(coeffs, powers, res, degree + 1, EE);
     return res;
 }
 
@@ -473,12 +477,12 @@ fn powers(alpha, n) -> 1 {
 
 fn mul_extension_ret(a, b) inline -> 1 {
     c = malloc(DIM);
-    dot_product_ee(a, b, c, 1);
+    dot_product(a, b, c, 1, EE);
     return c;
 }
 
 fn mul_extension(a, b, c) inline {
-    dot_product_ee(a, b, c, 1);
+    dot_product(a, b, c, 1, EE);
     return;
 }
 
@@ -508,19 +512,19 @@ fn sub_extension(a, b, c) inline {
 }
 
 fn copy_5(a, b) inline {
-    dot_product_ee(a, pointer_to_one_vector, b, 1);
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
     return;
 }
 
 fn set_to_5_zeros(a) inline {
     zero_ptr = pointer_to_zero_vector;
-    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
     return;
 }
 
 fn set_to_7_zeros(a) inline {
     zero_ptr = pointer_to_zero_vector;
-    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
     a[5] = 0;
     a[6] = 0;
     return;
@@ -528,15 +532,15 @@ fn set_to_7_zeros(a) inline {
 
 fn set_to_16_zeros(a) inline {
     zero_ptr = pointer_to_zero_vector;
-    dot_product_ee(a, pointer_to_one_vector, zero_ptr, 1);
-    dot_product_ee(a + 5, pointer_to_one_vector, zero_ptr, 1);
-    dot_product_ee(a + 10, pointer_to_one_vector, zero_ptr, 1);
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
+    dot_product(a + 5, pointer_to_one_vector, zero_ptr, 1, EE);
+    dot_product(a + 10, pointer_to_one_vector, zero_ptr, 1, EE);
     a[15] = 0;
     return;
 }
 
 fn copy_8(a, b) inline {
-    dot_product_ee(a, pointer_to_one_vector, b, 1);
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
     assert a[5] == b[5];
     assert a[6] == b[6];
     assert a[7] == b[7];
@@ -544,9 +548,9 @@ fn copy_8(a, b) inline {
 }
 
 fn copy_16(a, b) inline {
-    dot_product_ee(a, pointer_to_one_vector, b, 1);
-    dot_product_ee(a + 5, pointer_to_one_vector, b + 5, 1);
-    dot_product_ee(a + 10, pointer_to_one_vector, b + 10, 1);
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
+    dot_product(a + 5, pointer_to_one_vector, b + 5, 1, EE);
+    dot_product(a + 10, pointer_to_one_vector, b + 10, 1, EE);
     a[15] = b[15];
     return;
 }
@@ -559,7 +563,7 @@ fn set_to_one(a) inline {
 
 fn div_ext(n, d) -> 1 {
     quotient = malloc(DIM);
-    dot_product_ee(d, quotient, n, 1);
+    dot_product(d, quotient, n, 1, EE);
     return quotient;
 }
 

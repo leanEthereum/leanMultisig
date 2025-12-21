@@ -33,7 +33,8 @@ pub enum IntermediateInstruction {
         arg_a: IntermediateValue,
         arg_b: IntermediateValue,
         arg_c: IntermediateValue,
-        aux: ConstExpression,
+        aux_1: ConstExpression,
+        aux_2: ConstExpression,
     },
     // HINTS (does not appears in the final bytecode)
     Inverse {
@@ -160,9 +161,10 @@ impl Display for IntermediateInstruction {
                 arg_a,
                 arg_b,
                 arg_c,
-                aux,
+                aux_1,
+                aux_2,
             } => {
-                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux})", table.name())
+                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux_1}, {aux_2})", table.name())
             }
             Self::Inverse { arg, res_offset } => {
                 write!(f, "m[fp + {res_offset}] = inverse({arg})")

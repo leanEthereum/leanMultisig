@@ -119,9 +119,9 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
 /// (Some columns may not appear in the AIR)
 pub trait TableT: Air {
     fn name(&self) -> &'static str;
-    fn identifier(&self) -> Table;
+    fn table(&self) -> Table;
     fn lookups_f(&self) -> Vec<LookupIntoMemory>;
-    fn ookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
+    fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
     fn buses(&self) -> Vec<Bus>;
     fn padding_row_f(&self) -> Vec<F>;
     fn padding_row_ef(&self) -> Vec<EF>;
@@ -130,7 +130,8 @@ pub trait TableT: Air {
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux: usize,
+        aux_1: usize,
+        aux_2: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError>;
 
@@ -157,8 +158,11 @@ pub trait TableT: Air {
             .map(|i| self.padding_row_ef()[i])
             .collect()
     }
+    fn is_execution_table(&self) -> bool {
+        false
+    }
     fn commited_columns_f(&self) -> Vec<ColIndex> {
-        if self.identifier() == Table::execution() {
+        if self.is_execution_table() {
             vec![
                 COL_INDEX_PC,
                 COL_INDEX_FP,
@@ -212,7 +216,7 @@ pub trait TableT: Air {
         for lookup in self.lookups_f() {
             statements[self.find_committed_column_index_f(lookup.index)].push(lokup_statements_on_indexes_f.remove(0));
         }
-        for lookup in self.ookups_ef() {
+        for lookup in self.lookups_ef() {
             statements[self.find_committed_column_index_f(lookup.index)]
                 .push(lookup_statements_on_indexes_ef.remove(0));
         }
@@ -226,7 +230,7 @@ pub trait TableT: Air {
                 statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
             }
         }
-        for lookup in self.ookups_ef() {
+        for lookup in self.lookups_ef() {
             let my_statements = &mut statements
                 [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
                 [..DIMENSION];
@@ -277,7 +281,7 @@ pub trait TableT: Air {
         for lookup in self.lookups_f() {
             statements[self.find_committed_column_index_f(lookup.index)].push(lookup_statements_on_indexes_f.remove(0));
         }
-        for lookup in self.ookups_ef() {
+        for lookup in self.lookups_ef() {
             statements[self.find_committed_column_index_f(lookup.index)]
                 .push(lookup_statements_on_indexes_ef.remove(0));
         }
@@ -291,7 +295,7 @@ pub trait TableT: Air {
                 statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
             }
         }
-        for lookup in self.ookups_ef() {
+        for lookup in self.lookups_ef() {
             let my_statements = &mut statements
                 [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
                 [..DIMENSION];
@@ -334,7 +338,7 @@ pub trait TableT: Air {
             .collect()
     }
     fn lookup_index_columns_ef<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
-        self.ookups_ef()
+        self.lookups_ef()
             .iter()
             .map(|lookup| &trace.base[lookup.index][..])
             .collect()
@@ -343,7 +347,7 @@ pub trait TableT: Air {
         self.lookups_f().len()
     }
     fn num_lookups_ef(&self) -> usize {
-        self.ookups_ef().len()
+        self.lookups_ef().len()
     }
     fn num_buses(&self) -> usize {
         self.buses().len()
@@ -357,7 +361,7 @@ pub trait TableT: Air {
     }
     fn lookup_ef_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [EF]> {
         let mut cols = Vec::new();
-        for lookup in self.ookups_ef() {
+        for lookup in self.lookups_ef() {
             cols.push(&trace.ext[lookup.values][..]);
         }
         cols

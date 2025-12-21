@@ -34,6 +34,7 @@ pub(super) fn exec_dot_product_be(
             }
         }
 
+        trace.base[COL_IS_BE].extend(std::iter::repeat_n(F::from_bool(true), size));
         trace.base[COL_FLAG].push(F::ONE);
         trace.base[COL_FLAG].extend(F::zero_vec(size - 1));
         trace.base[COL_START].push(F::ONE);
@@ -42,9 +43,10 @@ pub(super) fn exec_dot_product_be(
         trace.base[COL_INDEX_A].extend((0..size).map(|i| F::from_usize(ptr_arg_0.to_usize() + i)));
         trace.base[COL_INDEX_B].extend((0..size).map(|i| F::from_usize(ptr_arg_1.to_usize() + i * DIMENSION)));
         trace.base[COL_INDEX_RES].extend(vec![F::from_usize(ptr_res.to_usize()); size]);
-        trace.base[dot_product_air_col_value_a(true)].extend(slice_0);
         trace.ext[COL_VALUE_B].extend(slice_1);
         trace.ext[COL_VALUE_RES].extend(vec![dot_product_result; size]);
+
+        // trace.base[COL_VALUE_A_F] and trace.ext[COL_VALUE_A_EF] are filled later
     }
 
     Ok(())
@@ -118,6 +120,7 @@ pub(super) fn exec_dot_product_ee(
             }
         }
 
+        trace.base[COL_IS_BE].extend(std::iter::repeat_n(F::from_bool(false), size));
         trace.base[COL_FLAG].push(F::ONE);
         trace.base[COL_FLAG].extend(F::zero_vec(size - 1));
         trace.base[COL_START].push(F::ONE);
@@ -126,10 +129,26 @@ pub(super) fn exec_dot_product_ee(
         trace.base[COL_INDEX_A].extend((0..size).map(|i| F::from_usize(ptr_arg_0.to_usize() + i * DIMENSION)));
         trace.base[COL_INDEX_B].extend((0..size).map(|i| F::from_usize(ptr_arg_1.to_usize() + i * DIMENSION)));
         trace.base[COL_INDEX_RES].extend(vec![F::from_usize(ptr_res.to_usize()); size]);
-        trace.ext[dot_product_air_col_value_a(false)].extend(slice_0);
         trace.ext[COL_VALUE_B].extend(slice_1);
         trace.ext[COL_VALUE_RES].extend(vec![dot_product_result; size]);
+
+        // trace.base[COL_VALUE_A_F] and trace.ext[COL_VALUE_A_EF] are filled later
     }
 
     Ok(())
+}
+
+pub fn fill_trace_dot_product(trace: &mut TableTrace, memory: &[F]) {
+    assert!(trace.base[COL_VALUE_A_F].is_empty());
+    assert!(trace.ext[COL_VALUE_A_EF].is_empty());
+    trace.base[COL_VALUE_A_F] = F::zero_vec(trace.base[COL_INDEX_A].len());
+    trace.ext[COL_VALUE_A_EF] = EF::zero_vec(trace.base[COL_INDEX_A].len());
+    for i in 0..trace.base[COL_INDEX_A].len() {
+        // TODO parallelize
+        let addr = trace.base[COL_INDEX_A][i].to_usize();
+        let value_f = memory[addr];
+        let value_ef = EF::from_basis_coefficients_slice(&memory[addr..][..DIMENSION]).unwrap();
+        trace.base[COL_VALUE_A_F][i] = value_f;
+        trace.ext[COL_VALUE_A_EF][i] = value_ef;
+    }
 }

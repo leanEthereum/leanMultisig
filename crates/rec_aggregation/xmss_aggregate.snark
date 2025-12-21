@@ -10,6 +10,10 @@ const V_HALF = V / 2; // V should be even
 
 const VECTOR_LEN = 8;
 
+// Dot product precompile:
+const BE = 1; // base-extension
+const EE = 0; // extension-extension
+
 fn main() {
     public_input_start_ = public_input_start;
     n_signatures = public_input_start_[0];
@@ -44,7 +48,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     compressed = malloc(VECTOR_LEN);
     poseidon16(message_hash, randomness, compressed, COMPRESSION);
     compressed_vals = malloc(6);
-    dot_product_ee(compressed, pointer_to_one_vector, compressed_vals, 1);
+    dot_product(compressed, pointer_to_one_vector, compressed_vals, 1, EE);
     compressed_vals[5] = compressed[5];
 
     encoding = malloc(12 * 6);
@@ -123,8 +127,8 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
                 var_2 = public_key + (i * VECTOR_LEN);
                 var_3 = var_1 + 3;
                 var_4 = var_2 + 3;
-                dot_product_ee(var_1, pointer_to_one_vector, var_2, 1);
-                dot_product_ee(var_3, pointer_to_one_vector, var_4, 1);
+                dot_product(var_1, pointer_to_one_vector, var_2, 1, EE);
+                dot_product(var_3, pointer_to_one_vector, var_4, 1, EE);
             }
         }
     }
@@ -210,8 +214,7 @@ fn slice_hash(seed, data, const half_len) -> 1 {
 }
 
 fn assert_eq_vec(x, y) inline {
-    // x and y are vectorized pointer of len 1 each
-    dot_product_ee(x, pointer_to_one_vector, y, 1);
-    dot_product_ee(x + 3, pointer_to_one_vector, y + 3, 1);
+    dot_product(x, pointer_to_one_vector, y, 1, EE);
+    dot_product(x + 3, pointer_to_one_vector, y + 3, 1, EE);
     return;
 }

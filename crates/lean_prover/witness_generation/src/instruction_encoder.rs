@@ -31,17 +31,17 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             fields[COL_INDEX_OPERAND_C] = F::from_usize(*shift_1);
             match res {
                 MemOrFpOrConstant::Constant(cst) => {
-                    fields[COL_INDEX_AUX] = F::ONE;
+                    fields[COL_INDEX_AUX_1] = F::ONE;
                     fields[COL_INDEX_FLAG_B] = F::ONE;
                     fields[COL_INDEX_OPERAND_B] = *cst;
                 }
                 MemOrFpOrConstant::MemoryAfterFp { offset } => {
-                    fields[COL_INDEX_AUX] = F::ONE;
+                    fields[COL_INDEX_AUX_1] = F::ONE;
                     fields[COL_INDEX_FLAG_B] = F::ZERO;
                     fields[COL_INDEX_OPERAND_B] = F::from_usize(*offset);
                 }
                 MemOrFpOrConstant::Fp => {
-                    fields[COL_INDEX_AUX] = F::ZERO;
+                    fields[COL_INDEX_AUX_1] = F::ZERO;
                     fields[COL_INDEX_FLAG_B] = F::ONE;
                 }
             }
@@ -62,14 +62,16 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             arg_a,
             arg_b,
             arg_c,
-            aux,
+            aux_1,
+            aux_2,
         } => {
             fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
             fields[COL_INDEX_PRECOMPILE_INDEX] = table.embed();
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, arg_c);
-            fields[COL_INDEX_AUX] = F::from_usize(*aux);
+            fields[COL_INDEX_AUX_1] = F::from_usize(*aux_1);
+            fields[COL_INDEX_AUX_2] = F::from_usize(*aux_2);
         }
     }
     fields
