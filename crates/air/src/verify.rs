@@ -13,7 +13,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     log_n_rows: usize,
     last_row_f: &[PF<EF>],
     last_row_ef: &[EF],
-    virtual_column_statements: Option<MultiEvaluation<EF>>, // point should be randomness generated after committing to the columns
+    virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError>
 where
     A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
@@ -23,11 +23,11 @@ where
 
     *extra_data.alpha_powers_mut() = alpha
         .powers()
-        .take(air.n_constraints() + virtual_column_statements.as_ref().map_or(0, |s| s.values.len()))
+        .take(air.n_constraints() + virtual_column_statement.is_some() as usize)
         .collect();
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
-    let zerocheck_challenges = virtual_column_statements
+    let zerocheck_challenges = virtual_column_statement
         .as_ref()
         .map(|st| st.point.0.clone())
         .unwrap_or_else(|| verifier_state.sample_vec(n_sc_rounds));
@@ -36,9 +36,9 @@ where
     let (sc_sum, outer_statement) =
         sumcheck_verify_with_univariate_skip::<EF>(verifier_state, air.degree_air() + 1, log_n_rows, univariate_skips)?;
     if sc_sum
-        != virtual_column_statements
+        != virtual_column_statement
             .as_ref()
-            .map(|st| dot_product(st.values.iter().copied(), alpha.powers()))
+            .map(|st| st.value)
             .unwrap_or_else(|| EF::ZERO)
     {
         return Err(ProofError::InvalidProof);

@@ -70,9 +70,9 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         vec![]
     }
 
-    fn buses(&self) -> Vec<Bus> {
+    fn bus(&self) -> Bus {
         assert!(BUS);
-        vec![Bus {
+        Bus {
             table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
@@ -82,7 +82,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
                 POSEIDON_16_COL_INDEX_RES,
                 POSEIDON_16_COL_COMPRESSION,
             ],
-        }]
+        }
     }
 
     fn padding_row_f(&self) -> Vec<F> {

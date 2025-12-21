@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use crate::*;
 use crate::{SnarkParams, common::*};
 use air::verify_air;
-use itertools::Itertools;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
@@ -75,10 +74,7 @@ pub fn verify_execution(
             .iter()
             .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_lookups_ef()])
             .collect(),
-        table_heights
-            .iter()
-            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_buses()])
-            .collect(),
+        table_heights.values().copied().collect(),
         UNIVARIATE_SKIPS,
     )?;
 
@@ -86,24 +82,21 @@ pub fn verify_execution(
     let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
     let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
 
-    let mut bus_offset = 0;
-    for (table, log_n_rows) in &table_heights {
+    for (index, (table, log_n_rows)) in table_heights.iter().enumerate() {
         let (this_air_point, this_evals_f, this_evals_ef) = verify_bus_and_air(
             &mut verifier_state,
             table,
             *log_n_rows,
             logup_c,
             logup_alpha,
-            &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
-            &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
+            &lookup_into_memory.on_bus_numerators[index],
+            &lookup_into_memory.on_bus_denominators[index],
         )?;
         air_points.insert(*table, this_air_point);
         evals_f.insert(*table, this_evals_f);
         evals_ef.insert(*table, this_evals_ef);
-        bus_offset += table.buses().len();
     }
-    assert_eq_many!(
-        bus_offset,
+    assert_eq!(
         lookup_into_memory.on_bus_numerators.len(),
         lookup_into_memory.on_bus_denominators.len()
     );
@@ -201,40 +194,27 @@ pub fn verify_execution(
 #[allow(clippy::type_complexity)]
 fn verify_bus_and_air(
     verifier_state: &mut impl FSVerifier<EF>,
-    t: &Table,
+    table: &Table,
     log_n_nrows: usize,
     logup_c: EF,
     logup_alpha: EF,
-    bus_numerator_statements: &[Evaluation<EF>],
-    bus_denominator_statements: &[Evaluation<EF>],
+    bus_numerator_statement: &Evaluation<EF>,
+    bus_denominator_statement: &Evaluation<EF>,
 ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>)> {
-    assert_eq!(t.buses().len(), bus_numerator_statements.len());
-    let bus_point = bus_numerator_statements[0].point.clone();
-    assert!(t.buses().iter().all(|_| bus_numerator_statements[0].point == bus_point));
-    assert!(
-        t.buses()
-            .iter()
-            .all(|_| bus_denominator_statements[0].point == bus_point)
-    );
+    let bus_point = bus_numerator_statement.point.clone();
+    assert_eq!(&bus_point, &bus_denominator_statement.point);
 
     let bus_beta = verifier_state.sample();
     verifier_state.duplexing();
 
-    let bus_final_values = bus_numerator_statements
-        .iter()
-        .zip_eq(bus_denominator_statements)
-        .zip_eq(t.buses())
-        .map(|((bus_selector_statement, bus_data_statement), bus)| {
-            bus_selector_statement.value
-                * match bus.direction {
-                    BusDirection::Pull => EF::NEG_ONE,
-                    BusDirection::Push => EF::ONE,
-                }
-                + bus_beta * (bus_data_statement.value - logup_c)
-        })
-        .collect::<Vec<_>>();
+    let bus_final_value = bus_numerator_statement.value
+        * match table.bus().direction {
+            BusDirection::Pull => EF::NEG_ONE,
+            BusDirection::Push => EF::ONE,
+        }
+        + bus_beta * (bus_denominator_statement.value - logup_c);
 
-    let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
+    let bus_virtual_statement = Evaluation::new(bus_point, bus_final_value);
 
     let extra_data = ExtraDataForBuses {
         logup_alpha_powers: logup_alpha.powers().collect_n(max_bus_width()),
@@ -253,13 +233,13 @@ fn verify_bus_and_air(
                     extra_data,
                     UNIVARIATE_SKIPS,
                     log_n_nrows,
-                    &t.air_padding_row_f(),
-                    &t.air_padding_row_ef(),
+                    &table.air_padding_row_f(),
+                    &table.air_padding_row_ef(),
                     Some(bus_virtual_statement),
                 )?
             };
         }
-        delegate_to_inner!(t => verify_air_for_table)
+        delegate_to_inner!(table => verify_air_for_table)
     };
 
     Ok((air_point, evals_f, evals_ef))

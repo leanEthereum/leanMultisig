@@ -45,8 +45,8 @@ impl TableT for ExecutionTable {
         vec![]
     }
 
-    fn buses(&self) -> Vec<Bus> {
-        vec![Bus {
+    fn bus(&self) -> Bus {
+        Bus {
             table: BusTable::Variable(COL_INDEX_PRECOMPILE_INDEX),
             direction: BusDirection::Push,
             selector: COL_INDEX_IS_PRECOMPILE,
@@ -57,7 +57,7 @@ impl TableT for ExecutionTable {
                 COL_INDEX_AUX_1,
                 COL_INDEX_AUX_2,
             ],
-        }]
+        }
     }
 
     fn padding_row_f(&self) -> Vec<F> {

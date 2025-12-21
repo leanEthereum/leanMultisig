@@ -122,7 +122,7 @@ pub trait TableT: Air {
     fn table(&self) -> Table;
     fn lookups_f(&self) -> Vec<LookupIntoMemory>;
     fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
-    fn buses(&self) -> Vec<Bus>;
+    fn bus(&self) -> Bus;
     fn padding_row_f(&self) -> Vec<F>;
     fn padding_row_ef(&self) -> Vec<EF>;
     fn execute(
@@ -348,9 +348,6 @@ pub trait TableT: Air {
     }
     fn num_lookups_ef(&self) -> usize {
         self.lookups_ef().len()
-    }
-    fn num_buses(&self) -> usize {
-        self.buses().len()
     }
     fn lookup_f_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<Vec<&'a [F]>> {
         let mut cols = Vec::new();

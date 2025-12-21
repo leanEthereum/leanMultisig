@@ -46,13 +46,13 @@ impl TableT for DotProductPrecompile {
         ]
     }
 
-    fn buses(&self) -> Vec<Bus> {
-        vec![Bus {
+    fn bus(&self) -> Bus {
+        Bus {
             table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
             selector: COL_FLAG,
             data: vec![COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES, COL_LEN, COL_IS_BE],
-        }]
+        }
     }
 
     fn padding_row_f(&self) -> Vec<F> {

@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use crate::common::*;
 use crate::*;
 use air::prove_air;
-use itertools::Itertools;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 
@@ -130,36 +129,35 @@ pub fn prove_execution(
     let mut bus_numerators = vec![];
     let mut bus_denominators = vec![];
     for (table, trace) in &traces {
-        for bus in table.buses() {
-            let numerator = trace.base[bus.selector]
-                .par_iter()
-                .map(|&selector| match bus.direction {
-                    BusDirection::Pull => -selector,
-                    BusDirection::Push => selector,
-                })
-                .collect::<Vec<_>>();
-            let denominator = (0..1 << trace.log_n_rows)
-                .into_par_iter()
-                .map(|i| {
-                    logup_c
-                        + finger_print(
-                            match &bus.table {
-                                BusTable::Constant(table) => table.embed(),
-                                BusTable::Variable(col) => trace.base[*col][i],
-                            },
-                            bus.data
-                                .iter()
-                                .map(|col| trace.base[*col][i])
-                                .collect::<Vec<_>>()
-                                .as_slice(),
-                            &logup_alpha_powers,
-                        )
-                })
-                .collect::<Vec<_>>();
+        let bus = table.bus();
+        let numerator = trace.base[bus.selector]
+            .par_iter()
+            .map(|&selector| match bus.direction {
+                BusDirection::Pull => -selector,
+                BusDirection::Push => selector,
+            })
+            .collect::<Vec<_>>();
+        let denominator = (0..1 << trace.log_n_rows)
+            .into_par_iter()
+            .map(|i| {
+                logup_c
+                    + finger_print(
+                        match &bus.table {
+                            BusTable::Constant(table) => table.embed(),
+                            BusTable::Variable(col) => trace.base[*col][i],
+                        },
+                        bus.data
+                            .iter()
+                            .map(|col| trace.base[*col][i])
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                        &logup_alpha_powers,
+                    )
+            })
+            .collect::<Vec<_>>();
 
-            bus_numerators.push(numerator);
-            bus_denominators.push(denominator);
-        }
+        bus_numerators.push(numerator);
+        bus_denominators.push(denominator);
     }
 
     let mut lookup_into_memory = CustomLookupProver::run::<EF, DIMENSION>(
@@ -193,25 +191,22 @@ pub fn prove_execution(
     let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
     let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
 
-    let mut bus_offset = 0;
-    for (table, trace) in &traces {
+    for (index, (table, trace)) in traces.iter().enumerate() {
         let (this_air_point, this_evals_f, this_evals_ef) = prove_bus_and_air(
             &mut prover_state,
             table,
             trace,
             logup_c,
             logup_alpha,
-            &lookup_into_memory.on_bus_numerators[bus_offset..][..table.buses().len()],
-            &lookup_into_memory.on_bus_denominators[bus_offset..][..table.buses().len()],
+            &lookup_into_memory.on_bus_numerators[index],
+            &lookup_into_memory.on_bus_denominators[index],
         );
         air_points.insert(*table, this_air_point);
         evals_f.insert(*table, this_evals_f);
         evals_ef.insert(*table, this_evals_ef);
-        bus_offset += table.buses().len();
     }
 
-    assert_eq_many!(
-        bus_offset,
+    assert_eq!(
         lookup_into_memory.on_bus_numerators.len(),
         lookup_into_memory.on_bus_denominators.len()
     );
@@ -323,40 +318,27 @@ pub fn prove_execution(
 
 fn prove_bus_and_air(
     prover_state: &mut impl FSProver<EF>,
-    t: &Table,
+    table: &Table,
     trace: &TableTrace,
     logup_c: EF,
     logup_alpha: EF,
-    bus_numerator_statements: &[Evaluation<EF>],
-    bus_denominator_statements: &[Evaluation<EF>],
+    bus_numerator_statement: &Evaluation<EF>,
+    bus_denominator_statement: &Evaluation<EF>,
 ) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
-    assert_eq!(t.buses().len(), bus_numerator_statements.len());
-    let bus_point = bus_numerator_statements[0].point.clone();
-    assert!(t.buses().iter().all(|_| bus_numerator_statements[0].point == bus_point));
-    assert!(
-        t.buses()
-            .iter()
-            .all(|_| bus_denominator_statements[0].point == bus_point)
-    );
+    let bus_point = bus_numerator_statement.point.clone();
+    assert_eq!(bus_point, bus_denominator_statement.point,);
 
     let bus_beta = prover_state.sample();
     prover_state.duplexing();
 
-    let bus_final_values = bus_numerator_statements
-        .iter()
-        .zip_eq(bus_denominator_statements)
-        .zip_eq(t.buses())
-        .map(|((bus_selector_statement, bus_data_statement), bus)| {
-            bus_selector_statement.value
-                * match bus.direction {
-                    BusDirection::Pull => EF::NEG_ONE,
-                    BusDirection::Push => EF::ONE,
-                }
-                + bus_beta * (bus_data_statement.value - logup_c)
-        })
-        .collect::<Vec<_>>();
+    let bus_final_value = bus_numerator_statement.value
+        * match table.bus().direction {
+            BusDirection::Pull => EF::NEG_ONE,
+            BusDirection::Push => EF::ONE,
+        }
+        + bus_beta * (bus_denominator_statement.value - logup_c);
 
-    let bus_virtual_statement = MultiEvaluation::new(bus_point, bus_final_values);
+    let bus_virtual_statement = Evaluation::new(bus_point, bus_final_value);
 
     let extra_data = ExtraDataForBuses {
         logup_alpha_powers: logup_alpha.powers().collect_n(max_bus_width()),
@@ -366,7 +348,7 @@ fn prove_bus_and_air(
         alpha_powers: vec![], // filled later
     };
 
-    let (air_point, evals_f, evals_ef) = info_span!("AIR proof", table = t.name()).in_scope(|| {
+    let (air_point, evals_f, evals_ef) = info_span!("AIR proof", table = table.name()).in_scope(|| {
         macro_rules! prove_air_for_table {
             ($t:expr) => {
                 prove_air(
@@ -383,7 +365,7 @@ fn prove_bus_and_air(
                 )
             };
         }
-        delegate_to_inner!(t => prove_air_for_table)
+        delegate_to_inner!(table => prove_air_for_table)
     });
 
     (air_point, evals_f, evals_ef)

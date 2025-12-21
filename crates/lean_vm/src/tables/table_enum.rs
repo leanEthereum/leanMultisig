@@ -67,8 +67,8 @@ impl TableT for Table {
     fn is_execution_table(&self) -> bool {
         delegate_to_inner!(self, is_execution_table)
     }
-    fn buses(&self) -> Vec<Bus> {
-        delegate_to_inner!(self, buses)
+    fn bus(&self) -> Bus {
+        delegate_to_inner!(self, bus)
     }
     fn padding_row_f(&self) -> Vec<PF<EF>> {
         delegate_to_inner!(self, padding_row_f)
@@ -121,11 +121,7 @@ impl Air for Table {
 }
 
 pub fn max_bus_width() -> usize {
-    1 + ALL_TABLES
-        .iter()
-        .map(|table| table.buses().iter().map(|bus| bus.data.len()).max().unwrap_or_default())
-        .max()
-        .unwrap()
+    1 + ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap()
 }
 
 #[cfg(test)]

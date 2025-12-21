@@ -48,10 +48,8 @@ impl<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize, const VIRTUAL_
         assert_eq!(down_ef.len(), N_COLUMNS - N_PREPROCESSED_COLUMNS);
 
         if VIRTUAL_COLUMN {
-            // virtual column A = col_0 * col_1 + col_2
-            // virtual column B = col_0 - col_1
+            // virtual column = col_0 * col_1 + col_2
             builder.eval_virtual_column(up_ef[0].clone() + up_f[0].clone() * up_f[1].clone());
-            builder.eval_virtual_column(AB::EF::from(up_f[0].clone() - up_f[1].clone()));
         }
 
         for j in N_PREPROCESSED_COLUMNS..N_COLUMNS {
@@ -116,7 +114,7 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
     last_row_ef = last_row_ef[N_PREPROCESSED_COLUMNS - N_COLS_F..].to_vec();
 
     let virtual_column_statement_prover = if VIRTUAL_COLUMN {
-        let virtual_column_a = columns_ref_f[0]
+        let virtual_column = columns_ref_f[0]
             .iter()
             .zip(columns_ref_f[1].iter())
             .zip(columns_ref_ef[0].iter())
@@ -125,29 +123,17 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
         let virtual_column_evaluation_point =
             MultilinearPoint(prover_state.sample_vec(log_n_rows + 1 - UNIVARIATE_SKIPS));
         let selectors = univariate_selectors::<PF<EF>>(UNIVARIATE_SKIPS);
-        let virtual_column_value_a = evaluate_univariate_multilinear::<_, _, _, true>(
-            &virtual_column_a,
+        let virtual_column_value = evaluate_univariate_multilinear::<_, _, _, true>(
+            &virtual_column,
             &virtual_column_evaluation_point,
             &selectors,
             None,
         );
-        let virtual_column_b = columns_ref_f[0]
-            .iter()
-            .zip(columns_ref_f[1].iter())
-            .map(|(&a, &b)| EF::from(a - b))
-            .collect::<Vec<_>>();
-        let virtual_column_value_b = evaluate_univariate_multilinear::<_, _, _, true>(
-            &virtual_column_b,
-            &virtual_column_evaluation_point,
-            &selectors,
-            None,
-        );
-        prover_state.add_extension_scalar(virtual_column_value_a);
-        prover_state.add_extension_scalar(virtual_column_value_b);
+        prover_state.add_extension_scalar(virtual_column_value);
 
-        Some(MultiEvaluation::new(
+        Some(Evaluation::new(
             virtual_column_evaluation_point.0.clone(),
-            vec![virtual_column_value_a, virtual_column_value_b],
+            virtual_column_value,
         ))
     } else {
         None
@@ -174,11 +160,10 @@ fn test_air_helper<const VIRTUAL_COLUMN: bool>() {
     let virtual_column_statement_verifier = if VIRTUAL_COLUMN {
         let virtual_column_evaluation_point =
             MultilinearPoint(verifier_state.sample_vec(log_n_rows + 1 - UNIVARIATE_SKIPS));
-        let virtual_column_value_a = verifier_state.next_extension_scalar().unwrap();
-        let virtual_column_value_b = verifier_state.next_extension_scalar().unwrap();
-        Some(MultiEvaluation::new(
+        let virtual_column_value = verifier_state.next_extension_scalar().unwrap();
+        Some(Evaluation::new(
             virtual_column_evaluation_point.0.clone(),
-            vec![virtual_column_value_a, virtual_column_value_b],
+            virtual_column_value,
         ))
     } else {
         None
