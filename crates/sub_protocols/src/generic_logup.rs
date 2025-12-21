@@ -7,14 +7,16 @@ use utils::finger_print;
 use utils::from_end;
 use utils::mle_of_01234567_etc;
 use utils::to_big_endian_in_field;
+use utils::transpose_slice_to_basis_coefficients;
 
 #[derive(Debug, PartialEq)]
 pub struct GenericLogupStatements<EF> {
-    // lookup into memory
     pub on_table: Evaluation<EF>,
     pub on_acc: Evaluation<EF>,
-    pub on_indexes: Vec<Evaluation<EF>>,
-    pub on_values: Vec<MultiEvaluation<EF>>,
+    pub on_indexes_f: Vec<Evaluation<EF>>,
+    pub on_indexes_ef: Vec<Evaluation<EF>>,
+    pub on_values_f: Vec<MultiEvaluation<EF>>,
+    pub on_values_ef: Vec<MultiEvaluation<EF>>, // `DIM` values for each one
 
     // buses
     pub on_bus_numerators: Vec<Evaluation<EF>>,
@@ -61,6 +63,7 @@ fn get_sorted_dims(
     bus_n_vars: &[usize],
 ) -> Vec<Dim> {
     let mut all_dims = vec![];
+    all_dims.push(Dim::Table { n_vars: log_memory });
     for (index, (&n_vars, &n_cols)) in log_heights.iter().zip(n_cols_per_group).enumerate() {
         all_dims.push(Dim::TableLookupGroup {
             group_index: index,
@@ -71,7 +74,6 @@ fn get_sorted_dims(
     for (index, &n_vars) in bus_n_vars.iter().enumerate() {
         all_dims.push(Dim::Bus { n_vars, index });
     }
-    all_dims.push(Dim::Table { n_vars: log_memory });
     all_dims.sort_by_key(|d| std::cmp::Reverse(d.n_vars()));
     all_dims
 }
@@ -81,23 +83,41 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     c: EF,
     alpha: EF,
-
-    // parmeters for lookup into memory
-    table: &[PF<EF>], // table[0] is assumed to be zero
+    memory: &[PF<EF>], // memory[0] is assumed to be zero
     acc: &[PF<EF>],
-    index_columns: Vec<&[PF<EF>]>,
-    value_columns: Vec<Vec<VecOrSlice<'_, PF<EF>>>>, // value_columns[i][j] = (index_columns[i] + j)*table (using the notation of https://eprint.iacr.org/2025/946)
+    index_columns_f: Vec<&[PF<EF>]>,
+    index_columns_ef: Vec<&[PF<EF>]>,
+    value_columns_f: Vec<Vec<&[PF<EF>]>>,
+    value_columns_ef: Vec<&[EF]>,
 
     // parameters for "buses" = information flow between different tables
     bus_numerators: Vec<&[PF<EF>]>,
     bus_denominators: Vec<&[EF]>,
     univariate_skips: usize,
 ) -> GenericLogupStatements<EF> {
-    assert!(table[0].is_zero());
-    assert!(table.len().is_power_of_two());
-    assert_eq!(table.len(), acc.len());
-    assert_eq_many!(index_columns.len(), value_columns.len());
+    assert!(memory[0].is_zero());
+    assert!(memory.len().is_power_of_two());
+    assert_eq!(memory.len(), acc.len());
+    assert_eq_many!(index_columns_f.len(), value_columns_f.len());
+    assert_eq_many!(index_columns_ef.len(), value_columns_ef.len());
     assert_eq!(bus_numerators.len(), bus_denominators.len());
+    let n_cols_f = value_columns_f.len();
+
+    let mut value_columns = Vec::<Vec<_>>::new();
+    for cols_f in value_columns_f {
+        value_columns.push(cols_f.iter().map(|s| VecOrSlice::Slice(s)).collect());
+    }
+    for col_ef in &value_columns_ef {
+        value_columns.push(
+            transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef)
+                .into_iter()
+                .map(VecOrSlice::Vec)
+                .collect(),
+        );
+    }
+
+    let index_columns = [index_columns_f, index_columns_ef].concat();
+
     bus_numerators
         .iter()
         .zip(bus_denominators.iter())
@@ -121,7 +141,7 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     let all_dims = get_sorted_dims(
         &log_heights,
         &n_cols_per_group,
-        log2_strict_usize(table.len()),
+        log2_strict_usize(memory.len()),
         &bus_n_vars,
     );
     let total_len = all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
@@ -167,7 +187,7 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
                     .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here
                 denominators[offset..]
                     .par_iter_mut()
-                    .zip(table.par_iter().enumerate())
+                    .zip(memory.par_iter().enumerate())
                     .for_each(|(denom, (i, &mem_value))| {
                         *denom = c - finger_print(
                             PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
@@ -234,7 +254,7 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
                 prover_state.add_extension_scalar(value_acc);
                 statement_on_acc = Some(Evaluation::new(inner_point.clone(), value_acc));
 
-                let value_table = table.evaluate(&inner_point);
+                let value_table = memory.evaluate(&inner_point);
                 prover_state.add_extension_scalar(value_table);
                 statement_on_table = Some(Evaluation::new(inner_point, value_table));
             }
@@ -269,8 +289,10 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     GenericLogupStatements {
         on_table: statement_on_table.unwrap(),
         on_acc: statement_on_acc.unwrap(),
-        on_indexes: statement_on_indexes.into_iter().map(Option::unwrap).collect(),
-        on_values: statement_on_values.into_iter().map(Option::unwrap).collect(),
+        on_indexes_f: unwrap_slice(&statement_on_indexes[..n_cols_f]),
+        on_indexes_ef: unwrap_slice(&statement_on_indexes[n_cols_f..]),
+        on_values_f: unwrap_slice(&statement_on_values[..n_cols_f]),
+        on_values_ef: unwrap_slice(&statement_on_values[n_cols_f..]),
         on_bus_numerators: bus_numerators_statements
             .into_iter()
             .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
@@ -281,6 +303,10 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
             .collect::<Vec<_>>(),
         quotient_gkr_n_vars: total_n_vars,
     }
+}
+
+fn unwrap_slice<A: Clone>(s: &[Option<A>]) -> Vec<A> {
+    s.iter().cloned().map(Option::unwrap).collect()
 }
 
 fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
@@ -301,11 +327,16 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
     c: EF,
     alpha: EF,
     log_memory: usize,
-    log_heights: Vec<usize>,
-    n_cols_per_group: Vec<usize>,
+    log_heights_f: Vec<usize>,
+    num_values_per_lookup_f: Vec<usize>,
+    log_heights_ef: Vec<usize>,
     bus_n_vars: Vec<usize>,
     univariate_skips: usize,
 ) -> ProofResult<GenericLogupStatements<EF>> {
+    assert_eq!(log_heights_f.len(), num_values_per_lookup_f.len());
+    let log_heights = [log_heights_f.clone(), log_heights_ef.clone()].concat();
+    let dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
+    let n_cols_per_group = [num_values_per_lookup_f, vec![dim; log_heights_ef.len()]].concat();
     let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, log_memory, &bus_n_vars);
     let total_len = all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
     let total_n_vars = log2_ceil_usize(total_len);
@@ -416,11 +447,14 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
         .map(|p| p.evaluate(gamma))
         .collect::<Vec<EF>>();
 
+    let n_cols_f = log_heights_f.len();
     Ok(GenericLogupStatements {
         on_table: statement_on_table.unwrap(),
         on_acc: statement_on_acc.unwrap(),
-        on_indexes: statement_on_indexes.into_iter().map(Option::unwrap).collect(),
-        on_values: statement_on_values.into_iter().map(Option::unwrap).collect(),
+        on_indexes_f: unwrap_slice(&statement_on_indexes[..n_cols_f]),
+        on_indexes_ef: unwrap_slice(&statement_on_indexes[n_cols_f..]),
+        on_values_f: unwrap_slice(&statement_on_values[..n_cols_f]),
+        on_values_ef: unwrap_slice(&statement_on_values[n_cols_f..]),
         on_bus_numerators: bus_numerators_statements
             .into_iter()
             .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))

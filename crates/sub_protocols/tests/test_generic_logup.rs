@@ -2,18 +2,25 @@ use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sub_protocols::{prove_generic_logup, verify_generic_logup};
-use utils::{ToUsize, VecOrSlice, build_prover_state, build_verifier_state, collect_refs};
+use utils::{
+    ToUsize, build_prover_state, build_verifier_state, collect_inner_refs, collect_refs,
+    transpose_slice_to_basis_coefficients,
+};
 
 type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
+const DIM: usize = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
 const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 
 #[test]
-fn test_generic_logup() {
+fn test_custom_logup() {
     let log_memory_size: usize = 12;
+    let log_cols_heights_f: Vec<usize> = vec![12, 11, 13, 1];
+    let num_values_per_lookup_f: Vec<usize> = vec![1, 2, 10, 3];
+    let log_cols_heights_ef: Vec<usize> = vec![8, 10];
+    let bus_n_vars: Vec<usize> = vec![5, 8, 3];
     let univariate_skips: usize = 3;
-    let lookups_log_height_and_cols: Vec<(usize, usize)> = vec![(11, 1), (3, 3), (0, 2), (5, 1)];
-    let bus_n_vars: Vec<usize> = vec![4, 5, 3];
+    assert_eq!(log_cols_heights_f.len(), num_values_per_lookup_f.len());
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut memory = (0..(1 << log_memory_size))
@@ -23,26 +30,54 @@ fn test_generic_logup() {
 
     let mut acc = F::zero_vec(1 << log_memory_size);
 
-    let mut all_indexe_columns = vec![];
-    let mut all_value_columns = vec![];
-    for (log_height, n_cols) in &lookups_log_height_and_cols {
+    let mut all_indexe_columns_f = vec![];
+    let mut all_indexe_columns_ef = vec![];
+    for log_height in log_cols_heights_f.iter() {
         let indexes = (0..(1 << log_height))
-            .map(|_| F::from_usize(rng.random_range(0..(1 << log_memory_size))))
+            .map(|_| {
+                F::from_usize(
+                    rng.random_range(0..(1 << log_memory_size) - *num_values_per_lookup_f.iter().max().unwrap()),
+                )
+            })
             .collect::<Vec<F>>();
-        all_indexe_columns.push(indexes);
-        let indexes = all_indexe_columns.last().unwrap();
+        all_indexe_columns_f.push(indexes);
+    }
 
-        let mut columns = vec![];
-        for col_index in 0..*n_cols {
-            let mut col = F::zero_vec(1 << log_height);
-            for i in 0..(1 << log_height) {
-                let idx = indexes[i].to_usize() + col_index;
-                col[i] = memory[idx];
-                acc[idx] += F::ONE;
+    for log_height in log_cols_heights_ef.iter() {
+        let indexes = (0..(1 << log_height))
+            .map(|_| {
+                F::from_usize(rng.random_range(0..(1 << log_memory_size) - <EF as BasedVectorSpace<PF<EF>>>::DIMENSION))
+            })
+            .collect::<Vec<F>>();
+        all_indexe_columns_ef.push(indexes);
+    }
+
+    let mut value_columns_f = vec![];
+    for (base_col, num_value_cols) in all_indexe_columns_f.iter().zip(num_values_per_lookup_f.iter()) {
+        let mut value_cols = vec![];
+        for i in 0..*num_value_cols {
+            let mut values_col = vec![];
+            for index in base_col {
+                let index = index.to_usize() + i;
+                values_col.push(memory[index]);
+                acc[index] += F::ONE;
             }
-            columns.push(col);
+            value_cols.push(values_col);
         }
-        all_value_columns.push(columns);
+        value_columns_f.push(value_cols);
+    }
+    let mut value_columns_ef = vec![];
+    for ext_col in &all_indexe_columns_ef {
+        let mut values = vec![];
+        for index in ext_col {
+            values.push(QuinticExtensionFieldKB::from_basis_coefficients_fn(|i| {
+                memory[index.to_usize() + i]
+            }));
+            for i in 0..<EF as BasedVectorSpace<PF<EF>>>::DIMENSION {
+                acc[index.to_usize() + i] += F::ONE;
+            }
+        }
+        value_columns_ef.push(values);
     }
 
     let mut bus_numerators = Vec::new();
@@ -66,6 +101,7 @@ fn test_generic_logup() {
     q -= last_den.inverse() * *last_num;
     *last_num = F::NEG_ONE;
     *last_den = q.inverse();
+
     let mut prover_state = build_prover_state();
     let logup_c = prover_state.sample();
     prover_state.duplexing();
@@ -78,11 +114,10 @@ fn test_generic_logup() {
         logup_alpha,
         &memory,
         &acc,
-        all_indexe_columns.iter().map(Vec::as_slice).collect(),
-        all_value_columns
-            .iter()
-            .map(|cols| cols.iter().map(|s| VecOrSlice::Slice(s)).collect())
-            .collect(),
+        collect_refs(&all_indexe_columns_f),
+        collect_refs(&all_indexe_columns_ef),
+        collect_inner_refs(&value_columns_f),
+        collect_refs(&value_columns_ef),
         collect_refs(&bus_numerators),
         collect_refs(&bus_denominators),
         univariate_skips,
@@ -94,21 +129,22 @@ fn test_generic_logup() {
     verifier_state.duplexing();
     let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
-    let remaining_claims_to_verify = verify_generic_logup(
+
+    let remaining_claims_to_verify = verify_generic_logup::<EF>(
         &mut verifier_state,
         logup_c,
         logup_alpha,
         log_memory_size,
-        lookups_log_height_and_cols.iter().map(|(h, _)| *h).collect(),
-        lookups_log_height_and_cols.iter().map(|(_, n_cols)| *n_cols).collect(),
+        log_cols_heights_f,
+        num_values_per_lookup_f,
+        log_cols_heights_ef,
         bus_n_vars,
         univariate_skips,
     )
     .unwrap();
-    let final_verifier_state = verifier_state.state();
+    assert_eq!(final_prover_state, verifier_state.state());
 
     assert_eq!(&remaining_claims_to_prove, &remaining_claims_to_verify);
-    assert_eq!(final_prover_state, final_verifier_state);
 
     assert_eq!(
         memory.evaluate(&remaining_claims_to_verify.on_table.point),
@@ -119,17 +155,27 @@ fn test_generic_logup() {
         remaining_claims_to_verify.on_acc.value
     );
 
-    for (index_col, statement) in all_indexe_columns
+    for (index_col, statement) in all_indexe_columns_f
         .iter()
-        .zip(remaining_claims_to_verify.on_indexes.iter())
+        .zip(remaining_claims_to_verify.on_indexes_f.iter())
     {
         assert_eq!(index_col.evaluate(&statement.point), statement.value);
     }
-    for (value_cols, value_statements) in all_value_columns
+    for (index_col, statement) in all_indexe_columns_ef
         .iter()
-        .zip(remaining_claims_to_verify.on_values.iter())
+        .zip(remaining_claims_to_verify.on_indexes_ef.iter())
     {
-        for (col, value) in value_cols.iter().zip(value_statements.values.iter()) {
+        assert_eq!(index_col.evaluate(&statement.point), statement.value);
+    }
+    for (i, value_cols) in value_columns_f.iter().enumerate() {
+        let statements_for_cols = &remaining_claims_to_verify.on_values_f[i];
+        for (col, value) in value_cols.iter().zip(statements_for_cols.values.iter()) {
+            assert_eq!(col.evaluate(&statements_for_cols.point), *value);
+        }
+    }
+    for (value_col, value_statements) in value_columns_ef.iter().zip(remaining_claims_to_verify.on_values_ef) {
+        let columns_base = transpose_slice_to_basis_coefficients::<PF<EF>, EF>(value_col);
+        for (col, value) in columns_base.iter().zip(value_statements.values.iter()) {
             assert_eq!(col.evaluate(&value_statements.point), *value);
         }
     }

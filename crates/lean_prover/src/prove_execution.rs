@@ -152,7 +152,7 @@ pub fn prove_execution(
         bus_denominators.push(denominator);
     }
 
-    let mut lookup_into_memory = prove_custom_logup::<EF, DIMENSION>(
+    let mut lookup_into_memory = prove_generic_logup::<EF>(
         &mut prover_state,
         logup_c,
         logup_alpha,

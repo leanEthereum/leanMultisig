@@ -61,6 +61,21 @@ pub fn run_end2end_recursion_benchmark() {
         &snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
     );
 
+    assert!(
+        verif_details.log_memory >= verif_details.table_log_n_vars[&Table::execution()]
+            && verif_details
+                .table_log_n_vars
+                .values()
+                .collect::<Vec<_>>()
+                .windows(2)
+                .all(|w| w[0] >= w[1]),
+        "TODO a more general recursion program",
+    );
+    assert_eq!(
+        verif_details.table_log_n_vars.keys().copied().collect::<Vec<_>>(),
+        vec![Table::execution(), Table::dot_product(), Table::poseidon16()]
+    );
+
     // VM recursion parameters (different from WHIR)
     program_str = program_str
         .replace(
