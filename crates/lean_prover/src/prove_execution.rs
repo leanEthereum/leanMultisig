@@ -63,14 +63,6 @@ pub fn prove_execution(
         .collect::<Vec<_>>(),
     );
 
-    // // only keep tables with non-zero rows
-    // let traces: BTreeMap<_, _> = traces
-    //     .into_iter()
-    //     .filter(|(table, trace)| {
-    //         trace.n_rows_non_padded() > 0 || table == &Table::execution() || table == &Table::poseidon16()
-    //     })
-    //     .collect();
-
     // TODO parrallelize
     let mut acc = F::zero_vec(memory.len());
     info_span!("Building memory access count").in_scope(|| {
@@ -160,7 +152,7 @@ pub fn prove_execution(
         bus_denominators.push(denominator);
     }
 
-    let mut lookup_into_memory = CustomLookupProver::run::<EF, DIMENSION>(
+    let mut lookup_into_memory = prove_custom_logup::<EF, DIMENSION>(
         &mut prover_state,
         logup_c,
         logup_alpha,
@@ -187,10 +179,7 @@ pub fn prove_execution(
         UNIVARIATE_SKIPS,
     );
 
-    let mut air_points: BTreeMap<Table, MultilinearPoint<EF>> = Default::default();
-    let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
-    let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
-
+    let (mut air_points, mut evals_f, mut evals_ef) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
     for (index, (table, trace)) in traces.iter().enumerate() {
         let (this_air_point, this_evals_f, this_evals_ef) = prove_bus_and_air(
             &mut prover_state,

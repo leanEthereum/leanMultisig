@@ -162,7 +162,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
 
-    verify_execution(program, &public_input, proof, &SnarkParams::default())
+    verify_execution(program, &public_input, proof, &SnarkParams::default()).map(|_| ())
 }
 
 #[instrument(skip_all)]

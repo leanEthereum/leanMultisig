@@ -1,7 +1,7 @@
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sub_protocols::{CustomLookupProver, CustomLookupVerifier};
+use sub_protocols::{prove_custom_logup, verify_custom_logup};
 use utils::{
     ToUsize, build_prover_state, build_verifier_state, collect_inner_refs, collect_refs,
     transpose_slice_to_basis_coefficients,
@@ -108,7 +108,7 @@ fn test_custom_logup() {
     let logup_alpha = prover_state.sample();
     prover_state.duplexing();
 
-    let remaining_claims_to_prove = CustomLookupProver::run(
+    let remaining_claims_to_prove = prove_custom_logup(
         &mut prover_state,
         logup_c,
         logup_alpha,
@@ -130,7 +130,7 @@ fn test_custom_logup() {
     let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
 
-    let remaining_claims_to_verify = CustomLookupVerifier::run::<EF, DIM>(
+    let remaining_claims_to_verify = verify_custom_logup::<EF, DIM>(
         &mut verifier_state,
         logup_c,
         logup_alpha,

@@ -11,12 +11,19 @@ use sub_protocols::*;
 use utils::ToUsize;
 use whir_p3::WhirConfig;
 
+#[derive(Debug, Clone)]
+pub struct ProofVerificationDetails {
+    pub log_memory: usize,
+    pub table_log_n_vars: BTreeMap<Table, VarCount>,
+    pub first_quotient_gkr_n_vars: usize,
+}
+
 pub fn verify_execution(
     bytecode: &Bytecode,
     public_input: &[F],
     proof: Vec<F>,
     params: &SnarkParams,
-) -> Result<(), ProofError> {
+) -> Result<ProofVerificationDetails, ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
     verifier_state.duplexing();
 
@@ -26,20 +33,12 @@ pub fn verify_execution(
         .map(|x| x.to_usize())
         .collect::<Vec<_>>();
     let log_memory = dims[0];
-    let table_heights: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 1])).collect();
-    for &n_vars in table_heights.values() {
+    let table_log_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 1])).collect();
+    for &n_vars in table_log_n_vars.values() {
         if !(MIN_LOG_N_ROWS_PER_TABLE..=MAX_LOG_N_ROWS_PER_TABLE).contains(&n_vars) {
             return Err(ProofError::InvalidProof);
         }
     }
-
-    // // only keep tables with non-zero rows
-    // let table_heights: BTreeMap<_, _> = table_heights
-    //     .into_iter()
-    //     .filter(|(table, height)| {
-    //         height.n_rows_non_padded() > 0 || table == &Table::execution() || table == &Table::poseidon16()
-    //     })
-    //     .collect();
 
     let public_memory = build_public_memory(public_input);
 
@@ -47,7 +46,7 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let base_dims = get_base_dims(log_memory, &table_heights);
+    let base_dims = get_base_dims(log_memory, &table_log_n_vars);
     let base_packed_dims = PackedDims::compute(&base_dims);
     let parsed_commitment_base =
         packed_pcs_parse_commitment::<F, EF>(&params.first_whir, &mut verifier_state, &base_packed_dims)?;
@@ -57,32 +56,29 @@ pub fn verify_execution(
     let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
 
-    let mut lookup_into_memory = CustomLookupVerifier::run::<EF, DIMENSION>(
+    let mut lookup_into_memory = verify_custom_logup::<EF, DIMENSION>(
         &mut verifier_state,
         logup_c,
         logup_alpha,
         log_memory,
-        table_heights
+        table_log_n_vars
             .iter()
             .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_lookups_f()])
             .collect(),
-        table_heights
+        table_log_n_vars
             .keys()
             .flat_map(|table| table.lookups_f().iter().map(|l| l.values.len()).collect::<Vec<_>>())
             .collect(),
-        table_heights
+        table_log_n_vars
             .iter()
             .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_lookups_ef()])
             .collect(),
-        table_heights.values().copied().collect(),
+        table_log_n_vars.values().copied().collect(),
         UNIVARIATE_SKIPS,
     )?;
 
-    let mut air_points: BTreeMap<Table, MultilinearPoint<EF>> = Default::default();
-    let mut evals_f: BTreeMap<Table, Vec<EF>> = Default::default();
-    let mut evals_ef: BTreeMap<Table, Vec<EF>> = Default::default();
-
-    for (index, (table, log_n_rows)) in table_heights.iter().enumerate() {
+    let (mut air_points, mut evals_f, mut evals_ef) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+    for (index, (table, log_n_rows)) in table_log_n_vars.iter().enumerate() {
         let (this_air_point, this_evals_f, this_evals_ef) = verify_bus_and_air(
             &mut verifier_state,
             table,
@@ -117,7 +113,7 @@ pub fn verify_execution(
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
         log2_ceil_usize(bytecode.instructions.len()),
-        table_heights[&Table::execution()],
+        table_log_n_vars[&Table::execution()],
         &[bytecode_lookup_claim],
         EF::ONE,
     )?;
@@ -141,7 +137,7 @@ pub fn verify_execution(
     let acc_statements = vec![lookup_into_memory.on_acc];
 
     let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
-    for table in table_heights.keys() {
+    for table in table_log_n_vars.keys() {
         final_statements.insert(
             *table,
             table.committed_statements_verifier(
@@ -162,7 +158,7 @@ pub fn verify_execution(
     assert!(lookup_into_memory.on_values_ef.is_empty());
 
     let (initial_pc_statement, final_pc_statement) =
-        initial_and_final_pc_conditions(table_heights[&Table::execution()]);
+        initial_and_final_pc_conditions(table_log_n_vars[&Table::execution()]);
 
     final_statements.get_mut(&Table::execution()).unwrap()[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
         .extend(vec![
@@ -188,7 +184,11 @@ pub fn verify_execution(
         bytecode_logup_star_statements.on_pushforward,
     )?;
 
-    Ok(())
+    Ok(ProofVerificationDetails {
+        log_memory,
+        table_log_n_vars,
+        first_quotient_gkr_n_vars: lookup_into_memory.quotient_gkr_n_vars,
+    })
 }
 
 #[allow(clippy::type_complexity)]

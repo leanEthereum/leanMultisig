@@ -1,7 +1,7 @@
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sub_protocols::{GenericLogupProver, GenericLogupVerifier};
+use sub_protocols::{prove_generic_logup, verify_generic_logup};
 use utils::{ToUsize, VecOrSlice, build_prover_state, build_verifier_state, collect_refs};
 
 type F = KoalaBear;
@@ -72,7 +72,7 @@ fn test_generic_logup() {
     let logup_alpha = prover_state.sample();
     prover_state.duplexing();
 
-    let remaining_claims_to_prove = GenericLogupProver::run::<EF>(
+    let remaining_claims_to_prove = prove_generic_logup(
         &mut prover_state,
         logup_c,
         logup_alpha,
@@ -94,7 +94,7 @@ fn test_generic_logup() {
     verifier_state.duplexing();
     let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
-    let remaining_claims_to_verify = GenericLogupVerifier::run(
+    let remaining_claims_to_verify = verify_generic_logup(
         &mut verifier_state,
         logup_c,
         logup_alpha,

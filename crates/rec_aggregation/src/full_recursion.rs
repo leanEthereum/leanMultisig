@@ -22,7 +22,7 @@ pub fn run_end2end_recursion_benchmark() {
     let bytecode_to_prove = compile_program(FIBONNACI_PROGRAM.replace("FIB_N_PLACEHOLDER", &FIBONACCI_N.to_string()));
     precompute_dft_twiddles::<F>(1 << 24);
     let proof_to_prove = prove_execution(&bytecode_to_prove, (&[], &[]), &vec![], &snark_params, false);
-    verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
+    let verif_details = verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
 
     let first_whir_config = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
 
@@ -50,7 +50,6 @@ pub fn run_end2end_recursion_benchmark() {
             "LOG_INV_RATE_PLACEHOLDER",
             &snark_params.first_whir.starting_log_inv_rate.to_string(),
         );
-    assert_eq!(first_whir_config.n_rounds(), 3); // this is hardcoded in the program above
     for round in 0..=first_whir_config.n_rounds() {
         program_str = program_str.replace(
             &format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
@@ -61,17 +60,24 @@ pub fn run_end2end_recursion_benchmark() {
         "RS_REDUCTION_FACTOR_0_PLACEHOLDER",
         &snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
     );
-    program_str = program_str.replace("N_TABLES_PLACEHOLDER", &N_TABLES.to_string());
-    program_str = program_str.replace(
-        "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER",
-        &MIN_LOG_N_ROWS_PER_TABLE.to_string(),
-    );
-    program_str = program_str.replace(
-        "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER",
-        &MAX_LOG_N_ROWS_PER_TABLE.to_string(),
-    );
-    program_str = program_str.replace("MIN_LOG_MEMORY_SIZE_PLACEHOLDER", &MIN_LOG_MEMORY_SIZE.to_string());
-    program_str = program_str.replace("MAX_LOG_MEMORY_SIZE_PLACEHOLDER", &MAX_LOG_MEMORY_SIZE.to_string());
+
+    // VM recursion parameters (different from WHIR)
+    program_str = program_str
+        .replace(
+            "N_VARS_FIRST_GKR_PLACEHOLDER",
+            &verif_details.first_quotient_gkr_n_vars.to_string(),
+        )
+        .replace("N_TABLES_PLACEHOLDER", &N_TABLES.to_string())
+        .replace(
+            "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER",
+            &MIN_LOG_N_ROWS_PER_TABLE.to_string(),
+        )
+        .replace(
+            "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER",
+            &MAX_LOG_N_ROWS_PER_TABLE.to_string(),
+        )
+        .replace("MIN_LOG_MEMORY_SIZE_PLACEHOLDER", &MIN_LOG_MEMORY_SIZE.to_string())
+        .replace("MAX_LOG_MEMORY_SIZE_PLACEHOLDER", &MAX_LOG_MEMORY_SIZE.to_string());
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;
