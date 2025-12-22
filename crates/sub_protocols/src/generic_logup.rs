@@ -28,9 +28,6 @@ pub struct GenericLogupStatements<EF> {
 
 #[derive(Debug)]
 enum Dim {
-    Table {
-        n_vars: usize,
-    },
     TableLookupGroup {
         group_index: usize,
         n_vars: usize,
@@ -45,25 +42,19 @@ enum Dim {
 impl Dim {
     fn n_vars(&self) -> usize {
         match self {
-            Dim::Table { n_vars } | Dim::TableLookupGroup { n_vars, .. } | Dim::Bus { n_vars, .. } => *n_vars,
+            Dim::TableLookupGroup { n_vars, .. } | Dim::Bus { n_vars, .. } => *n_vars,
         }
     }
     fn n_cols(&self) -> usize {
         match self {
-            Dim::Table { .. } | Dim::Bus { .. } => 1,
+            Dim::Bus { .. } => 1,
             Dim::TableLookupGroup { n_cols, .. } => *n_cols,
         }
     }
 }
 
-fn get_sorted_dims(
-    log_heights: &[usize],
-    n_cols_per_group: &[usize],
-    log_memory: usize,
-    bus_n_vars: &[usize],
-) -> Vec<Dim> {
+fn get_sorted_dims(log_heights: &[usize], n_cols_per_group: &[usize], bus_n_vars: &[usize]) -> Vec<Dim> {
     let mut all_dims = vec![];
-    all_dims.push(Dim::Table { n_vars: log_memory });
     for (index, (&n_vars, &n_cols)) in log_heights.iter().zip(n_cols_per_group).enumerate() {
         all_dims.push(Dim::TableLookupGroup {
             group_index: index,
@@ -98,6 +89,7 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     assert!(memory[0].is_zero());
     assert!(memory.len().is_power_of_two());
     assert_eq!(memory.len(), acc.len());
+    assert!(memory.len() >= index_columns_f.iter().map(|c| c.len()).max().unwrap());
     assert_eq_many!(index_columns_f.len(), value_columns_f.len());
     assert_eq_many!(index_columns_ef.len(), value_columns_ef.len());
     assert_eq!(bus_numerators.len(), bus_denominators.len());
@@ -138,13 +130,8 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
         .map(|col| log2_strict_usize(col.len()))
         .collect::<Vec<usize>>();
 
-    let all_dims = get_sorted_dims(
-        &log_heights,
-        &n_cols_per_group,
-        log2_strict_usize(memory.len()),
-        &bus_n_vars,
-    );
-    let total_len = all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
+    let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, &bus_n_vars);
+    let total_len = memory.len() + all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
     let total_n_vars = log2_ceil_usize(total_len);
     tracing::info!("Logup data: {} = 2^{:.2}", total_len, (total_len as f64).log2());
 
@@ -152,7 +139,24 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     let mut denominators = EF::zero_vec(1 << total_n_vars);
 
     let alpha_powers = alpha.powers().collect_n(3);
-    let mut offset = 0;
+
+    // Memory: ...
+    numerators[..memory.len()]
+        .par_iter_mut()
+        .zip(acc) // TODO embedding overhead
+        .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here 
+    denominators[..memory.len()]
+        .par_iter_mut()
+        .zip(memory.par_iter().enumerate())
+        .for_each(|(denom, (i, &mem_value))| {
+            *denom = c - finger_print(
+                PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
+                &[PF::<EF>::from_usize(i), mem_value],
+                &alpha_powers,
+            )
+        });
+    // ... Rest of the tables:
+    let mut offset = memory.len();
     for dim in &all_dims {
         match dim {
             Dim::TableLookupGroup { group_index, .. } => {
@@ -175,25 +179,6 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
                                 &alpha_powers,
                             )
                         });
-                    });
-            }
-            Dim::Table { .. } => {
-                // table
-
-                // TODO embedding overhead
-                numerators[offset..]
-                    .par_iter_mut()
-                    .zip(acc)
-                    .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here
-                denominators[offset..]
-                    .par_iter_mut()
-                    .zip(memory.par_iter().enumerate())
-                    .for_each(|(denom, (i, &mem_value))| {
-                        *denom = c - finger_print(
-                            PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
-                            &[PF::<EF>::from_usize(i), mem_value],
-                            &alpha_powers,
-                        )
                     });
             }
             Dim::Bus { index, .. } => {
@@ -222,8 +207,6 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     // sanity check
     assert_eq!(sum, EF::ZERO);
 
-    let mut statement_on_table = None;
-    let mut statement_on_acc = None;
     let mut statement_on_indexes = vec![None; n_groups];
     let mut statement_on_values = vec![None; n_groups];
 
@@ -231,6 +214,16 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     let mut bus_numerators_statements = vec![None; bus_numerators.len()];
     let mut bus_denominators_statements = vec![None; bus_denominators.len()];
 
+    // Memory: ...
+    let inner_point_mem = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
+    let value_acc = acc.evaluate(&inner_point_mem);
+    prover_state.add_extension_scalar(value_acc);
+    let statement_on_acc = Evaluation::new(inner_point_mem.clone(), value_acc);
+
+    let value_table = memory.evaluate(&inner_point_mem);
+    prover_state.add_extension_scalar(value_table);
+    let statement_on_table = Evaluation::new(inner_point_mem, value_table);
+    // ... Rest of the tables:
     for dim in &all_dims {
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, dim.n_vars()).to_vec());
 
@@ -246,17 +239,6 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
                     multi_eval.values.push(value_eval);
                 }
                 statement_on_values[*group_index] = Some(multi_eval);
-            }
-            Dim::Table { .. } => {
-                // table
-
-                let value_acc = acc.evaluate(&inner_point);
-                prover_state.add_extension_scalar(value_acc);
-                statement_on_acc = Some(Evaluation::new(inner_point.clone(), value_acc));
-
-                let value_table = memory.evaluate(&inner_point);
-                prover_state.add_extension_scalar(value_table);
-                statement_on_table = Some(Evaluation::new(inner_point, value_table));
             }
             Dim::Bus { index, .. } => {
                 let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
@@ -287,8 +269,8 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
         .collect::<Vec<EF>>();
 
     GenericLogupStatements {
-        on_table: statement_on_table.unwrap(),
-        on_acc: statement_on_acc.unwrap(),
+        on_table: statement_on_table,
+        on_acc: statement_on_acc,
         on_indexes_f: unwrap_slice(&statement_on_indexes[..n_cols_f]),
         on_indexes_ef: unwrap_slice(&statement_on_indexes[n_cols_f..]),
         on_values_f: unwrap_slice(&statement_on_values[..n_cols_f]),
@@ -337,8 +319,8 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
     let log_heights = [log_heights_f.clone(), log_heights_ef.clone()].concat();
     let dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
     let n_cols_per_group = [num_values_per_lookup_f, vec![dim; log_heights_ef.len()]].concat();
-    let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, log_memory, &bus_n_vars);
-    let total_len = all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
+    let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, &bus_n_vars);
+    let total_len = (1 << log_memory) + all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
     let total_n_vars = log2_ceil_usize(total_len);
 
     let (sum, claim_point_gkr, numerators_value, denominators_value) =
@@ -353,14 +335,32 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
     let mut retrieved_numerators_value = EF::ZERO;
     let mut retrieved_denominators_value = EF::ZERO;
 
-    let mut offset = 0;
-    let mut statement_on_table = None;
-    let mut statement_on_acc = None;
     let mut statement_on_indexes = vec![None; n_cols_per_group.len()];
     let mut statement_on_values = vec![None; n_cols_per_group.len()];
     let mut bus_numerators_statements = vec![None; bus_n_vars.len()];
     let mut bus_denominators_statements = vec![None; bus_n_vars.len()];
 
+    // Memory ...
+    let inner_point_memory = MultilinearPoint(from_end(&claim_point_gkr, log_memory).to_vec());
+    let bits = to_big_endian_in_field::<EF>(0, total_n_vars - log_memory);
+    let pref = MultilinearPoint(bits)
+        .eq_poly_outside(&MultilinearPoint(claim_point_gkr[..total_n_vars - log_memory].to_vec()));
+
+    let value_acc = verifier_state.next_extension_scalar()?;
+    let statement_on_acc = Evaluation::new(inner_point_memory.clone(), value_acc);
+    retrieved_numerators_value -= pref * value_acc;
+
+    let value_table = verifier_state.next_extension_scalar()?;
+    let value_index = mle_of_01234567_etc(&inner_point_memory);
+    let statement_on_table = Evaluation::new(inner_point_memory.clone(), value_table);
+    retrieved_denominators_value += pref
+        * (c - finger_print(
+            PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
+            &[value_index, value_table],
+            &alpha_powers,
+        ));
+    // ... Rest of the tables:
+    let mut offset = 1 << log_memory;
     for dim in &all_dims {
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, dim.n_vars()).to_vec());
         let n_missing_vars = total_n_vars - dim.n_vars();
@@ -388,25 +388,6 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
                         ));
                 }
                 statement_on_values[*group_index] = Some(multi_eval);
-            }
-            Dim::Table { .. } => {
-                // table
-                let bits = to_big_endian_in_field::<EF>(offset >> dim.n_vars(), n_missing_vars);
-                let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
-
-                let value_acc = verifier_state.next_extension_scalar()?;
-                statement_on_acc = Some(Evaluation::new(inner_point.clone(), value_acc));
-                retrieved_numerators_value -= pref * value_acc;
-
-                let value_table = verifier_state.next_extension_scalar()?;
-                let value_index = mle_of_01234567_etc(&inner_point);
-                statement_on_table = Some(Evaluation::new(inner_point.clone(), value_table));
-                retrieved_denominators_value += pref
-                    * (c - finger_print(
-                        PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
-                        &[value_index, value_table],
-                        &alpha_powers,
-                    ));
             }
             Dim::Bus { index, .. } => {
                 let missing_inner_point = MultilinearPoint(inner_point[..univariate_skips].to_vec());
@@ -449,8 +430,8 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
 
     let n_cols_f = log_heights_f.len();
     Ok(GenericLogupStatements {
-        on_table: statement_on_table.unwrap(),
-        on_acc: statement_on_acc.unwrap(),
+        on_table: statement_on_table,
+        on_acc: statement_on_acc,
         on_indexes_f: unwrap_slice(&statement_on_indexes[..n_cols_f]),
         on_indexes_ef: unwrap_slice(&statement_on_indexes[n_cols_f..]),
         on_values_f: unwrap_slice(&statement_on_values[..n_cols_f]),

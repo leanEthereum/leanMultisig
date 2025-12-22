@@ -13,8 +13,8 @@ const DIM: usize = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
 const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 5;
 
 #[test]
-fn test_custom_logup() {
-    let log_memory_size: usize = 12;
+fn test_generic_logup() {
+    let log_memory_size: usize = 13;
     let log_cols_heights_f: Vec<usize> = vec![12, 11, 13, 1];
     let num_values_per_lookup_f: Vec<usize> = vec![1, 2, 10, 3];
     let log_cols_heights_ef: Vec<usize> = vec![8, 10];
