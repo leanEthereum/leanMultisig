@@ -71,6 +71,7 @@ fn main() {
 
     for i in 0..N_TABLES unroll {
         n_vars_for_table = table_dims[i];
+        range_check(n_vars_for_table, log_memory + 1);
         full_range_check(MIN_LOG_N_ROWS_PER_TABLE - 1, n_vars_for_table, MAX_LOG_N_ROWS_PER_TABLE + 1);
     }
     full_range_check(MIN_LOG_MEMORY_SIZE - 1, log_memory, MAX_LOG_MEMORY_SIZE + 1);
@@ -596,6 +597,17 @@ fn next_multiple_of_8(const a) -> 1 {
 fn read_memory(ptr) inline -> 1  {
     mem = 0;
     return mem[ptr];
+}
+
+fn range_check(l, r) inline {
+    // ensure that l < r
+    // TODO (for now we simulate the cost)
+    // cf section 2.5.3 of the minimal_zkVM.pdf
+    debug_assert l < r;
+    dummy1 = l + r;
+    dummy2 = dummy1 * 2;
+    dummy3 = dummy2 + 3;
+    return;
 }
 
 fn full_range_check(l, x, r) inline {

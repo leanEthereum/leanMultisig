@@ -137,6 +137,22 @@ mod tests {
     }
 
     #[test]
+    fn test_small_memory() {
+        let program_str = r#"
+        fn main() {
+            a = malloc(1);
+            for i in 0..2**17 unroll {
+                a[0] = 1 * 2;
+            }
+            return;
+        }
+        "#;
+
+        test_zk_vm_helper(program_str, (&[], &[]), false);
+    }
+
+
+    #[test]
     fn test_prove_fibonacci() {
         let n = std::env::var("FIB_N")
             .unwrap_or("10000".to_string())

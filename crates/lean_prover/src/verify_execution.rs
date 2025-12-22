@@ -39,6 +39,10 @@ pub fn verify_execution(
             return Err(ProofError::InvalidProof);
         }
     }
+    // check memory is bigger than any other table
+    if log_memory < *table_log_n_vars.values().max().unwrap() {
+        return Err(ProofError::InvalidProof);
+    }
 
     let public_memory = build_public_memory(public_input);
 

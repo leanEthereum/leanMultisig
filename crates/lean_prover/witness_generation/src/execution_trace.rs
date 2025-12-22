@@ -81,7 +81,9 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         });
 
     let mut memory_padded = memory.0.par_iter().map(|&v| v.unwrap_or(F::ZERO)).collect::<Vec<F>>();
-    memory_padded.resize(memory.0.len().next_power_of_two(), F::ZERO);
+    // IMPRTANT: memory size should always be >= number of VM cycles
+    let padded_memory_len = (memory.0.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
+    memory_padded.resize(padded_memory_len, F::ZERO);
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
