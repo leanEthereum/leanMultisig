@@ -151,7 +151,6 @@ mod tests {
         test_zk_vm_helper(program_str, (&[], &[]), false);
     }
 
-
     #[test]
     fn test_prove_fibonacci() {
         let n = std::env::var("FIB_N")

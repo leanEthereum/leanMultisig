@@ -1,31 +1,32 @@
-use crate::{
+use air::{check_air_validity, prove_air, verify_air};
+use lean_vm::{
     EF, ExtraDataForBuses, F, POSEIDON_16_COL_COMPRESSION, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INDEX_A,
     POSEIDON_16_COL_INDEX_B, POSEIDON_16_COL_INDEX_RES, POSEIDON_16_COL_INDEX_RES_BIS, POSEIDON_16_COL_INPUT_START,
     POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, Poseidon16Precompile, ZERO_VEC_PTR,
-    tables::{WIDTH, num_cols, poseidon_16::trace_gen::fill_trace_poseidon_16},
+    fill_trace_poseidon_16, num_cols_poseidon_16,
 };
-use air::{check_air_validity, prove_air, verify_air};
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use sub_protocols::{PackedDims, packed_pcs_commit, packed_pcs_global_statements, packed_pcs_parse_commitment};
 use utils::{build_prover_state, build_verifier_state, collect_refs, init_tracing};
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder};
 
+const WIDTH: usize = 16;
 const UNIVARIATE_SKIPS: usize = 3;
-const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 13;
 
 #[test]
 fn test_benchmark_air_poseidon_16() {
     benchmark_prove_poseidon_16(11, false);
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     if tracing {
         init_tracing();
     }
     let n_rows = 1 << log_n_rows;
     let mut rng = StdRng::seed_from_u64(0);
-    let mut trace = vec![vec![F::ZERO; n_rows]; num_cols()];
+    let mut trace = vec![vec![F::ZERO; n_rows]; num_cols_poseidon_16()];
     for t in trace.iter_mut().skip(POSEIDON_16_COL_INPUT_START).take(WIDTH) {
         *t = (0..n_rows).map(|_| rng.random()).collect();
     }
@@ -54,7 +55,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     check_air_validity(
         &air,
         &ExtraDataForBuses::default(),
-        &trace.iter().map(|row| row.as_slice()).collect::<Vec<_>>(),
+        &collect_refs(&trace),
         &[] as &[&[EF]],
         &[],
         &[],
@@ -72,7 +73,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         &air,
         ExtraDataForBuses::default(),
         UNIVARIATE_SKIPS,
-        &trace.iter().map(|row| row.as_slice()).collect::<Vec<_>>(),
+        &collect_refs(&trace),
         &[] as &[&[EF]],
         &[],
         &[],
@@ -106,7 +107,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     let parsed_commitment_base = packed_pcs_parse_commitment::<F, EF>(
         &whir_config,
         &mut verifier_state,
-        &PackedDims::compute(&[log_n_rows; num_cols()]),
+        &PackedDims::compute(&[log_n_rows; num_cols_poseidon_16()]),
     )
     .unwrap();
 
@@ -123,7 +124,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     .unwrap();
 
     let global_statements_verifier = packed_pcs_global_statements(
-        &PackedDims::compute(&[log_n_rows; num_cols()]),
+        &PackedDims::compute(&[log_n_rows; num_cols_poseidon_16()]),
         &verifier_statements
             .1
             .iter()

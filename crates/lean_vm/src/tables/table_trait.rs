@@ -6,9 +6,7 @@ use crate::{
 use multilinear_toolkit::prelude::*;
 
 use std::{any::TypeId, mem::transmute};
-use utils::VarCount;
-
-use sub_protocols::{ExtensionCommitmentFromBaseProver, ExtensionCommitmentFromBaseVerifier};
+use utils::{VarCount, dot_product_with_base};
 
 // Zero padding will be added to each at least, if this minimum is not reached
 // (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)
@@ -196,7 +194,7 @@ pub trait TableT: Air {
         prover_state: &mut impl FSProver<EF>,
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
-        ext_commitment_helper: Option<&ExtensionCommitmentFromBaseProver<EF>>,
+        extension_columns_transposed: &[Vec<F>], // commit columns in extension field, via base field PCS
         lokup_statements_on_indexes_f: &mut Vec<Evaluation<EF>>,
         lookup_statements_on_indexes_ef: &mut Vec<Evaluation<EF>>,
         lookup_statements_on_values_f: &mut Vec<MultiEvaluation<EF>>,
@@ -209,8 +207,17 @@ pub trait TableT: Air {
             .iter()
             .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c])])
             .collect::<Vec<_>>();
-        if let Some(ext_commitment_helper) = ext_commitment_helper {
-            statements.extend(ext_commitment_helper.after_commitment(prover_state, air_point));
+        if self.n_commited_columns_ef() > 0 {
+            let statements_for_extension_columns = extension_columns_transposed
+                .par_iter()
+                .map(|col| col.evaluate(air_point))
+                .collect::<Vec<_>>();
+            prover_state.add_extension_scalars(&statements_for_extension_columns);
+            statements.extend(
+                statements_for_extension_columns
+                    .iter()
+                    .map(|eval| vec![Evaluation::new(air_point.clone(), *eval)]),
+            );
         }
 
         for lookup in self.lookups_f() {
@@ -267,16 +274,20 @@ pub trait TableT: Air {
             .collect::<Vec<_>>();
 
         if self.n_commited_columns_ef() > 0 {
-            statements.extend(ExtensionCommitmentFromBaseVerifier::after_commitment(
-                verifier_state,
-                &MultiEvaluation::new(
-                    air_point.clone(),
-                    self.commited_columns_ef()
+            let sub_evals = verifier_state.next_extension_scalars_vec(DIMENSION * self.commited_columns_ef().len())?;
+            for (chunk, claim_value) in sub_evals
+                .chunks_exact(DIMENSION)
+                .zip(self.commited_columns_ef().iter().map(|&c| air_values_ef[c]))
+            {
+                if dot_product_with_base(chunk) != claim_value {
+                    return Err(ProofError::InvalidProof);
+                }
+                statements.extend(
+                    chunk
                         .iter()
-                        .map(|&c| air_values_ef[c])
-                        .collect::<Vec<_>>(),
-                ),
-            )?);
+                        .map(|&sub_value| vec![Evaluation::new(air_point.clone(), sub_value)]),
+                );
+            }
         }
         for lookup in self.lookups_f() {
             statements[self.find_committed_column_index_f(lookup.index)].push(lookup_statements_on_indexes_f.remove(0));
@@ -309,11 +320,7 @@ pub trait TableT: Air {
 
         Ok(statements)
     }
-    fn committed_columns<'a>(
-        &self,
-        trace: &'a TableTrace,
-        computation_ext_to_base_helper: Option<&'a ExtensionCommitmentFromBaseProver<EF>>,
-    ) -> Vec<&'a [F]> {
+    fn committed_columns<'a>(&self, trace: &'a TableTrace, extension_columns_transposed: &'a [Vec<F>]) -> Vec<&'a [F]> {
         // base field committed columns
         let mut cols = self
             .commited_columns_f()
@@ -321,14 +328,7 @@ pub trait TableT: Air {
             .map(|&c| &trace.base[c][..])
             .collect::<Vec<_>>();
         // convert extension field committed columns to base field
-        if let Some(computation_ext_to_base_helper) = computation_ext_to_base_helper {
-            cols.extend(
-                computation_ext_to_base_helper
-                    .sub_columns_to_commit
-                    .iter()
-                    .map(Vec::as_slice),
-            );
-        }
+        cols.extend(extension_columns_transposed.iter().map(Vec::as_slice));
         cols
     }
     fn lookup_index_columns_f<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {

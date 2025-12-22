@@ -9,10 +9,7 @@ use p3_koala_bear::{
 };
 use utils::{ToUsize, poseidon16_permute};
 
-mod test;
 mod trace_gen;
-
-pub use test::benchmark_prove_poseidon_16;
 pub use trace_gen::fill_trace_poseidon_16;
 
 pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
@@ -29,7 +26,7 @@ pub const POSEIDON_16_COL_COMPRESSION: ColIndex = 3;
 pub const POSEIDON_16_COL_INDEX_A: ColIndex = 4;
 pub const POSEIDON_16_COL_INDEX_B: ColIndex = 5;
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
-const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols() - 16;
+const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile<const BUS: bool>;
@@ -154,7 +151,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
 impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns_f_air(&self) -> usize {
-        num_cols()
+        num_cols_poseidon_16()
     }
     fn n_columns_ef_air(&self) -> usize {
         0
@@ -261,7 +258,7 @@ fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
     );
 }
 
-pub(super) const fn num_cols() -> usize {
+pub const fn num_cols_poseidon_16() -> usize {
     size_of::<Poseidon2Cols<u8>>()
 }
 

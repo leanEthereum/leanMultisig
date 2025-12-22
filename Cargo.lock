@@ -359,11 +359,15 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 name = "lean-multisig"
 version = "0.1.0"
 dependencies = [
+ "air 0.1.0",
  "clap",
  "lean_vm",
  "multilinear-toolkit",
  "p3-koala-bear",
+ "rand",
  "rec_aggregation",
+ "sub_protocols",
+ "utils",
  "whir-p3",
  "xmss",
 ]
@@ -429,7 +433,6 @@ dependencies = [
  "pest",
  "pest_derive",
  "rand",
- "sub_protocols",
  "thiserror",
  "tracing",
  "utils",

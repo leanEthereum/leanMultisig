@@ -3,7 +3,7 @@ use tracing::instrument;
 
 use crate::{
     F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
-    tables::{Poseidon2Cols, WIDTH, num_cols},
+    tables::{Poseidon2Cols, WIDTH, num_cols_poseidon_16},
 };
 use multilinear_toolkit::prelude::*;
 use p3_koala_bear::{
@@ -47,8 +47,8 @@ pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
 }
 
 pub fn default_poseidon_row() -> Vec<F> {
-    let mut row = vec![F::ZERO; num_cols()];
-    let ptrs: [*mut F; num_cols()] = std::array::from_fn(|i| unsafe { row.as_mut_ptr().add(i) });
+    let mut row = vec![F::ZERO; num_cols_poseidon_16()];
+    let ptrs: [*mut F; num_cols_poseidon_16()] = std::array::from_fn(|i| unsafe { row.as_mut_ptr().add(i) });
 
     let perm: &mut Poseidon2Cols<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon2Cols<&mut F>) };
     perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);

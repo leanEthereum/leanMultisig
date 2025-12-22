@@ -1,7 +1,9 @@
 use clap::Parser;
-use lean_vm::benchmark_prove_poseidon_16;
+mod prove_poseidons;
 use rec_aggregation::{whir_recursion::run_whir_recursion_benchmark, xmss_aggregate::run_xmss_benchmark};
 use xmss::XMSS_MAX_LOG_LIFETIME;
+
+use crate::prove_poseidons::benchmark_prove_poseidon_16;
 
 #[derive(Parser)]
 enum Cli {

@@ -84,6 +84,10 @@ multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolk
 clap.workspace = true
 rec_aggregation.workspace = true
 xmss.workspace = true
+air.workspace = true
+rand.workspace = true
+sub_protocols.workspace = true
+utils.workspace = true
 p3-koala-bear.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true

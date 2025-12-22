@@ -84,26 +84,23 @@ pub fn prove_execution(
         }
     });
 
-    let commitmenent_extension_helper = traces
+    let extension_columns_transposed = traces
         .iter()
-        .filter(|(table, _)| table.n_commited_columns_ef() > 0)
         .map(|(table, trace)| {
             (
                 *table,
-                ExtensionCommitmentFromBaseProver::before_commitment(
-                    table
-                        .commited_columns_ef()
-                        .iter()
-                        .map(|&c| &trace.ext[c][..])
-                        .collect::<Vec<_>>(),
-                ),
+                table
+                    .commited_columns_ef()
+                    .iter()
+                    .flat_map(|&c| transpose_slice_to_basis_coefficients::<PF<EF>, EF>(&trace.ext[c]))
+                    .collect::<Vec<_>>(),
             )
         })
         .collect::<BTreeMap<_, _>>();
 
     let mut base_pols = vec![memory.as_slice(), acc.as_slice()];
     for (table, trace) in &traces {
-        base_pols.extend(table.committed_columns(trace, commitmenent_extension_helper.get(table)));
+        base_pols.extend(table.committed_columns(trace, &extension_columns_transposed[table]));
     }
 
     // 1st Commitment
@@ -250,7 +247,7 @@ pub fn prove_execution(
                 &mut prover_state,
                 &air_points[table],
                 &evals_f[table],
-                commitmenent_extension_helper.get(table),
+                &extension_columns_transposed[table],
                 &mut lookup_into_memory.on_indexes_f,
                 &mut lookup_into_memory.on_indexes_ef,
                 &mut lookup_into_memory.on_values_f,
