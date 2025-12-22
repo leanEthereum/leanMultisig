@@ -66,7 +66,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             aux_2,
         } => {
             fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
-            fields[COL_INDEX_PRECOMPILE_INDEX] = table.embed();
+            fields[COL_INDEX_WHICH_PRECOMPILE] = table.embed();
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, arg_c);

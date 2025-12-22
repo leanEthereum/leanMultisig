@@ -5,7 +5,7 @@ use crate::{
 };
 use multilinear_toolkit::prelude::*;
 
-use std::{any::TypeId, mem::transmute};
+use std::{any::TypeId, collections::BTreeMap, mem::transmute};
 use utils::{VarCount, dot_product_with_base};
 
 // Zero padding will be added to each at least, if this minimum is not reached
@@ -195,12 +195,11 @@ pub trait TableT: Air {
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
         extension_columns_transposed: &[Vec<F>], // commit columns in extension field, via base field PCS
-        lokup_statements_on_indexes_f: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_indexes_ef: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_values_f: &mut Vec<MultiEvaluation<EF>>,
-        lookup_statements_on_values_ef: &mut Vec<MultiEvaluation<EF>>,
+        lookup_statements_f: &BTreeMap<ColIndex, Vec<Evaluation<EF>>>,
+        lookup_statements_ef: &BTreeMap<ColIndex, Vec<Evaluation<EF>>>,
     ) -> Vec<Vec<Evaluation<EF>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
+        assert_eq!(lookup_statements_ef.len(), self.num_lookups_ef());
 
         let mut statements = self
             .commited_columns_f()
@@ -219,34 +218,17 @@ pub trait TableT: Air {
                     .map(|eval| vec![Evaluation::new(air_point.clone(), *eval)]),
             );
         }
-
-        for lookup in self.lookups_f() {
-            statements[self.find_committed_column_index_f(lookup.index)].push(lokup_statements_on_indexes_f.remove(0));
-        }
-        for lookup in self.lookups_ef() {
-            statements[self.find_committed_column_index_f(lookup.index)]
-                .push(lookup_statements_on_indexes_ef.remove(0));
+        for (col_index, statements_f) in lookup_statements_f {
+            statements[self.find_committed_column_index_f(*col_index)].extend(statements_f.clone());
         }
 
-        for lookup in self.lookups_f() {
-            for (col_index, col_statements) in lookup
-                .values
-                .iter()
-                .zip(lookup_statements_on_values_f.remove(0).split())
-            {
-                statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
-            }
-        }
-        for lookup in self.lookups_ef() {
+        for (col_index, statements_ef) in lookup_statements_ef {
             let my_statements = &mut statements
-                [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
+                [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(*col_index)..]
                 [..DIMENSION];
-            my_statements
-                .iter_mut()
-                .zip(lookup_statements_on_values_ef.remove(0).split())
-                .for_each(|(stmt, to_add)| {
-                    stmt.push(to_add);
-                });
+            my_statements.iter_mut().zip(statements_ef).for_each(|(stmt, to_add)| {
+                stmt.push(to_add.clone());
+            });
         }
 
         statements
@@ -259,10 +241,8 @@ pub trait TableT: Air {
         air_point: &MultilinearPoint<EF>,
         air_values_f: &[EF],
         air_values_ef: &[EF],
-        lookup_statements_on_indexes_f: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_indexes_ef: &mut Vec<Evaluation<EF>>,
-        lookup_statements_on_values_f: &mut Vec<MultiEvaluation<EF>>,
-        lookup_statements_on_values_ef: &mut Vec<MultiEvaluation<EF>>,
+        lookup_statements_f: &BTreeMap<ColIndex, Vec<Evaluation<EF>>>,
+        lookup_statements_ef: &BTreeMap<ColIndex, Vec<Evaluation<EF>>>,
     ) -> ProofResult<Vec<Vec<Evaluation<EF>>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
         assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
@@ -289,33 +269,17 @@ pub trait TableT: Air {
                 );
             }
         }
-        for lookup in self.lookups_f() {
-            statements[self.find_committed_column_index_f(lookup.index)].push(lookup_statements_on_indexes_f.remove(0));
-        }
-        for lookup in self.lookups_ef() {
-            statements[self.find_committed_column_index_f(lookup.index)]
-                .push(lookup_statements_on_indexes_ef.remove(0));
+        for (col_index, statements_f) in lookup_statements_f {
+            statements[self.find_committed_column_index_f(*col_index)].extend(statements_f.clone());
         }
 
-        for lookup in self.lookups_f() {
-            for (col_index, col_statements) in lookup
-                .values
-                .iter()
-                .zip(lookup_statements_on_values_f.remove(0).split())
-            {
-                statements[self.find_committed_column_index_f(*col_index)].push(col_statements);
-            }
-        }
-        for lookup in self.lookups_ef() {
+        for (col_index, statements_ef) in lookup_statements_ef {
             let my_statements = &mut statements
-                [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(lookup.values)..]
+                [self.n_commited_columns_f() + DIMENSION * self.find_committed_column_index_ef(*col_index)..]
                 [..DIMENSION];
-            my_statements
-                .iter_mut()
-                .zip(lookup_statements_on_values_ef.remove(0).split())
-                .for_each(|(stmt, to_add)| {
-                    stmt.push(to_add);
-                });
+            my_statements.iter_mut().zip(statements_ef).for_each(|(stmt, to_add)| {
+                stmt.push(to_add.clone());
+            });
         }
 
         Ok(statements)

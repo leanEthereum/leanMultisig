@@ -47,7 +47,7 @@ impl TableT for ExecutionTable {
 
     fn bus(&self) -> Bus {
         Bus {
-            table: BusTable::Variable(COL_INDEX_PRECOMPILE_INDEX),
+            table: BusTable::Variable(COL_INDEX_WHICH_PRECOMPILE),
             direction: BusDirection::Push,
             selector: COL_INDEX_IS_PRECOMPILE,
             data: vec![

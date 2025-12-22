@@ -1,144 +1,69 @@
+use std::cmp::Reverse;
+use std::collections::BTreeMap;
+
 use crate::{prove_gkr_quotient, verify_gkr_quotient};
+use lean_vm::ALL_TABLES;
+use lean_vm::BusDirection;
+use lean_vm::BusTable;
+use lean_vm::ColIndex;
+use lean_vm::DIMENSION;
+use lean_vm::EF;
+use lean_vm::F;
+use lean_vm::Table;
+use lean_vm::TableT;
+use lean_vm::TableTrace;
+use lean_vm::max_bus_width;
 use multilinear_toolkit::prelude::*;
 use utils::MEMORY_TABLE_INDEX;
+use utils::VarCount;
 use utils::VecOrSlice;
-use utils::assert_eq_many;
 use utils::finger_print;
 use utils::from_end;
 use utils::mle_of_01234567_etc;
 use utils::to_big_endian_in_field;
 use utils::transpose_slice_to_basis_coefficients;
 
-#[derive(Debug, PartialEq)]
-pub struct GenericLogupStatements<EF> {
-    pub on_table: Evaluation<EF>,
+#[derive(Debug, PartialEq, Hash, Clone)]
+pub struct GenericLogupStatements {
+    pub on_memory: Evaluation<EF>,
     pub on_acc: Evaluation<EF>,
-    pub on_indexes_f: Vec<Evaluation<EF>>,
-    pub on_indexes_ef: Vec<Evaluation<EF>>,
-    pub on_values_f: Vec<MultiEvaluation<EF>>,
-    pub on_values_ef: Vec<MultiEvaluation<EF>>, // `DIM` values for each one
-
-    // buses
-    pub on_bus_numerators: Vec<Evaluation<EF>>,
-    pub on_bus_denominators: Vec<Evaluation<EF>>,
-
-    // usefull for recursion
-    pub quotient_gkr_n_vars: usize,
-}
-
-#[derive(Debug)]
-enum Dim {
-    TableLookupGroup {
-        group_index: usize,
-        n_vars: usize,
-        n_cols: usize,
-    },
-    Bus {
-        n_vars: usize,
-        index: usize,
-    },
-}
-
-impl Dim {
-    fn n_vars(&self) -> usize {
-        match self {
-            Dim::TableLookupGroup { n_vars, .. } | Dim::Bus { n_vars, .. } => *n_vars,
-        }
-    }
-    fn n_cols(&self) -> usize {
-        match self {
-            Dim::Bus { .. } => 1,
-            Dim::TableLookupGroup { n_cols, .. } => *n_cols,
-        }
-    }
-}
-
-fn get_sorted_dims(log_heights: &[usize], n_cols_per_group: &[usize], bus_n_vars: &[usize]) -> Vec<Dim> {
-    let mut all_dims = vec![];
-    for (index, (&n_vars, &n_cols)) in log_heights.iter().zip(n_cols_per_group).enumerate() {
-        all_dims.push(Dim::TableLookupGroup {
-            group_index: index,
-            n_vars,
-            n_cols,
-        });
-    }
-    for (index, &n_vars) in bus_n_vars.iter().enumerate() {
-        all_dims.push(Dim::Bus { n_vars, index });
-    }
-    all_dims.sort_by_key(|d| std::cmp::Reverse(d.n_vars()));
-    all_dims
+    pub bus_numerators: BTreeMap<Table, Evaluation<EF>>,
+    pub bus_denominators: BTreeMap<Table, Evaluation<EF>>,
+    pub columns_f: BTreeMap<Table, BTreeMap<ColIndex, Vec<Evaluation<EF>>>>,
+    pub columns_ef: BTreeMap<Table, BTreeMap<ColIndex, Vec<Evaluation<EF>>>>,
+    // Used in recursion
+    pub total_n_vars: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
+pub fn prove_generic_logup(
     prover_state: &mut impl FSProver<EF>,
     c: EF,
     alpha: EF,
-    memory: &[PF<EF>], // memory[0] is assumed to be zero
-    acc: &[PF<EF>],
-    index_columns_f: Vec<&[PF<EF>]>,
-    index_columns_ef: Vec<&[PF<EF>]>,
-    value_columns_f: Vec<Vec<&[PF<EF>]>>,
-    value_columns_ef: Vec<&[EF]>,
-
-    // parameters for "buses" = information flow between different tables
-    bus_numerators: Vec<&[PF<EF>]>,
-    bus_denominators: Vec<&[EF]>,
+    memory: &[F],
+    acc: &[F],
+    traces: &BTreeMap<Table, TableTrace>,
     univariate_skips: usize,
-) -> GenericLogupStatements<EF> {
+) -> GenericLogupStatements {
     assert!(memory[0].is_zero());
     assert!(memory.len().is_power_of_two());
     assert_eq!(memory.len(), acc.len());
-    assert!(memory.len() >= index_columns_f.iter().map(|c| c.len()).max().unwrap());
-    assert_eq_many!(index_columns_f.len(), value_columns_f.len());
-    assert_eq_many!(index_columns_ef.len(), value_columns_ef.len());
-    assert_eq!(bus_numerators.len(), bus_denominators.len());
-    let n_cols_f = value_columns_f.len();
+    assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());
 
-    let mut value_columns = Vec::<Vec<_>>::new();
-    for cols_f in value_columns_f {
-        value_columns.push(cols_f.iter().map(|s| VecOrSlice::Slice(s)).collect());
-    }
-    for col_ef in &value_columns_ef {
-        value_columns.push(
-            transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef)
-                .into_iter()
-                .map(VecOrSlice::Vec)
-                .collect(),
-        );
-    }
-
-    let index_columns = [index_columns_f, index_columns_ef].concat();
-
-    bus_numerators
+    let mut tables_heights_sorted = traces
         .iter()
-        .zip(bus_denominators.iter())
-        .for_each(|(&sel, &data)| {
-            assert_eq!(sel.len(), data.len());
-        });
+        .map(|(table, trace)| (*table, trace.log_n_rows))
+        .collect::<Vec<_>>();
+    tables_heights_sorted.sort_by_key(|&(_, h)| Reverse(h));
 
-    let bus_n_vars = bus_numerators
-        .iter()
-        .map(|sel| log2_strict_usize(sel.len()))
-        .collect::<Vec<usize>>();
-
-    let n_groups = value_columns.len();
-    let n_cols_per_group = value_columns.iter().map(|cols| cols.len()).collect::<Vec<usize>>();
-
-    let log_heights = index_columns
-        .iter()
-        .map(|col| log2_strict_usize(col.len()))
-        .collect::<Vec<usize>>();
-
-    let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, &bus_n_vars);
-    let total_len = memory.len() + all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
-    let total_n_vars = log2_ceil_usize(total_len);
-    tracing::info!("Logup data: {} = 2^{:.2}", total_len, (total_len as f64).log2());
-
+    let total_n_vars = compute_total_n_vars(
+        log2_strict_usize(memory.len()),
+        &tables_heights_sorted.iter().cloned().collect(),
+    );
     let mut numerators = EF::zero_vec(1 << total_n_vars);
     let mut denominators = EF::zero_vec(1 << total_n_vars);
 
-    let alpha_powers = alpha.powers().collect_n(3);
+    let alpha_powers = alpha.powers().collect_n(max_bus_width());
 
     // Memory: ...
     numerators[..memory.len()]
@@ -150,52 +75,100 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
         .zip(memory.par_iter().enumerate())
         .for_each(|(denom, (i, &mem_value))| {
             *denom = c - finger_print(
-                PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
-                &[PF::<EF>::from_usize(i), mem_value],
+                F::from_usize(MEMORY_TABLE_INDEX),
+                &[F::from_usize(i), mem_value],
                 &alpha_powers,
             )
         });
+
     // ... Rest of the tables:
     let mut offset = memory.len();
-    for dim in &all_dims {
-        match dim {
-            Dim::TableLookupGroup { group_index, .. } => {
-                numerators[offset..][..dim.n_cols() << dim.n_vars()]
+    for (table, _) in &tables_heights_sorted {
+        let trace = &traces[table];
+        let log_n_rows = trace.log_n_rows;
+
+        // I] Bus (data flow between tables)
+
+        let bus = table.bus();
+        numerators[offset..][..1 << log_n_rows]
+            .par_iter_mut()
+            .zip(&trace.base[bus.selector])
+            .for_each(|(num, selector)| {
+                *num = EF::from(match bus.direction {
+                    BusDirection::Pull => -*selector,
+                    BusDirection::Push => *selector,
+                })
+            }); // TODO embedding overhead
+        denominators[offset..][..1 << log_n_rows]
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, denom)| {
+                *denom = {
+                    c + finger_print(
+                        match &bus.table {
+                            BusTable::Constant(table) => table.embed(),
+                            BusTable::Variable(col) => trace.base[*col][i],
+                        },
+                        bus.data
+                            .iter()
+                            .map(|col| trace.base[*col][i])
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                        &alpha_powers,
+                    )
+                }
+            });
+
+        offset += 1 << log_n_rows;
+
+        // II] Lookup into memory
+
+        let mut value_columns_f = Vec::<Vec<_>>::new();
+        for cols_f in table.lookup_f_value_columns(trace) {
+            value_columns_f.push(cols_f.iter().map(|s| VecOrSlice::Slice(s)).collect());
+        }
+        let mut value_columns_ef = Vec::<Vec<_>>::new();
+        for col_ef in table.lookup_ef_value_columns(trace) {
+            value_columns_ef.push(
+                transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef)
+                    .into_iter()
+                    .map(VecOrSlice::Vec)
+                    .collect(),
+            );
+        }
+        for (index_columns, value_columns) in [
+            (table.lookup_index_columns_f(trace), &value_columns_f),
+            (table.lookup_index_columns_ef(trace), &value_columns_ef),
+        ] {
+            for (col_index, col_values) in index_columns.iter().zip(value_columns) {
+                numerators[offset..][..col_values.len() << log_n_rows]
                     .par_iter_mut()
                     .for_each(|num| {
                         *num = EF::ONE;
                     }); // TODO embedding overhead
-                denominators[offset..][..dim.n_cols() << dim.n_vars()]
-                    .par_chunks_exact_mut(1 << dim.n_vars())
+                denominators[offset..][..col_values.len() << log_n_rows]
+                    .par_chunks_exact_mut(1 << log_n_rows)
                     .enumerate()
                     .for_each(|(i, denom_chunk)| {
-                        let i_field = PF::<EF>::from_usize(i);
+                        let i_field = F::from_usize(i);
                         denom_chunk.par_iter_mut().enumerate().for_each(|(j, denom)| {
-                            let index = index_columns[*group_index][j] + i_field;
-                            let mem_value = value_columns[*group_index][i].as_slice()[j];
-                            *denom = c - finger_print(
-                                PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
-                                &[index, mem_value],
-                                &alpha_powers,
-                            )
+                            let index = col_index[j] + i_field;
+                            let mem_value = col_values[i].as_slice()[j];
+                            *denom =
+                                c - finger_print(F::from_usize(MEMORY_TABLE_INDEX), &[index, mem_value], &alpha_powers)
                         });
                     });
-            }
-            Dim::Bus { index, .. } => {
-                numerators[offset..]
-                    .par_iter_mut()
-                    .zip(bus_numerators[*index])
-                    .for_each(|(num, sel)| *num = EF::from(*sel)); // TODO embedding overhead
-                denominators[offset..]
-                    .par_iter_mut()
-                    .zip(bus_denominators[*index].par_iter())
-                    .for_each(|(denom, &data)| *denom = data);
+                offset += col_values.len() << log_n_rows;
             }
         }
-        offset += dim.n_cols() << dim.n_vars();
     }
+
+    assert_eq!(log2_ceil_usize(offset), total_n_vars);
+    tracing::info!("Logup data: {} = 2^{:.2}", offset, (offset as f64).log2());
+
     denominators[offset..].par_iter_mut().for_each(|d| *d = EF::ONE); // padding
 
+    // TODO pack directly
     let numerators_packed = MleRef::Extension(&numerators).pack();
     let denominators_packed = MleRef::Extension(&denominators).pack();
 
@@ -207,13 +180,6 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     // sanity check
     assert_eq!(sum, EF::ZERO);
 
-    let mut statement_on_indexes = vec![None; n_groups];
-    let mut statement_on_values = vec![None; n_groups];
-
-    // bus statements
-    let mut bus_numerators_statements = vec![None; bus_numerators.len()];
-    let mut bus_denominators_statements = vec![None; bus_denominators.len()];
-
     // Memory: ...
     let inner_point_mem = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
     let value_acc = acc.evaluate(&inner_point_mem);
@@ -223,105 +189,135 @@ pub fn prove_generic_logup<EF: ExtensionField<PF<EF>>>(
     let value_table = memory.evaluate(&inner_point_mem);
     prover_state.add_extension_scalar(value_table);
     let statement_on_table = Evaluation::new(inner_point_mem, value_table);
+
     // ... Rest of the tables:
-    for dim in &all_dims {
-        let inner_point = MultilinearPoint(from_end(&claim_point_gkr, dim.n_vars()).to_vec());
+    let mut bus_statements_numerators = BTreeMap::new();
+    let mut bus_statements_denominators = BTreeMap::new();
+    let mut statements_columns_f = BTreeMap::new();
+    let mut statements_columns_ef = BTreeMap::new();
+    let mut offset = memory.len();
+    for (table, _) in &tables_heights_sorted {
+        let trace = &traces[table];
+        let log_n_rows = trace.log_n_rows;
 
-        match dim {
-            Dim::TableLookupGroup { group_index, .. } => {
-                let index_eval = index_columns[*group_index].evaluate(&inner_point);
-                prover_state.add_extension_scalar(index_eval);
-                statement_on_indexes[*group_index] = Some(Evaluation::new(inner_point.clone(), index_eval));
-                let mut multi_eval = MultiEvaluation::new(inner_point.clone(), vec![]);
-                for col in &value_columns[*group_index] {
-                    let value_eval = col.as_slice().evaluate(&inner_point);
-                    prover_state.add_extension_scalar(value_eval);
-                    multi_eval.values.push(value_eval);
-                }
-                statement_on_values[*group_index] = Some(multi_eval);
-            }
-            Dim::Bus { index, .. } => {
-                let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
-                let evals_on_selector = bus_numerators[*index]
-                    .par_chunks_exact(bus_numerators[*index].len() >> univariate_skips)
-                    .map(|chunk| chunk.evaluate(&inner_inner_point))
-                    .collect::<Vec<EF>>();
-                prover_state.add_extension_scalars(&evals_on_selector);
-                bus_numerators_statements[*index] =
-                    Some(MultiEvaluation::new(inner_inner_point.clone(), evals_on_selector));
+        let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
 
-                let eval_on_data = bus_denominators[*index]
-                    .par_chunks_exact(bus_denominators[*index].len() >> univariate_skips)
-                    .map(|chunk| chunk.evaluate(&inner_inner_point))
-                    .collect::<Vec<EF>>();
-                prover_state.add_extension_scalars(&eval_on_data);
-                bus_denominators_statements[*index] = Some(MultiEvaluation::new(inner_inner_point, eval_on_data));
+        // I] Bus (data flow between tables)
+
+        let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
+        let evals_on_selector = trace.base[table.bus().selector]
+            .par_chunks_exact(1 << (log_n_rows - univariate_skips))
+            .map(|chunk| chunk.evaluate(&inner_inner_point) * table.bus().direction.to_field_flag())
+            .collect::<Vec<EF>>();
+        prover_state.add_extension_scalars(&evals_on_selector);
+
+        let eval_on_data = denominators[offset..][..1 << log_n_rows]
+            .par_chunks_exact(1 << (log_n_rows - univariate_skips))
+            .map(|chunk| chunk.evaluate(&inner_inner_point))
+            .collect::<Vec<EF>>();
+        prover_state.add_extension_scalars(&eval_on_data);
+
+        let gamma = prover_state.sample();
+        prover_state.duplexing();
+
+        let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
+            .iter()
+            .map(|p| p.evaluate(gamma))
+            .collect::<Vec<EF>>();
+
+        bus_statements_numerators.insert(
+            *table,
+            combine_inner_bus_statements(
+                &inner_inner_point,
+                &evals_on_selector,
+                gamma,
+                &unvariate_selectors_evals,
+            ),
+        );
+        bus_statements_denominators.insert(
+            *table,
+            combine_inner_bus_statements(&inner_inner_point, &eval_on_data, gamma, &unvariate_selectors_evals),
+        );
+
+        // II] Lookup into memory
+
+        let mut table_lookup_statements_f = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
+        let mut table_lookup_statements_ef = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
+        for lookup_f in table.lookups_f() {
+            let index_eval = trace.base[lookup_f.index].evaluate(&inner_point);
+            prover_state.add_extension_scalar(index_eval);
+            table_lookup_statements_f
+                .entry(lookup_f.index)
+                .or_default()
+                .push(Evaluation::new(inner_point.clone(), index_eval));
+
+            for col_index in &lookup_f.values {
+                let value_eval = trace.base[*col_index].evaluate(&inner_point);
+                prover_state.add_extension_scalar(value_eval);
+                table_lookup_statements_f
+                    .entry(*col_index)
+                    .or_default()
+                    .push(Evaluation::new(inner_point.clone(), value_eval));
             }
         }
+
+        for lookup_ef in table.lookups_ef() {
+            let index_eval = trace.base[lookup_ef.index].evaluate(&inner_point);
+            prover_state.add_extension_scalar(index_eval);
+            table_lookup_statements_f
+                .entry(lookup_ef.index)
+                .or_default()
+                .push(Evaluation::new(inner_point.clone(), index_eval));
+
+            let col_ef = &trace.ext[lookup_ef.values];
+
+            let mut col_statements = Vec::new();
+            for col in transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef) {
+                let value_eval = col.evaluate(&inner_point);
+                prover_state.add_extension_scalar(value_eval);
+                col_statements.push(Evaluation::new(inner_point.clone(), value_eval));
+            }
+            assert!(!table_lookup_statements_ef.contains_key(&lookup_ef.values));
+            table_lookup_statements_ef.insert(lookup_ef.values, col_statements);
+        }
+        statements_columns_f.insert(*table, table_lookup_statements_f);
+        statements_columns_ef.insert(*table, table_lookup_statements_ef);
+
+        offset += len_for_table(table, log_n_rows);
     }
 
-    let gamma = prover_state.sample();
-    prover_state.duplexing();
-
-    let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
-        .iter()
-        .map(|p| p.evaluate(gamma))
-        .collect::<Vec<EF>>();
+    assert_eq!(bus_statements_numerators.len(), ALL_TABLES.len());
+    assert_eq!(bus_statements_denominators.len(), ALL_TABLES.len());
+    assert_eq!(statements_columns_f.len(), ALL_TABLES.len());
+    assert_eq!(statements_columns_ef.len(), ALL_TABLES.len());
 
     GenericLogupStatements {
-        on_table: statement_on_table,
+        on_memory: statement_on_table,
         on_acc: statement_on_acc,
-        on_indexes_f: unwrap_slice(&statement_on_indexes[..n_cols_f]),
-        on_indexes_ef: unwrap_slice(&statement_on_indexes[n_cols_f..]),
-        on_values_f: unwrap_slice(&statement_on_values[..n_cols_f]),
-        on_values_ef: unwrap_slice(&statement_on_values[n_cols_f..]),
-        on_bus_numerators: bus_numerators_statements
-            .into_iter()
-            .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
-            .collect::<Vec<_>>(),
-        on_bus_denominators: bus_denominators_statements
-            .into_iter()
-            .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
-            .collect::<Vec<_>>(),
-        quotient_gkr_n_vars: total_n_vars,
+        bus_numerators: bus_statements_numerators,
+        bus_denominators: bus_statements_denominators,
+        columns_f: statements_columns_f,
+        columns_ef: statements_columns_ef,
+        total_n_vars,
     }
-}
-
-fn unwrap_slice<A: Clone>(s: &[Option<A>]) -> Vec<A> {
-    s.iter().cloned().map(Option::unwrap).collect()
-}
-
-fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
-    s: Option<MultiEvaluation<EF>>,
-    gamma: EF,
-    unvariate_selectors_evals: &[EF],
-) -> Evaluation<EF> {
-    let s = s.unwrap();
-    let mut new_point = s.point.clone();
-    new_point.insert(0, gamma);
-    let new_value = dot_product(unvariate_selectors_evals.iter().copied(), s.values.into_iter());
-    Evaluation::new(new_point, new_value)
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
+pub fn verify_generic_logup(
     verifier_state: &mut impl FSVerifier<EF>,
     c: EF,
     alpha: EF,
     log_memory: usize,
-    log_heights_f: Vec<usize>,
-    num_values_per_lookup_f: Vec<usize>,
-    log_heights_ef: Vec<usize>,
-    bus_n_vars: Vec<usize>,
+    table_log_n_rows: &BTreeMap<Table, VarCount>,
     univariate_skips: usize,
-) -> ProofResult<GenericLogupStatements<EF>> {
-    assert_eq!(log_heights_f.len(), num_values_per_lookup_f.len());
-    let log_heights = [log_heights_f.clone(), log_heights_ef.clone()].concat();
-    let dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
-    let n_cols_per_group = [num_values_per_lookup_f, vec![dim; log_heights_ef.len()]].concat();
-    let all_dims = get_sorted_dims(&log_heights, &n_cols_per_group, &bus_n_vars);
-    let total_len = (1 << log_memory) + all_dims.iter().map(|d| d.n_cols() << d.n_vars()).sum::<usize>();
-    let total_n_vars = log2_ceil_usize(total_len);
+) -> ProofResult<GenericLogupStatements> {
+    let mut tables_heights_sorted = table_log_n_rows
+        .iter()
+        .map(|(table, &log_n_rows)| (*table, log_n_rows))
+        .collect::<Vec<_>>();
+    tables_heights_sorted.sort_by_key(|&(_, h)| Reverse(h));
+
+    let total_n_vars = compute_total_n_vars(log_memory, &tables_heights_sorted.iter().cloned().collect());
 
     let (sum, claim_point_gkr, numerators_value, denominators_value) =
         verify_gkr_quotient(verifier_state, total_n_vars)?;
@@ -330,15 +326,10 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
         return Err(ProofError::InvalidProof);
     }
 
-    let alpha_powers = alpha.powers().collect_n(3);
+    let alpha_powers = alpha.powers().collect_n(max_bus_width());
 
     let mut retrieved_numerators_value = EF::ZERO;
     let mut retrieved_denominators_value = EF::ZERO;
-
-    let mut statement_on_indexes = vec![None; n_cols_per_group.len()];
-    let mut statement_on_values = vec![None; n_cols_per_group.len()];
-    let mut bus_numerators_statements = vec![None; bus_n_vars.len()];
-    let mut bus_denominators_statements = vec![None; bus_n_vars.len()];
 
     // Memory ...
     let inner_point_memory = MultilinearPoint(from_end(&claim_point_gkr, log_memory).to_vec());
@@ -355,61 +346,120 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
     let statement_on_table = Evaluation::new(inner_point_memory.clone(), value_table);
     retrieved_denominators_value += pref
         * (c - finger_print(
-            PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
+            F::from_usize(MEMORY_TABLE_INDEX),
             &[value_index, value_table],
             &alpha_powers,
         ));
+
     // ... Rest of the tables:
+    let mut bus_statements_numerators = BTreeMap::new();
+    let mut bus_statements_denominators = BTreeMap::new();
+    let mut statements_columns_f = BTreeMap::new();
+    let mut statements_columns_ef = BTreeMap::new();
     let mut offset = 1 << log_memory;
-    for dim in &all_dims {
-        let inner_point = MultilinearPoint(from_end(&claim_point_gkr, dim.n_vars()).to_vec());
-        let n_missing_vars = total_n_vars - dim.n_vars();
+    for &(table, log_n_rows) in &tables_heights_sorted {
+        let n_missing_vars = total_n_vars - log_n_rows;
+        let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
         let missing_point = MultilinearPoint(claim_point_gkr[..n_missing_vars].to_vec());
+        let missing_inner_point = MultilinearPoint(inner_point[..univariate_skips].to_vec());
 
-        match dim {
-            Dim::TableLookupGroup { group_index, .. } => {
-                let index_eval = verifier_state.next_extension_scalar()?;
-                statement_on_indexes[*group_index] = Some(Evaluation::new(inner_point.clone(), index_eval));
+        // I] Bus (data flow between tables)
 
-                let mut multi_eval = MultiEvaluation::new(inner_point.clone(), vec![]);
-                for col_index in 0..dim.n_cols() {
-                    let value_eval = verifier_state.next_extension_scalar()?;
-                    multi_eval.values.push(value_eval);
+        let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
+        let evals_on_selector = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
 
-                    let pos = offset + (col_index << dim.n_vars());
-                    let bits = to_big_endian_in_field::<EF>(pos >> dim.n_vars(), n_missing_vars);
-                    let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
-                    retrieved_numerators_value += pref;
-                    retrieved_denominators_value += pref
-                        * (c - finger_print(
-                            PF::<EF>::from_usize(MEMORY_TABLE_INDEX),
-                            &[index_eval + PF::<EF>::from_usize(col_index), value_eval],
-                            &alpha_powers,
-                        ));
-                }
-                statement_on_values[*group_index] = Some(multi_eval);
-            }
-            Dim::Bus { index, .. } => {
-                let missing_inner_point = MultilinearPoint(inner_point[..univariate_skips].to_vec());
-                let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
-                let evals_on_numerators = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
-                bus_numerators_statements[*index] = Some(MultiEvaluation::new(
-                    inner_inner_point.clone(),
-                    evals_on_numerators.clone(),
-                ));
-                let bits = to_big_endian_in_field::<EF>(offset >> dim.n_vars(), n_missing_vars);
+        let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
+        let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+        retrieved_numerators_value += pref * evals_on_selector.evaluate(&missing_inner_point);
+
+        let eval_on_data = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
+        retrieved_denominators_value += pref * eval_on_data.evaluate(&missing_inner_point);
+
+        let gamma = verifier_state.sample();
+        verifier_state.duplexing();
+
+        let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
+            .iter()
+            .map(|p| p.evaluate(gamma))
+            .collect::<Vec<EF>>();
+
+        bus_statements_numerators.insert(
+            table,
+            combine_inner_bus_statements(
+                &inner_inner_point,
+                &evals_on_selector,
+                gamma,
+                &unvariate_selectors_evals,
+            ),
+        );
+        bus_statements_denominators.insert(
+            table,
+            combine_inner_bus_statements(&inner_inner_point, &eval_on_data, gamma, &unvariate_selectors_evals),
+        );
+
+        offset += 1 << log_n_rows;
+
+        // II] Lookup into memory
+
+        let mut table_lookup_statements_f = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
+        let mut table_lookup_statements_ef = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
+        for lookup_f in table.lookups_f() {
+            let index_eval = verifier_state.next_extension_scalar()?;
+            table_lookup_statements_f
+                .entry(lookup_f.index)
+                .or_default()
+                .push(Evaluation::new(inner_point.clone(), index_eval));
+
+            for (i, col_index) in lookup_f.values.iter().enumerate() {
+                let value_eval = verifier_state.next_extension_scalar()?;
+                table_lookup_statements_f
+                    .entry(*col_index)
+                    .or_default()
+                    .push(Evaluation::new(inner_point.clone(), value_eval));
+
+                let pos = offset + (i << log_n_rows);
+                let bits = to_big_endian_in_field::<EF>(pos >> log_n_rows, n_missing_vars);
                 let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
-                retrieved_numerators_value += pref * evals_on_numerators.evaluate(&missing_inner_point);
-
-                let evals_on_denominators = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
-                bus_denominators_statements[*index] = Some(MultiEvaluation::new(
-                    inner_inner_point.clone(),
-                    evals_on_denominators.clone(),
-                ));
-                retrieved_denominators_value += pref * evals_on_denominators.evaluate(&missing_inner_point);
+                retrieved_numerators_value += pref;
+                retrieved_denominators_value += pref
+                    * (c - finger_print(
+                        F::from_usize(MEMORY_TABLE_INDEX),
+                        &[index_eval + F::from_usize(i), value_eval],
+                        &alpha_powers,
+                    ));
             }
+            offset += lookup_f.values.len() << log_n_rows;
         }
-        offset += dim.n_cols() << dim.n_vars();
+
+        for lookup_ef in table.lookups_ef() {
+            let index_eval = verifier_state.next_extension_scalar()?;
+            table_lookup_statements_f
+                .entry(lookup_ef.index)
+                .or_default()
+                .push(Evaluation::new(inner_point.clone(), index_eval));
+
+            for i in 0..DIMENSION {
+                let value_eval = verifier_state.next_extension_scalar()?;
+                table_lookup_statements_ef
+                    .entry(lookup_ef.values)
+                    .or_default()
+                    .push(Evaluation::new(inner_point.clone(), value_eval));
+
+                let pos = offset + (i << log_n_rows);
+                let bits = to_big_endian_in_field::<EF>(pos >> log_n_rows, n_missing_vars);
+                let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+                retrieved_numerators_value += pref;
+                retrieved_denominators_value += pref
+                    * (c - finger_print(
+                        F::from_usize(MEMORY_TABLE_INDEX),
+                        &[index_eval + F::from_usize(i), value_eval],
+                        &alpha_powers,
+                    ));
+            }
+            offset += DIMENSION << log_n_rows;
+        }
+        statements_columns_f.insert(table, table_lookup_statements_f);
+        statements_columns_ef.insert(table, table_lookup_statements_ef);
     }
 
     retrieved_denominators_value += mle_of_zeros_then_ones(offset, &claim_point_gkr); // to compensate for the final padding: XYZ111111...1
@@ -420,30 +470,41 @@ pub fn verify_generic_logup<EF: ExtensionField<PF<EF>>>(
         return Err(ProofError::InvalidProof);
     }
 
-    let gamma = verifier_state.sample();
-    verifier_state.duplexing();
-
-    let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
-        .iter()
-        .map(|p| p.evaluate(gamma))
-        .collect::<Vec<EF>>();
-
-    let n_cols_f = log_heights_f.len();
     Ok(GenericLogupStatements {
-        on_table: statement_on_table,
+        on_memory: statement_on_table,
         on_acc: statement_on_acc,
-        on_indexes_f: unwrap_slice(&statement_on_indexes[..n_cols_f]),
-        on_indexes_ef: unwrap_slice(&statement_on_indexes[n_cols_f..]),
-        on_values_f: unwrap_slice(&statement_on_values[..n_cols_f]),
-        on_values_ef: unwrap_slice(&statement_on_values[n_cols_f..]),
-        on_bus_numerators: bus_numerators_statements
-            .into_iter()
-            .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
-            .collect::<Vec<_>>(),
-        on_bus_denominators: bus_denominators_statements
-            .into_iter()
-            .map(|s| combine_inner_bus_statements(s, gamma, &unvariate_selectors_evals))
-            .collect::<Vec<_>>(),
-        quotient_gkr_n_vars: total_n_vars,
+        bus_numerators: bus_statements_numerators,
+        bus_denominators: bus_statements_denominators,
+        columns_f: statements_columns_f,
+        columns_ef: statements_columns_ef,
+        total_n_vars,
     })
+}
+
+fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
+    point: &MultilinearPoint<EF>,
+    inner_evals: &[EF],
+    gamma: EF,
+    unvariate_selectors_evals: &[EF],
+) -> Evaluation<EF> {
+    assert_eq!(inner_evals.len(), unvariate_selectors_evals.len());
+    let mut new_point = point.clone();
+    new_point.insert(0, gamma);
+    let new_value = dot_product(unvariate_selectors_evals.iter().copied(), inner_evals.iter().copied());
+    Evaluation::new(new_point, new_value)
+}
+
+fn len_for_table(table: &Table, log_n_rows: usize) -> usize {
+    let n_cols_in_quotient =
+        table.lookups_f().iter().map(|l| l.values.len()).sum::<usize>() + table.lookups_ef().len() * DIMENSION + 1; // +1 for the bus
+    n_cols_in_quotient << log_n_rows
+}
+
+fn compute_total_n_vars(log_memory: usize, tables_heights: &BTreeMap<Table, VarCount>) -> usize {
+    let total_len = (1 << log_memory)
+        + tables_heights
+            .iter()
+            .map(|(table, log_n_rows)| len_for_table(table, *log_n_rows))
+            .sum::<usize>();
+    log2_ceil_usize(total_len)
 }

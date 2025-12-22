@@ -60,46 +60,30 @@ pub fn verify_execution(
     let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
 
-    let mut lookup_into_memory = verify_generic_logup::<EF>(
+    let logup_statements = verify_generic_logup(
         &mut verifier_state,
         logup_c,
         logup_alpha,
         log_memory,
-        table_log_n_vars
-            .iter()
-            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_lookups_f()])
-            .collect(),
-        table_log_n_vars
-            .keys()
-            .flat_map(|table| table.lookups_f().iter().map(|l| l.values.len()).collect::<Vec<_>>())
-            .collect(),
-        table_log_n_vars
-            .iter()
-            .flat_map(|(table, log_n_rows)| vec![*log_n_rows; table.num_lookups_ef()])
-            .collect(),
-        table_log_n_vars.values().copied().collect(),
+        &table_log_n_vars,
         UNIVARIATE_SKIPS,
     )?;
 
     let (mut air_points, mut evals_f, mut evals_ef) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
-    for (index, (table, log_n_rows)) in table_log_n_vars.iter().enumerate() {
+    for (table, log_n_rows) in &table_log_n_vars {
         let (this_air_point, this_evals_f, this_evals_ef) = verify_bus_and_air(
             &mut verifier_state,
             table,
             *log_n_rows,
             logup_c,
             logup_alpha,
-            &lookup_into_memory.on_bus_numerators[index],
-            &lookup_into_memory.on_bus_denominators[index],
+            &logup_statements.bus_numerators[table],
+            &logup_statements.bus_denominators[table],
         )?;
         air_points.insert(*table, this_air_point);
         evals_f.insert(*table, this_evals_f);
         evals_ef.insert(*table, this_evals_ef);
     }
-    assert_eq!(
-        lookup_into_memory.on_bus_numerators.len(),
-        lookup_into_memory.on_bus_denominators.len()
-    );
 
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -137,8 +121,8 @@ pub fn verify_execution(
     );
     let public_memory_statement = Evaluation::new(public_memory_random_point, public_memory_eval);
 
-    let memory_statements = vec![lookup_into_memory.on_table, public_memory_statement];
-    let acc_statements = vec![lookup_into_memory.on_acc];
+    let memory_statements = vec![logup_statements.on_memory, public_memory_statement];
+    let acc_statements = vec![logup_statements.on_acc];
 
     let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
     for table in table_log_n_vars.keys() {
@@ -149,17 +133,11 @@ pub fn verify_execution(
                 &air_points[table],
                 &evals_f[table],
                 &evals_ef[table],
-                &mut lookup_into_memory.on_indexes_f,
-                &mut lookup_into_memory.on_indexes_ef,
-                &mut lookup_into_memory.on_values_f,
-                &mut lookup_into_memory.on_values_ef,
+                &logup_statements.columns_f[table],
+                &logup_statements.columns_ef[table],
             )?,
         );
     }
-    assert!(lookup_into_memory.on_indexes_f.is_empty());
-    assert!(lookup_into_memory.on_indexes_ef.is_empty());
-    assert!(lookup_into_memory.on_values_f.is_empty());
-    assert!(lookup_into_memory.on_values_ef.is_empty());
 
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_log_n_vars[&Table::execution()]);
@@ -191,7 +169,7 @@ pub fn verify_execution(
     Ok(ProofVerificationDetails {
         log_memory,
         table_log_n_vars,
-        first_quotient_gkr_n_vars: lookup_into_memory.quotient_gkr_n_vars,
+        first_quotient_gkr_n_vars: logup_statements.total_n_vars,
     })
 }
 

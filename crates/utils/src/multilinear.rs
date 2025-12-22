@@ -124,6 +124,7 @@ pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>
     data: &[IF],
     alpha_powers: &[EF],
 ) -> EF {
+    assert!(alpha_powers.len() > data.len());
     dot_product::<EF, _, _>(alpha_powers[1..].iter().copied(), data.iter().copied()) + table
 }
 

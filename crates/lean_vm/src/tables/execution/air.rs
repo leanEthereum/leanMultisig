@@ -20,7 +20,7 @@ pub const COL_INDEX_JUMP: usize = 9;
 pub const COL_INDEX_AUX_1: usize = 10;
 pub const COL_INDEX_AUX_2: usize = 11;
 pub const COL_INDEX_IS_PRECOMPILE: usize = 12;
-pub const COL_INDEX_PRECOMPILE_INDEX: usize = 13;
+pub const COL_INDEX_WHICH_PRECOMPILE: usize = 13;
 
 // Execution columns
 pub const COL_INDEX_PC: usize = 14;
@@ -85,7 +85,7 @@ impl Air for ExecutionTable {
         let aux_1 = up[COL_INDEX_AUX_1].clone();
         let aux_2 = up[COL_INDEX_AUX_2].clone();
         let is_precompile = up[COL_INDEX_IS_PRECOMPILE].clone();
-        let precompile_index = up[COL_INDEX_PRECOMPILE_INDEX].clone();
+        let precompile_index = up[COL_INDEX_WHICH_PRECOMPILE].clone();
 
         let (value_a, value_b, value_c) = (
             up[COL_INDEX_MEM_VALUE_A].clone(),

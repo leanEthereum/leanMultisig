@@ -113,89 +113,31 @@ pub fn prove_execution(
     let logup_alpha = prover_state.sample();
     prover_state.duplexing();
 
-    let logup_alpha_powers: Vec<EF> = logup_alpha.powers().collect_n(max_bus_width());
-
-    let mut bus_numerators = vec![];
-    let mut bus_denominators = vec![];
-    for (table, trace) in &traces {
-        let bus = table.bus();
-        let numerator = trace.base[bus.selector]
-            .par_iter()
-            .map(|&selector| match bus.direction {
-                BusDirection::Pull => -selector,
-                BusDirection::Push => selector,
-            })
-            .collect::<Vec<_>>();
-        let denominator = (0..1 << trace.log_n_rows)
-            .into_par_iter()
-            .map(|i| {
-                logup_c
-                    + finger_print(
-                        match &bus.table {
-                            BusTable::Constant(table) => table.embed(),
-                            BusTable::Variable(col) => trace.base[*col][i],
-                        },
-                        bus.data
-                            .iter()
-                            .map(|col| trace.base[*col][i])
-                            .collect::<Vec<_>>()
-                            .as_slice(),
-                        &logup_alpha_powers,
-                    )
-            })
-            .collect::<Vec<_>>();
-
-        bus_numerators.push(numerator);
-        bus_denominators.push(denominator);
-    }
-
-    let mut lookup_into_memory = prove_generic_logup::<EF>(
+    let logup_statements = prove_generic_logup(
         &mut prover_state,
         logup_c,
         logup_alpha,
         &memory,
         &acc,
-        traces
-            .iter()
-            .flat_map(|(table, trace)| table.lookup_index_columns_f(trace))
-            .collect(),
-        traces
-            .iter()
-            .flat_map(|(table, trace)| table.lookup_index_columns_ef(trace))
-            .collect(),
-        traces
-            .iter()
-            .flat_map(|(table, trace)| table.lookup_f_value_columns(trace))
-            .collect(),
-        traces
-            .iter()
-            .flat_map(|(table, trace)| table.lookup_ef_value_columns(trace))
-            .collect(),
-        collect_refs(&bus_numerators),
-        collect_refs(&bus_denominators),
+        &traces,
         UNIVARIATE_SKIPS,
     );
 
     let (mut air_points, mut evals_f, mut evals_ef) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
-    for (index, (table, trace)) in traces.iter().enumerate() {
+    for (table, trace) in traces.iter() {
         let (this_air_point, this_evals_f, this_evals_ef) = prove_bus_and_air(
             &mut prover_state,
             table,
             trace,
             logup_c,
             logup_alpha,
-            &lookup_into_memory.on_bus_numerators[index],
-            &lookup_into_memory.on_bus_denominators[index],
+            &logup_statements.bus_numerators[table],
+            &logup_statements.bus_denominators[table],
         );
         air_points.insert(*table, this_air_point);
         evals_f.insert(*table, this_evals_f);
         evals_ef.insert(*table, this_evals_ef);
     }
-
-    assert_eq!(
-        lookup_into_memory.on_bus_numerators.len(),
-        lookup_into_memory.on_bus_denominators.len()
-    );
 
     let bytecode_compression_challenges =
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
@@ -236,8 +178,8 @@ pub fn prove_execution(
         .splice(0..0, EF::zero_vec(log2_strict_usize(memory.len() / public_memory_size)));
     let public_memory_statement = Evaluation::new(public_memory_random_point, public_memory_eval);
 
-    let memory_statements = vec![lookup_into_memory.on_table, public_memory_statement];
-    let acc_statements = vec![lookup_into_memory.on_acc];
+    let memory_statements = vec![logup_statements.on_memory, public_memory_statement];
+    let acc_statements = vec![logup_statements.on_acc];
 
     let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
     for table in traces.keys() {
@@ -248,17 +190,11 @@ pub fn prove_execution(
                 &air_points[table],
                 &evals_f[table],
                 &extension_columns_transposed[table],
-                &mut lookup_into_memory.on_indexes_f,
-                &mut lookup_into_memory.on_indexes_ef,
-                &mut lookup_into_memory.on_values_f,
-                &mut lookup_into_memory.on_values_ef,
+                &logup_statements.columns_f[table],
+                &logup_statements.columns_ef[table],
             ),
         );
     }
-    assert!(lookup_into_memory.on_indexes_f.is_empty());
-    assert!(lookup_into_memory.on_indexes_ef.is_empty());
-    assert!(lookup_into_memory.on_values_f.is_empty());
-    assert!(lookup_into_memory.on_values_ef.is_empty());
 
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(traces[&Table::execution()].log_n_rows);
