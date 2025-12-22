@@ -1,7 +1,7 @@
 use super::operation::HighLevelOperation;
 use super::value::{IntermediaryMemOrFpOrConstant, IntermediateValue};
 use crate::lang::ConstExpression;
-use lean_vm::{BooleanExpr, Operation, SourceLineNumber, Table, TableT};
+use lean_vm::{BooleanExpr, Operation, SourceLocation, Table, TableT};
 use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.
@@ -69,9 +69,9 @@ pub enum IntermediateInstruction {
     },
     // noop, debug purpose only
     LocationReport {
-        location: SourceLineNumber,
+        location: SourceLocation,
     },
-    DebugAssert(BooleanExpr<IntermediateValue>, SourceLineNumber),
+    DebugAssert(BooleanExpr<IntermediateValue>, SourceLocation),
 }
 
 impl IntermediateInstruction {
@@ -220,7 +220,7 @@ impl Display for IntermediateInstruction {
             }
             Self::LocationReport { .. } => Ok(()),
             Self::DebugAssert(boolean_expr, _) => {
-                write!(f, "debug_assert {}", boolean_expr)
+                write!(f, "debug_assert {boolean_expr}")
             }
         }
     }

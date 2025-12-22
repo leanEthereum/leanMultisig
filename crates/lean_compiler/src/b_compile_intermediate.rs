@@ -145,6 +145,7 @@ fn compile_function(
     compiler.args_count = function.arguments.len();
 
     compile_lines(
+        function.file_id,
         &Label::function(function.name.clone()),
         &function.instructions,
         compiler,
@@ -153,6 +154,7 @@ fn compile_function(
 }
 
 fn compile_lines(
+    file_id: FileId,
     function_name: &Label,
     lines: &[SimpleLine],
     compiler: &mut Compiler,
@@ -220,7 +222,8 @@ fn compile_lines(
                 for arm in arms.iter() {
                     compiler.stack_pos = saved_stack_pos;
                     compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
-                    let arm_instructions = compile_lines(function_name, arm, compiler, Some(end_label.clone()))?;
+                    let arm_instructions =
+                        compile_lines(file_id, function_name, arm, compiler, Some(end_label.clone()))?;
                     compiled_arms.push(arm_instructions);
                     compiler.stack_frame_layout.scopes.pop();
                     new_stack_pos = new_stack_pos.max(compiler.stack_pos);
@@ -257,7 +260,7 @@ fn compile_lines(
                     updated_fp: None,
                 });
 
-                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?;
+                let remaining = compile_lines(file_id, function_name, &lines[i + 1..], compiler, final_jump)?;
                 compiler.bytecode.insert(end_label, remaining);
 
                 compiler.stack_frame_layout.scopes.pop();
@@ -349,14 +352,16 @@ fn compile_lines(
                 let saved_stack_pos = compiler.stack_pos;
 
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
-                let then_instructions = compile_lines(function_name, then_branch, compiler, Some(end_label.clone()))?;
+                let then_instructions =
+                    compile_lines(file_id, function_name, then_branch, compiler, Some(end_label.clone()))?;
 
                 let then_stack_pos = compiler.stack_pos;
                 compiler.stack_pos = saved_stack_pos;
                 compiler.stack_frame_layout.scopes.pop();
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
 
-                let else_instructions = compile_lines(function_name, else_branch, compiler, Some(end_label.clone()))?;
+                let else_instructions =
+                    compile_lines(file_id, function_name, else_branch, compiler, Some(end_label.clone()))?;
 
                 compiler.bytecode.insert(if_label, then_instructions);
                 compiler.bytecode.insert(else_label, else_instructions);
@@ -364,7 +369,7 @@ fn compile_lines(
                 compiler.stack_frame_layout.scopes.pop();
                 compiler.stack_pos = compiler.stack_pos.max(then_stack_pos);
 
-                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?;
+                let remaining = compile_lines(file_id, function_name, &lines[i + 1..], compiler, final_jump)?;
                 compiler.bytecode.insert(end_label, remaining);
                 // It is not necessary to update compiler.stack_size here because the preceding call to
                 // compile_lines should have done so.
@@ -438,7 +443,13 @@ fn compile_lines(
                         });
                     }
 
-                    instructions.extend(compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?);
+                    instructions.extend(compile_lines(
+                        file_id,
+                        function_name,
+                        &lines[i + 1..],
+                        compiler,
+                        final_jump,
+                    )?);
 
                     instructions
                 };
@@ -584,7 +595,11 @@ fn compile_lines(
                     left: IntermediateValue::from_simple_expr(&boolean.left, compiler),
                     right: IntermediateValue::from_simple_expr(&boolean.right, compiler),
                 };
-                instructions.push(IntermediateInstruction::DebugAssert(boolean_simplified, *line_number));
+                let location = SourceLocation {
+                    file_id,
+                    line_number: *line_number,
+                };
+                instructions.push(IntermediateInstruction::DebugAssert(boolean_simplified, location));
             }
         }
     }

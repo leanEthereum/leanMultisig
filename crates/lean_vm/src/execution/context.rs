@@ -1,9 +1,9 @@
-use crate::core::SourceLineNumber;
+use crate::core::SourceLocation;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct ExecutionHistory {
-    pub lines: Vec<SourceLineNumber>,
+    pub lines: Vec<SourceLocation>,
     pub lines_cycles: Vec<usize>, // for each line, how many cycles it took
 }
 
@@ -12,7 +12,7 @@ impl ExecutionHistory {
         Self::default()
     }
 
-    pub fn add_line(&mut self, location: SourceLineNumber, cycles: usize) {
+    pub fn add_line(&mut self, location: SourceLocation, cycles: usize) {
         self.lines.push(location);
         self.lines_cycles.push(cycles);
     }

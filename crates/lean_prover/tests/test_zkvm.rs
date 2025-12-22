@@ -178,7 +178,7 @@ fn test_zk_vm_helper(
     merkle_path_hints: VecDeque<Vec<[F; 8]>>,
 ) {
     utils::init_tracing();
-    let bytecode = compile_program(program_str.to_string());
+    let bytecode = compile_program("<string>", program_str.to_string());
     let time = std::time::Instant::now();
     let (proof, summary) = prove_execution(
         &bytecode,

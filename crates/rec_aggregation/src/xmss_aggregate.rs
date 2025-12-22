@@ -98,8 +98,9 @@ impl XmssAggregationProgram {
 #[instrument(skip_all)]
 fn compile_xmss_aggregation_program() -> XmssAggregationProgram {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("xmss_aggregate.snark");
-    let program_str = std::fs::read_to_string(src_file).unwrap();
-    let bytecode = compile_program(program_str);
+    let program_str = std::fs::read_to_string(src_file.clone()).unwrap();
+    let filepath_str = src_file.to_str().unwrap();
+    let bytecode = compile_program(filepath_str, program_str);
     let default_no_vec_mem = exec_phony_xmss(&bytecode, &[]).no_vec_runtime_memory;
     let mut no_vec_mem_per_log_lifetime = vec![];
     for log_lifetime in XMSS_MIN_LOG_LIFETIME..=XMSS_MAX_LOG_LIFETIME {

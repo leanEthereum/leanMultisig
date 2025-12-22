@@ -21,7 +21,13 @@ fn test_duplicate_function_name() {
         return;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -35,7 +41,13 @@ fn test_duplicate_constant_name() {
         return;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -51,7 +63,13 @@ fn test_wrong_n_returned_vars_1() {
         return 0;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -67,7 +85,13 @@ fn test_wrong_n_returned_vars_2() {
         return 0, 1;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -86,7 +110,13 @@ fn test_no_return() {
         return 0;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -106,7 +136,13 @@ fn test_assumed_return() {
         }
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -127,7 +163,13 @@ fn test_fibonacci_program() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -145,7 +187,13 @@ fn test_edge_case_0() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -158,7 +206,13 @@ fn test_edge_case_1() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -176,7 +230,13 @@ fn test_edge_case_2() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -192,7 +252,13 @@ fn test_decompose_bits() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -208,7 +274,13 @@ fn test_unroll() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -220,7 +292,13 @@ fn test_rev_unroll() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -240,7 +318,13 @@ fn test_mini_program_0() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -279,7 +363,13 @@ fn test_mini_program_1() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -307,7 +397,13 @@ fn test_mini_program_2() {
         return sum, product;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -335,6 +431,7 @@ fn test_mini_program_3() {
    "#;
     let public_input: [F; 16] = (0..16).map(F::new).collect::<Vec<F>>().try_into().unwrap();
     compile_and_run(
+        "<string>",
         program.to_string(),
         (&public_input, &[]),
         DEFAULT_NO_VEC_RUNTIME_MEMORY,
@@ -362,6 +459,7 @@ fn test_mini_program_4() {
    "#;
     let public_input: [F; 24] = (0..24).map(F::new).collect::<Vec<F>>().try_into().unwrap();
     compile_and_run(
+        "<string>",
         program.to_string(),
         (&public_input, &[]),
         DEFAULT_NO_VEC_RUNTIME_MEMORY,
@@ -445,7 +543,13 @@ fn test_inlined() {
         return;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -465,7 +569,13 @@ fn test_inlined_2() {
         }
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -517,7 +627,13 @@ fn test_match() {
         return x * x * x * x * x * x;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -540,7 +656,13 @@ fn test_match_shrink() {
         return x * x;
     }
    "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 // #[test]
@@ -581,7 +703,13 @@ fn test_const_functions_calling_const_functions() {
     }
     "#;
 
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -604,7 +732,13 @@ fn test_inline_functions_calling_inline_functions() {
     }
     "#;
 
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -631,7 +765,13 @@ fn test_nested_inline_functions() {
     }
     "#;
 
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -654,7 +794,13 @@ fn test_const_and_nonconst_malloc_sharing_name() {
     }
     "#;
 
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -669,7 +815,13 @@ fn test_debug_assert_eq() {
         return;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[should_panic]
@@ -683,7 +835,13 @@ fn test_debug_assert_eq_fail() {
         return;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[should_panic]
@@ -697,7 +855,13 @@ fn test_debug_assert_not_eq_fail() {
         return;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[should_panic]
@@ -711,7 +875,13 @@ fn test_debug_assert_lt_fail() {
         return;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -727,7 +897,13 @@ fn test_next_multiple_of() {
         return next_multiple_of(n, n) * 2;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -764,7 +940,13 @@ fn test_const_array() {
         return;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -782,7 +964,13 @@ fn test_const_malloc_end_iterator_loop() {
         return;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -812,7 +1000,13 @@ fn test_array_return_targets() {
         return 42, 99;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -836,7 +1030,13 @@ fn test_array_return_targets_with_expressions() {
         return n, n * 2;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -879,7 +1079,13 @@ fn intertwined_unrolled_loops_and_const_function_arguments() {
             return buff[4];
         }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
 
 #[test]
@@ -902,5 +1108,158 @@ fn test_const_fibonacci() {
         return a + b;
     }
     "#;
-    compile_and_run(program.to_string(), (&[], &[]), DEFAULT_NO_VEC_RUNTIME_MEMORY, false);
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_undefined_import() {
+    let program = r#"
+    import "asdfasdfadsfasdf.snark";
+
+    fn main() {
+        return;
+    }
+    "#;
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_imported_function_name_clash() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let self_path = format!("{manifest_dir}/tests/test_compiler.rs");
+    let program = r#"
+    import "bar.snark";
+    import "foo.snark";
+
+    fn bar() {
+        return;
+    }
+
+    fn main() {
+        return;
+    }
+    "#;
+    compile_and_run(
+        self_path.as_str(),
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_imported_constant_name_clash() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let self_path = format!("{manifest_dir}/tests/test_compiler.rs");
+    let program = r#"
+    import "bar.snark";
+    import "foo.snark";
+
+    const FOO = 5;
+
+    fn main() {
+        return;
+    }
+    "#;
+    compile_and_run(
+        self_path.as_str(),
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+fn test_double_import_tolerance() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let self_path = format!("{manifest_dir}/tests/test_compiler.rs");
+    let program = r#"
+    import "foo.snark";
+    import "foo.snark";
+
+    fn main() {
+        return;
+    }
+    "#;
+    compile_and_run(
+        self_path.as_str(),
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+fn test_circular_import_tolerance() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let self_path = format!("{manifest_dir}/tests/test_compiler.rs");
+    let program = r#"
+    import "circular_import.snark";
+
+    fn main() {
+        return;
+    }
+    "#;
+    compile_and_run(
+        self_path.as_str(),
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_no_main() {
+    let program = r#"
+    "#;
+    compile_and_run(
+        "<string>",
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+fn test_imports() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let self_path = format!("{manifest_dir}/tests/test_compiler.rs");
+    let program = r#"
+    import "bar.snark";
+    import "foo.snark";
+
+    fn main() {
+        x = bar(FOO);
+        assert x == 6;
+        return;
+    }
+    "#;
+    compile_and_run(
+        self_path.as_str(),
+        program.to_string(),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
 }
