@@ -6,7 +6,7 @@ use crate::{
         Expression, Function, Line, Program, Scope, SimpleExpr, Var,
     },
 };
-use lean_vm::{Boolean, BooleanExpr, SourceLineNumber, Table, TableT};
+use lean_vm::{Boolean, BooleanExpr, FileId, SourceLineNumber, SourceLocation, Table, TableT};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -21,6 +21,7 @@ pub struct SimpleProgram {
 #[derive(Debug, Clone)]
 pub struct SimpleFunction {
     pub name: String,
+    pub file_id: FileId,
     pub arguments: Vec<Var>,
     pub n_returned_vars: usize,
     pub instructions: Vec<SimpleLine>,
@@ -144,7 +145,7 @@ pub enum SimpleLine {
     },
     // noop, debug purpose only
     LocationReport {
-        location: SourceLineNumber,
+        location: SourceLocation,
     },
     DebugAssert(BooleanExpr<SimpleExpr>, SourceLineNumber),
 }
@@ -188,6 +189,7 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
         let mut array_manager = ArrayManager::default();
         let simplified_instructions = simplify_lines(
             &program.functions,
+            func.file_id,
             func.n_returned_vars,
             &func.body,
             &mut counters,
@@ -207,6 +209,7 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
             .collect::<Vec<_>>();
         let simplified_function = SimpleFunction {
             name: name.clone(),
+            file_id: func.file_id,
             arguments,
             n_returned_vars: func.n_returned_vars,
             instructions: simplified_instructions,
@@ -592,6 +595,7 @@ impl ArrayManager {
 #[allow(clippy::too_many_arguments)]
 fn simplify_lines(
     functions: &BTreeMap<String, Function>,
+    file_id: FileId,
     n_returned_vars: usize,
     lines: &[Line],
     counters: &mut Counters,
@@ -614,6 +618,7 @@ fn simplify_lines(
                     assert_eq!(*pattern, i, "match patterns should be consecutive, starting from 0");
                     simple_arms.push(simplify_lines(
                         functions,
+                        file_id,
                         n_returned_vars,
                         statements,
                         counters,
@@ -804,6 +809,7 @@ fn simplify_lines(
                 let mut array_manager_then = array_manager.clone();
                 let then_branch_simplified = simplify_lines(
                     functions,
+                    file_id,
                     n_returned_vars,
                     then_branch,
                     counters,
@@ -818,6 +824,7 @@ fn simplify_lines(
 
                 let else_branch_simplified = simplify_lines(
                     functions,
+                    file_id,
                     n_returned_vars,
                     else_branch,
                     counters,
@@ -866,6 +873,7 @@ fn simplify_lines(
                 array_manager.valid.clear();
                 let simplified_body = simplify_lines(
                     functions,
+                    file_id,
                     0,
                     body,
                     counters,
@@ -930,7 +938,10 @@ fn simplify_lines(
                 // Create recursive function body
                 let recursive_func = create_recursive_function(
                     func_name.clone(),
-                    *line_number,
+                    SourceLocation {
+                        line_number: *line_number,
+                        file_id,
+                    },
                     func_args,
                     iterator.clone(),
                     end_simplified,
@@ -1107,7 +1118,12 @@ fn simplify_lines(
                 res.push(SimpleLine::Panic);
             }
             Line::LocationReport { location } => {
-                res.push(SimpleLine::LocationReport { location: *location });
+                res.push(SimpleLine::LocationReport {
+                    location: SourceLocation {
+                        line_number: *location,
+                        file_id,
+                    },
+                });
             }
         }
     }
@@ -1146,10 +1162,7 @@ fn simplify_expr(
                         );
                     }
                 }
-                panic!(
-                    "Const array '{}' can only be accessed with compile-time constant indices",
-                    array_var
-                );
+                panic!("Const array '{array_var}' can only be accessed with compile-time constant indices",);
             }
 
             if let SimpleExpr::Var(array_var) = array
@@ -1657,7 +1670,7 @@ fn handle_array_assignment(
 
 fn create_recursive_function(
     name: String,
-    line_number: SourceLineNumber,
+    location: SourceLocation,
     args: Vec<Var>,
     iterator: Var,
     end: SimpleExpr,
@@ -1681,7 +1694,7 @@ fn create_recursive_function(
         function_name: name.clone(),
         args: recursive_args,
         return_data: vec![],
-        line_number,
+        line_number: location.line_number,
     });
     body.push(SimpleLine::FunctionRet { return_data: vec![] });
 
@@ -1698,12 +1711,13 @@ fn create_recursive_function(
             condition: diff_var.into(),
             then_branch: body,
             else_branch: vec![SimpleLine::FunctionRet { return_data: vec![] }],
-            line_number,
+            line_number: location.line_number,
         },
     ];
 
     SimpleFunction {
         name,
+        file_id: location.file_id,
         arguments: args,
         n_returned_vars: 0,
         instructions,
@@ -2088,6 +2102,7 @@ fn handle_const_arguments(program: &mut Program) -> bool {
     for func in program.functions.values_mut() {
         if !func.has_const_arguments() {
             any_changes |= handle_const_arguments_helper(
+                func.file_id,
                 &mut func.body,
                 &constant_functions,
                 &mut new_functions,
@@ -2112,6 +2127,7 @@ fn handle_const_arguments(program: &mut Program) -> bool {
             if let Some(func) = new_functions.get_mut(&name) {
                 let initial_count = additional_functions.len();
                 handle_const_arguments_helper(
+                    func.file_id,
                     &mut func.body,
                     &constant_functions,
                     &mut additional_functions,
@@ -2148,6 +2164,7 @@ fn handle_const_arguments(program: &mut Program) -> bool {
 }
 
 fn handle_const_arguments_helper(
+    file_id: FileId,
     lines: &mut [Line],
     constant_functions: &BTreeMap<String, Function>,
     new_functions: &mut BTreeMap<String, Function>,
@@ -2207,6 +2224,7 @@ fn handle_const_arguments_helper(
                         const_funct_name.clone(),
                         Function {
                             name: const_funct_name,
+                            file_id,
                             arguments: func
                                 .arguments
                                 .iter()
@@ -2226,15 +2244,29 @@ fn handle_const_arguments_helper(
                 else_branch,
                 ..
             } => {
-                changed |= handle_const_arguments_helper(then_branch, constant_functions, new_functions, const_arrays);
-                changed |= handle_const_arguments_helper(else_branch, constant_functions, new_functions, const_arrays);
+                changed |= handle_const_arguments_helper(
+                    file_id,
+                    then_branch,
+                    constant_functions,
+                    new_functions,
+                    const_arrays,
+                );
+                changed |= handle_const_arguments_helper(
+                    file_id,
+                    else_branch,
+                    constant_functions,
+                    new_functions,
+                    const_arrays,
+                );
             }
             Line::ForLoop { body, unroll: _, .. } => {
-                changed |= handle_const_arguments_helper(body, constant_functions, new_functions, const_arrays);
+                // TODO we should unroll before const arguments handling
+                handle_const_arguments_helper(file_id, body, constant_functions, new_functions, const_arrays);
             }
             Line::Match { arms, .. } => {
                 for (_, arm) in arms {
-                    changed |= handle_const_arguments_helper(arm, constant_functions, new_functions, const_arrays);
+                    changed |=
+                        handle_const_arguments_helper(file_id, arm, constant_functions, new_functions, const_arrays);
                 }
             }
             _ => {}
@@ -2535,7 +2567,7 @@ impl SimpleLine {
             Self::Panic => "panic".to_string(),
             Self::LocationReport { .. } => Default::default(),
             Self::DebugAssert(bool, _) => {
-                format!("debug_assert({})", bool)
+                format!("debug_assert({bool})")
             }
         };
         format!("{spaces}{line_str}")

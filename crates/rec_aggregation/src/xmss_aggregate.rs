@@ -69,8 +69,9 @@ fn build_private_input(all_signatures: &[XmssSignature]) -> Vec<F> {
 #[instrument(skip_all)]
 fn compile_xmss_aggregation_program() -> Bytecode {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("xmss_aggregate.snark");
-    let program_str = std::fs::read_to_string(src_file).unwrap();
-    compile_program(program_str)
+    let program_str = std::fs::read_to_string(src_file.clone()).unwrap();
+    let filepath_str = src_file.to_str().unwrap();
+    compile_program(filepath_str, program_str)
 }
 
 pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {

@@ -12,9 +12,12 @@ pub mod ir;
 mod lang;
 mod parser;
 
-pub fn compile_program(program: String) -> Bytecode {
-    let (parsed_program, function_locations) = parse_program(&program).unwrap();
+pub fn compile_program(filepath: &str, program: String) -> Bytecode {
+    let parsed_program = parse_program(filepath, &program).unwrap();
     // println!("Parsed program: {}", parsed_program.to_string());
+    let function_locations = parsed_program.function_locations.clone();
+    let source_code = parsed_program.source_code.clone();
+    let filepaths = parsed_program.filepaths.clone();
     let simple_program = simplify_program(parsed_program);
     // println!("Simplified program: {}", simple_program);
     let intermediate_bytecode = compile_to_intermediate_bytecode(simple_program).unwrap();
@@ -25,14 +28,20 @@ pub fn compile_program(program: String) -> Bytecode {
     //     println!("{name}: {loc}");
     // }
     /* let compiled = */
-    compile_to_low_level_bytecode(intermediate_bytecode, program, function_locations).unwrap() // ;
+    compile_to_low_level_bytecode(intermediate_bytecode, function_locations, source_code, filepaths).unwrap() // ;
     // println!("\n\nCompiled Program:\n\n{compiled}");
     // compiled
 }
 
-pub fn compile_and_run(program: String, (public_input, private_input): (&[F], &[F]), profiler: bool) {
-    let bytecode = compile_program(program);
-    let summary = execute_bytecode(&bytecode, (public_input, private_input), profiler, &vec![]).summary;
+pub fn compile_and_run(filepath: &str, program: String, (public_input, private_input): (&[F], &[F]), profiler: bool) {
+    let bytecode = compile_program(filepath, program);
+    let summary = execute_bytecode(
+        &bytecode,
+        (public_input, private_input),
+        profiler,
+        &vec![]
+    )
+    .summary;
     println!("{summary}");
 }
 

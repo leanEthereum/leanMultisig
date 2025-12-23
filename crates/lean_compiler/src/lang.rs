@@ -6,16 +6,21 @@ use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
 use crate::{F, ir::HighLevelOperation};
+pub use lean_vm::{FileId, FunctionName, SourceLocation};
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub functions: BTreeMap<String, Function>,
+    pub functions: BTreeMap<FunctionName, Function>,
     pub const_arrays: BTreeMap<String, Vec<usize>>,
+    pub function_locations: BTreeMap<SourceLocation, FunctionName>,
+    pub source_code: BTreeMap<FileId, String>,
+    pub filepaths: BTreeMap<FileId, String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
+    pub file_id: FileId,
     pub arguments: Vec<(Var, bool)>, // (name, is_const)
     pub inlined: bool,
     pub n_returned_vars: usize,
@@ -369,8 +374,8 @@ pub enum AssignmentTarget {
 impl Display for AssignmentTarget {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Var(var) => write!(f, "{}", var),
-            Self::ArrayAccess { array, index } => write!(f, "{}[{}]", array, index),
+            Self::Var(var) => write!(f, "{var}"),
+            Self::ArrayAccess { array, index } => write!(f, "{array}[{index}]"),
         }
     }
 }
@@ -498,7 +503,7 @@ impl Display for Expression {
             }
             Self::MathExpr(math_expr, args) => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
-                write!(f, "{}({})", math_expr, args_str)
+                write!(f, "{math_expr}({args_str})")
             }
         }
     }
@@ -703,7 +708,7 @@ impl Display for ConstExpression {
             }
             Self::MathExpr(math_expr, args) => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
-                write!(f, "{}({})", math_expr, args_str)
+                write!(f, "{math_expr}({args_str})")
             }
         }
     }

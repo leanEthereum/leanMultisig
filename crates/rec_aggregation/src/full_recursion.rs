@@ -13,13 +13,17 @@ const FIBONACCI_N: usize = 10_000;
 
 pub fn run_end2end_recursion_benchmark() {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("full_recursion.snark");
-    let mut program_str = std::fs::read_to_string(src_file).unwrap();
+    let mut program_str = std::fs::read_to_string(src_file.clone()).unwrap();
+    let filepath_str = src_file.to_str().unwrap();
+
     let snark_params = SnarkParams {
         first_whir: whir_config_builder(1, 3, 1),
         second_whir: whir_config_builder(3, 4, 1),
     };
-
-    let bytecode_to_prove = compile_program(FIBONNACI_PROGRAM.replace("FIB_N_PLACEHOLDER", &FIBONACCI_N.to_string()));
+    let bytecode_to_prove = compile_program(
+        "<string>",
+        FIBONNACI_PROGRAM.replace("FIB_N_PLACEHOLDER", &FIBONACCI_N.to_string()),
+    );
     precompute_dft_twiddles::<F>(1 << 24);
     let proof_to_prove = prove_execution(&bytecode_to_prove, (&[], &[]), &vec![], &snark_params, false);
     let verif_details = verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
@@ -97,7 +101,7 @@ pub fn run_end2end_recursion_benchmark() {
     let public_input = vec![];
     let private_input = proof_to_prove.proof;
 
-    let recursion_bytecode = compile_program(program_str);
+    let recursion_bytecode = compile_program(filepath_str, program_str);
 
     let time = Instant::now();
 

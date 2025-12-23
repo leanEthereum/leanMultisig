@@ -2,30 +2,46 @@ use std::collections::BTreeMap;
 
 use colored::Colorize;
 
-use crate::SourceLineNumber;
+use crate::{FileId, FunctionName, SourceLineNumber, SourceLocation};
 
 const STACK_TRACE_MAX_LINES_PER_FUNCTION: usize = 5;
 
 pub(crate) fn pretty_stack_trace(
-    source_code: &str,
-    instructions: &[SourceLineNumber], // SourceLineNumber = usize
-    function_locations: &BTreeMap<usize, String>,
+    source_code: &BTreeMap<FileId, String>,
+    instructions: &[SourceLocation],
+    function_locations: &BTreeMap<SourceLocation, FunctionName>,
+    filepaths: &BTreeMap<FileId, String>,
     last_pc: usize,
 ) -> String {
-    let source_lines: Vec<&str> = source_code.lines().collect();
+    let mut source_locations: BTreeMap<SourceLocation, &str> = BTreeMap::new();
+    for (f_id, src) in source_code.iter() {
+        for (i, line) in src.lines().enumerate() {
+            source_locations.insert(
+                SourceLocation {
+                    file_id: *f_id,
+                    line_number: i,
+                },
+                line,
+            );
+        }
+    }
     let mut result = String::new();
-    let mut call_stack: Vec<(usize, String)> = Vec::new(); // (line_number, function_name)
-    let mut prev_function_line = usize::MAX;
+    let mut call_stack: Vec<(SourceLocation, String)> = Vec::new();
+    let mut prev_function_location: Option<SourceLocation> = None;
     let mut skipped_lines: usize = 0; // Track skipped lines for current function
 
     result.push_str("╔═════════════════════════════════════════════════════════════════════════╗\n");
     result.push_str("║                               STACK TRACE                               ║\n");
     result.push_str("╚═════════════════════════════════════════════════════════════════════════╝\n\n");
 
-    for (idx, &line_num) in instructions.iter().enumerate() {
-        let (current_function_line, current_function_name) = find_function_for_line(line_num, function_locations);
+    for (idx, &location) in instructions.iter().enumerate() {
+        let (current_function_location, current_function_name) =
+            find_function_for_location(location, function_locations);
+        let current_filepath = filepaths
+            .get(&current_function_location.file_id)
+            .expect("Undefined FileId");
 
-        if prev_function_line != current_function_line {
+        if prev_function_location != Some(current_function_location) {
             assert_eq!(skipped_lines, 0);
 
             // Check if we're returning to a previous function or calling a new one
@@ -39,13 +55,13 @@ pub(crate) fn pretty_stack_trace(
                 skipped_lines = 0;
             } else {
                 // Add the new function to the stack
-                call_stack.push((line_num, current_function_name.clone()));
+                call_stack.push((location, current_function_name.clone()));
                 let indent = "│ ".repeat(call_stack.len() - 1);
                 result.push_str(&format!(
-                    "{}├─ {} (line {})\n",
+                    "{}├─ {} ({current_filepath}:{})\n",
                     indent,
                     current_function_name.blue(),
-                    current_function_line
+                    current_function_location.line_number,
                 ));
                 skipped_lines = 0;
             }
@@ -57,8 +73,12 @@ pub(crate) fn pretty_stack_trace(
             true
         } else {
             // Count remaining lines in this function
-            let remaining_in_function =
-                count_remaining_lines_in_function(idx, instructions, function_locations, current_function_line);
+            let remaining_in_function = count_remaining_lines_in_function(
+                idx,
+                instructions,
+                function_locations,
+                current_function_location.line_number,
+            );
 
             remaining_in_function < STACK_TRACE_MAX_LINES_PER_FUNCTION
         };
@@ -72,23 +92,30 @@ pub(crate) fn pretty_stack_trace(
             }
 
             let indent = "│ ".repeat(call_stack.len());
-            let code_line = source_lines.get(line_num.saturating_sub(1)).unwrap().trim();
+            let location = SourceLocation {
+                file_id: location.file_id,
+                line_number: location.line_number.saturating_sub(1),
+            };
+            let code_line = source_locations.get(&location).unwrap().trim();
 
             if idx == instructions.len() - 1 {
                 result.push_str(&format!(
                     "{}├─ {} {}\n",
                     indent,
-                    format!("line {line_num}:").red(),
+                    format!("{current_filepath}:{}:", location.line_number).red(),
                     code_line
                 ));
             } else {
-                result.push_str(&format!("{indent}├─ line {line_num}: {code_line}\n"));
+                result.push_str(&format!(
+                    "{indent}├─ {current_filepath}:{}: {code_line}\n",
+                    location.line_number
+                ));
             }
         } else {
             skipped_lines += 1;
         }
 
-        prev_function_line = current_function_line;
+        prev_function_location = Some(current_function_location);
     }
 
     // Add summary
@@ -97,11 +124,25 @@ pub(crate) fn pretty_stack_trace(
 
     if !call_stack.is_empty() {
         result.push_str("\nCall stack:\n");
-        for (i, (line, func)) in call_stack.iter().enumerate() {
+        for (i, (location, func)) in call_stack.iter().enumerate() {
+            let filepath = filepaths.get(&location.file_id).expect("Undefined FileId");
             if i + 1 == call_stack.len() {
-                result.push_str(&format!("  {}. {} (line {}, pc {})\n", i + 1, func, line, last_pc));
+                result.push_str(&format!(
+                    "  {}. {} ({}:{}, pc {})\n",
+                    i + 1,
+                    func,
+                    filepath,
+                    location.line_number,
+                    last_pc
+                ));
             } else {
-                result.push_str(&format!("  {}. {} (line {})\n", i + 1, func, line));
+                result.push_str(&format!(
+                    "  {}. {} ({}:{})\n",
+                    i + 1,
+                    func,
+                    filepath,
+                    location.line_number
+                ));
             }
         }
     }
@@ -109,25 +150,27 @@ pub(crate) fn pretty_stack_trace(
     result
 }
 
-pub(crate) fn find_function_for_line(line_num: usize, function_locations: &BTreeMap<usize, String>) -> (usize, String) {
+pub(crate) fn find_function_for_location(
+    location: SourceLocation,
+    function_locations: &BTreeMap<SourceLocation, String>,
+) -> (SourceLocation, String) {
     function_locations
-        .range(..=line_num)
+        .range(..=location)
         .next_back()
-        .map(|(line, func_name)| (*line, func_name.clone()))
-        .unwrap()
+        .map(|(location, func_name)| (*location, func_name.clone()))
+        .unwrap_or_else(|| panic!("Did not find function for location: {location}"))
 }
 
 fn count_remaining_lines_in_function(
     current_idx: usize,
-    instructions: &[SourceLineNumber],
-    function_locations: &BTreeMap<usize, String>,
+    instructions: &[SourceLocation],
+    function_locations: &BTreeMap<SourceLocation, String>,
     current_function_line: usize,
 ) -> usize {
     let mut count = 0;
 
-    for &instruction in instructions.iter().skip(current_idx + 1) {
-        let line_num = instruction;
-        let func_line = find_function_for_line(line_num, function_locations).0;
+    for &location in instructions.iter().skip(current_idx + 1) {
+        let func_line = find_function_for_location(location, function_locations).0.line_number;
 
         if func_line != current_function_line {
             break;

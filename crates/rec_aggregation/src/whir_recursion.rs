@@ -16,6 +16,9 @@ use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, 
 
 pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, tracing: bool, vm_profiler: bool) {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("whir_recursion.snark");
+    let mut program_str = std::fs::read_to_string(src_file.clone()).unwrap();
+    let filepath_str = src_file.to_str().unwrap();
+    
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
@@ -47,8 +50,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
     let mut rs_reduction_factors = vec![recursion_config_builder.rs_domain_initial_reduction_factor.to_string()];
     rs_reduction_factors.extend(vec!["1".to_string(); recursion_config.n_rounds()]);
 
-    let mut program_str = std::fs::read_to_string(src_file)
-        .unwrap()
+    program_str = program_str
         .replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string())
         .replace(
             "MERKLE_HEIGHTS_PLACEHOLDER",
@@ -125,7 +127,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
         utils::init_tracing();
     }
 
-    let bytecode = compile_program(program_str);
+    let bytecode = compile_program(filepath_str, program_str);
     let snark_params = SnarkParams::default();
     let time = Instant::now();
 

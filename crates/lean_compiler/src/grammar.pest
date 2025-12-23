@@ -1,7 +1,10 @@
 WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
 
 // Program structure
-program = { SOI ~ constant_declaration* ~ function+ ~ EOI }
+program = { SOI ~ import_statement* ~ constant_declaration* ~ function* ~ EOI }
+
+// Imports
+import_statement = { "import" ~ filepath ~ ";" }
 
 // Constants
 constant_declaration = { "const" ~ identifier ~ "=" ~ (array_literal | expression) ~ ";" }
@@ -109,3 +112,5 @@ constant_value = { number | "public_input_start" | "pointer_to_zero_vector" | "p
 // Lexical elements
 identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 number = @{ ASCII_DIGIT+ }
+filepath = { "\"" ~ filepath_character* ~ "\"" }
+filepath_character = { ASCII_ALPHANUMERIC | "-" | "_" | " " | "." | "+" | "/" }

@@ -1,4 +1,4 @@
-use crate::core::F;
+use crate::core::{F, SourceLocation};
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
 use crate::{TableTrace, error};
@@ -31,8 +31,8 @@ pub enum RunnerError {
     #[error("Program counter out of bounds")]
     PCOutOfBounds,
 
-    #[error("DebugAssert failed: {0} at line {1}")]
-    DebugAssertFailed(String, usize),
+    #[error("DebugAssert failed: {0} at {1}")]
+    DebugAssertFailed(String, SourceLocation),
 
     #[error("Invalid dot product")]
     InvalidDotProduct,
