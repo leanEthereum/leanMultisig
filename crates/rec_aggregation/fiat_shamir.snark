@@ -1,0 +1,126 @@
+// FIAT SHAMIR layout: 17 field elements
+// 0..8 -> first half of sponge state
+// 8..16 -> second half of sponge state
+// 16 -> transcript pointer
+
+const COMPRESSION = 1;
+const PERMUTATION = 0;
+const DIM = 5; // extension degree
+const F_BITS = 31; // koala-bear = 31 bits
+
+fn fs_new(transcript_ptr) -> 1 {
+    fs_state = malloc(17);
+    set_to_16_zeros(fs_state);
+    fs_state[16] = transcript_ptr;
+    duplexed = duplexing(fs_state);
+    return duplexed;
+}
+
+fn duplexing(fs) -> 1 {
+    new_fs = malloc(17);
+    poseidon16(fs, fs + 8, new_fs, PERMUTATION);
+    new_fs[16] = fs[16];
+    return new_fs;
+}
+
+fn fs_grinding(fs, bits) -> 1 {
+    if bits == 0 {
+        return fs; // no grinding
+    }
+    left = malloc(8);
+    grinding_witness = read_memory(fs[16]);
+    left[0] = grinding_witness;
+    set_to_7_zeros(left + 1);
+
+    fs_1 = malloc(17);
+    poseidon16(left, fs + 8, fs_1, PERMUTATION);
+    fs_1[16] = fs[16] + 1; // one element read from transcript
+
+    sampled = fs_1[0];
+    _, sampled_low_bits_value = checked_decompose_bits(sampled, bits);
+    assert sampled_low_bits_value == 0;
+
+    fs_2 = duplexing(fs_1);
+    
+    return fs_2;
+}
+
+fn fs_sample_ef(fs) -> 2 {
+    return fs, fs;
+}
+
+fn fs_hint(fs, n) -> 2 {
+    // return the updated fiat-shamir, and a pointer to n field elements from the transcript
+
+    transcript_ptr = fs[16];
+    new_fs = malloc(17);
+    copy_16(fs, new_fs);
+    new_fs[16] = fs[16] + n; // advance transcript pointer
+    return new_fs, transcript_ptr;
+}
+
+fn fs_receive_chunks(fs, const n_chunks) -> 2 {
+    // each chunk = 8 field elements
+    new_fs = malloc(1 + 16 * n_chunks);
+    transcript_ptr = fs[16];
+    new_fs[16 * n_chunks] = transcript_ptr + 8 * n_chunks; // advance transcript pointer
+
+    poseidon16(transcript_ptr, fs + 8, new_fs, PERMUTATION);
+    for i in 1..n_chunks unroll {
+        poseidon16(transcript_ptr + i * 8, new_fs + ((i-1) * 16 + 8), new_fs + i * 16, PERMUTATION);
+    }
+    return new_fs + 16 * (n_chunks - 1), transcript_ptr;
+}
+
+fn fs_receive_ef(fs, const n) -> 2 {
+    new_fs, ef_ptr = fs_receive_chunks(fs, next_multiple_of(n * DIM, 8) / 8);
+    for i in n * DIM..next_multiple_of(n * DIM, 8) unroll {
+        assert ef_ptr[i] == 0;
+    }
+    return new_fs, ef_ptr;
+}
+
+
+fn fs_print_state(fs_state) {
+    for i in 0..17 unroll {
+        print(i, fs_state[i]);
+    }
+    return;
+}
+
+
+// p = 2^31 - 2^24 + 1
+// in binary: p = 1111111000000000000000000000001
+//        p - 1 = 1111111000000000000000000000000
+//        p - 2 = 1111110111111111111111111111111
+//        p - 3 = 1111110111111111111111111111110
+//        ...
+// Any field element (< p) is either:
+// -   1111111    | 00...00
+// - not(1111111) | xx...xx
+fn checked_decompose_bits(a, k) -> 2 {
+    // return a pointer to the 31 bits of a
+    // .. and the partial value, reading the first K bits (with k <= 24)
+    bits = decompose_bits(a); // hint
+
+    for i in 0..F_BITS unroll {
+        assert bits[i] * (1 - bits[i]) == 0;
+    }
+    sums_24_first_bits = malloc(24);
+    sums_24_first_bits[0] = bits[0];
+    for i in 1..24 unroll {
+        sums_24_first_bits[i] = sums_24_first_bits[i - 1] + bits[i] * 2**i;
+    }
+    sums_7_last_bits = malloc(7);
+    sums_7_last_bits[0] = bits[24];
+    for i in 1..7 unroll {
+        sums_7_last_bits[i] = sums_7_last_bits[i - 1] + bits[24 + i] * 2**i;
+    }
+    if sums_7_last_bits[6] == 127 {
+        assert sums_24_first_bits[23] == 0;
+    }
+
+    assert a == sums_24_first_bits[23] + sums_7_last_bits[6] * 2**24;
+    partial_sum = sums_24_first_bits[k - 1];
+    return bits, partial_sum;
+}

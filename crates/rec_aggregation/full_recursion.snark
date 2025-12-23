@@ -1,8 +1,4 @@
-const COMPRESSION = 1;
-const PERMUTATION = 0;
-
-const F_BITS = 31; // koala-bear = 31 bits
-const DIM = 5; // extension degree
+import "fiat_shamir.snark";
 
 // Dot product precompile:
 const BE = 1; // base-extension
@@ -399,69 +395,6 @@ fn parse_whir_commitment_const(fs_state, const num_ood) -> 4 {
     }
     fs_4, ood_evals = fs_receive_ef(all_fs[num_ood], num_ood);
     return fs_4, root, ood_points, ood_evals;
-}
-
-// FIAT SHAMIR layout: 17 field elements
-// 0..8 -> first half of sponge state
-// 8..16 -> second half of sponge state
-// 16 -> transcript pointer
-
-fn fs_new(transcript_ptr) -> 1 {
-    fs_state = malloc(17);
-    set_to_16_zeros(fs_state);
-    fs_state[16] = transcript_ptr;
-    duplexed = duplexing(fs_state);
-    return duplexed;
-}
-
-fn duplexing(fs) -> 1 {
-    new_fs = malloc(17);
-    poseidon16(fs, fs + 8, new_fs, PERMUTATION);
-    new_fs[16] = fs[16];
-    return new_fs;
-}
-
-fn fs_sample_ef(fs) -> 2 {
-    return fs, fs;
-}
-
-fn fs_hint(fs, n) -> 2 {
-    // return the updated fiat-shamir, and a pointer to n field elements from the transcript
-
-    transcript_ptr = fs[16];
-    new_fs = malloc(17);
-    copy_16(fs, new_fs);
-    new_fs[16] = fs[16] + n; // advance transcript pointer
-    return new_fs, transcript_ptr;
-}
-
-fn fs_receive_chunks(fs, const n_chunks) -> 2 {
-    // each chunk = 8 field elements
-    new_fs = malloc(1 + 16 * n_chunks);
-    transcript_ptr = fs[16];
-    new_fs[16 * n_chunks] = transcript_ptr + 8 * n_chunks; // advance transcript pointer
-
-    poseidon16(transcript_ptr, fs + 8, new_fs, PERMUTATION);
-    for i in 1..n_chunks unroll {
-        poseidon16(transcript_ptr + i * 8, new_fs + ((i-1) * 16 + 8), new_fs + i * 16, PERMUTATION);
-    }
-    return new_fs + 16 * (n_chunks - 1), transcript_ptr;
-}
-
-fn fs_receive_ef(fs, const n) -> 2 {
-    new_fs, ef_ptr = fs_receive_chunks(fs, next_multiple_of(n * DIM, 8) / 8);
-    for i in n * DIM..next_multiple_of(n * DIM, 8) unroll {
-        assert ef_ptr[i] == 0;
-    }
-    return new_fs, ef_ptr;
-}
-
-
-fn fs_print_state(fs_state) {
-    for i in 0..17 unroll {
-        print(i, fs_state[i]);
-    }
-    return;
 }
 
 fn powers(alpha, n) -> 1 {
