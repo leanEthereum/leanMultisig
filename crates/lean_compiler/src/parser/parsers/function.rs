@@ -55,6 +55,7 @@ impl Parse<Function> for FunctionParser {
 
         Ok(Function {
             name,
+            file_id: ctx.current_file_id,
             arguments,
             inlined,
             n_returned_vars,

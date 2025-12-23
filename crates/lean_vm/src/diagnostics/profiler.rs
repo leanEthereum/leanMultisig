@@ -3,13 +3,13 @@ use std::ops::Range;
 
 use utils::pretty_integer;
 
-use crate::core::{Label, MemoryAddress};
-use crate::stack_trace::find_function_for_line;
+use crate::core::{Label, MemoryAddress, SourceLocation};
+use crate::stack_trace::find_function_for_location;
 use crate::{ExecutionHistory, NONRESERVED_PROGRAM_INPUT_START};
 
 pub(crate) fn profiling_report(
     instructions: &ExecutionHistory,
-    function_locations: &BTreeMap<usize, String>,
+    function_locations: &BTreeMap<SourceLocation, String>,
 ) -> String {
     #[derive(Default, Clone)]
     struct FunctionStats {
@@ -22,8 +22,8 @@ pub(crate) fn profiling_report(
     let mut call_stack: Vec<String> = Vec::new();
     let mut prev_function_name = String::new();
 
-    for (&line_num, &cycle_count) in instructions.lines.iter().zip(&instructions.lines_cycles) {
-        let (_, current_function_name) = find_function_for_line(line_num, function_locations);
+    for (&location, &cycle_count) in instructions.lines.iter().zip(&instructions.lines_cycles) {
+        let (_, current_function_name) = find_function_for_location(location, function_locations);
 
         if prev_function_name != current_function_name {
             if let Some(pos) = call_stack.iter().position(|f| f == &current_function_name) {

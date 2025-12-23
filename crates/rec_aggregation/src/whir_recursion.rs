@@ -19,7 +19,8 @@ const NUM_VARIABLES: usize = 25;
 
 pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("whir_recursion.snark");
-    let mut program_str = std::fs::read_to_string(src_file).unwrap();
+    let mut program_str = std::fs::read_to_string(src_file.clone()).unwrap();
+    let filepath_str = src_file.to_str().unwrap();
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
@@ -128,7 +129,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         utils::init_tracing();
     }
 
-    let bytecode = compile_program(program_str);
+    let bytecode = compile_program(filepath_str, program_str);
 
     let mut merkle_path_hints = VecDeque::new();
     for _ in 0..n_recursions {

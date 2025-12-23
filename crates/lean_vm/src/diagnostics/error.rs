@@ -1,4 +1,4 @@
-use crate::core::F;
+use crate::core::{F, SourceLocation};
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
 use crate::{TableTrace, error};
@@ -32,7 +32,7 @@ pub enum RunnerError {
     PCOutOfBounds,
 
     #[error("DebugAssert failed: {0} at line {1}")]
-    DebugAssertFailed(String, usize),
+    DebugAssertFailed(String, SourceLocation),
 }
 
 pub type VMResult<T> = Result<T, RunnerError>;
