@@ -84,27 +84,8 @@ pub fn prove_execution(
         }
     });
 
-    let extension_columns_transposed = traces
-        .iter()
-        .map(|(table, trace)| {
-            (
-                *table,
-                table
-                    .commited_columns_ef()
-                    .iter()
-                    .flat_map(|&c| transpose_slice_to_basis_coefficients::<PF<EF>, EF>(&trace.ext[c]))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    let mut base_pols = vec![memory.as_slice(), acc.as_slice()];
-    for (table, trace) in &traces {
-        base_pols.extend(table.committed_columns(trace, &extension_columns_transposed[table]));
-    }
-
     // 1st Commitment
-    let packed_pcs_witness_base = packed_pcs_commit(&params.first_whir, &base_pols, &mut prover_state);
+    let packed_pcs_witness_base = packed_pcs_commit(&mut prover_state, &params.first_whir, &memory, &acc, &traces);
     let first_whir_n_vars = packed_pcs_witness_base.packed_polynomial.by_ref().n_vars();
 
     // logup (GKR)
@@ -181,16 +162,23 @@ pub fn prove_execution(
     let memory_statements = vec![logup_statements.on_memory, public_memory_statement];
     let acc_statements = vec![logup_statements.on_acc];
 
-    let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
+    let mut commited_statements_f: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
     for table in traces.keys() {
-        final_statements.insert(
+        commited_statements_f.insert(
             *table,
-            table.committed_statements_prover(
+            table.committed_statements_f(&air_points[table], &evals_f[table], &logup_statements.columns_f[table]),
+        );
+    }
+
+    let mut commited_statements_ef: BTreeMap<Table, Vec<Vec<MultiEvaluation<EF>>>> = Default::default();
+    for table in traces.keys() {
+        commited_statements_ef.insert(
+            *table,
+            table.committed_statements_prover_ef(
                 &mut prover_state,
                 &air_points[table],
-                &evals_f[table],
-                &extension_columns_transposed[table],
-                &logup_statements.columns_f[table],
+                &evals_ef[table],
+                &traces[table],
                 &logup_statements.columns_ef[table],
             ),
         );
@@ -199,18 +187,23 @@ pub fn prove_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(traces[&Table::execution()].log_n_rows);
 
-    final_statements.get_mut(&Table::execution()).unwrap()[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
-        .extend(vec![
-            bytecode_logup_star_statements.on_indexes.clone(),
-            initial_pc_statement,
-            final_pc_statement,
-        ]);
+    commited_statements_f.get_mut(&Table::execution()).unwrap()
+        [ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
+    .extend(vec![
+        bytecode_logup_star_statements.on_indexes.clone(),
+        initial_pc_statement,
+        final_pc_statement,
+    ]);
 
-    // First Opening
-    let mut all_base_statements = vec![memory_statements, acc_statements];
-    all_base_statements.extend(final_statements.into_values().flatten());
-
-    let global_statements_base = packed_pcs_global_statements(&packed_pcs_witness_base.dims, &all_base_statements);
+    let table_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
+    let global_statements_base = packed_pcs_global_statements(
+        packed_pcs_witness_base.packed_n_vars,
+        &table_heights,
+        &memory_statements,
+        &acc_statements,
+        &commited_statements_f,
+        &commited_statements_ef,
+    );
 
     WhirConfig::new(
         &params.first_whir,

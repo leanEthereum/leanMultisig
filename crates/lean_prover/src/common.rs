@@ -1,23 +1,6 @@
-use std::collections::BTreeMap;
-
-use multilinear_toolkit::prelude::*;
-use p3_koala_bear::KOALABEAR_RC16_INTERNAL;
-
 use crate::*;
 use lean_vm::*;
-
-pub(crate) const N_COMMITED_CUBES_P16: usize = KOALABEAR_RC16_INTERNAL.len() - 2;
-
-pub(crate) fn get_base_dims(log_memory: usize, table_heights: &BTreeMap<Table, VarCount>) -> Vec<VarCount> {
-    let mut dims = vec![
-        log_memory, //  memory
-        log_memory, //  memory access counts (logup)
-    ];
-    for (table, log_n_rows) in table_heights {
-        dims.extend(table.committed_dims(*log_n_rows));
-    }
-    dims
-}
+use multilinear_toolkit::prelude::*;
 
 pub(crate) fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
     let encoded_bytecode = padd_with_zero_to_next_power_of_two(

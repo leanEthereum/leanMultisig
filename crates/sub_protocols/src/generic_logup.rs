@@ -1,6 +1,3 @@
-use std::cmp::Reverse;
-use std::collections::BTreeMap;
-
 use crate::{prove_gkr_quotient, verify_gkr_quotient};
 use lean_vm::ALL_TABLES;
 use lean_vm::BusDirection;
@@ -13,7 +10,9 @@ use lean_vm::Table;
 use lean_vm::TableT;
 use lean_vm::TableTrace;
 use lean_vm::max_bus_width;
+use lean_vm::sort_tables_by_height;
 use multilinear_toolkit::prelude::*;
+use std::collections::BTreeMap;
 use utils::MEMORY_TABLE_INDEX;
 use utils::VarCount;
 use utils::VecOrSlice;
@@ -30,7 +29,7 @@ pub struct GenericLogupStatements {
     pub bus_numerators: BTreeMap<Table, Evaluation<EF>>,
     pub bus_denominators: BTreeMap<Table, Evaluation<EF>>,
     pub columns_f: BTreeMap<Table, BTreeMap<ColIndex, Vec<Evaluation<EF>>>>,
-    pub columns_ef: BTreeMap<Table, BTreeMap<ColIndex, Vec<Evaluation<EF>>>>,
+    pub columns_ef: BTreeMap<Table, BTreeMap<ColIndex, MultiEvaluation<EF>>>,
     // Used in recursion
     pub total_n_vars: usize,
 }
@@ -50,11 +49,8 @@ pub fn prove_generic_logup(
     assert_eq!(memory.len(), acc.len());
     assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());
 
-    let mut tables_heights_sorted = traces
-        .iter()
-        .map(|(table, trace)| (*table, trace.log_n_rows))
-        .collect::<Vec<_>>();
-    tables_heights_sorted.sort_by_key(|&(_, h)| Reverse(h));
+    let tables_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
+    let tables_heights_sorted = sort_tables_by_height(&tables_heights);
 
     let total_n_vars = compute_total_n_vars(
         log2_strict_usize(memory.len()),
@@ -242,7 +238,7 @@ pub fn prove_generic_logup(
         // II] Lookup into memory
 
         let mut table_lookup_statements_f = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
-        let mut table_lookup_statements_ef = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
+        let mut table_lookup_statements_ef = BTreeMap::<ColIndex, MultiEvaluation<EF>>::new();
         for lookup_f in table.lookups_f() {
             let index_eval = trace.base[lookup_f.index].evaluate(&inner_point);
             prover_state.add_extension_scalar(index_eval);
@@ -271,19 +267,22 @@ pub fn prove_generic_logup(
 
             let col_ef = &trace.ext[lookup_ef.values];
 
-            let mut col_statements = Vec::new();
+            let mut transposed_col_ef_values = Vec::new();
             for col in transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef) {
                 let value_eval = col.evaluate(&inner_point);
                 prover_state.add_extension_scalar(value_eval);
-                col_statements.push(Evaluation::new(inner_point.clone(), value_eval));
+                transposed_col_ef_values.push(value_eval);
             }
             assert!(!table_lookup_statements_ef.contains_key(&lookup_ef.values));
-            table_lookup_statements_ef.insert(lookup_ef.values, col_statements);
+            table_lookup_statements_ef.insert(
+                lookup_ef.values,
+                MultiEvaluation::new(inner_point.clone(), transposed_col_ef_values),
+            );
         }
         statements_columns_f.insert(*table, table_lookup_statements_f);
         statements_columns_ef.insert(*table, table_lookup_statements_ef);
 
-        offset += len_for_table(table, log_n_rows);
+        offset += offset_for_table(table, log_n_rows);
     }
 
     assert_eq!(bus_statements_numerators.len(), ALL_TABLES.len());
@@ -311,11 +310,7 @@ pub fn verify_generic_logup(
     table_log_n_rows: &BTreeMap<Table, VarCount>,
     univariate_skips: usize,
 ) -> ProofResult<GenericLogupStatements> {
-    let mut tables_heights_sorted = table_log_n_rows
-        .iter()
-        .map(|(table, &log_n_rows)| (*table, log_n_rows))
-        .collect::<Vec<_>>();
-    tables_heights_sorted.sort_by_key(|&(_, h)| Reverse(h));
+    let tables_heights_sorted = sort_tables_by_height(table_log_n_rows);
 
     let total_n_vars = compute_total_n_vars(log_memory, &tables_heights_sorted.iter().cloned().collect());
 
@@ -402,7 +397,7 @@ pub fn verify_generic_logup(
         // II] Lookup into memory
 
         let mut table_lookup_statements_f = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
-        let mut table_lookup_statements_ef = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
+        let mut table_lookup_statements_ef = BTreeMap::<ColIndex, MultiEvaluation<EF>>::new();
         for lookup_f in table.lookups_f() {
             let index_eval = verifier_state.next_extension_scalar()?;
             table_lookup_statements_f
@@ -438,12 +433,10 @@ pub fn verify_generic_logup(
                 .or_default()
                 .push(Evaluation::new(inner_point.clone(), index_eval));
 
+            let mut transposed_col_ef_values = vec![];
             for i in 0..DIMENSION {
                 let value_eval = verifier_state.next_extension_scalar()?;
-                table_lookup_statements_ef
-                    .entry(lookup_ef.values)
-                    .or_default()
-                    .push(Evaluation::new(inner_point.clone(), value_eval));
+                transposed_col_ef_values.push(value_eval);
 
                 let pos = offset + (i << log_n_rows);
                 let bits = to_big_endian_in_field::<EF>(pos >> log_n_rows, n_missing_vars);
@@ -456,6 +449,10 @@ pub fn verify_generic_logup(
                         &alpha_powers,
                     ));
             }
+            table_lookup_statements_ef.insert(
+                lookup_ef.values,
+                MultiEvaluation::new(inner_point.clone(), transposed_col_ef_values),
+            );
             offset += DIMENSION << log_n_rows;
         }
         statements_columns_f.insert(table, table_lookup_statements_f);
@@ -494,17 +491,17 @@ fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
     Evaluation::new(new_point, new_value)
 }
 
-fn len_for_table(table: &Table, log_n_rows: usize) -> usize {
-    let n_cols_in_quotient =
+fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {
+    let num_cols =
         table.lookups_f().iter().map(|l| l.values.len()).sum::<usize>() + table.lookups_ef().len() * DIMENSION + 1; // +1 for the bus
-    n_cols_in_quotient << log_n_rows
+    num_cols << log_n_rows
 }
 
 fn compute_total_n_vars(log_memory: usize, tables_heights: &BTreeMap<Table, VarCount>) -> usize {
     let total_len = (1 << log_memory)
         + tables_heights
             .iter()
-            .map(|(table, log_n_rows)| len_for_table(table, *log_n_rows))
+            .map(|(table, log_n_rows)| offset_for_table(table, *log_n_rows))
             .sum::<usize>();
     log2_ceil_usize(total_len)
 }

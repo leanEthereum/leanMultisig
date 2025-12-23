@@ -50,10 +50,8 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let base_dims = get_base_dims(log_memory, &table_log_n_vars);
-    let base_packed_dims = PackedDims::compute(&base_dims);
     let parsed_commitment_base =
-        packed_pcs_parse_commitment::<F, EF>(&params.first_whir, &mut verifier_state, &base_packed_dims)?;
+        packed_pcs_parse_commitment(&params.first_whir, &mut verifier_state, log_memory, &table_log_n_vars)?;
 
     let logup_c = verifier_state.sample();
     verifier_state.duplexing();
@@ -124,16 +122,22 @@ pub fn verify_execution(
     let memory_statements = vec![logup_statements.on_memory, public_memory_statement];
     let acc_statements = vec![logup_statements.on_acc];
 
-    let mut final_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
+    let mut commited_statements_f: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
     for table in table_log_n_vars.keys() {
-        final_statements.insert(
+        commited_statements_f.insert(
             *table,
-            table.committed_statements_verifier(
+            table.committed_statements_f(&air_points[table], &evals_f[table], &logup_statements.columns_f[table]),
+        );
+    }
+
+    let mut commited_statements_ef: BTreeMap<Table, Vec<Vec<MultiEvaluation<EF>>>> = Default::default();
+    for table in table_log_n_vars.keys() {
+        commited_statements_ef.insert(
+            *table,
+            table.committed_statements_verifier_ef(
                 &mut verifier_state,
                 &air_points[table],
-                &evals_f[table],
                 &evals_ef[table],
-                &logup_statements.columns_f[table],
                 &logup_statements.columns_ef[table],
             )?,
         );
@@ -142,17 +146,22 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_log_n_vars[&Table::execution()]);
 
-    final_statements.get_mut(&Table::execution()).unwrap()[ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
-        .extend(vec![
-            bytecode_logup_star_statements.on_indexes.clone(),
-            initial_pc_statement,
-            final_pc_statement,
-        ]);
+    commited_statements_f.get_mut(&Table::execution()).unwrap()
+        [ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
+    .extend(vec![
+        bytecode_logup_star_statements.on_indexes.clone(),
+        initial_pc_statement,
+        final_pc_statement,
+    ]);
 
-    let mut all_base_statements = vec![memory_statements, acc_statements];
-    all_base_statements.extend(final_statements.into_values().flatten());
-
-    let global_statements_base = packed_pcs_global_statements(&base_packed_dims, &all_base_statements);
+    let global_statements_base = packed_pcs_global_statements(
+        parsed_commitment_base.num_variables,
+        &table_log_n_vars,
+        &memory_statements,
+        &acc_statements,
+        &commited_statements_f,
+        &commited_statements_ef,
+    );
 
     WhirConfig::new(&params.first_whir, parsed_commitment_base.num_variables).verify(
         &mut verifier_state,

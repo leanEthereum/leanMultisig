@@ -7,8 +7,9 @@ use lean_vm::{
 };
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sub_protocols::{PackedDims, packed_pcs_commit, packed_pcs_global_statements, packed_pcs_parse_commitment};
-use utils::{build_prover_state, build_verifier_state, collect_refs, init_tracing};
+use utils::{
+    build_prover_state, build_verifier_state, collect_refs, init_tracing, padd_with_zero_to_next_power_of_two,
+};
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder};
 
 const WIDTH: usize = 16;
@@ -64,81 +65,78 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
 
     let mut prover_state = build_prover_state();
 
+    let packed_n_vars = log2_ceil_usize(num_cols_poseidon_16() << log_n_rows);
+    let whir_config = WhirConfig::new(&whir_config, packed_n_vars);
+
     let time = std::time::Instant::now();
 
-    let witness = packed_pcs_commit(&whir_config, &collect_refs(&trace), &mut prover_state);
+    {
+        let mut commitmed_pol = F::zero_vec((num_cols_poseidon_16() << log_n_rows).next_power_of_two());
+        for (i, col) in trace.iter().enumerate() {
+            commitmed_pol[i << log_n_rows..(i + 1) << log_n_rows].copy_from_slice(col);
+        }
+        let committed_pol = MleOwned::Base(commitmed_pol);
 
-    let prover_statements = prove_air::<EF, _>(
-        &mut prover_state,
-        &air,
-        ExtraDataForBuses::default(),
-        UNIVARIATE_SKIPS,
-        &collect_refs(&trace),
-        &[] as &[&[EF]],
-        &[],
-        &[],
-        None,
-        true,
-    );
+        let witness = whir_config.commit(&mut prover_state, &committed_pol);
+        let (prover_point, prover_evals, _) = prove_air::<EF, _>(
+            &mut prover_state,
+            &air,
+            ExtraDataForBuses::default(),
+            UNIVARIATE_SKIPS,
+            &collect_refs(&trace),
+            &[] as &[&[EF]],
+            &[],
+            &[],
+            None,
+            true,
+        );
 
-    let global_statements_prover = packed_pcs_global_statements(
-        &witness.dims,
-        &prover_statements
-            .1
-            .iter()
-            .map(|v| vec![Evaluation::new(prover_statements.0.clone(), *v)])
-            .collect::<Vec<_>>(),
-    );
+        let alphas = prover_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
+        prover_state.duplexing();
+        let packed_point = MultilinearPoint([alphas.clone(), prover_point.0].concat());
+        let packed_eval = padd_with_zero_to_next_power_of_two(&prover_evals).evaluate(&MultilinearPoint(alphas));
 
-    WhirConfig::new(&whir_config, witness.packed_polynomial.by_ref().n_vars()).prove(
-        &mut prover_state,
-        global_statements_prover,
-        witness.inner_witness,
-        &witness.packed_polynomial.by_ref(),
-    );
+        whir_config.prove(
+            &mut prover_state,
+            vec![Evaluation::new(packed_point, packed_eval)],
+            witness,
+            &committed_pol.by_ref(),
+        );
+    }
 
     println!(
         "{} Poseidons / s",
         (n_rows as f64 / time.elapsed().as_secs_f64()) as usize
     );
 
-    let mut verifier_state = build_verifier_state(prover_state);
+    {
+        let mut verifier_state = build_verifier_state(prover_state);
 
-    let parsed_commitment_base = packed_pcs_parse_commitment::<F, EF>(
-        &whir_config,
-        &mut verifier_state,
-        &PackedDims::compute(&[log_n_rows; num_cols_poseidon_16()]),
-    )
-    .unwrap();
+        let parsed_commitment = whir_config.parse_commitment::<F>(&mut verifier_state).unwrap();
 
-    let verifier_statements = verify_air(
-        &mut verifier_state,
-        &air,
-        ExtraDataForBuses::default(),
-        UNIVARIATE_SKIPS,
-        log2_ceil_usize(n_rows),
-        &[],
-        &[],
-        None,
-    )
-    .unwrap();
-
-    let global_statements_verifier = packed_pcs_global_statements(
-        &PackedDims::compute(&[log_n_rows; num_cols_poseidon_16()]),
-        &verifier_statements
-            .1
-            .iter()
-            .map(|v| vec![Evaluation::new(verifier_statements.0.clone(), *v)])
-            .collect::<Vec<_>>(),
-    );
-
-    WhirConfig::new(&whir_config, parsed_commitment_base.num_variables)
-        .verify(&mut verifier_state, &parsed_commitment_base, global_statements_verifier)
+        let (verifier_point, verifier_evals, _) = verify_air(
+            &mut verifier_state,
+            &air,
+            ExtraDataForBuses::default(),
+            UNIVARIATE_SKIPS,
+            log2_ceil_usize(n_rows),
+            &[],
+            &[],
+            None,
+        )
         .unwrap();
 
-    assert_eq!(&prover_statements, &verifier_statements);
-    assert!(prover_statements.2.is_empty());
-    for (v, col) in prover_statements.1.iter().zip(trace) {
-        assert_eq!(col.evaluate(&prover_statements.0), *v);
+        let alphas = verifier_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
+        verifier_state.duplexing();
+        let packed_point = MultilinearPoint([alphas.clone(), verifier_point.0].concat());
+        let packed_eval = padd_with_zero_to_next_power_of_two(&verifier_evals).evaluate(&MultilinearPoint(alphas));
+
+        whir_config
+            .verify(
+                &mut verifier_state,
+                &parsed_commitment,
+                vec![Evaluation::new(packed_point, packed_eval)],
+            )
+            .unwrap();
     }
 }
