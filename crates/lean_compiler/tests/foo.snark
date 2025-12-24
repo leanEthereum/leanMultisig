@@ -1,1 +1,3 @@
+import "bar.snark";
+
 const FOO = 3;
