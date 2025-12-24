@@ -1,0 +1,447 @@
+import "hashing.snark";
+
+const F_BITS = 31; // koala-bear = 31 bits
+
+const TWO_ADICITY = 24;
+const ROOT = 1791270792; // of order 2^TWO_ADICITY
+
+// Dot product precompile:
+const BE = 1; // base-extension
+const EE = 0; // extension-extension
+
+fn powers(alpha, n) -> 1 {
+    // alpha: EF
+    // n: F
+
+    res = malloc(n * DIM);
+    set_to_one(res);
+    for i in 0..n - 1 {
+        mul_extension(res + i*DIM, alpha, res + (i + 1)*DIM);
+    }
+    return res;
+}
+
+fn unit_root_pow_dynamic(domain_size, index_bits) -> 1 {
+    // index_bits is a pointer to domain_size bits
+    var res;
+    match domain_size {
+        0 => {  } // unreachable
+        1 => { res = unit_root_pow_const(1, index_bits); }
+        2 => { res = unit_root_pow_const(2, index_bits); }
+        3 => { res = unit_root_pow_const(3, index_bits); }
+        4 => { res = unit_root_pow_const(4, index_bits); }
+        5 => { res = unit_root_pow_const(5, index_bits); }
+        6 => { res = unit_root_pow_const(6, index_bits); }
+        7 => { res = unit_root_pow_const(7, index_bits); }
+        8 => { res = unit_root_pow_const(8, index_bits); }
+        9 => { res = unit_root_pow_const(9, index_bits); }
+        10 => { res = unit_root_pow_const(10, index_bits); }
+        11 => { res = unit_root_pow_const(11, index_bits); }
+        12 => { res = unit_root_pow_const(12, index_bits); }
+        13 => { res = unit_root_pow_const(13, index_bits); }
+        14 => { res = unit_root_pow_const(14, index_bits); }
+        15 => { res = unit_root_pow_const(15, index_bits); }
+        16 => { res = unit_root_pow_const(16, index_bits); }
+        17 => { res = unit_root_pow_const(17, index_bits); }
+        18 => { res = unit_root_pow_const(18, index_bits); }
+        19 => { res = unit_root_pow_const(19, index_bits); }
+        20 => { res = unit_root_pow_const(20, index_bits); }
+        21 => { res = unit_root_pow_const(21, index_bits); }
+        22 => { res = unit_root_pow_const(22, index_bits); }
+    }
+    return res;
+}
+
+fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
+    prods = malloc(domain_size);
+    prods[0] = ((index_bits[0] * ROOT**(2**(TWO_ADICITY - domain_size))) + (1 - index_bits[0]));
+    for i in 1..domain_size unroll {
+        prods[i] = prods[i - 1] * ((index_bits[i] * ROOT**(2**(TWO_ADICITY - domain_size + i))) + (1 - index_bits[i]));
+    }
+    return prods[domain_size - 1];
+}
+
+
+
+fn poly_eq_extension_dynamic(point, n) -> 1 {
+    debug_assert n < 8;
+    var res;
+    match n {
+        0 => {  res = pointer_to_one_vector; }
+        1 => {  res = poly_eq_extension(point, 1); }
+        2 => {  res = poly_eq_extension(point, 2); }
+        3 => {  res = poly_eq_extension(point, 3); }
+        4 => {  res = poly_eq_extension(point, 4); }
+        5 => {  res = poly_eq_extension(point, 5); }
+        6 => {  res = poly_eq_extension(point, 6); }
+        7 => {  res = poly_eq_extension(point, 7); }
+    }
+    return res;
+}
+
+fn poly_eq_extension(point, const n) -> 1 {
+    // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
+
+    res = malloc((2**(n + 1) - 1) * DIM);
+    set_to_one(res);
+   
+    for s in 0..n unroll {
+        p = point + (n - 1 - s) * DIM;
+        for i in 0..2**s unroll {
+            mul_extension(p, res + (2**s - 1 + i) * DIM, res + (2**(s + 1) - 1 + 2**s + i) * DIM);
+            sub_extension(res + (2**s - 1 + i) * DIM, res + (2**(s + 1) - 1 + 2**s + i) * DIM, res + (2**(s + 1) - 1 + i) * DIM);
+        } 
+    }
+    return res + (2**n - 1) * DIM;
+}
+
+
+fn poly_eq_base(point, const n) -> 1 {
+    // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
+
+    res = malloc((2**(n + 1) - 1));
+    res[0] = 1;
+    for s in 0..n unroll {
+        p = point[n - 1 - s];
+        for i in 0..2**s unroll {
+            res[2**(s + 1) - 1 + 2**s + i] = p * res[2**s - 1 + i];
+            res[2**(s + 1) - 1 + i] = res[2**s - 1 + i] - res[2**(s + 1) - 1 + 2**s + i];
+        }
+    }
+    return res + (2**n - 1);
+}
+
+fn pow(a, b) -> 1 {
+    if b == 0 {
+        return 1; // a^0 = 1
+    } else {
+        p = pow(a, b - 1);
+        return a * p;
+    }
+}
+
+
+fn eq_mle_extension(a, b, n) -> 1 {
+
+    buff = malloc(n*DIM);
+
+    for i in 0..n {
+        shift = i * DIM;
+        ai = a + shift;
+        bi = b + shift;
+        buffi = buff + shift;
+        ab = mul_extension_ret(ai, bi);
+        buffi[0] = 1 + 2 * ab[0] - ai[0] - bi[0];
+        for j in 1..DIM unroll {
+            buffi[j] = 2 * ab[j] - ai[j] - bi[j];
+        }
+    }
+
+    prods = malloc(n*DIM);
+    copy_5(buff, prods);
+    for i in 0..n - 1 {
+        mul_extension(prods + i*DIM, buff + (i + 1)*DIM, prods + (i + 1)*DIM);
+    }
+
+    return prods + (n - 1) * DIM;
+}
+
+fn eq_mle_extension_base(a, b, n) -> 1 {
+    var res;
+    debug_assert n < 23;
+    match n {
+        0 => {  } // unreachable
+        1 => { res = eq_mle_extension_base_const(a, b, 1); }
+        2 => { res = eq_mle_extension_base_const(a, b, 2); }
+        3 => { res = eq_mle_extension_base_const(a, b, 3); }
+        4 => { res = eq_mle_extension_base_const(a, b, 4); }
+        5 => { res = eq_mle_extension_base_const(a, b, 5); }
+        6 => { res = eq_mle_extension_base_const(a, b, 6); }
+        7 => { res = eq_mle_extension_base_const(a, b, 7); }
+        8 => { res = eq_mle_extension_base_const(a, b, 8); }
+        9 => { res = eq_mle_extension_base_const(a, b, 9); }
+        10 => { res = eq_mle_extension_base_const(a, b, 10); }
+        11 => { res = eq_mle_extension_base_const(a, b, 11); }
+        12 => { res = eq_mle_extension_base_const(a, b, 12); }
+        13 => { res = eq_mle_extension_base_const(a, b, 13); }
+        14 => { res = eq_mle_extension_base_const(a, b, 14); }
+        15 => { res = eq_mle_extension_base_const(a, b, 15); }
+        16 => { res = eq_mle_extension_base_const(a, b, 16); }
+        17 => { res = eq_mle_extension_base_const(a, b, 17); }
+        18 => { res = eq_mle_extension_base_const(a, b, 18); }
+        19 => { res = eq_mle_extension_base_const(a, b, 19); }
+        20 => { res = eq_mle_extension_base_const(a, b, 20); }
+        21 => { res = eq_mle_extension_base_const(a, b, 21); }
+        22 => { res = eq_mle_extension_base_const(a, b, 22); }
+    }
+    return res;
+}
+
+fn eq_mle_extension_base_const(a, b, const n) -> 1 {
+    // a: base
+    // b: extension
+
+    buff = malloc(n*DIM);
+
+    for i in 0..n unroll {
+        ai = a[i];
+        bi = b + i*DIM;
+        buffi = buff + i*DIM;
+        ai_double = ai * 2;
+        buffi[0] = 1 + ai_double * bi[0] - ai - bi[0];
+        for j in 1..DIM unroll {
+            buffi[j] = ai_double * bi[j] - bi[j];
+        }
+    }
+
+    prods = malloc(n*DIM);
+    copy_5(buff, prods);
+    for i in 0..n - 1 unroll {
+        mul_extension(prods + i*DIM, buff + (i + 1)*DIM, prods + (i + 1)*DIM);
+    }
+    return prods + (n - 1) * DIM;
+}
+
+fn expand_from_univariate_base(alpha, n) -> 1 {
+    var res;
+    debug_assert n < 23;
+    match n {
+        0 => {  } // unreachable
+        1 => { res = expand_from_univariate_base_const(alpha, 1); }
+        2 => { res = expand_from_univariate_base_const(alpha, 2); }
+        3 => { res = expand_from_univariate_base_const(alpha, 3); }
+        4 => { res = expand_from_univariate_base_const(alpha, 4); }
+        5 => { res = expand_from_univariate_base_const(alpha, 5); }
+        6 => { res = expand_from_univariate_base_const(alpha, 6); }
+        7 => { res = expand_from_univariate_base_const(alpha, 7); }
+        8 => { res = expand_from_univariate_base_const(alpha, 8); }
+        9 => { res = expand_from_univariate_base_const(alpha, 9); }
+        10 => { res = expand_from_univariate_base_const(alpha, 10); }
+        11 => { res = expand_from_univariate_base_const(alpha, 11); }
+        12 => { res = expand_from_univariate_base_const(alpha, 12); }
+        13 => { res = expand_from_univariate_base_const(alpha, 13); }
+        14 => { res = expand_from_univariate_base_const(alpha, 14); }
+        15 => { res = expand_from_univariate_base_const(alpha, 15); }
+        16 => { res = expand_from_univariate_base_const(alpha, 16); }
+        17 => { res = expand_from_univariate_base_const(alpha, 17); }
+        18 => { res = expand_from_univariate_base_const(alpha, 18); }
+        19 => { res = expand_from_univariate_base_const(alpha, 19); }
+        20 => { res = expand_from_univariate_base_const(alpha, 20); }
+        21 => { res = expand_from_univariate_base_const(alpha, 21); }
+        22 => { res = expand_from_univariate_base_const(alpha, 22); }
+    }
+    return res;
+}
+
+fn expand_from_univariate_base_const(alpha, const n) -> 1 {
+    // "expand_from_univariate"
+    // alpha: F
+
+    res = malloc(n);
+    res[0] = alpha;
+    for i in 0..n-1 unroll {
+        res[i+1] = res[i] * res[i];
+    }
+    return res;
+}
+
+fn expand_from_univariate_ext(alpha, n) -> 1 {
+    res = malloc(n*DIM);
+    copy_5(alpha, res);
+    for i in 0..n-1 {
+        mul_extension(res + i*DIM, res + i*DIM, res + (i + 1)*DIM);
+    }
+    return res;
+}
+
+
+fn dot_product_ee_dynamic(a, b, res, n) { 
+    if n == 16 {
+        dot_product(a, b, res, 16, EE);
+        return;
+    }
+    if n == 1 {
+        dot_product(a, b, res, 1, EE);
+        return;
+    }
+    if n == 2 {
+        dot_product(a, b, res, 2, EE);
+        return;
+    }
+
+    for i in 0..N_ROUNDS + 1 unroll {
+        if n == NUM_QUERIES[i] {
+            dot_product(a, b, res, NUM_QUERIES[i], EE);
+            return;
+        }
+        if n == NUM_QUERIES[i] + 1 {
+            dot_product(a, b, res, NUM_QUERIES[i] + 1, EE);
+            return;
+        }
+    }
+    print(123456665);
+    panic();
+}
+
+
+fn mul_extension_ret(a, b) inline -> 1 {
+    c = malloc(DIM);
+    dot_product(a, b, c, 1, EE);
+    return c;
+}
+
+fn mul_extension(a, b, c) inline {
+    dot_product(a, b, c, 1, EE);
+    return;
+}
+
+fn add_extension_ret(a, b) inline -> 1 {
+    // TODO if a and b are adjacent we can do it in one cycle using the dot_product precompile
+    c = malloc(DIM);
+    for i in 0..DIM unroll {
+        c[i] = a[i] + b[i];
+    }
+    return c;
+}
+
+fn add_extension(a, b, c) inline {
+    // TODO if a and b are adjacent we can do it in one cycle using the dot_product precompile
+    for i in 0..DIM unroll {
+        c[i] = a[i] + b[i];
+    }
+    return;
+}
+
+
+fn div_ext(n, d) -> 1 {
+    quotient = malloc(DIM);
+    dot_product(d, quotient, n, 1, EE);
+    return quotient;
+}
+
+fn sub_extension(a, b, c) inline {
+    // TODO if a and b are adjacent we can do it in one cycle using the dot_product precompile
+    for i in 0..DIM unroll {
+        c[i] = a[i] - b[i];
+    }
+    return;
+}
+
+fn copy_5(a, b) inline {
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
+    return;
+}
+
+fn set_to_5_zeros(a) inline {
+    zero_ptr = pointer_to_zero_vector;
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
+    return;
+}
+
+fn set_to_7_zeros(a) inline {
+    zero_ptr = pointer_to_zero_vector;
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
+    a[5] = 0;
+    a[6] = 0;
+    return;
+}
+
+fn set_to_16_zeros(a) inline {
+    zero_ptr = pointer_to_zero_vector;
+    dot_product(a, pointer_to_one_vector, zero_ptr, 1, EE);
+    dot_product(a + 5, pointer_to_one_vector, zero_ptr, 1, EE);
+    dot_product(a + 10, pointer_to_one_vector, zero_ptr, 1, EE);
+    a[15] = 0;
+    return;
+}
+
+fn copy_8(a, b) inline {
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
+    assert a[5] == b[5];
+    assert a[6] == b[6];
+    assert a[7] == b[7];
+    return;
+}
+
+fn copy_16(a, b) inline {
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
+    dot_product(a + 5, pointer_to_one_vector, b + 5, 1, EE);
+    dot_product(a + 10, pointer_to_one_vector, b + 10, 1, EE);
+    a[15] = b[15];
+    return;
+}
+
+fn set_to_one(a) inline {
+    a[0] = 1;
+    for i in 1..DIM unroll { a[i] = 0; }
+    return;
+}
+
+
+fn print_ef(a) {
+    for i in 0..DIM unroll {
+        print(a[i]);
+    }
+    return;
+}
+
+fn print_vec(a) {
+    for i in 0..VECTOR_LEN unroll {
+        print(a[i]);
+    }
+    return;
+}
+
+fn print_many(a, n) {
+    for i in 0..n {
+        print(a[i]);
+    }
+    return;
+}
+
+fn next_multiple_of_8(const a) -> 1 {
+    return a + (8 - (a % 8)) % 8;
+}
+
+fn read_memory(ptr) inline -> 1  {
+    mem = 0;
+    return mem[ptr];
+}
+
+fn range_check(a, b) inline {
+    // TODO (for now we simulate the cost)
+    dummy1 = a + b;
+    dummy2 = dummy1 * a;
+    dummy3 = dummy2 + b;
+    return;
+}
+
+fn full_range_check(l, x, r) inline {
+    // ensure that l < x < r
+    // TODO (for now we simulate the cost)
+    // cf section 2.5.3 of the minimal_zkVM.pdf
+    debug_assert l < x;
+    debug_assert x < r;
+    dummy1 = l + r;
+    dummy2 = dummy1 * 2;
+    dummy3 = dummy2 + 3;
+    dummy4 = dummy3 + 4;
+    dummy5 = dummy4 + 5;
+    return;
+}
+
+fn univariate_polynomial_eval(coeffs, point, const degree) -> 1 {
+    powers = powers(point, degree + 1); // TODO use a const parameter version
+    res = malloc(DIM);
+    dot_product(coeffs, powers, res, degree + 1, EE);
+    return res;
+}
+
+
+fn sum_2_ef_fractions(a_num, a_den, b_num, b_den) -> 2 {
+    common_den = mul_extension_ret(a_den, b_den);
+    a_num_mul_b_den = mul_extension_ret(a_num, b_den);
+    b_num_mul_a_den = mul_extension_ret(b_num, a_den);
+    sum_num = add_extension_ret(a_num_mul_b_den, b_num_mul_a_den);
+    return sum_num, common_den;
+}

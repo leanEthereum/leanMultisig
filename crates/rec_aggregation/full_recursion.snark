@@ -104,25 +104,3 @@ fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) -> 4 {
     return fs5, postponed_point, new_claim_num, new_claim_den;
     
 }
-
-fn sum_2_ef_fractions(a_num, a_den, b_num, b_den) -> 2 {
-    common_den = mul_extension_ret(a_den, b_den);
-    a_num_mul_b_den = mul_extension_ret(a_num, b_den);
-    b_num_mul_a_den = mul_extension_ret(b_num, a_den);
-    sum_num = add_extension_ret(a_num_mul_b_den, b_num_mul_a_den);
-    return sum_num, common_den;
-}
-
-fn full_range_check(l, x, r) inline {
-    // ensure that l < x < r
-    // TODO (for now we simulate the cost)
-    // cf section 2.5.3 of the minimal_zkVM.pdf
-    debug_assert l < x;
-    debug_assert x < r;
-    dummy1 = l + r;
-    dummy2 = dummy1 * 2;
-    dummy3 = dummy2 + 3;
-    dummy4 = dummy3 + 4;
-    dummy5 = dummy4 + 5;
-    return;
-}

@@ -1,0 +1,98 @@
+const COMPRESSION = 1;
+const PERMUTATION = 0;
+
+const DIM = 5; // extension degree
+const VECTOR_LEN = 8;
+
+const MERKLE_HEIGHTS = MERKLE_HEIGHTS_PLACEHOLDER;
+const NUM_QUERIES = NUM_QUERIES_PLACEHOLDER;
+const N_ROUNDS = len(NUM_QUERIES) - 1;
+
+fn batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len) {
+    if len == DIM * 2 {
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM);
+        return;
+    }
+    if len == 16 {
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 8);
+        return;
+    }
+    TODO_batch_hash_slice = len;
+    print(77777123);
+    print(TODO_batch_hash_slice);
+    panic();
+}
+
+fn batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, const half_len) {
+    for i in 0..num_queries {
+        data = all_data_to_hash[i];
+        res = slice_hash(pointer_to_zero_vector, data, half_len);
+        all_resulting_hashes[i] = res;
+    }
+    return;    
+}
+
+fn slice_hash(seed, data, const half_len) -> 1 {
+    states = malloc(half_len * 2 * VECTOR_LEN);
+    poseidon16(pointer_to_zero_vector, data, states, COMPRESSION);
+    state_indexes = malloc(half_len * 2);
+    state_indexes[0] = states;
+    for j in 1..(half_len * 2) unroll {
+        state_indexes[j] = state_indexes[j-1] + VECTOR_LEN;
+        poseidon16(state_indexes[j-1], data + j * VECTOR_LEN, state_indexes[j], COMPRESSION);
+    }
+    return state_indexes[half_len * 2 - 1];
+}
+
+fn merkle_verif_batch(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries) {
+    debug_assert len(MERKLE_HEIGHTS) == N_ROUNDS + 1;
+    debug_assert len(NUM_QUERIES) == N_ROUNDS + 1;
+    for i in 0..N_ROUNDS + 1 unroll {
+        if height + num_queries * 1000 == MERKLE_HEIGHTS[i] + NUM_QUERIES[i] * 1000 {
+            merkle_verif_batch_const(NUM_QUERIES[i], merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHTS[i]);
+            return;
+        }
+    }
+    print(12345555);
+    print(height);
+    panic();
+}
+
+fn merkle_verif_batch_const(const n_paths, merkle_paths, leaves_digests, leave_positions, root, const height) {
+    // n_paths: F
+    // leaves_digests: pointer to a slice of n_paths vectorized pointers, each pointing to 1 chunk of 8 field elements
+    // leave_positions: pointer to a slice of n_paths field elements (each < 2^height)
+    // root: vectorized pointer to 1 chunk of 8 field elements
+    // height: F
+
+    for i in 0..n_paths unroll {
+        merkle_verify(leaves_digests[i], merkle_paths + (i * height) * VECTOR_LEN, leave_positions[i], root, height);
+    }
+
+    return;
+}
+
+
+fn merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, const height) {
+    states = malloc(height * VECTOR_LEN);
+    
+    // First merkle round
+    match leaf_position_bits[0] {
+        0 => { poseidon16(leaf_digest, merkle_path, states, COMPRESSION); }
+        1 => { poseidon16(merkle_path, leaf_digest, states, COMPRESSION); }
+    }
+
+    // Remaining merkle rounds
+    state_indexes = malloc(height);
+    state_indexes[0] = states;
+    for j in 1..height unroll {
+        state_indexes[j] = state_indexes[j-1] + VECTOR_LEN;
+        // Warning: this works only if leaf_position_bits[i] is known to be boolean:
+        match leaf_position_bits[j] {
+            0 => { poseidon16(state_indexes[j-1], merkle_path + j * VECTOR_LEN, state_indexes[j], COMPRESSION); }
+            1 => { poseidon16(merkle_path + j * VECTOR_LEN, state_indexes[j-1], state_indexes[j], COMPRESSION); }
+        }
+    }
+    copy_8(state_indexes[height - 1], root);
+    return;
+}
