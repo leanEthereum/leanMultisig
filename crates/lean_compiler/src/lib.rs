@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use lean_vm::*;
 
 use crate::{
@@ -12,8 +14,41 @@ pub mod ir;
 mod lang;
 mod parser;
 
-pub fn compile_program(filepath: &str, program: String) -> Bytecode {
-    let parsed_program = parse_program(filepath, &program).unwrap();
+#[derive(Debug, Clone)]
+pub enum ProgramSource {
+    Raw(String),
+    Filepath(String),
+}
+
+impl ProgramSource {
+    pub fn get_content(&self, flags: &CompilationFlags) -> Result<String, std::io::Error> {
+        match self {
+            ProgramSource::Raw(src) => {
+                let mut result = src.clone();
+                for (key, value) in flags.replacements.iter() {
+                    result = result.replace(key, value);
+                }
+                Ok(result)
+            }
+            ProgramSource::Filepath(fp) => {
+                let mut result = std::fs::read_to_string(fp)?;
+                for (key, value) in flags.replacements.iter() {
+                    result = result.replace(key, value);
+                }
+                Ok(result)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CompilationFlags {
+    /// useful for placeholder replacements in source code
+    pub replacements: BTreeMap<String, String>,
+}
+
+pub fn compile_program_with_flags(input: &ProgramSource, flags: CompilationFlags) -> Bytecode {
+    let parsed_program = parse_program(input, flags).unwrap();
     // println!("Parsed program: {}", parsed_program.to_string());
     let function_locations = parsed_program.function_locations.clone();
     let source_code = parsed_program.source_code.clone();
@@ -33,15 +68,13 @@ pub fn compile_program(filepath: &str, program: String) -> Bytecode {
     // compiled
 }
 
-pub fn compile_and_run(filepath: &str, program: String, (public_input, private_input): (&[F], &[F]), profiler: bool) {
-    let bytecode = compile_program(filepath, program);
-    let summary = execute_bytecode(
-        &bytecode,
-        (public_input, private_input),
-        profiler,
-        &vec![]
-    )
-    .summary;
+pub fn compile_program(input: &ProgramSource) -> Bytecode {
+    compile_program_with_flags(input, Default::default())
+}
+
+pub fn compile_and_run(input: &ProgramSource, (public_input, private_input): (&[F], &[F]), profiler: bool) {
+    let bytecode = compile_program(input);
+    let summary = execute_bytecode(&bytecode, (public_input, private_input), profiler, &vec![]).summary;
     println!("{summary}");
 }
 

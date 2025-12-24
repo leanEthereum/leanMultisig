@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
 
-use lean_compiler::compile_program;
+use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
 use lean_prover::{FIBONNACI_PROGRAM, SnarkParams, whir_config_builder};
@@ -12,17 +13,23 @@ use whir_p3::{WhirConfig, precompute_dft_twiddles};
 const FIBONACCI_N: usize = 10_000;
 
 pub fn run_end2end_recursion_benchmark() {
-    let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("full_recursion.snark");
-    let mut program_str = std::fs::read_to_string(src_file.clone()).unwrap();
-    let filepath_str = src_file.to_str().unwrap();
+    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("full_recursion.snark")
+        .to_str()
+        .unwrap()
+        .to_string();
 
     let snark_params = SnarkParams {
         first_whir: whir_config_builder(1, 3, 1),
         second_whir: whir_config_builder(3, 4, 1),
     };
-    let bytecode_to_prove = compile_program(
-        "<string>",
-        FIBONNACI_PROGRAM.replace("FIB_N_PLACEHOLDER", &FIBONACCI_N.to_string()),
+    let bytecode_to_prove = compile_program_with_flags(
+        &ProgramSource::Raw(FIBONNACI_PROGRAM.to_string()),
+        CompilationFlags {
+            replacements: vec![("FIB_N_PLACEHOLDER".to_string(), FIBONACCI_N.to_string())]
+                .into_iter()
+                .collect(),
+        },
     );
     precompute_dft_twiddles::<F>(1 << 24);
     let proof_to_prove = prove_execution(&bytecode_to_prove, (&[], &[]), &vec![], &snark_params, false);
@@ -30,39 +37,47 @@ pub fn run_end2end_recursion_benchmark() {
 
     let first_whir_config = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
 
-    program_str = program_str.replace(
-        "NUM_OOD_COMMIT_PLACEHOLDER",
-        &first_whir_config.committment_ood_samples.to_string(),
+    let mut replacements = BTreeMap::new();
+    replacements.insert(
+        "NUM_OOD_COMMIT_PLACEHOLDER".to_string(),
+        first_whir_config.committment_ood_samples.to_string(),
     );
     for (i, round) in first_whir_config.round_parameters.iter().enumerate() {
-        program_str = program_str
-            .replace(&format!("NUM_QUERIES_{i}_PLACEHOLDER"), &round.num_queries.to_string())
-            .replace(&format!("NUM_OOD_{}_PLACEHOLDER", i), &round.ood_samples.to_string())
-            .replace(&format!("GRINDING_BITS_{i}_PLACEHOLDER"), &round.pow_bits.to_string());
-    }
-    program_str = program_str
-        .replace(
-            &format!("NUM_QUERIES_{}_PLACEHOLDER", first_whir_config.n_rounds()),
-            &first_whir_config.final_queries.to_string(),
-        )
-        .replace(
-            &format!("GRINDING_BITS_{}_PLACEHOLDER", first_whir_config.n_rounds()),
-            &first_whir_config.final_pow_bits.to_string(),
-        )
-        .replace("N_VARS_PLACEHOLDER", &first_whir_config.num_variables.to_string())
-        .replace(
-            "LOG_INV_RATE_PLACEHOLDER",
-            &snark_params.first_whir.starting_log_inv_rate.to_string(),
+        replacements.insert(
+            format!("NUM_QUERIES_{i}_PLACEHOLDER", i = i),
+            round.num_queries.to_string(),
         );
+        replacements.insert(format!("NUM_OOD_{}_PLACEHOLDER", i), round.ood_samples.to_string());
+        replacements.insert(
+            format!("GRINDING_BITS_{i}_PLACEHOLDER", i = i),
+            round.pow_bits.to_string(),
+        );
+    }
+    replacements.insert(
+        format!("NUM_QUERIES_{}_PLACEHOLDER", first_whir_config.n_rounds()),
+        first_whir_config.final_queries.to_string(),
+    );
+    replacements.insert(
+        format!("GRINDING_BITS_{}_PLACEHOLDER", first_whir_config.n_rounds()),
+        first_whir_config.final_pow_bits.to_string(),
+    );
+    replacements.insert(
+        "N_VARS_PLACEHOLDER".to_string(),
+        first_whir_config.num_variables.to_string(),
+    );
+    replacements.insert(
+        "LOG_INV_RATE_PLACEHOLDER".to_string(),
+        snark_params.first_whir.starting_log_inv_rate.to_string(),
+    );
     for round in 0..=first_whir_config.n_rounds() {
-        program_str = program_str.replace(
-            &format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
-            &snark_params.first_whir.folding_factor.at_round(round).to_string(),
+        replacements.insert(
+            format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
+            first_whir_config.folding_factor.at_round(round).to_string(),
         );
     }
-    program_str = program_str.replace(
-        "RS_REDUCTION_FACTOR_0_PLACEHOLDER",
-        &snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
+    replacements.insert(
+        "RS_REDUCTION_FACTOR_0_PLACEHOLDER".to_string(),
+        snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
     );
 
     assert!(
@@ -81,27 +96,33 @@ pub fn run_end2end_recursion_benchmark() {
     );
 
     // VM recursion parameters (different from WHIR)
-    program_str = program_str
-        .replace(
-            "N_VARS_FIRST_GKR_PLACEHOLDER",
-            &verif_details.first_quotient_gkr_n_vars.to_string(),
-        )
-        .replace("N_TABLES_PLACEHOLDER", &N_TABLES.to_string())
-        .replace(
-            "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER",
-            &MIN_LOG_N_ROWS_PER_TABLE.to_string(),
-        )
-        .replace(
-            "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER",
-            &MAX_LOG_N_ROWS_PER_TABLE.to_string(),
-        )
-        .replace("MIN_LOG_MEMORY_SIZE_PLACEHOLDER", &MIN_LOG_MEMORY_SIZE.to_string())
-        .replace("MAX_LOG_MEMORY_SIZE_PLACEHOLDER", &MAX_LOG_MEMORY_SIZE.to_string());
+    replacements.insert(
+        "N_VARS_FIRST_GKR_PLACEHOLDER".to_string(),
+        verif_details.first_quotient_gkr_n_vars.to_string(),
+    );
+    replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
+    replacements.insert(
+        "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
+        MIN_LOG_N_ROWS_PER_TABLE.to_string(),
+    );
+    replacements.insert(
+        "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
+        MAX_LOG_N_ROWS_PER_TABLE.to_string(),
+    );
+    replacements.insert(
+        "MIN_LOG_MEMORY_SIZE_PLACEHOLDER".to_string(),
+        MIN_LOG_MEMORY_SIZE.to_string(),
+    );
+    replacements.insert(
+        "MAX_LOG_MEMORY_SIZE_PLACEHOLDER".to_string(),
+        MAX_LOG_MEMORY_SIZE.to_string(),
+    );
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;
 
-    let recursion_bytecode = compile_program(filepath_str, program_str);
+    let recursion_bytecode =
+        compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements });
 
     let time = Instant::now();
 

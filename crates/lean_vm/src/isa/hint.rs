@@ -1,4 +1,4 @@
-use crate::core::{F,  Label, SourceLocation, };
+use crate::core::{F, Label, SourceLocation};
 use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;

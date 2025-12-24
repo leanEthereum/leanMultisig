@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
 
-use lean_compiler::compile_program;
+use lean_compiler::CompilationFlags;
+use lean_compiler::ProgramSource;
+use lean_compiler::compile_program_with_flags;
 use lean_prover::SnarkParams;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
@@ -15,10 +18,12 @@ use utils::get_poseidon16;
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, tracing: bool, vm_profiler: bool) {
-    let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("whir_recursion.snark");
-    let mut program_str = std::fs::read_to_string(src_file.clone()).unwrap();
-    let filepath_str = src_file.to_str().unwrap();
-    
+    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("whir_recursion.snark")
+        .to_str()
+        .unwrap()
+        .to_string();
+
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
@@ -50,36 +55,45 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
     let mut rs_reduction_factors = vec![recursion_config_builder.rs_domain_initial_reduction_factor.to_string()];
     rs_reduction_factors.extend(vec!["1".to_string(); recursion_config.n_rounds()]);
 
-    program_str = program_str
-        .replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string())
-        .replace(
-            "MERKLE_HEIGHTS_PLACEHOLDER",
-            &format!("[{}]", merkle_heights.join(", ")),
-        )
-        .replace("NUM_QUERIES_PLACEHOLDER", &format!("[{}]", num_queries.join(", ")))
-        .replace(
-            "NUM_OOD_COMMIT_PLACEHOLDER",
-            &recursion_config.committment_ood_samples.to_string(),
-        )
-        .replace("NUM_OODS_PLACEHOLDER", &format!("[{}]", ood_samples.join(", ")))
-        .replace("GRINDING_BITS_PLACEHOLDER", &format!("[{}]", grinding_bits.join(", ")))
-        .replace(
-            "FOLDING_FACTORS_PLACEHOLDER",
-            &format!("[{}]", folding_factors.join(", ")),
-        )
-        .replace("N_VARS_PLACEHOLDER", &num_variables.to_string())
-        .replace(
-            "LOG_INV_RATE_PLACEHOLDER",
-            &recursion_config_builder.starting_log_inv_rate.to_string(),
-        )
-        .replace(
-            "FINAL_VARS_PLACEHOLDER",
-            &recursion_config.n_vars_of_final_polynomial().to_string(),
-        )
-        .replace(
-            "RS_REDUCTION_FACTORS_PLACEHOLDER",
-            &format!("[{}]", rs_reduction_factors.join(", ")),
-        );
+    let mut replacements = BTreeMap::new();
+    replacements.insert("N_RECURSIONS_PLACEHOLDER".to_string(), n_recursions.to_string());
+    replacements.insert(
+        "MERKLE_HEIGHTS_PLACEHOLDER".to_string(),
+        format!("[{}]", merkle_heights.join(", ")),
+    );
+    replacements.insert(
+        "NUM_QUERIES_PLACEHOLDER".to_string(),
+        format!("[{}]", num_queries.join(", ")),
+    );
+    replacements.insert(
+        "NUM_OOD_COMMIT_PLACEHOLDER".to_string(),
+        recursion_config.committment_ood_samples.to_string(),
+    );
+    replacements.insert(
+        "NUM_OODS_PLACEHOLDER".to_string(),
+        format!("[{}]", ood_samples.join(", ")),
+    );
+    replacements.insert(
+        "GRINDING_BITS_PLACEHOLDER".to_string(),
+        format!("[{}]", grinding_bits.join(", ")),
+    );
+    replacements.insert(
+        "FOLDING_FACTORS_PLACEHOLDER".to_string(),
+        format!("[{}]", folding_factors.join(", ")),
+    );
+    replacements.insert("N_VARS_PLACEHOLDER".to_string(), num_variables.to_string());
+    replacements.insert(
+        "LOG_INV_RATE_PLACEHOLDER".to_string(),
+        recursion_config_builder.starting_log_inv_rate.to_string(),
+    );
+    replacements.insert(
+        "FINAL_VARS_PLACEHOLDER".to_string(),
+        recursion_config.n_vars_of_final_polynomial().to_string(),
+    );
+    replacements.insert(
+        "RS_REDUCTION_FACTORS_PLACEHOLDER".to_string(),
+        format!("[{}]", rs_reduction_factors.join(", ")),
+    );
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = MleOwned::Base((0..1 << num_variables).map(|_| rng.random()).collect::<Vec<F>>());
@@ -119,7 +133,10 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
 
     public_input.extend(whir_proof[commitment_size..].to_vec());
 
-    program_str = program_str.replace("WHIR_PROOF_SIZE_PLACEHOLDER", &public_input.len().to_string());
+    replacements.insert(
+        "WHIR_PROOF_SIZE_PLACEHOLDER".to_string(),
+        public_input.len().to_string(),
+    );
 
     public_input = std::iter::repeat_n(public_input, n_recursions).flatten().collect();
 
@@ -127,7 +144,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
         utils::init_tracing();
     }
 
-    let bytecode = compile_program(filepath_str, program_str);
+    let bytecode = compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements });
     let snark_params = SnarkParams::default();
     let time = Instant::now();
 

@@ -1,5 +1,8 @@
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
-use std::{cmp::Ordering, fmt::{Display, Formatter}};
+use std::{
+    cmp::Ordering,
+    fmt::{Display, Formatter},
+};
 
 /// Base field type for VM operations
 pub type F = KoalaBear;

@@ -3,6 +3,7 @@ use crate::parser::{
     error::{ParseResult, SemanticError},
     grammar::{ParsePair, Rule},
 };
+use crate::{CompilationFlags, ProgramSource};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod expression;
@@ -37,20 +38,28 @@ pub struct ParseContext {
     pub imported_filepaths: BTreeSet<String>,
     /// Next unused file ID
     pub next_file_id: usize,
+    /// Compilation flags
+    pub flags: CompilationFlags,
 }
 
 impl ParseContext {
-    pub fn new(current_filepath: &str, current_source_code: &str) -> Self {
-        Self {
+    pub fn new(input: &ProgramSource, flags: CompilationFlags) -> Result<Self, SemanticError> {
+        let current_source_code = input.get_content(&flags).unwrap();
+        let (current_filepath, imported_filepaths) = match input {
+            ProgramSource::Raw(_) => ("<raw_input>".to_string(), BTreeSet::new()),
+            ProgramSource::Filepath(fp) => (fp.clone(), [fp.clone()].into_iter().collect()),
+        };
+        Ok(Self {
             constants: BTreeMap::new(),
             const_arrays: BTreeMap::new(),
             trash_var_count: 0,
-            current_filepath: current_filepath.to_string(),
+            current_filepath,
             current_file_id: 0,
-            imported_filepaths: BTreeSet::new(),
-            current_source_code: current_source_code.to_string(),
+            imported_filepaths,
+            current_source_code,
             next_file_id: 1,
-        }
+            flags,
+        })
     }
 
     /// Adds a scalar constant to the context.
@@ -100,12 +109,6 @@ impl ParseContext {
         let file_id = self.next_file_id;
         self.next_file_id += 1;
         file_id
-    }
-}
-
-impl Default for ParseContext {
-    fn default() -> Self {
-        Self::new("<string>", "")
     }
 }
 

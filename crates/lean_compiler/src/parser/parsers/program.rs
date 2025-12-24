@@ -1,6 +1,7 @@
 use super::function::FunctionParser;
 use super::literal::ConstantDeclarationParser;
 use crate::{
+    CompilationFlags, ProgramSource,
     lang::{Program, SourceLocation},
     parser::{
         error::{ParseError, ParseResult, SemanticError},
@@ -55,14 +56,9 @@ impl Parse<Program> for ProgramParser {
                         let file_id = ctx.get_next_file_id();
                         ctx.current_file_id = file_id;
                         filepaths.insert(file_id, filepath.clone());
-                        let input = std::fs::read_to_string(filepath.clone()).map_err(|_| {
-                            SemanticError::with_context(
-                                format!("Imported file not found: {filepath}"),
-                                "import declaration",
-                            )
-                        })?;
-                        source_code.insert(file_id, input.clone());
-                        let subprogram = parse_program_helper(filepath.as_str(), input.as_str(), ctx)?;
+                        ctx.current_source_code = ProgramSource::Filepath(filepath).get_content(&ctx.flags).unwrap();
+                        source_code.insert(file_id, ctx.current_source_code.clone());
+                        let subprogram = parse_program_helper(ctx)?;
                         functions.extend(subprogram.functions);
                         function_locations.extend(subprogram.function_locations);
                         source_code.extend(subprogram.source_code);
@@ -138,22 +134,17 @@ impl Parse<String> for ImportStatementParser {
     }
 }
 
-fn parse_program_helper(filepath: &str, input: &str, ctx: &mut ParseContext) -> Result<Program, ParseError> {
+fn parse_program_helper(ctx: &mut ParseContext) -> Result<Program, ParseError> {
     // Preprocess source to remove comments
-    let processed_input = lexer::preprocess_source(input);
+    let processed_input = lexer::preprocess_source(&ctx.current_source_code);
 
     // Parse grammar into AST nodes
     let program_pair = parse_source(&processed_input)?;
 
     // Parse into semantic structures
-    ctx.current_filepath = filepath.to_string();
-    ctx.current_source_code = input.to_string();
-    ctx.imported_filepaths.insert(filepath.to_string());
     ProgramParser.parse(program_pair, ctx)
 }
 
-pub fn parse_program(filepath: &str, input: &str) -> Result<Program, ParseError> {
-    let mut ctx = ParseContext::new(filepath, input);
-    ctx.imported_filepaths.insert(filepath.to_string());
-    parse_program_helper(filepath, input, &mut ctx)
+pub fn parse_program(input: &ProgramSource, flags: CompilationFlags) -> Result<Program, ParseError> {
+    parse_program_helper(&mut ParseContext::new(input, flags)?)
 }
