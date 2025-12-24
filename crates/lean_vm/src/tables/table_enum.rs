@@ -1,4 +1,5 @@
 use multilinear_toolkit::prelude::*;
+use utils::MEMORY_TABLE_INDEX;
 
 use crate::*;
 
@@ -47,7 +48,7 @@ impl Table {
         PF::from_usize(self.index())
     }
     pub const fn index(&self) -> usize {
-        unsafe { *(self as *const Self as *const usize) }
+        unsafe { *(self as *const Self as *const usize) + MEMORY_TABLE_INDEX + 1 }
     }
 }
 
