@@ -592,7 +592,7 @@ fn poly_eq_extension_dynamic(point, n) -> 1 {
     debug_assert n < 8;
     var res;
     match n {
-        0 => {  res = poly_eq_extension(point, 0); }
+        0 => {  res = pointer_to_one_vector; }
         1 => {  res = poly_eq_extension(point, 1); }
         2 => {  res = poly_eq_extension(point, 2); }
         3 => {  res = poly_eq_extension(point, 3); }
@@ -607,134 +607,34 @@ fn poly_eq_extension_dynamic(point, n) -> 1 {
 fn poly_eq_extension(point, const n) -> 1 {
     // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
-    if n == 0 {
-        res = malloc(DIM);
-        set_to_one(res);
-        return res;
-    } else {
-        res = malloc(2**n * DIM);
-        inner_res = poly_eq_extension(point + DIM, saturating_sub(n, 1));
-        for i in 0..2**(n-1) unroll {
-            mul_extension(point, inner_res + i*DIM, res + (2**(n-1) + i) * DIM);
-            sub_extension(inner_res + i*DIM, res + (2**(n-1) + i) * DIM, res + i*DIM);
-        }
-        return res;
+    res = malloc((2**(n + 1) - 1) * DIM);
+    set_to_one(res);
+   
+    for s in 0..n unroll {
+        p = point + (n - 1 - s) * DIM;
+        for i in 0..2**s unroll {
+            mul_extension(p, res + (2**s - 1 + i) * DIM, res + (2**(s + 1) - 1 + 2**s + i) * DIM);
+            sub_extension(res + (2**s - 1 + i) * DIM, res + (2**(s + 1) - 1 + 2**s + i) * DIM, res + (2**(s + 1) - 1 + i) * DIM);
+        } 
     }
+    return res + (2**n - 1) * DIM;
 }
 
-fn poly_eq_base(point, n) -> 1 {
-    var res;
-    match n {
-        0 => {  } // unreachable
-        1 => { res = poly_eq_base_1(point); }
-        2 => { res = poly_eq_base_2(point); }
-        3 => { res = poly_eq_base_3(point); }
-        4 => { res = poly_eq_base_4(point); }
-        5 => { res = poly_eq_base_5(point); }
-        6 => { res = poly_eq_base_6(point); }
-        7 => { res = poly_eq_base_7(point); }
-    }
-    return res;
-}
 
-fn poly_eq_base_7(point) -> 1 {
-    // n = 7
-    // return a (normal) pointer to 2^n base field elements, corresponding to the "equality polynomial" at point
+fn poly_eq_base(point, const n) -> 1 {
     // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
-    res = malloc(128);
-
-    inner_res = poly_eq_base_6(point + 1);
-
-    for i in 0..64 unroll {
-        res[64 + i] = inner_res[i] * point[0];
-        res[i] = inner_res[i] - res[64 + i];
+    res = malloc((2**(n + 1) - 1));
+    res[0] = 1;
+    for s in 0..n unroll {
+        p = point[n - 1 - s];
+        for i in 0..2**s unroll {
+            res[2**(s + 1) - 1 + 2**s + i] = p * res[2**s - 1 + i];
+            res[2**(s + 1) - 1 + i] = res[2**s - 1 + i] - res[2**(s + 1) - 1 + 2**s + i];
+        }
     }
-    
-    return res;
+    return res + (2**n - 1);
 }
-
-fn poly_eq_base_6(point) -> 1 {
-    // n = 6
-    res = malloc(64);
-    
-    inner_res = poly_eq_base_5(point + 1);
-    
-    for i in 0..32 unroll {
-        res[32 + i] = inner_res[i] * point[0];
-        res[i] = inner_res[i] - res[32 + i];
-    }
-    
-    return res;
-}
-
-fn poly_eq_base_5(point) -> 1 {
-    // n = 5
-    res = malloc(32);
-    
-    inner_res = poly_eq_base_4(point + 1);
-    
-    for i in 0..16 unroll {
-        res[16 + i] = inner_res[i] * point[0];
-        res[i] = inner_res[i] - res[16 + i];
-    }
-    
-    return res;
-}
-
-fn poly_eq_base_4(point) -> 1 {
-    // n = 4
-    res = malloc(16);
-    
-    inner_res = poly_eq_base_3(point + 1);
-    
-    for i in 0..8 unroll {
-        res[8 + i] = inner_res[i] * point[0];
-        res[i] = inner_res[i] - res[8 + i];
-    }
-    
-    return res;
-}
-
-fn poly_eq_base_3(point) -> 1 {
-    // n = 3
-    res = malloc(8);
-    
-    inner_res = poly_eq_base_2(point + 1);
-    
-    for i in 0..4 unroll {
-        res[4 + i] = inner_res[i] * point[0];
-        res[i] = inner_res[i] - res[4 + i];
-    }
-    
-    return res;
-}
-
-fn poly_eq_base_2(point) -> 1 {
-    // n = 2
-    res = malloc(4);
-    
-    inner_res = poly_eq_base_1(point + 1);
-    
-    for i in 0..2 unroll {
-        res[2 + i] = inner_res[i] * point[0];
-        res[i] = inner_res[i] - res[2 + i];
-    }
-    
-    return res;
-}
-
-fn poly_eq_base_1(point) -> 1 {
-    // n = 1
-    // Base case: eq(x) = [1 - x, x]
-    res = malloc(2);
-    
-    res[1] = point[0];
-    res[0] = 1 - res[1];
-    
-    return res;
-}
-
 
 fn pow(a, b) -> 1 {
     if b == 0 {
