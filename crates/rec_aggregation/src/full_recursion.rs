@@ -77,6 +77,7 @@ pub fn run_end2end_recursion_benchmark() {
         "MAX_LOG_MEMORY_SIZE_PLACEHOLDER".to_string(),
         MAX_LOG_MEMORY_SIZE.to_string(),
     );
+    replacements.insert("MAX_BUS_WIDTH_PLACEHOLDER".to_string(), max_bus_width().to_string());
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;

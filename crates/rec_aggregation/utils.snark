@@ -312,8 +312,35 @@ fn add_extension(a, b, c) inline {
     return;
 }
 
+fn one_minus_self_extension_ret(a) inline -> 1 {
+    res = malloc(DIM);
+    res[0] = 1 - a[0];
+    for i in 1..DIM unroll {
+        res[i] = 0 - a[i];
+    }
+    return res;
+}
 
-fn div_ext(n, d) -> 1 {
+fn minus_self_extension_ret(a) inline -> 1 {
+    // todo use dot_product precompile
+    res = malloc(DIM);
+    for i in 0..DIM unroll {
+        res[i] = 0 - a[i];
+    }
+    return res;
+}
+
+fn multiply_many_one_minus_self_extension_ret(arr, n) -> 1 {
+    res = malloc((n + 1) * DIM);
+    set_to_one(res);
+    for i in 0..n {
+        one_minus_ai = one_minus_self_extension_ret(arr + i*DIM);
+        mul_extension(res + i*DIM, one_minus_ai, res + (i + 1)*DIM);
+    }
+    return res + n*DIM;
+}
+
+fn div_extension(n, d) -> 1 {
     quotient = malloc(DIM);
     dot_product(d, quotient, n, 1, EE);
     return quotient;

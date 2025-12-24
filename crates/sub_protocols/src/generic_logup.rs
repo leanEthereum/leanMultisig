@@ -336,13 +336,13 @@ pub fn verify_generic_logup(
     let statement_on_acc = Evaluation::new(inner_point_memory.clone(), value_acc);
     retrieved_numerators_value -= pref * value_acc;
 
-    let value_table = verifier_state.next_extension_scalar()?;
+    let value_memory = verifier_state.next_extension_scalar()?;
     let value_index = mle_of_01234567_etc(&inner_point_memory);
-    let statement_on_table = Evaluation::new(inner_point_memory.clone(), value_table);
+    let statement_on_memory = Evaluation::new(inner_point_memory.clone(), value_memory);
     retrieved_denominators_value += pref
         * (c - finger_print(
             F::from_usize(MEMORY_TABLE_INDEX),
-            &[value_index, value_table],
+            &[value_index, value_memory],
             &alpha_powers,
         ));
 
@@ -468,7 +468,7 @@ pub fn verify_generic_logup(
     }
 
     Ok(GenericLogupStatements {
-        on_memory: statement_on_table,
+        on_memory: statement_on_memory,
         on_acc: statement_on_acc,
         bus_numerators: bus_statements_numerators,
         bus_denominators: bus_statements_denominators,

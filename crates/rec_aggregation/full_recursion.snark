@@ -6,6 +6,7 @@ const MAX_LOG_N_ROWS_PER_TABLE = MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER;
 const MIN_LOG_MEMORY_SIZE = MIN_LOG_MEMORY_SIZE_PLACEHOLDER;
 const MAX_LOG_MEMORY_SIZE = MAX_LOG_MEMORY_SIZE_PLACEHOLDER;
 const N_VARS_FIRST_GKR = N_VARS_FIRST_GKR_PLACEHOLDER;
+const MAX_BUS_WIDTH = MAX_BUS_WIDTH_PLACEHOLDER;
 
 fn main() {
     proof_transcript = private_input_start();
@@ -35,8 +36,27 @@ fn main() {
     fs_7, logup_alpha = fs_sample_ef(fs_6);
     fs_8 = duplexing(logup_alpha);
 
+    // verify_generic_logup
+
     fs9, quotient_gkr, point_gkr, claims_num, claims_den = verify_gkr_quotient(fs_8, N_VARS_FIRST_GKR);
     set_to_5_zeros(quotient_gkr);
+
+    alpha_powers = powers(logup_alpha, MAX_BUS_WIDTH);
+
+    retrieved_numerators_value = malloc(100); // TODO proper size
+    retrieved_denominators_value = malloc(100); // TODO proper size
+
+    memory_and_acc_prefix = multiply_many_one_minus_self_extension_ret(point_gkr, N_VARS_FIRST_GKR - log_memory);
+
+    fs10, value_acc = fs_receive_ef(fs9, 1);
+    fs11, value_memory = fs_receive_ef(fs10, 1);
+
+    pref_mul_value_acc = mul_extension_ret(memory_and_acc_prefix, value_acc);
+    retrieved_numerators_value[0] = minus_self_extension_ret(pref_mul_value_acc);
+
+    print_ef(retrieved_numerators_value[0]);
+
+
 
     return;
 }
@@ -45,8 +65,8 @@ fn verify_gkr_quotient(fs, n_vars) -> 5 {
     fs1, nums = fs_receive_ef(fs, 2);
     fs4, denoms = fs_receive_ef(fs1, 2);
 
-    q1 = div_ext(nums, denoms);
-    q2 = div_ext(nums + DIM, denoms + DIM);
+    q1 = div_extension(nums, denoms);
+    q2 = div_extension(nums + DIM, denoms + DIM);
     quotient = add_extension_ret(q1, q2);
 
     points = malloc(n_vars);
