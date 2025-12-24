@@ -36,65 +36,6 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
 
     let recursion_config = WhirConfig::<EF>::new(&recursion_config_builder, num_variables);
 
-    let mut num_queries = vec![];
-    let mut ood_samples = vec![];
-    let mut grinding_bits = vec![];
-    let merkle_heights = (0..=recursion_config.n_rounds())
-        .map(|r| recursion_config.merkle_tree_height(r).to_string())
-        .collect::<Vec<_>>();
-    let mut folding_factors = vec![];
-    for round in &recursion_config.round_parameters {
-        num_queries.push(round.num_queries.to_string());
-        ood_samples.push(round.ood_samples.to_string());
-        grinding_bits.push(round.pow_bits.to_string());
-        folding_factors.push(round.folding_factor.to_string());
-    }
-    folding_factors.push(recursion_config.final_round_config().folding_factor.to_string());
-    grinding_bits.push(recursion_config.final_pow_bits.to_string());
-    num_queries.push(recursion_config.final_queries.to_string());
-    let mut rs_reduction_factors = vec![recursion_config_builder.rs_domain_initial_reduction_factor.to_string()];
-    rs_reduction_factors.extend(vec!["1".to_string(); recursion_config.n_rounds()]);
-
-    let mut replacements = BTreeMap::new();
-    replacements.insert("N_RECURSIONS_PLACEHOLDER".to_string(), n_recursions.to_string());
-    replacements.insert(
-        "MERKLE_HEIGHTS_PLACEHOLDER".to_string(),
-        format!("[{}]", merkle_heights.join(", ")),
-    );
-    replacements.insert(
-        "NUM_QUERIES_PLACEHOLDER".to_string(),
-        format!("[{}]", num_queries.join(", ")),
-    );
-    replacements.insert(
-        "NUM_OOD_COMMIT_PLACEHOLDER".to_string(),
-        recursion_config.committment_ood_samples.to_string(),
-    );
-    replacements.insert(
-        "NUM_OODS_PLACEHOLDER".to_string(),
-        format!("[{}]", ood_samples.join(", ")),
-    );
-    replacements.insert(
-        "GRINDING_BITS_PLACEHOLDER".to_string(),
-        format!("[{}]", grinding_bits.join(", ")),
-    );
-    replacements.insert(
-        "FOLDING_FACTORS_PLACEHOLDER".to_string(),
-        format!("[{}]", folding_factors.join(", ")),
-    );
-    replacements.insert("N_VARS_PLACEHOLDER".to_string(), num_variables.to_string());
-    replacements.insert(
-        "LOG_INV_RATE_PLACEHOLDER".to_string(),
-        recursion_config_builder.starting_log_inv_rate.to_string(),
-    );
-    replacements.insert(
-        "FINAL_VARS_PLACEHOLDER".to_string(),
-        recursion_config.n_vars_of_final_polynomial().to_string(),
-    );
-    replacements.insert(
-        "RS_REDUCTION_FACTORS_PLACEHOLDER".to_string(),
-        format!("[{}]", rs_reduction_factors.join(", ")),
-    );
-
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = MleOwned::Base((0..1 << num_variables).map(|_| rng.random()).collect::<Vec<F>>());
 
@@ -133,6 +74,8 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
 
     public_input.extend(whir_proof[commitment_size..].to_vec());
 
+    let mut replacements = whir_recursion_placeholder_replacements(&recursion_config);
+    replacements.insert("N_RECURSIONS_PLACEHOLDER".to_string(), n_recursions.to_string());
     replacements.insert(
         "WHIR_PROOF_SIZE_PLACEHOLDER".to_string(),
         public_input.len().to_string(),
@@ -163,6 +106,67 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
         proving_time.as_millis() / n_recursions as u128,
         proof.proof_size_fe * F::bits() / (8 * 1024)
     );
+}
+
+pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<EF>) -> BTreeMap<String, String> {
+    let mut num_queries = vec![];
+    let mut ood_samples = vec![];
+    let mut grinding_bits = vec![];
+    let merkle_heights = (0..=whir_config.n_rounds())
+        .map(|r| whir_config.merkle_tree_height(r).to_string())
+        .collect::<Vec<_>>();
+    let mut folding_factors = vec![];
+    for round in &whir_config.round_parameters {
+        num_queries.push(round.num_queries.to_string());
+        ood_samples.push(round.ood_samples.to_string());
+        grinding_bits.push(round.pow_bits.to_string());
+        folding_factors.push(round.folding_factor.to_string());
+    }
+    folding_factors.push(whir_config.final_round_config().folding_factor.to_string());
+    grinding_bits.push(whir_config.final_pow_bits.to_string());
+    num_queries.push(whir_config.final_queries.to_string());
+    let mut rs_reduction_factors = vec![whir_config.rs_domain_initial_reduction_factor.to_string()];
+    rs_reduction_factors.extend(vec!["1".to_string(); whir_config.n_rounds()]);
+
+    let mut replacements = BTreeMap::new();
+    replacements.insert(
+        "MERKLE_HEIGHTS_PLACEHOLDER".to_string(),
+        format!("[{}]", merkle_heights.join(", ")),
+    );
+    replacements.insert(
+        "NUM_QUERIES_PLACEHOLDER".to_string(),
+        format!("[{}]", num_queries.join(", ")),
+    );
+    replacements.insert(
+        "NUM_OOD_COMMIT_PLACEHOLDER".to_string(),
+        whir_config.committment_ood_samples.to_string(),
+    );
+    replacements.insert(
+        "NUM_OODS_PLACEHOLDER".to_string(),
+        format!("[{}]", ood_samples.join(", ")),
+    );
+    replacements.insert(
+        "GRINDING_BITS_PLACEHOLDER".to_string(),
+        format!("[{}]", grinding_bits.join(", ")),
+    );
+    replacements.insert(
+        "FOLDING_FACTORS_PLACEHOLDER".to_string(),
+        format!("[{}]", folding_factors.join(", ")),
+    );
+    replacements.insert("N_VARS_PLACEHOLDER".to_string(), whir_config.num_variables.to_string());
+    replacements.insert(
+        "LOG_INV_RATE_PLACEHOLDER".to_string(),
+        whir_config.starting_log_inv_rate.to_string(),
+    );
+    replacements.insert(
+        "FINAL_VARS_PLACEHOLDER".to_string(),
+        whir_config.n_vars_of_final_polynomial().to_string(),
+    );
+    replacements.insert(
+        "RS_REDUCTION_FACTORS_PLACEHOLDER".to_string(),
+        format!("[{}]", rs_reduction_factors.join(", ")),
+    );
+    replacements
 }
 
 #[test]

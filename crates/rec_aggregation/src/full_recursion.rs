@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
 
@@ -9,6 +8,8 @@ use lean_prover::{FIBONNACI_PROGRAM, SnarkParams, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use whir_p3::{WhirConfig, precompute_dft_twiddles};
+
+use crate::whir_recursion::whir_recursion_placeholder_replacements;
 
 const FIBONACCI_N: usize = 10_000;
 
@@ -37,48 +38,7 @@ pub fn run_end2end_recursion_benchmark() {
 
     let first_whir_config = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
 
-    let mut replacements = BTreeMap::new();
-    replacements.insert(
-        "NUM_OOD_COMMIT_PLACEHOLDER".to_string(),
-        first_whir_config.committment_ood_samples.to_string(),
-    );
-    for (i, round) in first_whir_config.round_parameters.iter().enumerate() {
-        replacements.insert(
-            format!("NUM_QUERIES_{i}_PLACEHOLDER", i = i),
-            round.num_queries.to_string(),
-        );
-        replacements.insert(format!("NUM_OOD_{}_PLACEHOLDER", i), round.ood_samples.to_string());
-        replacements.insert(
-            format!("GRINDING_BITS_{i}_PLACEHOLDER", i = i),
-            round.pow_bits.to_string(),
-        );
-    }
-    replacements.insert(
-        format!("NUM_QUERIES_{}_PLACEHOLDER", first_whir_config.n_rounds()),
-        first_whir_config.final_queries.to_string(),
-    );
-    replacements.insert(
-        format!("GRINDING_BITS_{}_PLACEHOLDER", first_whir_config.n_rounds()),
-        first_whir_config.final_pow_bits.to_string(),
-    );
-    replacements.insert(
-        "N_VARS_PLACEHOLDER".to_string(),
-        first_whir_config.num_variables.to_string(),
-    );
-    replacements.insert(
-        "LOG_INV_RATE_PLACEHOLDER".to_string(),
-        snark_params.first_whir.starting_log_inv_rate.to_string(),
-    );
-    for round in 0..=first_whir_config.n_rounds() {
-        replacements.insert(
-            format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
-            first_whir_config.folding_factor.at_round(round).to_string(),
-        );
-    }
-    replacements.insert(
-        "RS_REDUCTION_FACTOR_0_PLACEHOLDER".to_string(),
-        snark_params.first_whir.rs_domain_initial_reduction_factor.to_string(),
-    );
+    let mut replacements = whir_recursion_placeholder_replacements(&first_whir_config);
 
     assert!(
         verif_details.log_memory >= verif_details.table_log_n_vars[&Table::execution()]
