@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::time::Instant;
 
-use lean_compiler::compile_program;
+use lean_compiler::CompilationFlags;
+use lean_compiler::ProgramSource;
+use lean_compiler::compile_program_with_flags;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
 use lean_prover::whir_config_builder;
@@ -19,8 +22,7 @@ const NUM_VARIABLES: usize = 25;
 
 pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     let src_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("whir_recursion.snark");
-    let mut program_str = std::fs::read_to_string(src_file.clone()).unwrap();
-    let filepath_str = src_file.to_str().unwrap();
+    let filepath = src_file.to_str().unwrap().to_string();
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
@@ -31,7 +33,8 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         rs_domain_initial_reduction_factor: 3,
     };
 
-    program_str = program_str.replace("N_RECURSIONS_PLACEHOLDER", &n_recursions.to_string());
+    let mut replacements = BTreeMap::new();
+    replacements.insert("N_RECURSIONS_PLACEHOLDER".to_string(), n_recursions.to_string());
 
     let mut recursion_config = WhirConfig::<EF>::new(recursion_config_builder.clone(), NUM_VARIABLES);
 
@@ -46,34 +49,33 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     assert_eq!(recursion_config.committment_ood_samples, 1);
     // println!("Whir parameters: {}", params.to_string());
     for (i, round) in recursion_config.round_parameters.iter().enumerate() {
-        program_str = program_str
-            .replace(&format!("NUM_QUERIES_{i}_PLACEHOLDER"), &round.num_queries.to_string())
-            .replace(&format!("GRINDING_BITS_{i}_PLACEHOLDER"), &round.pow_bits.to_string());
+        replacements.insert(format!("NUM_QUERIES_{i}_PLACEHOLDER"), round.num_queries.to_string());
+        replacements.insert(format!("GRINDING_BITS_{i}_PLACEHOLDER"), round.pow_bits.to_string());
     }
-    program_str = program_str
-        .replace(
-            &format!("NUM_QUERIES_{}_PLACEHOLDER", recursion_config.n_rounds()),
-            &recursion_config.final_queries.to_string(),
-        )
-        .replace(
-            &format!("GRINDING_BITS_{}_PLACEHOLDER", recursion_config.n_rounds()),
-            &recursion_config.final_pow_bits.to_string(),
-        )
-        .replace("N_VARS_PLACEHOLDER", &NUM_VARIABLES.to_string())
-        .replace(
-            "LOG_INV_RATE_PLACEHOLDER",
-            &recursion_config_builder.starting_log_inv_rate.to_string(),
-        );
+
+    replacements.insert(
+        format!("NUM_QUERIES_{}_PLACEHOLDER", recursion_config.n_rounds()),
+        recursion_config.final_queries.to_string(),
+    );
+    replacements.insert(
+        format!("GRINDING_BITS_{}_PLACEHOLDER", recursion_config.n_rounds()),
+        recursion_config.final_pow_bits.to_string(),
+    );
+    replacements.insert("N_VARS_PLACEHOLDER".to_string(), NUM_VARIABLES.to_string());
+    replacements.insert(
+        "LOG_INV_RATE_PLACEHOLDER".to_string(),
+        recursion_config_builder.starting_log_inv_rate.to_string(),
+    );
     assert_eq!(recursion_config.n_rounds(), 3); // this is hardcoded in the program above
     for round in 0..=recursion_config.n_rounds() {
-        program_str = program_str.replace(
-            &format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
-            &recursion_config_builder.folding_factor.at_round(round).to_string(),
+        replacements.insert(
+            format!("FOLDING_FACTOR_{round}_PLACEHOLDER"),
+            recursion_config_builder.folding_factor.at_round(round).to_string(),
         );
     }
-    program_str = program_str.replace(
-        "RS_REDUCTION_FACTOR_0_PLACEHOLDER",
-        &recursion_config_builder.rs_domain_initial_reduction_factor.to_string(),
+    replacements.insert(
+        "RS_REDUCTION_FACTOR_0_PLACEHOLDER".to_string(),
+        recursion_config_builder.rs_domain_initial_reduction_factor.to_string(),
     );
 
     let mut rng = StdRng::seed_from_u64(0);
@@ -118,9 +120,9 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
     public_input.extend(whir_proof.proof_data[commitment_size..].to_vec());
 
     assert!(public_input.len().is_multiple_of(VECTOR_LEN));
-    program_str = program_str.replace(
-        "WHIR_PROOF_SIZE_PLACEHOLDER",
-        &(public_input.len() / VECTOR_LEN).to_string(),
+    replacements.insert(
+        "WHIR_PROOF_SIZE_PLACEHOLDER".to_string(),
+        (public_input.len() / VECTOR_LEN).to_string(),
     );
 
     public_input = std::iter::repeat_n(public_input, n_recursions).flatten().collect();
@@ -129,7 +131,7 @@ pub fn run_whir_recursion_benchmark(tracing: bool, n_recursions: usize) {
         utils::init_tracing();
     }
 
-    let bytecode = compile_program(filepath_str, program_str);
+    let bytecode = compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements });
 
     let mut merkle_path_hints = VecDeque::new();
     for _ in 0..n_recursions {

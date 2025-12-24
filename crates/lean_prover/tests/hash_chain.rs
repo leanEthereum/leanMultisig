@@ -56,7 +56,7 @@ fn benchmark_poseidon_chain() {
     let private_input = vec![];
 
     utils::init_tracing();
-    let bytecode = compile_program("<string>", program_str);
+    let bytecode = compile_program(&ProgramSource::Raw(program_str));
     let no_vec_runtime_memory = execute_bytecode(
         &bytecode,
         (&public_input, &private_input),
