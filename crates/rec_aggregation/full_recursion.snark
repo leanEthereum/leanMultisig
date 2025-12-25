@@ -61,8 +61,18 @@ fn main() {
     c_minus_fingerprint_memory = sub_extension_ret(logup_c, fingerprint_memory);
     retrieved_denominators_value[0] = mul_extension_ret(memory_and_acc_prefix, c_minus_fingerprint_memory);
 
-    print_ef(retrieved_numerators_value[0]); // good
-    print_ef(retrieved_denominators_value[0]); // good
+    all_fs = malloc(100); // TODO proper size
+    all_offsets = malloc(100); // TODO proper size
+    all_fs[0] = fs11;
+    all_offsets[0] = powers_of_two(log_memory);
+    for table_index in 0..N_TABLES unroll {
+        log_n_rows = table_dims[table_index];
+        n_rows = powers_of_two(log_n_rows);
+        offset = all_offsets[table_index];
+        inner_point = point_gkr + (N_VARS_FIRST_GKR - log_n_rows) * DIM;
+        all_fs[table_index + 1], evals_on_selector = fs_receive_ef(all_fs[table_index], 2**UNIVARIATE_SKIPS);
+        prefix = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr);
+    }
 
     return;
 }

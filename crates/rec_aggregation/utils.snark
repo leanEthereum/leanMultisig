@@ -9,6 +9,10 @@ const ROOT = 1791270792; // of order 2^TWO_ADICITY
 const BE = 1; // base-extension
 const EE = 0; // extension-extension
 
+// bit decomposition hint
+const BIG_ENDIAN = 0;
+const LITTLE_ENDIAN = 1;
+
 fn powers(alpha, n) -> 1 {
     // alpha: EF
     // n: F
@@ -551,7 +555,7 @@ fn checked_decompose_bits(a, k) -> 2 {
     // return a pointer to the 31 bits of a
     // .. and the partial value, reading the first K bits (with k <= 24)
     bits = malloc(F_BITS);
-    hint_decompose_bits(a, bits, F_BITS);
+    hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN);
 
     for i in 0..F_BITS unroll {
         assert bits[i] * (1 - bits[i]) == 0;
@@ -577,14 +581,14 @@ fn checked_decompose_bits(a, k) -> 2 {
 
 fn checked_decompose_bits_small_value(to_decompose, n_bits) -> 1 {
     bits = malloc(n_bits);
-    hint_decompose_bits(to_decompose, bits, n_bits);
+    hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN);
     sums = malloc(n_bits);
     powers_of_2 = malloc(n_bits);
-    sums[0] = bits[0];
+    sums[0] = bits[n_bits - 1];
     powers_of_2[0] = 1;
     for i in 1..n_bits {
         powers_of_2[i] = powers_of_2[i - 1] * 2;
-        sums[i] = sums[i - 1] + bits[i] * powers_of_2[i];
+        sums[i] = sums[i - 1] + bits[n_bits - 1 - i] * powers_of_2[i];
     }
     assert to_decompose == sums[n_bits - 1];
     return bits;

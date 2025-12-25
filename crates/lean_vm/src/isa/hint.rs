@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::ops::Range;
 use strum::IntoEnumIterator;
-use utils::{ToUsize, pretty_integer};
+use utils::{ToUsize, pretty_integer, to_big_endian_in_field, to_little_endian_in_field};
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -81,7 +81,7 @@ impl CustomHint {
     pub fn n_args_range(&self) -> Range<usize> {
         match self {
             Self::DecomposeBitsXMSS => 3..usize::MAX,
-            Self::DecomposeBits => 3..4,
+            Self::DecomposeBits => 4..5,
         }
     }
 
@@ -106,13 +106,22 @@ impl CustomHint {
             }
             Self::DecomposeBits => {
                 let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let mut memory_index = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let memory_index = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let num_bits = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let endianness = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(
+                    endianness == 0 || endianness == 1,
+                    "Invalid endianness for DecomposeBits hint"
+                );
                 assert!(num_bits <= F::bits());
-                for i in 0..num_bits {
-                    let bit = F::from_bool(to_decompose & (1 << i) != 0);
-                    ctx.memory.set(memory_index, bit)?;
-                    memory_index += 1;
+                if endianness == 0 {
+                    // Big-endian
+                    ctx.memory
+                        .set_slice(memory_index, &to_big_endian_in_field::<F>(to_decompose, num_bits))?
+                } else {
+                    // Little-endian
+                    ctx.memory
+                        .set_slice(memory_index, &to_little_endian_in_field::<F>(to_decompose, num_bits))?
                 }
             }
         }

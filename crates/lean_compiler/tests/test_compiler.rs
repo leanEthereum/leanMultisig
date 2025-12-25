@@ -972,6 +972,25 @@ fn test_imports() {
     run_program_in_files(6);
 }
 
+#[test]
+fn test_name_conflict() {
+    let program = r#"
+    fn main() {
+        a = b();
+        b = a();
+        assert a + b == 30;
+        return;
+    }
+    fn a() -> 1 {
+        return 10;
+    }
+    fn b() -> 1 {
+        return 20;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
 // BUG here:
 
 // #[test]
