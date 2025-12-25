@@ -8,6 +8,7 @@ const MAX_LOG_MEMORY_SIZE = MAX_LOG_MEMORY_SIZE_PLACEHOLDER;
 const N_VARS_FIRST_GKR = N_VARS_FIRST_GKR_PLACEHOLDER;
 const MAX_BUS_WIDTH = MAX_BUS_WIDTH_PLACEHOLDER;
 const MEMORY_TABLE_INDEX = MEMORY_TABLE_INDEX_PLACEHOLDER;
+const UNIVARIATE_SKIPS = UNIVARIATE_SKIPS_PLACEHOLDER;
 
 fn main() {
     proof_transcript = private_input_start();
@@ -47,7 +48,7 @@ fn main() {
     retrieved_numerators_value = malloc(100); // TODO proper size
     retrieved_denominators_value = malloc(100); // TODO proper size
 
-    memory_and_acc_prefix = multiply_many_one_minus_self_extension_ret(point_gkr, N_VARS_FIRST_GKR - log_memory);
+    memory_and_acc_prefix = multilinear_location_prefix(0, N_VARS_FIRST_GKR - log_memory, point_gkr);
 
     fs10, value_acc = fs_receive_ef(fs9, 1);
     fs11, value_memory = fs_receive_ef(fs10, 1);
@@ -64,6 +65,12 @@ fn main() {
     print_ef(retrieved_denominators_value[0]); // good
 
     return;
+}
+
+fn multilinear_location_prefix(offset, n_vars, point) -> 1 {
+    bits = checked_decompose_bits_small_value(offset, n_vars);
+    res = eq_mle_extension_base(bits, point, n_vars);
+    return res;
 }
 
 fn fingerprint_2(table_index, data_1, data_2, alpha_powers) -> 1 {

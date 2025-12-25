@@ -81,7 +81,7 @@ impl CustomHint {
     pub fn n_args_range(&self) -> Range<usize> {
         match self {
             Self::DecomposeBitsXMSS => 3..usize::MAX,
-            Self::DecomposeBits => 2..3,
+            Self::DecomposeBits => 3..4,
         }
     }
 
@@ -107,7 +107,9 @@ impl CustomHint {
             Self::DecomposeBits => {
                 let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let mut memory_index = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                for i in 0..F::bits() {
+                let num_bits = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(num_bits <= F::bits());
+                for i in 0..num_bits {
                     let bit = F::from_bool(to_decompose & (1 << i) != 0);
                     ctx.memory.set(memory_index, bit)?;
                     memory_index += 1;

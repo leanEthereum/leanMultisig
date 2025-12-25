@@ -13,11 +13,7 @@ mod test_zkvm;
 pub mod verify_execution;
 pub use test_zkvm::FIBONNACI_PROGRAM;
 
-const UNIVARIATE_SKIPS: usize = 3;
-const TWO_POW_UNIVARIATE_SKIPS: usize = 1 << UNIVARIATE_SKIPS;
-
-const DOT_PRODUCT_UNIVARIATE_SKIPS: usize = 1;
-const TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS: usize = 1 << DOT_PRODUCT_UNIVARIATE_SKIPS;
+pub const UNIVARIATE_SKIPS: usize = 3;
 
 #[derive(Debug)]
 pub struct SnarkParams {

@@ -4,7 +4,7 @@ use std::time::Instant;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
-use lean_prover::{FIBONNACI_PROGRAM, SnarkParams, whir_config_builder};
+use lean_prover::{FIBONNACI_PROGRAM, SnarkParams, UNIVARIATE_SKIPS, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use utils::MEMORY_TABLE_INDEX;
@@ -83,6 +83,7 @@ pub fn run_end2end_recursion_benchmark() {
         "MEMORY_TABLE_INDEX_PLACEHOLDER".to_string(),
         MEMORY_TABLE_INDEX.to_string(),
     );
+    replacements.insert("UNIVARIATE_SKIPS_PLACEHOLDER".to_string(), UNIVARIATE_SKIPS.to_string());
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;

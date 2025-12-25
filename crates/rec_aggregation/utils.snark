@@ -395,16 +395,6 @@ fn add_base_extension_ret(a, b) inline -> 1 {
     return res;
 }
 
-fn multiply_many_one_minus_self_extension_ret(arr, n) -> 1 {
-    res = malloc((n + 1) * DIM);
-    set_to_one(res);
-    for i in 0..n {
-        one_minus_ai = one_minus_self_extension_ret(arr + i*DIM);
-        mul_extension(res + i*DIM, one_minus_ai, res + (i + 1)*DIM);
-    }
-    return res + n*DIM;
-}
-
 fn div_extension(n, d) -> 1 {
     quotient = malloc(DIM);
     dot_product(d, quotient, n, 1, EE);
@@ -545,4 +535,57 @@ fn sum_2_ef_fractions(a_num, a_den, b_num, b_den) -> 2 {
     b_num_mul_a_den = mul_extension_ret(b_num, a_den);
     sum_num = add_extension_ret(a_num_mul_b_den, b_num_mul_a_den);
     return sum_num, common_den;
+}
+
+
+// p = 2^31 - 2^24 + 1
+// in binary: p = 1111111000000000000000000000001
+//        p - 1 = 1111111000000000000000000000000
+//        p - 2 = 1111110111111111111111111111111
+//        p - 3 = 1111110111111111111111111111110
+//        ...
+// Any field element (< p) is either:
+// -   1111111    | 00...00
+// - not(1111111) | xx...xx
+fn checked_decompose_bits(a, k) -> 2 {
+    // return a pointer to the 31 bits of a
+    // .. and the partial value, reading the first K bits (with k <= 24)
+    bits = malloc(F_BITS);
+    hint_decompose_bits(a, bits, F_BITS);
+
+    for i in 0..F_BITS unroll {
+        assert bits[i] * (1 - bits[i]) == 0;
+    }
+    sums_24_first_bits = malloc(24);
+    sums_24_first_bits[0] = bits[0];
+    for i in 1..24 unroll {
+        sums_24_first_bits[i] = sums_24_first_bits[i - 1] + bits[i] * 2**i;
+    }
+    sums_7_last_bits = malloc(7);
+    sums_7_last_bits[0] = bits[24];
+    for i in 1..7 unroll {
+        sums_7_last_bits[i] = sums_7_last_bits[i - 1] + bits[24 + i] * 2**i;
+    }
+    if sums_7_last_bits[6] == 127 {
+        assert sums_24_first_bits[23] == 0;
+    }
+
+    assert a == sums_24_first_bits[23] + sums_7_last_bits[6] * 2**24;
+    partial_sum = sums_24_first_bits[k - 1];
+    return bits, partial_sum;
+}
+
+fn checked_decompose_bits_small_value(to_decompose, n_bits) -> 1 {
+    bits = malloc(n_bits);
+    hint_decompose_bits(to_decompose, bits, n_bits);
+    sums = malloc(n_bits);
+    powers_of_2 = malloc(n_bits);
+    sums[0] = bits[0];
+    powers_of_2[0] = 1;
+    for i in 1..n_bits {
+        powers_of_2[i] = powers_of_2[i - 1] * 2;
+        sums[i] = sums[i - 1] + bits[i] * powers_of_2[i];
+    }
+    assert to_decompose == sums[n_bits - 1];
+    return bits;
 }
