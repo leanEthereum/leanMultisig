@@ -29,3 +29,4 @@ derive_more.workspace = true
 multilinear-toolkit.workspace = true
 num_enum.workspace = true
 itertools.workspace = true
+strum.workspace = true

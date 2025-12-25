@@ -1,7 +1,7 @@
 use super::operation::HighLevelOperation;
 use super::value::{IntermediaryMemOrFpOrConstant, IntermediateValue};
 use crate::lang::ConstExpression;
-use lean_vm::{BooleanExpr, Operation, SourceLocation, Table, TableT};
+use lean_vm::{BooleanExpr, CustomHint, Operation, SourceLocation, Table, TableT};
 use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.
@@ -47,19 +47,7 @@ pub enum IntermediateInstruction {
         vectorized: bool, // if true, will be (2^vectorized_len)-alligned, and the returned pointer will be "divied" by 2^vectorized_len
         vectorized_len: IntermediateValue,
     },
-    DecomposeBits {
-        res_offset: usize, // m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)] will contain the decomposed bits
-        to_decompose: Vec<IntermediateValue>,
-    },
-    /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
-    /// x = a0 + a1.4 + a2.4^2 + a3.4^3 + ... + a11.4^11 + b.2^24
-    /// and ai < 4, b < 2^7 - 1
-    /// The decomposition is unique, and always exists (except for x = -1)
-    DecomposeCustom {
-        decomposed: IntermediateValue,
-        remaining: IntermediateValue,
-        to_decompose: Vec<IntermediateValue>,
-    },
+    CustomHint(CustomHint, Vec<IntermediateValue>),
     PrivateInputStart {
         res_offset: ConstExpression,
     },
@@ -181,26 +169,9 @@ impl Display for IntermediateInstruction {
                     write!(f, "m[fp + {offset}] = request_memory({size})")
                 }
             }
-            Self::DecomposeBits {
-                res_offset,
-                to_decompose,
-            } => {
-                write!(f, "m[fp + {res_offset}..] = decompose_bits(")?;
-                for (i, expr) in to_decompose.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{expr}")?;
-                }
-                write!(f, ")")
-            }
-            Self::DecomposeCustom {
-                decomposed,
-                remaining,
-                to_decompose,
-            } => {
-                write!(f, "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], ")?;
-                for (i, expr) in to_decompose.iter().enumerate() {
+            Self::CustomHint(hint, args) => {
+                write!(f, "{}(", hint.name())?;
+                for (i, expr) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }

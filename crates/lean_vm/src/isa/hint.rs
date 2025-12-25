@@ -3,7 +3,11 @@ use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerEr
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;
 use multilinear_toolkit::prelude::*;
+use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
+use std::hash::Hash;
+use std::ops::Range;
+use strum::IntoEnumIterator;
 use utils::{ToUsize, pretty_integer};
 
 /// VM hints provide execution guidance and debugging information, but does not appear
@@ -29,24 +33,6 @@ pub enum Hint {
         vectorized: bool,
         /// Length for vectorized memory allocation
         vectorized_len: usize,
-    },
-    /// Decompose values into their bit representations
-    DecomposeBits {
-        /// Memory offset for results: m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)]
-        res_offset: usize,
-        /// Values to decompose into bits
-        to_decompose: Vec<MemOrConstant>,
-    },
-    /// Decompose values into their custom representations:
-    /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
-    /// x = a0 + a1.4 + a2.4^2 + a3.4^3 + ... + a11.4^11 + b.2^24
-    /// and ai < 4, b < 2^7 - 1
-    /// The decomposition is unique, and always exists (except for x = -1)
-    DecomposeCustom {
-        decomposed: MemOrConstant,
-        remaining: MemOrConstant,
-        /// Values to decompose into custom representation
-        to_decompose: Vec<MemOrConstant>,
     },
     /// Print debug information during execution
     Print {
@@ -74,6 +60,70 @@ pub enum Hint {
     },
     /// Assert a boolean expression for debugging purposes
     DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
+    Custom(CustomHint, Vec<MemOrConstant>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter)]
+pub enum CustomHint {
+    // Decompose values into their custom representations:
+    /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
+    /// x = a0 + a1.4 + a2.4^2 + a3.4^3 + ... + a11.4^11 + b.2^24
+    /// and ai < 4, b < 2^7 - 1
+    /// The decomposition is unique, and always exists (except for x = -1)
+    DecomposeBitsXMSS,
+    DecomposeBits,
+}
+
+impl CustomHint {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::DecomposeBitsXMSS => "hint_decompose_bits_xmss",
+            Self::DecomposeBits => "hint_decompose_bits",
+        }
+    }
+
+    pub fn n_args_range(&self) -> Range<usize> {
+        match self {
+            Self::DecomposeBitsXMSS => 3..usize::MAX,
+            Self::DecomposeBits => 2..3,
+        }
+    }
+
+    pub fn execute(&self, args: &[MemOrConstant], ctx: &mut HintExecutionContext<'_>) -> Result<(), RunnerError> {
+        match self {
+            Self::DecomposeBitsXMSS => {
+                let decomposed = &args[0];
+                let remaining = &args[1];
+                let to_decompose = &args[2..];
+                let mut memory_index_decomposed = decomposed.read_value(ctx.memory, ctx.fp)?.to_usize();
+                let mut memory_index_remaining = remaining.read_value(ctx.memory, ctx.fp)?.to_usize();
+                for value_source in to_decompose {
+                    let value = value_source.read_value(ctx.memory, ctx.fp)?.to_usize();
+                    for i in 0..12 {
+                        let value = F::from_usize((value >> (2 * i)) & 0b11);
+                        ctx.memory.set(memory_index_decomposed, value)?;
+                        memory_index_decomposed += 1;
+                    }
+                    ctx.memory.set(memory_index_remaining, F::from_usize(value >> 24))?;
+                    memory_index_remaining += 1;
+                }
+            }
+            Self::DecomposeBits => {
+                let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let mut memory_index = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                for i in 0..F::bits() {
+                    let bit = F::from_bool(to_decompose & (1 << i) != 0);
+                    ctx.memory.set(memory_index, bit)?;
+                    memory_index += 1;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn find_by_name(name: &str) -> Option<Self> {
+        Self::iter().find(|&hint| hint.name() == name)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -167,37 +217,8 @@ impl Hint {
                     }
                 }
             }
-            Self::DecomposeBits {
-                res_offset,
-                to_decompose,
-            } => {
-                let mut memory_index = ctx.fp + *res_offset;
-                for value_source in to_decompose {
-                    let value = value_source.read_value(ctx.memory, ctx.fp)?.to_usize();
-                    for i in 0..F::bits() {
-                        let bit = F::from_bool(value & (1 << i) != 0);
-                        ctx.memory.set(memory_index, bit)?;
-                        memory_index += 1;
-                    }
-                }
-            }
-            Self::DecomposeCustom {
-                decomposed,
-                remaining,
-                to_decompose,
-            } => {
-                let mut memory_index_decomposed = decomposed.read_value(ctx.memory, ctx.fp)?.to_usize();
-                let mut memory_index_remaining = remaining.read_value(ctx.memory, ctx.fp)?.to_usize();
-                for value_source in to_decompose {
-                    let value = value_source.read_value(ctx.memory, ctx.fp)?.to_usize();
-                    for i in 0..12 {
-                        let value = F::from_usize((value >> (2 * i)) & 0b11);
-                        ctx.memory.set(memory_index_decomposed, value)?;
-                        memory_index_decomposed += 1;
-                    }
-                    ctx.memory.set(memory_index_remaining, F::from_usize(value >> 24))?;
-                    memory_index_remaining += 1;
-                }
+            Self::Custom(hint, args) => {
+                hint.execute(args, ctx)?;
             }
             Self::Inverse { arg, res_offset } => {
                 let value = arg.read_value(ctx.memory, ctx.fp)?;
@@ -297,25 +318,11 @@ impl Display for Hint {
             Self::PrivateInputStart { res_offset } => {
                 write!(f, "m[fp + {res_offset}] = private_input_start()")
             }
-            Self::DecomposeBits {
-                res_offset,
-                to_decompose,
-            } => {
-                write!(f, "m[fp + {res_offset}] = decompose_bits(")?;
-                for (i, v) in to_decompose.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{v}")?;
-                }
-                write!(f, ")")
-            }
-            Self::DecomposeCustom {
-                decomposed,
-                remaining,
-                to_decompose,
-            } => {
-                write!(f, "decompose_custom(m[fp + {decomposed}], m[fp + {remaining}], ")?;
+            Self::Custom(hint, args) => {
+                let decomposed = &args[0];
+                let remaining = &args[1];
+                let to_decompose = &args[2..];
+                write!(f, "{}(m[fp + {decomposed}], m[fp + {remaining}], ", hint.name())?;
                 for (i, v) in to_decompose.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;

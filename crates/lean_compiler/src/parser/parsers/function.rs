@@ -9,7 +9,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{ALL_TABLES, LOG_VECTOR_LEN, Table, TableT};
+use lean_vm::{ALL_TABLES, CustomHint, LOG_VECTOR_LEN, Table, TableT};
 
 /// Parser for complete function definitions.
 pub struct FunctionParser;
@@ -245,22 +245,6 @@ impl FunctionCallParser {
                     content: args,
                 })
             }
-            "decompose_bits" => {
-                if args.is_empty() {
-                    return Err(SemanticError::new("Invalid decompose_bits call").into());
-                }
-                let var = require_single_var(&return_data, "decompose_bits")?;
-                Ok(Line::DecomposeBits {
-                    var,
-                    to_decompose: args,
-                })
-            }
-            "decompose_custom" => {
-                if args.len() < 3 {
-                    return Err(SemanticError::new("Invalid decompose_custom call").into());
-                }
-                Ok(Line::DecomposeCustom { args })
-            }
             "private_input_start" => {
                 if !args.is_empty() {
                     return Err(SemanticError::new("Invalid private_input_start call").into());
@@ -282,6 +266,24 @@ impl FunctionCallParser {
                     return Ok(Line::Precompile { table, args });
                 }
 
+                // Check for custom hint
+                if let Some(hint) = CustomHint::find_by_name(&function_name) {
+                    if !return_data.is_empty() {
+                        return Err(SemanticError::new(format!(
+                            "Custom hint: \"{}\" should not return values",
+                            function_name
+                        ))
+                        .into());
+                    }
+                    if !hint.n_args_range().contains(&args.len()) {
+                        return Err(SemanticError::new(format!(
+                            "Custom hint: \"{}\" : invalid number of arguments",
+                            function_name
+                        ))
+                        .into());
+                    }
+                    return Ok(Line::CustomHint(hint, args));
+                }
                 // Regular function call - allow array access targets
                 Ok(Line::FunctionCall {
                     function_name,
