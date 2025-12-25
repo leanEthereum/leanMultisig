@@ -7,6 +7,7 @@ use lean_prover::verify_execution::verify_execution;
 use lean_prover::{FIBONNACI_PROGRAM, SnarkParams, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
+use utils::MEMORY_TABLE_INDEX;
 use whir_p3::{WhirConfig, precompute_dft_twiddles};
 
 use crate::whir_recursion::whir_recursion_placeholder_replacements;
@@ -78,6 +79,10 @@ pub fn run_end2end_recursion_benchmark() {
         MAX_LOG_MEMORY_SIZE.to_string(),
     );
     replacements.insert("MAX_BUS_WIDTH_PLACEHOLDER".to_string(), max_bus_width().to_string());
+    replacements.insert(
+        "MEMORY_TABLE_INDEX_PLACEHOLDER".to_string(),
+        MEMORY_TABLE_INDEX.to_string(),
+    );
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;

@@ -283,6 +283,60 @@ fn dot_product_ee_dynamic(a, b, res, n) {
     panic();
 }
 
+fn mle_of_01234567_etc(point, n) -> 1 {
+    if n == 0 {
+        return pointer_to_zero_vector;
+    } else {
+        e = mle_of_01234567_etc(point + DIM, n - 1);
+        a = one_minus_self_extension_ret(point);
+        b = mul_extension_ret(a, e);
+        power_of_2 = powers_of_two(n - 1);
+        c = add_base_extension_ret(power_of_2, e);
+        d = mul_extension_ret(point, c);
+        res = add_extension_ret(b, d);
+        return res;
+    }
+}
+
+fn powers_of_two(n) -> 1 {
+    debug_assert n < 32;
+    var res;
+    match n {
+        0 => { res = 0 + 2**0; }
+        1 => { res = 0 + 2**1; }
+        2 => { res = 0 + 2**2; }
+        3 => { res = 0 + 2**3; }
+        4 => { res = 0 + 2**4; }
+        5 => { res = 0 + 2**5; }
+        6 => { res = 0 + 2**6; }
+        7 => { res = 0 + 2**7; }
+        8 => { res = 0 + 2**8; }
+        9 => { res = 0 + 2**9; }
+        10 => { res = 0 + 2**10; }
+        11 => { res = 0 + 2**11; }
+        12 => { res = 0 + 2**12; }
+        13 => { res = 0 + 2**13; }
+        14 => { res = 0 + 2**14; }
+        15 => { res = 0 + 2**15; }
+        16 => { res = 0 + 2**16; }
+        17 => { res = 0 + 2**17; }
+        18 => { res = 0 + 2**18; }
+        19 => { res = 0 + 2**19; }
+        20 => { res = 0 + 2**20; }
+        21 => { res = 0 + 2**21; }
+        22 => { res = 0 + 2**22; }
+        23 => { res = 0 + 2**23; }
+        24 => { res = 0 + 2**24; }
+        25 => { res = 0 + 2**25; }
+        26 => { res = 0 + 2**26; }
+        27 => { res = 0 + 2**27; }
+        28 => { res = 0 + 2**28; }
+        29 => { res = 0 + 2**29; }
+        30 => { res = 0 + 2**30; }
+        31 => { res = 0 + 2**31; }
+    }
+    return res;
+}
 
 fn mul_extension_ret(a, b) inline -> 1 {
     c = malloc(DIM);
@@ -321,11 +375,22 @@ fn one_minus_self_extension_ret(a) inline -> 1 {
     return res;
 }
 
-fn minus_self_extension_ret(a) inline -> 1 {
+fn opposite_extension_ret(a) inline -> 1 {
     // todo use dot_product precompile
     res = malloc(DIM);
     for i in 0..DIM unroll {
         res[i] = 0 - a[i];
+    }
+    return res;
+}
+
+fn add_base_extension_ret(a, b) inline -> 1 {
+    // a: base
+    // b: extension
+    res = malloc(DIM);
+    res[0] = a + b[0];
+    for i in 1..DIM unroll {
+        res[i] = b[i];
     }
     return res;
 }
@@ -352,6 +417,15 @@ fn sub_extension(a, b, c) inline {
         c[i] = a[i] - b[i];
     }
     return;
+}
+
+fn sub_extension_ret(a, b) inline -> 1 {
+    // TODO if a and b are adjacent we can do it in one cycle using the dot_product precompile
+    c = malloc(DIM);
+    for i in 0..DIM unroll {
+        c[i] = a[i] - b[i];
+    }
+    return c;
 }
 
 fn copy_5(a, b) inline {
