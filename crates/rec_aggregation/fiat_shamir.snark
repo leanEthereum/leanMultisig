@@ -98,7 +98,8 @@ fn fs_print_state(fs_state) {
 fn checked_decompose_bits(a, k) -> 2 {
     // return a pointer to the 31 bits of a
     // .. and the partial value, reading the first K bits (with k <= 24)
-    bits = decompose_bits(a); // hint
+    bits = malloc(F_BITS);
+    hint_decompose_bits(a, bits);
 
     for i in 0..F_BITS unroll {
         assert bits[i] * (1 - bits[i]) == 0;

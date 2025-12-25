@@ -1,6 +1,5 @@
-use crate::{F, a_simplify_lang::*, ir::*, lang::*};
+use crate::{a_simplify_lang::*, ir::*, lang::*};
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 
@@ -523,41 +522,12 @@ fn compile_lines(
                 }
                 handle_const_malloc(&mut instructions, compiler, var, size, label);
             }
-            SimpleLine::DecomposeBits {
-                var,
-                to_decompose,
-                label,
-            } => {
-                if !compiler.is_in_scope(var) {
-                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout
-                        .var_positions
-                        .insert(var.clone(), compiler.stack_pos);
-                    compiler.stack_pos += 1;
-                }
-
-                instructions.push(IntermediateInstruction::DecomposeBits {
-                    res_offset: compiler.stack_pos,
-                    to_decompose: to_decompose
-                        .iter()
-                        .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
-                        .collect(),
-                });
-
-                handle_const_malloc(&mut instructions, compiler, var, F::bits() * to_decompose.len(), label);
-            }
-            SimpleLine::DecomposeCustom { args } => {
-                assert!(args.len() >= 3);
-                let decomposed = IntermediateValue::from_simple_expr(&args[0], compiler);
-                let remaining = IntermediateValue::from_simple_expr(&args[1], compiler);
-                instructions.push(IntermediateInstruction::DecomposeCustom {
-                    decomposed,
-                    remaining,
-                    to_decompose: args[2..]
-                        .iter()
-                        .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
-                        .collect(),
-                });
+            SimpleLine::CustomHint(hint, args) => {
+                let simplified_args = args
+                    .iter()
+                    .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
+                    .collect::<Vec<_>>();
+                instructions.push(IntermediateInstruction::CustomHint(*hint, simplified_args));
             }
             SimpleLine::PrivateInputStart { result } => {
                 if !compiler.is_in_scope(result) {

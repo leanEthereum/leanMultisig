@@ -54,7 +54,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     encoding = malloc(12 * 6);
     remaining = malloc(6);
 
-    decompose_custom(encoding, remaining, compressed_vals[0], compressed_vals[1], compressed_vals[2], compressed_vals[3], compressed_vals[4], compressed_vals[5]);
+    hint_decompose_bits_xmss(encoding, remaining, compressed_vals[0], compressed_vals[1], compressed_vals[2], compressed_vals[3], compressed_vals[4], compressed_vals[5]);
 
     // check that the decomposition is correct
     for i in 0..6 unroll {

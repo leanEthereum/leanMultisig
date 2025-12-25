@@ -443,17 +443,6 @@ pub enum Line {
         var: Var,
         size: Expression,
     },
-    DecomposeBits {
-        var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
-        to_decompose: Vec<Expression>,
-    },
-    /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
-    /// x = a0 + a1.4 + a2.4^2 + a3.4^3 + ... + a11.4^11 + b.2^24
-    /// and ai < 4, b < 2^7 - 1
-    /// The decomposition is unique, and always exists (except for x = -1)
-    DecomposeCustom {
-        args: Vec<Expression>,
-    },
     PrivateInputStart {
         result: Var,
     },
@@ -461,6 +450,7 @@ pub enum Line {
     LocationReport {
         location: SourceLineNumber,
     },
+    CustomHint(CustomHint, Vec<Expression>),
 }
 
 /// A context specifying which variables are in scope.
@@ -642,22 +632,9 @@ impl Line {
             Self::MAlloc { var, size } => {
                 format!("{var} = malloc({size})")
             }
-            Self::DecomposeBits { var, to_decompose } => {
-                format!(
-                    "{} = decompose_bits({})",
-                    var,
-                    to_decompose
-                        .iter()
-                        .map(|expr| expr.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
-            Self::DecomposeCustom { args } => {
-                format!(
-                    "decompose_custom({})",
-                    args.iter().map(|expr| expr.to_string()).collect::<Vec<_>>().join(", ")
-                )
+            Self::CustomHint(hint, args) => {
+                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
+                format!("{}({args_str})", hint.name())
             }
             Self::Break => "break".to_string(),
             Self::Panic => "panic".to_string(),

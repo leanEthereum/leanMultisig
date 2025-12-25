@@ -182,12 +182,17 @@ fn test_edge_case_2() {
 #[test]
 fn test_decompose_bits() {
     let program = r#"
-    const A = 2 ** 30 - 1;
-    const B = 2 ** 10 - 1;
     fn main() {
-        a = decompose_bits(A, B);
-        for i in 0..62  {
-            print(a[i]);
+        x = 2**20 - 1;
+        a = malloc(31);
+        print(a);
+        hint_decompose_bits(x, a);
+        for i in 0..20 {
+            debug_assert a[i] == 1;
+            assert a[i] == 1;
+        }
+        for i in 20..31 {
+            assert a[i] == 0;
         }
         return;
     }
@@ -978,7 +983,6 @@ fn test_imports() {
 //     assert_eq!(bytecode.filepaths.len(), expected_num_files);
 //     assert_eq!(bytecode.source_code.len(), expected_num_files);
 // }
-
 
 // TODO BUG
 

@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn test_table_indices() {
         for (i, table) in ALL_TABLES.iter().enumerate() {
-            assert_eq!(table.index(), i);
+            assert_eq!(table.index(), i + MEMORY_TABLE_INDEX + 1);
         }
     }
 }
