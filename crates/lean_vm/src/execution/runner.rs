@@ -10,6 +10,7 @@ use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
     ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, N_TABLES, STARTING_PC, SourceLocation, Table, TableTrace,
+    UNIVARIATE_SELECTORS_PTR, UNIVARIATE_SKIPS,
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,6 +40,10 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     }
 
     public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * VECTOR_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
+    for (i, pol) in univariate_selectors::<F>(UNIVARIATE_SKIPS).iter().enumerate() {
+        public_memory[UNIVARIATE_SELECTORS_PTR + i * (1 << UNIVARIATE_SKIPS)..][..(1 << UNIVARIATE_SKIPS)]
+            .copy_from_slice(&pol.coeffs);
+    }
     public_memory
 }
 

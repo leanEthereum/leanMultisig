@@ -20,8 +20,6 @@ pub enum Label {
     ReturnFromCall(usize, SourceLineNumber),
     /// Loop definition: @loop_{id}_line_{line_number}
     Loop(usize, SourceLineNumber),
-    /// Built-in memory symbols
-    BuiltinSymbol(BuiltinSymbol),
     /// Auxiliary variables during compilation
     AuxVar { kind: AuxKind, id: usize },
     /// Custom/raw label for backwards compatibility or special cases
@@ -81,7 +79,6 @@ impl std::fmt::Display for Label {
                 write!(f, "@return_from_call_{id}_line_{line_number}")
             }
             Self::Loop(id, line_number) => write!(f, "@loop_{id}_line_{line_number}"),
-            Self::BuiltinSymbol(symbol) => write!(f, "{symbol}"),
             Self::AuxVar { kind, id } => match kind {
                 AuxKind::AuxVar => write!(f, "@aux_var_{id}"),
                 AuxKind::ArrayAux => write!(f, "@arr_aux_{id}"),
@@ -94,16 +91,6 @@ impl std::fmt::Display for Label {
                 AuxKind::Trash => write!(f, "@trash_{id}"),
             },
             Self::Custom(s) => write!(f, "{s}"),
-        }
-    }
-}
-
-impl std::fmt::Display for BuiltinSymbol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PublicInputStart => write!(f, "@public_input_start"),
-            Self::PointerToZeroVector => write!(f, "@pointer_to_zero_vector"),
-            Self::PointerToOneVector => write!(f, "@pointer_to_one_vector"),
         }
     }
 }

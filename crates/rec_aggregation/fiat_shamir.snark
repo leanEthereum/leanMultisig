@@ -42,8 +42,8 @@ fn fs_grinding(fs, bits) -> 1 {
     return fs_2;
 }
 
-fn fs_sample_ef(fs) -> 2 {
-    return fs, fs;
+fn fs_sample_ef(fs) -> 1 {
+    return fs;
 }
 
 fn fs_hint(fs, n) -> 2 {

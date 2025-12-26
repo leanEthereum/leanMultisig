@@ -33,10 +33,10 @@ fn main() {
     // parse 1st whir commitment
     fs_3, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs_2, NUM_OOD_COMMIT);
 
-    fs_5, logup_c = fs_sample_ef(fs_3);
-    fs_6 = duplexing(logup_c);
-    fs_7, logup_alpha = fs_sample_ef(fs_6);
-    fs_8 = duplexing(logup_alpha);
+    logup_c = fs_sample_ef(fs_3);
+    fs_6 = duplexing(fs_3);
+    logup_alpha = fs_sample_ef(fs_6);
+    fs_8 = duplexing(fs_6);
 
     // verify_generic_logup
 
@@ -86,13 +86,31 @@ fn main() {
         retrieved_denominators_value_new_term = mul_extension_ret(prefix, evals_on_data_ml_eval);
         retrieved_denominators_value[table_index + 1] = add_extension_ret(retrieved_denominators_value[table_index], retrieved_denominators_value_new_term);
 
-        
-        all_fs[table_index + 1] = fs_a2; // TODO
+        gamma = fs_sample_ef(fs_a2);
+        fs_a3 = duplexing(fs_a2);
+
+        unvariate_selectors_evals = eval_all_univariate_selectors(gamma);
+
+        univariate_value_on_selectors = malloc(DIM);
+        dot_product(evals_on_selector, unvariate_selectors_evals, univariate_value_on_selectors, 2**UNIVARIATE_SKIPS, EE);
+        print_ef(univariate_value_on_selectors);
+
+        all_fs[table_index + 1] = fs_a3; // TODO
 
         return;
     }
 
     return;
+}
+
+fn eval_all_univariate_selectors(a) -> 1 {
+    a_powers = powers_const(a, 2**UNIVARIATE_SKIPS);
+    res = malloc(DIM * 2**UNIVARIATE_SKIPS);
+    for i in 0..2**UNIVARIATE_SKIPS unroll {
+        selector_poly = pointer_to_univariate_selectors + i * 2**UNIVARIATE_SKIPS;
+        dot_product(selector_poly, a_powers, res + i * DIM, 2**UNIVARIATE_SKIPS, BE);
+    }
+    return res;
 }
 
 fn multilinear_location_prefix(offset, n_vars, point) -> 1 {
@@ -121,8 +139,8 @@ fn verify_gkr_quotient(fs, n_vars) -> 5 {
     claims_num = malloc(n_vars);
     claims_den = malloc(n_vars);
 
-    fs5, points[0] = fs_sample_ef(fs4);
-    fs6 = duplexing(fs5);
+    points[0] = fs_sample_ef(fs4);
+    fs6 = duplexing(fs4);
 
     point_poly_eq = poly_eq_extension(points[0], 1);
 
@@ -143,11 +161,11 @@ fn verify_gkr_quotient(fs, n_vars) -> 5 {
 }
 
 fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) -> 4 {
-    fs1, alpha = fs_sample_ef(fs);
+    alpha = fs_sample_ef(fs);
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den);
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den);
     postponed_point = malloc((n_vars + 1) * DIM);
-    fs2, postponed_value = sumcheck_verify_helper(fs1, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM);
+    fs2, postponed_value = sumcheck_verify_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM);
     fs3, inner_evals = fs_receive_ef(fs2, 4);
     a_num = inner_evals;
     b_num = inner_evals + DIM;
@@ -159,8 +177,8 @@ fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) -> 4 {
     eq_factor = eq_mle_extension(point, postponed_point + DIM, n_vars);
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value);
     
-    fs4, beta = fs_sample_ef(fs3);
-    fs5 = duplexing(fs4);
+    beta = fs_sample_ef(fs3);
+    fs5 = duplexing(fs3);
     point_poly_eq = poly_eq_extension(beta, 1);
     new_claim_num = malloc(DIM);
     new_claim_den = malloc(DIM);

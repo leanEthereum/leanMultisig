@@ -25,6 +25,19 @@ fn powers(alpha, n) -> 1 {
     return res;
 }
 
+
+fn powers_const(alpha, const n) -> 1 {
+    // alpha: EF
+    // n: F
+
+    res = malloc(n * DIM);
+    set_to_one(res);
+    for i in 0..n - 1 unroll {
+        mul_extension(res + i*DIM, alpha, res + (i + 1)*DIM);
+    }
+    return res;
+}
+
 fn unit_root_pow_dynamic(domain_size, index_bits) -> 1 {
     // index_bits is a pointer to domain_size bits
     var res;

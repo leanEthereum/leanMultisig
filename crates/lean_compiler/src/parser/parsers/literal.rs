@@ -103,6 +103,9 @@ impl VarOrConstantParser {
             "pointer_to_one_vector" => Ok(SimpleExpr::Constant(ConstExpression::Value(
                 ConstantValue::PointerToOneVector,
             ))),
+            "pointer_to_univariate_selectors" => Ok(SimpleExpr::Constant(ConstExpression::Value(
+                ConstantValue::PointerToUnivariateSelectors,
+            ))),
             _ => {
                 // Check if it's a const array (error case - can't use array as value)
                 if ctx.get_const_array(text).is_some() {

@@ -15,6 +15,9 @@ pub const STARTING_PC: usize = 1;
 /// Ending program counter (the final block is a looping block of 1 instruction)
 pub const ENDING_PC: usize = 0;
 
+/// See section 5 of https://eprint.iacr.org/2024/108.pdf
+pub const UNIVARIATE_SKIPS: usize = 3;
+
 /// Memory layout:
 ///
 /// [memory] = [public_data] [private_data]
@@ -38,5 +41,9 @@ pub const ONE_VEC_PTR: usize = 2 * VECTOR_LEN;
 /// Convention: vectorized pointer of size 2, = the 16 elements of poseidon_16(0)
 pub const POSEIDON_16_NULL_HASH_PTR: usize = 3 * VECTOR_LEN;
 
+/// 2^UNIVARIATE_SKIPS univariate polynomials, each of degree 2^UNIVARIATE_SKIPS - 1
+/// The i-th polynomial defined by P(j) = 0 if i != j, P(i) = 1 (for i, j in [0, 2^UNIVARIATE_SKIPS))
+pub const UNIVARIATE_SELECTORS_PTR: usize = POSEIDON_16_NULL_HASH_PTR + 2 * VECTOR_LEN;
+
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * VECTOR_LEN;
+pub const NONRESERVED_PROGRAM_INPUT_START: usize = 6 * VECTOR_LEN + (1_usize << UNIVARIATE_SKIPS).pow(2);

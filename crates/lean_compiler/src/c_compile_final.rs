@@ -373,6 +373,7 @@ fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
         ConstantValue::Scalar(scalar) => *scalar,
         ConstantValue::PublicInputStart => NONRESERVED_PROGRAM_INPUT_START,
         ConstantValue::PointerToZeroVector => ZERO_VEC_PTR,
+        ConstantValue::PointerToUnivariateSelectors => UNIVARIATE_SELECTORS_PTR,
         ConstantValue::PointerToOneVector => ONE_VEC_PTR,
         ConstantValue::FunctionSize { function_name } => {
             let func_name_str = match function_name {

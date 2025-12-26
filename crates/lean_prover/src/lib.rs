@@ -13,8 +13,6 @@ pub mod prove_execution;
 mod test_zkvm;
 pub mod verify_execution;
 
-pub const UNIVARIATE_SKIPS: usize = 3;
-
 #[derive(Debug)]
 pub struct SnarkParams {
     pub first_whir: WhirConfigBuilder,

@@ -488,6 +488,7 @@ fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
     let mut new_point = point.clone();
     new_point.insert(0, gamma);
     let new_value = dot_product(unvariate_selectors_evals.iter().copied(), inner_evals.iter().copied());
+    dbg!(&new_value);
     Evaluation::new(new_point, new_value)
 }
 

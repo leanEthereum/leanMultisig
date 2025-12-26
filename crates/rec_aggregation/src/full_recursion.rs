@@ -4,7 +4,7 @@ use std::time::Instant;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program, compile_program_with_flags};
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
-use lean_prover::{SnarkParams, UNIVARIATE_SKIPS, whir_config_builder};
+use lean_prover::{SnarkParams, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use utils::MEMORY_TABLE_INDEX;
@@ -43,7 +43,8 @@ pub fn run_end2end_recursion_benchmark() {
         }
         return;
     }
-   "#.replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
+   "#
+    .replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
     let bytecode_to_prove = compile_program(&ProgramSource::Raw(program_to_prove.to_string()));
     precompute_dft_twiddles::<F>(1 << 24);
     let proof_to_prove = prove_execution(&bytecode_to_prove, (&[], &[]), &vec![], &snark_params, false);
