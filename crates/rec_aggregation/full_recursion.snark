@@ -108,7 +108,6 @@ fn main() {
         dot_product(evals_on_data, unvariate_selectors_evals, univariate_value_on_data, 2**UNIVARIATE_SKIPS, EE);
         all_bus_statements_denominators_claims[table_index] = univariate_value_on_data;
 
-       inner_offsets = 
 
         all_fs[table_index + 1] = fs_a3; // TODO
         all_offsets[table_index + 1] = 0; // TODO

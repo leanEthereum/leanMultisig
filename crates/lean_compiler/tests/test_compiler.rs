@@ -182,11 +182,13 @@ fn test_edge_case_2() {
 #[test]
 fn test_decompose_bits() {
     let program = r#"
+    const BIG_ENDIAN = 0;
+    const LITTLE_ENDIAN = 1;
     fn main() {
         x = 2**20 - 1;
         a = malloc(31);
         print(a);
-        hint_decompose_bits(x, a);
+        hint_decompose_bits(x, a, 31, LITTLE_ENDIAN);
         for i in 0..20 {
             debug_assert a[i] == 1;
             assert a[i] == 1;
