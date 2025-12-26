@@ -5,6 +5,7 @@ use crate::{
         AssignmentTarget, AssumeBoolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue, Context,
         Expression, Function, Line, Program, Scope, SimpleExpr, Var,
     },
+    parser::ConstArrayValue,
 };
 use lean_vm::{Boolean, BooleanExpr, CustomHint, FileId, SourceLineNumber, SourceLocation, Table, TableT};
 use std::{
@@ -228,7 +229,7 @@ fn unroll_loops_in_program(program: &mut Program, unroll_counter: &mut Counter) 
 
 fn unroll_loops_in_lines(
     lines: &mut Vec<Line>,
-    const_arrays: &BTreeMap<String, Vec<usize>>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
     unroll_counter: &mut Counter,
 ) -> bool {
     let mut changed = false;
@@ -498,7 +499,9 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
         }
         Expression::ArrayAccess { array, index } => {
             check_simple_expr_scoping(array, ctx);
-            check_expr_scoping(index, ctx);
+            for idx in index {
+                check_expr_scoping(idx, ctx);
+            }
         }
         Expression::Binary {
             left,
@@ -585,7 +588,7 @@ fn simplify_lines(
     in_a_loop: bool,
     array_manager: &mut ArrayManager,
     const_malloc: &mut ConstMalloc,
-    const_arrays: &BTreeMap<String, Vec<usize>>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
 ) -> Vec<SimpleLine> {
     let mut res = Vec::new();
     for line in lines {
@@ -654,7 +657,7 @@ fn simplify_lines(
                     counters,
                     &mut res,
                     array.clone(),
-                    index,
+                    &[index.clone()],
                     ArrayAccessType::ArrayIsAssigned(value.clone()),
                     array_manager,
                     const_malloc,
@@ -716,6 +719,26 @@ fn simplify_lines(
                             } else if let Ok(right) = right.clone().try_into() {
                                 (right, left)
                             } else {
+                                // Both are constants - evaluate at compile time
+                                if let (SimpleExpr::Constant(left_const), SimpleExpr::Constant(right_const)) =
+                                    (&left, &right)
+                                {
+                                    if let (Some(left_val), Some(right_val)) =
+                                        (left_const.naive_eval(), right_const.naive_eval())
+                                    {
+                                        if left_val == right_val {
+                                            // Assertion passes at compile time, no code needed
+                                            continue;
+                                        } else {
+                                            panic!(
+                                                "Compile-time assertion failed: {} != {} (lines {})",
+                                                left_val.to_usize(),
+                                                right_val.to_usize(),
+                                                line_number
+                                            );
+                                        }
+                                    }
+                                }
                                 panic!("Unsupported equality assertion: {left:?}, {right:?}")
                             };
                             res.push(SimpleLine::Assignment {
@@ -1003,7 +1026,7 @@ fn simplify_lines(
                         counters,
                         &mut res,
                         array,
-                        &index,
+                        &[*index],
                         ArrayAccessType::ArrayIsAssigned(Expression::Value(SimpleExpr::Var(temp_vars[i].clone()))),
                         array_manager,
                         const_malloc,
@@ -1105,7 +1128,7 @@ fn simplify_expr(
     counters: &mut Counters,
     array_manager: &mut ArrayManager,
     const_malloc: &ConstMalloc,
-    const_arrays: &BTreeMap<String, Vec<usize>>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
 ) -> SimpleExpr {
     match expr {
         Expression::Value(value) => value.simplify_if_const(),
@@ -1114,28 +1137,32 @@ fn simplify_expr(
             if let SimpleExpr::Var(array_var) = array
                 && let Some(arr) = const_arrays.get(array_var)
             {
-                let simplified_index = simplify_expr(index, lines, counters, array_manager, const_malloc, const_arrays);
-                if let SimpleExpr::Constant(c) = &simplified_index
-                    && let Some(idx_val) = c.naive_eval()
-                {
-                    let idx = idx_val.to_usize();
-                    if idx < arr.len() {
-                        return SimpleExpr::Constant(ConstExpression::from(arr[idx]));
-                    } else {
-                        panic!(
-                            "Const array '{}' index {} out of bounds (length {})",
-                            array_var,
-                            idx,
-                            arr.len()
-                        );
-                    }
-                }
-                panic!("Const array '{array_var}' can only be accessed with compile-time constant indices",);
+                let simplified_index = index
+                    .iter()
+                    .map(|idx| {
+                        simplify_expr(idx, lines, counters, array_manager, const_malloc, const_arrays)
+                            .as_constant()
+                            .expect("Const array access index should be constant")
+                            .naive_eval()
+                            .expect("Const array access index should be constant")
+                            .to_usize()
+                    })
+                    .collect::<Vec<_>>();
+
+                return SimpleExpr::Constant(ConstExpression::from(
+                    arr.navigate(&simplified_index)
+                        .expect("Const array access index out of bounds")
+                        .as_scalar()
+                        .expect("Const array access should return a scalar"),
+                ));
             }
+
+            assert_eq!(index.len(), 1);
+            let index = index[0].clone();
 
             if let SimpleExpr::Var(array_var) = array
                 && let Some(label) = const_malloc.map.get(array_var)
-                && let Ok(mut offset) = ConstExpression::try_from(*index.clone())
+                && let Ok(mut offset) = ConstExpression::try_from(index.clone())
             {
                 offset = offset.try_naive_simplification();
                 return SimpleExpr::ConstMallocAccess {
@@ -1144,7 +1171,7 @@ fn simplify_expr(
                 };
             }
 
-            let aux_arr = array_manager.get_aux_var(array, index); // auxiliary var to store m[array + index]
+            let aux_arr = array_manager.get_aux_var(array, &index); // auxiliary var to store m[array + index]
 
             if !array_manager.valid.insert(aux_arr.clone()) {
                 return SimpleExpr::Var(aux_arr);
@@ -1154,7 +1181,7 @@ fn simplify_expr(
                 counters,
                 lines,
                 array.clone(),
-                index,
+                &[index],
                 ArrayAccessType::VarIsAssigned(aux_arr.clone()),
                 array_manager,
                 const_malloc,
@@ -1201,7 +1228,7 @@ fn simplify_expr(
 /// Returns (internal_vars, external_vars)
 pub fn find_variable_usage(
     lines: &[Line],
-    const_arrays: &BTreeMap<String, Vec<usize>>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
 ) -> (BTreeSet<Var>, BTreeSet<Var>) {
     let mut internal_vars = BTreeSet::new();
     let mut external_vars = BTreeSet::new();
@@ -1361,7 +1388,9 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
         }
         Expression::ArrayAccess { array, index } => {
             inline_simple_expr(array, args, inlining_count);
-            inline_expr(index, args, inlining_count);
+            for idx in index {
+                inline_expr(idx, args, inlining_count);
+            }
         }
         Expression::Binary { left, right, .. } => {
             inline_expr(left, args, inlining_count);
@@ -1525,7 +1554,7 @@ fn inline_lines(
     }
 }
 
-fn vars_in_expression(expr: &Expression, const_arrays: &BTreeMap<String, Vec<usize>>) -> BTreeSet<Var> {
+fn vars_in_expression(expr: &Expression, const_arrays: &BTreeMap<String, ConstArrayValue>) -> BTreeSet<Var> {
     let mut vars = BTreeSet::new();
     match expr {
         Expression::Value(value) => {
@@ -1539,7 +1568,9 @@ fn vars_in_expression(expr: &Expression, const_arrays: &BTreeMap<String, Vec<usi
             {
                 vars.insert(array.clone());
             }
-            vars.extend(vars_in_expression(index, const_arrays));
+            for idx in index {
+                vars.extend(vars_in_expression(idx, const_arrays));
+            }
         }
         Expression::Binary { left, right, .. } => {
             vars.extend(vars_in_expression(left, const_arrays));
@@ -1565,40 +1596,46 @@ fn handle_array_assignment(
     counters: &mut Counters,
     res: &mut Vec<SimpleLine>,
     array: SimpleExpr,
-    index: &Expression,
+    index: &[Expression],
     access_type: ArrayAccessType,
     array_manager: &mut ArrayManager,
     const_malloc: &ConstMalloc,
-    const_arrays: &BTreeMap<String, Vec<usize>>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
 ) {
-    let simplified_index = simplify_expr(index, res, counters, array_manager, const_malloc, const_arrays);
+    let simplified_index = index
+        .iter()
+        .map(|idx| simplify_expr(idx, res, counters, array_manager, const_malloc, const_arrays))
+        .collect::<Vec<_>>();
 
     if let (ArrayAccessType::VarIsAssigned(var), SimpleExpr::Var(array_var)) = (&access_type, &array) {
         if let Some(const_array) = const_arrays.get(array_var) {
-            let index = simplified_index
-                .as_constant()
-                .expect("Const array access index should be constant")
-                .naive_eval()
-                .unwrap()
-                .to_usize();
-            assert!(
-                index < const_array.len(),
-                "Const array '{}' index {} out of bounds (length {})",
-                array_var,
-                index,
-                const_array.len()
-            );
+            let idx = simplified_index
+                .iter()
+                .map(|idx| {
+                    idx.as_constant()
+                        .expect("Const array access index should be constant")
+                        .naive_eval()
+                        .unwrap()
+                        .to_usize()
+                })
+                .collect::<Vec<_>>();
+            let value = const_array
+                .navigate(&idx)
+                .expect("Const array access index out of bounds")
+                .as_scalar()
+                .expect("Const array access should return a scalar");
             res.push(SimpleLine::Assignment {
                 var: var.clone().into(),
                 operation: HighLevelOperation::Add,
-                arg0: SimpleExpr::Constant(ConstExpression::from(const_array[index])),
+                arg0: SimpleExpr::Constant(ConstExpression::from(value)),
                 arg1: SimpleExpr::zero(),
             });
             return;
         }
     }
 
-    if let SimpleExpr::Constant(offset) = simplified_index.clone()
+    if simplified_index.len() == 1
+        && let SimpleExpr::Constant(offset) = simplified_index[0].clone()
         && let SimpleExpr::Var(array_var) = &array
         && let Some(label) = const_malloc.map.get(array_var)
         && let ArrayAccessType::ArrayIsAssigned(Expression::Binary { left, operation, right }) = &access_type
@@ -1625,7 +1662,8 @@ fn handle_array_assignment(
     };
 
     // TODO opti: in some case we could use ConstMallocAccess
-
+    assert_eq!(simplified_index.len(), 1);
+    let simplified_index = simplified_index[0].clone();
     let (index_var, shift) = match simplified_index {
         SimpleExpr::Constant(c) => (array, c),
         _ => {
@@ -1730,8 +1768,9 @@ fn replace_vars_for_unroll_in_expr(
                     *array_var = format!("@unrolled_{unroll_index}_{iterator_value}_{array_var}");
                 }
             }
-
-            replace_vars_for_unroll_in_expr(index, iterator, unroll_index, iterator_value, internal_vars);
+            for index in index {
+                replace_vars_for_unroll_in_expr(index, iterator, unroll_index, iterator_value, internal_vars);
+            }
         }
         Expression::Binary { left, right, .. } => {
             replace_vars_for_unroll_in_expr(left, iterator, unroll_index, iterator_value, internal_vars);
@@ -2142,7 +2181,7 @@ fn handle_const_arguments_helper(
     lines: &mut [Line],
     constant_functions: &BTreeMap<String, Function>,
     new_functions: &mut BTreeMap<String, Function>,
-    const_arrays: &BTreeMap<String, Vec<usize>>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
 ) -> bool {
     let mut changed = false;
     'outer: for line in lines {
@@ -2266,7 +2305,9 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
             if let SimpleExpr::Var(array_var) = array {
                 assert!(!map.contains_key(array_var), "Array {array_var} is a constant");
             }
-            replace_vars_by_const_in_expr(index, map);
+            for index in index {
+                replace_vars_by_const_in_expr(index, map);
+            }
         }
         Expression::Binary { left, right, .. } => {
             replace_vars_by_const_in_expr(left, map);

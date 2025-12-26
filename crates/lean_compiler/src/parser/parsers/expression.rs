@@ -1,5 +1,5 @@
-use super::literal::VarOrConstantParser;
-use super::{Parse, ParseContext, next_inner_pair};
+use super::literal::{VarOrConstantParser, evaluate_const_expr};
+use super::{ConstArrayValue, Parse, ParseContext, next_inner_pair};
 use crate::lang::MathExpr;
 use crate::{
     ir::HighLevelOperation,
@@ -84,18 +84,21 @@ impl Parse<Expression> for PrimaryExpressionParser {
     }
 }
 
-/// Parser for array access expressions.
+/// Parser for array access expressions (supports chained indexing like arr[i][j]).
 pub struct ArrayAccessParser;
 
 impl Parse<Expression> for ArrayAccessParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
-        let array = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
-        let index = ExpressionParser.parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
+        let array_name = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
+
+        let index: Vec<Expression> = inner
+            .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Expression::ArrayAccess {
-            array: array.into(),
-            index: Box::new(index),
+            array: SimpleExpr::Var(array_name),
+            index,
         })
     }
 }
@@ -113,24 +116,71 @@ impl Parse<Expression> for MathExpr {
     }
 }
 
-/// Parser for len() expressions on const arrays.
+/// Parser for len() expressions on const arrays (supports indexed access like len(ARR[i])).
 pub struct LenParser;
 
 impl Parse<Expression> for LenParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
-        let ident = next_inner_pair(&mut inner, "len argument")?.as_str();
+        let len_arg_pair = next_inner_pair(&mut inner, "len argument")?;
 
-        if let Some(arr) = ctx.get_const_array(ident) {
-            Ok(Expression::Value(SimpleExpr::Constant(ConstExpression::Value(
-                ConstantValue::Scalar(arr.len()),
-            ))))
-        } else {
-            Err(SemanticError::with_context(
+        // len_argument = { identifier ~ ("[" ~ expression ~ "]")* }
+        let mut arg_inner = len_arg_pair.into_inner();
+        let ident = next_inner_pair(&mut arg_inner, "array identifier")?
+            .as_str()
+            .to_string();
+
+        // Check if the array exists
+        if ctx.get_const_array(&ident).is_none() {
+            return Err(SemanticError::with_context(
                 format!("len() argument '{ident}' is not a const array"),
                 "len expression",
             )
-            .into())
+            .into());
         }
+
+        let mut index_exprs = Vec::new();
+        for index_pair in arg_inner {
+            index_exprs.push(ExpressionParser.parse(index_pair, ctx)?);
+        }
+
+        // Now evaluate the indices
+        let mut indices = Vec::new();
+        for index_expr in &index_exprs {
+            let index_val = evaluate_const_expr(index_expr, ctx).ok_or_else(|| {
+                SemanticError::with_context("Index in len() must be a compile-time constant", "len expression")
+            })?;
+            indices.push(index_val);
+        }
+
+        // Now get the array again and navigate to the target sub-array
+        let base_array = ctx.get_const_array(&ident).unwrap();
+        let target = if indices.is_empty() {
+            base_array
+        } else {
+            base_array.navigate(&indices).ok_or_else(|| {
+                SemanticError::with_context(
+                    format!(
+                        "len() index out of bounds for '{ident}': [{}]",
+                        indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("][")
+                    ),
+                    "len expression",
+                )
+            })?
+        };
+
+        // Get its length
+        let length = match target {
+            ConstArrayValue::Scalar(_) => {
+                return Err(
+                    SemanticError::with_context("Cannot call len() on a scalar value", "len expression").into(),
+                );
+            }
+            ConstArrayValue::Array(arr) => arr.len(),
+        };
+
+        Ok(Expression::Value(SimpleExpr::Constant(ConstExpression::Value(
+            ConstantValue::Scalar(length),
+        ))))
     }
 }

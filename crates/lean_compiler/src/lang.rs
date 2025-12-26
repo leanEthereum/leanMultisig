@@ -5,13 +5,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
-use crate::{F, ir::HighLevelOperation};
+use crate::{F, ir::HighLevelOperation, parser::ConstArrayValue};
 pub use lean_vm::{FileId, FunctionName, SourceLocation};
 
 #[derive(Debug, Clone)]
 pub struct Program {
     pub functions: BTreeMap<FunctionName, Function>,
-    pub const_arrays: BTreeMap<String, Vec<usize>>,
+    pub const_arrays: BTreeMap<String, ConstArrayValue>,
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,
     pub source_code: BTreeMap<FileId, String>,
     pub filepaths: BTreeMap<FileId, String>,
@@ -248,14 +248,14 @@ pub enum Expression {
     Value(SimpleExpr),
     ArrayAccess {
         array: SimpleExpr,
-        index: Box<Expression>,
+        index: Vec<Self>, // multi-dimensional array access
     },
     Binary {
         left: Box<Self>,
         operation: HighLevelOperation,
         right: Box<Self>,
     },
-    MathExpr(MathExpr, Vec<Expression>),
+    MathExpr(MathExpr, Vec<Self>),
 }
 
 /// For arbitrary compile-time computations
@@ -321,16 +321,17 @@ impl From<Var> for Expression {
 }
 
 impl Expression {
-    pub fn naive_eval(&self, const_arrays: &BTreeMap<String, Vec<usize>>) -> Option<F> {
+    pub fn naive_eval(&self, const_arrays: &BTreeMap<String, ConstArrayValue>) -> Option<F> {
         self.eval_with(
             &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
-            &|arr, index| {
+            &|arr, indexes| {
                 let SimpleExpr::Var(name) = arr else {
                     return None;
                 };
-                let index_usize = index.to_usize();
                 let array = const_arrays.get(name)?;
-                Some(F::from_usize(*array.get(index_usize)?))
+                assert_eq!(indexes.len(), array.depth());
+                let idx = indexes.iter().map(|e| e.to_usize()).collect::<Vec<_>>();
+                array.navigate(&idx)?.as_scalar().map(F::from_usize)
             },
         )
     }
@@ -338,11 +339,17 @@ impl Expression {
     pub fn eval_with<ValueFn, ArrayFn>(&self, value_fn: &ValueFn, array_fn: &ArrayFn) -> Option<F>
     where
         ValueFn: Fn(&SimpleExpr) -> Option<F>,
-        ArrayFn: Fn(&SimpleExpr, F) -> Option<F>,
+        ArrayFn: Fn(&SimpleExpr, Vec<F>) -> Option<F>,
     {
         match self {
             Self::Value(value) => value_fn(value),
-            Self::ArrayAccess { array, index } => array_fn(array, index.eval_with(value_fn, array_fn)?),
+            Self::ArrayAccess { array, index } => array_fn(
+                array,
+                index
+                    .iter()
+                    .map(|e| e.eval_with(value_fn, array_fn))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
             Self::Binary { left, operation, right } => Some(operation.eval(
                 left.eval_with(value_fn, array_fn)?,
                 right.eval_with(value_fn, array_fn)?,
@@ -459,7 +466,7 @@ pub struct Context {
     /// A list of lexical scopes, innermost scope last.
     pub scopes: Vec<Scope>,
     /// A mapping from constant array names to their values.
-    pub const_arrays: BTreeMap<String, Vec<usize>>,
+    pub const_arrays: BTreeMap<String, ConstArrayValue>,
 }
 
 impl Context {
@@ -487,7 +494,7 @@ impl Display for Expression {
         match self {
             Self::Value(val) => write!(f, "{val}"),
             Self::ArrayAccess { array, index } => {
-                write!(f, "{array}[{index}]")
+                write!(f, "{array}[{index:?}]")
             }
             Self::Binary { left, operation, right } => {
                 write!(f, "({left} {operation} {right})")
@@ -702,15 +709,10 @@ impl Display for Line {
 impl Display for Program {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // Print const arrays
-        for (name, values) in &self.const_arrays {
-            write!(f, "const {name} = [")?;
-            for (i, v) in values.iter().enumerate() {
-                if i > 0 {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{v}")?;
-            }
-            writeln!(f, "];")?;
+        for (name, value) in &self.const_arrays {
+            write!(f, "const {name} = ")?;
+            write_const_array_value(f, value)?;
+            writeln!(f, ";")?;
         }
 
         let mut first = self.const_arrays.is_empty();
@@ -722,6 +724,22 @@ impl Display for Program {
             first = false;
         }
         Ok(())
+    }
+}
+
+fn write_const_array_value(f: &mut Formatter<'_>, value: &ConstArrayValue) -> std::fmt::Result {
+    match value {
+        ConstArrayValue::Scalar(v) => write!(f, "{v}"),
+        ConstArrayValue::Array(elements) => {
+            write!(f, "[")?;
+            for (i, elem) in elements.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write_const_array_value(f, elem)?;
+            }
+            write!(f, "]")
+        }
     }
 }
 

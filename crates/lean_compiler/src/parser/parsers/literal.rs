@@ -1,5 +1,5 @@
 use super::expression::ExpressionParser;
-use super::{Parse, ParseContext, ParsedConstant, next_inner_pair};
+use super::{ConstArrayValue, Parse, ParseContext, ParsedConstant, next_inner_pair};
 use crate::{
     F,
     lang::{ConstExpression, ConstantValue, SimpleExpr},
@@ -22,54 +22,88 @@ impl Parse<(String, ParsedConstant)> for ConstantDeclarationParser {
 
         match value_pair.as_rule() {
             Rule::array_literal => {
-                let values: Vec<usize> = value_pair
-                    .into_inner()
-                    .map(|expr_pair| {
-                        let expr = ExpressionParser.parse(expr_pair, ctx).unwrap();
-                        expr.eval_with(
-                            &|simple_expr| match simple_expr {
-                                SimpleExpr::Constant(cst) => cst.naive_eval(),
-                                SimpleExpr::Var(var) => ctx.get_constant(var).map(F::from_usize),
-                                SimpleExpr::ConstMallocAccess { .. } => None,
-                            },
-                            &|_, _| None,
-                        )
-                        .ok_or_else(|| {
-                            SemanticError::with_context(
-                                format!("Failed to evaluate array element in constant: {name}"),
-                                "constant declaration",
-                            )
-                        })
-                        .map(|f| f.to_usize())
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok((name, ParsedConstant::Array(values)))
+                let value = parse_array_literal(value_pair, ctx, &name)?;
+                Ok((name, ParsedConstant::Array(value)))
             }
             _ => {
                 // Parse the expression and evaluate it
                 let expr = ExpressionParser.parse(value_pair, ctx)?;
 
-                let value = expr
-                    .eval_with(
-                        &|simple_expr| match simple_expr {
-                            SimpleExpr::Constant(cst) => cst.naive_eval(),
-                            SimpleExpr::Var(var) => ctx.get_constant(var).map(F::from_usize),
-                            SimpleExpr::ConstMallocAccess { .. } => None,
-                        },
-                        &|_, _| None,
-                    )
-                    .ok_or_else(|| {
-                        SemanticError::with_context(
-                            format!("Failed to evaluate constant: {name}"),
-                            "constant declaration",
-                        )
-                    })?
-                    .to_usize();
+                let value = evaluate_const_expr(&expr, ctx).ok_or_else(|| {
+                    SemanticError::with_context(format!("Failed to evaluate constant: {name}"), "constant declaration")
+                })?;
 
                 Ok((name, ParsedConstant::Scalar(value)))
             }
         }
     }
+}
+
+/// Recursively parse a (potentially nested) array literal into a ConstArrayValue.
+fn parse_array_literal(pair: ParsePair<'_>, ctx: &mut ParseContext, const_name: &str) -> ParseResult<ConstArrayValue> {
+    let elements: Vec<ConstArrayValue> = pair
+        .into_inner()
+        .map(|element_pair| {
+            match element_pair.as_rule() {
+                Rule::array_element => {
+                    // array_element = { array_literal | expression }
+                    let inner = element_pair.into_inner().next().unwrap();
+                    match inner.as_rule() {
+                        Rule::array_literal => parse_array_literal(inner, ctx, const_name),
+                        _ => {
+                            // It's an expression - evaluate to scalar
+                            let expr = ExpressionParser.parse(inner, ctx)?;
+                            let value = evaluate_const_expr(&expr, ctx).ok_or_else(|| {
+                                SemanticError::with_context(
+                                    format!("Failed to evaluate array element in constant: {const_name}"),
+                                    "constant declaration",
+                                )
+                            })?;
+                            Ok(ConstArrayValue::Scalar(value))
+                        }
+                    }
+                }
+                Rule::array_literal => {
+                    // Direct nested array
+                    parse_array_literal(element_pair, ctx, const_name)
+                }
+                _ => {
+                    // Direct expression (fallback for old grammar)
+                    let expr = ExpressionParser.parse(element_pair, ctx)?;
+                    let value = evaluate_const_expr(&expr, ctx).ok_or_else(|| {
+                        SemanticError::with_context(
+                            format!("Failed to evaluate array element in constant: {const_name}"),
+                            "constant declaration",
+                        )
+                    })?;
+                    Ok(ConstArrayValue::Scalar(value))
+                }
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(ConstArrayValue::Array(elements))
+}
+
+/// Evaluate a const expression to a usize value at parse time.
+pub fn evaluate_const_expr(expr: &crate::lang::Expression, ctx: &ParseContext) -> Option<usize> {
+    expr.eval_with(
+        &|simple_expr| match simple_expr {
+            SimpleExpr::Constant(cst) => cst.naive_eval(),
+            SimpleExpr::Var(var) => ctx.get_constant(var).map(F::from_usize),
+            SimpleExpr::ConstMallocAccess { .. } => None,
+        },
+        &|arr, index| {
+            // Support const array access in expressions
+            let SimpleExpr::Var(name) = arr else {
+                return None;
+            };
+            let idx = index.iter().map(|e| e.to_usize()).collect::<Vec<_>>();
+            let array = ctx.get_const_array(name)?;
+            array.navigate(&idx)?.as_scalar().map(F::from_usize)
+        },
+    )
+    .map(|f| f.to_usize())
 }
 
 /// Parser for variable or constant references.

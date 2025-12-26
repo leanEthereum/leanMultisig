@@ -12,11 +12,63 @@ pub mod literal;
 pub mod program;
 pub mod statement;
 
+/// Represents a multi-dimensional constant array value.
+/// Supports arbitrary nesting: `[[1, 2], [3, 4, 5], []]`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConstArrayValue {
+    Scalar(usize),
+    Array(Vec<ConstArrayValue>),
+}
+
+impl ConstArrayValue {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Scalar(_) => panic!("Cannot get length of scalar value"),
+            Self::Array(arr) => arr.len(),
+        }
+    }
+
+    pub fn depth(&self) -> usize {
+        match self {
+            Self::Scalar(_) => 0,
+            Self::Array(arr) => {
+                if arr.is_empty() {
+                    1
+                } else {
+                    1 + arr[0].depth()
+                }
+            }
+        }
+    }
+
+    pub fn get(&self, idx: usize) -> Option<&Self> {
+        match self {
+            Self::Scalar(_) => None,
+            Self::Array(arr) => arr.get(idx),
+        }
+    }
+
+    pub fn as_scalar(&self) -> Option<usize> {
+        match self {
+            Self::Scalar(v) => Some(*v),
+            Self::Array(_) => None,
+        }
+    }
+
+    pub fn navigate(&self, indices: &[usize]) -> Option<&Self> {
+        let mut current = self;
+        for &idx in indices {
+            current = current.get(idx)?;
+        }
+        Some(current)
+    }
+}
+
 /// Represents a parsed constant value (scalar or array).
 #[derive(Debug, Clone)]
 pub enum ParsedConstant {
     Scalar(usize),
-    Array(Vec<usize>),
+    Array(ConstArrayValue),
 }
 
 /// Core parsing context that all parsers share.
@@ -24,8 +76,8 @@ pub enum ParsedConstant {
 pub struct ParseContext {
     /// Compile-time scalar constants defined in the program
     pub constants: BTreeMap<String, usize>,
-    /// Compile-time array constants defined in the program
-    pub const_arrays: BTreeMap<String, Vec<usize>>,
+    /// Compile-time array constants defined in the program (supports nested arrays)
+    pub const_arrays: BTreeMap<String, ConstArrayValue>,
     /// Counter for generating unique trash variable names
     pub trash_var_count: usize,
     /// Filepath of the file we are currently parsing
@@ -76,14 +128,14 @@ impl ParseContext {
     }
 
     /// Adds an array constant to the context.
-    pub fn add_const_array(&mut self, name: String, values: Vec<usize>) -> Result<(), SemanticError> {
+    pub fn add_const_array(&mut self, name: String, value: ConstArrayValue) -> Result<(), SemanticError> {
         if self.constants.contains_key(&name) || self.const_arrays.contains_key(&name) {
             Err(SemanticError::with_context(
                 format!("Defined multiple times: {name}"),
                 "constant declaration",
             ))
         } else {
-            self.const_arrays.insert(name, values);
+            self.const_arrays.insert(name, value);
             Ok(())
         }
     }
@@ -94,7 +146,7 @@ impl ParseContext {
     }
 
     /// Looks up an array constant.
-    pub fn get_const_array(&self, name: &str) -> Option<&Vec<usize>> {
+    pub fn get_const_array(&self, name: &str) -> Option<&ConstArrayValue> {
         self.const_arrays.get(name)
     }
 
