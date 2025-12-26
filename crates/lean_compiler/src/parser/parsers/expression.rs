@@ -79,8 +79,29 @@ impl Parse<Expression> for PrimaryExpressionParser {
             Rule::next_multiple_of_expr => MathExpr::NextMultipleOf.parse(inner, ctx),
             Rule::saturating_sub_expr => MathExpr::SaturatingSub.parse(inner, ctx),
             Rule::len_expr => LenParser.parse(inner, ctx),
+            Rule::function_call_expr => FunctionCallExprParser.parse(inner, ctx),
             _ => Err(SemanticError::new("Invalid primary expression").into()),
         }
+    }
+}
+
+pub struct FunctionCallExprParser;
+
+impl Parse<Expression> for FunctionCallExprParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+        let mut inner = pair.into_inner();
+        let function_name = next_inner_pair(&mut inner, "function name")?.as_str().to_string();
+
+        let args = if let Some(tuple_pair) = inner.next() {
+            tuple_pair
+                .into_inner()
+                .map(|item| ExpressionParser.parse(item, ctx))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            Vec::new()
+        };
+
+        Ok(Expression::FunctionCall { function_name, args })
     }
 }
 

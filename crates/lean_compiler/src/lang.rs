@@ -154,6 +154,7 @@ impl TryFrom<Expression> for ConstExpression {
                 }
                 Ok(Self::MathExpr(math_expr, const_args))
             }
+            Expression::FunctionCall { .. } => Err(()),
         }
     }
 }
@@ -256,6 +257,10 @@ pub enum Expression {
         right: Box<Self>,
     },
     MathExpr(MathExpr, Vec<Self>),
+    FunctionCall {
+        function_name: String,
+        args: Vec<Self>,
+    },
 }
 
 /// For arbitrary compile-time computations
@@ -361,6 +366,7 @@ impl Expression {
                 }
                 Some(math_expr.eval(&eval_args))
             }
+            Self::FunctionCall { .. } => None,
         }
     }
 
@@ -502,6 +508,10 @@ impl Display for Expression {
             Self::MathExpr(math_expr, args) => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{math_expr}({args_str})")
+            }
+            Self::FunctionCall { function_name, args } => {
+                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
+                write!(f, "{function_name}({args_str})")
             }
         }
     }

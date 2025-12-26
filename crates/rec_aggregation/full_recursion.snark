@@ -58,8 +58,7 @@ fn main() {
 
     value_index = mle_of_01234567_etc(point_gkr + (N_VARS_FIRST_GKR - log_memory) * DIM, log_memory);
     fingerprint_memory = fingerprint_2(MEMORY_TABLE_INDEX, value_index, value_memory, alpha_powers);
-    c_minus_fingerprint_memory = sub_extension_ret(logup_c, fingerprint_memory);
-    retrieved_denominators_value[0] = mul_extension_ret(memory_and_acc_prefix, c_minus_fingerprint_memory);
+    retrieved_denominators_value[0] = mul_extension_ret(memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory));
 
     all_fs = malloc(100); // TODO proper size
     all_offsets = malloc(100); // TODO proper size
