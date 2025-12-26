@@ -8,7 +8,8 @@ import_statement = { "import" ~ filepath ~ ";" }
 
 // Constants
 constant_declaration = { "const" ~ identifier ~ "=" ~ (array_literal | expression) ~ ";" }
-array_literal = { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
+array_literal = { "[" ~ (array_element ~ ("," ~ array_element)*)? ~ "]" }
+array_element = { array_literal | expression }
 
 // Functions
 function = { pragma? ~ "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ inlined_statement? ~ return_count? ~ "{" ~ statement* ~ "}" }
@@ -102,8 +103,9 @@ primary = {
 log2_ceil_expr = { "log2_ceil" ~ "(" ~ expression ~ ")" }
 next_multiple_of_expr = { "next_multiple_of" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 saturating_sub_expr = { "saturating_sub" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
-len_expr = { "len" ~ "(" ~ identifier ~ ")" }
-array_access_expr = { identifier ~ "[" ~ expression ~ "]" }
+len_expr = { "len" ~ "(" ~ len_argument ~ ")" }
+len_argument = { identifier ~ ("[" ~ expression ~ "]")* }
+array_access_expr = { identifier ~ ("[" ~ expression ~ "]")+ }
 
 // Basic elements
 var_or_constant = { constant_value | identifier }

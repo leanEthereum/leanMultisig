@@ -1152,3 +1152,168 @@ fn test_no_main() {
 fn test_imports() {
     run_program_in_files(6);
 }
+
+#[test]
+fn test_name_conflict() {
+    let program = r#"
+    fn main() {
+        a = b();
+        b = a();
+        assert a + b == 30;
+        return;
+    }
+    fn a() -> 1 {
+        return 10;
+    }
+    fn b() -> 1 {
+        return 20;
+    }
+    "#;
+    compile_and_run(
+        &ProgramSource::Raw(program.to_string()),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+// BUG here:
+
+// #[test]
+// fn test_num_files() {
+//     let expected_num_files = 3; // program_6.snark imports foo.snark and bar.snark
+//     let manifest_dir = env!("CARGO_MANIFEST_DIR");
+//     let path = format!("{manifest_dir}/tests/program_6.snark");
+//     let bytecode = compile_program(&ProgramSource::Filepath(path));
+//     assert_eq!(bytecode.filepaths.len(), expected_num_files);
+//     assert_eq!(bytecode.source_code.len(), expected_num_files);
+// }
+
+// TODO BUG
+
+// #[test]
+// fn bug() {
+//     let program = r#"
+//     fn main() {
+//         x = func();
+//         return;
+//     }
+//     fn func() -> 1 {
+//         var a;
+//         if 0 == 0 {
+//             a = aux();
+//         }
+//         return a;
+//     }
+
+//     fn aux() inline -> 1 {
+//         return 1;
+//     }
+//     "#;
+//     compile_and_run(program.to_string(), (&[], &[]), false);
+// }
+
+#[test]
+fn test_2d_const_array() {
+    let program = r#"
+    const NESTED = [[1, 2], [3, 4, 5], [6]];
+    fn main() {
+        // Test len() on nested arrays
+        assert len(NESTED) == 3;
+        assert len(NESTED[0]) == 2;
+        assert len(NESTED[1]) == 3;
+        assert len(NESTED[2]) == 1;
+
+        // Test chained indexing
+        assert NESTED[0][0] == 1;
+        assert NESTED[0][1] == 2;
+        assert NESTED[1][0] == 3;
+        assert NESTED[1][2] == 5;
+        assert NESTED[2][0] == 6;
+
+        return;
+    }
+    "#;
+    compile_and_run(
+        &ProgramSource::Raw(program.to_string()),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+fn test_3d_const_array() {
+    let program = r#"
+    const DEEP = [[[1, 2], [3]], [[4, 5, 6]]];
+    const ONE = 1;
+    fn main() {
+        assert len(DEEP) == 2;
+        assert len(DEEP[0]) == 2;
+        assert len(DEEP[0][0]) == 2;
+        assert len(DEEP[0][1]) == 1;
+        one = 1;
+        assert len(DEEP[ONE]) == one;
+        assert len(DEEP[1][0]) == 3;
+
+        assert DEEP[0][0][0] == 1;
+        assert DEEP[0][0][1] == 2;
+        assert DEEP[0][1][0] == 3;
+        assert DEEP[1][0][0] == 4;
+        assert DEEP[1][0][2] == 6;
+
+        return;
+    }
+    "#;
+    compile_and_run(
+        &ProgramSource::Raw(program.to_string()),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
+fn test_2d_nested_array_with_expressions() {
+    let program = r#"
+    const TWO = 2;
+    const ARR = [[1 + 1, TWO * 2], [3 + TWO]];
+    const INCR_ARR = [[0, 1, 2], [1, 2, 3], [2, 3, 4], [3, 4, 5]];
+    fn main() {
+        assert len(ARR) == 2;
+        assert ARR[0][0] == 2;
+        assert ARR[0][1] == 4;
+        assert ARR[1][0] == 5;
+        five = ARR[1][0];
+        assert five == 5;
+        x = 2 + 3 * (ARR[0][0] + ARR[1][0] + 3)**2;
+        assert x == 302;
+        for i in 0..4 unroll {
+            for j in 0..3 unroll {
+                y = INCR_ARR[i][j];
+                assert INCR_ARR[i][j] == i + j - INCR_ARR[i][j] + y;
+            }
+        }
+        return;
+    }
+    "#;
+    compile_and_run(
+        &ProgramSource::Raw(program.to_string()),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+// #[test]
+// fn bug() {
+//     let program = r#"
+//     const ARR = [1];
+//     fn main() {
+//         x = ARR[0]**2;
+//         print(x);
+//         return;
+//     }
+//     "#;
+//     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+// }
