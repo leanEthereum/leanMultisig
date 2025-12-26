@@ -643,12 +643,28 @@ fn simplify_lines(
                 Expression::Binary { left, operation, right } => {
                     let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc, const_arrays);
                     let right = simplify_expr(right, &mut res, counters, array_manager, const_malloc, const_arrays);
-                    res.push(SimpleLine::Assignment {
-                        var: var.clone().into(),
-                        operation: *operation,
-                        arg0: left,
-                        arg1: right,
-                    });
+                    // If both operands are constants, evaluate at compile time and assign the result
+                    if let (SimpleExpr::Constant(left_cst), SimpleExpr::Constant(right_cst)) = (&left, &right) {
+                        let result = ConstExpression::Binary {
+                            left: Box::new(left_cst.clone()),
+                            operation: *operation,
+                            right: Box::new(right_cst.clone()),
+                        }
+                        .try_naive_simplification();
+                        res.push(SimpleLine::Assignment {
+                            var: var.clone().into(),
+                            operation: HighLevelOperation::Add,
+                            arg0: SimpleExpr::Constant(result),
+                            arg1: SimpleExpr::zero(),
+                        });
+                    } else {
+                        res.push(SimpleLine::Assignment {
+                            var: var.clone().into(),
+                            operation: *operation,
+                            arg0: left,
+                            arg1: right,
+                        });
+                    }
                 }
                 Expression::MathExpr(_, _) => unreachable!(),
             },
