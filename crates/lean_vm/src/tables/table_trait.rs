@@ -219,13 +219,15 @@ pub trait TableT: Air {
 
         let mut statements = vec![];
 
-        for i in 0..self.n_columns_ef_air() {
-            let transposed = transpose_slice_to_basis_coefficients::<F, EF>(&trace.ext[i])
+        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
+        assert_eq!(trace.ext.len(), self.n_columns_ef_total());
+        for (&value, col) in air_values_ef.iter().zip(&trace.ext) {
+            let transposed = transpose_slice_to_basis_coefficients::<F, EF>(col)
                 .iter()
                 .map(|base_col| base_col.evaluate(air_point))
                 .collect::<Vec<_>>();
             prover_state.add_extension_scalars(&transposed);
-            if dot_product_with_base(&transposed) != air_values_ef[i] {
+            if dot_product_with_base(&transposed) != value {
                 panic!(); // sanity check
             }
             statements.push(vec![MultiEvaluation::new(air_point.clone(), transposed)]);
@@ -248,9 +250,10 @@ pub trait TableT: Air {
 
         let mut statements = vec![];
 
-        for i in 0..self.n_columns_ef_air() {
+        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
+        for &value in air_values_ef {
             let transposed = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-            if dot_product_with_base(&transposed) != air_values_ef[i] {
+            if dot_product_with_base(&transposed) != value {
                 return Err(ProofError::InvalidProof);
             }
             statements.push(vec![MultiEvaluation::new(air_point.clone(), transposed)]);

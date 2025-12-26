@@ -129,12 +129,7 @@ impl CustomHint {
     }
 
     pub fn find_by_name(name: &str) -> Option<Self> {
-        for hint in Self::iter() {
-            if hint.name() == name {
-                return Some(hint);
-            }
-        }
-        None
+        Self::iter().find(|&hint| hint.name() == name)
     }
 }
 

@@ -5,5 +5,5 @@ mod grammar;
 mod lexer;
 mod parsers;
 
-pub use parsers::program::parse_program;
 pub use parsers::ConstArrayValue;
+pub use parsers::program::parse_program;

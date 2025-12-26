@@ -673,7 +673,7 @@ fn simplify_lines(
                     counters,
                     &mut res,
                     array.clone(),
-                    &[index.clone()],
+                    std::slice::from_ref(index),
                     ArrayAccessType::ArrayIsAssigned(value.clone()),
                     array_manager,
                     const_malloc,
@@ -738,21 +738,19 @@ fn simplify_lines(
                                 // Both are constants - evaluate at compile time
                                 if let (SimpleExpr::Constant(left_const), SimpleExpr::Constant(right_const)) =
                                     (&left, &right)
-                                {
-                                    if let (Some(left_val), Some(right_val)) =
+                                    && let (Some(left_val), Some(right_val)) =
                                         (left_const.naive_eval(), right_const.naive_eval())
-                                    {
-                                        if left_val == right_val {
-                                            // Assertion passes at compile time, no code needed
-                                            continue;
-                                        } else {
-                                            panic!(
-                                                "Compile-time assertion failed: {} != {} (lines {})",
-                                                left_val.to_usize(),
-                                                right_val.to_usize(),
-                                                line_number
-                                            );
-                                        }
+                                {
+                                    if left_val == right_val {
+                                        // Assertion passes at compile time, no code needed
+                                        continue;
+                                    } else {
+                                        panic!(
+                                            "Compile-time assertion failed: {} != {} (lines {})",
+                                            left_val.to_usize(),
+                                            right_val.to_usize(),
+                                            line_number
+                                        );
                                     }
                                 }
                                 panic!("Unsupported equality assertion: {left:?}, {right:?}")
@@ -1623,31 +1621,31 @@ fn handle_array_assignment(
         .map(|idx| simplify_expr(idx, res, counters, array_manager, const_malloc, const_arrays))
         .collect::<Vec<_>>();
 
-    if let (ArrayAccessType::VarIsAssigned(var), SimpleExpr::Var(array_var)) = (&access_type, &array) {
-        if let Some(const_array) = const_arrays.get(array_var) {
-            let idx = simplified_index
-                .iter()
-                .map(|idx| {
-                    idx.as_constant()
-                        .expect("Const array access index should be constant")
-                        .naive_eval()
-                        .unwrap()
-                        .to_usize()
-                })
-                .collect::<Vec<_>>();
-            let value = const_array
-                .navigate(&idx)
-                .expect("Const array access index out of bounds")
-                .as_scalar()
-                .expect("Const array access should return a scalar");
-            res.push(SimpleLine::Assignment {
-                var: var.clone().into(),
-                operation: HighLevelOperation::Add,
-                arg0: SimpleExpr::Constant(ConstExpression::from(value)),
-                arg1: SimpleExpr::zero(),
-            });
-            return;
-        }
+    if let (ArrayAccessType::VarIsAssigned(var), SimpleExpr::Var(array_var)) = (&access_type, &array)
+        && let Some(const_array) = const_arrays.get(array_var)
+    {
+        let idx = simplified_index
+            .iter()
+            .map(|idx| {
+                idx.as_constant()
+                    .expect("Const array access index should be constant")
+                    .naive_eval()
+                    .unwrap()
+                    .to_usize()
+            })
+            .collect::<Vec<_>>();
+        let value = const_array
+            .navigate(&idx)
+            .expect("Const array access index out of bounds")
+            .as_scalar()
+            .expect("Const array access should return a scalar");
+        res.push(SimpleLine::Assignment {
+            var: var.clone().into(),
+            operation: HighLevelOperation::Add,
+            arg0: SimpleExpr::Constant(ConstExpression::from(value)),
+            arg1: SimpleExpr::zero(),
+        });
+        return;
     }
 
     if simplified_index.len() == 1

@@ -1092,7 +1092,6 @@ fn test_3d_const_array() {
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
 
-
 #[test]
 fn test_2d_nested_array_with_expressions() {
     let program = r#"
@@ -1119,7 +1118,6 @@ fn test_2d_nested_array_with_expressions() {
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
-
 
 #[test]
 fn test_const_array_element_exponentiation() {
