@@ -524,6 +524,11 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
                 check_expr_scoping(arg, ctx);
             }
         }
+        Expression::FunctionCall { args, .. } => {
+            for arg in args {
+                check_expr_scoping(arg, ctx);
+            }
+        }
     }
 }
 
@@ -605,7 +610,15 @@ fn simplify_lines(
                 res.push(SimpleLine::ForwardDeclaration { var: var.clone() });
             }
             Line::Match { value, arms } => {
-                let simple_value = simplify_expr(value, &mut res, counters, array_manager, const_malloc, const_arrays);
+                let simple_value = simplify_expr(
+                    value,
+                    &mut res,
+                    counters,
+                    array_manager,
+                    const_malloc,
+                    const_arrays,
+                    functions,
+                );
                 let mut simple_arms = vec![];
                 for (i, (pattern, statements)) in arms.iter().enumerate() {
                     assert_eq!(*pattern, i, "match patterns should be consecutive, starting from 0");
@@ -646,11 +659,28 @@ fn simplify_lines(
                         array_manager,
                         const_malloc,
                         const_arrays,
+                        functions,
                     );
                 }
                 Expression::Binary { left, operation, right } => {
-                    let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc, const_arrays);
-                    let right = simplify_expr(right, &mut res, counters, array_manager, const_malloc, const_arrays);
+                    let left = simplify_expr(
+                        left,
+                        &mut res,
+                        counters,
+                        array_manager,
+                        const_malloc,
+                        const_arrays,
+                        functions,
+                    );
+                    let right = simplify_expr(
+                        right,
+                        &mut res,
+                        counters,
+                        array_manager,
+                        const_malloc,
+                        const_arrays,
+                        functions,
+                    );
                     // If both operands are constants, evaluate at compile time and assign the result
                     if let (SimpleExpr::Constant(left_cst), SimpleExpr::Constant(right_cst)) = (&left, &right) {
                         let result = ConstExpression::Binary {
@@ -675,6 +705,23 @@ fn simplify_lines(
                     }
                 }
                 Expression::MathExpr(_, _) => unreachable!(),
+                Expression::FunctionCall { .. } => {
+                    let result = simplify_expr(
+                        value,
+                        &mut res,
+                        counters,
+                        array_manager,
+                        const_malloc,
+                        const_arrays,
+                        functions,
+                    );
+                    res.push(SimpleLine::Assignment {
+                        var: var.clone().into(),
+                        operation: HighLevelOperation::Add,
+                        arg0: result,
+                        arg1: SimpleExpr::zero(),
+                    });
+                }
             },
             Line::ArrayAssign { array, index, value } => {
                 handle_array_assignment(
@@ -686,6 +733,7 @@ fn simplify_lines(
                     array_manager,
                     const_malloc,
                     const_arrays,
+                    functions,
                 );
             }
             Line::Assert {
@@ -700,6 +748,7 @@ fn simplify_lines(
                     array_manager,
                     const_malloc,
                     const_arrays,
+                    functions,
                 );
                 let right = simplify_expr(
                     &boolean.right,
@@ -708,6 +757,7 @@ fn simplify_lines(
                     array_manager,
                     const_malloc,
                     const_arrays,
+                    functions,
                 );
 
                 if *debug {
@@ -790,10 +840,24 @@ fn simplify_lines(
                             Boolean::LessThan => unreachable!(),
                         };
 
-                        let left_simplified =
-                            simplify_expr(left, &mut res, counters, array_manager, const_malloc, const_arrays);
-                        let right_simplified =
-                            simplify_expr(right, &mut res, counters, array_manager, const_malloc, const_arrays);
+                        let left_simplified = simplify_expr(
+                            left,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        );
+                        let right_simplified = simplify_expr(
+                            right,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        );
 
                         let diff_var = format!("@diff_{}", counters.aux_vars);
                         counters.aux_vars += 1;
@@ -806,8 +870,15 @@ fn simplify_lines(
                         (diff_var.into(), then_branch, else_branch)
                     }
                     Condition::Expression(condition, assume_boolean) => {
-                        let condition_simplified =
-                            simplify_expr(condition, &mut res, counters, array_manager, const_malloc, const_arrays);
+                        let condition_simplified = simplify_expr(
+                            condition,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        );
 
                         match assume_boolean {
                             AssumeBoolean::AssumeBoolean => {}
@@ -929,10 +1000,24 @@ fn simplify_lines(
 
                 let mut external_vars: Vec<_> = external_vars.into_iter().collect();
 
-                let start_simplified =
-                    simplify_expr(start, &mut res, counters, array_manager, const_malloc, const_arrays);
-                let mut end_simplified =
-                    simplify_expr(end, &mut res, counters, array_manager, const_malloc, const_arrays);
+                let start_simplified = simplify_expr(
+                    start,
+                    &mut res,
+                    counters,
+                    array_manager,
+                    const_malloc,
+                    const_arrays,
+                    functions,
+                );
+                let mut end_simplified = simplify_expr(
+                    end,
+                    &mut res,
+                    counters,
+                    array_manager,
+                    const_malloc,
+                    const_arrays,
+                    functions,
+                );
                 if let SimpleExpr::ConstMallocAccess { malloc_label, offset } = end_simplified.clone() {
                     // we use an auxilary variable to store the end value (const malloc inside non-unrolled loops does not work)
                     let aux_end_var = format!("@aux_end_{}", counters.aux_vars);
@@ -1006,7 +1091,17 @@ fn simplify_lines(
 
                 let simplified_args = args
                     .iter()
-                    .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc, const_arrays))
+                    .map(|arg| {
+                        simplify_expr(
+                            arg,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        )
+                    })
                     .collect::<Vec<_>>();
 
                 // Generate temp vars for all return values and track array targets
@@ -1045,6 +1140,7 @@ fn simplify_lines(
                         array_manager,
                         const_malloc,
                         const_arrays,
+                        functions,
                     );
                 }
             }
@@ -1057,7 +1153,17 @@ fn simplify_lines(
                 );
                 let simplified_return_data = return_data
                     .iter()
-                    .map(|ret| simplify_expr(ret, &mut res, counters, array_manager, const_malloc, const_arrays))
+                    .map(|ret| {
+                        simplify_expr(
+                            ret,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        )
+                    })
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::FunctionRet {
                     return_data: simplified_return_data,
@@ -1066,7 +1172,17 @@ fn simplify_lines(
             Line::Precompile { table, args } => {
                 let simplified_args = args
                     .iter()
-                    .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc, const_arrays))
+                    .map(|arg| {
+                        simplify_expr(
+                            arg,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        )
+                    })
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::Precompile {
                     table: *table,
@@ -1076,7 +1192,17 @@ fn simplify_lines(
             Line::Print { line_info, content } => {
                 let simplified_content = content
                     .iter()
-                    .map(|var| simplify_expr(var, &mut res, counters, array_manager, const_malloc, const_arrays))
+                    .map(|var| {
+                        simplify_expr(
+                            var,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        )
+                    })
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::Print {
                     line_info: line_info.clone(),
@@ -1093,8 +1219,15 @@ fn simplify_lines(
                 vectorized,
                 vectorized_len,
             } => {
-                let simplified_size =
-                    simplify_expr(size, &mut res, counters, array_manager, const_malloc, const_arrays);
+                let simplified_size = simplify_expr(
+                    size,
+                    &mut res,
+                    counters,
+                    array_manager,
+                    const_malloc,
+                    const_arrays,
+                    functions,
+                );
                 let simplified_vectorized_len = simplify_expr(
                     vectorized_len,
                     &mut res,
@@ -1102,6 +1235,7 @@ fn simplify_lines(
                     array_manager,
                     const_malloc,
                     const_arrays,
+                    functions,
                 );
                 match simplified_size {
                     SimpleExpr::Constant(const_size) if !*vectorized => {
@@ -1130,7 +1264,17 @@ fn simplify_lines(
             Line::CustomHint(hint, args) => {
                 let simplified_args = args
                     .iter()
-                    .map(|expr| simplify_expr(expr, &mut res, counters, array_manager, const_malloc, const_arrays))
+                    .map(|expr| {
+                        simplify_expr(
+                            expr,
+                            &mut res,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        )
+                    })
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::CustomHint(*hint, simplified_args));
             }
@@ -1158,6 +1302,7 @@ fn simplify_expr(
     array_manager: &mut ArrayManager,
     const_malloc: &ConstMalloc,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
+    functions: &BTreeMap<String, Function>,
 ) -> SimpleExpr {
     match expr {
         Expression::Value(value) => value.simplify_if_const(),
@@ -1169,12 +1314,20 @@ fn simplify_expr(
                 let simplified_index = index
                     .iter()
                     .map(|idx| {
-                        simplify_expr(idx, lines, counters, array_manager, const_malloc, const_arrays)
-                            .as_constant()
-                            .expect("Const array access index should be constant")
-                            .naive_eval()
-                            .expect("Const array access index should be constant")
-                            .to_usize()
+                        simplify_expr(
+                            idx,
+                            lines,
+                            counters,
+                            array_manager,
+                            const_malloc,
+                            const_arrays,
+                            functions,
+                        )
+                        .as_constant()
+                        .expect("Const array access index should be constant")
+                        .naive_eval()
+                        .expect("Const array access index should be constant")
+                        .to_usize()
                     })
                     .collect::<Vec<_>>();
 
@@ -1215,12 +1368,29 @@ fn simplify_expr(
                 array_manager,
                 const_malloc,
                 const_arrays,
+                functions,
             );
             SimpleExpr::Var(aux_arr)
         }
         Expression::Binary { left, operation, right } => {
-            let left_var = simplify_expr(left, lines, counters, array_manager, const_malloc, const_arrays);
-            let right_var = simplify_expr(right, lines, counters, array_manager, const_malloc, const_arrays);
+            let left_var = simplify_expr(
+                left,
+                lines,
+                counters,
+                array_manager,
+                const_malloc,
+                const_arrays,
+                functions,
+            );
+            let right_var = simplify_expr(
+                right,
+                lines,
+                counters,
+                array_manager,
+                const_malloc,
+                const_arrays,
+                functions,
+            );
 
             if let (SimpleExpr::Constant(left_cst), SimpleExpr::Constant(right_cst)) = (&left_var, &right_var) {
                 return SimpleExpr::Constant(ConstExpression::Binary {
@@ -1244,12 +1414,58 @@ fn simplify_expr(
             let simplified_args = args
                 .iter()
                 .map(|arg| {
-                    simplify_expr(arg, lines, counters, array_manager, const_malloc, const_arrays)
-                        .as_constant()
-                        .unwrap()
+                    simplify_expr(
+                        arg,
+                        lines,
+                        counters,
+                        array_manager,
+                        const_malloc,
+                        const_arrays,
+                        functions,
+                    )
+                    .as_constant()
+                    .unwrap()
                 })
                 .collect::<Vec<_>>();
             SimpleExpr::Constant(ConstExpression::MathExpr(*formula, simplified_args))
+        }
+        Expression::FunctionCall { function_name, args } => {
+            let function = functions
+                .get(function_name)
+                .unwrap_or_else(|| panic!("Function used but not defined: {function_name}"));
+            assert_eq!(
+                function.n_returned_vars, 1,
+                "Nested function call to '{function_name}' must return exactly 1 value, but returns {}",
+                function.n_returned_vars
+            );
+
+            let simplified_args = args
+                .iter()
+                .map(|arg| {
+                    simplify_expr(
+                        arg,
+                        lines,
+                        counters,
+                        array_manager,
+                        const_malloc,
+                        const_arrays,
+                        functions,
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            // Create a temporary variable for the function result
+            let result_var = format!("@nested_call_{}", counters.aux_vars);
+            counters.aux_vars += 1;
+
+            lines.push(SimpleLine::FunctionCall {
+                function_name: function_name.clone(),
+                args: simplified_args,
+                return_data: vec![result_var.clone()],
+                line_number: 0, // No source line number for nested calls
+            });
+
+            SimpleExpr::Var(result_var)
         }
     }
 }
@@ -1427,6 +1643,11 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
         }
         Expression::MathExpr(_, math_args) => {
             for arg in math_args {
+                inline_expr(arg, args, inlining_count);
+            }
+        }
+        Expression::FunctionCall { args: func_args, .. } => {
+            for arg in func_args {
                 inline_expr(arg, args, inlining_count);
             }
         }
@@ -1610,6 +1831,11 @@ fn vars_in_expression(expr: &Expression, const_arrays: &BTreeMap<String, ConstAr
                 vars.extend(vars_in_expression(arg, const_arrays));
             }
         }
+        Expression::FunctionCall { args, .. } => {
+            for arg in args {
+                vars.extend(vars_in_expression(arg, const_arrays));
+            }
+        }
     }
     vars
 }
@@ -1630,10 +1856,11 @@ fn handle_array_assignment(
     array_manager: &mut ArrayManager,
     const_malloc: &ConstMalloc,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
+    functions: &BTreeMap<String, Function>,
 ) {
     let simplified_index = index
         .iter()
-        .map(|idx| simplify_expr(idx, res, counters, array_manager, const_malloc, const_arrays))
+        .map(|idx| simplify_expr(idx, res, counters, array_manager, const_malloc, const_arrays, functions))
         .collect::<Vec<_>>();
 
     if let (ArrayAccessType::VarIsAssigned(var), SimpleExpr::Var(array_var)) = (&access_type, &array)
@@ -1669,8 +1896,24 @@ fn handle_array_assignment(
         && let Some(label) = const_malloc.map.get(array_var)
         && let ArrayAccessType::ArrayIsAssigned(Expression::Binary { left, operation, right }) = &access_type
     {
-        let arg0 = simplify_expr(left, res, counters, array_manager, const_malloc, const_arrays);
-        let arg1 = simplify_expr(right, res, counters, array_manager, const_malloc, const_arrays);
+        let arg0 = simplify_expr(
+            left,
+            res,
+            counters,
+            array_manager,
+            const_malloc,
+            const_arrays,
+            functions,
+        );
+        let arg1 = simplify_expr(
+            right,
+            res,
+            counters,
+            array_manager,
+            const_malloc,
+            const_arrays,
+            functions,
+        );
         res.push(SimpleLine::Assignment {
             var: VarOrConstMallocAccess::ConstMallocAccess {
                 malloc_label: *label,
@@ -1685,9 +1928,15 @@ fn handle_array_assignment(
 
     let value_simplified = match access_type {
         ArrayAccessType::VarIsAssigned(var) => SimpleExpr::Var(var),
-        ArrayAccessType::ArrayIsAssigned(expr) => {
-            simplify_expr(&expr, res, counters, array_manager, const_malloc, const_arrays)
-        }
+        ArrayAccessType::ArrayIsAssigned(expr) => simplify_expr(
+            &expr,
+            res,
+            counters,
+            array_manager,
+            const_malloc,
+            const_arrays,
+            functions,
+        ),
     };
 
     // TODO opti: in some case we could use ConstMallocAccess
@@ -1806,6 +2055,11 @@ fn replace_vars_for_unroll_in_expr(
             replace_vars_for_unroll_in_expr(right, iterator, unroll_index, iterator_value, internal_vars);
         }
         Expression::MathExpr(_, args) => {
+            for arg in args {
+                replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
+            }
+        }
+        Expression::FunctionCall { args, .. } => {
             for arg in args {
                 replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
             }
@@ -2004,14 +2258,16 @@ fn handle_inlined_functions(program: &mut Program) {
     // Process inline functions iteratively to handle dependencies
     // Repeat until all inline function calls are resolved
     let mut max_iterations = 10;
+
+    let mut counter1 = Counter::new();
+    let mut counter2 = Counter::new();
+
     while max_iterations > 0 {
         let mut any_changes = false;
 
         // Process non-inlined functions
         for func in program.functions.values_mut() {
             if !func.inlined {
-                let mut counter1 = Counter::new();
-                let mut counter2 = Counter::new();
                 let old_body = func.body.clone();
 
                 handle_inlined_functions_helper(&mut func.body, &inlined_functions, &mut counter1, &mut counter2);
@@ -2026,8 +2282,6 @@ fn handle_inlined_functions(program: &mut Program) {
         // We need to update them so that when they get inlined later, they don't have unresolved calls
         for func in program.functions.values_mut() {
             if func.inlined {
-                let mut counter1 = Counter::new();
-                let mut counter2 = Counter::new();
                 let old_body = func.body.clone();
 
                 handle_inlined_functions_helper(&mut func.body, &inlined_functions, &mut counter1, &mut counter2);
@@ -2053,14 +2307,117 @@ fn handle_inlined_functions(program: &mut Program) {
     }
 }
 
+/// Recursively extracts inlined function calls from an expression.
+/// Returns the modified expression and lines to prepend (forward declarations and function calls).
+fn extract_inlined_calls_from_expr(
+    expr: &mut Expression,
+    inlined_functions: &BTreeMap<String, Function>,
+    inlined_var_counter: &mut Counter,
+) -> Vec<Line> {
+    let mut lines = vec![];
+
+    match expr {
+        Expression::Value(_) => {}
+        Expression::ArrayAccess { index, .. } => {
+            for idx in index.iter_mut() {
+                lines.extend(extract_inlined_calls_from_expr(
+                    idx,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+            }
+        }
+        Expression::Binary { left, right, .. } => {
+            lines.extend(extract_inlined_calls_from_expr(
+                left,
+                inlined_functions,
+                inlined_var_counter,
+            ));
+            lines.extend(extract_inlined_calls_from_expr(
+                right,
+                inlined_functions,
+                inlined_var_counter,
+            ));
+        }
+        Expression::MathExpr(_, args) => {
+            for arg in args.iter_mut() {
+                lines.extend(extract_inlined_calls_from_expr(
+                    arg,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+            }
+        }
+        Expression::FunctionCall { function_name, args } => {
+            for arg in args.iter_mut() {
+                lines.extend(extract_inlined_calls_from_expr(
+                    arg,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+            }
+
+            if inlined_functions.contains_key(function_name) {
+                let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
+                lines.push(Line::ForwardDeclaration { var: aux_var.clone() });
+                lines.push(Line::FunctionCall {
+                    function_name: function_name.clone(),
+                    args: std::mem::take(args),
+                    return_data: vec![AssignmentTarget::Var(aux_var.clone())],
+                    line_number: 0,
+                });
+                *expr = Expression::Value(SimpleExpr::Var(aux_var));
+            }
+        }
+    }
+
+    lines
+}
+
+fn extract_inlined_calls_from_boolean_expr(
+    boolean: &mut BooleanExpr<Expression>,
+    inlined_functions: &BTreeMap<String, Function>,
+    inlined_var_counter: &mut Counter,
+) -> Vec<Line> {
+    let mut lines = vec![];
+    lines.extend(extract_inlined_calls_from_expr(
+        &mut boolean.left,
+        inlined_functions,
+        inlined_var_counter,
+    ));
+    lines.extend(extract_inlined_calls_from_expr(
+        &mut boolean.right,
+        inlined_functions,
+        inlined_var_counter,
+    ));
+    lines
+}
+
+fn extract_inlined_calls_from_condition(
+    condition: &mut Condition,
+    inlined_functions: &BTreeMap<String, Function>,
+    inlined_var_counter: &mut Counter,
+) -> Vec<Line> {
+    match condition {
+        Condition::Expression(expr, _) => extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter),
+        Condition::Comparison(boolean) => {
+            extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)
+        }
+    }
+}
+
 fn handle_inlined_functions_helper(
     lines: &mut Vec<Line>,
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
     total_inlined_counter: &mut Counter,
 ) {
-    for i in (0..lines.len()).rev() {
-        match &mut lines[i] {
+    // First pass: extract inlined function calls from expressions and handle Line::FunctionCall inlining
+    // We iterate in reverse to handle splicing correctly
+    let mut i = lines.len();
+    while i > 0 {
+        i -= 1;
+        let prepend_lines = match &mut lines[i] {
             Line::FunctionCall {
                 function_name,
                 args,
@@ -2083,10 +2440,33 @@ fn handle_inlined_functions_helper(
                             simplified_args.push(simple_expr.clone());
                         } else {
                             let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
-                            inlined_lines.push(Line::Assignment {
-                                var: aux_var.clone(),
-                                value: arg.clone(),
-                            });
+                            // Check if the argument is a function call to an inlined function
+                            // If so, create a Line::FunctionCall so it gets inlined in subsequent iterations
+                            if let Expression::FunctionCall {
+                                function_name: arg_func_name,
+                                args: arg_args,
+                            } = arg
+                            {
+                                if inlined_functions.contains_key(arg_func_name) {
+                                    inlined_lines.push(Line::ForwardDeclaration { var: aux_var.clone() });
+                                    inlined_lines.push(Line::FunctionCall {
+                                        function_name: arg_func_name.clone(),
+                                        args: arg_args.clone(),
+                                        return_data: vec![AssignmentTarget::Var(aux_var.clone())],
+                                        line_number: 0,
+                                    });
+                                } else {
+                                    inlined_lines.push(Line::Assignment {
+                                        var: aux_var.clone(),
+                                        value: arg.clone(),
+                                    });
+                                }
+                            } else {
+                                inlined_lines.push(Line::Assignment {
+                                    var: aux_var.clone(),
+                                    value: arg.clone(),
+                                });
+                            }
                             simplified_args.push(SimpleExpr::Var(aux_var));
                         }
                     }
@@ -2104,7 +2484,118 @@ fn handle_inlined_functions_helper(
                     lines.remove(i); // remove the call to the inlined function
                     lines.splice(i..i, inlined_lines);
                 }
+                vec![]
             }
+            Line::IfCondition { condition, .. } => {
+                extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter)
+            }
+            Line::ForLoop { start, end, .. } => {
+                let mut prepend = vec![];
+                prepend.extend(extract_inlined_calls_from_expr(
+                    start,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+                prepend.extend(extract_inlined_calls_from_expr(
+                    end,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+                prepend
+            }
+            Line::Assert { boolean, .. } => {
+                extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)
+            }
+            Line::Assignment { value, .. } => {
+                extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter)
+            }
+            Line::ArrayAssign { index, value, .. } => {
+                let mut prepend = vec![];
+                prepend.extend(extract_inlined_calls_from_expr(
+                    index,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+                prepend.extend(extract_inlined_calls_from_expr(
+                    value,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+                prepend
+            }
+            Line::Print { content, .. } => {
+                let mut prepend = vec![];
+                for expr in content.iter_mut() {
+                    prepend.extend(extract_inlined_calls_from_expr(
+                        expr,
+                        inlined_functions,
+                        inlined_var_counter,
+                    ));
+                }
+                prepend
+            }
+            Line::FunctionRet { return_data } => {
+                let mut prepend = vec![];
+                for expr in return_data.iter_mut() {
+                    prepend.extend(extract_inlined_calls_from_expr(
+                        expr,
+                        inlined_functions,
+                        inlined_var_counter,
+                    ));
+                }
+                prepend
+            }
+            Line::Precompile { args, .. } => {
+                let mut prepend = vec![];
+                for expr in args.iter_mut() {
+                    prepend.extend(extract_inlined_calls_from_expr(
+                        expr,
+                        inlined_functions,
+                        inlined_var_counter,
+                    ));
+                }
+                prepend
+            }
+            Line::MAlloc {
+                size, vectorized_len, ..
+            } => {
+                let mut prepend = vec![];
+                prepend.extend(extract_inlined_calls_from_expr(
+                    size,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+                prepend.extend(extract_inlined_calls_from_expr(
+                    vectorized_len,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
+                prepend
+            }
+            Line::CustomHint(_, args) => {
+                let mut prepend = vec![];
+                for expr in args.iter_mut() {
+                    prepend.extend(extract_inlined_calls_from_expr(
+                        expr,
+                        inlined_functions,
+                        inlined_var_counter,
+                    ));
+                }
+                prepend
+            }
+            _ => vec![],
+        };
+
+        if !prepend_lines.is_empty() {
+            let prepend_count = prepend_lines.len();
+            lines.splice(i..i, prepend_lines);
+            i += prepend_count; // Adjust i to account for the inserted lines
+        }
+    }
+
+    // Second pass: recursively process nested blocks
+    for line in lines.iter_mut() {
+        match line {
             Line::IfCondition {
                 then_branch,
                 else_branch,
@@ -2123,7 +2614,7 @@ fn handle_inlined_functions_helper(
                     total_inlined_counter,
                 );
             }
-            Line::ForLoop { body, unroll: _, .. } => {
+            Line::ForLoop { body, .. } => {
                 handle_inlined_functions_helper(body, inlined_functions, inlined_var_counter, total_inlined_counter);
             }
             Line::Match { arms, .. } => {
@@ -2349,6 +2840,11 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
             replace_vars_by_const_in_expr(right, map);
         }
         Expression::MathExpr(_, args) => {
+            for arg in args {
+                replace_vars_by_const_in_expr(arg, map);
+            }
+        }
+        Expression::FunctionCall { args, .. } => {
             for arg in args {
                 replace_vars_by_const_in_expr(arg, map);
             }

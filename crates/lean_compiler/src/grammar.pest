@@ -23,6 +23,7 @@ return_count = { "->" ~ number }
 // Statements
 statement = {
     forward_declaration |
+    function_call |
     single_assignment |
     array_assign |
     if_statement |
@@ -31,7 +32,6 @@ statement = {
     return_statement |
     break_statement |
     continue_statement |
-    function_call |
     assert_eq_statement |
     assert_not_eq_statement  |
     debug_assert_eq_statement |
@@ -91,15 +91,17 @@ mul_expr = { mod_expr ~ ("*" ~ mod_expr)* }
 mod_expr = { div_expr ~ ("%" ~ div_expr)* }
 div_expr = { exp_expr ~ ("/" ~ exp_expr)* }
 exp_expr = { primary ~ ("**" ~ primary)* }
-primary = { 
-    "(" ~ expression ~ ")" | 
+primary = {
+    "(" ~ expression ~ ")" |
     log2_ceil_expr |
     next_multiple_of_expr |
     saturating_sub_expr |
     len_expr |
     array_access_expr |
+    function_call_expr |
     var_or_constant
 }
+function_call_expr = { identifier ~ "(" ~ tuple_expression? ~ ")" }
 log2_ceil_expr = { "log2_ceil" ~ "(" ~ expression ~ ")" }
 next_multiple_of_expr = { "next_multiple_of" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 saturating_sub_expr = { "saturating_sub" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
