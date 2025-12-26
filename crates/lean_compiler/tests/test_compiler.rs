@@ -1305,15 +1305,20 @@ fn test_2d_nested_array_with_expressions() {
     );
 }
 
-// #[test]
-// fn bug() {
-//     let program = r#"
-//     const ARR = [1];
-//     fn main() {
-//         x = ARR[0]**2;
-//         print(x);
-//         return;
-//     }
-//     "#;
-//     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
-// }
+#[test]
+fn test_const_array_element_exponentiation() {
+    let program = r#"
+    const ARR = [[5]];
+    fn main() {
+        x = ARR[0][0]**2;
+        assert x == 25;
+        return;
+    }
+    "#;
+    compile_and_run(
+        &ProgramSource::Raw(program.to_string()),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
