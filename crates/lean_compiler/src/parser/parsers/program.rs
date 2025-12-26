@@ -53,11 +53,7 @@ impl Parse<Program> for ProgramParser {
                         let saved_file_id = ctx.current_file_id;
                         ctx.current_filepath = filepath.clone();
                         ctx.imported_filepaths.insert(filepath.clone());
-                        let file_id = ctx.get_next_file_id();
-                        ctx.current_file_id = file_id;
-                        filepaths.insert(file_id, filepath.clone());
-                        ctx.current_source_code = ProgramSource::Filepath(filepath).get_content(&ctx.flags).unwrap();
-                        source_code.insert(file_id, ctx.current_source_code.clone());
+                        ctx.current_source_code = ProgramSource::Filepath(filepath.clone()).get_content(&ctx.flags).unwrap();
                         let subprogram = parse_program_helper(ctx)?;
                         functions.extend(subprogram.functions);
                         function_locations.extend(subprogram.function_locations);

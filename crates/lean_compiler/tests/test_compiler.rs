@@ -1133,3 +1133,13 @@ fn test_const_array_element_exponentiation() {
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
+
+#[test]
+fn test_num_files() {
+    let expected_num_files = 3; // program_6.snark imports foo.snark and bar.snark
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let path = format!("{manifest_dir}/tests/program_6.snark");
+    let bytecode = compile_program(&ProgramSource::Filepath(path));
+    assert_eq!(bytecode.filepaths.len(), expected_num_files);
+    assert_eq!(bytecode.source_code.len(), expected_num_files);
+}
