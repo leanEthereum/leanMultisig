@@ -70,8 +70,26 @@ fn main() {
         n_rows = powers_of_two(log_n_rows);
         offset = all_offsets[table_index];
         inner_point = point_gkr + (N_VARS_FIRST_GKR - log_n_rows) * DIM;
-        all_fs[table_index + 1], evals_on_selector = fs_receive_ef(all_fs[table_index], 2**UNIVARIATE_SKIPS);
+        
         prefix = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr);
+        poly_eq_missing_inner_point = poly_eq_extension(inner_point, UNIVARIATE_SKIPS);
+
+        fs_a1, evals_on_selector = fs_receive_ef(all_fs[table_index], 2**UNIVARIATE_SKIPS);
+        evals_on_selector_ml_eval = malloc(DIM);
+        dot_product(evals_on_selector, poly_eq_missing_inner_point, evals_on_selector_ml_eval, 2**UNIVARIATE_SKIPS, EE);
+        retrieved_numerators_value_new_term = mul_extension_ret(prefix, evals_on_selector_ml_eval);
+        retrieved_numerators_value[table_index + 1] = add_extension_ret(retrieved_numerators_value[table_index], retrieved_numerators_value_new_term);
+        
+        fs_a2, evals_on_data = fs_receive_ef(fs_a1, 2**UNIVARIATE_SKIPS);
+        evals_on_data_ml_eval = malloc(DIM);
+        dot_product(evals_on_data, poly_eq_missing_inner_point, evals_on_data_ml_eval, 2**UNIVARIATE_SKIPS, EE);
+        retrieved_denominators_value_new_term = mul_extension_ret(prefix, evals_on_data_ml_eval);
+        retrieved_denominators_value[table_index + 1] = add_extension_ret(retrieved_denominators_value[table_index], retrieved_denominators_value_new_term);
+
+        
+        all_fs[table_index + 1] = fs_a2; // TODO
+
+        return;
     }
 
     return;

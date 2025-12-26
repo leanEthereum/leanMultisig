@@ -1,18 +1,16 @@
 use std::path::Path;
 use std::time::Instant;
 
-use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
+use lean_compiler::{CompilationFlags, ProgramSource, compile_program, compile_program_with_flags};
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
-use lean_prover::{FIBONNACI_PROGRAM, SnarkParams, UNIVARIATE_SKIPS, whir_config_builder};
+use lean_prover::{SnarkParams, UNIVARIATE_SKIPS, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use utils::MEMORY_TABLE_INDEX;
 use whir_p3::{WhirConfig, precompute_dft_twiddles};
 
 use crate::whir_recursion::whir_recursion_placeholder_replacements;
-
-const FIBONACCI_N: usize = 10_000;
 
 pub fn run_end2end_recursion_benchmark() {
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -25,14 +23,28 @@ pub fn run_end2end_recursion_benchmark() {
         first_whir: whir_config_builder(1, 3, 1),
         second_whir: whir_config_builder(3, 4, 1),
     };
-    let bytecode_to_prove = compile_program_with_flags(
-        &ProgramSource::Raw(FIBONNACI_PROGRAM.to_string()),
-        CompilationFlags {
-            replacements: vec![("FIB_N_PLACEHOLDER".to_string(), FIBONACCI_N.to_string())]
-                .into_iter()
-                .collect(),
-        },
-    );
+    let program_to_prove = r#"
+    const DIM = 5;
+    const COMPRESSION = 1;
+    const PERMUTATION = 0;
+    const POSEIDON_OF_ZERO = POSEIDON_OF_ZERO_PLACEHOLDER;    
+    // Dot product precompile:
+    const BE = 1; // base-extension
+    const EE = 0; // extension-extension
+
+    fn main() {
+        for i in 0..1 {
+            null_ptr = pointer_to_zero_vector; // pointer to zero vector
+            poseidon_of_zero = POSEIDON_OF_ZERO;
+            poseidon16(null_ptr, null_ptr, poseidon_of_zero, PERMUTATION);
+            poseidon16(null_ptr, null_ptr, poseidon_of_zero, COMPRESSION);
+            dot_product(null_ptr, null_ptr, null_ptr, 2, BE);
+            dot_product(null_ptr, null_ptr, null_ptr, 2, EE);
+        }
+        return;
+    }
+   "#.replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
+    let bytecode_to_prove = compile_program(&ProgramSource::Raw(program_to_prove.to_string()));
     precompute_dft_twiddles::<F>(1 << 24);
     let proof_to_prove = prove_execution(&bytecode_to_prove, (&[], &[]), &vec![], &snark_params, false);
     let verif_details = verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
