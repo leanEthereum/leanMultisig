@@ -1588,6 +1588,31 @@ fn handle_array_assignment(
 ) {
     let simplified_index = simplify_expr(index, res, counters, array_manager, const_malloc, const_arrays);
 
+    if let (ArrayAccessType::VarIsAssigned(var), SimpleExpr::Var(array_var)) = (&access_type, &array)
+        && let Some(const_array) = const_arrays.get(array_var)
+    {
+        let index = simplified_index
+            .as_constant()
+            .expect("Const array access index should be constant")
+            .naive_eval()
+            .unwrap()
+            .to_usize();
+        assert!(
+            index < const_array.len(),
+            "Const array '{}' index {} out of bounds (length {})",
+            array_var,
+            index,
+            const_array.len()
+        );
+        res.push(SimpleLine::Assignment {
+            var: var.clone().into(),
+            operation: HighLevelOperation::Add,
+            arg0: SimpleExpr::Constant(ConstExpression::from(const_array[index])),
+            arg1: SimpleExpr::zero(),
+        });
+        return;
+    }
+
     if let SimpleExpr::Constant(offset) = simplified_index.clone()
         && let SimpleExpr::Var(array_var) = &array
         && let Some(label) = const_malloc.map.get(array_var)

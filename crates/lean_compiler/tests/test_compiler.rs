@@ -1058,6 +1058,24 @@ fn intertwined_unrolled_loops_and_const_function_arguments() {
 }
 
 #[test]
+fn test_direct_const_arr_access() {
+    let program = r#"
+        const ARR = [10, 100];
+        fn main() {
+            a = ARR[0];
+            assert a == 10;
+            return;
+        }
+    "#;
+    compile_and_run(
+        &ProgramSource::Raw(program.to_string()),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
 fn test_const_fibonacci() {
     let program = r#"
     fn main() {
