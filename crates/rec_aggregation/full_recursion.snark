@@ -65,11 +65,15 @@ fn main() {
     all_offsets = malloc(100); // TODO proper size
     all_fs[0] = fs11;
     all_offsets[0] = powers_of_two(log_memory);
+    all_bus_statements_points = malloc(N_TABLES);
+    all_bus_statements_numerators_claims = malloc(N_TABLES);
+    all_bus_statements_denominators_claims = malloc(N_TABLES);
     for table_index in 0..N_TABLES unroll {
         log_n_rows = table_dims[table_index];
         n_rows = powers_of_two(log_n_rows);
         offset = all_offsets[table_index];
         inner_point = point_gkr + (N_VARS_FIRST_GKR - log_n_rows) * DIM;
+        inner_inner_point = inner_point + DIM * UNIVARIATE_SKIPS;
         
         prefix = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr);
         poly_eq_missing_inner_point = poly_eq_extension(inner_point, UNIVARIATE_SKIPS);
@@ -89,13 +93,25 @@ fn main() {
         gamma = fs_sample_ef(fs_a2);
         fs_a3 = duplexing(fs_a2);
 
+        bus_point = malloc((log_n_rows - UNIVARIATE_SKIPS + 1) * DIM);
+        copy_5(gamma, bus_point);
+        copy_many_ef(inner_inner_point, bus_point + DIM, log_n_rows - UNIVARIATE_SKIPS);
+        all_bus_statements_points[table_index] = bus_point;
+
         unvariate_selectors_evals = eval_all_univariate_selectors(gamma);
 
         univariate_value_on_selectors = malloc(DIM);
         dot_product(evals_on_selector, unvariate_selectors_evals, univariate_value_on_selectors, 2**UNIVARIATE_SKIPS, EE);
-        print_ef(univariate_value_on_selectors);
+        all_bus_statements_numerators_claims[table_index] = univariate_value_on_selectors;
+
+        univariate_value_on_data = malloc(DIM);
+        dot_product(evals_on_data, unvariate_selectors_evals, univariate_value_on_data, 2**UNIVARIATE_SKIPS, EE);
+        all_bus_statements_denominators_claims[table_index] = univariate_value_on_data;
+
+       inner_offsets = 
 
         all_fs[table_index + 1] = fs_a3; // TODO
+        all_offsets[table_index + 1] = 0; // TODO
 
         return;
     }

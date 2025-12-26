@@ -479,6 +479,13 @@ fn copy_16(a, b) inline {
     return;
 }
 
+fn copy_many_ef(a, b, n) {
+    for i in 0..n {
+        dot_product(a + i*DIM, pointer_to_one_vector, b + i*DIM, 1, EE);
+    }
+    return;
+}
+
 fn set_to_one(a) inline {
     a[0] = 1;
     for i in 1..DIM unroll { a[i] = 0; }
