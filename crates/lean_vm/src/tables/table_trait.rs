@@ -1,8 +1,4 @@
-use crate::{
-    COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C, COL_INDEX_MEM_VALUE_A,
-    COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC, DIMENSION, EF, F, InstructionContext, RunnerError,
-    Table,
-};
+use crate::{DIMENSION, EF, F, InstructionContext, N_COMMITTED_EXEC_COLUMNS, RunnerError, Table};
 use multilinear_toolkit::prelude::*;
 
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
@@ -165,25 +161,21 @@ pub trait TableT: Air {
     fn is_execution_table(&self) -> bool {
         false
     }
-    fn commited_columns_f(&self) -> Vec<ColIndex> {
+
+    fn n_commited_columns_f(&self) -> usize {
         if self.is_execution_table() {
-            vec![
-                COL_INDEX_PC,
-                COL_INDEX_FP,
-                COL_INDEX_MEM_ADDRESS_A,
-                COL_INDEX_MEM_ADDRESS_B,
-                COL_INDEX_MEM_ADDRESS_C,
-                COL_INDEX_MEM_VALUE_A,
-                COL_INDEX_MEM_VALUE_B,
-                COL_INDEX_MEM_VALUE_C,
-            ]
+            N_COMMITTED_EXEC_COLUMNS
         } else {
-            (0..self.n_columns_f_air()).collect()
+            self.n_columns_f_air()
         }
     }
 
+    fn n_commited_columns_ef(&self) -> usize {
+        self.n_columns_ef_air()
+    }
+
     fn n_commited_columns(&self) -> usize {
-        self.commited_columns_f().len() + self.n_columns_ef_air() * DIMENSION
+        self.n_commited_columns_ef() * DIMENSION + self.n_commited_columns_f()
     }
 
     fn committed_statements_f(
@@ -194,14 +186,12 @@ pub trait TableT: Air {
     ) -> Vec<Vec<Evaluation<EF>>> {
         assert_eq!(air_values_f.len(), self.n_columns_f_air());
 
-        let mut statements = self
-            .commited_columns_f()
-            .iter()
-            .map(|&c| vec![Evaluation::new(air_point.clone(), air_values_f[c])])
+        let mut statements = (0..self.n_commited_columns_f())
+            .map(|c| vec![Evaluation::new(air_point.clone(), air_values_f[c])])
             .collect::<Vec<_>>();
 
         for (col_index, statements_f) in lookup_statements_f {
-            statements[self.find_committed_column_index_f(*col_index)].extend(statements_f.clone());
+            statements[*col_index].extend(statements_f.clone());
         }
 
         statements
@@ -289,8 +279,5 @@ pub trait TableT: Air {
             cols.push(&trace.ext[lookup.values][..]);
         }
         cols
-    }
-    fn find_committed_column_index_f(&self, col: ColIndex) -> usize {
-        self.commited_columns_f().iter().position(|&c| c == col).unwrap()
     }
 }

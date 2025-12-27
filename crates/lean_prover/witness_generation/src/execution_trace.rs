@@ -33,39 +33,39 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             let field_repr = field_representation(instruction);
 
             let mut addr_a = F::ZERO;
-            if field_repr[COL_INDEX_FLAG_A].is_zero() {
+            if field_repr[instr_idx(COL_INDEX_FLAG_A)].is_zero() {
                 // flag_a == 0
-                addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
+                addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_INDEX_OPERAND_A)]; // fp + operand_a
             }
             let value_a = memory.0[addr_a.to_usize()].unwrap();
             let mut addr_b = F::ZERO;
-            if field_repr[COL_INDEX_FLAG_B].is_zero() {
+            if field_repr[instr_idx(COL_INDEX_FLAG_B)].is_zero() {
                 // flag_b == 0
-                addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
+                addr_b = F::from_usize(fp) + field_repr[instr_idx(COL_INDEX_OPERAND_B)]; // fp + operand_b
             }
             let value_b = memory.0[addr_b.to_usize()].unwrap();
 
             let mut addr_c = F::ZERO;
-            if field_repr[COL_INDEX_FLAG_C].is_zero() {
+            if field_repr[instr_idx(COL_INDEX_FLAG_C)].is_zero() {
                 // flag_c == 0
-                addr_c = F::from_usize(fp) + field_repr[2]; // fp + operand_c
+                addr_c = F::from_usize(fp) + field_repr[instr_idx(COL_INDEX_OPERAND_C)]; // fp + operand_c
             } else if let Instruction::Deref { shift_1, .. } = instruction {
                 let operand_c = F::from_usize(*shift_1);
-                assert_eq!(field_repr[2], operand_c); // debug purpose
+                assert_eq!(field_repr[instr_idx(COL_INDEX_OPERAND_C)], operand_c); // debug purpose
                 addr_c = value_a + operand_c;
             }
             let value_c = memory.0[addr_c.to_usize()].unwrap();
 
             for (j, field) in field_repr.iter().enumerate() {
-                *trace_row[j] = *field;
+                *trace_row[j + N_COMMITTED_EXEC_COLUMNS] = *field;
             }
 
-            let nu_a = field_repr[COL_INDEX_FLAG_A] * field_repr[COL_INDEX_OPERAND_A]
-                + (F::ONE - field_repr[COL_INDEX_FLAG_A]) * value_a;
-            let nu_b = field_repr[COL_INDEX_FLAG_B] * field_repr[COL_INDEX_OPERAND_B]
-                + (F::ONE - field_repr[COL_INDEX_FLAG_B]) * value_b;
-            let nu_c =
-                field_repr[COL_INDEX_FLAG_C] * F::from_usize(fp) + (F::ONE - field_repr[COL_INDEX_FLAG_C]) * value_c;
+            let nu_a = field_repr[instr_idx(COL_INDEX_FLAG_A)] * field_repr[instr_idx(COL_INDEX_OPERAND_A)]
+                + (F::ONE - field_repr[instr_idx(COL_INDEX_FLAG_A)]) * value_a;
+            let nu_b = field_repr[instr_idx(COL_INDEX_FLAG_B)] * field_repr[instr_idx(COL_INDEX_OPERAND_B)]
+                + (F::ONE - field_repr[instr_idx(COL_INDEX_FLAG_B)]) * value_b;
+            let nu_c = field_repr[instr_idx(COL_INDEX_FLAG_C)] * F::from_usize(fp)
+                + (F::ONE - field_repr[instr_idx(COL_INDEX_FLAG_C)]) * value_c;
             *trace_row[COL_INDEX_EXEC_NU_A] = nu_a;
             *trace_row[COL_INDEX_EXEC_NU_B] = nu_b;
             *trace_row[COL_INDEX_EXEC_NU_C] = nu_c;

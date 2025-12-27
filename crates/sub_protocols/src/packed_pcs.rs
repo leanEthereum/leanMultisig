@@ -101,12 +101,12 @@ pub fn packed_pcs_commit(
     offset += acc.len();
     for (table, log_n_rows) in &tables_heights_sorted {
         let n_rows = 1 << *log_n_rows;
-        for col_index_f in table.commited_columns_f() {
+        for col_index_f in 0..table.n_commited_columns_f() {
             let col = &traces[table].base[col_index_f];
             packed_polynomial[offset..offset + n_rows].copy_from_slice(&col[..n_rows]);
             offset += n_rows;
         }
-        for col_index_ef in 0..table.n_columns_ef_air() {
+        for col_index_ef in 0..table.n_commited_columns_ef() {
             let col = &traces[table].ext[col_index_ef];
             let transposed = transpose_slice_to_basis_coefficients(col);
             for basis_col in transposed {

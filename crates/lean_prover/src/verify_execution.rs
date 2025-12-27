@@ -88,8 +88,10 @@ pub fn verify_execution(
 
     let bytecode_lookup_claim = Evaluation::new(
         air_points[&Table::execution()].clone(),
-        padd_with_zero_to_next_power_of_two(&evals_f[&Table::execution()][..N_INSTRUCTION_COLUMNS])
-            .evaluate(&bytecode_compression_challenges),
+        padd_with_zero_to_next_power_of_two(
+            &evals_f[&Table::execution()][N_COMMITTED_EXEC_COLUMNS..][..N_INSTRUCTION_COLUMNS],
+        )
+        .evaluate(&bytecode_compression_challenges),
     );
 
     let bytecode_pushforward_parsed_commitment =
@@ -146,9 +148,7 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(table_log_n_vars[&Table::execution()]);
 
-    commited_statements_f.get_mut(&Table::execution()).unwrap()
-        [ExecutionTable.find_committed_column_index_f(COL_INDEX_PC)]
-    .extend(vec![
+    commited_statements_f.get_mut(&Table::execution()).unwrap()[COL_INDEX_PC].extend(vec![
         bytecode_logup_star_statements.on_indexes.clone(),
         initial_pc_statement,
         final_pc_statement,

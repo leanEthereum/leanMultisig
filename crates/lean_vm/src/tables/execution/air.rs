@@ -2,35 +2,35 @@ use multilinear_toolkit::prelude::*;
 
 use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 
-pub const N_INSTRUCTION_COLUMNS: usize = 14;
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 8;
+pub const N_INSTRUCTION_COLUMNS: usize = 14;
 pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS;
 
-// Instruction columns
-pub const COL_INDEX_OPERAND_A: usize = 0;
-pub const COL_INDEX_OPERAND_B: usize = 1;
-pub const COL_INDEX_OPERAND_C: usize = 2;
-pub const COL_INDEX_FLAG_A: usize = 3;
-pub const COL_INDEX_FLAG_B: usize = 4;
-pub const COL_INDEX_FLAG_C: usize = 5;
-pub const COL_INDEX_ADD: usize = 6;
-pub const COL_INDEX_MUL: usize = 7;
-pub const COL_INDEX_DEREF: usize = 8;
-pub const COL_INDEX_JUMP: usize = 9;
-pub const COL_INDEX_AUX_1: usize = 10;
-pub const COL_INDEX_AUX_2: usize = 11;
-pub const COL_INDEX_IS_PRECOMPILE: usize = 12;
-pub const COL_INDEX_WHICH_PRECOMPILE: usize = 13;
+// Committed columns (IMPORTANT: they must be the first columns)
+pub const COL_INDEX_PC: usize = 0;
+pub const COL_INDEX_FP: usize = 1;
+pub const COL_INDEX_MEM_ADDRESS_A: usize = 2;
+pub const COL_INDEX_MEM_ADDRESS_B: usize = 3;
+pub const COL_INDEX_MEM_ADDRESS_C: usize = 4;
+pub const COL_INDEX_MEM_VALUE_A: usize = 5;
+pub const COL_INDEX_MEM_VALUE_B: usize = 6;
+pub const COL_INDEX_MEM_VALUE_C: usize = 7;
 
-// Execution columns
-pub const COL_INDEX_PC: usize = 14;
-pub const COL_INDEX_FP: usize = 15;
-pub const COL_INDEX_MEM_ADDRESS_A: usize = 16;
-pub const COL_INDEX_MEM_ADDRESS_B: usize = 17;
-pub const COL_INDEX_MEM_ADDRESS_C: usize = 18;
-pub const COL_INDEX_MEM_VALUE_A: usize = 19;
-pub const COL_INDEX_MEM_VALUE_B: usize = 20;
-pub const COL_INDEX_MEM_VALUE_C: usize = 21;
+// Decoded instruction columns (lookup into bytecode with logup*)
+pub const COL_INDEX_OPERAND_A: usize = 8;
+pub const COL_INDEX_OPERAND_B: usize = 9;
+pub const COL_INDEX_OPERAND_C: usize = 10;
+pub const COL_INDEX_FLAG_A: usize = 11;
+pub const COL_INDEX_FLAG_B: usize = 12;
+pub const COL_INDEX_FLAG_C: usize = 13;
+pub const COL_INDEX_ADD: usize = 14;
+pub const COL_INDEX_MUL: usize = 15;
+pub const COL_INDEX_DEREF: usize = 16;
+pub const COL_INDEX_JUMP: usize = 17;
+pub const COL_INDEX_AUX_1: usize = 18;
+pub const COL_INDEX_AUX_2: usize = 19;
+pub const COL_INDEX_IS_PRECOMPILE: usize = 20;
+pub const COL_INDEX_WHICH_PRECOMPILE: usize = 21;
 
 // Temporary columns (stored to avoid duplicate computations)
 pub const N_TEMPORARY_EXEC_COLUMNS: usize = 3;
@@ -141,4 +141,8 @@ impl Air for ExecutionTable {
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_pc.clone() - pc_plus_one.clone()));
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
+}
+
+pub const fn instr_idx(col_index_in_air: usize) -> usize {
+    col_index_in_air - N_COMMITTED_EXEC_COLUMNS
 }
