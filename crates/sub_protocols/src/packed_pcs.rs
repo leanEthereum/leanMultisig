@@ -1,5 +1,5 @@
 use lean_vm::sort_tables_by_height;
-use lean_vm::{DIMENSION, EF, F, Table, TableT, TableTrace};
+use lean_vm::{EF, F, Table, TableT, TableTrace};
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
@@ -20,14 +20,12 @@ pub fn packed_pcs_global_statements(
     tables_heights: &BTreeMap<Table, VarCount>,
     memory_statements: &[Evaluation<EF>],
     acc_statements: &[Evaluation<EF>],
-    statements_on_tables_f: &BTreeMap<Table, Vec<Vec<Evaluation<EF>>>>,
-    statements_on_tables_ef: &BTreeMap<Table, Vec<Vec<MultiEvaluation<EF>>>>,
+    commited_statements: &BTreeMap<Table, Vec<Vec<Evaluation<EF>>>>,
 ) -> Vec<Evaluation<EF>> {
     let memory_n_vars = memory_statements[0].point.len();
     assert!(memory_statements.iter().all(|s| s.point.len() == memory_n_vars));
     assert!(acc_statements.iter().all(|s| s.point.len() == memory_n_vars));
-    assert_eq!(tables_heights.len(), statements_on_tables_f.len());
-    assert_eq!(tables_heights.len(), statements_on_tables_ef.len());
+    assert_eq!(tables_heights.len(), commited_statements.len());
 
     let tables_heights_sorted = sort_tables_by_height(tables_heights);
 
@@ -55,24 +53,13 @@ pub fn packed_pcs_global_statements(
     }
 
     for (table, n_vars) in tables_heights_sorted {
-        for col_statements_f in &statements_on_tables_f[&table] {
+        for col_statements_f in &commited_statements[&table] {
             let selector = to_big_endian_in_field(offset >> n_vars, packed_n_vars - n_vars);
             for statement in col_statements_f {
                 let packed_point = MultilinearPoint([selector.clone(), statement.point.0.clone()].concat());
                 global_statements.push(Evaluation::new(packed_point, statement.value));
             }
             offset += 1 << n_vars;
-        }
-        for col_statements_ef in &statements_on_tables_ef[&table] {
-            for statement in col_statements_ef {
-                assert_eq!(statement.values.len(), DIMENSION);
-                for (i, value) in statement.values.iter().enumerate() {
-                    let selector = to_big_endian_in_field((offset + (i << n_vars)) >> n_vars, packed_n_vars - n_vars);
-                    let packed_point = MultilinearPoint([selector.clone(), statement.point.0.clone()].concat());
-                    global_statements.push(Evaluation::new(packed_point, *value));
-                }
-            }
-            offset += DIMENSION << n_vars;
         }
     }
     global_statements

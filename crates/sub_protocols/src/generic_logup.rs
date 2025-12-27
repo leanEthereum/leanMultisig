@@ -28,8 +28,8 @@ pub struct GenericLogupStatements {
     pub on_acc: Evaluation<EF>,
     pub bus_numerators: BTreeMap<Table, Evaluation<EF>>,
     pub bus_denominators: BTreeMap<Table, Evaluation<EF>>,
-    pub columns_f: BTreeMap<Table, BTreeMap<ColIndex, Vec<Evaluation<EF>>>>,
-    pub columns_ef: BTreeMap<Table, BTreeMap<ColIndex, MultiEvaluation<EF>>>,
+    pub columns_points: BTreeMap<Table, MultilinearPoint<EF>>,
+    pub columns_values: BTreeMap<Table, BTreeMap<ColIndex, EF>>,
     // Used in recursion
     pub total_n_vars: usize,
 }
@@ -189,14 +189,15 @@ pub fn prove_generic_logup(
     // ... Rest of the tables:
     let mut bus_statements_numerators = BTreeMap::new();
     let mut bus_statements_denominators = BTreeMap::new();
-    let mut statements_columns_f = BTreeMap::new();
-    let mut statements_columns_ef = BTreeMap::new();
+    let mut columns_points = BTreeMap::new();
+    let mut columns_values = BTreeMap::new();
     let mut offset = memory.len();
     for (table, _) in &tables_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
+        columns_points.insert(*table, inner_point.clone());
 
         // I] Bus (data flow between tables)
 
@@ -237,66 +238,57 @@ pub fn prove_generic_logup(
 
         // II] Lookup into memory
 
-        let mut table_lookup_statements_f = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
-        let mut table_lookup_statements_ef = BTreeMap::<ColIndex, MultiEvaluation<EF>>::new();
+        let mut table_values = BTreeMap::<ColIndex, EF>::new();
         for lookup_f in table.lookups_f() {
             let index_eval = trace.base[lookup_f.index].evaluate(&inner_point);
             prover_state.add_extension_scalar(index_eval);
-            table_lookup_statements_f
-                .entry(lookup_f.index)
-                .or_default()
-                .push(Evaluation::new(inner_point.clone(), index_eval));
+            assert!(!table_values.contains_key(&lookup_f.index));
+            table_values.insert(lookup_f.index, index_eval);
 
             for col_index in &lookup_f.values {
                 let value_eval = trace.base[*col_index].evaluate(&inner_point);
                 prover_state.add_extension_scalar(value_eval);
-                table_lookup_statements_f
-                    .entry(*col_index)
-                    .or_default()
-                    .push(Evaluation::new(inner_point.clone(), value_eval));
+                assert!(!table_values.contains_key(col_index));
+                table_values.insert(*col_index, value_eval);
             }
         }
 
         for lookup_ef in table.lookups_ef() {
             let index_eval = trace.base[lookup_ef.index].evaluate(&inner_point);
             prover_state.add_extension_scalar(index_eval);
-            table_lookup_statements_f
-                .entry(lookup_ef.index)
-                .or_default()
-                .push(Evaluation::new(inner_point.clone(), index_eval));
+            assert_eq!(table_values.get(&lookup_ef.index).unwrap_or(&index_eval), &index_eval);
+            table_values.insert(lookup_ef.index, index_eval);
 
             let col_ef = &trace.ext[lookup_ef.values];
 
-            let mut transposed_col_ef_values = Vec::new();
-            for col in transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef) {
+            for (i, col) in transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef)
+                .iter()
+                .enumerate()
+            {
                 let value_eval = col.evaluate(&inner_point);
                 prover_state.add_extension_scalar(value_eval);
-                transposed_col_ef_values.push(value_eval);
+                let global_index = table.n_commited_columns_f() + lookup_ef.values * DIMENSION + i;
+                assert!(!table_values.contains_key(&global_index));
+                table_values.insert(global_index, value_eval);
             }
-            assert!(!table_lookup_statements_ef.contains_key(&lookup_ef.values));
-            table_lookup_statements_ef.insert(
-                lookup_ef.values,
-                MultiEvaluation::new(inner_point.clone(), transposed_col_ef_values),
-            );
         }
-        statements_columns_f.insert(*table, table_lookup_statements_f);
-        statements_columns_ef.insert(*table, table_lookup_statements_ef);
+        columns_points.insert(*table, inner_point);
+        columns_values.insert(*table, table_values);
 
         offset += offset_for_table(table, log_n_rows);
     }
 
     assert_eq!(bus_statements_numerators.len(), ALL_TABLES.len());
     assert_eq!(bus_statements_denominators.len(), ALL_TABLES.len());
-    assert_eq!(statements_columns_f.len(), ALL_TABLES.len());
-    assert_eq!(statements_columns_ef.len(), ALL_TABLES.len());
+    assert_eq!(columns_values.len(), ALL_TABLES.len());
 
     GenericLogupStatements {
         on_memory: statement_on_table,
         on_acc: statement_on_acc,
         bus_numerators: bus_statements_numerators,
         bus_denominators: bus_statements_denominators,
-        columns_f: statements_columns_f,
-        columns_ef: statements_columns_ef,
+        columns_points,
+        columns_values,
         total_n_vars,
     }
 }
@@ -349,14 +341,16 @@ pub fn verify_generic_logup(
     // ... Rest of the tables:
     let mut bus_statements_numerators = BTreeMap::new();
     let mut bus_statements_denominators = BTreeMap::new();
-    let mut statements_columns_f = BTreeMap::new();
-    let mut statements_columns_ef = BTreeMap::new();
+    let mut columns_points = BTreeMap::new();
+    let mut columns_values = BTreeMap::new();
     let mut offset = 1 << log_memory;
     for &(table, log_n_rows) in &tables_heights_sorted {
         let n_missing_vars = total_n_vars - log_n_rows;
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
         let missing_point = MultilinearPoint(claim_point_gkr[..n_missing_vars].to_vec());
         let missing_inner_point = MultilinearPoint(inner_point[..univariate_skips].to_vec());
+
+        columns_points.insert(table, inner_point.clone());
 
         // I] Bus (data flow between tables)
 
@@ -396,21 +390,16 @@ pub fn verify_generic_logup(
 
         // II] Lookup into memory
 
-        let mut table_lookup_statements_f = BTreeMap::<ColIndex, Vec<Evaluation<EF>>>::new();
-        let mut table_lookup_statements_ef = BTreeMap::<ColIndex, MultiEvaluation<EF>>::new();
+        let mut table_values = BTreeMap::<ColIndex, EF>::new();
         for lookup_f in table.lookups_f() {
             let index_eval = verifier_state.next_extension_scalar()?;
-            table_lookup_statements_f
-                .entry(lookup_f.index)
-                .or_default()
-                .push(Evaluation::new(inner_point.clone(), index_eval));
+            assert!(!table_values.contains_key(&lookup_f.index));
+            table_values.insert(lookup_f.index, index_eval);
 
             for (i, col_index) in lookup_f.values.iter().enumerate() {
                 let value_eval = verifier_state.next_extension_scalar()?;
-                table_lookup_statements_f
-                    .entry(*col_index)
-                    .or_default()
-                    .push(Evaluation::new(inner_point.clone(), value_eval));
+                assert!(!table_values.contains_key(col_index));
+                table_values.insert(*col_index, value_eval);
 
                 let pos = offset + (i << log_n_rows);
                 let bits = to_big_endian_in_field::<EF>(pos >> log_n_rows, n_missing_vars);
@@ -428,15 +417,11 @@ pub fn verify_generic_logup(
 
         for lookup_ef in table.lookups_ef() {
             let index_eval = verifier_state.next_extension_scalar()?;
-            table_lookup_statements_f
-                .entry(lookup_ef.index)
-                .or_default()
-                .push(Evaluation::new(inner_point.clone(), index_eval));
+            assert_eq!(table_values.get(&lookup_ef.index).unwrap_or(&index_eval), &index_eval);
+            table_values.insert(lookup_ef.index, index_eval);
 
-            let mut transposed_col_ef_values = vec![];
             for i in 0..DIMENSION {
                 let value_eval = verifier_state.next_extension_scalar()?;
-                transposed_col_ef_values.push(value_eval);
 
                 let pos = offset + (i << log_n_rows);
                 let bits = to_big_endian_in_field::<EF>(pos >> log_n_rows, n_missing_vars);
@@ -448,15 +433,13 @@ pub fn verify_generic_logup(
                         &[index_eval + F::from_usize(i), value_eval],
                         &alpha_powers,
                     ));
+                let global_index = table.n_commited_columns_f() + lookup_ef.values * DIMENSION + i;
+                assert!(!table_values.contains_key(&global_index));
+                table_values.insert(global_index, value_eval);
             }
-            table_lookup_statements_ef.insert(
-                lookup_ef.values,
-                MultiEvaluation::new(inner_point.clone(), transposed_col_ef_values),
-            );
             offset += DIMENSION << log_n_rows;
         }
-        statements_columns_f.insert(table, table_lookup_statements_f);
-        statements_columns_ef.insert(table, table_lookup_statements_ef);
+        columns_values.insert(table, table_values);
     }
 
     retrieved_denominators_value += mle_of_zeros_then_ones(offset, &claim_point_gkr); // to compensate for the final padding: XYZ111111...1
@@ -472,8 +455,8 @@ pub fn verify_generic_logup(
         on_acc: statement_on_acc,
         bus_numerators: bus_statements_numerators,
         bus_denominators: bus_statements_denominators,
-        columns_f: statements_columns_f,
-        columns_ef: statements_columns_ef,
+        columns_points,
+        columns_values,
         total_n_vars,
     })
 }

@@ -104,9 +104,9 @@ pub fn prove_execution(
         UNIVARIATE_SKIPS,
     );
 
-    let (mut air_points, mut evals_f, mut evals_ef) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+    let (mut air_points, mut air_evals) = (BTreeMap::new(), BTreeMap::new());
     for (table, trace) in traces.iter() {
-        let (this_air_point, this_evals_f, this_evals_ef) = prove_bus_and_air(
+        let (this_air_point, this_air_evals) = prove_bus_and_air(
             &mut prover_state,
             table,
             trace,
@@ -116,8 +116,7 @@ pub fn prove_execution(
             &logup_statements.bus_denominators[table],
         );
         air_points.insert(*table, this_air_point);
-        evals_f.insert(*table, this_evals_f);
-        evals_ef.insert(*table, this_evals_ef);
+        air_evals.insert(*table, this_air_evals);
     }
 
     let bytecode_compression_challenges =
@@ -128,7 +127,7 @@ pub fn prove_execution(
     let bytecode_lookup_claim = Evaluation::new(
         air_points[&Table::execution()].clone(),
         padd_with_zero_to_next_power_of_two(
-            &evals_f[&Table::execution()][N_COMMITTED_EXEC_COLUMNS..][..N_INSTRUCTION_COLUMNS],
+            &air_evals[&Table::execution()][N_COMMITTED_EXEC_COLUMNS..][..N_INSTRUCTION_COLUMNS],
         )
         .evaluate(&bytecode_compression_challenges),
     );
@@ -155,6 +154,7 @@ pub fn prove_execution(
 
     let mut public_memory_random_point =
         MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
+    prover_state.duplexing();
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
     public_memory_random_point
         .0
@@ -164,24 +164,15 @@ pub fn prove_execution(
     let memory_statements = vec![logup_statements.on_memory, public_memory_statement];
     let acc_statements = vec![logup_statements.on_acc];
 
-    let mut commited_statements_f: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
+    let mut commited_statements: BTreeMap<Table, Vec<Vec<Evaluation<EF>>>> = Default::default();
     for table in traces.keys() {
-        commited_statements_f.insert(
+        commited_statements.insert(
             *table,
-            table.committed_statements_f(&air_points[table], &evals_f[table], &logup_statements.columns_f[table]),
-        );
-    }
-
-    let mut commited_statements_ef: BTreeMap<Table, Vec<Vec<MultiEvaluation<EF>>>> = Default::default();
-    for table in traces.keys() {
-        commited_statements_ef.insert(
-            *table,
-            table.committed_statements_prover_ef(
-                &mut prover_state,
+            table.committed_statements(
                 &air_points[table],
-                &evals_ef[table],
-                &traces[table],
-                &logup_statements.columns_ef[table],
+                &air_evals[table],
+                &logup_statements.columns_points[table],
+                &logup_statements.columns_values[table],
             ),
         );
     }
@@ -189,7 +180,7 @@ pub fn prove_execution(
     let (initial_pc_statement, final_pc_statement) =
         initial_and_final_pc_conditions(traces[&Table::execution()].log_n_rows);
 
-    commited_statements_f.get_mut(&Table::execution()).unwrap()[COL_INDEX_PC].extend(vec![
+    commited_statements.get_mut(&Table::execution()).unwrap()[COL_INDEX_PC].extend(vec![
         bytecode_logup_star_statements.on_indexes.clone(),
         initial_pc_statement,
         final_pc_statement,
@@ -201,8 +192,7 @@ pub fn prove_execution(
         &table_heights,
         &memory_statements,
         &acc_statements,
-        &commited_statements_f,
-        &commited_statements_ef,
+        &commited_statements,
     );
 
     WhirConfig::new(
@@ -239,7 +229,7 @@ fn prove_bus_and_air(
     logup_alpha: EF,
     bus_numerator_statement: &Evaluation<EF>,
     bus_denominator_statement: &Evaluation<EF>,
-) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
+) -> (MultilinearPoint<EF>, Vec<EF>) {
     let bus_point = bus_numerator_statement.point.clone();
     assert_eq!(bus_point, bus_denominator_statement.point,);
 
@@ -263,7 +253,7 @@ fn prove_bus_and_air(
         alpha_powers: vec![], // filled later
     };
 
-    let (air_point, evals_f, evals_ef) = info_span!("AIR proof", table = table.name()).in_scope(|| {
+    let (air_point, mut evals_f, evals_ef) = info_span!("AIR proof", table = table.name()).in_scope(|| {
         macro_rules! prove_air_for_table {
             ($t:expr) => {
                 prove_air(
@@ -283,5 +273,19 @@ fn prove_bus_and_air(
         delegate_to_inner!(table => prove_air_for_table)
     });
 
-    (air_point, evals_f, evals_ef)
+    assert_eq!(evals_f.len(), table.n_columns_f_air());
+    assert_eq!(evals_ef.len(), table.n_columns_ef_air());
+    for (value, col) in evals_ef.into_iter().zip(&trace.ext) {
+        let transposed = transpose_slice_to_basis_coefficients::<F, EF>(col)
+            .iter()
+            .map(|base_col| base_col.evaluate(&air_point))
+            .collect::<Vec<_>>();
+        prover_state.add_extension_scalars(&transposed);
+        if dot_product_with_base(&transposed) != value {
+            panic!(); // sanity check
+        }
+        evals_f.extend(transposed);
+    }
+
+    (air_point, evals_f)
 }

@@ -2,7 +2,7 @@ use crate::{DIMENSION, EF, F, InstructionContext, N_COMMITTED_EXEC_COLUMNS, Runn
 use multilinear_toolkit::prelude::*;
 
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
-use utils::{VarCount, dot_product_with_base, transpose_slice_to_basis_coefficients};
+use utils::VarCount;
 
 // Zero padding will be added to each at least, if this minimum is not reached
 // (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)
@@ -178,82 +178,29 @@ pub trait TableT: Air {
         self.n_commited_columns_ef() * DIMENSION + self.n_commited_columns_f()
     }
 
-    fn committed_statements_f(
+    fn committed_statements(
         &self,
         air_point: &MultilinearPoint<EF>,
-        air_values_f: &[EF],
-        lookup_statements_f: &BTreeMap<ColIndex, Vec<Evaluation<EF>>>,
+        air_evals: &[EF],
+        logup_point: &MultilinearPoint<EF>,
+        logup_values: &BTreeMap<ColIndex, EF>,
     ) -> Vec<Vec<Evaluation<EF>>> {
-        assert_eq!(air_values_f.len(), self.n_columns_f_air());
+        assert_eq!(
+            air_evals.len(),
+            self.n_columns_f_air() + self.n_columns_ef_air() * DIMENSION
+        );
 
         let mut statements = (0..self.n_commited_columns_f())
-            .map(|c| vec![Evaluation::new(air_point.clone(), air_values_f[c])])
+            .chain(self.n_columns_f_air()..self.n_columns_f_air() + DIMENSION * self.n_commited_columns_ef())
+            .map(|c| vec![Evaluation::new(air_point.clone(), air_evals[c])])
             .collect::<Vec<_>>();
-
-        for (col_index, statements_f) in lookup_statements_f {
-            statements[*col_index].extend(statements_f.clone());
+        for (col_index, value) in logup_values {
+            statements[*col_index].push(Evaluation::new(logup_point.clone(), *value));
         }
 
         statements
     }
 
-    fn committed_statements_prover_ef(
-        &self,
-        prover_state: &mut impl FSProver<EF>,
-        air_point: &MultilinearPoint<EF>,
-        air_values_ef: &[EF],
-        trace: &TableTrace,
-        lookup_statements_ef: &BTreeMap<ColIndex, MultiEvaluation<EF>>,
-    ) -> Vec<Vec<MultiEvaluation<EF>>> {
-        assert_eq!(lookup_statements_ef.len(), self.lookups_ef().len());
-
-        let mut statements = vec![];
-
-        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
-        assert_eq!(trace.ext.len(), self.n_columns_ef_total());
-        for (&value, col) in air_values_ef.iter().zip(&trace.ext) {
-            let transposed = transpose_slice_to_basis_coefficients::<F, EF>(col)
-                .iter()
-                .map(|base_col| base_col.evaluate(air_point))
-                .collect::<Vec<_>>();
-            prover_state.add_extension_scalars(&transposed);
-            if dot_product_with_base(&transposed) != value {
-                panic!(); // sanity check
-            }
-            statements.push(vec![MultiEvaluation::new(air_point.clone(), transposed)]);
-        }
-        for (col_index, statements_ef) in lookup_statements_ef {
-            statements[*col_index].push(statements_ef.clone());
-        }
-
-        statements
-    }
-
-    fn committed_statements_verifier_ef(
-        &self,
-        verifier_state: &mut impl FSVerifier<EF>,
-        air_point: &MultilinearPoint<EF>,
-        air_values_ef: &[EF],
-        lookup_statements_ef: &BTreeMap<ColIndex, MultiEvaluation<EF>>,
-    ) -> ProofResult<Vec<Vec<MultiEvaluation<EF>>>> {
-        assert_eq!(lookup_statements_ef.len(), self.lookups_ef().len());
-
-        let mut statements = vec![];
-
-        assert_eq!(air_values_ef.len(), self.n_columns_ef_air());
-        for &value in air_values_ef {
-            let transposed = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-            if dot_product_with_base(&transposed) != value {
-                return Err(ProofError::InvalidProof);
-            }
-            statements.push(vec![MultiEvaluation::new(air_point.clone(), transposed)]);
-        }
-        for (col_index, statements_ef) in lookup_statements_ef {
-            statements[*col_index].push(statements_ef.clone());
-        }
-
-        Ok(statements)
-    }
     fn lookup_index_columns_f<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
         self.lookups_f()
             .iter()
