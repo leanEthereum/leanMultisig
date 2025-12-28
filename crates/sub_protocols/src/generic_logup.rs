@@ -1,5 +1,4 @@
 use crate::{prove_gkr_quotient, verify_gkr_quotient};
-use lean_vm::ALL_TABLES;
 use lean_vm::BusDirection;
 use lean_vm::BusTable;
 use lean_vm::ColIndex;
@@ -24,10 +23,12 @@ use utils::transpose_slice_to_basis_coefficients;
 
 #[derive(Debug, PartialEq, Hash, Clone)]
 pub struct GenericLogupStatements {
-    pub on_memory: Evaluation<EF>,
-    pub on_acc: Evaluation<EF>,
-    pub bus_numerators: BTreeMap<Table, Evaluation<EF>>,
-    pub bus_denominators: BTreeMap<Table, Evaluation<EF>>,
+    pub memory_acc_point: MultilinearPoint<EF>,
+    pub value_memory: EF,
+    pub value_acc: EF,
+    pub bus_points: BTreeMap<Table, MultilinearPoint<EF>>,
+    pub bus_numerators_values: BTreeMap<Table, EF>,
+    pub bus_denominators_values: BTreeMap<Table, EF>,
     pub columns_points: BTreeMap<Table, MultilinearPoint<EF>>,
     pub columns_values: BTreeMap<Table, BTreeMap<ColIndex, EF>>,
     // Used in recursion
@@ -177,18 +178,17 @@ pub fn prove_generic_logup(
     assert_eq!(sum, EF::ZERO);
 
     // Memory: ...
-    let inner_point_mem = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
-    let value_acc = acc.evaluate(&inner_point_mem);
+    let memory_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
+    let value_acc = acc.evaluate(&memory_acc_point);
     prover_state.add_extension_scalar(value_acc);
-    let statement_on_acc = Evaluation::new(inner_point_mem.clone(), value_acc);
 
-    let value_table = memory.evaluate(&inner_point_mem);
-    prover_state.add_extension_scalar(value_table);
-    let statement_on_table = Evaluation::new(inner_point_mem, value_table);
+    let value_memory = memory.evaluate(&memory_acc_point);
+    prover_state.add_extension_scalar(value_memory);
 
     // ... Rest of the tables:
-    let mut bus_statements_numerators = BTreeMap::new();
-    let mut bus_statements_denominators = BTreeMap::new();
+    let mut bus_points = BTreeMap::new();
+    let mut bus_numerators_values = BTreeMap::new();
+    let mut bus_denominators_values = BTreeMap::new();
     let mut columns_points = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
     let mut offset = memory.len();
@@ -222,18 +222,21 @@ pub fn prove_generic_logup(
             .map(|p| p.evaluate(gamma))
             .collect::<Vec<EF>>();
 
-        bus_statements_numerators.insert(
+        bus_points.insert(*table, {
+            let mut point = inner_inner_point.clone();
+            point.insert(0, gamma);
+            point
+        });
+        bus_numerators_values.insert(
             *table,
-            combine_inner_bus_statements(
-                &inner_inner_point,
-                &evals_on_selector,
-                gamma,
-                &unvariate_selectors_evals,
+            dot_product(
+                unvariate_selectors_evals.iter().copied(),
+                evals_on_selector.iter().copied(),
             ),
         );
-        bus_statements_denominators.insert(
+        bus_denominators_values.insert(
             *table,
-            combine_inner_bus_statements(&inner_inner_point, &eval_on_data, gamma, &unvariate_selectors_evals),
+            dot_product(unvariate_selectors_evals.iter().copied(), eval_on_data.iter().copied()),
         );
 
         // II] Lookup into memory
@@ -278,15 +281,13 @@ pub fn prove_generic_logup(
         offset += offset_for_table(table, log_n_rows);
     }
 
-    assert_eq!(bus_statements_numerators.len(), ALL_TABLES.len());
-    assert_eq!(bus_statements_denominators.len(), ALL_TABLES.len());
-    assert_eq!(columns_values.len(), ALL_TABLES.len());
-
     GenericLogupStatements {
-        on_memory: statement_on_table,
-        on_acc: statement_on_acc,
-        bus_numerators: bus_statements_numerators,
-        bus_denominators: bus_statements_denominators,
+        memory_acc_point,
+        value_memory,
+        value_acc,
+        bus_points,
+        bus_numerators_values,
+        bus_denominators_values,
         columns_points,
         columns_values,
         total_n_vars,
@@ -319,18 +320,16 @@ pub fn verify_generic_logup(
     let mut retrieved_denominators_value = EF::ZERO;
 
     // Memory ...
-    let inner_point_memory = MultilinearPoint(from_end(&claim_point_gkr, log_memory).to_vec());
+    let memory_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log_memory).to_vec());
     let bits = to_big_endian_in_field::<EF>(0, total_n_vars - log_memory);
     let pref = MultilinearPoint(bits)
         .eq_poly_outside(&MultilinearPoint(claim_point_gkr[..total_n_vars - log_memory].to_vec()));
 
     let value_acc = verifier_state.next_extension_scalar()?;
-    let statement_on_acc = Evaluation::new(inner_point_memory.clone(), value_acc);
     retrieved_numerators_value -= pref * value_acc;
 
     let value_memory = verifier_state.next_extension_scalar()?;
-    let value_index = mle_of_01234567_etc(&inner_point_memory);
-    let statement_on_memory = Evaluation::new(inner_point_memory.clone(), value_memory);
+    let value_index = mle_of_01234567_etc(&memory_acc_point);
     retrieved_denominators_value += pref
         * (c - finger_print(
             F::from_usize(MEMORY_TABLE_INDEX),
@@ -339,8 +338,9 @@ pub fn verify_generic_logup(
         ));
 
     // ... Rest of the tables:
-    let mut bus_statements_numerators = BTreeMap::new();
-    let mut bus_statements_denominators = BTreeMap::new();
+    let mut bus_points = BTreeMap::new();
+    let mut bus_numerators_values = BTreeMap::new();
+    let mut bus_denominators_values = BTreeMap::new();
     let mut columns_points = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
     let mut offset = 1 << log_memory;
@@ -372,18 +372,21 @@ pub fn verify_generic_logup(
             .map(|p| p.evaluate(gamma))
             .collect::<Vec<EF>>();
 
-        bus_statements_numerators.insert(
+        bus_points.insert(table, {
+            let mut point = inner_inner_point.clone();
+            point.insert(0, gamma);
+            point
+        });
+        bus_numerators_values.insert(
             table,
-            combine_inner_bus_statements(
-                &inner_inner_point,
-                &evals_on_selector,
-                gamma,
-                &unvariate_selectors_evals,
+            dot_product(
+                unvariate_selectors_evals.iter().copied(),
+                evals_on_selector.iter().copied(),
             ),
         );
-        bus_statements_denominators.insert(
+        bus_denominators_values.insert(
             table,
-            combine_inner_bus_statements(&inner_inner_point, &eval_on_data, gamma, &unvariate_selectors_evals),
+            dot_product(unvariate_selectors_evals.iter().copied(), eval_on_data.iter().copied()),
         );
 
         offset += 1 << log_n_rows;
@@ -451,27 +454,16 @@ pub fn verify_generic_logup(
     }
 
     Ok(GenericLogupStatements {
-        on_memory: statement_on_memory,
-        on_acc: statement_on_acc,
-        bus_numerators: bus_statements_numerators,
-        bus_denominators: bus_statements_denominators,
+        memory_acc_point,
+        value_memory,
+        value_acc,
+        bus_points,
+        bus_numerators_values,
+        bus_denominators_values,
         columns_points,
         columns_values,
         total_n_vars,
     })
-}
-
-fn combine_inner_bus_statements<EF: ExtensionField<PF<EF>>>(
-    point: &MultilinearPoint<EF>,
-    inner_evals: &[EF],
-    gamma: EF,
-    unvariate_selectors_evals: &[EF],
-) -> Evaluation<EF> {
-    assert_eq!(inner_evals.len(), unvariate_selectors_evals.len());
-    let mut new_point = point.clone();
-    new_point.insert(0, gamma);
-    let new_value = dot_product(unvariate_selectors_evals.iter().copied(), inner_evals.iter().copied());
-    Evaluation::new(new_point, new_value)
 }
 
 fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {

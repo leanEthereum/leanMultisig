@@ -15,6 +15,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use utils::build_prover_state;
 use utils::get_poseidon16;
+use whir_p3::SparseStatement;
 use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, tracing: bool, vm_profiler: bool) {
@@ -43,7 +44,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
 
     let mut statement = Vec::new();
     let eval = polynomial.evaluate(&point);
-    statement.push(Evaluation::new(point.clone(), eval));
+    statement.push(SparseStatement::dense(point.clone(), eval));
 
     let mut prover_state = build_prover_state();
 

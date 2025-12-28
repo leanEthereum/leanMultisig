@@ -12,6 +12,8 @@ pub const MAX_LOG_N_ROWS_PER_TABLE: usize = 30; // To avoid overflow in logup (T
 
 pub type ColIndex = usize;
 
+pub type CommittedStatements = BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>)>>;
+
 #[derive(Debug)]
 pub struct LookupIntoMemory {
     pub index: ColIndex, // should be in base field columns
@@ -178,27 +180,15 @@ pub trait TableT: Air {
         self.n_commited_columns_ef() * DIMENSION + self.n_commited_columns_f()
     }
 
-    fn committed_statements(
-        &self,
-        air_point: &MultilinearPoint<EF>,
-        air_evals: &[EF],
-        logup_point: &MultilinearPoint<EF>,
-        logup_values: &BTreeMap<ColIndex, EF>,
-    ) -> Vec<Vec<Evaluation<EF>>> {
-        assert_eq!(
-            air_evals.len(),
-            self.n_columns_f_air() + self.n_columns_ef_air() * DIMENSION
-        );
-
-        let mut statements = (0..self.n_commited_columns_f())
-            .chain(self.n_columns_f_air()..self.n_columns_f_air() + DIMENSION * self.n_commited_columns_ef())
-            .map(|c| vec![Evaluation::new(air_point.clone(), air_evals[c])])
-            .collect::<Vec<_>>();
-        for (col_index, value) in logup_values {
-            statements[*col_index].push(Evaluation::new(logup_point.clone(), *value));
-        }
-
-        statements
+    fn commited_air_values(&self, air_evals: &[EF]) -> BTreeMap<ColIndex, EF> {
+        // the intermidiate columns are not commited
+        // (they correspond to decoded instructions, in execution table, obtained via logup* into the bytecode)
+        air_evals
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(i, _)| *i < self.n_commited_columns_f() || *i >= self.n_columns_f_air())
+            .collect::<BTreeMap<ColIndex, EF>>()
     }
 
     fn lookup_index_columns_f<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {

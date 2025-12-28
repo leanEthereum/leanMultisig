@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "air"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#9c136136e8abbd22db8c54b589e59c68c7c4d180"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#efd9931f3535101515065913da357b55f7e683ce"
 dependencies = [
  "p3-field",
 ]
@@ -99,14 +99,13 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#9c136136e8abbd22db8c54b589e59c68c7c4d180"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#efd9931f3535101515065913da357b55f7e683ce"
 dependencies = [
  "itertools",
  "p3-field",
  "p3-util",
  "rand",
  "rayon",
- "tracing",
 ]
 
 [[package]]
@@ -191,7 +190,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#9c136136e8abbd22db8c54b589e59c68c7c4d180"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#efd9931f3535101515065913da357b55f7e683ce"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -471,7 +470,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#9c136136e8abbd22db8c54b589e59c68c7c4d180"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#efd9931f3535101515065913da357b55f7e683ce"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1082,7 +1081,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#9c136136e8abbd22db8c54b589e59c68c7c4d180"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#efd9931f3535101515065913da357b55f7e683ce"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1322,7 +1321,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#9ebb172a67ae51ac9fbb299f77743f6776687ca8"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#e6c7994737029cfaf84c6cce0b2c8f3e1bf09a39"
 dependencies = [
  "itertools",
  "multilinear-toolkit",

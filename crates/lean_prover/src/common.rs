@@ -13,12 +13,6 @@ pub(crate) fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &Multilinea
     fold_multilinear_chunks(&encoded_bytecode, folding_challenges)
 }
 
-pub(crate) fn initial_and_final_pc_conditions(log_n_cycles: usize) -> (Evaluation<EF>, Evaluation<EF>) {
-    let initial_pc_statement = Evaluation::new(EF::zero_vec(log_n_cycles), EF::from_usize(STARTING_PC));
-    let final_pc_statement = Evaluation::new(vec![EF::ONE; log_n_cycles], EF::from_usize(ENDING_PC));
-    (initial_pc_statement, final_pc_statement)
-}
-
 fn split_at(stmt: &MultiEvaluation<EF>, start: usize, end: usize) -> Vec<MultiEvaluation<EF>> {
     vec![MultiEvaluation::new(
         stmt.point.clone(),

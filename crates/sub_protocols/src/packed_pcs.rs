@@ -1,10 +1,10 @@
-use lean_vm::sort_tables_by_height;
+use lean_vm::{COL_INDEX_PC, CommittedStatements, ENDING_PC, STARTING_PC, sort_tables_by_height};
 use lean_vm::{EF, F, Table, TableT, TableTrace};
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use tracing::instrument;
-use utils::{VarCount, to_big_endian_in_field, transpose_slice_to_basis_coefficients};
+use utils::{VarCount, transpose_slice_to_basis_coefficients};
 use whir_p3::*;
 
 #[derive(Debug)]
@@ -17,50 +17,43 @@ pub struct MultiCommitmentWitness {
 #[instrument(skip_all)]
 pub fn packed_pcs_global_statements(
     packed_n_vars: usize,
+    memory_n_vars: usize,
+    memory_acc_statements: Vec<SparseStatement<EF>>,
     tables_heights: &BTreeMap<Table, VarCount>,
-    memory_statements: &[Evaluation<EF>],
-    acc_statements: &[Evaluation<EF>],
-    commited_statements: &BTreeMap<Table, Vec<Vec<Evaluation<EF>>>>,
-) -> Vec<Evaluation<EF>> {
-    let memory_n_vars = memory_statements[0].point.len();
-    assert!(memory_statements.iter().all(|s| s.point.len() == memory_n_vars));
-    assert!(acc_statements.iter().all(|s| s.point.len() == memory_n_vars));
-    assert_eq!(tables_heights.len(), commited_statements.len());
+    committed_statements: &CommittedStatements,
+) -> Vec<SparseStatement<EF>> {
+    assert_eq!(tables_heights.len(), committed_statements.len());
 
     let tables_heights_sorted = sort_tables_by_height(tables_heights);
 
-    let mut global_statements = Vec::new();
-    let mut offset = 0;
-
-    {
-        // memory
-        let selector = to_big_endian_in_field(offset >> memory_n_vars, packed_n_vars - memory_n_vars);
-        for statement in memory_statements {
-            let packed_point = MultilinearPoint([selector.clone(), statement.point.0.clone()].concat());
-            global_statements.push(Evaluation::new(packed_point, statement.value));
-        }
-        offset += 1 << memory_n_vars;
-    }
-
-    {
-        // accumulator
-        let selector = to_big_endian_in_field(offset >> memory_n_vars, packed_n_vars - memory_n_vars);
-        for statement in acc_statements {
-            let packed_point = MultilinearPoint([selector.clone(), statement.point.0.clone()].concat());
-            global_statements.push(Evaluation::new(packed_point, statement.value));
-        }
-        offset += 1 << memory_n_vars;
-    }
+    let mut global_statements = memory_acc_statements;
+    let mut offset = 2 << memory_n_vars;
 
     for (table, n_vars) in tables_heights_sorted {
-        for col_statements_f in &commited_statements[&table] {
-            let selector = to_big_endian_in_field(offset >> n_vars, packed_n_vars - n_vars);
-            for statement in col_statements_f {
-                let packed_point = MultilinearPoint([selector.clone(), statement.point.0.clone()].concat());
-                global_statements.push(Evaluation::new(packed_point, statement.value));
-            }
-            offset += 1 << n_vars;
+        if table.is_execution_table() {
+            // Important: ensure both initial and final PC conditions are correct
+            global_statements.push(SparseStatement::unique_value(
+                packed_n_vars,
+                offset + (COL_INDEX_PC << n_vars),
+                EF::from_usize(STARTING_PC),
+            ));
+            global_statements.push(SparseStatement::unique_value(
+                packed_n_vars,
+                offset + ((COL_INDEX_PC + 1) << n_vars) - 1,
+                EF::from_usize(ENDING_PC),
+            ));
         }
+        for (point, col_statements) in &committed_statements[&table] {
+            global_statements.push(SparseStatement::new(
+                packed_n_vars,
+                point.clone(),
+                col_statements
+                    .iter()
+                    .map(|(&col_index, &value)| SparseValue::new((offset >> n_vars) + col_index, value))
+                    .collect(),
+            ));
+        }
+        offset += table.n_commited_columns() << n_vars;
     }
     global_statements
 }

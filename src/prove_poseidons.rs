@@ -10,7 +10,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     build_prover_state, build_verifier_state, collect_refs, init_tracing, padd_with_zero_to_next_power_of_two,
 };
-use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder};
+use whir_p3::{FoldingFactor, SecurityAssumption, SparseStatement, WhirConfig, WhirConfigBuilder};
 
 const WIDTH: usize = 16;
 const UNIVARIATE_SKIPS: usize = 3;
@@ -98,7 +98,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
 
         whir_config.prove(
             &mut prover_state,
-            vec![Evaluation::new(packed_point, packed_eval)],
+            vec![SparseStatement::dense(packed_point, packed_eval)],
             witness,
             &committed_pol.by_ref(),
         );
@@ -135,7 +135,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             .verify(
                 &mut verifier_state,
                 &parsed_commitment,
-                vec![Evaluation::new(packed_point, packed_eval)],
+                vec![SparseStatement::dense(packed_point, packed_eval)],
             )
             .unwrap();
     }
