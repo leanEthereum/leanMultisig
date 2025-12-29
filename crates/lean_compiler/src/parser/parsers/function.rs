@@ -252,15 +252,13 @@ impl FunctionCallParser {
                 if let Some(hint) = CustomHint::find_by_name(&function_name) {
                     if !return_data.is_empty() {
                         return Err(SemanticError::new(format!(
-                            "Custom hint: \"{}\" should not return values",
-                            function_name
+                            "Custom hint: \"{function_name}\" should not return values",
                         ))
                         .into());
                     }
                     if !hint.n_args_range().contains(&args.len()) {
                         return Err(SemanticError::new(format!(
-                            "Custom hint: \"{}\" : invalid number of arguments",
-                            function_name
+                            "Custom hint: \"{function_name}\" : invalid number of arguments",
                         ))
                         .into());
                     }

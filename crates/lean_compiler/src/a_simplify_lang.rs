@@ -356,12 +356,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
     for line in block.iter() {
         match line {
             Line::ForwardDeclaration { var } => {
-                let last_scope = ctx.scopes.last_mut().unwrap();
-                assert!(
-                    !last_scope.vars.contains(var),
-                    "Variable declared multiple times in the same scope: {var}",
-                );
-                last_scope.vars.insert(var.clone());
+                ctx.add_var(var);
             }
             Line::Match { value, arms } => {
                 check_expr_scoping(value, ctx);
@@ -373,12 +368,9 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
             }
             Line::Assignment { var, value } => {
                 check_expr_scoping(value, ctx);
-                let last_scope = ctx.scopes.last_mut().unwrap();
-                assert!(
-                    !last_scope.vars.contains(var),
-                    "Variable declared multiple times in the same scope: {var}",
-                );
-                last_scope.vars.insert(var.clone());
+                if !ctx.defines(var) {
+                    ctx.add_var(var);
+                }
             }
             Line::ArrayAssign { array, index, value } => {
                 check_simple_expr_scoping(array, ctx);
@@ -427,15 +419,12 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 for arg in args {
                     check_expr_scoping(arg, ctx);
                 }
-                let last_scope = ctx.scopes.last_mut().unwrap();
                 for target in return_data {
                     match target {
                         AssignmentTarget::Var(var) => {
-                            assert!(
-                                !last_scope.vars.contains(var),
-                                "Variable declared multiple times in the same scope: {var}",
-                            );
-                            last_scope.vars.insert(var.clone());
+                            if !ctx.defines(var) {
+                                ctx.add_var(var);
+                            }
                         }
                         AssignmentTarget::ArrayAccess { .. } => {}
                     }
@@ -468,12 +457,9 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
             }
             Line::MAlloc { var, size } => {
                 check_expr_scoping(size, ctx);
-                let last_scope = ctx.scopes.last_mut().unwrap();
-                assert!(
-                    !last_scope.vars.contains(var),
-                    "Variable declared multiple times in the same scope: {var}",
-                );
-                last_scope.vars.insert(var.clone());
+                if !ctx.defines(var) {
+                    ctx.add_var(var);
+                }
             }
             Line::CustomHint(_, args) => {
                 for arg in args {
@@ -481,12 +467,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 }
             }
             Line::PrivateInputStart { result } => {
-                let last_scope = ctx.scopes.last_mut().unwrap();
-                assert!(
-                    !last_scope.vars.contains(result),
-                    "Variable declared multiple times in the same scope: {result}"
-                );
-                last_scope.vars.insert(result.clone());
+                ctx.add_var(result);
             }
         }
     }
@@ -2270,7 +2251,17 @@ fn handle_inlined_functions(program: &mut Program) {
             if !func.inlined {
                 let old_body = func.body.clone();
 
-                handle_inlined_functions_helper(&mut func.body, &inlined_functions, &mut counter1, &mut counter2);
+                let mut ctx = Context::new();
+                for (var, _) in func.arguments.iter() {
+                    ctx.add_var(var);
+                }
+                func.body = handle_inlined_functions_helper(
+                    &mut ctx,
+                    &func.body,
+                    &inlined_functions,
+                    &mut counter1,
+                    &mut counter2,
+                );
 
                 if func.body != old_body {
                     any_changes = true;
@@ -2284,7 +2275,11 @@ fn handle_inlined_functions(program: &mut Program) {
             if func.inlined {
                 let old_body = func.body.clone();
 
-                handle_inlined_functions_helper(&mut func.body, &inlined_functions, &mut counter1, &mut counter2);
+                let mut ctx = Context::new();
+                for (var, _) in func.arguments.iter() {
+                    ctx.add_var(var);
+                }
+                handle_inlined_functions_helper(&mut ctx, &func.body, &inlined_functions, &mut counter1, &mut counter2);
 
                 if func.body != old_body {
                     any_changes = true;
@@ -2310,51 +2305,58 @@ fn handle_inlined_functions(program: &mut Program) {
 /// Recursively extracts inlined function calls from an expression.
 /// Returns the modified expression and lines to prepend (forward declarations and function calls).
 fn extract_inlined_calls_from_expr(
-    expr: &mut Expression,
+    expr: &Expression,
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
-) -> Vec<Line> {
+) -> (Expression, Vec<Line>) {
     let mut lines = vec![];
 
     match expr {
-        Expression::Value(_) => {}
-        Expression::ArrayAccess { index, .. } => {
-            for idx in index.iter_mut() {
-                lines.extend(extract_inlined_calls_from_expr(
-                    idx,
-                    inlined_functions,
-                    inlined_var_counter,
-                ));
+        Expression::Value(_) => (expr.clone(), vec![]),
+        Expression::ArrayAccess { array, index } => {
+            let mut index_new = vec![];
+            for idx in index {
+                let (idx, idx_lines) = extract_inlined_calls_from_expr(idx, inlined_functions, inlined_var_counter);
+                lines.extend(idx_lines);
+                index_new.push(idx);
             }
+            (
+                Expression::ArrayAccess {
+                    array: array.clone(),
+                    index: index_new,
+                },
+                lines,
+            )
         }
-        Expression::Binary { left, right, .. } => {
-            lines.extend(extract_inlined_calls_from_expr(
-                left,
-                inlined_functions,
-                inlined_var_counter,
-            ));
-            lines.extend(extract_inlined_calls_from_expr(
-                right,
-                inlined_functions,
-                inlined_var_counter,
-            ));
+        Expression::Binary { left, operation, right } => {
+            let (left, left_lines) = extract_inlined_calls_from_expr(left, inlined_functions, inlined_var_counter);
+            lines.extend(left_lines);
+            let (right, right_lines) = extract_inlined_calls_from_expr(right, inlined_functions, inlined_var_counter);
+            lines.extend(right_lines);
+            (
+                Expression::Binary {
+                    left: Box::new(left),
+                    operation: *operation,
+                    right: Box::new(right),
+                },
+                lines,
+            )
         }
-        Expression::MathExpr(_, args) => {
-            for arg in args.iter_mut() {
-                lines.extend(extract_inlined_calls_from_expr(
-                    arg,
-                    inlined_functions,
-                    inlined_var_counter,
-                ));
+        Expression::MathExpr(formula, args) => {
+            let mut args_new = vec![];
+            for arg in args {
+                let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter);
+                lines.extend(arg_lines);
+                args_new.push(arg);
             }
+            (Expression::MathExpr(*formula, args_new), lines)
         }
         Expression::FunctionCall { function_name, args } => {
-            for arg in args.iter_mut() {
-                lines.extend(extract_inlined_calls_from_expr(
-                    arg,
-                    inlined_functions,
-                    inlined_var_counter,
-                ));
+            let mut args_new = vec![];
+            for arg in args {
+                let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter);
+                args_new.push(arg);
+                lines.extend(arg_lines);
             }
 
             if inlined_functions.contains_key(function_name) {
@@ -2362,84 +2364,96 @@ fn extract_inlined_calls_from_expr(
                 lines.push(Line::ForwardDeclaration { var: aux_var.clone() });
                 lines.push(Line::FunctionCall {
                     function_name: function_name.clone(),
-                    args: std::mem::take(args),
+                    args: args.clone(),
                     return_data: vec![AssignmentTarget::Var(aux_var.clone())],
                     line_number: 0,
                 });
-                *expr = Expression::Value(SimpleExpr::Var(aux_var));
+                (Expression::Value(SimpleExpr::Var(aux_var)), lines)
+            } else {
+                (expr.clone(), lines)
             }
         }
-        Expression::Len { indices, .. } => {
-            for idx in indices.iter_mut() {
-                lines.extend(extract_inlined_calls_from_expr(
-                    idx,
-                    inlined_functions,
-                    inlined_var_counter,
-                ));
+        Expression::Len { array, indices } => {
+            let mut new_indices = vec![];
+            for idx in indices.iter() {
+                let (idx, idx_lines) = extract_inlined_calls_from_expr(idx, inlined_functions, inlined_var_counter);
+                lines.extend(idx_lines);
+                new_indices.push(idx);
             }
+            (
+                Expression::Len {
+                    array: array.clone(),
+                    indices: new_indices,
+                },
+                lines,
+            )
         }
     }
-
-    lines
 }
 
 fn extract_inlined_calls_from_boolean_expr(
-    boolean: &mut BooleanExpr<Expression>,
+    boolean: &BooleanExpr<Expression>,
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
-) -> Vec<Line> {
-    let mut lines = vec![];
-    lines.extend(extract_inlined_calls_from_expr(
-        &mut boolean.left,
-        inlined_functions,
-        inlined_var_counter,
-    ));
-    lines.extend(extract_inlined_calls_from_expr(
-        &mut boolean.right,
-        inlined_functions,
-        inlined_var_counter,
-    ));
-    lines
+) -> (BooleanExpr<Expression>, Vec<Line>) {
+    let (left, mut lines) = extract_inlined_calls_from_expr(&boolean.left, inlined_functions, inlined_var_counter);
+    let (right, right_lines) = extract_inlined_calls_from_expr(&boolean.right, inlined_functions, inlined_var_counter);
+    lines.extend(right_lines);
+    let boolean = BooleanExpr {
+        kind: boolean.kind,
+        left,
+        right,
+    };
+    (boolean, lines)
 }
 
 fn extract_inlined_calls_from_condition(
-    condition: &mut Condition,
+    condition: &Condition,
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
-) -> Vec<Line> {
+) -> (Condition, Vec<Line>) {
     match condition {
-        Condition::Expression(expr, _) => extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter),
+        Condition::Expression(expr, assume_boolean) => {
+            let (expr, expr_lines) = extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
+            (Condition::Expression(expr, *assume_boolean), expr_lines)
+        }
         Condition::Comparison(boolean) => {
-            extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)
+            let (boolean, boolean_lines) =
+                extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter);
+            (Condition::Comparison(boolean), boolean_lines)
         }
     }
 }
 
 fn handle_inlined_functions_helper(
-    lines: &mut Vec<Line>,
+    ctx: &mut Context,
+    lines_in: &Vec<Line>,
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
     total_inlined_counter: &mut Counter,
-) {
-    // First pass: extract inlined function calls from expressions and handle Line::FunctionCall inlining
-    // We iterate in reverse to handle splicing correctly
-    let mut i = lines.len();
-    while i > 0 {
-        i -= 1;
-        let prepend_lines = match &mut lines[i] {
+) -> Vec<Line> {
+    let mut lines_out = vec![];
+    for line in lines_in {
+        match line {
+            Line::Break | Line::Panic | Line::LocationReport { .. } => {
+                lines_out.push(line.clone());
+            }
             Line::FunctionCall {
                 function_name,
                 args,
                 return_data,
                 line_number: _,
             } => {
-                if let Some(func) = inlined_functions.get(&*function_name) {
+                if let Some(func) = inlined_functions.get(function_name) {
                     let mut inlined_lines = vec![];
 
                     // Only add forward declarations for variable targets, not array accesses
                     for target in return_data.iter() {
-                        if let AssignmentTarget::Var(var) = target {
+                        if let AssignmentTarget::Var(var) = target
+                            && !ctx.defines(var)
+                        {
                             inlined_lines.push(Line::ForwardDeclaration { var: var.clone() });
+                            ctx.add_var(var);
                         }
                     }
 
@@ -2489,136 +2503,210 @@ fn handle_inlined_functions_helper(
                     let mut func_body = func.body.clone();
                     inline_lines(&mut func_body, &inlined_args, return_data, total_inlined_counter.next());
                     inlined_lines.extend(func_body);
-
-                    lines.remove(i); // remove the call to the inlined function
-                    lines.splice(i..i, inlined_lines);
+                    lines_out.extend(inlined_lines);
+                } else {
+                    lines_out.push(line.clone());
                 }
-                vec![]
             }
-            Line::IfCondition { condition, .. } => {
-                extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter)
-            }
-            Line::ForLoop { start, end, .. } => {
-                let mut prepend = vec![];
-                prepend.extend(extract_inlined_calls_from_expr(
-                    start,
-                    inlined_functions,
-                    inlined_var_counter,
-                ));
-                prepend.extend(extract_inlined_calls_from_expr(
-                    end,
-                    inlined_functions,
-                    inlined_var_counter,
-                ));
-                prepend
-            }
-            Line::Assert { boolean, .. } => {
-                extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)
-            }
-            Line::Assignment { value, .. } => {
-                extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter)
-            }
-            Line::ArrayAssign { index, value, .. } => {
-                let mut prepend = vec![];
-                prepend.extend(extract_inlined_calls_from_expr(
-                    index,
-                    inlined_functions,
-                    inlined_var_counter,
-                ));
-                prepend.extend(extract_inlined_calls_from_expr(
-                    value,
-                    inlined_functions,
-                    inlined_var_counter,
-                ));
-                prepend
-            }
-            Line::Print { content, .. } => {
-                let mut prepend = vec![];
-                for expr in content.iter_mut() {
-                    prepend.extend(extract_inlined_calls_from_expr(
-                        expr,
-                        inlined_functions,
-                        inlined_var_counter,
-                    ));
-                }
-                prepend
-            }
-            Line::FunctionRet { return_data } => {
-                let mut prepend = vec![];
-                for expr in return_data.iter_mut() {
-                    prepend.extend(extract_inlined_calls_from_expr(
-                        expr,
-                        inlined_functions,
-                        inlined_var_counter,
-                    ));
-                }
-                prepend
-            }
-            Line::Precompile { args, .. } => {
-                let mut prepend = vec![];
-                for expr in args.iter_mut() {
-                    prepend.extend(extract_inlined_calls_from_expr(
-                        expr,
-                        inlined_functions,
-                        inlined_var_counter,
-                    ));
-                }
-                prepend
-            }
-            Line::MAlloc { size, .. } => extract_inlined_calls_from_expr(size, inlined_functions, inlined_var_counter),
-            Line::CustomHint(_, args) => {
-                let mut prepend = vec![];
-                for expr in args.iter_mut() {
-                    prepend.extend(extract_inlined_calls_from_expr(
-                        expr,
-                        inlined_functions,
-                        inlined_var_counter,
-                    ));
-                }
-                prepend
-            }
-            _ => vec![],
-        };
-
-        if !prepend_lines.is_empty() {
-            let prepend_count = prepend_lines.len();
-            lines.splice(i..i, prepend_lines);
-            i += prepend_count; // Adjust i to account for the inserted lines
-        }
-    }
-
-    // Second pass: recursively process nested blocks
-    for line in lines.iter_mut() {
-        match line {
             Line::IfCondition {
+                condition,
                 then_branch,
                 else_branch,
-                ..
+                line_number,
             } => {
-                handle_inlined_functions_helper(
+                extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter);
+                ctx.scopes.push(Scope::default());
+                let then_branch_out = handle_inlined_functions_helper(
+                    ctx,
                     then_branch,
                     inlined_functions,
                     inlined_var_counter,
                     total_inlined_counter,
                 );
-                handle_inlined_functions_helper(
+                ctx.scopes.pop();
+                ctx.scopes.push(Scope::default());
+                let else_branch_out = handle_inlined_functions_helper(
+                    ctx,
                     else_branch,
                     inlined_functions,
                     inlined_var_counter,
                     total_inlined_counter,
                 );
+                ctx.scopes.pop();
+                lines_out.push(Line::IfCondition {
+                    condition: condition.clone(),
+                    then_branch: then_branch_out,
+                    else_branch: else_branch_out,
+                    line_number: *line_number,
+                });
             }
-            Line::ForLoop { body, .. } => {
-                handle_inlined_functions_helper(body, inlined_functions, inlined_var_counter, total_inlined_counter);
+            Line::Match { value, arms } => {
+                let mut arms_out: Vec<(usize, Vec<Line>)> = Vec::new();
+                for (i, arm) in arms {
+                    ctx.scopes.push(Scope::default());
+                    let arm_out = handle_inlined_functions_helper(
+                        ctx,
+                        arm,
+                        inlined_functions,
+                        inlined_var_counter,
+                        total_inlined_counter,
+                    );
+                    ctx.scopes.pop();
+                    arms_out.push((*i, arm_out));
+                }
+                lines_out.push(Line::Match {
+                    value: value.clone(),
+                    arms: arms_out,
+                });
             }
-            Line::Match { arms, .. } => {
-                for (_, arm) in arms {
-                    handle_inlined_functions_helper(arm, inlined_functions, inlined_var_counter, total_inlined_counter);
+            Line::ForwardDeclaration { var } => {
+                lines_out.push(line.clone());
+                ctx.add_var(var);
+            }
+            Line::PrivateInputStart { result } => {
+                lines_out.push(line.clone());
+                if !ctx.defines(result) {
+                    ctx.add_var(result);
                 }
             }
-            _ => {}
-        }
+            Line::ForLoop {
+                iterator,
+                start,
+                end,
+                body,
+                rev,
+                unroll,
+                line_number,
+            } => {
+                // Handle inlining in the loop bounds
+                let (start, start_lines) =
+                    extract_inlined_calls_from_expr(start, inlined_functions, inlined_var_counter);
+                lines_out.extend(start_lines);
+                let (end, end_lines) = extract_inlined_calls_from_expr(end, inlined_functions, inlined_var_counter);
+                lines_out.extend(end_lines);
+
+                // Handle inlining in the loop body
+                ctx.scopes.push(Scope::default());
+                ctx.add_var(iterator);
+                let loop_body_out = handle_inlined_functions_helper(
+                    ctx,
+                    body,
+                    inlined_functions,
+                    inlined_var_counter,
+                    total_inlined_counter,
+                );
+                ctx.scopes.pop();
+
+                // Push modified loop
+                lines_out.push(Line::ForLoop {
+                    iterator: iterator.clone(),
+                    start,
+                    end,
+                    body: loop_body_out,
+                    rev: *rev,
+                    unroll: *unroll,
+                    line_number: *line_number,
+                });
+            }
+            Line::Assert {
+                debug,
+                boolean,
+                line_number,
+            } => {
+                let (boolean, boolean_lines) =
+                    extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter);
+                lines_out.extend(boolean_lines);
+                lines_out.push(Line::Assert {
+                    debug: *debug,
+                    boolean,
+                    line_number: *line_number,
+                });
+            }
+            Line::Assignment { var, value } => {
+                let (value, value_lines) =
+                    extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter);
+                lines_out.extend(value_lines);
+                if !ctx.defines(var) {
+                    ctx.add_var(var);
+                }
+                lines_out.push(Line::Assignment {
+                    var: var.clone(),
+                    value,
+                });
+            }
+            Line::ArrayAssign { array, index, value } => {
+                let (index, index_lines) =
+                    extract_inlined_calls_from_expr(index, inlined_functions, inlined_var_counter);
+                lines_out.extend(index_lines);
+                let (value, value_lines) =
+                    extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter);
+                lines_out.extend(value_lines);
+                lines_out.push(Line::ArrayAssign {
+                    array: array.clone(),
+                    index,
+                    value,
+                });
+            }
+            Line::Print { line_info, content } => {
+                let mut new_content = vec![];
+                for expr in content {
+                    let (expr, expr_lines) =
+                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
+                    lines_out.extend(expr_lines);
+                    new_content.push(expr);
+                }
+                lines_out.push(Line::Print {
+                    line_info: line_info.clone(),
+                    content: new_content,
+                });
+            }
+            Line::FunctionRet { return_data } => {
+                let mut new_return_data = vec![];
+                for expr in return_data {
+                    let (expr, expr_lines) =
+                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
+                    lines_out.extend(expr_lines);
+                    new_return_data.push(expr);
+                }
+                lines_out.push(Line::FunctionRet {
+                    return_data: new_return_data,
+                });
+            }
+            Line::Precompile { table, args } => {
+                let mut new_args = vec![];
+                for expr in args {
+                    let (expr, new_lines) =
+                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
+                    lines_out.extend(new_lines);
+                    new_args.push(expr);
+                }
+                lines_out.push(Line::Precompile {
+                    table: *table,
+                    args: new_args,
+                });
+            }
+            Line::MAlloc { var, size } => {
+                let (size, size_lines) = extract_inlined_calls_from_expr(size, inlined_functions, inlined_var_counter);
+                lines_out.extend(size_lines);
+
+                if !ctx.defines(var) {
+                    ctx.add_var(var);
+                }
+                lines_out.push(Line::MAlloc { var: var.clone(), size });
+            }
+            Line::CustomHint(hint, args) => {
+                let mut new_args = vec![];
+                for expr in args {
+                    let (expr, new_lines) =
+                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
+                    lines_out.extend(new_lines);
+                    new_args.push(expr);
+                }
+                lines_out.push(Line::CustomHint(*hint, new_args));
+            }
+        };
     }
+    lines_out
 }
 
 fn handle_const_arguments(program: &mut Program) -> bool {

@@ -443,6 +443,28 @@ fn test_inlined_2() {
 }
 
 #[test]
+fn test_inlined_3() {
+    let program = r#"
+    fn main() {
+        x = func();
+        return;
+    }
+    fn func() -> 1 {
+        var a;
+        if 0 == 0 {
+            a = aux();
+        }
+        return a;
+    }
+
+    fn aux() inline -> 1 {
+        return 1;
+    }
+   "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
 fn test_match() {
     let program = r#"
     fn main() {
