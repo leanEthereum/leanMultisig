@@ -5,6 +5,10 @@ use std::time::Instant;
 use lean_compiler::CompilationFlags;
 use lean_compiler::ProgramSource;
 use lean_compiler::compile_program_with_flags;
+use lean_prover::GRINDING_BITS;
+use lean_prover::SECURITY_BITS;
+use lean_prover::SECURITY_REGIME;
+use lean_prover::STARTING_LOG_INV_RATE_BASE;
 use lean_prover::SnarkParams;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
@@ -16,7 +20,7 @@ use rand::rngs::StdRng;
 use utils::build_prover_state;
 use utils::get_poseidon16;
 use whir_p3::SparseStatement;
-use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
+use whir_p3::{FoldingFactor, WhirConfig, WhirConfigBuilder, precompute_dft_twiddles};
 
 pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, tracing: bool, vm_profiler: bool) {
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -24,14 +28,17 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
         .to_str()
         .unwrap()
         .to_string();
-
+    assert!(
+        GRINDING_BITS <= 16,
+        "GRINDING_BITS must be less than or equal to 16 for the recursion program"
+    );
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
-        security_level: 128,
-        pow_bits: 16, // should be less than 16 (cf recursion program)
+        security_level: SECURITY_BITS,
+        pow_bits: GRINDING_BITS,
         folding_factor: FoldingFactor::new(7, 4),
-        soundness_type: SecurityAssumption::CapacityBound,
-        starting_log_inv_rate: 2,
+        soundness_type: SECURITY_REGIME,
+        starting_log_inv_rate: STARTING_LOG_INV_RATE_BASE,
         rs_domain_initial_reduction_factor: 3,
     };
 

@@ -43,11 +43,11 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
 
     let whir_config = WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 4),
-        soundness_type: SecurityAssumption::CapacityBound,
+        soundness_type: SecurityAssumption::JohnsonBound,
         pow_bits: 16,
         max_num_variables_to_send_coeffs: 6,
         rs_domain_initial_reduction_factor: 5,
-        security_level: 128,
+        security_level: 123,
         starting_log_inv_rate: 1,
     };
 

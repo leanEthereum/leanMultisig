@@ -100,7 +100,6 @@ Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed ch
 - Proof size: replace all equality checks in the verifier algo by value deduction
 
 - KoalaBear extension of degree 5: the current implem (in a fork of Plonky3) has not been been optimized
-- KoalaBear extension of degree 6: in order to use the (proven) Johnson bound in WHIR
 - current "packed PCS" is not optimal in the end: can lead to [16][4][2][2] (instead of [16][8])
 - make test_packed_pcs pass again
 - Poseidon AIR: handle properly the compression mode ? (where output = poseidon(input) + input) (both in WHIR / XMSS)

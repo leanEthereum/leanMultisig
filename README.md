@@ -41,13 +41,13 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- poseidon --log-n-perms 2
 ### Recursion
 
 
-The full recursion program is not finished yet. Instead, we prove validity of a WHIR opening, with 25 variables, and rate = 1/4.
+The full recursion program is not finished yet. Instead, we prove validity of a WHIR opening, with 25 variables.
 
 - 1-to-1: Recursive proof of a single WHIR opening
 - n-to-1: Recursive proof of many WHIR openings (≈ 8) (we report prover time per WHIR)
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 18
+RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 19
 ```
 
 ![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)
@@ -71,21 +71,22 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1250
 n = 2,000,000
 
 ```
-FIB_N=2000000 RUSTFLAGS='-C target-cpu=native' cargo test --release --package lean_prover --test test_zkvm -- --nocapture -- test_prove_fibonacci --exact --nocapture
+FIB_N=2000000 RUSTFLAGS='-C target-cpu=native' cargo test --release --package lean_prover --lib -- test_zkvm::test_prove_fibonacci --exact --nocapture 
+
 ```
 
 Proving time:
 
 - i9-12900H: 2.0 s (1.0 MHz)
-- mac m4 max: 1.2 s (1.7 MHz)
+- mac m4 max: 1.15 s (1.7 MHz)
+
+### Security
+
+Johnson bound, no proximity gaps conjecture. 123 bits of security (TODO 128 bits, which require to use hash digests of more than 8 koala-bears).
 
 ### Proof size
 
-With conjecture "up to capacity", and rate = 1/2, current proofs are about ≈ 400 - 500 KiB. On the [lean-vm-simple](https://github.com/leanEthereum/leanMultisig/tree/lean-vm-simple) branch, proofs are ≈ 300 KiB. This part has not (at all) been optimized (no Merkle pruning...): big gains are expected.
-
-Target: 
-- 256 KiB for fast proof (rate = 1/2)
-- close to 128 KiB for slower proofs (rate = 1/4 or 1/8)
+WHIR intial rate = 1/4. Proof size ≈ 400 KiB. TODO: Merkle pruning + WHIR batch opening -> 256 KiB. (We can always use a rate of 1/8 of 1/16 to get a proof closer to 128 KiB at the final recursion layer).
 
 ## Credits
 

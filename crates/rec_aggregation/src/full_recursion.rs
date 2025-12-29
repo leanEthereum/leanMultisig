@@ -4,7 +4,7 @@ use std::time::Instant;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program, compile_program_with_flags};
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
-use lean_prover::{SnarkParams, whir_config_builder};
+use lean_prover::{STARTING_LOG_INV_RATE_BASE, STARTING_LOG_INV_RATE_EXTENSION, SnarkParams, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use utils::MEMORY_TABLE_INDEX;
@@ -20,8 +20,8 @@ pub fn run_end2end_recursion_benchmark() {
         .to_string();
 
     let snark_params = SnarkParams {
-        first_whir: whir_config_builder(1, 3, 1),
-        second_whir: whir_config_builder(3, 4, 1),
+        first_whir: whir_config_builder(STARTING_LOG_INV_RATE_BASE, 3, 1),
+        second_whir: whir_config_builder(STARTING_LOG_INV_RATE_EXTENSION, 4, 1),
     };
     let program_to_prove = r#"
     const DIM = 5;
