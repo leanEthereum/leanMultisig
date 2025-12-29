@@ -7,6 +7,7 @@ use crate::{
     },
     parser::ConstArrayValue,
 };
+use core::panic;
 use lean_vm::{Boolean, BooleanExpr, CustomHint, FileId, SourceLineNumber, SourceLocation, Table, TableT};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -521,6 +522,11 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
                 check_expr_scoping(arg, ctx);
             }
         }
+        Expression::Len { indices, .. } => {
+            for idx in indices {
+                check_expr_scoping(idx, ctx);
+            }
+        }
     }
 }
 
@@ -696,7 +702,7 @@ fn simplify_lines(
                         });
                     }
                 }
-                Expression::MathExpr(_, _) => unreachable!(),
+                Expression::MathExpr(_, _) | Expression::Len { .. } => unreachable!(),
                 Expression::FunctionCall { .. } => {
                     let result = simplify_expr(
                         value,
@@ -1451,6 +1457,7 @@ fn simplify_expr(
 
             SimpleExpr::Var(result_var)
         }
+        Expression::Len { .. } => unreachable!(),
     }
 }
 
@@ -1633,6 +1640,11 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
         Expression::FunctionCall { args: func_args, .. } => {
             for arg in func_args {
                 inline_expr(arg, args, inlining_count);
+            }
+        }
+        Expression::Len { indices, .. } => {
+            for idx in indices {
+                inline_expr(idx, args, inlining_count);
             }
         }
     }
@@ -1818,6 +1830,11 @@ fn vars_in_expression(expr: &Expression, const_arrays: &BTreeMap<String, ConstAr
         Expression::FunctionCall { args, .. } => {
             for arg in args {
                 vars.extend(vars_in_expression(arg, const_arrays));
+            }
+        }
+        Expression::Len { indices, .. } => {
+            for idx in indices {
+                vars.extend(vars_in_expression(idx, const_arrays));
             }
         }
     }
@@ -2046,6 +2063,11 @@ fn replace_vars_for_unroll_in_expr(
         Expression::FunctionCall { args, .. } => {
             for arg in args {
                 replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
+            }
+        }
+        Expression::Len { indices, .. } => {
+            for idx in indices {
+                replace_vars_for_unroll_in_expr(idx, iterator, unroll_index, iterator_value, internal_vars);
             }
         }
     }
@@ -2345,6 +2367,15 @@ fn extract_inlined_calls_from_expr(
                     line_number: 0,
                 });
                 *expr = Expression::Value(SimpleExpr::Var(aux_var));
+            }
+        }
+        Expression::Len { indices, .. } => {
+            for idx in indices.iter_mut() {
+                lines.extend(extract_inlined_calls_from_expr(
+                    idx,
+                    inlined_functions,
+                    inlined_var_counter,
+                ));
             }
         }
     }
@@ -2810,6 +2841,11 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
         Expression::FunctionCall { args, .. } => {
             for arg in args {
                 replace_vars_by_const_in_expr(arg, map);
+            }
+        }
+        Expression::Len { indices, .. } => {
+            for idx in indices {
+                replace_vars_by_const_in_expr(idx, map);
             }
         }
     }

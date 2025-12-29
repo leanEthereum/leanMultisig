@@ -9,6 +9,8 @@ const N_VARS_FIRST_GKR = N_VARS_FIRST_GKR_PLACEHOLDER;
 const MAX_BUS_WIDTH = MAX_BUS_WIDTH_PLACEHOLDER;
 const MEMORY_TABLE_INDEX = MEMORY_TABLE_INDEX_PLACEHOLDER;
 const UNIVARIATE_SKIPS = UNIVARIATE_SKIPS_PLACEHOLDER;
+const LOOKUPS_F_INDEXES = LOOKUPS_F_INDEXES_PLACEHOLDER;
+const LOOKUPS_F_VALUES = LOOKUPS_F_VALUES_PLACEHOLDER;
 
 fn main() {
     proof_transcript = private_input_start();
@@ -107,7 +109,10 @@ fn main() {
         dot_product(evals_on_data, unvariate_selectors_evals, univariate_value_on_data, 2**UNIVARIATE_SKIPS, EE);
         all_bus_statements_denominators_claims[table_index] = univariate_value_on_data;
 
-
+        for lookup_f_index in 0..len(LOOKUPS_F_INDEXES[table_index]) unroll {
+            col_index = LOOKUPS_F_INDEXES[table_index][lookup_f_index];
+            // f_value = LOOKUPS_F_VALUES[table_index][lookup_f_index];
+        }
         all_fs[table_index + 1] = fs_a3; // TODO
         all_offsets[table_index + 1] = 0; // TODO
 

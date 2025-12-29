@@ -155,6 +155,7 @@ impl TryFrom<Expression> for ConstExpression {
                 Ok(Self::MathExpr(math_expr, const_args))
             }
             Expression::FunctionCall { .. } => Err(()),
+            Expression::Len { .. } => Err(()),
         }
     }
 }
@@ -261,6 +262,10 @@ pub enum Expression {
         function_name: String,
         args: Vec<Self>,
     },
+    Len {
+        array: String,
+        indices: Vec<Self>,
+    },
 }
 
 /// For arbitrary compile-time computations
@@ -327,6 +332,17 @@ impl From<Var> for Expression {
 
 impl Expression {
     pub fn naive_eval(&self, const_arrays: &BTreeMap<String, ConstArrayValue>) -> Option<F> {
+        // Handle Len specially since it needs const_arrays
+        if let Self::Len { array, indices } = self {
+            let idx: Option<Vec<_>> = indices
+                .iter()
+                .map(|e| e.naive_eval(const_arrays).map(|f| f.to_usize()))
+                .collect();
+            let idx = idx?;
+            let arr = const_arrays.get(array)?;
+            let target = arr.navigate(&idx)?;
+            return Some(F::from_usize(target.len()));
+        }
         self.eval_with(
             &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
             &|arr, indexes| {
@@ -367,6 +383,7 @@ impl Expression {
                 Some(math_expr.eval(&eval_args))
             }
             Self::FunctionCall { .. } => None,
+            Self::Len { .. } => None, // Handled directly in naive_eval
         }
     }
 
@@ -512,6 +529,10 @@ impl Display for Expression {
             Self::FunctionCall { function_name, args } => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{function_name}({args_str})")
+            }
+            Self::Len { array, indices } => {
+                let indices_str = indices.iter().map(|i| format!("[{i}]")).collect::<Vec<_>>().join("");
+                write!(f, "len({array}{indices_str})")
             }
         }
     }

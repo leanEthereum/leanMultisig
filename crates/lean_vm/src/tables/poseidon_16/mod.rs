@@ -20,11 +20,11 @@ const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
 const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
-pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 1;
-pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 2; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
+pub const POSEIDON_16_COL_INDEX_A: ColIndex = 1;
+pub const POSEIDON_16_COL_INDEX_B: ColIndex = 2;
 pub const POSEIDON_16_COL_COMPRESSION: ColIndex = 3;
-pub const POSEIDON_16_COL_INDEX_A: ColIndex = 4;
-pub const POSEIDON_16_COL_INDEX_B: ColIndex = 5;
+pub const POSEIDON_16_COL_INDEX_RES: ColIndex = 4;
+pub const POSEIDON_16_COL_INDEX_RES_BIS: ColIndex = 5; // = if compressed { 0 } else { POSEIDON_16_COL_INDEX_RES + 1 }
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
 const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 16;
 
@@ -207,11 +207,11 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 #[derive(Debug)]
 pub(super) struct Poseidon2Cols<T> {
     pub flag: T,
-    pub index_res: T,
-    pub index_res_bis: T,
-    pub compress: T,
     pub index_a: T,
     pub index_b: T,
+    pub compress: T,
+    pub index_res: T,
+    pub index_res_bis: T,
 
     pub inputs: [T; WIDTH],
     pub beginning_full_rounds: [[T; WIDTH]; HALF_INITIAL_FULL_ROUNDS],

@@ -97,6 +97,40 @@ pub fn run_end2end_recursion_benchmark() {
         MEMORY_TABLE_INDEX.to_string(),
     );
     replacements.insert("UNIVARIATE_SKIPS_PLACEHOLDER".to_string(), UNIVARIATE_SKIPS.to_string());
+    let mut lookup_f_indexes_str = vec![];
+    let mut lookup_f_values_str = vec![];
+    for table in ALL_TABLES {
+        let indexes_str = table
+            .lookups_f()
+            .iter()
+            .map(|lookup_f| lookup_f.index.to_string())
+            .collect::<Vec<_>>();
+        lookup_f_indexes_str.push(format!("[{}]", indexes_str.join(", ")));
+        let values_str = table
+            .lookups_f()
+            .iter()
+            .map(|lookup_f| {
+                format!(
+                    "[{}]",
+                    lookup_f
+                        .values
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+            .collect::<Vec<_>>();
+        lookup_f_values_str.push(format!("[{}]", values_str.join(", ")));
+    }
+    replacements.insert(
+        "LOOKUPS_F_INDEXES_PLACEHOLDER".to_string(),
+        format!("[{}]", lookup_f_indexes_str.join(", ")),
+    );
+    replacements.insert(
+        "LOOKUPS_F_VALUES_PLACEHOLDER".to_string(),
+        dbg!(format!("[{}]", lookup_f_values_str.join(", "))),
+    );
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;
