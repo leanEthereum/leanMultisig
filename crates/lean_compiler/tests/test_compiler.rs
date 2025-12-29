@@ -1376,3 +1376,25 @@ fn test_nested_function_call() {
         false,
     );
 }
+
+#[test]
+fn test_len_2d_array() {
+    let program = r#"
+    const ARR = [[1], [7, 3], [7]];
+    const N = 2 + len(ARR[0]);
+    fn main() {
+        for i in 0..N unroll {
+            for j in 0..len(ARR[i]) unroll {
+                assert j * (j - 1) == 0;
+            }
+        }
+        return;
+    }
+    "#;
+    compile_and_run(
+        &ProgramSource::Raw(program.to_string()),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}

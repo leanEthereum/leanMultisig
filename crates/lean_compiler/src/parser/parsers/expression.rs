@@ -165,43 +165,53 @@ impl Parse<Expression> for LenParser {
             index_exprs.push(ExpressionParser.parse(index_pair, ctx)?);
         }
 
-        // Now evaluate the indices
+        // Try to evaluate indices at parse time
         let mut indices = Vec::new();
+        let mut all_const = true;
         for index_expr in &index_exprs {
-            let index_val = evaluate_const_expr(index_expr, ctx).ok_or_else(|| {
-                SemanticError::with_context("Index in len() must be a compile-time constant", "len expression")
-            })?;
-            indices.push(index_val);
+            if let Some(index_val) = evaluate_const_expr(index_expr, ctx) {
+                indices.push(index_val);
+            } else {
+                all_const = false;
+                break;
+            }
         }
 
-        // Now get the array again and navigate to the target sub-array
-        let base_array = ctx.get_const_array(&ident).unwrap();
-        let target = if indices.is_empty() {
-            base_array
+        // If all indices are constants, evaluate len() now
+        if all_const {
+            let base_array = ctx.get_const_array(&ident).unwrap();
+            let target = if indices.is_empty() {
+                base_array
+            } else {
+                base_array.navigate(&indices).ok_or_else(|| {
+                    SemanticError::with_context(
+                        format!(
+                            "len() index out of bounds for '{ident}': [{}]",
+                            indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("][")
+                        ),
+                        "len expression",
+                    )
+                })?
+            };
+
+            let length = match target {
+                ConstArrayValue::Scalar(_) => {
+                    return Err(
+                        SemanticError::with_context("Cannot call len() on a scalar value", "len expression").into(),
+                    );
+                }
+                ConstArrayValue::Array(arr) => arr.len(),
+            };
+
+            Ok(Expression::Value(SimpleExpr::Constant(ConstExpression::Value(
+                ConstantValue::Scalar(length),
+            ))))
         } else {
-            base_array.navigate(&indices).ok_or_else(|| {
-                SemanticError::with_context(
-                    format!(
-                        "len() index out of bounds for '{ident}': [{}]",
-                        indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("][")
-                    ),
-                    "len expression",
-                )
-            })?
-        };
-
-        // Get its length
-        let length = match target {
-            ConstArrayValue::Scalar(_) => {
-                return Err(
-                    SemanticError::with_context("Cannot call len() on a scalar value", "len expression").into(),
-                );
-            }
-            ConstArrayValue::Array(arr) => arr.len(),
-        };
-
-        Ok(Expression::Value(SimpleExpr::Constant(ConstExpression::Value(
-            ConstantValue::Scalar(length),
-        ))))
+            // Defer evaluation - return Expression::Len
+            Ok(Expression::Len {
+                array: ident,
+                indices: index_exprs,
+            })
+        }
     }
 }
