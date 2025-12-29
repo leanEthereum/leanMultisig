@@ -1028,42 +1028,6 @@ fn test_name_conflict() {
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
 
-// BUG here:
-
-// #[test]
-// fn test_num_files() {
-//     let expected_num_files = 3; // program_6.snark imports foo.snark and bar.snark
-//     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-//     let path = format!("{manifest_dir}/tests/program_6.snark");
-//     let bytecode = compile_program(&ProgramSource::Filepath(path));
-//     assert_eq!(bytecode.filepaths.len(), expected_num_files);
-//     assert_eq!(bytecode.source_code.len(), expected_num_files);
-// }
-
-// TODO BUG
-
-// #[test]
-// fn bug() {
-//     let program = r#"
-//     fn main() {
-//         x = func();
-//         return;
-//     }
-//     fn func() -> 1 {
-//         var a;
-//         if 0 == 0 {
-//             a = aux();
-//         }
-//         return a;
-//     }
-
-//     fn aux() inline -> 1 {
-//         return 1;
-//     }
-//     "#;
-//     compile_and_run(program.to_string(), (&[], &[]), false);
-// }
-
 #[test]
 fn test_2d_const_array() {
     let program = r#"
@@ -1219,3 +1183,4 @@ fn test_len_2d_array() {
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
+

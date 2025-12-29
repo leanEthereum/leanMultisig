@@ -129,7 +129,7 @@ pub fn run_end2end_recursion_benchmark() {
     );
     replacements.insert(
         "LOOKUPS_F_VALUES_PLACEHOLDER".to_string(),
-        dbg!(format!("[{}]", lookup_f_values_str.join(", "))),
+        format!("[{}]", lookup_f_values_str.join(", ")),
     );
 
     let public_input = vec![];
