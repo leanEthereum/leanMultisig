@@ -220,7 +220,7 @@ impl From<ConstantValue> for ConstExpression {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssumeBoolean {
     AssumeBoolean,
     DoNotAssumeBoolean,
@@ -486,6 +486,7 @@ pub enum Line {
 }
 
 /// A context specifying which variables are in scope.
+#[derive(Debug)]
 pub struct Context {
     /// A list of lexical scopes, innermost scope last.
     pub scopes: Vec<Scope>,
@@ -494,6 +495,13 @@ pub struct Context {
 }
 
 impl Context {
+    pub fn new() -> Context {
+        Context {
+            scopes: vec![Scope::default()],
+            const_arrays: BTreeMap::new(),
+        }
+    }
+
     pub fn defines(&self, var: &Var) -> bool {
         if self.const_arrays.contains_key(var) {
             return true;
@@ -505,9 +513,18 @@ impl Context {
         }
         false
     }
+
+    pub fn add_var(&mut self, var: &Var) {
+        let last_scope = self.scopes.last_mut().unwrap();
+        assert!(
+            !last_scope.vars.contains(var),
+            "Variable declared multiple times in the same scope: {var}",
+        );
+        last_scope.vars.insert(var.clone());
+    }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Scope {
     /// A set of declared variables.
     pub vars: BTreeSet<Var>,
