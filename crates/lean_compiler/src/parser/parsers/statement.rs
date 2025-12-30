@@ -6,8 +6,7 @@ use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    ir::HighLevelOperation,
-    lang::{AssumeBoolean, Condition, Expression, Line, SourceLocation},
+    lang::{Condition, Expression, Line, SourceLocation},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -28,11 +27,8 @@ impl Parse<Line> for StatementParser {
             Rule::for_statement => ForStatementParser.parse(inner, ctx),
             Rule::match_statement => MatchStatementParser.parse(inner, ctx),
             Rule::return_statement => ReturnStatementParser.parse(inner, ctx),
-            Rule::assert_eq_statement => AssertEqParser::<false>.parse(inner, ctx),
-            Rule::assert_not_eq_statement => AssertNotEqParser::<false>.parse(inner, ctx),
-            Rule::debug_assert_eq_statement => AssertEqParser::<true>.parse(inner, ctx),
-            Rule::debug_assert_not_eq_statement => AssertNotEqParser::<true>.parse(inner, ctx),
-            Rule::debug_assert_lt_statement => AssertLtParser::<true>.parse(inner, ctx),
+            Rule::assert_statement => AssertParser::<false>.parse(inner, ctx),
+            Rule::debug_assert_statement => AssertParser::<true>.parse(inner, ctx),
             Rule::break_statement => Ok(Line::Break),
             Rule::continue_statement => Err(SemanticError::new("Continue statement not implemented yet").into()),
             _ => Err(SemanticError::new("Unknown statement").into()),
@@ -145,35 +141,37 @@ pub struct ConditionParser;
 impl Parse<Condition> for ConditionParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
         let inner_pair = next_inner_pair(&mut pair.into_inner(), "inner expression")?;
-        if inner_pair.as_rule() == Rule::assumed_bool_expr {
-            ExpressionParser
+        match inner_pair.as_rule() {
+            Rule::assumed_bool_expr => ExpressionParser
                 .parse(next_inner_pair(&mut inner_pair.into_inner(), "inner expression")?, ctx)
-                .map(|e| Condition::Expression(e, AssumeBoolean::AssumeBoolean))
-        } else {
-            let expr_result = ExpressionParser.parse(inner_pair, ctx);
-            match expr_result {
-                Err(e) => Err(e),
-                Ok(Expression::Binary {
-                    left,
-                    operation: HighLevelOperation::Equal,
-                    right,
-                }) => Ok(Condition::Comparison(BooleanExpr {
-                    left: *left,
-                    right: *right,
-                    kind: Boolean::Equal,
-                })),
-                Ok(Expression::Binary {
-                    left,
-                    operation: HighLevelOperation::NotEqual,
-                    right,
-                }) => Ok(Condition::Comparison(BooleanExpr {
-                    left: *left,
-                    right: *right,
-                    kind: Boolean::Different,
-                })),
-                Ok(expr) => Ok(Condition::Expression(expr, AssumeBoolean::DoNotAssumeBoolean)),
+                .map(Condition::AssumeBoolean),
+            Rule::comparison => {
+                let boolean = ComparisonParser::parse(inner_pair, ctx)?;
+                Ok(Condition::Comparison(boolean))
             }
+            _ => Err(SemanticError::new("Invalid condition").into()),
         }
+    }
+}
+
+/// Parser for comparison expressions (shared between conditions and assertions).
+pub struct ComparisonParser;
+
+impl ComparisonParser {
+    pub fn parse(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<BooleanExpr<Expression>> {
+        let mut inner = pair.into_inner();
+        let left = ExpressionParser.parse(next_inner_pair(&mut inner, "left side")?, ctx)?;
+        let op = next_inner_pair(&mut inner, "comparison operator")?;
+        let right = ExpressionParser.parse(next_inner_pair(&mut inner, "right side")?, ctx)?;
+
+        let kind = match op.as_str() {
+            "==" => Boolean::Equal,
+            "!=" => Boolean::Different,
+            "<" => Boolean::LessThan,
+            _ => unreachable!(),
+        };
+
+        Ok(BooleanExpr { left, right, kind })
     }
 }
 
@@ -315,66 +313,18 @@ impl Parse<Line> for ReturnStatementParser {
     }
 }
 
-/// Parser for equality assertions.
-pub struct AssertEqParser<const DEBUG: bool>;
+/// Parser for assert statements.
+pub struct AssertParser<const DEBUG: bool>;
 
-impl<const DEBUG: bool> Parse<Line> for AssertEqParser<DEBUG> {
+impl<const DEBUG: bool> Parse<Line> for AssertParser<DEBUG> {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
-        let mut inner = pair.into_inner();
-        let left = ExpressionParser.parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
-        let right = ExpressionParser.parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
+        let comparison = next_inner_pair(&mut pair.into_inner(), "comparison")?;
+        let boolean = ComparisonParser::parse(comparison, ctx)?;
 
         Ok(Line::Assert {
             debug: DEBUG,
-            boolean: BooleanExpr {
-                left,
-                right,
-                kind: Boolean::Equal,
-            },
-            line_number,
-        })
-    }
-}
-
-/// Parser for inequality assertions.
-pub struct AssertNotEqParser<const DEBUG: bool>;
-
-impl<const DEBUG: bool> Parse<Line> for AssertNotEqParser<DEBUG> {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
-        let line_number = pair.line_col().0;
-        let mut inner = pair.into_inner();
-        let left = ExpressionParser.parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
-        let right = ExpressionParser.parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
-
-        Ok(Line::Assert {
-            debug: DEBUG,
-            boolean: BooleanExpr {
-                left,
-                right,
-                kind: Boolean::Different,
-            },
-            line_number,
-        })
-    }
-}
-
-pub struct AssertLtParser<const DEBUG: bool>;
-
-impl<const DEBUG: bool> Parse<Line> for AssertLtParser<DEBUG> {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
-        let line_number = pair.line_col().0;
-        let mut inner = pair.into_inner();
-        let left = ExpressionParser.parse(next_inner_pair(&mut inner, "left assertion")?, ctx)?;
-        let right = ExpressionParser.parse(next_inner_pair(&mut inner, "right assertion")?, ctx)?;
-
-        Ok(Line::Assert {
-            debug: DEBUG,
-            boolean: BooleanExpr {
-                left,
-                right,
-                kind: Boolean::LessThan,
-            },
+            boolean,
             line_number,
         })
     }

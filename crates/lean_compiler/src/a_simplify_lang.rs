@@ -2,8 +2,8 @@ use crate::{
     Counter, F,
     ir::HighLevelOperation,
     lang::{
-        AssignmentTarget, AssumeBoolean, Condition, ConstExpression, ConstMallocLabel, ConstantValue, Context,
-        Expression, Function, Line, Program, Scope, SimpleExpr, Var,
+        AssignmentTarget, Condition, ConstExpression, ConstMallocLabel, Context, Expression, Function, Line, MathExpr,
+        Program, Scope, SimpleExpr, Var,
     },
     parser::ConstArrayValue,
 };
@@ -529,7 +529,7 @@ fn check_boolean_scoping(boolean: &BooleanExpr<Expression>, ctx: &Context) {
 
 fn check_condition_scoping(condition: &Condition, ctx: &Context) {
     match condition {
-        Condition::Expression(expr, _) => {
+        Condition::AssumeBoolean(expr) => {
             check_expr_scoping(expr, ctx);
         }
         Condition::Comparison(boolean) => {
@@ -723,11 +723,10 @@ fn simplify_lines(
                                         if let (SimpleExpr::Constant(left_cst), SimpleExpr::Constant(right_cst)) =
                                             (&left, &right)
                                         {
-                                            let result = ConstExpression::Binary {
-                                                left: Box::new(left_cst.clone()),
-                                                operation: *operation,
-                                                right: Box::new(right_cst.clone()),
-                                            }
+                                            let result = ConstExpression::MathExpr(
+                                                MathExpr::Binary(*operation),
+                                                vec![left_cst.clone(), right_cst.clone()],
+                                            )
                                             .try_naive_simplification();
                                             res.push(SimpleLine::equality(var.clone(), SimpleExpr::Constant(result)));
                                         } else {
@@ -855,28 +854,8 @@ fn simplify_lines(
                         });
                         (diff_var.into(), then_branch, else_branch)
                     }
-                    Condition::Expression(condition, assume_boolean) => {
+                    Condition::AssumeBoolean(condition) => {
                         let condition_simplified = simplify_expr(ctx, state, const_malloc, condition, &mut res);
-
-                        match assume_boolean {
-                            AssumeBoolean::AssumeBoolean => {}
-                            AssumeBoolean::DoNotAssumeBoolean => {
-                                // Check condition_simplified is boolean
-                                let one_minus_condition_var = state.counters.aux_var();
-                                res.push(SimpleLine::Assignment {
-                                    var: one_minus_condition_var.clone().into(),
-                                    operation: HighLevelOperation::Sub,
-                                    arg0: SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(1))),
-                                    arg1: condition_simplified.clone(),
-                                });
-                                res.push(SimpleLine::AssertZero {
-                                    operation: HighLevelOperation::Mul,
-                                    arg0: condition_simplified.clone(),
-                                    arg1: one_minus_condition_var.into(),
-                                });
-                            }
-                        }
-
                         (condition_simplified, then_branch, else_branch)
                     }
                 };
@@ -1194,11 +1173,10 @@ fn simplify_expr(
             let right_var = simplify_expr(ctx, state, const_malloc, right, lines);
 
             if let (SimpleExpr::Constant(left_cst), SimpleExpr::Constant(right_cst)) = (&left_var, &right_var) {
-                return SimpleExpr::Constant(ConstExpression::Binary {
-                    left: Box::new(left_cst.clone()),
-                    operation: *operation,
-                    right: Box::new(right_cst.clone()),
-                });
+                return SimpleExpr::Constant(ConstExpression::MathExpr(
+                    MathExpr::Binary(*operation),
+                    vec![left_cst.clone(), right_cst.clone()],
+                ));
             }
 
             let aux_var = state.counters.aux_var();
@@ -1275,7 +1253,7 @@ pub fn find_variable_usage(
                 on_new_expr(&comp.left, internal_vars, external_vars);
                 on_new_expr(&comp.right, internal_vars, external_vars);
             }
-            Condition::Expression(expr, _assume_boolean) => {
+            Condition::AssumeBoolean(expr) => {
                 on_new_expr(expr, internal_vars, external_vars);
             }
         };
@@ -1444,7 +1422,7 @@ fn inline_lines(
 
     let inline_condition = |condition: &mut Condition| match condition {
         Condition::Comparison(comparison) => inline_comparison(comparison),
-        Condition::Expression(expr, _assume_boolean) => inline_expr(expr, args, inlining_count),
+        Condition::AssumeBoolean(expr) => inline_expr(expr, args, inlining_count),
     };
 
     let inline_internal_var = |var: &mut Var| {
@@ -1883,7 +1861,7 @@ fn replace_vars_for_unroll(
                             internal_vars,
                         );
                     }
-                    Condition::Expression(expr, _assume_bool) => {
+                    Condition::AssumeBoolean(expr) => {
                         replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
                     }
                 }
@@ -2142,9 +2120,9 @@ fn extract_inlined_calls_from_condition(
     inlined_var_counter: &mut Counter,
 ) -> (Condition, Vec<Line>) {
     match condition {
-        Condition::Expression(expr, assume_boolean) => {
+        Condition::AssumeBoolean(expr) => {
             let (expr, expr_lines) = extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
-            (Condition::Expression(expr, *assume_boolean), expr_lines)
+            (Condition::AssumeBoolean(expr), expr_lines)
         }
         Condition::Comparison(boolean) => {
             let (boolean, boolean_lines) =
@@ -2719,7 +2697,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                         replace_vars_by_const_in_expr(&mut cond.left, map);
                         replace_vars_by_const_in_expr(&mut cond.right, map);
                     }
-                    Condition::Expression(expr, _assume_boolean) => {
+                    Condition::AssumeBoolean(expr) => {
                         replace_vars_by_const_in_expr(expr, map);
                     }
                 }

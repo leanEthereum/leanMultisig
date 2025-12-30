@@ -5,12 +5,11 @@ use crate::{
     ir::HighLevelOperation,
     lang::{ConstExpression, ConstantValue, Expression, SimpleExpr},
     parser::{
-        error::{ParseError, ParseResult, SemanticError},
+        error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
     },
 };
 
-/// Parser for all expression types.
 pub struct ExpressionParser;
 
 impl Parse<Expression> for ExpressionParser {
@@ -20,8 +19,6 @@ impl Parse<Expression> for ExpressionParser {
                 let inner = next_inner_pair(&mut pair.into_inner(), "expression body")?;
                 Self.parse(inner, ctx)
             }
-            Rule::neq_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::NotEqual),
-            Rule::eq_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Equal),
             Rule::add_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Add),
             Rule::sub_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Sub),
             Rule::mul_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Mul),
@@ -29,14 +26,11 @@ impl Parse<Expression> for ExpressionParser {
             Rule::div_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Div),
             Rule::exp_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Exp),
             Rule::primary => PrimaryExpressionParser.parse(pair, ctx),
-            other_rule => Err(ParseError::SemanticError(SemanticError::new(format!(
-                "ExpressionParser: Unexpected rule {other_rule:?}"
-            )))),
+            other_rule => Err(SemanticError::new(format!("ExpressionParser: Unexpected rule {other_rule:?}")).into()),
         }
     }
 }
 
-/// Parser for binary arithmetic operations.
 pub struct BinaryExpressionParser;
 
 impl BinaryExpressionParser {
