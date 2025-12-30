@@ -103,7 +103,7 @@ fn sample_bits_const(fs, const n_samples, K) -> 2 {
     }
     // Last batch (may be partial)
     last_fs = all_fs[(next_multiple_of(n_samples, 8) / 8) - 1];
-    for j in 0..(n_samples % 8) unroll {
+    for j in 0..8 - ((8 - (n_samples % 8)) % 8) unroll {
         bits, _ = checked_decompose_bits(last_fs[j], K);
         sampled_bits[((next_multiple_of(n_samples, 8) / 8) - 1) * 8 + j] = bits;
     }
