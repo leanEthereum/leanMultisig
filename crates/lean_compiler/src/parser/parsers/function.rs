@@ -3,7 +3,7 @@ use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{AssignmentTarget, Expression, Function, Line, SimpleExpr},
+    lang::{AssignmentTarget, Expression, Function, Line, SimpleExpr, SourceLocation},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -71,10 +71,15 @@ impl FunctionParser {
         pair: ParsePair<'_>,
         ctx: &mut ParseContext,
     ) -> ParseResult<()> {
-        let location = pair.line_col().0;
+        let line_number = pair.line_col().0;
         let line = StatementParser.parse(pair, ctx)?;
 
-        lines.push(Line::LocationReport { location });
+        lines.push(Line::LocationReport {
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
+        });
         lines.push(line);
 
         Ok(())

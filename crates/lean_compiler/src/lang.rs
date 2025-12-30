@@ -480,7 +480,7 @@ pub enum Line {
     },
     // noop, debug purpose only
     LocationReport {
-        location: SourceLineNumber,
+        location: SourceLocation,
     },
     CustomHint(CustomHint, Vec<Expression>),
 }
