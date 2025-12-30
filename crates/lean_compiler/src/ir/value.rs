@@ -46,27 +46,3 @@ impl Display for IntermediateValue {
         }
     }
 }
-
-/// More restrictive value type used in specific contexts.
-///
-/// Similar to [`IntermediateValue`] but with different ordering constraints
-/// needed for certain operations like dereferencing.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum IntermediaryMemOrFpOrConstant {
-    /// Memory location at frame pointer + offset.
-    MemoryAfterFp { offset: ConstExpression },
-    /// The current frame pointer.
-    Fp,
-    /// A compile-time constant value.
-    Constant(ConstExpression),
-}
-
-impl Display for IntermediaryMemOrFpOrConstant {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MemoryAfterFp { offset } => write!(f, "m[fp + {offset}]"),
-            Self::Fp => write!(f, "fp"),
-            Self::Constant(c) => write!(f, "{c}"),
-        }
-    }
-}

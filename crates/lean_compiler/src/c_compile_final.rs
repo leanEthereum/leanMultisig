@@ -265,11 +265,11 @@ fn compile_block(
                     shift_0: eval_const_expression(&shift_0, compiler).to_usize(),
                     shift_1: eval_const_expression(&shift_1, compiler).to_usize(),
                     res: match res {
-                        IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset } => MemOrFpOrConstant::MemoryAfterFp {
+                        IntermediateValue::MemoryAfterFp { offset } => MemOrFpOrConstant::MemoryAfterFp {
                             offset: eval_const_expression_usize(&offset, compiler),
                         },
-                        IntermediaryMemOrFpOrConstant::Fp => MemOrFpOrConstant::Fp,
-                        IntermediaryMemOrFpOrConstant::Constant(c) => {
+                        IntermediateValue::Fp => MemOrFpOrConstant::Fp,
+                        IntermediateValue::Constant(c) => {
                             MemOrFpOrConstant::Constant(eval_const_expression(&c, compiler))
                         }
                     },
