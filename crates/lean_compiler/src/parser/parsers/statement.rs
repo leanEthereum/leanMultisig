@@ -1,7 +1,7 @@
 use lean_vm::{Boolean, BooleanExpr};
 
 use super::expression::ExpressionParser;
-use super::function::{FunctionCallParser, TupleExpressionParser};
+use super::function::{AssignmentParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
@@ -23,13 +23,11 @@ impl Parse<Line> for StatementParser {
 
         match inner.as_rule() {
             Rule::forward_declaration => ForwardDeclarationParser.parse(inner, ctx),
-            Rule::single_assignment => AssignmentParser.parse(inner, ctx),
-            Rule::array_assign => ArrayAssignParser.parse(inner, ctx),
+            Rule::assignment => AssignmentParser.parse(inner, ctx),
             Rule::if_statement => IfStatementParser.parse(inner, ctx),
             Rule::for_statement => ForStatementParser.parse(inner, ctx),
             Rule::match_statement => MatchStatementParser.parse(inner, ctx),
             Rule::return_statement => ReturnStatementParser.parse(inner, ctx),
-            Rule::function_call => FunctionCallParser.parse(inner, ctx),
             Rule::assert_eq_statement => AssertEqParser::<false>.parse(inner, ctx),
             Rule::assert_not_eq_statement => AssertNotEqParser::<false>.parse(inner, ctx),
             Rule::debug_assert_eq_statement => AssertEqParser::<true>.parse(inner, ctx),
@@ -50,38 +48,6 @@ impl Parse<Line> for ForwardDeclarationParser {
         let mut inner = pair.into_inner();
         let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
         Ok(Line::ForwardDeclaration { var })
-    }
-}
-
-/// Parser for variable assignments.
-pub struct AssignmentParser;
-
-impl Parse<Line> for AssignmentParser {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
-        let mut inner = pair.into_inner();
-        let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
-        let expr = next_inner_pair(&mut inner, "assignment value")?;
-        let value = ExpressionParser.parse(expr, ctx)?;
-
-        Ok(Line::Assignment { var, value })
-    }
-}
-
-/// Parser for array element assignments.
-pub struct ArrayAssignParser;
-
-impl Parse<Line> for ArrayAssignParser {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
-        let mut inner = pair.into_inner();
-        let array = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
-        let index = ExpressionParser.parse(next_inner_pair(&mut inner, "array index")?, ctx)?;
-        let value = ExpressionParser.parse(next_inner_pair(&mut inner, "array value")?, ctx)?;
-
-        Ok(Line::ArrayAssign {
-            array: array.into(),
-            index,
-            value,
-        })
     }
 }
 

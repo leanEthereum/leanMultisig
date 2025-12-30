@@ -419,15 +419,10 @@ pub enum Line {
     ForwardDeclaration {
         var: Var,
     },
-    Assignment {
-        var: Var,
-        value: Expression,
-    },
-    ArrayAssign {
-        // array[index] = value
-        array: SimpleExpr,
-        index: Expression,
-        value: Expression,
+    Statement {
+        targets: Vec<AssignmentTarget>, // LHS - can be empty for standalone calls
+        value: Expression,              // RHS - any expression
+        line_number: SourceLineNumber,
     },
     Assert {
         debug: bool,
@@ -447,12 +442,6 @@ pub enum Line {
         body: Vec<Self>,
         rev: bool,
         unroll: bool,
-        line_number: SourceLineNumber,
-    },
-    FunctionCall {
-        function_name: String,
-        args: Vec<Expression>,
-        return_data: Vec<AssignmentTarget>, // Changed from Vec<Var>
         line_number: SourceLineNumber,
     },
     FunctionRet {
@@ -582,11 +571,17 @@ impl Line {
             Self::ForwardDeclaration { var } => {
                 format!("var {var}")
             }
-            Self::Assignment { var, value } => {
-                format!("{var} = {value}")
-            }
-            Self::ArrayAssign { array, index, value } => {
-                format!("{array}[{index}] = {value}")
+            Self::Statement { targets, value, .. } => {
+                if targets.is_empty() {
+                    format!("{value}")
+                } else {
+                    let targets_str = targets
+                        .iter()
+                        .map(|target| target.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{targets_str} = {value}")
+                }
             }
             Self::PrivateInputStart { result } => {
                 format!("{result} = private_input_start()")
@@ -644,25 +639,6 @@ impl Line {
                     body_str,
                     spaces
                 )
-            }
-            Self::FunctionCall {
-                function_name,
-                args,
-                return_data,
-                line_number: _,
-            } => {
-                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
-                let return_data_str = return_data
-                    .iter()
-                    .map(|target| target.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                if return_data.is_empty() {
-                    format!("{function_name}({args_str})")
-                } else {
-                    format!("{return_data_str} = {function_name}({args_str})")
-                }
             }
             Self::FunctionRet { return_data } => {
                 let return_data_str = return_data

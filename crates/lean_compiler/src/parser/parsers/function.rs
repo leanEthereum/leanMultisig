@@ -116,23 +116,12 @@ impl Parse<usize> for ReturnCountParser {
     }
 }
 
-/// Parser for return target lists (used in function calls).
-pub struct ReturnTargetListParser;
+/// Parser for individual assignment targets (variable or array access).
+pub struct AssignmentTargetParser;
 
-impl Parse<Vec<AssignmentTarget>> for ReturnTargetListParser {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<AssignmentTarget>> {
-        pair.into_inner()
-            .map(|item| ReturnTargetParser.parse(item, ctx))
-            .collect()
-    }
-}
-
-/// Parser for individual return targets (variable or array access).
-pub struct ReturnTargetParser;
-
-impl Parse<AssignmentTarget> for ReturnTargetParser {
+impl Parse<AssignmentTarget> for AssignmentTargetParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<AssignmentTarget> {
-        let inner = next_inner_pair(&mut pair.into_inner(), "return target")?;
+        let inner = next_inner_pair(&mut pair.into_inner(), "assignment target")?;
 
         match inner.as_rule() {
             Rule::array_access_expr => {
@@ -150,35 +139,31 @@ impl Parse<AssignmentTarget> for ReturnTargetParser {
     }
 }
 
-/// Parser for function calls with special handling for built-in functions.
-pub struct FunctionCallParser;
+pub struct AssignmentParser;
 
-impl Parse<Line> for FunctionCallParser {
+impl Parse<Line> for AssignmentParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
-        let mut return_data: Vec<AssignmentTarget> = Vec::new();
-        let mut function_name = String::new();
-        let mut args = Vec::new();
         let line_number = pair.line_col().0;
+        let mut inner = pair.into_inner().peekable();
 
-        for item in pair.into_inner() {
-            match item.as_rule() {
-                Rule::function_res => {
-                    for res_item in item.into_inner() {
-                        if res_item.as_rule() == Rule::return_target_list {
-                            return_data = ReturnTargetListParser.parse(res_item, ctx)?;
-                        }
-                    }
-                }
-                Rule::identifier => function_name = item.as_str().to_string(),
-                Rule::tuple_expression => {
-                    args = TupleExpressionParser.parse(item, ctx)?;
-                }
-                _ => {}
-            }
+        // Check if there's an assignment_target_list (LHS)
+        let mut targets: Vec<AssignmentTarget> = Vec::new();
+        if let Some(first) = inner.peek()
+            && first.as_rule() == Rule::assignment_target_list
+        {
+            targets = inner
+                .next()
+                .unwrap()
+                .into_inner()
+                .map(|item| AssignmentTargetParser.parse(item, ctx))
+                .collect::<ParseResult<Vec<AssignmentTarget>>>()?;
         }
 
-        // Replace trash variables with unique names
-        for target in &mut return_data {
+        // Parse the expression (RHS)
+        let expr_pair = next_inner_pair(&mut inner, "expression")?;
+        let expr = ExpressionParser.parse(expr_pair, ctx)?;
+
+        for target in &mut targets {
             if let AssignmentTarget::Var(var) = target
                 && var == "_"
             {
@@ -186,13 +171,34 @@ impl Parse<Line> for FunctionCallParser {
             }
         }
 
-        // Handle built-in functions
-        Self::handle_builtin_function(line_number, function_name, args, return_data)
+        match &expr {
+            Expression::FunctionCall { function_name, args } => {
+                Self::handle_function_call(line_number, function_name.clone(), args.clone(), targets)
+            }
+            _ => {
+                // Non-function-call expression - must have exactly one target
+                if targets.is_empty() {
+                    return Err(SemanticError::new("Expression statement has no effect").into());
+                }
+                if targets.len() > 1 {
+                    return Err(SemanticError::new(
+                        "Multiple assignment targets require a function call on the right side",
+                    )
+                    .into());
+                }
+
+                Ok(Line::Statement {
+                    targets,
+                    value: expr,
+                    line_number,
+                })
+            }
+        }
     }
 }
 
-impl FunctionCallParser {
-    fn handle_builtin_function(
+impl AssignmentParser {
+    fn handle_function_call(
         line_number: SourceLineNumber,
         function_name: String,
         args: Vec<Expression>,
@@ -288,10 +294,9 @@ impl FunctionCallParser {
                     return Ok(Line::CustomHint(hint, args));
                 }
                 // Regular function call - allow array access targets
-                Ok(Line::FunctionCall {
-                    function_name,
-                    args,
-                    return_data,
+                Ok(Line::Statement {
+                    targets: return_data,
+                    value: Expression::FunctionCall { function_name, args },
                     line_number,
                 })
             }

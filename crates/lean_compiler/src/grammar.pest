@@ -23,9 +23,6 @@ return_count = { "->" ~ number }
 // Statements
 statement = {
     forward_declaration |
-    function_call |
-    single_assignment |
-    array_assign |
     if_statement |
     for_statement |
     match_statement |
@@ -36,7 +33,8 @@ statement = {
     assert_not_eq_statement  |
     debug_assert_eq_statement |
     debug_assert_not_eq_statement |
-    debug_assert_lt_statement
+    debug_assert_lt_statement |
+    assignment
 }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
@@ -46,9 +44,10 @@ continue_statement = { "continue" ~ ";" }
 
 forward_declaration = { "var" ~ identifier ~ ";" }
 
-single_assignment = { identifier ~ "=" ~ expression ~ ";" }
-
-array_assign = { identifier ~ "[" ~ expression ~ "]" ~ "=" ~ expression ~ ";" }
+// General assignment: LHS is optional list of variables/array accesses, RHS is any expression
+assignment = { (assignment_target_list ~ "=")? ~ expression ~ ";" }
+assignment_target_list = { assignment_target ~ ("," ~ assignment_target)* }
+assignment_target = { array_access_expr | identifier }
 
 if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_if_clause* ~ else_clause? }
 
@@ -67,11 +66,6 @@ unroll_clause = { "unroll" }
 match_statement = { "match" ~ expression ~ "{" ~ match_arm* ~ "}" }
 match_arm = { pattern ~ "=>" ~ "{" ~ statement* ~ "}" }
 pattern = { constant_value }
-
-function_call = { function_res? ~ identifier ~ "(" ~ tuple_expression? ~ ")" ~ ";" }
-function_res = { return_target_list ~ "=" }
-return_target_list = { return_target ~ ("," ~ return_target)* }
-return_target = { array_access_expr | identifier }
 
 assert_eq_statement = { "assert" ~ add_expr ~ "==" ~ add_expr ~ ";" }
 assert_not_eq_statement = { "assert" ~ add_expr ~ "!=" ~ add_expr ~ ";" }
