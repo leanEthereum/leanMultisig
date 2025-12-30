@@ -28,7 +28,7 @@ pub fn run_whir_recursion_benchmark(n_recursions: usize, num_variables: usize, t
         .to_str()
         .unwrap()
         .to_string();
-    assert!(
+    const _: () = assert!(
         GRINDING_BITS <= 16,
         "GRINDING_BITS must be less than or equal to 16 for the recursion program"
     );

@@ -1183,4 +1183,3 @@ fn test_len_2d_array() {
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
-
