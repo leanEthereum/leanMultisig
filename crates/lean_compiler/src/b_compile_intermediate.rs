@@ -198,7 +198,7 @@ fn compile_lines(
                 ));
             }
 
-            SimpleLine::TestZero { operation, arg0, arg1 } => {
+            SimpleLine::AssertZero { operation, arg0, arg1 } => {
                 instructions.push(IntermediateInstruction::computation(
                     *operation,
                     IntermediateValue::from_simple_expr(arg0, compiler),
