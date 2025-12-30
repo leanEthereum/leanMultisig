@@ -8,4 +8,4 @@ pub mod value;
 pub use bytecode::{IntermediateBytecode, MatchBlock};
 pub use instruction::IntermediateInstruction;
 pub use operation::HighLevelOperation;
-pub use value::{IntermediaryMemOrFpOrConstant, IntermediateValue};
+pub use value::IntermediateValue;

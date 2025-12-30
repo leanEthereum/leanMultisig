@@ -65,13 +65,13 @@ impl Compiler {
 }
 
 impl SimpleExpr {
-    fn to_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediaryMemOrFpOrConstant {
+    fn to_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediateValue {
         match self {
-            Self::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+            Self::Var(var) => IntermediateValue::MemoryAfterFp {
                 offset: compiler.get_offset(&var.clone().into()),
             },
-            Self::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
-            Self::ConstMallocAccess { malloc_label, offset } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+            Self::Constant(c) => IntermediateValue::Constant(c.clone()),
+            Self::ConstMallocAccess { malloc_label, offset } => IntermediateValue::MemoryAfterFp {
                 offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
                     malloc_label: *malloc_label,
                     offset: offset.clone(),
@@ -436,7 +436,7 @@ fn compile_lines(
                         instructions.push(IntermediateInstruction::Deref {
                             shift_0: new_fp_pos.into(),
                             shift_1: (2 + args.len() + i).into(),
-                            res: IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                            res: IntermediateValue::MemoryAfterFp {
                                 offset: compiler.get_offset(&ret_var.clone().into()),
                             },
                         });
@@ -623,12 +623,12 @@ fn setup_function_call(
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
             shift_1: ConstExpression::zero(),
-            res: IntermediaryMemOrFpOrConstant::Constant(ConstExpression::label(return_label.clone())),
+            res: IntermediateValue::Constant(ConstExpression::label(return_label.clone())),
         },
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
             shift_1: ConstExpression::one(),
-            res: IntermediaryMemOrFpOrConstant::Fp,
+            res: IntermediateValue::Fp,
         },
     ];
 
