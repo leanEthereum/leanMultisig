@@ -26,8 +26,6 @@ Benchmarks are performed on 2 laptops:
 - i9-12900H, 32 gb of RAM
 - mac m4 max
 
-target ≈ 128 bits of security, currently using conjecture: 4.12 of [WHIR](https://eprint.iacr.org/2024/1586.pdf), "up to capacity" (TODO: provable security)
-
 ### Poseidon2
 
 Poseidon2 over 16 KoalaBear field elements.
