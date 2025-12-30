@@ -116,11 +116,6 @@ pub enum ConstantValue {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstExpression {
     Value(ConstantValue),
-    Binary {
-        left: Box<Self>,
-        operation: HighLevelOperation,
-        right: Box<Self>,
-    },
     MathExpr(MathExpr, Vec<Self>),
 }
 
@@ -141,11 +136,7 @@ impl TryFrom<Expression> for ConstExpression {
             Expression::Binary { left, operation, right } => {
                 let left_expr = Self::try_from(*left)?;
                 let right_expr = Self::try_from(*right)?;
-                Ok(Self::Binary {
-                    left: Box::new(left_expr),
-                    operation,
-                    right: Box::new(right_expr),
-                })
+                Ok(Self::MathExpr(MathExpr::Binary(operation), vec![left_expr, right_expr]))
             }
             Expression::MathExpr(math_expr, args) => {
                 let mut const_args = Vec::new();
@@ -186,9 +177,6 @@ impl ConstExpression {
     {
         match self {
             Self::Value(value) => func(value),
-            Self::Binary { left, operation, right } => {
-                Some(operation.eval(left.eval_with(func)?, right.eval_with(func)?))
-            }
             Self::MathExpr(math_expr, args) => {
                 let mut eval_args = Vec::new();
                 for arg in args {
@@ -221,25 +209,16 @@ impl From<ConstantValue> for ConstExpression {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AssumeBoolean {
-    AssumeBoolean,
-    DoNotAssumeBoolean,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Condition {
-    Expression(Expression, AssumeBoolean),
+    AssumeBoolean(Expression),
     Comparison(BooleanExpr<Expression>),
 }
 
 impl Display for Condition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Expression(expr, AssumeBoolean::AssumeBoolean) => {
-                write!(f, "!assume_bool({expr})")
-            }
-            Self::Expression(expr, AssumeBoolean::DoNotAssumeBoolean) => write!(f, "{expr}"),
+            Self::AssumeBoolean(expr) => write!(f, "{expr}"),
             Self::Comparison(cmp) => write!(f, "{cmp}"),
         }
     }
@@ -271,6 +250,7 @@ pub enum Expression {
 /// For arbitrary compile-time computations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MathExpr {
+    Binary(HighLevelOperation),
     Log2Ceil,
     NextMultipleOf,
     SaturatingSub,
@@ -279,6 +259,7 @@ pub enum MathExpr {
 impl Display for MathExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Binary(op) => write!(f, "{op}"),
             Self::Log2Ceil => write!(f, "log2_ceil"),
             Self::NextMultipleOf => write!(f, "next_multiple_of"),
             Self::SaturatingSub => write!(f, "saturating_sub"),
@@ -289,6 +270,7 @@ impl Display for MathExpr {
 impl MathExpr {
     pub fn num_args(&self) -> usize {
         match self {
+            Self::Binary(_) => 2,
             Self::Log2Ceil => 1,
             Self::NextMultipleOf => 2,
             Self::SaturatingSub => 2,
@@ -296,6 +278,10 @@ impl MathExpr {
     }
     pub fn eval(&self, args: &[F]) -> F {
         match self {
+            Self::Binary(op) => {
+                assert_eq!(args.len(), 2);
+                op.eval(args[0], args[1])
+            }
             Self::Log2Ceil => {
                 assert_eq!(args.len(), 1);
                 let value = args[0];
@@ -422,7 +408,7 @@ pub enum Line {
     },
     Statement {
         targets: Vec<AssignmentTarget>, // LHS - can be empty for standalone calls
-        value: Expression,               // RHS - any expression
+        value: Expression,              // RHS - any expression
         line_number: SourceLineNumber,
     },
     Assert {
@@ -713,9 +699,6 @@ impl Display for ConstExpression {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Value(value) => write!(f, "{value}"),
-            Self::Binary { left, operation, right } => {
-                write!(f, "({left} {operation} {right})")
-            }
             Self::MathExpr(math_expr, args) => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{math_expr}({args_str})")

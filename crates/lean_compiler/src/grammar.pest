@@ -29,11 +29,8 @@ statement = {
     return_statement |
     break_statement |
     continue_statement |
-    assert_eq_statement |
-    assert_not_eq_statement  |
-    debug_assert_eq_statement |
-    debug_assert_not_eq_statement |
-    debug_assert_lt_statement |
+    assert_statement |
+    debug_assert_statement |
     assignment
 }
 
@@ -51,9 +48,13 @@ assignment_target = { array_access_expr | identifier }
 
 if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_if_clause* ~ else_clause? }
 
-condition = { expression | assumed_bool_expr }
+condition = { assumed_bool_expr | comparison }
 
 assumed_bool_expr = { "!!assume_bool" ~ "(" ~ expression ~ ")" }
+
+// Comparisons (shared between conditions and assertions)
+comparison = { add_expr ~ comparison_op ~ add_expr }
+comparison_op = { "==" | "!=" | "<" }
 
 else_if_clause = { "else" ~ "if" ~ condition ~ "{" ~ statement* ~ "}" }
 
@@ -67,18 +68,12 @@ match_statement = { "match" ~ expression ~ "{" ~ match_arm* ~ "}" }
 match_arm = { pattern ~ "=>" ~ "{" ~ statement* ~ "}" }
 pattern = { constant_value }
 
-assert_eq_statement = { "assert" ~ add_expr ~ "==" ~ add_expr ~ ";" }
-assert_not_eq_statement = { "assert" ~ add_expr ~ "!=" ~ add_expr ~ ";" }
-
-debug_assert_eq_statement = { "debug_assert" ~ add_expr ~ "==" ~ add_expr ~ ";" }
-debug_assert_not_eq_statement = { "debug_assert" ~ add_expr ~ "!=" ~ add_expr ~ ";" }
-debug_assert_lt_statement = { "debug_assert" ~ add_expr ~ "<" ~ add_expr ~ ";" }
+assert_statement = { "assert" ~ comparison ~ ";" }
+debug_assert_statement = { "debug_assert" ~ comparison ~ ";" }
 
 // Expressions
 tuple_expression = { expression ~ ("," ~ expression)* }
-expression = { neq_expr }
-neq_expr = { eq_expr ~ ("!=" ~ eq_expr)* }
-eq_expr = { add_expr ~ ("==" ~ add_expr)* }
+expression = { add_expr }
 add_expr = { sub_expr ~ ("+" ~ sub_expr)* }
 sub_expr = { mul_expr ~ ("-" ~ mul_expr)* }
 mul_expr = { mod_expr ~ ("*" ~ mod_expr)* }

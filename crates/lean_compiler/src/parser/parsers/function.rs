@@ -148,15 +148,15 @@ impl Parse<Line> for AssignmentParser {
 
         // Check if there's an assignment_target_list (LHS)
         let mut targets: Vec<AssignmentTarget> = Vec::new();
-        if let Some(first) = inner.peek() {
-            if first.as_rule() == Rule::assignment_target_list {
-                targets = inner
-                    .next()
-                    .unwrap()
-                    .into_inner()
-                    .map(|item| AssignmentTargetParser.parse(item, ctx))
-                    .collect::<ParseResult<Vec<AssignmentTarget>>>()?;
-            }
+        if let Some(first) = inner.peek()
+            && first.as_rule() == Rule::assignment_target_list
+        {
+            targets = inner
+                .next()
+                .unwrap()
+                .into_inner()
+                .map(|item| AssignmentTargetParser.parse(item, ctx))
+                .collect::<ParseResult<Vec<AssignmentTarget>>>()?;
         }
 
         // Parse the expression (RHS)

@@ -51,11 +51,10 @@ impl Compiler {
             VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset } => {
                 for scope in self.stack_frame_layout.scopes.iter().rev() {
                     if let Some(base) = scope.const_mallocs.get(malloc_label) {
-                        return ConstExpression::Binary {
-                            left: Box::new((*base).into()),
-                            operation: HighLevelOperation::Add,
-                            right: Box::new((*offset).clone()),
-                        };
+                        return ConstExpression::MathExpr(
+                            MathExpr::Binary(HighLevelOperation::Add),
+                            vec![(*base).into(), offset.clone()],
+                        );
                     }
                 }
                 panic!("Const malloc {malloc_label} not in scope");
@@ -464,7 +463,7 @@ fn compile_lines(
                 match table {
                     Table::DotProduct(_) => assert_eq!(args.len(), 5),
                     Table::Poseidon16(_) => assert_eq!(args.len(), 4),
-                    _ => unreachable!(),
+                    Table::Execution(_) => unreachable!(),
                 }
                 instructions.push(IntermediateInstruction::Precompile {
                     table: *table,
@@ -512,7 +511,7 @@ fn compile_lines(
                 });
             }
             SimpleLine::ConstMalloc { var, size, label } => {
-                let size = size.naive_eval().unwrap().to_usize(); // TODO not very good;
+                let size = size.naive_eval().unwrap().to_usize();
                 if !compiler.is_in_scope(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout
