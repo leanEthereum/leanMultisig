@@ -1,5 +1,5 @@
 use super::operation::HighLevelOperation;
-use super::value::{IntermediaryMemOrFpOrConstant, IntermediateValue};
+use super::value::IntermediateValue;
 use crate::lang::ConstExpression;
 use lean_vm::{BooleanExpr, CustomHint, Operation, SourceLocation, Table, TableT};
 use std::fmt::{Display, Formatter};
@@ -16,7 +16,7 @@ pub enum IntermediateInstruction {
     Deref {
         shift_0: ConstExpression,
         shift_1: ConstExpression,
-        res: IntermediaryMemOrFpOrConstant,
+        res: IntermediateValue,
     }, // res = m[m[fp + shift_0]]
     Panic,
     Jump {
