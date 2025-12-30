@@ -7,7 +7,7 @@ use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
     ir::HighLevelOperation,
-    lang::{AssumeBoolean, Condition, Expression, Line},
+    lang::{AssumeBoolean, Condition, Expression, Line, SourceLocation},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -158,10 +158,15 @@ impl IfStatementParser {
         pair: ParsePair<'_>,
         ctx: &mut ParseContext,
     ) -> ParseResult<()> {
-        let location = pair.line_col().0;
+        let line_number = pair.line_col().0;
         let line = StatementParser.parse(pair, ctx)?;
 
-        lines.push(Line::LocationReport { location });
+        lines.push(Line::LocationReport {
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
+        });
         lines.push(line);
 
         Ok(())
@@ -260,10 +265,15 @@ impl ForStatementParser {
         pair: ParsePair<'_>,
         ctx: &mut ParseContext,
     ) -> ParseResult<()> {
-        let location = pair.line_col().0;
+        let line_number = pair.line_col().0;
         let line = StatementParser.parse(pair, ctx)?;
 
-        lines.push(Line::LocationReport { location });
+        lines.push(Line::LocationReport {
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
+        });
         lines.push(line);
 
         Ok(())
@@ -307,10 +317,15 @@ impl MatchStatementParser {
         pair: ParsePair<'_>,
         ctx: &mut ParseContext,
     ) -> ParseResult<()> {
-        let location = pair.line_col().0;
+        let line_number = pair.line_col().0;
         let line = StatementParser.parse(pair, ctx)?;
 
-        lines.push(Line::LocationReport { location });
+        lines.push(Line::LocationReport {
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
+        });
         lines.push(line);
 
         Ok(())

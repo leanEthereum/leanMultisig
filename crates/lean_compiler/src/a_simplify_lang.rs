@@ -1268,12 +1268,7 @@ fn simplify_lines(
                 res.push(SimpleLine::Panic);
             }
             Line::LocationReport { location } => {
-                res.push(SimpleLine::LocationReport {
-                    location: SourceLocation {
-                        line_number: *location,
-                        file_id,
-                    },
-                });
+                res.push(SimpleLine::LocationReport { location: *location });
             }
         }
     }
