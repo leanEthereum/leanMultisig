@@ -1980,3 +1980,81 @@ fn test() {
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
+
+
+#[test]
+fn test_mutable_in_match_arms() {
+    let program = r#"
+    fn main() {
+        assert func(0) == 11;
+        assert func(1) == 20;
+        assert func(2) == 10;
+        return;
+    }
+
+    fn func(i) -> 1 {
+        mut x = 10;
+        match i {
+            0 => {
+                x = x + 1;
+            }
+            1 => {
+                x = x + 10;
+            }
+            2 => {
+                // do nothing
+            }
+        }
+        return x;
+    }
+     "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+
+#[test]
+fn test_mutable_in_complex_control_flow() {
+    let program = r#"
+    fn main() {
+        assert func(0) == 11;
+        assert func(1) == 40;
+        assert func(2) == 10;
+        return;
+    }
+
+    fn func(i) -> 1 {
+        mut x = 10;
+        match i {
+            0 => {
+                x = x + 1;
+            }
+            1 => {
+                if 1 == 0 {
+                    x = x + 100;
+                } else {
+                    x = x + 10;
+                }
+                if 1 == 0 {
+                    
+                } else {
+                    x = x + 10;
+                }
+                if 1 == 1 {
+                     if 1 == 0 {
+                    
+                    } else {
+                        x = x + 10;
+                    }
+                } else {
+                    
+                }
+            }
+            2 => {
+                // do nothing
+            }
+        }
+        return x;
+    }
+     "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}

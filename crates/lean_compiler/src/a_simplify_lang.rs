@@ -565,18 +565,15 @@ struct MutableVarTracker {
 }
 
 impl MutableVarTracker {
-    /// Check if a variable is mutable
     fn is_mutable(&self, var: &Var) -> bool {
         self.mutable_vars.contains(var)
     }
 
-    /// Register a new mutable variable
     fn register_mutable(&mut self, var: &Var) {
         self.mutable_vars.insert(var.clone());
         self.versions.insert(var.clone(), 0);
     }
 
-    /// Get the current variable name (with version suffix if mutated)
     fn current_name(&self, var: &Var) -> Var {
         match self.versions.get(var) {
             Some(0) | None => var.clone(),
@@ -584,24 +581,20 @@ impl MutableVarTracker {
         }
     }
 
-    /// Get the current version number for a variable
     fn current_version(&self, var: &Var) -> usize {
         self.versions.get(var).copied().unwrap_or(0)
     }
 
-    /// Increment version and return new variable name
     fn increment_version(&mut self, var: &Var) -> Var {
         let version = self.versions.entry(var.clone()).or_insert(0);
         *version += 1;
         format!("@mut_{var}_{version}")
     }
 
-    /// Snapshot current versions (for if/else handling)
     fn snapshot_versions(&self) -> BTreeMap<Var, usize> {
         self.versions.clone()
     }
 
-    /// Restore versions from snapshot
     fn restore_versions(&mut self, snapshot: BTreeMap<Var, usize>) {
         self.versions = snapshot;
     }
@@ -647,10 +640,22 @@ fn simplify_lines(
             }
             Line::Match { value, arms } => {
                 let simple_value = simplify_expr(ctx, state, const_malloc, value, &mut res);
+
+                // Snapshot mutable variable versions before processing arms
+                let snapshot_versions = state.mut_tracker.snapshot_versions();
+                let array_manager_snapshot = state.array_manager.clone();
+
                 let mut simple_arms = vec![];
+                let mut arm_versions = vec![];
+
                 for (i, (pattern, statements)) in arms.iter().enumerate() {
                     assert_eq!(*pattern, i, "match patterns should be consecutive, starting from 0");
-                    simple_arms.push(simplify_lines(
+
+                    // Restore snapshot for each arm
+                    state.mut_tracker.restore_versions(snapshot_versions.clone());
+                    *state.array_manager = array_manager_snapshot.clone();
+
+                    let arm_simplified = simplify_lines(
                         ctx,
                         state,
                         const_malloc,
@@ -659,8 +664,57 @@ fn simplify_lines(
                         n_returned_vars,
                         statements,
                         in_a_loop,
-                    ));
+                    );
+                    simple_arms.push(arm_simplified);
+                    arm_versions.push(state.mut_tracker.versions.clone());
                 }
+
+                // Unify mutable variable versions across all arms
+                for var in state.mut_tracker.mutable_vars.clone().iter() {
+                    let snapshot_v = snapshot_versions.get(var).copied().unwrap_or(0);
+
+                    let versions: Vec<usize> = arm_versions.iter().map(|v| v.get(var).copied().unwrap_or(0)).collect();
+
+                    if versions.iter().all(|&v| v == versions[0]) {
+                        // All arms have same version
+                        let arm_v = versions[0];
+                        if arm_v > snapshot_v {
+                            // A new versioned variable was created in all arms
+                            let versioned_var = format!("@mut_{var}_{arm_v}");
+                            res.push(SimpleLine::ForwardDeclaration { var: versioned_var });
+                        }
+                        state.mut_tracker.versions.insert(var.clone(), arm_v);
+                    } else {
+                        // Versions differ - need to unify
+                        let max_version = versions.iter().copied().max().unwrap();
+                        let unified_version = max_version + 1;
+                        let unified_var = format!("@mut_{var}_{unified_version}");
+
+                        // Add forward declaration before the match
+                        res.push(SimpleLine::ForwardDeclaration {
+                            var: unified_var.clone(),
+                        });
+
+                        // Add equality assignment at the end of each arm
+                        for (arm_idx, arm_v) in versions.iter().enumerate() {
+                            let arm_var_name = if *arm_v == 0 {
+                                var.clone()
+                            } else {
+                                format!("@mut_{var}_{arm_v}")
+                            };
+                            simple_arms[arm_idx].push(SimpleLine::equality(
+                                unified_var.clone(),
+                                SimpleExpr::Memory(VarOrConstMallocAccess::Var(arm_var_name)),
+                            ));
+                        }
+
+                        state.mut_tracker.versions.insert(var.clone(), unified_version);
+                    }
+                }
+
+                // Restore array manager to snapshot state
+                *state.array_manager = array_manager_snapshot;
+
                 res.push(SimpleLine::Match {
                     value: simple_value,
                     arms: simple_arms,
@@ -1034,7 +1088,15 @@ fn simplify_lines(
                             // We need to add a forward declaration before the if/else
                             // so the variable is in scope after the if/else
                             let versioned_var = format!("@mut_{var}_{then_v}");
-                            res.push(SimpleLine::ForwardDeclaration { var: versioned_var });
+                            res.push(SimpleLine::ForwardDeclaration {
+                                var: versioned_var.clone(),
+                            });
+                            // Remove forward declarations from inside the branches
+                            // to avoid shadowing the outer declaration
+                            then_branch_simplified
+                                .retain(|l| !matches!(l, SimpleLine::ForwardDeclaration { var } if var == &versioned_var));
+                            else_branch_simplified
+                                .retain(|l| !matches!(l, SimpleLine::ForwardDeclaration { var } if var == &versioned_var));
                         }
                         state.mut_tracker.versions.insert(var.clone(), then_v);
                     }
