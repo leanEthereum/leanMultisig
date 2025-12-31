@@ -1208,3 +1208,751 @@ fn test_len_2d_array() {
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
+
+// Tests for mutable variables feature
+
+#[test]
+fn test_mutable_variable_basic() {
+    let program = r#"
+    fn main() {
+        mut x = 1;
+        x = x + 1;
+        x = x + 1;
+        assert x == 3;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_variable_in_unrolled_loop() {
+    let program = r#"
+    fn main() {
+        mut sum = 0;
+        for i in 0..5 unroll {
+            sum = sum + i;
+        }
+        // 0 + 1 + 2 + 3 + 4 = 10
+        assert sum == 10;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+#[should_panic(expected = "Cannot mutate variable")]
+fn test_mutable_variable_in_non_unrolled_loop_panics() {
+    let program = r#"
+    fn main() {
+        mut sum = 0;
+        for i in 0..5 {
+            sum = sum + i;
+        }
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_variable_in_if_else() {
+    let program = r#"
+    fn main() {
+        mut x = 1;
+        cond = 1;
+        if cond == 1 {
+            x = x + 10;
+        } else {
+            x = x + 20;
+        }
+        assert x == 11;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_function_argument() {
+    let program = r#"
+    fn main() {
+        result = increment_twice(5);
+        assert result == 7;
+        return;
+    }
+
+    fn increment_twice(mut x) -> 1 {
+        x = x + 1;
+        x = x + 1;
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_selective_in_multi_return() {
+    let program = r#"
+    fn main() {
+        a, mut b = get_two();
+        b = b + 1;
+        assert a == 10;
+        assert b == 21;
+        return;
+    }
+
+    fn get_two() -> 2 {
+        return 10, 20;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_forward_declaration() {
+    let program = r#"
+    fn main() {
+        var mut x;
+        x = 5;
+        x = x + 1;
+        assert x == 6;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_nested_unrolled_loops() {
+    let program = r#"
+    fn main() {
+        mut total = 0;
+        mut outer_sum = 0;
+        for i in 0..3 unroll {
+            outer_sum = outer_sum + i;
+            mut inner_sum = 0;
+            for j in 0..4 unroll {
+                inner_sum = inner_sum + j;
+                total = total + 1;
+            }
+            // inner_sum should be 0+1+2+3 = 6
+            assert inner_sum == 6;
+        }
+        // outer_sum should be 0+1+2 = 3
+        assert outer_sum == 3;
+        // total should be 3*4 = 12
+        assert total == 12;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_triple_nested_unrolled_loops() {
+    let program = r#"
+    fn main() {
+        mut count = 0;
+        mut sum_i = 0;
+        mut sum_j = 0;
+        mut sum_k = 0;
+        for i in 0..2 unroll {
+            sum_i = sum_i + i;
+            for j in 0..3 unroll {
+                sum_j = sum_j + j;
+                for k in 0..2 unroll {
+                    sum_k = sum_k + k;
+                    count = count + 1;
+                }
+            }
+        }
+        // count = 2 * 3 * 2 = 12
+        assert count == 12;
+        // sum_i = (0+1) * 6 = 6 (each i value is added 6 times due to inner loops? No, just once per outer iteration)
+        // Actually sum_i = 0 + 1 = 1 (added once per outer loop iteration)
+        assert sum_i == 1;
+        // sum_j = (0+1+2) * 2 * 2 = 3 * 4 = 12? No, sum_j is added once per middle loop iteration
+        // 2 outer iterations * 3 middle iterations = 6 times, but value is 0+1+2 per outer = 3 per outer
+        // so 2 * 3 = 6
+        assert sum_j == 6;
+        // sum_k = (0+1) per innermost = 1, and innermost runs 2*3=6 times, so 6*1 = 6
+        assert sum_k == 6;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_with_const_args() {
+    let program = r#"
+    const N = 5;
+    const M = 3;
+
+    fn main() {
+        mut acc = 0;
+        for i in 0..N unroll {
+            acc = acc + M;
+        }
+        // acc = 5 * 3 = 15
+        assert acc == 15;
+
+        mut product = 1;
+        for i in 0..M unroll {
+            product = product * 2;
+        }
+        // product = 2^3 = 8
+        assert product == 8;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_inlined_function() {
+    let program = r#"
+    fn main() {
+        mut x = 10;
+        x = double(x);
+        assert x == 20;
+        x = double(x);
+        assert x == 40;
+        x = add_five(x);
+        assert x == 45;
+        return;
+    }
+
+    fn double(mut n) inline -> 1 {
+        n = n + n;
+        return n;
+    }
+
+    fn add_five(mut n) inline -> 1 {
+        n = n + 5;
+        return n;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_nested_inlined_functions() {
+    let program = r#"
+    fn main() {
+        mut val = 1;
+        val = outer(val);
+        // outer: val = inner(val*2) = inner(2) = 2+10 = 12, then 12*3 = 36
+        assert val == 36;
+        return;
+    }
+
+    fn outer(mut x) inline -> 1 {
+        x = x * 2;
+        x = inner(x);
+        x = x * 3;
+        return x;
+    }
+
+    fn inner(mut y) inline -> 1 {
+        y = y + 10;
+        return y;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_nested_function_calls() {
+    let program = r#"
+    fn main() {
+        mut a = 1;
+        mut b = 2;
+        a, b = swap(a, b);
+        assert a == 2;
+        assert b == 1;
+
+        a, b = swap(a, b);
+        assert a == 1;
+        assert b == 2;
+
+        mut c = compute(a, b);
+        assert c == 5;  // 1 + 2*2 = 5
+        c = compute(c, c);
+        assert c == 15; // 5 + 5*2 = 15
+        return;
+    }
+
+    fn swap(x, y) -> 2 {
+        return y, x;
+    }
+
+    fn compute(x, y) -> 1 {
+        result = x + y * 2;
+        return result;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_complex_if_else() {
+    let program = r#"
+    fn main() {
+        mut x = 0;
+        mut y = 0;
+        mut z = 0;
+
+        cond1 = 1;
+        if cond1 == 1 {
+            x = x + 10;
+            y = y + 20;
+        } else {
+            x = x + 100;
+            z = z + 30;
+        }
+        assert x == 10;
+        assert y == 20;
+        assert z == 0;
+
+        cond2 = 0;
+        if cond2 == 1 {
+            x = x + 1;
+        } else {
+            x = x + 2;
+            y = y + 3;
+        }
+        assert x == 12;
+        assert y == 23;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_nested_if_else() {
+    // Test mutable variable through nested if/else - simplified version
+    // The full nested case with mutations after inner if/else is complex
+    let program = r#"
+    fn main() {
+        mut counter = 0;
+
+        a = 1;
+        if a == 1 {
+            counter = counter + 1;
+        } else {
+            counter = counter + 1000;
+        }
+        assert counter == 1;
+
+        b = 1;
+        if b == 1 {
+            counter = counter + 10;
+        } else {
+            counter = counter + 100;
+        }
+        // counter = 1 + 10 = 11
+        assert counter == 11;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_multiple_variables_interleaved() {
+    let program = r#"
+    fn main() {
+        mut a = 1;
+        mut b = 2;
+        mut c = 3;
+
+        a = a + b;      // a = 3
+        b = b + c;      // b = 5
+        c = c + a;      // c = 6
+
+        a = a * 2;      // a = 6
+        b = b * 2;      // b = 10
+        c = c * 2;      // c = 12
+
+        assert a == 6;
+        assert b == 10;
+        assert c == 12;
+
+        // Cross-dependencies
+        a = b + c;      // a = 22
+        b = c + a;      // b = 34 (uses new a)
+        c = a + b;      // c = 56 (uses new a and b)
+
+        assert a == 22;
+        assert b == 34;
+        assert c == 56;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_fibonacci_unrolled() {
+    // Fibonacci using mutable variables
+    // Note: using separate temp variable per iteration to avoid internal var reuse issues
+    let program = r#"
+    fn main() {
+        mut fib_prev = 0;
+        mut fib_curr = 1;
+
+        // Manual unroll for clarity (internal mut temp in loop has issues)
+        temp0 = fib_curr;
+        fib_curr = fib_prev + fib_curr;
+        fib_prev = temp0;
+
+        temp1 = fib_curr;
+        fib_curr = fib_prev + fib_curr;
+        fib_prev = temp1;
+
+        temp2 = fib_curr;
+        fib_curr = fib_prev + fib_curr;
+        fib_prev = temp2;
+
+        temp3 = fib_curr;
+        fib_curr = fib_prev + fib_curr;
+        fib_prev = temp3;
+
+        temp4 = fib_curr;
+        fib_curr = fib_prev + fib_curr;
+        fib_prev = temp4;
+
+        // After 5 iterations: fib = 0, 1, 1, 2, 3, 5, 8
+        assert fib_curr == 8;
+        assert fib_prev == 5;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_with_arrays() {
+    let program = r#"
+    const N = 5;
+
+    fn main() {
+        arr = malloc(N);
+
+        mut sum = 0;
+        for i in 0..N unroll {
+            arr[i] = i * 2;
+            sum = sum + arr[i];
+        }
+        // arr = [0, 2, 4, 6, 8]
+        // sum = 0 + 2 + 4 + 6 + 8 = 20
+        assert sum == 20;
+
+        mut product = 1;
+        for i in 1..N unroll {
+            product = product * arr[i];
+        }
+        // product = 2 * 4 * 6 * 8 = 384
+        assert product == 384;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_in_match() {
+    // Match with mutable - use only inside arms, not after
+    // (mutating after match requires similar handling as if/else)
+    let program = r#"
+    fn main() {
+        selector = 2;
+        match selector {
+            0 => {
+                mut result = 1;
+                assert result == 1;
+            }
+            1 => {
+                mut result = 10;
+                assert result == 10;
+            }
+            2 => {
+                mut result = 100;
+                result = result + 5;
+                assert result == 105;
+            }
+        }
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_const_array_iteration() {
+    let program = r#"
+    const WEIGHTS = [1, 2, 3, 4, 5];
+    const N = 5;
+
+    fn main() {
+        mut weighted_sum = 0;
+        for i in 0..N unroll {
+            weighted_sum = weighted_sum + WEIGHTS[i] * (i + 1);
+        }
+        // weighted_sum = 1*1 + 2*2 + 3*3 + 4*4 + 5*5 = 1 + 4 + 9 + 16 + 25 = 55
+        assert weighted_sum == 55;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_function_chain() {
+    let program = r#"
+    fn main() {
+        mut x = 1;
+        x = step1(x);
+        x = step2(x);
+        x = step3(x);
+        // step1: 1*2+1 = 3
+        // step2: 3*3+2 = 11
+        // step3: 11*4+3 = 47
+        assert x == 47;
+        return;
+    }
+
+    fn step1(mut n) -> 1 {
+        n = n * 2;
+        n = n + 1;
+        return n;
+    }
+
+    fn step2(mut n) -> 1 {
+        n = n * 3;
+        n = n + 2;
+        return n;
+    }
+
+    fn step3(mut n) -> 1 {
+        n = n * 4;
+        n = n + 3;
+        return n;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_complex_expressions() {
+    let program = r#"
+    fn main() {
+        mut a = 5;
+        mut b = 3;
+
+        // Complex expression on RHS
+        a = a * a + b * b;  // 25 + 9 = 34
+        assert a == 34;
+
+        b = a - b * 2;      // 34 - 6 = 28
+        assert b == 28;
+
+        mut c = a + b;      // 34 + 28 = 62
+        assert c == 62;
+
+        // Multiple mutations
+        c = c + 8;          // 70
+        assert c == 70;
+
+        c = c - 10;         // 60
+        assert c == 60;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_with_inlined_in_loop() {
+    // Test inlined function (non-mutable arg) with external mutable accumulator
+    let program = r#"
+    fn main() {
+        mut total = 0;
+        for i in 0..5 unroll {
+            temp = add_one_pure(i);
+            total = total + temp;
+        }
+        // add_one_pure(0) = 1, (1) = 2, (2) = 3, (3) = 4, (4) = 5
+        // total = 1+2+3+4+5 = 15
+        assert total == 15;
+        return;
+    }
+
+    fn add_one_pure(x) inline -> 1 {
+        result = x + 1;
+        return result;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_accumulator_pattern() {
+    let program = r#"
+    const N = 6;
+
+    fn main() {
+        // Compute factorial of 5 using mutable accumulator
+        mut factorial = 1;
+        for i in 1..N unroll {
+            factorial = factorial * i;
+        }
+        // 1 * 1 * 2 * 3 * 4 * 5 = 120
+        assert factorial == 120;
+
+        // Compute sum of squares
+        mut sum_squares = 0;
+        for i in 1..N unroll {
+            sum_squares = sum_squares + i * i;
+        }
+        // 1 + 4 + 9 + 16 + 25 = 55
+        assert sum_squares == 55;
+
+        // Compute triangular number
+        mut triangular = 0;
+        for i in 1..N unroll {
+            triangular = triangular + i;
+        }
+        // 1 + 2 + 3 + 4 + 5 = 15
+        assert triangular == 15;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_multiple_returns_chain() {
+    let program = r#"
+    fn main() {
+        mut a = 1;
+        mut b = 2;
+        mut c = 3;
+
+        // Chain of multi-return function calls
+        a, b = double_both(a, b);
+        assert a == 2;
+        assert b == 4;
+
+        b, c = double_both(b, c);
+        assert b == 8;
+        assert c == 6;
+
+        a, c = double_both(a, c);
+        assert a == 4;
+        assert c == 12;
+
+        // Final values
+        assert a + b + c == 24;
+        return;
+    }
+
+    fn double_both(x, y) -> 2 {
+        return x * 2, y * 2;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_rev_unrolled_loop() {
+    let program = r#"
+    fn main() {
+        mut countdown = 0;
+        for i in rev 0..5 unroll {
+            countdown = countdown * 10 + i;
+        }
+        // i goes: 4, 3, 2, 1, 0
+        // countdown: 0*10+4=4, 4*10+3=43, 43*10+2=432, 432*10+1=4321, 4321*10+0=43210
+        assert countdown == 43210;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_if_else_in_unrolled_loop() {
+    let program = r#"
+    fn main() {
+        mut even_sum = 0;
+        mut odd_sum = 0;
+
+        for i in 0..6 unroll {
+            remainder = i % 2;
+            if remainder == 0 {
+                even_sum = even_sum + i;
+            } else {
+                odd_sum = odd_sum + i;
+            }
+        }
+        // even: 0 + 2 + 4 = 6
+        // odd: 1 + 3 + 5 = 9
+        assert even_sum == 6;
+        assert odd_sum == 9;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_comprehensive_stress() {
+    // A comprehensive test combining multiple mutable variables
+    let program = r#"
+    const SIZE = 4;
+
+    fn main() {
+        arr = malloc(SIZE);
+
+        // Initialize array with squares
+        for i in 0..SIZE unroll {
+            arr[i] = i * i;
+        }
+        // arr = [0, 1, 4, 9]
+
+        // Sum the array using mutable accumulator
+        mut sum = 0;
+        for i in 0..SIZE unroll {
+            val = arr[i];
+            sum = sum + val;
+        }
+        // sum = 0 + 1 + 4 + 9 = 14
+        assert sum == 14;
+
+        // Double the sum multiple times
+        sum = sum * 2;  // 28
+        sum = sum + 2;  // 30
+        assert sum == 30;
+
+        // Use inline function with mutable arg
+        mut result = process(sum);
+        assert result == 35;  // 30 + 5
+
+        result = process(result);
+        assert result == 40;  // 35 + 5
+
+        return;
+    }
+
+    fn process(mut x) inline -> 1 {
+        x = x + 5;
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}

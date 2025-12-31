@@ -3,7 +3,7 @@ use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{AssignmentTarget, Expression, Function, Line, SourceLocation},
+    lang::{AssignmentTarget, Expression, Function, FunctionArg, Line, SourceLocation},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -89,17 +89,39 @@ impl FunctionParser {
 /// Parser for function parameters.
 pub struct ParameterParser;
 
-impl Parse<(String, bool)> for ParameterParser {
-    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<(String, bool)> {
-        let mut inner = pair.into_inner();
-        let first = next_inner_pair(&mut inner, "parameter")?;
+impl Parse<FunctionArg> for ParameterParser {
+    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<FunctionArg> {
+        let mut inner = pair.into_inner().peekable();
+        let mut is_const = false;
+        let mut is_mutable = false;
 
-        if first.as_rule() == Rule::const_keyword {
-            let identifier = next_inner_pair(&mut inner, "identifier after 'const'")?;
-            Ok((identifier.as_str().to_string(), true))
-        } else {
-            Ok((first.as_str().to_string(), false))
+        // Check for const keyword
+        if inner
+            .peek()
+            .map(|p| p.as_rule() == Rule::const_keyword)
+            .unwrap_or(false)
+        {
+            is_const = true;
+            inner.next();
         }
+
+        // Check for mut keyword
+        if inner.peek().map(|p| p.as_rule() == Rule::mut_keyword).unwrap_or(false) {
+            is_mutable = true;
+            inner.next();
+        }
+
+        // const and mut are mutually exclusive
+        if is_const && is_mutable {
+            return Err(SemanticError::new("Parameter cannot be both 'const' and 'mut'").into());
+        }
+
+        let name = next_inner_pair(&mut inner, "parameter name")?.as_str().to_string();
+        Ok(FunctionArg {
+            name,
+            is_const,
+            is_mutable,
+        })
     }
 }
 
@@ -121,11 +143,22 @@ pub struct AssignmentTargetParser;
 
 impl Parse<AssignmentTarget> for AssignmentTargetParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<AssignmentTarget> {
-        let inner = next_inner_pair(&mut pair.into_inner(), "assignment target")?;
+        let mut inner = pair.into_inner().peekable();
 
-        match inner.as_rule() {
+        // Check for mut keyword
+        let is_mutable = inner.peek().map(|p| p.as_rule() == Rule::mut_keyword).unwrap_or(false);
+        if is_mutable {
+            inner.next();
+        }
+
+        let target_pair = next_inner_pair(&mut inner, "assignment target")?;
+
+        match target_pair.as_rule() {
             Rule::array_access_expr => {
-                let mut inner_pairs = inner.into_inner();
+                if is_mutable {
+                    return Err(SemanticError::new("Cannot use 'mut' on array access targets").into());
+                }
+                let mut inner_pairs = target_pair.into_inner();
                 let array = next_inner_pair(&mut inner_pairs, "array name")?.as_str().to_string();
                 let index = ExpressionParser.parse(next_inner_pair(&mut inner_pairs, "array index")?, ctx)?;
                 Ok(AssignmentTarget::ArrayAccess {
@@ -133,7 +166,10 @@ impl Parse<AssignmentTarget> for AssignmentTargetParser {
                     index: Box::new(index),
                 })
             }
-            Rule::identifier => Ok(AssignmentTarget::Var(inner.as_str().to_string())),
+            Rule::identifier => Ok(AssignmentTarget::Var {
+                var: target_pair.as_str().to_string(),
+                is_mutable,
+            }),
             _ => Err(SemanticError::new("Expected identifier or array access").into()),
         }
     }
@@ -164,7 +200,7 @@ impl Parse<Line> for AssignmentParser {
         let expr = ExpressionParser.parse(expr_pair, ctx)?;
 
         for target in &mut targets {
-            if let AssignmentTarget::Var(var) = target
+            if let AssignmentTarget::Var { var, .. } = target
                 && var == "_"
             {
                 *var = ctx.next_trash_var();
@@ -210,7 +246,7 @@ impl AssignmentParser {
                 return Err(SemanticError::new(format!("Invalid {builtin_name} call: expected 1 return value")).into());
             }
             match &return_data[0] {
-                AssignmentTarget::Var(v) => Ok(v.clone()),
+                AssignmentTarget::Var { var, .. } => Ok(var.clone()),
                 AssignmentTarget::ArrayAccess { .. } => Err(SemanticError::new(format!(
                     "{builtin_name} does not support array access as return target"
                 ))
