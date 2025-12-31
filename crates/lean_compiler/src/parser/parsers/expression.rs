@@ -1,8 +1,7 @@
 use super::literal::{VarOrConstantParser, evaluate_const_expr};
 use super::{ConstArrayValue, Parse, ParseContext, next_inner_pair};
-use crate::lang::MathExpr;
+use crate::lang::MathOperation;
 use crate::{
-    ir::HighLevelOperation,
     lang::{ConstExpression, ConstantValue, Expression, SimpleExpr},
     parser::{
         error::{ParseResult, SemanticError},
@@ -19,63 +18,39 @@ impl Parse<Expression> for ExpressionParser {
                 let inner = next_inner_pair(&mut pair.into_inner(), "expression body")?;
                 Self.parse(inner, ctx)
             }
-            Rule::add_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Add),
-            Rule::sub_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Sub),
-            Rule::mul_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Mul),
-            Rule::mod_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Mod),
-            Rule::div_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Div),
-            Rule::exp_expr => BinaryExpressionParser::parse_with_op(pair, ctx, HighLevelOperation::Exp),
-            Rule::primary => PrimaryExpressionParser.parse(pair, ctx),
+            Rule::add_expr => MathOperation::Add.parse(pair, ctx),
+            Rule::sub_expr => MathOperation::Sub.parse(pair, ctx),
+            Rule::mul_expr => MathOperation::Mul.parse(pair, ctx),
+            Rule::mod_expr => MathOperation::Mod.parse(pair, ctx),
+            Rule::div_expr => MathOperation::Div.parse(pair, ctx),
+            Rule::exp_expr => MathOperation::Exp.parse(pair, ctx),
+            Rule::log2_ceil_expr => MathOperation::Log2Ceil.parse(pair, ctx),
+            Rule::next_multiple_of_expr => MathOperation::NextMultipleOf.parse(pair, ctx),
+            Rule::saturating_sub_expr => MathOperation::SaturatingSub.parse(pair, ctx),
+            Rule::var_or_constant => Ok(Expression::Value(VarOrConstantParser.parse(pair, ctx)?)),
+            Rule::array_access_expr => ArrayAccessParser.parse(pair, ctx),
+            Rule::len_expr => LenParser.parse(pair, ctx),
+            Rule::function_call_expr => FunctionCallExprParser.parse(pair, ctx),
+            Rule::primary => {
+                let inner = next_inner_pair(&mut pair.into_inner(), "primary expression")?;
+                Self.parse(inner, ctx)
+            }
             other_rule => Err(SemanticError::new(format!("ExpressionParser: Unexpected rule {other_rule:?}")).into()),
         }
     }
 }
 
-pub struct BinaryExpressionParser;
-
-impl BinaryExpressionParser {
-    pub fn parse_with_op(
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-        operation: HighLevelOperation,
-    ) -> ParseResult<Expression> {
+impl Parse<Expression> for MathOperation {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
-        let mut expr = ExpressionParser.parse(next_inner_pair(&mut inner, "binary left")?, ctx)?;
+        let mut expr = ExpressionParser.parse(next_inner_pair(&mut inner, "math expr left")?, ctx)?;
 
         for right in inner {
             let right_expr = ExpressionParser.parse(right, ctx)?;
-            expr = Expression::Binary {
-                left: Box::new(expr),
-                operation,
-                right: Box::new(right_expr),
-            };
+            expr = Expression::MathExpr(*self, vec![expr, right_expr]);
         }
 
         Ok(expr)
-    }
-}
-
-/// Parser for primary expressions (variables, constants, parenthesized expressions).
-pub struct PrimaryExpressionParser;
-
-impl Parse<Expression> for PrimaryExpressionParser {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
-        let inner = next_inner_pair(&mut pair.into_inner(), "primary expression")?;
-
-        match inner.as_rule() {
-            Rule::expression => ExpressionParser.parse(inner, ctx),
-            Rule::var_or_constant => {
-                let simple_expr = VarOrConstantParser.parse(inner, ctx)?;
-                Ok(Expression::Value(simple_expr))
-            }
-            Rule::array_access_expr => ArrayAccessParser.parse(inner, ctx),
-            Rule::log2_ceil_expr => MathExpr::Log2Ceil.parse(inner, ctx),
-            Rule::next_multiple_of_expr => MathExpr::NextMultipleOf.parse(inner, ctx),
-            Rule::saturating_sub_expr => MathExpr::SaturatingSub.parse(inner, ctx),
-            Rule::len_expr => LenParser.parse(inner, ctx),
-            Rule::function_call_expr => FunctionCallExprParser.parse(inner, ctx),
-            _ => Err(SemanticError::new("Invalid primary expression").into()),
-        }
     }
 }
 
@@ -115,19 +90,6 @@ impl Parse<Expression> for ArrayAccessParser {
             array: SimpleExpr::Var(array_name),
             index,
         })
-    }
-}
-
-impl Parse<Expression> for MathExpr {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
-        let mut inner = pair.into_inner();
-        let mut args = Vec::new();
-        for i in 0..self.num_args() {
-            let expr =
-                ExpressionParser.parse(next_inner_pair(&mut inner, &format!("math expr arg {}", i + 1))?, ctx)?;
-            args.push(expr);
-        }
-        Ok(Expression::MathExpr(*self, args))
     }
 }
 

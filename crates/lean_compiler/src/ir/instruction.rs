@@ -1,6 +1,5 @@
-use super::operation::HighLevelOperation;
 use super::value::IntermediateValue;
-use crate::lang::ConstExpression;
+use crate::lang::{ConstExpression, MathOperation};
 use lean_vm::{BooleanExpr, CustomHint, Operation, SourceLocation, Table, TableT};
 use std::fmt::{Display, Formatter};
 
@@ -63,37 +62,43 @@ pub enum IntermediateInstruction {
 
 impl IntermediateInstruction {
     pub fn computation(
-        operation: HighLevelOperation,
+        operation: MathOperation,
         arg_a: IntermediateValue,
         arg_c: IntermediateValue,
         res: IntermediateValue,
     ) -> Self {
         match operation {
-            HighLevelOperation::Add => Self::Computation {
+            MathOperation::Add => Self::Computation {
                 operation: Operation::Add,
                 arg_a,
                 arg_c,
                 res,
             },
-            HighLevelOperation::Mul => Self::Computation {
+            MathOperation::Mul => Self::Computation {
                 operation: Operation::Mul,
                 arg_a,
                 arg_c,
                 res,
             },
-            HighLevelOperation::Sub => Self::Computation {
+            MathOperation::Sub => Self::Computation {
                 operation: Operation::Add,
                 arg_a: res,
                 arg_c,
                 res: arg_a,
             },
-            HighLevelOperation::Div => Self::Computation {
+            MathOperation::Div => Self::Computation {
                 operation: Operation::Mul,
                 arg_a: res,
                 arg_c,
                 res: arg_a,
             },
-            HighLevelOperation::Exp | HighLevelOperation::Mod => unreachable!(),
+            MathOperation::Exp
+            | MathOperation::Mod
+            | MathOperation::NextMultipleOf
+            | MathOperation::SaturatingSub
+            | MathOperation::Log2Ceil => {
+                unreachable!()
+            }
         }
     }
 

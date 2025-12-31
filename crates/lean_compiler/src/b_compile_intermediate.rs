@@ -51,10 +51,7 @@ impl Compiler {
             VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset } => {
                 for scope in self.stack_frame_layout.scopes.iter().rev() {
                     if let Some(base) = scope.const_mallocs.get(malloc_label) {
-                        return ConstExpression::MathExpr(
-                            MathExpr::Binary(HighLevelOperation::Add),
-                            vec![(*base).into(), offset.clone()],
-                        );
+                        return ConstExpression::MathExpr(MathOperation::Add, vec![(*base).into(), offset.clone()]);
                     }
                 }
                 panic!("Const malloc {malloc_label} not in scope");
