@@ -1242,21 +1242,6 @@ fn test_mutable_variable_in_unrolled_loop() {
 }
 
 #[test]
-#[should_panic(expected = "Cannot mutate variable")]
-fn test_mutable_variable_in_non_unrolled_loop_panics() {
-    let program = r#"
-    fn main() {
-        mut sum = 0;
-        for i in 0..5 {
-            sum = sum + i;
-        }
-        return;
-    }
-    "#;
-    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
-}
-
-#[test]
 fn test_mutable_variable_in_if_else() {
     let program = r#"
     fn main() {
@@ -1952,6 +1937,45 @@ fn test_mutable_comprehensive_stress() {
     fn process(mut x) inline -> 1 {
         x = x + 5;
         return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test() {
+    let program = r#"
+    fn main() {
+        for i in 0..6 {
+            mut x = i;
+            x = x + 1;
+            for j in 0..3 {
+                mut y = x + 1;
+                y = y + j;
+                if i == 10 {
+                    y = y - 1;
+                }
+                if j == 10000 {
+                    y = y - 2;
+                } else if i != 1000 {
+                    y = y + 2;
+                }
+                if j == 10000 {
+                    y = y - 2;
+                } else if i == 1000 {
+                    y = y + 2;
+                }
+                if j == 10000 {
+                    y = y - 2;
+                } else if i != 1000 {
+                    y = y + 2;
+                } else {
+                    y = y + 2;
+                }
+                assert y == i + j + 6;
+            }
+        }
+        return;
     }
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
