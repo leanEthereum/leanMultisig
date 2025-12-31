@@ -80,16 +80,13 @@ pub struct ArrayAccessParser;
 impl Parse<Expression> for ArrayAccessParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
         let mut inner = pair.into_inner();
-        let array_name = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
+        let array = next_inner_pair(&mut inner, "array name")?.as_str().to_string();
 
         let index: Vec<Expression> = inner
             .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Expression::ArrayAccess {
-            array: SimpleExpr::Var(array_name),
-            index,
-        })
+        Ok(Expression::ArrayAccess { array, index })
     }
 }
 

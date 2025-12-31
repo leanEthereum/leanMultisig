@@ -63,16 +63,18 @@ impl Compiler {
 impl SimpleExpr {
     fn to_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediateValue {
         match self {
-            Self::Var(var) => IntermediateValue::MemoryAfterFp {
+            Self::Memory(VarOrConstMallocAccess::Var(var)) => IntermediateValue::MemoryAfterFp {
                 offset: compiler.get_offset(&var.clone().into()),
             },
+            Self::Memory(VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset }) => {
+                IntermediateValue::MemoryAfterFp {
+                    offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
+                        malloc_label: *malloc_label,
+                        offset: offset.clone(),
+                    }),
+                }
+            }
             Self::Constant(c) => IntermediateValue::Constant(c.clone()),
-            Self::ConstMallocAccess { malloc_label, offset } => IntermediateValue::MemoryAfterFp {
-                offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
-                    malloc_label: *malloc_label,
-                    offset: offset.clone(),
-                }),
-            },
         }
     }
 }
@@ -80,16 +82,18 @@ impl SimpleExpr {
 impl IntermediateValue {
     fn from_simple_expr(expr: &SimpleExpr, compiler: &Compiler) -> Self {
         match expr {
-            SimpleExpr::Var(var) => Self::MemoryAfterFp {
+            SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) => Self::MemoryAfterFp {
                 offset: compiler.get_offset(&var.clone().into()),
             },
+            SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset }) => {
+                Self::MemoryAfterFp {
+                    offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
+                        malloc_label: *malloc_label,
+                        offset: offset.clone(),
+                    }),
+                }
+            }
             SimpleExpr::Constant(c) => Self::Constant(c.clone()),
-            SimpleExpr::ConstMallocAccess { malloc_label, offset } => Self::MemoryAfterFp {
-                offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
-                    malloc_label: *malloc_label,
-                    offset: offset.clone(),
-                }),
-            },
         }
     }
 
@@ -373,7 +377,7 @@ fn compile_lines(
             }
 
             SimpleLine::RawAccess { res, index, shift } => {
-                if let SimpleExpr::Var(var) = res
+                if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = res
                     && !compiler.is_in_scope(var)
                 {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
