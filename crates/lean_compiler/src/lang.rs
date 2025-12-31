@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
-use crate::{F, ir::HighLevelOperation, parser::ConstArrayValue};
+use crate::{F, parser::ConstArrayValue};
 pub use lean_vm::{FileId, FunctionName, SourceLocation};
 
 #[derive(Debug, Clone)]
@@ -66,7 +66,7 @@ impl SimpleExpr {
 
     pub fn simplify_if_const(&self) -> Self {
         if let Self::Constant(constant) = self {
-            return constant.try_naive_simplification().into();
+            return constant.clone().into();
         }
         self.clone()
     }
@@ -98,6 +98,18 @@ impl SimpleExpr {
             Self::ConstMallocAccess { .. } => None,
         }
     }
+
+    pub fn try_vec_as_constant(vec: &[Self]) -> Option<Vec<ConstExpression>> {
+        let mut const_elems = Vec::new();
+        for expr in vec {
+            if let Self::Constant(cst) = expr {
+                const_elems.push(cst.clone());
+            } else {
+                return None;
+            }
+        }
+        Some(const_elems)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -115,7 +127,7 @@ pub enum ConstantValue {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstExpression {
     Value(ConstantValue),
-    MathExpr(MathExpr, Vec<Self>),
+    MathExpr(MathOperation, Vec<Self>),
 }
 
 impl From<usize> for ConstExpression {
@@ -132,11 +144,6 @@ impl TryFrom<Expression> for ConstExpression {
             Expression::Value(SimpleExpr::Constant(const_expr)) => Ok(const_expr),
             Expression::Value(_) => Err(()),
             Expression::ArrayAccess { .. } => Err(()),
-            Expression::Binary { left, operation, right } => {
-                let left_expr = Self::try_from(*left)?;
-                let right_expr = Self::try_from(*right)?;
-                Ok(Self::MathExpr(MathExpr::Binary(operation), vec![left_expr, right_expr]))
-            }
             Expression::MathExpr(math_expr, args) => {
                 let mut const_args = Vec::new();
                 for arg in args {
@@ -192,14 +199,6 @@ impl ConstExpression {
             _ => None,
         })
     }
-
-    pub fn try_naive_simplification(&self) -> Self {
-        if let Some(value) = self.naive_eval() {
-            Self::scalar(value.to_usize())
-        } else {
-            self.clone()
-        }
-    }
 }
 
 impl From<ConstantValue> for ConstExpression {
@@ -230,12 +229,7 @@ pub enum Expression {
         array: SimpleExpr,
         index: Vec<Self>, // multi-dimensional array access
     },
-    Binary {
-        left: Box<Self>,
-        operation: HighLevelOperation,
-        right: Box<Self>,
-    },
-    MathExpr(MathExpr, Vec<Self>),
+    MathExpr(MathOperation, Vec<Self>),
     FunctionCall {
         function_name: String,
         args: Vec<Self>,
@@ -248,17 +242,48 @@ pub enum Expression {
 
 /// For arbitrary compile-time computations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MathExpr {
-    Binary(HighLevelOperation),
+pub enum MathOperation {
+    /// Addition operation.
+    Add,
+    /// Multiplication operation.
+    Mul,
+    /// Subtraction operation (compiled to addition with negation).
+    Sub,
+    /// Division operation (compiled to multiplication with inverse).
+    Div,
+    /// Exponentiation (only for constant expressions).
+    Exp,
+    /// Modulo operation (only for constant expressions).
+    Mod,
+    /// Logarithm ceiling
     Log2Ceil,
+    /// similar to rust's next_multiple_of
     NextMultipleOf,
+    /// saturating subtraction
     SaturatingSub,
 }
 
-impl Display for MathExpr {
+impl TryFrom<MathOperation> for Operation {
+    type Error = String;
+
+    fn try_from(value: MathOperation) -> Result<Self, Self::Error> {
+        match value {
+            MathOperation::Add => Ok(Self::Add),
+            MathOperation::Mul => Ok(Self::Mul),
+            _ => Err(format!("Cannot convert {value:?} to add/mul operation")),
+        }
+    }
+}
+
+impl Display for MathOperation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Binary(op) => write!(f, "{op}"),
+            Self::Add => write!(f, "add"),
+            Self::Mul => write!(f, "mul"),
+            Self::Sub => write!(f, "sub"),
+            Self::Div => write!(f, "div"),
+            Self::Exp => write!(f, "exp"),
+            Self::Mod => write!(f, "mod"),
             Self::Log2Ceil => write!(f, "log2_ceil"),
             Self::NextMultipleOf => write!(f, "next_multiple_of"),
             Self::SaturatingSub => write!(f, "saturating_sub"),
@@ -266,28 +291,31 @@ impl Display for MathExpr {
     }
 }
 
-impl MathExpr {
+impl MathOperation {
     pub fn num_args(&self) -> usize {
         match self {
-            Self::Binary(_) => 2,
             Self::Log2Ceil => 1,
-            Self::NextMultipleOf => 2,
-            Self::SaturatingSub => 2,
+            Self::Add
+            | Self::Mul
+            | Self::Sub
+            | Self::Div
+            | Self::Exp
+            | Self::Mod
+            | Self::NextMultipleOf
+            | Self::SaturatingSub => 2,
         }
     }
     pub fn eval(&self, args: &[F]) -> F {
+        assert_eq!(args.len(), self.num_args());
         match self {
-            Self::Binary(op) => {
-                assert_eq!(args.len(), 2);
-                op.eval(args[0], args[1])
-            }
-            Self::Log2Ceil => {
-                assert_eq!(args.len(), 1);
-                let value = args[0];
-                F::from_usize(log2_ceil_usize(value.to_usize()))
-            }
+            Self::Add => args[0] + args[1],
+            Self::Mul => args[0] * args[1],
+            Self::Sub => args[0] - args[1],
+            Self::Div => args[0] / args[1],
+            Self::Exp => args[0].exp_u64(args[1].as_canonical_u64()),
+            Self::Mod => F::from_usize(args[0].to_usize() % args[1].to_usize()),
+            Self::Log2Ceil => F::from_usize(log2_ceil_usize(args[0].to_usize())),
             Self::NextMultipleOf => {
-                assert_eq!(args.len(), 2);
                 let value = args[0];
                 let multiple = args[1];
                 let value_usize = value.to_usize();
@@ -295,10 +323,7 @@ impl MathExpr {
                 let res = value_usize.next_multiple_of(multiple_usize);
                 F::from_usize(res)
             }
-            Self::SaturatingSub => {
-                assert_eq!(args.len(), 2);
-                F::from_usize(args[0].to_usize().saturating_sub(args[1].to_usize()))
-            }
+            Self::SaturatingSub => F::from_usize(args[0].to_usize().saturating_sub(args[1].to_usize())),
         }
     }
 }
@@ -356,10 +381,6 @@ impl Expression {
                     .map(|e| e.eval_with(value_fn, array_fn))
                     .collect::<Option<Vec<_>>>()?,
             ),
-            Self::Binary { left, operation, right } => Some(operation.eval(
-                left.eval_with(value_fn, array_fn)?,
-                right.eval_with(value_fn, array_fn)?,
-            )),
             Self::MathExpr(math_expr, args) => {
                 let mut eval_args = Vec::new();
                 for arg in args {
@@ -511,9 +532,6 @@ impl Display for Expression {
             Self::Value(val) => write!(f, "{val}"),
             Self::ArrayAccess { array, index } => {
                 write!(f, "{array}[{index:?}]")
-            }
-            Self::Binary { left, operation, right } => {
-                write!(f, "({left} {operation} {right})")
             }
             Self::MathExpr(math_expr, args) => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
