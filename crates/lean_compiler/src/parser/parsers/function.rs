@@ -3,7 +3,7 @@ use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{AssignmentTarget, Expression, Function, Line, SimpleExpr, SourceLocation},
+    lang::{AssignmentTarget, Expression, Function, Line, SourceLocation},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -129,7 +129,7 @@ impl Parse<AssignmentTarget> for AssignmentTargetParser {
                 let array = next_inner_pair(&mut inner_pairs, "array name")?.as_str().to_string();
                 let index = ExpressionParser.parse(next_inner_pair(&mut inner_pairs, "array index")?, ctx)?;
                 Ok(AssignmentTarget::ArrayAccess {
-                    array: SimpleExpr::Var(array),
+                    array,
                     index: Box::new(index),
                 })
             }

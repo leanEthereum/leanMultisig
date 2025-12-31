@@ -1,5 +1,6 @@
 use super::expression::ExpressionParser;
 use super::{ConstArrayValue, Parse, ParseContext, ParsedConstant, next_inner_pair};
+use crate::a_simplify_lang::VarOrConstMallocAccess;
 use crate::{
     F,
     lang::{ConstExpression, ConstantValue, SimpleExpr},
@@ -90,16 +91,13 @@ pub fn evaluate_const_expr(expr: &crate::lang::Expression, ctx: &ParseContext) -
     expr.eval_with(
         &|simple_expr| match simple_expr {
             SimpleExpr::Constant(cst) => cst.naive_eval(),
-            SimpleExpr::Var(var) => ctx.get_constant(var).map(F::from_usize),
-            SimpleExpr::ConstMallocAccess { .. } => None,
+            SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) => ctx.get_constant(var).map(F::from_usize),
+            SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) => None,
         },
         &|arr, index| {
             // Support const array access in expressions
-            let SimpleExpr::Var(name) = arr else {
-                return None;
-            };
             let idx = index.iter().map(|e| e.to_usize()).collect::<Vec<_>>();
-            let array = ctx.get_const_array(name)?;
+            let array = ctx.get_const_array(arr)?;
             array.navigate(&idx)?.as_scalar().map(F::from_usize)
         },
     )
@@ -164,7 +162,7 @@ impl VarOrConstantParser {
                 }
                 // Otherwise treat as variable reference
                 else {
-                    Ok(SimpleExpr::Var(text.to_string()))
+                    Ok(VarOrConstMallocAccess::Var(text.to_string()).into())
                 }
             }
         }

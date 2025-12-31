@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
+use crate::a_simplify_lang::VarOrConstMallocAccess;
 use crate::{F, parser::ConstArrayValue};
 pub use lean_vm::{FileId, FunctionName, SourceLocation};
 
@@ -39,12 +40,8 @@ pub type ConstMallocLabel = usize;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SimpleExpr {
-    Var(Var),
+    Memory(VarOrConstMallocAccess),
     Constant(ConstExpression),
-    ConstMallocAccess {
-        malloc_label: ConstMallocLabel,
-        offset: ConstExpression,
-    },
 }
 
 impl SimpleExpr {
@@ -63,13 +60,6 @@ impl SimpleExpr {
     pub const fn is_constant(&self) -> bool {
         matches!(self, Self::Constant(_))
     }
-
-    pub fn simplify_if_const(&self) -> Self {
-        if let Self::Constant(constant) = self {
-            return constant.clone().into();
-        }
-        self.clone()
-    }
 }
 
 impl From<ConstantValue> for SimpleExpr {
@@ -86,16 +76,15 @@ impl From<ConstExpression> for SimpleExpr {
 
 impl From<Var> for SimpleExpr {
     fn from(var: Var) -> Self {
-        Self::Var(var)
+        VarOrConstMallocAccess::Var(var).into()
     }
 }
 
 impl SimpleExpr {
     pub fn as_constant(&self) -> Option<ConstExpression> {
         match self {
-            Self::Var(_) => None,
             Self::Constant(constant) => Some(constant.clone()),
-            Self::ConstMallocAccess { .. } => None,
+            Self::Memory(_) => None,
         }
     }
 
@@ -227,7 +216,7 @@ impl Display for Condition {
 pub enum Expression {
     Value(SimpleExpr),
     ArrayAccess {
-        array: SimpleExpr,
+        array: Var,
         index: Vec<Self>, // multi-dimensional array access
     },
     MathExpr(MathOperation, Vec<Self>),
@@ -357,10 +346,7 @@ impl Expression {
         self.eval_with(
             &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
             &|arr, indexes| {
-                let SimpleExpr::Var(name) = arr else {
-                    return None;
-                };
-                let array = const_arrays.get(name)?;
+                let array = const_arrays.get(arr)?;
                 assert_eq!(indexes.len(), array.depth());
                 let idx = indexes.iter().map(|e| e.to_usize()).collect::<Vec<_>>();
                 array.navigate(&idx)?.as_scalar().map(F::from_usize)
@@ -371,7 +357,7 @@ impl Expression {
     pub fn eval_with<ValueFn, ArrayFn>(&self, value_fn: &ValueFn, array_fn: &ArrayFn) -> Option<F>
     where
         ValueFn: Fn(&SimpleExpr) -> Option<F>,
-        ArrayFn: Fn(&SimpleExpr, Vec<F>) -> Option<F>,
+        ArrayFn: Fn(&Var, Vec<F>) -> Option<F>,
     {
         match self {
             Self::Value(value) => value_fn(value),
@@ -406,7 +392,7 @@ impl Expression {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssignmentTarget {
     Var(Var),
-    ArrayAccess { array: SimpleExpr, index: Box<Expression> },
+    ArrayAccess { array: Var, index: Box<Expression> },
 }
 
 impl Display for AssignmentTarget {
@@ -704,11 +690,8 @@ impl Display for ConstantValue {
 impl Display for SimpleExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Var(var) => write!(f, "{var}"),
             Self::Constant(constant) => write!(f, "{constant}"),
-            Self::ConstMallocAccess { malloc_label, offset } => {
-                write!(f, "malloc_access({malloc_label}, {offset})")
-            }
+            Self::Memory(var_or_const_malloc_access) => write!(f, "{var_or_const_malloc_access}"),
         }
     }
 }
