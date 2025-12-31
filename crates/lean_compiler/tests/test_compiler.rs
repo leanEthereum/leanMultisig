@@ -457,6 +457,36 @@ fn test_mini_program_4() {
 }
 
 #[test]
+fn test_mini_program_5() {
+    let program = r#"
+    fn main() {
+        arr = malloc(10);
+        arr[6] = 42;
+        arr[8] = 11;
+        sum_1 = func_1(arr[6], arr[8]);
+        assert sum_1 == 53;
+        return;
+    }
+
+    fn func_1(i, j) inline -> 1 {
+        for k in 0..i {
+            for u in 0..j {
+                assert k + u != 1000000;
+            }
+        }
+        return i + j;
+    }
+
+   "#;
+    compile_and_run(
+        &ProgramSource::Raw(program.to_string()),
+        (&[], &[]),
+        DEFAULT_NO_VEC_RUNTIME_MEMORY,
+        false,
+    );
+}
+
+#[test]
 fn test_inlined() {
     let program = r#"
     fn main() {
