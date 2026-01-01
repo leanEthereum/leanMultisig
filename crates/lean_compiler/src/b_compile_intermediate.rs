@@ -9,6 +9,7 @@ struct Compiler {
     match_blocks: Vec<MatchBlock>,
     if_counter: usize,
     call_counter: usize,
+    match_counter: usize,
     func_name: String,
     stack_frame_layout: StackFrameLayout,
     args_count: usize,
@@ -210,8 +211,9 @@ fn compile_lines(
             SimpleLine::Match { value, arms } => {
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
 
-                let match_index = compiler.match_blocks.len();
-                let end_label = Label::match_end(match_index);
+                let label_id = compiler.match_counter;
+                compiler.match_counter += 1;
+                let end_label = Label::match_end(label_id);
 
                 let value_simplified = IntermediateValue::from_simple_expr(value, compiler);
 
@@ -232,6 +234,8 @@ fn compile_lines(
                     function_name: function_name.clone(),
                     match_cases: compiled_arms,
                 });
+                // Get the actual index AFTER pushing (nested matches may have pushed their blocks first)
+                let match_index = compiler.match_blocks.len() - 1;
 
                 let value_scaled_offset = IntermediateValue::MemoryAfterFp {
                     offset: compiler.stack_pos.into(),
@@ -263,9 +267,9 @@ fn compile_lines(
                 compiler.bytecode.insert(end_label, remaining);
 
                 compiler.stack_frame_layout.scopes.pop();
-                compiler.stack_pos = saved_stack_pos;
-                // It is not necessary to update compiler.stack_size here because the preceding call to
-                // compile lines should have done so.
+                // Don't reset stack_pos here - we need to preserve space for the temps we allocated.
+                // Nested matches would otherwise reuse the same temp positions, causing conflicts.
+                // This is consistent with IfNotZero which also doesn't reset stack_pos.
 
                 return Ok(instructions);
             }
