@@ -39,7 +39,7 @@ return_statement = { "return" ~ (tuple_expression)? ~ ";" }
 break_statement = { "break" ~ ";" }
 continue_statement = { "continue" ~ ";" }
 
-mut_keyword = { "mut" }
+mut_keyword = @{ "mut" ~ !(ASCII_ALPHANUMERIC | "_") }
 
 forward_declaration = { "var" ~ mut_keyword? ~ identifier ~ ";" }
 

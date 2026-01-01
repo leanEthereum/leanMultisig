@@ -2058,6 +2058,22 @@ fn test_mutable_in_complex_control_flow() {
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
 
+
+
+#[test]
+fn test_mut_var_name() {
+    let program = r#"
+    fn main() {
+        var mut_a;
+        mut_a = 5;
+        assert mut_a == 5;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+
 #[test]
 fn test_nested_matches() {
     let program = r#"
