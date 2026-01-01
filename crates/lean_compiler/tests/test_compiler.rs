@@ -1981,7 +1981,6 @@ fn test() {
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
 
-
 #[test]
 fn test_mutable_in_match_arms() {
     let program = r#"
@@ -2010,7 +2009,6 @@ fn test_mutable_in_match_arms() {
      "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
-
 
 #[test]
 fn test_mutable_in_complex_control_flow() {
@@ -2056,5 +2054,152 @@ fn test_mutable_in_complex_control_flow() {
         return x;
     }
      "#;
+
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_nested_matches() {
+    let program = r#"
+    fn main() {
+        assert test_func(0, 0) == 6;
+        assert test_func(1, 0) == 3;
+        return;
+    }
+
+    fn test_func(a, b) -> 1 {
+        x = 1;
+    
+        var mut_x_2;
+        match a {
+            0 => {            
+                var mut_x_1;
+                mut_x_1 = x + 2;
+                match b {
+                    0 => {                    
+                        mut_x_2 = mut_x_1 + 3;
+                    }
+                }
+            }
+            1 => {
+                mut_x_2 = x + 2;
+            }
+        }
+
+        return mut_x_2;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_deeply_nested_match() {
+    // Test with 3 levels of nesting, multiple arms, and variables at each level
+    let program = r#"
+    fn main() {
+        // Test each combination with expected values
+        // (0,0,0): base=1000, local_a=5, local_b=8, inner_val=1008
+        assert compute(0, 0, 0) == 1008;
+        // (0,0,1): base=1000, local_a=5, local_b=8, inner_val=1009
+        assert compute(0, 0, 1) == 1009;
+        // (0,1,0): base=1000, local_a=5, local_b=12, inner_val=1012
+        assert compute(0, 1, 0) == 1012;
+        // (0,1,1): base=1000, local_a=5, local_b=12, inner_val=1013
+        assert compute(0, 1, 1) == 1013;
+        // (1,0,0): base=1000, local_a=16, local_b=36, inner_val=1036
+        assert compute(1, 0, 0) == 1036;
+        // (1,0,1): base=1000, local_a=16, local_b=36, inner_val=1037
+        assert compute(1, 0, 1) == 1037;
+        // (1,1,0): base=1000, local_a=16, local_b=46, inner_val=1046
+        assert compute(1, 1, 0) == 1046;
+        // (1,1,1): base=1000, local_a=16, local_b=46, inner_val=1047
+        assert compute(1, 1, 1) == 1047;
+        return;
+    }
+
+    fn compute(a, b, c) -> 1 {
+        base = 1000;
+        var outer_val;
+        var mid_val;
+        var inner_val;
+
+        match a {
+            0 => {
+                outer_val = 5;
+                var local_a;
+                local_a = a + outer_val;  // local_a = 5
+
+                match b {
+                    0 => {
+                        mid_val = 3;
+                        var local_b;
+                        local_b = local_a + mid_val;  // local_b = 8
+
+                        match c {
+                            0 => {
+                                inner_val = base + local_b + c;  // 1000 + 8 + 0 = 1008
+                            }
+                            1 => {
+                                inner_val = base + local_b + c;  // 1000 + 8 + 1 = 1009
+                            }
+                        }
+                    }
+                    1 => {
+                        mid_val = 7;
+                        var local_b;
+                        local_b = local_a + mid_val;  // local_b = 12
+
+                        match c {
+                            0 => {
+                                inner_val = base + local_b + c;  // 1000 + 12 + 0 = 1012
+                            }
+                            1 => {
+                                inner_val = base + local_b + c;  // 1000 + 12 + 1 = 1013
+                            }
+                        }
+                    }
+                }
+            }
+            1 => {
+                outer_val = 15;
+                var local_a;
+                local_a = a + outer_val;  // local_a = 16
+
+                match b {
+                    0 => {
+                        mid_val = 20;
+                        var local_b;
+                        local_b = local_a + mid_val;  // local_b = 36
+
+                        match c {
+                            0 => {
+                                inner_val = base + local_b + c;  // 1000 + 36 + 0 = 1036
+                            }
+                            1 => {
+                                inner_val = base + local_b + c;  // 1000 + 36 + 1 = 1037
+                            }
+                        }
+                    }
+                    1 => {
+                        mid_val = 30;
+                        var local_b;
+                        local_b = local_a + mid_val;  // local_b = 46
+
+                        match c {
+                            0 => {
+                                inner_val = base + local_b + c;  // 1000 + 46 + 0 = 1046
+                            }
+                            1 => {
+                                inner_val = base + local_b + c;  // 1000 + 46 + 1 = 1047
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return inner_val;
+    }
+    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
