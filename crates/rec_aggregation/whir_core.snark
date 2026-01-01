@@ -89,9 +89,6 @@ fn whir_recursion(transcript_start) {
     s3 = mul_extension_ret(s2, combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM);
     s = add_extension_ret(s, s3);
 
-    weight_sums = malloc(N_ROUNDS + 1);
-    weight_sums[0] = s;
-
     mut n_vars = N_VARS;
     mut my_folding_randomness = folding_randomness_global;
     for i in 0..N_ROUNDS unroll {
@@ -116,16 +113,13 @@ fn whir_recursion(transcript_start) {
         }
         s7 = malloc(DIM);
         dot_product(s6s, combination_randomness_powers + NUM_OODS[i] * DIM, s7, NUM_QUERIES[i], EE);
-        s8 = add_extension_ret(summed_ood, s7);
-        s9 = add_extension_ret(weight_sums[i], s8);
-        weight_sums[i+1] = s9;
+        s = add_extension_ret(s, s7);
+        s = add_extension_ret(summed_ood, s);
     }
-    evaluation_of_weights = weight_sums[N_ROUNDS];
     poly_eq_final = poly_eq_extension(all_folding_randomness[N_ROUNDS + 1], FINAL_VARS);
     final_value = malloc(DIM);
     dot_product(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS, EE);
-    evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
-    copy_5(evaluation_of_weights_times_final_value, end_sum);
+    copy_5(mul_extension_ret(s, final_value), end_sum);
 
     fs = duplexing(fs);
 
