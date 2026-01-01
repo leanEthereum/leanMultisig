@@ -17,6 +17,47 @@ const ARR = [1, 2, 3];
 const NESTED = [[1, 2], [3]];
 ```
 
+### Multi-Dimensional Const Arrays
+
+Const arrays can be nested to any depth, and inner arrays can have different lengths (ragged arrays). All const array values are resolved at compile time.
+
+```
+const MATRIX = [[1, 2, 3], [4, 5], [6, 7, 8, 9]];   // ragged 2D array
+const DEEP = [[[1, 2], [3]], [[4, 5, 6]]];          // 3D array
+```
+
+**Accessing elements:** Use chained indexing with compile-time indices:
+```
+x = MATRIX[0][2];       // x = 3
+y = DEEP[1][0][1];      // y = 5
+```
+
+**Using `len()` on inner arrays:** The `len()` function can be applied to any level of a nested const array, including inner arrays accessed by index. This is particularly useful for iterating over ragged arrays where each row has a different length:
+
+```
+len(MATRIX)       // 3 
+len(MATRIX[0])    // 3 
+len(DEEP[0][0])   // 2
+```
+
+**Important:** When using `len()` on an inner array with a variable index (e.g., `len(ARR[i])`), the index must be a compile-time constant. This works inside `unroll` loops because the loop variable becomes a compile-time constant during unrolling.
+
+**Example: Iterating over a ragged 2D array:**
+```
+const MATRIX = [[1, 2, 3], [4, 5], [6, 7, 8, 9]];
+
+fn main() {
+    mut total = 0;
+    for row in 0..len(MATRIX) unroll {
+        for col in 0..len(MATRIX[row]) unroll {
+            total = total + MATRIX[row][col];
+        }
+    }
+    assert total == 45;  // 1+2+3+4+5+6+7+8+9
+    return;
+}
+```
+
 ## Functions
 
 ```
