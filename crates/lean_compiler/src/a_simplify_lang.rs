@@ -898,17 +898,47 @@ fn simplify_lines(
                                 }
                             }
                             AssignmentTarget::ArrayAccess { array, index } => {
-                                // Array element assignment - pre-simplify both index and value
-                                let simplified_index = vec![simplify_expr(ctx, state, const_malloc, index, &mut res)];
-                                let simplified_value = simplify_expr(ctx, state, const_malloc, value, &mut res);
-                                handle_array_assignment(
-                                    ctx,
-                                    state,
-                                    &mut res,
-                                    array,
-                                    &simplified_index,
-                                    ArrayAccessType::ArrayIsAssigned(simplified_value),
-                                );
+                                // Array element assignment - pre-simplify index first
+                                let simplified_index = simplify_expr(ctx, state, const_malloc, index, &mut res);
+
+                                // Optimization: direct math assignment to const_malloc array with constant index
+                                if let SimpleExpr::Constant(offset) = &simplified_index
+                                    && let Some(label) = const_malloc.map.get(array)
+                                    && let Expression::MathExpr(operation, args) = value
+                                {
+                                    let var = VarOrConstMallocAccess::ConstMallocAccess {
+                                        malloc_label: *label,
+                                        offset: offset.clone(),
+                                    };
+                                    let simplified_args: Vec<SimpleExpr> = args
+                                        .iter()
+                                        .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                        .collect();
+                                    // If all operands are constants, evaluate at compile time
+                                    if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
+                                        let result = ConstExpression::MathExpr(*operation, const_args);
+                                        res.push(SimpleLine::equality(var, SimpleExpr::Constant(result)));
+                                    } else {
+                                        assert_eq!(simplified_args.len(), 2);
+                                        res.push(SimpleLine::Assignment {
+                                            var,
+                                            operation: *operation,
+                                            arg0: simplified_args[0].clone(),
+                                            arg1: simplified_args[1].clone(),
+                                        });
+                                    }
+                                } else {
+                                    // General case: pre-simplify value and use handle_array_assignment
+                                    let simplified_value = simplify_expr(ctx, state, const_malloc, value, &mut res);
+                                    handle_array_assignment(
+                                        ctx,
+                                        state,
+                                        &mut res,
+                                        array,
+                                        &[simplified_index],
+                                        ArrayAccessType::ArrayIsAssigned(simplified_value),
+                                    );
+                                }
                             }
                         }
                     }
