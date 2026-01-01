@@ -135,14 +135,25 @@ fn test_all_programs() {
     println!("Found {} test programs", paths.len());
 
     for path in paths {
-        compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
+        if let Err(err) = try_compile_and_run(&ProgramSource::Filepath(path.clone()), (&[], &[]), false) {
+            panic!("Program {} failed with error: {:?}", path, err);
+        }
     }
 }
-
 
 // #[test]
 // fn test_given_program() {
 //     let index = 1;
 //     let path = format!("{}/program_{}.snark", test_data_dir(), index);
 //     compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
+// }
+
+// #[test]
+// fn debug() {
+//     let program = r#"
+//     fn main() {
+//         return;
+//     }
+//    "#;
+//     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 // }
