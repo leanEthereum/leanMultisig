@@ -205,6 +205,16 @@ for i in 0..100 {
 - `+`, `-`, `*`, `/` (field operations): allowed at runtime
 - `%` (modulo), `**` (exponentiation): only allowed at compile time
 
+### Compound Assignment
+Syntactic sugar for updating mutable variables:
+```
+mut x = 10;
+x += 5;    // equivalent to: x = x + 5
+x -= 3;    // equivalent to: x = x - 3
+x *= 2;    // equivalent to: x = x * 2
+x /= 4;    // equivalent to: x = x / 4
+```
+
 ### Built-in Functions
 Only allowed at compile time:
 
