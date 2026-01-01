@@ -1471,7 +1471,8 @@ fn simplify_expr(
                 .into();
             }
 
-            let aux_arr = state.array_manager.get_aux_var(array, &index); // auxiliary var to store m[array + index]
+            let versioned_array = state.mut_tracker.current_name(array);
+            let aux_arr = state.array_manager.get_aux_var(&versioned_array, &index); // auxiliary var to store m[array + index]
 
             if !state.array_manager.valid.insert(aux_arr.clone()) {
                 return VarOrConstMallocAccess::Var(aux_arr).into();

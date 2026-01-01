@@ -141,73 +141,35 @@ fn test_all_programs() {
     }
 }
 
-// #[test]
-// fn test_given_program() {
-//     let index = 1;
-//     let path = format!("{}/program_{}.snark", test_data_dir(), index);
-//     compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
-// }
 
 #[test]
 fn test_reserved_function_names() {
-    // Reserved function names that users cannot define
-    let reserved_names = [
-        // Built-in functions
-        "print",
-        "malloc",
-        "private_input_start",
-        "panic",
-        // Compile-time only functions
-        "len",
-        "log2_ceil",
-        "next_multiple_of",
-        "saturating_sub",
-        // Custom hints
-        "hint_decompose_bits_xmss",
-        "hint_decompose_bits",
-        // Precompiles
-        "poseidon16",
-        "dot_product",
-    ];
+    #[rustfmt::skip]
+    let reserved_names = ["print", "malloc", "private_input_start", "panic", "len", "log2_ceil", "next_multiple_of", "saturating_sub", "hint_decompose_bits_xmss", "hint_decompose_bits", "poseidon16", "dot_product"];
 
     for name in reserved_names {
-        let program = format!(
-            r#"
-            fn main() {{
-                return;
-            }}
-            fn {name}() {{
-                return;
-            }}
-            "#
-        );
-        let result = try_compile_and_run(&ProgramSource::Raw(program), (&[], &[]), false);
+        let program = format!("fn main() {{ return; }} fn {name}() {{ return; }}");
         assert!(
-            result.is_err(),
+            try_compile_and_run(&ProgramSource::Raw(program), (&[], &[]), false).is_err(),
             "Expected error when defining function with reserved name '{name}', but it succeeded"
         );
     }
 }
 
+
 #[test]
-fn debug() {
+fn debug_file_program() {
+    let index = 1;
+    let path = format!("{}/program_{}.snark", test_data_dir(), index);
+    compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
+}
+
+#[test]
+fn debug_str_program() {
     let program = r#"
     fn main() {
-        mut s = malloc(1);
-        s[0] = 10;
-        b = malloc(1);
-        b[0] = 20;
-        s = add_refs(s, b);
-        assert s[0] == 30;
         return;
     }
-
-    fn add_refs(a, b) -> 1 {
-        c = malloc(1);
-        c[0] = a[0] + b[0];
-        return c;
-    }
-        
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }

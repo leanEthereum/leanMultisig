@@ -1,0 +1,11 @@
+fn main() {
+    mut x = malloc(1);
+    x[0] = 1;
+    for i in 0..5 unroll {
+        y = malloc(1);
+        y[0] = x[0] + 1;
+        x = y;
+    }
+    assert x[0] == 6;
+    return;
+}
