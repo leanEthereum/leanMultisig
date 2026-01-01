@@ -8,8 +8,7 @@ use crate::{
 };
 use core::panic;
 use lean_vm::{
-    ALL_TABLES, Boolean, BooleanExpr, CustomHint, FileId, FunctionName, SourceLineNumber, SourceLocation, Table,
-    TableT,
+    ALL_TABLES, Boolean, BooleanExpr, CustomHint, FileId, FunctionName, SourceLineNumber, SourceLocation, Table, TableT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -745,8 +744,7 @@ fn simplify_lines(
                             match target {
                                 AssignmentTarget::Var { var, is_mutable } => {
                                     let target_var = get_target_var_name(state, var, *is_mutable);
-                                    let simplified_size =
-                                        simplify_expr(ctx, state, const_malloc, &args[0], &mut res);
+                                    let simplified_size = simplify_expr(ctx, state, const_malloc, &args[0], &mut res);
                                     match simplified_size {
                                         SimpleExpr::Constant(const_size) => {
                                             let label = const_malloc.counter;
@@ -778,9 +776,7 @@ fn simplify_lines(
                         // Special handling for print builtin
                         if function_name == "print" {
                             if !targets.is_empty() {
-                                return Err(format!(
-                                    "print should not return values, at line {line_number}"
-                                ));
+                                return Err(format!("print should not return values, at line {line_number}"));
                             }
                             let simplified_content = args
                                 .iter()
@@ -796,9 +792,7 @@ fn simplify_lines(
                         // Special handling for private_input_start builtin
                         if function_name == "private_input_start" {
                             if !args.is_empty() {
-                                return Err(format!(
-                                    "private_input_start takes no arguments, at line {line_number}"
-                                ));
+                                return Err(format!("private_input_start takes no arguments, at line {line_number}"));
                             }
                             if targets.len() != 1 {
                                 return Err(format!(
@@ -823,7 +817,7 @@ fn simplify_lines(
 
                         // Special handling for precompile functions (poseidon16, dot_product)
                         if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name)
-                            && table != Table::execution()
+                            && !table.is_execution_table()
                         {
                             if !targets.is_empty() {
                                 return Err(format!(
@@ -1115,7 +1109,7 @@ fn simplify_lines(
                                         ));
                                     }
                                 }
-                                return Err(format!("Unsupported equality assertion: {left:?}, {right:?}"))
+                                return Err(format!("Unsupported equality assertion: {left:?}, {right:?}"));
                             };
                             res.push(SimpleLine::equality(var, other));
                         }

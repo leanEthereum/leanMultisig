@@ -10,6 +10,39 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
+use lean_vm::{ALL_TABLES, TableT};
+
+/// Reserved function names that users cannot define.
+const RESERVED_FUNCTION_NAMES: &[&str] = &[
+    // Built-in functions
+    "print",
+    "malloc",
+    "private_input_start",
+    "panic",
+    // Compile-time only functions
+    "len",
+    "log2_ceil",
+    "next_multiple_of",
+    "saturating_sub",
+    // Custom hints (manually listed since CustomHint doesn't re-export strum iterator)
+    "hint_decompose_bits_xmss",
+    "hint_decompose_bits",
+];
+
+/// Check if a function name is reserved.
+fn is_reserved_function_name(name: &str) -> bool {
+    // Check static reserved names
+    if RESERVED_FUNCTION_NAMES.contains(&name) {
+        return true;
+    }
+    // Check precompile names (poseidon16, dot_product, execution)
+    for table in ALL_TABLES {
+        if table.name() == name && !table.is_execution_table() {
+            return true;
+        }
+    }
+    false
+}
 
 /// Parser for complete function definitions.
 pub struct FunctionParser;
@@ -25,6 +58,14 @@ impl Parse<Function> for FunctionParser {
             _ => false,
         };
         let name = next_inner_pair(&mut inner, "function name")?.as_str().to_string();
+
+        // Check for reserved function names
+        if is_reserved_function_name(&name) {
+            return Err(SemanticError::new(format!(
+                "Cannot define function with reserved name '{name}'"
+            ))
+            .into());
+        }
 
         let mut arguments = Vec::new();
         let mut n_returned_vars = 0;

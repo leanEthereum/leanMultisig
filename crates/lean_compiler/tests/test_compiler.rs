@@ -149,6 +149,47 @@ fn test_all_programs() {
 // }
 
 #[test]
+fn test_reserved_function_names() {
+    // Reserved function names that users cannot define
+    let reserved_names = [
+        // Built-in functions
+        "print",
+        "malloc",
+        "private_input_start",
+        "panic",
+        // Compile-time only functions
+        "len",
+        "log2_ceil",
+        "next_multiple_of",
+        "saturating_sub",
+        // Custom hints
+        "hint_decompose_bits_xmss",
+        "hint_decompose_bits",
+        // Precompiles
+        "poseidon16",
+        "dot_product",
+    ];
+
+    for name in reserved_names {
+        let program = format!(
+            r#"
+            fn main() {{
+                return;
+            }}
+            fn {name}() {{
+                return;
+            }}
+            "#
+        );
+        let result = try_compile_and_run(&ProgramSource::Raw(program), (&[], &[]), false);
+        assert!(
+            result.is_err(),
+            "Expected error when defining function with reserved name '{name}', but it succeeded"
+        );
+    }
+}
+
+#[test]
 fn debug() {
     let program = r#"
     fn main() {
