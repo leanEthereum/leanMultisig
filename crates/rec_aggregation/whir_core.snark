@@ -16,9 +16,8 @@ const GRINDING_BITS = GRINDING_BITS_PLACEHOLDER;
 
 fn whir_recursion(transcript_start) {
     mut fs = fs_new(transcript_start);
-    all_roots = malloc(N_ROUNDS + 1);
 
-    fs, all_roots[0], ood_points_commit, ood_evals_commit = parse_whir_commitment_const(fs, NUM_OOD_COMMIT);
+    fs, mut root, ood_points_commit, ood_evals_commit = parse_whir_commitment_const(fs, NUM_OOD_COMMIT);
 
     // In the future point / eval will come from the PIOP
     fs, pcs_point = fs_hint(fs, N_VARS * DIM);
@@ -27,37 +26,31 @@ fn whir_recursion(transcript_start) {
     combination_randomness_gen_0 = fs_sample_ef(fs);
     combination_randomness_powers_0 = powers(combination_randomness_gen_0, NUM_OOD_COMMIT + 1);
 
-    all_claimed_sums = malloc(N_ROUNDS + 2);
-
     claimed_sum_0_0 = malloc(DIM);
     dot_product(ood_evals_commit, combination_randomness_powers_0, claimed_sum_0_0, NUM_OOD_COMMIT, EE);
     claimed_sum_0_1 = mul_extension_ret(combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM, pcs_eval);
-    all_claimed_sums[0] = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
-
-    domain_size = malloc(N_ROUNDS + 1);
-    domain_size[0] = N_VARS + LOG_INV_RATE;
-    for i in 0..N_ROUNDS unroll { domain_size[i + 1] = domain_size[i] - RS_REDUCTION_FACTORS[i]; }
-
-    is_first_round = malloc(N_ROUNDS);
-    is_first_round[0] = 1;
-    for i in 1..N_ROUNDS unroll { is_first_round[i] = 0; }
+    mut claimed_sum = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
 
     all_folding_randomness = malloc(N_ROUNDS + 2);
     all_ood_points = malloc(N_ROUNDS);
     all_circle_values = malloc(N_ROUNDS + 1);
     all_combination_randomness_powers = malloc(N_ROUNDS);
 
+    mut domain_sz = N_VARS + LOG_INV_RATE;
     for r in 0..N_ROUNDS unroll {
-        fs, all_folding_randomness[r], all_ood_points[r], all_roots[r+1], all_circle_values[r], all_combination_randomness_powers[r], all_claimed_sums[r+1] =
-        whir_round(fs, all_roots[r], FOLDING_FACTORS[r], 2**FOLDING_FACTORS[r], is_first_round[r], NUM_QUERIES[r], domain_size[r], all_claimed_sums[r], GRINDING_BITS[r], NUM_OODS[r]);
+        var is_first_round;
+        if r == 0 { is_first_round = 1; } else { is_first_round = 0; }
+        fs, all_folding_randomness[r], all_ood_points[r], root, all_circle_values[r], all_combination_randomness_powers[r], claimed_sum =
+        whir_round(fs, root, FOLDING_FACTORS[r], 2**FOLDING_FACTORS[r], is_first_round, NUM_QUERIES[r], domain_sz, claimed_sum, GRINDING_BITS[r], NUM_OODS[r]);
+        domain_sz = domain_sz - RS_REDUCTION_FACTORS[r];
     }
 
-    fs, all_folding_randomness[N_ROUNDS], all_claimed_sums[N_ROUNDS + 1] = sumcheck_verify(fs, FOLDING_FACTORS[N_ROUNDS], all_claimed_sums[N_ROUNDS], 2);
+    fs, all_folding_randomness[N_ROUNDS], claimed_sum = sumcheck_verify(fs, FOLDING_FACTORS[N_ROUNDS], claimed_sum, 2);
 
     fs, final_coeffcients = fs_receive_ef(fs, 2**FINAL_VARS);
 
     fs, all_circle_values[N_ROUNDS], final_folds =
-        sample_stir_indexes_and_fold(fs, NUM_QUERIES[N_ROUNDS], 0, FOLDING_FACTORS[N_ROUNDS], 2**FOLDING_FACTORS[N_ROUNDS], domain_size[N_ROUNDS], all_roots[N_ROUNDS], all_folding_randomness[N_ROUNDS], GRINDING_BITS[N_ROUNDS]);
+        sample_stir_indexes_and_fold(fs, NUM_QUERIES[N_ROUNDS], 0, FOLDING_FACTORS[N_ROUNDS], 2**FOLDING_FACTORS[N_ROUNDS], domain_sz, root, all_folding_randomness[N_ROUNDS], GRINDING_BITS[N_ROUNDS]);
 
     final_circle_values = all_circle_values[N_ROUNDS];
     for i in 0..NUM_QUERIES[N_ROUNDS] {
@@ -68,22 +61,17 @@ fn whir_recursion(transcript_start) {
         copy_5(final_pol_evaluated_on_circle, final_folds + i*DIM);
     }
 
-    fs, all_folding_randomness[N_ROUNDS + 1], end_sum = sumcheck_verify(fs, FINAL_VARS, all_claimed_sums[N_ROUNDS + 1], 2);
+    fs, all_folding_randomness[N_ROUNDS + 1], end_sum = sumcheck_verify(fs, FINAL_VARS, claimed_sum, 2);
 
     folding_randomness_global = malloc(N_VARS * DIM);
 
-    ffs_sums = malloc(N_ROUNDS + 3);
-    ffs_sums[0] = 0;
+    mut start = folding_randomness_global;
     for i in 0..N_ROUNDS + 1 unroll {
-        ffs_sums[i + 1] = ffs_sums[i] + FOLDING_FACTORS[i];
-    }
-    for i in 0..N_ROUNDS + 1 unroll {
-        start = folding_randomness_global + ffs_sums[i] * DIM;
         for j in 0..FOLDING_FACTORS[i] unroll {
             copy_5(all_folding_randomness[i] + j*DIM, start + j*DIM);
         }
+        start = start + FOLDING_FACTORS[i] * DIM;
     }
-    start = folding_randomness_global + ffs_sums[N_ROUNDS + 1] * DIM;
     for j in 0..FINAL_VARS unroll {
         copy_5(all_folding_randomness[N_ROUNDS + 1] + j*DIM, start + j*DIM);
     }
@@ -151,7 +139,6 @@ fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
 }
 
 fn sumcheck_verify_helper(fs_state, n_steps, claimed_sum, const degree, challenges) -> 2 {
-
     fs_states_a = malloc(n_steps + 1);
     fs_states_a[0] = fs_state;
 
