@@ -3,7 +3,8 @@ use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{AssignmentTarget, Expression, Function, FunctionArg, Line, SourceLocation},
+    a_simplify_lang::VarOrConstMallocAccess,
+    lang::{AssignmentTarget, Expression, Function, FunctionArg, Line, MathOperation, SimpleExpr, SourceLocation},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -181,37 +182,157 @@ impl Parse<Line> for AssignmentParser {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner().peekable();
 
-        // Check if there's an assignment_target_list (LHS)
-        let mut targets: Vec<AssignmentTarget> = Vec::new();
-        if let Some(first) = inner.peek()
+        // Check if there's assignment_target_list and assign_op
+        let lhs_info = if let Some(first) = inner.peek()
             && first.as_rule() == Rule::assignment_target_list
         {
-            targets = inner
-                .next()
-                .unwrap()
+            let target_list = inner.next().unwrap();
+            let op_pair = next_inner_pair(&mut inner, "assignment operator")?;
+            Some(Self::parse_lhs(target_list, op_pair, ctx)?)
+        } else {
+            None
+        };
+
+        // Parse the RHS expression
+        let expr_pair = next_inner_pair(&mut inner, "expression")?;
+        let rhs_expr = ExpressionParser.parse(expr_pair, ctx)?;
+
+        match lhs_info {
+            Some(LhsInfo::Compound { target, lhs_expr, op }) => {
+                // Desugar: target op= expr -> target = target op expr
+                let desugared_expr = Expression::MathExpr(op, vec![lhs_expr, rhs_expr]);
+                Ok(Line::Statement {
+                    targets: vec![target],
+                    value: desugared_expr,
+                    line_number,
+                })
+            }
+            Some(LhsInfo::Simple { mut targets }) => {
+                for target in &mut targets {
+                    if let AssignmentTarget::Var { var, .. } = target
+                        && var == "_"
+                    {
+                        *var = ctx.next_trash_var();
+                    }
+                }
+                Self::finalize_simple_assignment(line_number, targets, rhs_expr)
+            }
+            None => {
+                // No LHS - expression statement (e.g., function call)
+                Self::finalize_simple_assignment(line_number, Vec::new(), rhs_expr)
+            }
+        }
+    }
+}
+
+/// Parsed LHS information
+enum LhsInfo {
+    Compound {
+        target: AssignmentTarget,
+        lhs_expr: Expression,
+        op: MathOperation,
+    },
+    Simple {
+        targets: Vec<AssignmentTarget>,
+    },
+}
+
+impl AssignmentParser {
+    /// Parse assignment LHS (target list + operator) and return structured info
+    fn parse_lhs(
+        target_list_pair: ParsePair<'_>,
+        op_pair: ParsePair<'_>,
+        ctx: &mut ParseContext,
+    ) -> ParseResult<LhsInfo> {
+        let op_str = op_pair.as_str();
+
+        if op_str == "=" {
+            // Simple assignment
+            let targets = target_list_pair
                 .into_inner()
                 .map(|item| AssignmentTargetParser.parse(item, ctx))
                 .collect::<ParseResult<Vec<AssignmentTarget>>>()?;
-        }
+            Ok(LhsInfo::Simple { targets })
+        } else {
+            // Compound assignment - validate constraints
+            let targets: Vec<_> = target_list_pair.into_inner().collect();
 
-        // Parse the expression (RHS)
-        let expr_pair = next_inner_pair(&mut inner, "expression")?;
-        let expr = ExpressionParser.parse(expr_pair, ctx)?;
-
-        for target in &mut targets {
-            if let AssignmentTarget::Var { var, .. } = target
-                && var == "_"
-            {
-                *var = ctx.next_trash_var();
+            if targets.len() != 1 {
+                return Err(
+                    SemanticError::new("Compound assignment operators only allow a single target").into(),
+                );
             }
+
+            let target_pair = targets.into_iter().next().unwrap();
+            let (target, lhs_expr) = Self::parse_compound_target(target_pair, ctx)?;
+
+            let op = match op_str {
+                "+=" => MathOperation::Add,
+                "-=" => MathOperation::Sub,
+                "*=" => MathOperation::Mul,
+                "/=" => MathOperation::Div,
+                _ => return Err(SemanticError::new("Invalid compound operator").into()),
+            };
+
+            Ok(LhsInfo::Compound { target, lhs_expr, op })
+        }
+    }
+
+    /// Parse a single target for compound assignment (no mut allowed)
+    fn parse_compound_target(
+        pair: ParsePair<'_>,
+        ctx: &mut ParseContext,
+    ) -> ParseResult<(AssignmentTarget, Expression)> {
+        let mut inner = pair.into_inner().peekable();
+
+        // Check for mut keyword - not allowed in compound assignment
+        if let Some(first) = inner.peek()
+            && first.as_rule() == Rule::mut_keyword
+        {
+            return Err(SemanticError::new("Cannot use 'mut' with compound assignment operators").into());
         }
 
+        let target_inner = next_inner_pair(&mut inner, "assignment target")?;
+
+        match target_inner.as_rule() {
+            Rule::array_access_expr => {
+                let mut arr_inner = target_inner.into_inner();
+                let array = next_inner_pair(&mut arr_inner, "array name")?.as_str().to_string();
+                let indices: Vec<Expression> = arr_inner
+                    .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
+                    .collect::<ParseResult<Vec<_>>>()?;
+
+                let target = AssignmentTarget::ArrayAccess {
+                    array: array.clone(),
+                    index: Box::new(indices[0].clone()),
+                };
+                let lhs_expr = Expression::ArrayAccess { array, index: indices };
+                Ok((target, lhs_expr))
+            }
+            Rule::identifier => {
+                let var = target_inner.as_str().to_string();
+                let target = AssignmentTarget::Var {
+                    var: var.clone(),
+                    is_mutable: false,
+                };
+                let lhs_expr = Expression::Value(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)));
+                Ok((target, lhs_expr))
+            }
+            _ => Err(SemanticError::new("Expected identifier or array access").into()),
+        }
+    }
+
+    /// Finalize a simple assignment (handles function calls vs regular expressions)
+    fn finalize_simple_assignment(
+        line_number: SourceLineNumber,
+        targets: Vec<AssignmentTarget>,
+        expr: Expression,
+    ) -> ParseResult<Line> {
         match &expr {
             Expression::FunctionCall { function_name, args } => {
                 Self::handle_function_call(line_number, function_name.clone(), args.clone(), targets)
             }
             _ => {
-                // Non-function-call expression - must have exactly one target
                 if targets.is_empty() {
                     return Err(SemanticError::new("Expression statement has no effect").into());
                 }
@@ -221,7 +342,6 @@ impl Parse<Line> for AssignmentParser {
                     )
                     .into());
                 }
-
                 Ok(Line::Statement {
                     targets,
                     value: expr,

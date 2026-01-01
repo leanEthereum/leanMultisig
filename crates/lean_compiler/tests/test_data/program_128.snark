@@ -1,0 +1,32 @@
+fn main() {
+    mut a = 5;
+    mut b = 10;
+
+    a += 3;
+    assert a == 8;
+
+    a -= 2;
+    assert a == 6;
+
+    a *= 4;
+    assert a == 24;
+
+    a /= 3;
+    assert a == 8;
+
+    b += a;
+    assert b == 18;
+
+    b -= 3;
+    b *= 2;
+    assert b == 30;
+
+    mut c = 100;
+    c /= 4;
+    c -= 5;
+    c += 10;
+    c *= 3;
+    assert c == 90;
+
+    return;
+}
