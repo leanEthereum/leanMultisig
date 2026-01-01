@@ -79,7 +79,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
 
         mut partial_sum = remaining[i] * 2**24;
         for j in 1..13 unroll {
-            partial_sum = partial_sum + encoding[i * 12 + (j-1)] * 4**(j-1);
+            partial_sum += encoding[i * 12 + (j-1)] * 4**(j-1);
         }
         assert partial_sum == compressed_vals[i];
     }
@@ -87,7 +87,7 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     // we need to check the target sum
     mut target_sum = encoding[0];
     for i in 1..V unroll {
-        target_sum = target_sum + encoding[i];
+        target_sum += encoding[i];
     }
     assert target_sum == TARGET_SUM;
 

@@ -72,7 +72,7 @@ fn unit_root_pow_dynamic(domain_size, index_bits) -> 1 {
 fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
     mut prod = ((index_bits[0] * ROOT**(2**(TWO_ADICITY - domain_size))) + (1 - index_bits[0]));
     for i in 1..domain_size unroll {
-        prod = prod * ((index_bits[i] * ROOT**(2**(TWO_ADICITY - domain_size + i))) + (1 - index_bits[i]));
+        prod *= ((index_bits[i] * ROOT**(2**(TWO_ADICITY - domain_size + i))) + (1 - index_bits[i]));
     }
     return prod;
 }
@@ -257,7 +257,7 @@ fn expand_from_univariate_base_const(alpha, const n) -> 1 {
     mut current = alpha;
     for i in 0..n unroll {
         res[i] = current;
-        current = current * current;
+        current *= current;
     }
     return res;
 }
@@ -584,12 +584,12 @@ fn checked_decompose_bits(a, k) -> 2 {
     mut sum_24 = bits[0];
     partial_sums_24[0] = sum_24;
     for i in 1..24 unroll {
-        sum_24 = sum_24 + bits[i] * 2**i;
+        sum_24 += bits[i] * 2**i;
         partial_sums_24[i] = sum_24;
     }
     mut sum_7 = bits[24];
     for i in 1..7 unroll {
-        sum_7 = sum_7 + bits[24 + i] * 2**i;
+        sum_7 += bits[24 + i] * 2**i;
     }
     if sum_7 == 127 {
         assert sum_24 == 0;

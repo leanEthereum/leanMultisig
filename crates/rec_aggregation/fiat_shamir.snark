@@ -87,11 +87,10 @@ fn fs_print_state(fs_state) {
 
 fn sample_bits_const(fs, const n_samples, K) -> 2 {
     // return the updated fiat-shamir, and a pointer to n pointers, each pointing to 31 (boolean) field elements,
-    all_fs = malloc(1 + next_multiple_of(n_samples, 8) / 8);
+    all_fs = malloc(next_multiple_of(n_samples, 8) / 8);
     all_fs[0] = fs;
-    for i in 0..next_multiple_of(n_samples, 8) / 8 unroll {
-        duplexed = duplexing(all_fs[i]);
-        all_fs[i + 1] = duplexed;
+    for i in 0..next_multiple_of(n_samples, 8) / 8 - 1 unroll {
+        all_fs[i + 1] = duplexing(all_fs[i]);
     }
     sampled_bits = malloc(n_samples);
     for i in 0..(next_multiple_of(n_samples, 8) / 8) - 1 unroll {
@@ -107,9 +106,8 @@ fn sample_bits_const(fs, const n_samples, K) -> 2 {
         bits, _ = checked_decompose_bits(last_fs[j], K);
         sampled_bits[((next_multiple_of(n_samples, 8) / 8) - 1) * 8 + j] = bits;
     }
-    final_fs = duplexing(last_fs);
 
-    return final_fs, sampled_bits;
+    return duplexing(last_fs), sampled_bits;
 }
 
 

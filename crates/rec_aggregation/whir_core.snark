@@ -42,7 +42,7 @@ fn whir_recursion(transcript_start) {
         if r == 0 { is_first_round = 1; } else { is_first_round = 0; }
         fs, all_folding_randomness[r], all_ood_points[r], root, all_circle_values[r], all_combination_randomness_powers[r], claimed_sum =
         whir_round(fs, root, FOLDING_FACTORS[r], 2**FOLDING_FACTORS[r], is_first_round, NUM_QUERIES[r], domain_sz, claimed_sum, GRINDING_BITS[r], NUM_OODS[r]);
-        domain_sz = domain_sz - RS_REDUCTION_FACTORS[r];
+        domain_sz -= RS_REDUCTION_FACTORS[r];
     }
 
     fs, all_folding_randomness[N_ROUNDS], claimed_sum = sumcheck_verify(fs, FOLDING_FACTORS[N_ROUNDS], claimed_sum, 2);
@@ -70,7 +70,7 @@ fn whir_recursion(transcript_start) {
         for j in 0..FOLDING_FACTORS[i] unroll {
             copy_5(all_folding_randomness[i] + j*DIM, start + j*DIM);
         }
-        start = start + FOLDING_FACTORS[i] * DIM;
+        start += FOLDING_FACTORS[i] * DIM;
     }
     for j in 0..FINAL_VARS unroll {
         copy_5(all_folding_randomness[N_ROUNDS + 1] + j*DIM, start + j*DIM);
@@ -95,10 +95,10 @@ fn whir_recursion(transcript_start) {
     mut n_vars = N_VARS;
     mut my_folding_randomness = folding_randomness_global;
     for i in 0..N_ROUNDS unroll {
-        n_vars = n_vars - FOLDING_FACTORS[i];
+        n_vars -= FOLDING_FACTORS[i];
         my_ood_recovered_evals = malloc(NUM_OODS[i] * DIM);
         combination_randomness_powers = all_combination_randomness_powers[i];
-        my_folding_randomness = my_folding_randomness + FOLDING_FACTORS[i]*DIM;
+        my_folding_randomness += FOLDING_FACTORS[i]*DIM;
         for j in 0..NUM_OODS[i] unroll {
             expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars);
             ood_rec = eq_mle_extension(expanded_from_univariate, my_folding_randomness, n_vars);
