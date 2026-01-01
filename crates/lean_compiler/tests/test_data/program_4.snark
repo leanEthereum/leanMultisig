@@ -1,0 +1,5 @@
+import "misc/circular_import.snark";
+
+fn main() {
+    return;
+}

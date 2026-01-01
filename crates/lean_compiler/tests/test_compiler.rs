@@ -989,9 +989,13 @@ fn test_div_extension_field() {
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&public_input, &[]), false);
 }
 
-fn run_program_in_files(i: usize) {
+fn test_data_dir() -> String {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let path = format!("{manifest_dir}/tests/program_{i}.snark");
+    format!("{manifest_dir}/tests/test_data")
+}
+
+fn run_program_in_files(i: usize) {
+    let path = format!("{}/program_{i}.snark", test_data_dir());
     compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
 }
 
@@ -1023,19 +1027,25 @@ fn test_circular_import_tolerance() {
     run_program_in_files(4);
 }
 
-
 #[test]
 fn test_imports() {
     run_program_in_files(5);
 }
 
-
 #[test]
 #[should_panic]
 fn test_no_main() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let path = format!("{manifest_dir}/tests/no_main.snark");
+    let path = format!("{}/no_main.snark", test_data_dir());
     compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
+}
+
+#[test]
+fn test_num_files() {
+    let expected_num_files = 3; // program_5.snark imports foo.snark and bar.snark
+    let path = format!("{}/program_5.snark", test_data_dir());
+    let bytecode = compile_program(&ProgramSource::Filepath(path));
+    assert_eq!(bytecode.filepaths.len(), expected_num_files);
+    assert_eq!(bytecode.source_code.len(), expected_num_files);
 }
 
 #[test]
@@ -1145,16 +1155,6 @@ fn test_const_array_element_exponentiation() {
     }
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
-}
-
-#[test]
-fn test_num_files() {
-    let expected_num_files = 3; // program_6.snark imports foo.snark and bar.snark
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let path = format!("{manifest_dir}/tests/program_5.snark");
-    let bytecode = compile_program(&ProgramSource::Filepath(path));
-    assert_eq!(bytecode.filepaths.len(), expected_num_files);
-    assert_eq!(bytecode.source_code.len(), expected_num_files);
 }
 
 #[test]
@@ -1962,8 +1962,6 @@ fn test_mutable_in_complex_control_flow() {
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
 
-
-
 #[test]
 fn test_mut_var_name() {
     let program = r#"
@@ -1976,7 +1974,6 @@ fn test_mut_var_name() {
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
-
 
 #[test]
 fn test_nested_matches() {

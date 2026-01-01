@@ -1,0 +1,8 @@
+ import "misc/bar.snark";
+import "misc/foo.snark";
+
+const FOO = 5;
+
+fn main() {
+    return;
+}

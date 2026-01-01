@@ -1,5 +1,5 @@
-import "bar.snark";
-import "foo.snark";
+import "misc/bar.snark";
+import "misc/foo.snark";
 
 fn bar() {
     return;

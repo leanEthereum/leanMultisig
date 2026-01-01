@@ -1,6 +1,0 @@
-import "foo.snark";
-import "foo.snark";
-
-fn main() {
-    return;
-}
