@@ -1023,15 +1023,19 @@ fn test_circular_import_tolerance() {
     run_program_in_files(4);
 }
 
-#[test]
-#[should_panic]
-fn test_no_main() {
-    run_program_in_files(5);
-}
 
 #[test]
 fn test_imports() {
-    run_program_in_files(6);
+    run_program_in_files(5);
+}
+
+
+#[test]
+#[should_panic]
+fn test_no_main() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let path = format!("{manifest_dir}/tests/no_main.snark");
+    compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
 }
 
 #[test]
@@ -1147,7 +1151,7 @@ fn test_const_array_element_exponentiation() {
 fn test_num_files() {
     let expected_num_files = 3; // program_6.snark imports foo.snark and bar.snark
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let path = format!("{manifest_dir}/tests/program_6.snark");
+    let path = format!("{manifest_dir}/tests/program_5.snark");
     let bytecode = compile_program(&ProgramSource::Filepath(path));
     assert_eq!(bytecode.filepaths.len(), expected_num_files);
     assert_eq!(bytecode.source_code.len(), expected_num_files);

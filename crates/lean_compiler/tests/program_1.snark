@@ -1,4 +1,4 @@
- import "bar.snark";
+import "bar.snark";
 import "foo.snark";
 
 fn bar() {
