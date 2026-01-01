@@ -29,17 +29,17 @@ fn fs_grinding(fs, bits) -> 1 {
     left[0] = grinding_witness;
     set_to_7_zeros(left + 1);
 
-    fs_1 = malloc(17);
-    poseidon16(left, fs + 8, fs_1, PERMUTATION);
-    fs_1[16] = fs[16] + 1; // one element read from transcript
+    fs_after_poseidon = malloc(17);
+    poseidon16(left, fs + 8, fs_after_poseidon, PERMUTATION);
+    fs_after_poseidon[16] = fs[16] + 1; // one element read from transcript
 
-    sampled = fs_1[0];
+    sampled = fs_after_poseidon[0];
     _, sampled_low_bits_value = checked_decompose_bits(sampled, bits);
     assert sampled_low_bits_value == 0;
 
-    fs_2 = duplexing(fs_1);
-    
-    return fs_2;
+    fs_duplexed = duplexing(fs_after_poseidon);
+
+    return fs_duplexed;
 }
 
 fn fs_sample_ef(fs) -> 1 {

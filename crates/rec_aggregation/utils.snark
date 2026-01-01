@@ -70,12 +70,11 @@ fn unit_root_pow_dynamic(domain_size, index_bits) -> 1 {
 }
 
 fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
-    prods = malloc(domain_size);
-    prods[0] = ((index_bits[0] * ROOT**(2**(TWO_ADICITY - domain_size))) + (1 - index_bits[0]));
+    mut prod = ((index_bits[0] * ROOT**(2**(TWO_ADICITY - domain_size))) + (1 - index_bits[0]));
     for i in 1..domain_size unroll {
-        prods[i] = prods[i - 1] * ((index_bits[i] * ROOT**(2**(TWO_ADICITY - domain_size + i))) + (1 - index_bits[i]));
+        prod = prod * ((index_bits[i] * ROOT**(2**(TWO_ADICITY - domain_size + i))) + (1 - index_bits[i]));
     }
-    return prods[domain_size - 1];
+    return prod;
 }
 
 
@@ -255,9 +254,10 @@ fn expand_from_univariate_base_const(alpha, const n) -> 1 {
     // alpha: F
 
     res = malloc(n);
-    res[0] = alpha;
-    for i in 0..n-1 unroll {
-        res[i+1] = res[i] * res[i];
+    mut current = alpha;
+    for i in 0..n unroll {
+        res[i] = current;
+        current = current * current;
     }
     return res;
 }
@@ -580,22 +580,23 @@ fn checked_decompose_bits(a, k) -> 2 {
     for i in 0..F_BITS unroll {
         assert bits[i] * (1 - bits[i]) == 0;
     }
-    sums_24_first_bits = malloc(24);
-    sums_24_first_bits[0] = bits[0];
+    partial_sums_24 = malloc(24);
+    mut sum_24 = bits[0];
+    partial_sums_24[0] = sum_24;
     for i in 1..24 unroll {
-        sums_24_first_bits[i] = sums_24_first_bits[i - 1] + bits[i] * 2**i;
+        sum_24 = sum_24 + bits[i] * 2**i;
+        partial_sums_24[i] = sum_24;
     }
-    sums_7_last_bits = malloc(7);
-    sums_7_last_bits[0] = bits[24];
+    mut sum_7 = bits[24];
     for i in 1..7 unroll {
-        sums_7_last_bits[i] = sums_7_last_bits[i - 1] + bits[24 + i] * 2**i;
+        sum_7 = sum_7 + bits[24 + i] * 2**i;
     }
-    if sums_7_last_bits[6] == 127 {
-        assert sums_24_first_bits[23] == 0;
+    if sum_7 == 127 {
+        assert sum_24 == 0;
     }
 
-    assert a == sums_24_first_bits[23] + sums_7_last_bits[6] * 2**24;
-    partial_sum = sums_24_first_bits[k - 1];
+    assert a == sum_24 + sum_7 * 2**24;
+    partial_sum = partial_sums_24[k - 1];
     return bits, partial_sum;
 }
 

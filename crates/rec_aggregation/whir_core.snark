@@ -15,16 +15,16 @@ const NUM_OODS = NUM_OODS_PLACEHOLDER;
 const GRINDING_BITS = GRINDING_BITS_PLACEHOLDER;
 
 fn whir_recursion(transcript_start) {
-    fs_state = fs_new(transcript_start);
+    mut fs = fs_new(transcript_start);
     all_roots = malloc(N_ROUNDS + 1);
 
-    fs_0, all_roots[0], ood_points_commit, ood_evals_commit = parse_whir_commitment_const(fs_state, NUM_OOD_COMMIT);
+    fs, all_roots[0], ood_points_commit, ood_evals_commit = parse_whir_commitment_const(fs, NUM_OOD_COMMIT);
 
     // In the future point / eval will come from the PIOP
-    fs_1, pcs_point = fs_hint(fs_0, N_VARS * DIM);
-    fs_3, pcs_eval = fs_hint(fs_1, 5);
+    fs, pcs_point = fs_hint(fs, N_VARS * DIM);
+    fs, pcs_eval = fs_hint(fs, 5);
 
-    combination_randomness_gen_0 = fs_sample_ef(fs_3);
+    combination_randomness_gen_0 = fs_sample_ef(fs);
     combination_randomness_powers_0 = powers(combination_randomness_gen_0, NUM_OOD_COMMIT + 1);
 
     all_claimed_sums = malloc(N_ROUNDS + 2);
@@ -33,7 +33,7 @@ fn whir_recursion(transcript_start) {
     dot_product(ood_evals_commit, combination_randomness_powers_0, claimed_sum_0_0, NUM_OOD_COMMIT, EE);
     claimed_sum_0_1 = mul_extension_ret(combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM, pcs_eval);
     all_claimed_sums[0] = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
-    
+
     domain_size = malloc(N_ROUNDS + 1);
     domain_size[0] = N_VARS + LOG_INV_RATE;
     for i in 0..N_ROUNDS unroll { domain_size[i + 1] = domain_size[i] - RS_REDUCTION_FACTORS[i]; }
@@ -47,30 +47,28 @@ fn whir_recursion(transcript_start) {
     all_circle_values = malloc(N_ROUNDS + 1);
     all_combination_randomness_powers = malloc(N_ROUNDS);
 
-    all_fs = malloc(N_ROUNDS + 1);
-    all_fs[0] = fs_3;
     for r in 0..N_ROUNDS unroll {
-        all_fs[r+1], all_folding_randomness[r], all_ood_points[r], all_roots[r+1], all_circle_values[r], all_combination_randomness_powers[r], all_claimed_sums[r+1] = 
-        whir_round(all_fs[r], all_roots[r], FOLDING_FACTORS[r], 2**FOLDING_FACTORS[r], is_first_round[r], NUM_QUERIES[r], domain_size[r], all_claimed_sums[r], GRINDING_BITS[r], NUM_OODS[r]);
+        fs, all_folding_randomness[r], all_ood_points[r], all_roots[r+1], all_circle_values[r], all_combination_randomness_powers[r], all_claimed_sums[r+1] =
+        whir_round(fs, all_roots[r], FOLDING_FACTORS[r], 2**FOLDING_FACTORS[r], is_first_round[r], NUM_QUERIES[r], domain_size[r], all_claimed_sums[r], GRINDING_BITS[r], NUM_OODS[r]);
     }
 
-    fs_8, all_folding_randomness[N_ROUNDS], all_claimed_sums[N_ROUNDS + 1] = sumcheck_verify(all_fs[N_ROUNDS], FOLDING_FACTORS[N_ROUNDS], all_claimed_sums[N_ROUNDS], 2);
-    
-    fs_9, final_coeffcients = fs_receive_ef(fs_8, 2**FINAL_VARS);
+    fs, all_folding_randomness[N_ROUNDS], all_claimed_sums[N_ROUNDS + 1] = sumcheck_verify(fs, FOLDING_FACTORS[N_ROUNDS], all_claimed_sums[N_ROUNDS], 2);
 
-    fs_10, all_circle_values[N_ROUNDS], final_folds =
-        sample_stir_indexes_and_fold(fs_9, NUM_QUERIES[N_ROUNDS], 0, FOLDING_FACTORS[N_ROUNDS], 2**FOLDING_FACTORS[N_ROUNDS], domain_size[N_ROUNDS], all_roots[N_ROUNDS], all_folding_randomness[N_ROUNDS], GRINDING_BITS[N_ROUNDS]);
-    
+    fs, final_coeffcients = fs_receive_ef(fs, 2**FINAL_VARS);
+
+    fs, all_circle_values[N_ROUNDS], final_folds =
+        sample_stir_indexes_and_fold(fs, NUM_QUERIES[N_ROUNDS], 0, FOLDING_FACTORS[N_ROUNDS], 2**FOLDING_FACTORS[N_ROUNDS], domain_size[N_ROUNDS], all_roots[N_ROUNDS], all_folding_randomness[N_ROUNDS], GRINDING_BITS[N_ROUNDS]);
+
     final_circle_values = all_circle_values[N_ROUNDS];
     for i in 0..NUM_QUERIES[N_ROUNDS] {
         powers_of_2_rev = expand_from_univariate_base_const(final_circle_values[i], FINAL_VARS);
         poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS);
         final_pol_evaluated_on_circle = malloc(DIM);
-        dot_product(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS, BE); 
+        dot_product(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS, BE);
         copy_5(final_pol_evaluated_on_circle, final_folds + i*DIM);
     }
 
-    fs_11, all_folding_randomness[N_ROUNDS + 1], end_sum = sumcheck_verify(fs_10, FINAL_VARS, all_claimed_sums[N_ROUNDS + 1], 2);
+    fs, all_folding_randomness[N_ROUNDS + 1], end_sum = sumcheck_verify(fs, FINAL_VARS, all_claimed_sums[N_ROUNDS + 1], 2);
 
     folding_randomness_global = malloc(N_VARS * DIM);
 
@@ -133,15 +131,15 @@ fn whir_recursion(transcript_start) {
         s9 = add_extension_ret(weight_sums[i], s8);
         weight_sums[i+1] = s9;
     }
-    evaluation_of_weights = weight_sums[N_ROUNDS]; // not good
+    evaluation_of_weights = weight_sums[N_ROUNDS];
     poly_eq_final = poly_eq_extension(all_folding_randomness[N_ROUNDS + 1], FINAL_VARS);
     final_value = malloc(DIM);
     dot_product(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS, EE);
     evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
     copy_5(evaluation_of_weights_times_final_value, end_sum);
 
-    fs_final = duplexing(fs_11);
-    
+    fs = duplexing(fs);
+
     return;
 }
 
@@ -174,17 +172,17 @@ fn sumcheck_verify_helper(fs_state, n_steps, claimed_sum, const degree, challeng
     return new_state, new_claimed_sum;
 }
 
-fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits) -> 3 {
+fn sample_stir_indexes_and_fold(mut fs, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits) -> 3 {
 
     folded_domain_size = domain_size - folding_factor;
 
-    fs_8 = fs_grinding(fs_state, grinding_bits);
-    fs_9, stir_challenges_indexes = sample_bits_dynamic(fs_8, num_queries, folded_domain_size);
+    fs = fs_grinding(fs, grinding_bits);
+    fs, stir_challenges_indexes = sample_bits_dynamic(fs, num_queries, folded_domain_size);
 
     answers = malloc(num_queries); // a vector of pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
     fs_states_b = malloc(num_queries + 1);
-    fs_states_b[0] = fs_9;
-    
+    fs_states_b[0] = fs;
+
     var n_chunks_per_answer;
     // the number of chunk of 8 field elements per merkle leaf opened
     if merkle_leaves_in_basefield == 1 {
@@ -194,16 +192,15 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
     }
 
     for i in 0..num_queries {
-        new_fs_state, answer = fs_hint(fs_states_b[i], n_chunks_per_answer); 
-        fs_states_b[i + 1] = new_fs_state;
+        fs_states_b[i + 1], answer = fs_hint(fs_states_b[i], n_chunks_per_answer);
         answers[i] = answer;
     }
-    fs_10 = fs_states_b[num_queries];
+    fs = fs_states_b[num_queries];
 
     leaf_hashes = malloc(num_queries); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
     batch_hash_slice(num_queries, answers, leaf_hashes, n_chunks_per_answer / VECTOR_LEN);
 
-    fs_11, merkle_paths = fs_hint(fs_10, folded_domain_size * num_queries * VECTOR_LEN);
+    fs, merkle_paths = fs_hint(fs, folded_domain_size * num_queries * VECTOR_LEN);
 
     // Merkle verification
     merkle_verif_batch(num_queries, merkle_paths, leaf_hashes, stir_challenges_indexes, prev_root, folded_domain_size, num_queries);
@@ -229,24 +226,24 @@ fn sample_stir_indexes_and_fold(fs_state, num_queries, merkle_leaves_in_basefiel
         circle_values[i] = circle_value;
     }
 
-    return fs_11, circle_values, folds;
+    return fs, circle_values, folds;
 }
 
-fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkle_leaves_in_basefield, num_queries, domain_size, claimed_sum, grinding_bits, num_ood) -> 7 {
-    fs_7, folding_randomness, new_claimed_sum_a = sumcheck_verify(fs_state, folding_factor, claimed_sum, 2);
+fn whir_round(mut fs, prev_root, folding_factor, two_pow_folding_factor, merkle_leaves_in_basefield, num_queries, domain_size, claimed_sum, grinding_bits, num_ood) -> 7 {
+    fs, folding_randomness, new_claimed_sum_a = sumcheck_verify(fs, folding_factor, claimed_sum, 2);
 
-    fs_8, root, ood_points, ood_evals = parse_commitment(fs_7, num_ood);
+    fs, root, ood_points, ood_evals = parse_commitment(fs, num_ood);
 
-    fs_11, circle_values, folds = 
-        sample_stir_indexes_and_fold(fs_8, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits);
+    fs, circle_values, folds =
+        sample_stir_indexes_and_fold(fs, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits);
 
-    combination_randomness_gen = fs_sample_ef(fs_11);
+    combination_randomness_gen = fs_sample_ef(fs);
 
     combination_randomness_powers = powers(combination_randomness_gen, num_queries + num_ood);
 
     claimed_sum_0 = malloc(DIM);
     dot_product_ee_dynamic(ood_evals, combination_randomness_powers, claimed_sum_0, num_ood);
-    
+
     claimed_sum_1 = malloc(DIM);
     dot_product_ee_dynamic(folds, combination_randomness_powers + num_ood * DIM, claimed_sum_1, num_queries);
 
@@ -254,7 +251,7 @@ fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, merkl
 
     final_sum = add_extension_ret(new_claimed_sum_a, new_claimed_sum_b);
 
-    return fs_11, folding_randomness, ood_points, root, circle_values, combination_randomness_powers, final_sum;
+    return fs, folding_randomness, ood_points, root, circle_values, combination_randomness_powers, final_sum;
 }
 
 fn polynomial_sum_at_0_and_1(coeffs, const degree) -> 1 {
@@ -269,8 +266,7 @@ fn polynomial_sum_at_0_and_1(coeffs, const degree) -> 1 {
 }
 
 
-fn parse_commitment(fs_state, num_ood) -> 4 {
-    var fs_4;
+fn parse_commitment(mut fs, num_ood) -> 4 {
     var root;
     var ood_points;
     var ood_evals;
@@ -278,24 +274,22 @@ fn parse_commitment(fs_state, num_ood) -> 4 {
     debug_assert num_ood != 0;
     match num_ood {
         0 => {  } // unreachable
-        1 => { fs_4, root, ood_points, ood_evals = parse_whir_commitment_const(fs_state, 1); }
-        2 => { fs_4, root, ood_points, ood_evals = parse_whir_commitment_const(fs_state, 2); }
-        3 => { fs_4, root, ood_points, ood_evals = parse_whir_commitment_const(fs_state, 3); }
-        4 => { fs_4, root, ood_points, ood_evals = parse_whir_commitment_const(fs_state, 4); }
+        1 => { fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 1); }
+        2 => { fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 2); }
+        3 => { fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 3); }
+        4 => { fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 4); }
     }
-    return fs_4, root, ood_points, ood_evals;
+    return fs, root, ood_points, ood_evals;
 }
 
-fn parse_whir_commitment_const(fs_state, const num_ood) -> 4 {
-    fs_1, root = fs_receive_chunks(fs_state, 1);
+fn parse_whir_commitment_const(mut fs, const num_ood) -> 4 {
+    fs, root = fs_receive_chunks(fs, 1);
     ood_points = malloc(num_ood * DIM);
-    all_fs = malloc(num_ood + 1);
-    all_fs[0] = fs_1;
     for i in 0..num_ood unroll {
-        ood_point = fs_sample_ef(all_fs[i]);
+        ood_point = fs_sample_ef(fs);
         copy_5(ood_point, ood_points + i * DIM);
-        all_fs[i + 1] = duplexing(all_fs[i]);
+        fs = duplexing(fs);
     }
-    fs_4, ood_evals = fs_receive_ef(all_fs[num_ood], num_ood);
-    return fs_4, root, ood_points, ood_evals;
+    fs, ood_evals = fs_receive_ef(fs, num_ood);
+    return fs, root, ood_points, ood_evals;
 }
