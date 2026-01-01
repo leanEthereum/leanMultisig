@@ -59,6 +59,9 @@ impl Function {
     pub fn has_const_arguments(&self) -> bool {
         self.arguments.iter().any(|arg| arg.is_const)
     }
+    pub fn has_mutable_arguments(&self) -> bool {
+        self.arguments.iter().any(|arg| arg.is_mutable)
+    }
 }
 
 pub type Var = String;

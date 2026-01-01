@@ -1397,59 +1397,6 @@ fn test_mutable_with_const_args() {
 }
 
 #[test]
-fn test_mutable_inlined_function() {
-    let program = r#"
-    fn main() {
-        mut x = 10;
-        x = double(x);
-        assert x == 20;
-        x = double(x);
-        assert x == 40;
-        x = add_five(x);
-        assert x == 45;
-        return;
-    }
-
-    fn double(mut n) inline -> 1 {
-        n = n + n;
-        return n;
-    }
-
-    fn add_five(mut n) inline -> 1 {
-        n = n + 5;
-        return n;
-    }
-    "#;
-    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
-}
-
-#[test]
-fn test_mutable_nested_inlined_functions() {
-    let program = r#"
-    fn main() {
-        mut val = 1;
-        val = outer(val);
-        // outer: val = inner(val*2) = inner(2) = 2+10 = 12, then 12*3 = 36
-        assert val == 36;
-        return;
-    }
-
-    fn outer(mut x) inline -> 1 {
-        x = x * 2;
-        x = inner(x);
-        x = x * 3;
-        return x;
-    }
-
-    fn inner(mut y) inline -> 1 {
-        y = y + 10;
-        return y;
-    }
-    "#;
-    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
-}
-
-#[test]
 fn test_mutable_nested_function_calls() {
     let program = r#"
     fn main() {
@@ -1896,54 +1843,7 @@ fn test_mutable_if_else_in_unrolled_loop() {
 }
 
 #[test]
-fn test_mutable_comprehensive_stress() {
-    // A comprehensive test combining multiple mutable variables
-    let program = r#"
-    const SIZE = 4;
-
-    fn main() {
-        arr = malloc(SIZE);
-
-        // Initialize array with squares
-        for i in 0..SIZE unroll {
-            arr[i] = i * i;
-        }
-        // arr = [0, 1, 4, 9]
-
-        // Sum the array using mutable accumulator
-        mut sum = 0;
-        for i in 0..SIZE unroll {
-            val = arr[i];
-            sum = sum + val;
-        }
-        // sum = 0 + 1 + 4 + 9 = 14
-        assert sum == 14;
-
-        // Double the sum multiple times
-        sum = sum * 2;  // 28
-        sum = sum + 2;  // 30
-        assert sum == 30;
-
-        // Use inline function with mutable arg
-        mut result = process(sum);
-        assert result == 35;  // 30 + 5
-
-        result = process(result);
-        assert result == 40;  // 35 + 5
-
-        return;
-    }
-
-    fn process(mut x) inline -> 1 {
-        x = x + 5;
-        return x;
-    }
-    "#;
-    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
-}
-
-#[test]
-fn test() {
+fn test_many_if_else() {
     let program = r#"
     fn main() {
         for i in 0..6 {
@@ -2033,18 +1933,18 @@ fn test_mutable_in_complex_control_flow() {
                     x = x + 10;
                 }
                 if 1 == 0 {
-                    
+
                 } else {
                     x = x + 10;
                 }
                 if 1 == 1 {
                      if 1 == 0 {
-                    
+
                     } else {
                         x = x + 10;
                     }
                 } else {
-                    
+
                 }
             }
             2 => {
@@ -2215,6 +2115,1180 @@ fn test_deeply_nested_match() {
         }
 
         return inner_val;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_only_one_branch_mutates() {
+    // Edge case: only one branch mutates the variable
+    // Tests version unification when else_v != then_v (one is 0, other is 1)
+    let program = r#"
+    fn main() {
+        mut x = 5;
+        cond = 1;
+        if cond == 1 {
+            x = x + 10;
+        } else {
+            // no mutation
+        }
+        assert x == 15;
+
+        mut y = 10;
+        cond2 = 0;
+        if cond2 == 1 {
+            // no mutation
+        } else {
+            y = y + 5;
+        }
+        assert y == 15;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_asymmetric_mutation_counts() {
+    // Edge case: one branch has more mutations than the other
+    let program = r#"
+    fn main() {
+        mut x = 1;
+        cond = 1;
+        if cond == 1 {
+            x = x + 1;  // version 1
+            x = x + 1;  // version 2
+            x = x + 1;  // version 3
+        } else {
+            x = x + 10; // version 1 only
+        }
+        assert x == 4;
+
+        mut y = 1;
+        cond2 = 0;
+        if cond2 == 1 {
+            y = y + 1;
+        } else {
+            y = y + 1;
+            y = y + 1;
+            y = y + 1;
+            y = y + 1;
+        }
+        assert y == 5;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_deeply_nested_if_else() {
+    // Edge case: deeply nested if-else with mutations at multiple levels
+    let program = r#"
+    fn main() {
+        mut x = 0;
+        a = 1;
+        b = 1;
+        c = 1;
+        if a == 1 {
+            x = x + 1;
+            if b == 1 {
+                x = x + 10;
+                if c == 1 {
+                    x = x + 100;
+                } else {
+                    x = x + 200;
+                }
+            } else {
+                x = x + 20;
+            }
+        } else {
+            x = x + 1000;
+        }
+        // Expected: 0 + 1 + 10 + 100 = 111
+        assert x == 111;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_multiple_vars_different_branches() {
+    // Edge case: multiple mutable variables, each modified differently across branches
+    let program = r#"
+    fn main() {
+        mut a = 0;
+        mut b = 0;
+        mut c = 0;
+
+        cond = 1;
+        if cond == 1 {
+            a = a + 1;
+            b = b + 10;
+            // c not modified
+        } else {
+            // a not modified
+            b = b + 20;
+            c = c + 100;
+        }
+
+        assert a == 1;
+        assert b == 10;
+        assert c == 0;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_nested_match_in_if() {
+    // Edge case: match statement nested inside if-else
+    let program = r#"
+    fn main() {
+        assert test_func(1, 0) == 11;
+        assert test_func(1, 1) == 20;
+        assert test_func(0, 0) == 100;
+        return;
+    }
+
+    fn test_func(cond, selector) -> 1 {
+        mut x = 10;
+        if cond == 1 {
+            match selector {
+                0 => {
+                    x = x + 1;
+                }
+                1 => {
+                    x = x + 10;
+                }
+            }
+        } else {
+            x = x + 90;
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_if_in_match_arms() {
+    // Edge case: if-else inside each match arm
+    let program = r#"
+    fn main() {
+        assert test_func(0, 1) == 11;
+        assert test_func(0, 0) == 20;
+        assert test_func(1, 1) == 110;
+        assert test_func(1, 0) == 200;
+        return;
+    }
+
+    fn test_func(selector, cond) -> 1 {
+        mut x = 10;
+        match selector {
+            0 => {
+                if cond == 1 {
+                    x = x + 1;
+                } else {
+                    x = x + 10;
+                }
+            }
+            1 => {
+                if cond == 1 {
+                    x = x + 100;
+                } else {
+                    x = x + 190;
+                }
+            }
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_mutation_after_control_flow() {
+    // Edge case: mutation after control flow merge point
+    let program = r#"
+    fn main() {
+        mut x = 1;
+        cond = 1;
+        if cond == 1 {
+            x = x + 10;
+        } else {
+            x = x + 100;
+        }
+        // After merge, x is unified to version 2
+        x = x + 1000; // Should work on unified version
+        assert x == 1011;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_multiple_control_flows_sequential() {
+    // Edge case: multiple if-else in sequence, each modifying same variable
+    let program = r#"
+    fn main() {
+        mut x = 0;
+
+        cond1 = 1;
+        if cond1 == 1 {
+            x = x + 1;
+        } else {
+            x = x + 10;
+        }
+
+        cond2 = 0;
+        if cond2 == 1 {
+            x = x + 100;
+        } else {
+            x = x + 200;
+        }
+
+        cond3 = 1;
+        if cond3 == 1 {
+            x = x + 1000;
+        } else {
+            x = x + 2000;
+        }
+
+        // x = 0 + 1 + 200 + 1000 = 1201
+        assert x == 1201;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_self_assignment_with_old_value() {
+    // Edge case: ensure RHS uses old version when doing x = x + x
+    let program = r#"
+    fn main() {
+        mut x = 5;
+        x = x + x;  // Should be 5 + 5 = 10, not 10 + 10
+        assert x == 10;
+
+        x = x * x;  // 10 * 10 = 100
+        assert x == 100;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_cross_variable_assignment() {
+    // Edge case: one mutable assigned from another in control flow
+    let program = r#"
+    fn main() {
+        mut a = 10;
+        mut b = 20;
+
+        cond = 1;
+        if cond == 1 {
+            a = b + 1;  // a = 21
+            b = a + 1;  // b = 22 (uses new a)
+        } else {
+            b = a + 100;
+            a = b + 1;
+        }
+
+        assert a == 21;
+        assert b == 22;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_in_unrolled_loop_with_control_flow() {
+    // Edge case: control flow inside unrolled loop
+    let program = r#"
+    fn main() {
+        mut total = 0;
+        for i in 0..5 unroll {
+            if i == 2 {
+                total = total + 100;
+            } else if i == 4 {
+                total = total + 1000;
+            } else {
+                total = total + 1;
+            }
+        }
+        // i=0: +1, i=1: +1, i=2: +100, i=3: +1, i=4: +1000
+        // total = 1 + 1 + 100 + 1 + 1000 = 1103
+        assert total == 1103;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_match_with_empty_arm() {
+    // Edge case: match with an arm that does nothing
+    let program = r#"
+    fn main() {
+        assert test_func(0) == 11;
+        assert test_func(1) == 10;  // no mutation
+        assert test_func(2) == 30;
+        return;
+    }
+
+    fn test_func(sel) -> 1 {
+        mut x = 10;
+        match sel {
+            0 => {
+                x = x + 1;
+            }
+            1 => {
+                // empty - no mutation
+            }
+            2 => {
+                x = x + 20;
+            }
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_match_all_arms_different_versions() {
+    // Edge case: match where all arms end up with different version counts
+    let program = r#"
+    fn main() {
+        assert test_func(0) == 11;
+        assert test_func(1) == 12;
+        assert test_func(2) == 13;
+        return;
+    }
+
+    fn test_func(sel) -> 1 {
+        mut x = 10;
+        match sel {
+            0 => {
+                x = x + 1;
+            }
+            1 => {
+                x = x + 1;
+                x = x + 1;
+            }
+            2 => {
+                x = x + 1;
+                x = x + 1;
+                x = x + 1;
+            }
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_forward_decl_then_mutation_in_branch() {
+    // Edge case: forward declaration followed by assignment in control flow
+    let program = r#"
+    fn main() {
+        var mut x;
+        cond = 1;
+        if cond == 1 {
+            x = 10;
+        } else {
+            x = 20;
+        }
+        x = x + 1;
+        assert x == 11;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_complex_expression_rhs() {
+    // Edge case: complex expression on RHS involving the mutable variable
+    let program = r#"
+    fn main() {
+        mut x = 3;
+        x = x * x + x;  // 3*3 + 3 = 12
+        assert x == 12;
+
+        x = (x + 1) * (x + 2);  // 13 * 14 = 182
+        assert x == 182;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_deeply_nested_match() {
+    // Edge case: deeply nested match statements
+    let program = r#"
+    fn main() {
+        assert test_func(0, 0) == 111;
+        assert test_func(0, 1) == 121;
+        assert test_func(1, 0) == 211;
+        assert test_func(1, 1) == 221;
+        return;
+    }
+
+    fn test_func(a, b) -> 1 {
+        mut x = 100;
+        match a {
+            0 => {
+                x = x + 10;
+                match b {
+                    0 => {
+                        x = x + 1;
+                    }
+                    1 => {
+                        x = x + 11;
+                    }
+                }
+            }
+            1 => {
+                x = x + 110;
+                match b {
+                    0 => {
+                        x = x + 1;
+                    }
+                    1 => {
+                        x = x + 11;
+                    }
+                }
+            }
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_mut_in_nested_loop_scopes() {
+    // Edge case: mutable variable declared inside nested unrolled loops
+    let program = r#"
+    fn main() {
+        mut outer_sum = 0;
+        for i in 0..3 unroll {
+            mut inner_sum = 0;
+            for j in 0..4 unroll {
+                inner_sum = inner_sum + j;
+            }
+            // inner_sum = 0+1+2+3 = 6
+            outer_sum = outer_sum + inner_sum;
+        }
+        // outer_sum = 6 + 6 + 6 = 18
+        assert outer_sum == 18;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_mix_mutable_and_immutable() {
+    // Edge case: mixing mutable and immutable variables in complex control flow
+    let program = r#"
+    fn main() {
+        mut x = 10;
+        y = 5;  // immutable
+
+        cond = 1;
+        if cond == 1 {
+            x = x + y;  // 10 + 5 = 15
+            z = x + y;  // 15 + 5 = 20, immutable
+            x = x + z;  // 15 + 20 = 35
+        } else {
+            x = x + 100;
+        }
+
+        assert x == 35;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_three_way_if_else_chain() {
+    // Edge case: if-else-if chain (which becomes nested if-else)
+    let program = r#"
+    fn main() {
+        assert test_func(0) == 11;
+        assert test_func(1) == 20;
+        assert test_func(2) == 30;
+        return;
+    }
+
+    fn test_func(cond) -> 1 {
+        mut x = 10;
+        if cond == 0 {
+            x = x + 1;
+        } else if cond == 1 {
+            x = x + 10;
+        } else {
+            x = x + 20;
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_quadruple_nested_if() {
+    // Edge case: 4 levels of nested if-else
+    let program = r#"
+    fn main() {
+        mut x = 0;
+        a = 1;
+        b = 1;
+        c = 1;
+        d = 1;
+        if a == 1 {
+            x = x + 1;
+            if b == 1 {
+                x = x + 10;
+                if c == 1 {
+                    x = x + 100;
+                    if d == 1 {
+                        x = x + 1000;
+                    } else {
+                        x = x + 2000;
+                    }
+                } else {
+                    x = x + 200;
+                }
+            } else {
+                x = x + 20;
+            }
+        } else {
+            x = x + 2;
+        }
+        // 0 + 1 + 10 + 100 + 1000 = 1111
+        assert x == 1111;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_loop_with_match_inside() {
+    // Edge case: match inside unrolled loop
+    let program = r#"
+    fn main() {
+        mut total = 0;
+        for i in 0..3 unroll {
+            match i {
+                0 => {
+                    total = total + 1;
+                }
+                1 => {
+                    total = total + 10;
+                }
+                2 => {
+                    total = total + 100;
+                }
+            }
+        }
+        // 1 + 10 + 100 = 111
+        assert total == 111;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_multiple_mutations_same_branch() {
+    // Edge case: many mutations in the same branch
+    let program = r#"
+    fn main() {
+        mut x = 1;
+        cond = 1;
+        if cond == 1 {
+            x = x + 1;   // 2
+            x = x * 2;   // 4
+            x = x + 3;   // 7
+            x = x * 2;   // 14
+            x = x + 1;   // 15
+        } else {
+            x = x + 100;
+        }
+        assert x == 15;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_with_function_return_in_branch() {
+    // Edge case: mutable updated by function call in branch
+    let program = r#"
+    fn main() {
+        mut x = 5;
+        cond = 1;
+        if cond == 1 {
+            x = compute(x, 3);
+        } else {
+            x = compute(x, 10);
+        }
+        // compute(5, 3) = 5 * 3 + 3 = 18
+        assert x == 18;
+        return;
+    }
+
+    fn compute(a, b) -> 1 {
+        return a * b + b;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_same_var_name_diff_scopes() {
+    // Edge case: same variable name in different scopes (inner loop)
+    let program = r#"
+    fn main() {
+        mut outer_x = 0;
+        for i in 0..2 unroll {
+            mut x = 1;  // fresh x each iteration
+            x = x + i;
+            outer_x = outer_x + x;
+        }
+        // i=0: x=1, x=1+0=1, outer_x=0+1=1
+        // i=1: x=1, x=1+1=2, outer_x=1+2=3
+        assert outer_x == 3;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_chained_if_else_mutations() {
+    // Edge case: sequential if-else chains all modifying same variable
+    let program = r#"
+    fn main() {
+        mut x = 0;
+
+        a = 1;
+        if a == 1 {
+            x = x + 1;
+        } else {
+            x = x + 100;
+        }
+
+        b = 0;
+        if b == 1 {
+            x = x * 100;
+        } else {
+            x = x * 2;
+        }
+
+        c = 1;
+        if c == 1 {
+            x = x + 10;
+        } else {
+            x = x + 1000;
+        }
+
+        // x = 0 + 1 = 1, then 1 * 2 = 2, then 2 + 10 = 12
+        assert x == 12;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_multiple_vars_in_loop_with_conditions() {
+    // Edge case: multiple mutable variables all modified in loop with conditions
+    let program = r#"
+    fn main() {
+        mut evens = 0;
+        mut odds = 0;
+        mut all = 0;
+
+        for i in 0..6 unroll {
+            all = all + 1;
+            remainder = i % 2;
+            if remainder == 0 {
+                evens = evens + i;
+            } else {
+                odds = odds + i;
+            }
+        }
+
+        // evens = 0 + 2 + 4 = 6
+        // odds = 1 + 3 + 5 = 9
+        // all = 6
+        assert evens == 6;
+        assert odds == 9;
+        assert all == 6;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_five_arm_match() {
+    // Edge case: match with many arms, each with different mutation count
+    let program = r#"
+    fn main() {
+        assert test_func(0) == 10;
+        assert test_func(1) == 11;
+        assert test_func(2) == 12;
+        assert test_func(3) == 14;
+        assert test_func(4) == 18;
+        return;
+    }
+
+    fn test_func(sel) -> 1 {
+        mut x = 10;
+        match sel {
+            0 => {
+                // no change
+            }
+            1 => {
+                x = x + 1;
+            }
+            2 => {
+                x = x + 1;
+                x = x + 1;
+            }
+            3 => {
+                x = x + 1;
+                x = x + 1;
+                x = x + 2;
+            }
+            4 => {
+                x = x + 1;
+                x = x + 1;
+                x = x + 2;
+                x = x + 4;
+            }
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_triple_nested_control_flow() {
+    // Edge case: deeply nested control flow with mutations at each level
+    let program = r#"
+    fn main() {
+        assert test_func(0, 0, 0) == 1000;
+        assert test_func(0, 0, 1) == 1001;
+        assert test_func(0, 1, 0) == 1010;
+        assert test_func(1, 0, 0) == 1100;
+        assert test_func(1, 1, 1) == 1111;
+        return;
+    }
+
+    fn test_func(a, b, c) -> 1 {
+        mut x = 0;
+        if a == 0 {
+            x = x + 1000;
+            if b == 0 {
+                if c == 0 {
+                    // x stays at 1000
+                } else {
+                    x = x + 1;
+                }
+            } else {
+                x = x + 10;
+                if c == 1 {
+                    x = x + 1;
+                }
+            }
+        } else {
+            x = x + 1100;
+            if b == 1 {
+                x = x + 10;
+                if c == 1 {
+                    x = x + 1;
+                }
+            }
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_unrolled_rev_with_conditions() {
+    // Edge case: reverse unrolled loop with conditions
+    let program = r#"
+    fn main() {
+        mut sum = 0;
+        mut odd_sum = 0;
+        for i in rev 0..5 unroll {
+            sum = sum + i;
+            remainder = i % 2;
+            if remainder == 1 {
+                odd_sum = odd_sum + i;
+            }
+        }
+        // i: 4, 3, 2, 1, 0
+        // sum = 4+3+2+1+0 = 10
+        // odd: 3+1 = 4
+        assert sum == 10;
+        assert odd_sum == 4;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_mutable_function_arg_modified_in_loop() {
+    // Edge case: mutable function argument modified inside loop
+    let program = r#"
+    fn main() {
+        result = accumulate(5);
+        // 5 + 0 + 1 + 2 = 8
+        assert result == 8;
+        return;
+    }
+
+    fn accumulate(mut x) -> 1 {
+        for i in 0..3 unroll {
+            x = x + i;
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_forward_decl_with_complex_flow() {
+    // Edge case: forward declaration with complex control flow assignment
+    let program = r#"
+    fn main() {
+        var mut x;
+        var mut y;
+
+        cond = 1;
+        if cond == 1 {
+            x = 10;
+            y = 20;
+        } else {
+            x = 100;
+            y = 200;
+        }
+
+        // Now mutate after initialization
+        x = x + y;  // 10 + 20 = 30
+        y = y - 5;  // 20 - 5 = 15
+
+        assert x == 30;
+        assert y == 15;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_conditional_no_else() {
+    // Edge case: Testing code that doesn't execute in the else path
+    // Forces version unification between taken (mutation) and not-taken (no mutation)
+    let program = r#"
+    fn main() {
+        mut x = 5;
+
+        // Condition is true, mutation happens
+        cond = 1;
+        if cond == 1 {
+            x = x + 10;
+        } else {
+        }
+        assert x == 15;
+
+        // Condition is false, mutation doesn't happen
+        mut y = 5;
+        cond2 = 0;
+        if cond2 == 1 {
+            y = y + 10;
+        } else {
+        }
+        assert y == 5;
+
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_swap_pattern() {
+    // Edge case: swapping values using mutable variables
+    let program = r#"
+    fn main() {
+        mut a = 10;
+        mut b = 20;
+
+        // Swap
+        temp = a;
+        a = b;
+        b = temp;
+
+        assert a == 20;
+        assert b == 10;
+
+        // Swap back
+        temp2 = a;
+        a = b;
+        b = temp2;
+
+        assert a == 10;
+        assert b == 20;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_mutation_with_array_index() {
+    // Edge case: mutable variable used as array index after mutation
+    let program = r#"
+    fn main() {
+        arr = malloc(5);
+        for i in 0..5 unroll {
+            arr[i] = i * 10;
+        }
+        // arr = [0, 10, 20, 30, 40]
+
+        mut idx = 0;
+        val1 = arr[idx];  // arr[0] = 0
+        assert val1 == 0;
+
+        idx = idx + 1;
+        val2 = arr[idx];  // arr[1] = 10
+        assert val2 == 10;
+
+        idx = idx + 2;
+        val3 = arr[idx];  // arr[3] = 30
+        assert val3 == 30;
+
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_multi_return_mutation_chain() {
+    // Edge case: chain of multi-return functions with mutable receivers
+    let program = r#"
+    fn main() {
+        mut a = 1;
+        mut b = 2;
+
+        a, b = pair_incr(a, b);  // a=2, b=3
+        assert a == 2;
+        assert b == 3;
+
+        a, b = pair_incr(a, b);  // a=3, b=4
+        assert a == 3;
+        assert b == 4;
+
+        // Now swap during multi-return
+        a, b = pair_swap(a, b);  // a=4, b=3
+        assert a == 4;
+        assert b == 3;
+
+        return;
+    }
+
+    fn pair_incr(x, y) -> 2 {
+        return x + 1, y + 1;
+    }
+
+    fn pair_swap(x, y) -> 2 {
+        return y, x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_long_chain_mutations() {
+    // Edge case: very long chain of sequential mutations
+    let program = r#"
+    fn main() {
+        mut x = 0;
+        x = x + 1;  // 1
+        x = x + 1;  // 2
+        x = x + 1;  // 3
+        x = x + 1;  // 4
+        x = x + 1;  // 5
+        x = x + 1;  // 6
+        x = x + 1;  // 7
+        x = x + 1;  // 8
+        x = x + 1;  // 9
+        x = x + 1;  // 10
+        x = x * 2;  // 20
+        x = x + 1;  // 21
+        x = x + 1;  // 22
+        x = x + 1;  // 23
+        assert x == 23;
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_condition_depends_on_mutable() {
+    // Edge case: condition expression depends on mutable variable value
+    let program = r#"
+    fn main() {
+        mut x = 0;
+
+        x = x + 5;
+        if x == 5 {
+            x = x + 10;
+        } else {
+            x = x + 100;
+        }
+        assert x == 15;
+
+        if x == 15 {
+            x = x + 1;
+        } else {
+            x = x + 1000;
+        }
+        assert x == 16;
+
+        return;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test_mutable_edge_interleaved_match_if() {
+    // Edge case: interleaved match and if statements
+    let program = r#"
+    fn main() {
+        assert test_func(0, 1) == 111;
+        assert test_func(1, 0) == 200;
+        return;
+    }
+
+    fn test_func(sel, cond) -> 1 {
+        mut x = 100;
+
+        match sel {
+            0 => {
+                x = x + 10;
+            }
+            1 => {
+                x = x + 100;
+            }
+        }
+
+        if cond == 1 {
+            x = x + 1;
+        }
+
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+#[should_panic]
+fn inline_with_mut_are_not_supported() {
+    // Edge case: nested inlined function calls inside unrolled loop
+    let program = r#"
+    fn main() {
+        return;
+    }
+    fn double(mut x) inline -> 1 {
+        x = x * 2;
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn bug() {
+    let program = r#"
+    fn main() {
+        assert test_func(0, 0) == 6;
+        return;
+    }
+
+    fn test_func(a, b) -> 1 {
+        mut x = 1;
+        match a {
+            0 => {
+                x = x + 2;
+                match b {
+                    0 => {
+                        x = x + 3;
+                    }
+                }
+            }
+        }
+        return x;
+    }
+    "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+#[test]
+fn test() {
+    let program = r#"
+    fn main() {
+        assert test_func(0, 0) == 6;
+        return;
+    }
+
+    fn test_func(a, b) -> 1 {
+        x = 1;
+    
+        var mut_x_2;
+        match a {
+            0 => {            
+                var mut_x_1;
+                mut_x_1 = x + 2;
+                match b {
+                    0 => {                    
+                        mut_x_2 = mut_x_1 + 3;
+                    }
+                }
+            }
+        }
+        
+        return mut_x_2;
     }
     "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);

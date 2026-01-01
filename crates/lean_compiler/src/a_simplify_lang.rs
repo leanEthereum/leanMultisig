@@ -680,8 +680,17 @@ fn simplify_lines(
                         let arm_v = versions[0];
                         if arm_v > snapshot_v {
                             // A new versioned variable was created in all arms
+                            // We need to add a forward declaration before the match
+                            // so the variable is in scope after the match
                             let versioned_var = format!("@mut_{var}_{arm_v}");
-                            res.push(SimpleLine::ForwardDeclaration { var: versioned_var });
+                            res.push(SimpleLine::ForwardDeclaration {
+                                var: versioned_var.clone(),
+                            });
+                            // Remove forward declarations from inside the arms to avoid shadowing.
+                            // The outer declaration will be in scope for all nested control flow.
+                            for arm in simple_arms.iter_mut() {
+                                remove_forward_declarations(arm, &versioned_var);
+                            }
                         }
                         state.mut_tracker.versions.insert(var.clone(), arm_v);
                     } else {
@@ -1093,10 +1102,8 @@ fn simplify_lines(
                             });
                             // Remove forward declarations from inside the branches
                             // to avoid shadowing the outer declaration
-                            then_branch_simplified
-                                .retain(|l| !matches!(l, SimpleLine::ForwardDeclaration { var } if var == &versioned_var));
-                            else_branch_simplified
-                                .retain(|l| !matches!(l, SimpleLine::ForwardDeclaration { var } if var == &versioned_var));
+                            remove_forward_declarations(&mut then_branch_simplified, &versioned_var);
+                            remove_forward_declarations(&mut else_branch_simplified, &versioned_var);
                         }
                         state.mut_tracker.versions.insert(var.clone(), then_v);
                     }
@@ -1450,6 +1457,30 @@ fn simplify_expr(
             VarOrConstMallocAccess::Var(result_var).into()
         }
         Expression::Len { .. } => unreachable!(),
+    }
+}
+
+fn remove_forward_declarations(lines: &mut Vec<SimpleLine>, var: &Var) {
+    for i in (0..lines.len()).rev() {
+        match &mut lines[i] {
+            SimpleLine::ForwardDeclaration { var: decl_var } if decl_var == var => {
+                lines.remove(i);
+            }
+            SimpleLine::Match { arms, .. } => {
+                for statements in arms {
+                    remove_forward_declarations(statements, var);
+                }
+            }
+            SimpleLine::IfNotZero {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                remove_forward_declarations(then_branch, var);
+                remove_forward_declarations(else_branch, var);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -2137,6 +2168,10 @@ fn handle_inlined_functions(program: &mut Program) {
         .collect::<BTreeMap<_, _>>();
 
     for func in inlined_functions.values() {
+        assert!(
+            !func.has_mutable_arguments(),
+            "Inlined functions with mutable arguments are not supported yet"
+        );
         assert!(
             !func.has_const_arguments(),
             "Inlined functions with constant arguments are not supported yet"
@@ -2955,21 +2990,27 @@ impl SimpleLine {
                 let arms_str = arms
                     .iter()
                     .enumerate()
-                    .map(|(pattern, stmt)| {
+                    .map(|(index, body)| {
+                        let body = body
+                            .iter()
+                            .map(|line| line.to_string_with_indent(indent + 2))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+
                         format!(
-                            "{} => {}",
-                            pattern,
-                            stmt.iter()
-                                .map(|line| line.to_string_with_indent(indent + 1))
-                                .collect::<Vec<_>>()
-                                .join("\n")
+                            "{}{} => {{{}\n{}}}",
+                            "    ".repeat(indent + 1),
+                            index,
+                            body,
+                            "    ".repeat(indent + 1),
                         )
                     })
                     .collect::<Vec<_>>()
-                    .join(", ");
+                    .join("\n");
 
                 format!("match {value} {{\n{arms_str}\n{spaces}}}")
             }
+
             Self::Assignment {
                 var,
                 operation,
