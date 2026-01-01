@@ -1,0 +1,12 @@
+// Error: function f has no return statement
+fn main() {
+    a = f();
+    return;
+}
+
+fn f() -> 1 {
+}
+
+fn g() -> 1 {
+    return 0;
+}

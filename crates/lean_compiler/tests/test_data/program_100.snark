@@ -1,0 +1,20 @@
+fn main() {
+    var mut x;
+    var mut y;
+
+    cond = 1;
+    if cond == 1 {
+        x = 10;
+        y = 20;
+    } else {
+        x = 100;
+        y = 200;
+    }
+
+    x = x + y;  // 10 + 20 = 30
+    y = y - 5;  // 20 - 5 = 15
+
+    assert x == 30;
+    assert y == 15;
+    return;
+}

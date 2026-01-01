@@ -1,0 +1,36 @@
+const ARR = [10, 100];
+fn main() {
+    buff = malloc(3);
+    buff[0] = 0;
+    for i in 0..2 unroll {
+        res = f1(ARR[i]);
+        buff[i + 1] = res;
+    }
+    assert buff[2] == 1390320454;
+    return;
+}
+
+fn f1(const x) -> 1 {
+    buff = malloc(9);
+    buff[0] = 1;
+    for i in x..x+4 unroll {
+        for j in i..i+2 unroll {
+            index = (i - x) * 2 + (j - i);
+            res = f2(i, j);
+            buff[index+1] = buff[index] * res;
+        }
+    }
+    return buff[8];
+}
+
+fn f2(const x, const y) -> 1 {
+    buff = malloc(7);
+    buff[0] = 0;
+    for i in x..x+2 unroll {
+        for j in i..i+3 unroll {
+            index = (i - x) * 3 + (j - i);
+            buff[index+1] = buff[index] + i + j;
+        }
+    }
+    return buff[4];
+}

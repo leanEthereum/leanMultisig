@@ -29,17 +29,17 @@ fn fs_grinding(fs, bits) -> 1 {
     left[0] = grinding_witness;
     set_to_7_zeros(left + 1);
 
-    fs_1 = malloc(17);
-    poseidon16(left, fs + 8, fs_1, PERMUTATION);
-    fs_1[16] = fs[16] + 1; // one element read from transcript
+    fs_after_poseidon = malloc(17);
+    poseidon16(left, fs + 8, fs_after_poseidon, PERMUTATION);
+    fs_after_poseidon[16] = fs[16] + 1; // one element read from transcript
 
-    sampled = fs_1[0];
+    sampled = fs_after_poseidon[0];
     _, sampled_low_bits_value = checked_decompose_bits(sampled, bits);
     assert sampled_low_bits_value == 0;
 
-    fs_2 = duplexing(fs_1);
-    
-    return fs_2;
+    fs_duplexed = duplexing(fs_after_poseidon);
+
+    return fs_duplexed;
 }
 
 fn fs_sample_ef(fs) -> 1 {
@@ -85,31 +85,22 @@ fn fs_print_state(fs_state) {
     return;
 }
 
-fn sample_bits_const(fs, const n_samples, K) -> 2 {
+fn sample_bits_const(mut fs, const n_samples, K) -> 2 {
     // return the updated fiat-shamir, and a pointer to n pointers, each pointing to 31 (boolean) field elements,
-    all_fs = malloc(1 + next_multiple_of(n_samples, 8) / 8);
-    all_fs[0] = fs;
-    for i in 0..next_multiple_of(n_samples, 8) / 8 unroll {
-        duplexed = duplexing(all_fs[i]);
-        all_fs[i + 1] = duplexed;
-    }
     sampled_bits = malloc(n_samples);
     for i in 0..(next_multiple_of(n_samples, 8) / 8) - 1 unroll {
-        my_fs = all_fs[i];
         for j in 0..8 unroll {
-            bits, _ = checked_decompose_bits(my_fs[j], K);
+            bits, _ = checked_decompose_bits(fs[j], K);
             sampled_bits[i * 8 + j] = bits;
         }
+        fs = duplexing(fs);
     }
     // Last batch (may be partial)
-    last_fs = all_fs[(next_multiple_of(n_samples, 8) / 8) - 1];
     for j in 0..8 - ((8 - (n_samples % 8)) % 8) unroll {
-        bits, _ = checked_decompose_bits(last_fs[j], K);
+        bits, _ = checked_decompose_bits(fs[j], K);
         sampled_bits[((next_multiple_of(n_samples, 8) / 8) - 1) * 8 + j] = bits;
     }
-    final_fs = duplexing(last_fs);
-
-    return final_fs, sampled_bits;
+    return duplexing(fs), sampled_bits;
 }
 
 

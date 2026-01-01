@@ -1,0 +1,10 @@
+fn main() {
+    mut outer_x = 0;
+    for i in 0..2 unroll {
+        mut x = 1;  // fresh x each iteration
+        x = x + i;
+        outer_x = outer_x + x;
+    }
+    assert outer_x == 3;
+    return;
+}

@@ -1,0 +1,12 @@
+fn main() {
+    a = b();
+    b = a();
+    assert a + b == 30;
+    return;
+}
+fn a() -> 1 {
+    return 10;
+}
+fn b() -> 1 {
+    return 20;
+}

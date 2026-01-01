@@ -18,11 +18,37 @@ pub struct Program {
     pub filepaths: BTreeMap<FileId, String>,
 }
 
+/// A function argument with its modifiers
+#[derive(Debug, Clone)]
+pub struct FunctionArg {
+    pub name: Var,
+    pub is_const: bool,
+    pub is_mutable: bool,
+}
+
+impl FunctionArg {
+    pub fn new(name: Var, is_const: bool, is_mutable: bool) -> Self {
+        Self {
+            name,
+            is_const,
+            is_mutable,
+        }
+    }
+
+    pub fn simple(name: Var) -> Self {
+        Self {
+            name,
+            is_const: false,
+            is_mutable: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     pub file_id: FileId,
-    pub arguments: Vec<(Var, bool)>, // (name, is_const)
+    pub arguments: Vec<FunctionArg>,
     pub inlined: bool,
     pub n_returned_vars: usize,
     pub body: Vec<Line>,
@@ -31,7 +57,10 @@ pub struct Function {
 
 impl Function {
     pub fn has_const_arguments(&self) -> bool {
-        self.arguments.iter().any(|(_, is_const)| *is_const)
+        self.arguments.iter().any(|arg| arg.is_const)
+    }
+    pub fn has_mutable_arguments(&self) -> bool {
+        self.arguments.iter().any(|arg| arg.is_mutable)
     }
 }
 
@@ -391,14 +420,20 @@ impl Expression {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssignmentTarget {
-    Var(Var),
-    ArrayAccess { array: Var, index: Box<Expression> },
+    Var { var: Var, is_mutable: bool },
+    ArrayAccess { array: Var, index: Box<Expression> }, // always immutable
 }
 
 impl Display for AssignmentTarget {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Var(var) => write!(f, "{var}"),
+            Self::Var { var, is_mutable } => {
+                if *is_mutable {
+                    write!(f, "mut {var}")
+                } else {
+                    write!(f, "{var}")
+                }
+            }
             Self::ArrayAccess { array, index } => write!(f, "{array}[{index}]"),
         }
     }
@@ -412,6 +447,7 @@ pub enum Line {
     },
     ForwardDeclaration {
         var: Var,
+        mutable: bool,
     },
     Statement {
         targets: Vec<AssignmentTarget>, // LHS - can be empty for standalone calls
@@ -441,29 +477,12 @@ pub enum Line {
     FunctionRet {
         return_data: Vec<Expression>,
     },
-    Precompile {
-        table: Table,
-        args: Vec<Expression>,
-    },
     Break,
     Panic,
-    // Hints:
-    Print {
-        line_info: String,
-        content: Vec<Expression>,
-    },
-    MAlloc {
-        var: Var,
-        size: Expression,
-    },
-    PrivateInputStart {
-        result: Var,
-    },
     // noop, debug purpose only
     LocationReport {
         location: SourceLocation,
     },
-    CustomHint(CustomHint, Vec<Expression>),
 }
 
 /// A context specifying which variables are in scope.
@@ -557,8 +576,12 @@ impl Line {
                     .join("\n");
                 format!("match {value} {{\n{arms_str}\n{spaces}}}")
             }
-            Self::ForwardDeclaration { var } => {
-                format!("var {var}")
+            Self::ForwardDeclaration { var, mutable } => {
+                if *mutable {
+                    format!("var mut {var}")
+                } else {
+                    format!("var {var}")
+                }
             }
             Self::Statement { targets, value, .. } => {
                 if targets.is_empty() {
@@ -571,9 +594,6 @@ impl Line {
                         .join(", ");
                     format!("{targets_str} = {value}")
                 }
-            }
-            Self::PrivateInputStart { result } => {
-                format!("{result} = private_input_start()")
             }
             Self::Assert {
                 debug,
@@ -636,27 +656,6 @@ impl Line {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("return {return_data_str}")
-            }
-            Self::Precompile {
-                table: precompile,
-                args,
-            } => {
-                format!(
-                    "{}({})",
-                    precompile.name(),
-                    args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ")
-                )
-            }
-            Self::Print { line_info: _, content } => {
-                let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
-                format!("print({content_str})")
-            }
-            Self::MAlloc { var, size } => {
-                format!("{var} = malloc({size})")
-            }
-            Self::CustomHint(hint, args) => {
-                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
-                format!("{}({args_str})", hint.name())
             }
             Self::Break => "break".to_string(),
             Self::Panic => "panic".to_string(),
@@ -756,9 +755,14 @@ impl Display for Function {
         let args_str = self
             .arguments
             .iter()
-            .map(|arg| match arg {
-                (name, true) => format!("const {name}"),
-                (name, false) => name.to_string(),
+            .map(|arg| {
+                if arg.is_const {
+                    format!("const {}", arg.name)
+                } else if arg.is_mutable {
+                    format!("mut {}", arg.name)
+                } else {
+                    arg.name.to_string()
+                }
             })
             .collect::<Vec<_>>()
             .join(", ");

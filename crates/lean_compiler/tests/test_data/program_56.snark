@@ -1,0 +1,11 @@
+const WEIGHTS = [1, 2, 3, 4, 5];
+const N = 5;
+
+fn main() {
+    mut weighted_sum = 0;
+    for i in 0..N unroll {
+        weighted_sum = weighted_sum + WEIGHTS[i] * (i + 1);
+    }
+    assert weighted_sum == 55;
+    return;
+}

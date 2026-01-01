@@ -1,0 +1,36 @@
+fn main() {
+    assert test_func(0, 0) == 111;
+    assert test_func(0, 1) == 121;
+    assert test_func(1, 0) == 211;
+    assert test_func(1, 1) == 221;
+    return;
+}
+
+fn test_func(a, b) -> 1 {
+    mut x = 100;
+    match a {
+        0 => {
+            x = x + 10;
+            match b {
+                0 => {
+                    x = x + 1;
+                }
+                1 => {
+                    x = x + 11;
+                }
+            }
+        }
+        1 => {
+            x = x + 110;
+            match b {
+                0 => {
+                    x = x + 1;
+                }
+                1 => {
+                    x = x + 11;
+                }
+            }
+        }
+    }
+    return x;
+}

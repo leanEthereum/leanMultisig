@@ -1,0 +1,11 @@
+// Error: imported function name clash (bar defined in bar.snark)
+import "misc/bar.snark";
+import "misc/foo.snark";
+
+fn bar() {
+    return;
+}
+
+fn main() {
+    return;
+}

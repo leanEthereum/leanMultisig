@@ -1,0 +1,9 @@
+fn main() {
+    a = double(next_multiple_of(12, 8));
+    assert a == 32;
+    return;
+}
+
+fn double(const n) -> 1 {
+    return next_multiple_of(n, n) * 2;
+}

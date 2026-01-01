@@ -1,0 +1,8 @@
+fn main() {
+    for i in 0..5 unroll {
+        for j in i..2*i unroll {
+            print(i, j);
+        }
+    }
+    return;
+}

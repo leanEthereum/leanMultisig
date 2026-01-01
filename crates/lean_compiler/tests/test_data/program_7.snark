@@ -1,0 +1,11 @@
+fn main() {
+    for i in 0..5 unroll {
+        x = i;
+        print(x);
+    }
+    for i in 0..3 unroll {
+        x = i;
+        print(x);
+    }
+    return;
+}

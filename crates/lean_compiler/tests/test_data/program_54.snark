@@ -1,0 +1,19 @@
+const N = 5;
+
+fn main() {
+    arr = malloc(N);
+
+    mut sum = 0;
+    for i in 0..N unroll {
+        arr[i] = i * 2;
+        sum = sum + arr[i];
+    }
+    assert sum == 20;
+
+    mut product = 1;
+    for i in 1..N unroll {
+        product = product * arr[i];
+    }
+    assert product == 384;
+    return;
+}

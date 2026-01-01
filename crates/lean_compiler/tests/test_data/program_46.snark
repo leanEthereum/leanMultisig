@@ -1,0 +1,16 @@
+fn main() {
+    mut total = 0;
+    mut outer_sum = 0;
+    for i in 0..3 unroll {
+        outer_sum = outer_sum + i;
+        mut inner_sum = 0;
+        for j in 0..4 unroll {
+            inner_sum = inner_sum + j;
+            total = total + 1;
+        }
+        assert inner_sum == 6;
+    }
+    assert outer_sum == 3;
+    assert total == 12;
+    return;
+}

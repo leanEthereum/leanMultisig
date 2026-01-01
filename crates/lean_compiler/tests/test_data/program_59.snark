@@ -1,0 +1,14 @@
+fn main() {
+    mut total = 0;
+    for i in 0..5 unroll {
+        temp = add_one_pure(i);
+        total = total + temp;
+    }
+    assert total == 15;
+    return;
+}
+
+fn add_one_pure(x) inline -> 1 {
+    result = x + 1;
+    return result;
+}

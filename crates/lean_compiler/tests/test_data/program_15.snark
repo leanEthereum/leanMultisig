@@ -1,0 +1,71 @@
+const BE = 1; // base-extension
+const EE = 0; // extension-extension
+
+fn main() {
+    x = 1;
+    y = 2;
+    i, j, k = func_1(x, y);
+    assert i == 2;
+    assert j == 3;
+    assert k == 2130706432;
+
+    g = malloc(8);
+    h = malloc(8);
+    for i in 0..8 {
+        g[i] = i;
+    }
+    for i in 0..8 unroll {
+        h[i] = i;
+    }
+    assert_eq_1(g, h);
+    assert_eq_2(g, h);
+    assert_eq_3(g, h);
+    assert_eq_4(g, h);
+    assert_eq_5(g, h);
+    return;
+}
+
+fn func_1(a, b) inline -> 3 {
+    x = a * b;
+    y = a + b;
+    return x, y, a - b;
+}
+
+fn assert_eq_1(x, y) {
+    x_ptr = x;
+    y_ptr = y;
+    for i in 0..4 unroll {
+        assert x_ptr[i] == y_ptr[i];
+    }
+    for i in 4..8 {
+        assert x_ptr[i] == y_ptr[i];
+    }
+    return;
+}
+
+fn assert_eq_2(x, y) inline {
+    x_ptr = x;
+    y_ptr = y;
+    for i in 0..4 unroll {
+        assert x_ptr[i] == y_ptr[i];
+    }
+    for i in 4..8 {
+        assert x_ptr[i] == y_ptr[i];
+    }
+    return;
+}
+fn assert_eq_3(x, y) inline {
+    u = x + 7;
+    assert_eq_1(u-7, y * 7 / 7);
+    return;
+}
+fn assert_eq_4(x, y) {
+    dot_product(x, pointer_to_one_vector, y, 1, EE);
+    dot_product(x + 3, pointer_to_one_vector, y + 3, 1, EE);
+    return;
+}
+fn assert_eq_5(x, y) inline {
+    dot_product(x, pointer_to_one_vector, y, 1, EE);
+    dot_product(x + 3, pointer_to_one_vector, y + 3, 1, EE);
+    return;
+}

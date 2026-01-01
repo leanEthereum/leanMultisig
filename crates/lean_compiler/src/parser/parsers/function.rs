@@ -3,13 +3,46 @@ use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{AssignmentTarget, Expression, Function, Line, SourceLocation},
+    a_simplify_lang::VarOrConstMallocAccess,
+    lang::{AssignmentTarget, Expression, Function, FunctionArg, Line, MathOperation, SimpleExpr, SourceLocation},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{ALL_TABLES, CustomHint, Table, TableT};
+use lean_vm::{ALL_TABLES, TableT};
+
+/// Reserved function names that users cannot define.
+const RESERVED_FUNCTION_NAMES: &[&str] = &[
+    // Built-in functions
+    "print",
+    "malloc",
+    "private_input_start",
+    "panic",
+    // Compile-time only functions
+    "len",
+    "log2_ceil",
+    "next_multiple_of",
+    "saturating_sub",
+    // Custom hints (manually listed since CustomHint doesn't re-export strum iterator)
+    "hint_decompose_bits_xmss",
+    "hint_decompose_bits",
+];
+
+/// Check if a function name is reserved.
+fn is_reserved_function_name(name: &str) -> bool {
+    // Check static reserved names
+    if RESERVED_FUNCTION_NAMES.contains(&name) {
+        return true;
+    }
+    // Check precompile names (poseidon16, dot_product, execution)
+    for table in ALL_TABLES {
+        if table.name() == name && !table.is_execution_table() {
+            return true;
+        }
+    }
+    false
+}
 
 /// Parser for complete function definitions.
 pub struct FunctionParser;
@@ -25,6 +58,14 @@ impl Parse<Function> for FunctionParser {
             _ => false,
         };
         let name = next_inner_pair(&mut inner, "function name")?.as_str().to_string();
+
+        // Check for reserved function names
+        if is_reserved_function_name(&name) {
+            return Err(SemanticError::new(format!(
+                "Cannot define function with reserved name '{name}'"
+            ))
+            .into());
+        }
 
         let mut arguments = Vec::new();
         let mut n_returned_vars = 0;
@@ -89,17 +130,39 @@ impl FunctionParser {
 /// Parser for function parameters.
 pub struct ParameterParser;
 
-impl Parse<(String, bool)> for ParameterParser {
-    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<(String, bool)> {
-        let mut inner = pair.into_inner();
-        let first = next_inner_pair(&mut inner, "parameter")?;
+impl Parse<FunctionArg> for ParameterParser {
+    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<FunctionArg> {
+        let mut inner = pair.into_inner().peekable();
+        let mut is_const = false;
+        let mut is_mutable = false;
 
-        if first.as_rule() == Rule::const_keyword {
-            let identifier = next_inner_pair(&mut inner, "identifier after 'const'")?;
-            Ok((identifier.as_str().to_string(), true))
-        } else {
-            Ok((first.as_str().to_string(), false))
+        // Check for const keyword
+        if inner
+            .peek()
+            .map(|p| p.as_rule() == Rule::const_keyword)
+            .unwrap_or(false)
+        {
+            is_const = true;
+            inner.next();
         }
+
+        // Check for mut keyword
+        if inner.peek().map(|p| p.as_rule() == Rule::mut_keyword).unwrap_or(false) {
+            is_mutable = true;
+            inner.next();
+        }
+
+        // const and mut are mutually exclusive
+        if is_const && is_mutable {
+            return Err(SemanticError::new("Parameter cannot be both 'const' and 'mut'").into());
+        }
+
+        let name = next_inner_pair(&mut inner, "parameter name")?.as_str().to_string();
+        Ok(FunctionArg {
+            name,
+            is_const,
+            is_mutable,
+        })
     }
 }
 
@@ -121,11 +184,22 @@ pub struct AssignmentTargetParser;
 
 impl Parse<AssignmentTarget> for AssignmentTargetParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<AssignmentTarget> {
-        let inner = next_inner_pair(&mut pair.into_inner(), "assignment target")?;
+        let mut inner = pair.into_inner().peekable();
 
-        match inner.as_rule() {
+        // Check for mut keyword
+        let is_mutable = inner.peek().map(|p| p.as_rule() == Rule::mut_keyword).unwrap_or(false);
+        if is_mutable {
+            inner.next();
+        }
+
+        let target_pair = next_inner_pair(&mut inner, "assignment target")?;
+
+        match target_pair.as_rule() {
             Rule::array_access_expr => {
-                let mut inner_pairs = inner.into_inner();
+                if is_mutable {
+                    return Err(SemanticError::new("Cannot use 'mut' on array access targets").into());
+                }
+                let mut inner_pairs = target_pair.into_inner();
                 let array = next_inner_pair(&mut inner_pairs, "array name")?.as_str().to_string();
                 let index = ExpressionParser.parse(next_inner_pair(&mut inner_pairs, "array index")?, ctx)?;
                 Ok(AssignmentTarget::ArrayAccess {
@@ -133,7 +207,10 @@ impl Parse<AssignmentTarget> for AssignmentTargetParser {
                     index: Box::new(index),
                 })
             }
-            Rule::identifier => Ok(AssignmentTarget::Var(inner.as_str().to_string())),
+            Rule::identifier => Ok(AssignmentTarget::Var {
+                var: target_pair.as_str().to_string(),
+                is_mutable,
+            }),
             _ => Err(SemanticError::new("Expected identifier or array access").into()),
         }
     }
@@ -146,37 +223,157 @@ impl Parse<Line> for AssignmentParser {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner().peekable();
 
-        // Check if there's an assignment_target_list (LHS)
-        let mut targets: Vec<AssignmentTarget> = Vec::new();
-        if let Some(first) = inner.peek()
+        // Check if there's assignment_target_list and assign_op
+        let lhs_info = if let Some(first) = inner.peek()
             && first.as_rule() == Rule::assignment_target_list
         {
-            targets = inner
-                .next()
-                .unwrap()
+            let target_list = inner.next().unwrap();
+            let op_pair = next_inner_pair(&mut inner, "assignment operator")?;
+            Some(Self::parse_lhs(target_list, op_pair, ctx)?)
+        } else {
+            None
+        };
+
+        // Parse the RHS expression
+        let expr_pair = next_inner_pair(&mut inner, "expression")?;
+        let rhs_expr = ExpressionParser.parse(expr_pair, ctx)?;
+
+        match lhs_info {
+            Some(LhsInfo::Compound { target, lhs_expr, op }) => {
+                // Desugar: target op= expr -> target = target op expr
+                let desugared_expr = Expression::MathExpr(op, vec![lhs_expr, rhs_expr]);
+                Ok(Line::Statement {
+                    targets: vec![target],
+                    value: desugared_expr,
+                    line_number,
+                })
+            }
+            Some(LhsInfo::Simple { mut targets }) => {
+                for target in &mut targets {
+                    if let AssignmentTarget::Var { var, .. } = target
+                        && var == "_"
+                    {
+                        *var = ctx.next_trash_var();
+                    }
+                }
+                Self::finalize_simple_assignment(line_number, targets, rhs_expr)
+            }
+            None => {
+                // No LHS - expression statement (e.g., function call)
+                Self::finalize_simple_assignment(line_number, Vec::new(), rhs_expr)
+            }
+        }
+    }
+}
+
+/// Parsed LHS information
+enum LhsInfo {
+    Compound {
+        target: AssignmentTarget,
+        lhs_expr: Expression,
+        op: MathOperation,
+    },
+    Simple {
+        targets: Vec<AssignmentTarget>,
+    },
+}
+
+impl AssignmentParser {
+    /// Parse assignment LHS (target list + operator) and return structured info
+    fn parse_lhs(
+        target_list_pair: ParsePair<'_>,
+        op_pair: ParsePair<'_>,
+        ctx: &mut ParseContext,
+    ) -> ParseResult<LhsInfo> {
+        let op_str = op_pair.as_str();
+
+        if op_str == "=" {
+            // Simple assignment
+            let targets = target_list_pair
                 .into_inner()
                 .map(|item| AssignmentTargetParser.parse(item, ctx))
                 .collect::<ParseResult<Vec<AssignmentTarget>>>()?;
-        }
+            Ok(LhsInfo::Simple { targets })
+        } else {
+            // Compound assignment - validate constraints
+            let targets: Vec<_> = target_list_pair.into_inner().collect();
 
-        // Parse the expression (RHS)
-        let expr_pair = next_inner_pair(&mut inner, "expression")?;
-        let expr = ExpressionParser.parse(expr_pair, ctx)?;
-
-        for target in &mut targets {
-            if let AssignmentTarget::Var(var) = target
-                && var == "_"
-            {
-                *var = ctx.next_trash_var();
+            if targets.len() != 1 {
+                return Err(
+                    SemanticError::new("Compound assignment operators only allow a single target").into(),
+                );
             }
+
+            let target_pair = targets.into_iter().next().unwrap();
+            let (target, lhs_expr) = Self::parse_compound_target(target_pair, ctx)?;
+
+            let op = match op_str {
+                "+=" => MathOperation::Add,
+                "-=" => MathOperation::Sub,
+                "*=" => MathOperation::Mul,
+                "/=" => MathOperation::Div,
+                _ => return Err(SemanticError::new("Invalid compound operator").into()),
+            };
+
+            Ok(LhsInfo::Compound { target, lhs_expr, op })
+        }
+    }
+
+    /// Parse a single target for compound assignment (no mut allowed)
+    fn parse_compound_target(
+        pair: ParsePair<'_>,
+        ctx: &mut ParseContext,
+    ) -> ParseResult<(AssignmentTarget, Expression)> {
+        let mut inner = pair.into_inner().peekable();
+
+        // Check for mut keyword - not allowed in compound assignment
+        if let Some(first) = inner.peek()
+            && first.as_rule() == Rule::mut_keyword
+        {
+            return Err(SemanticError::new("Cannot use 'mut' with compound assignment operators").into());
         }
 
+        let target_inner = next_inner_pair(&mut inner, "assignment target")?;
+
+        match target_inner.as_rule() {
+            Rule::array_access_expr => {
+                let mut arr_inner = target_inner.into_inner();
+                let array = next_inner_pair(&mut arr_inner, "array name")?.as_str().to_string();
+                let indices: Vec<Expression> = arr_inner
+                    .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
+                    .collect::<ParseResult<Vec<_>>>()?;
+
+                let target = AssignmentTarget::ArrayAccess {
+                    array: array.clone(),
+                    index: Box::new(indices[0].clone()),
+                };
+                let lhs_expr = Expression::ArrayAccess { array, index: indices };
+                Ok((target, lhs_expr))
+            }
+            Rule::identifier => {
+                let var = target_inner.as_str().to_string();
+                let target = AssignmentTarget::Var {
+                    var: var.clone(),
+                    is_mutable: false,
+                };
+                let lhs_expr = Expression::Value(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)));
+                Ok((target, lhs_expr))
+            }
+            _ => Err(SemanticError::new("Expected identifier or array access").into()),
+        }
+    }
+
+    /// Finalize a simple assignment (handles function calls vs regular expressions)
+    fn finalize_simple_assignment(
+        line_number: SourceLineNumber,
+        targets: Vec<AssignmentTarget>,
+        expr: Expression,
+    ) -> ParseResult<Line> {
         match &expr {
             Expression::FunctionCall { function_name, args } => {
                 Self::handle_function_call(line_number, function_name.clone(), args.clone(), targets)
             }
             _ => {
-                // Non-function-call expression - must have exactly one target
                 if targets.is_empty() {
                     return Err(SemanticError::new("Expression statement has no effect").into());
                 }
@@ -186,7 +383,6 @@ impl Parse<Line> for AssignmentParser {
                     )
                     .into());
                 }
-
                 Ok(Line::Statement {
                     targets,
                     value: expr,
@@ -204,85 +400,21 @@ impl AssignmentParser {
         args: Vec<Expression>,
         return_data: Vec<AssignmentTarget>,
     ) -> ParseResult<Line> {
-        // Helper to extract a single variable from return_data for builtins
-        let require_single_var = |return_data: &[AssignmentTarget], builtin_name: &str| -> ParseResult<String> {
-            if return_data.len() != 1 {
-                return Err(SemanticError::new(format!("Invalid {builtin_name} call: expected 1 return value")).into());
+        // Only panic is truly special (it's a control-flow statement, not a function)
+        if function_name == "panic" {
+            if !return_data.is_empty() || !args.is_empty() {
+                return Err(SemanticError::new("Panic has no args and returns no values").into());
             }
-            match &return_data[0] {
-                AssignmentTarget::Var(v) => Ok(v.clone()),
-                AssignmentTarget::ArrayAccess { .. } => Err(SemanticError::new(format!(
-                    "{builtin_name} does not support array access as return target"
-                ))
-                .into()),
-            }
-        };
-
-        match function_name.as_str() {
-            "malloc" => {
-                if args.len() != 1 {
-                    return Err(SemanticError::new("Invalid malloc call").into());
-                }
-                let var = require_single_var(&return_data, "malloc")?;
-                Ok(Line::MAlloc {
-                    var,
-                    size: args[0].clone(),
-                })
-            }
-            "print" => {
-                if !return_data.is_empty() {
-                    return Err(SemanticError::new("Print function should not return values").into());
-                }
-                Ok(Line::Print {
-                    line_info: function_name.clone(),
-                    content: args,
-                })
-            }
-            "private_input_start" => {
-                if !args.is_empty() {
-                    return Err(SemanticError::new("Invalid private_input_start call").into());
-                }
-                let result = require_single_var(&return_data, "private_input_start")?;
-                Ok(Line::PrivateInputStart { result })
-            }
-            "panic" => {
-                if !return_data.is_empty() || !args.is_empty() {
-                    return Err(SemanticError::new("Panic has no args and returns no values").into());
-                }
-                Ok(Line::Panic)
-            }
-            _ => {
-                // Check for special precompile functions
-                if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name)
-                    && table != Table::execution()
-                {
-                    return Ok(Line::Precompile { table, args });
-                }
-
-                // Check for custom hint
-                if let Some(hint) = CustomHint::find_by_name(&function_name) {
-                    if !return_data.is_empty() {
-                        return Err(SemanticError::new(format!(
-                            "Custom hint: \"{function_name}\" should not return values",
-                        ))
-                        .into());
-                    }
-                    if !hint.n_args_range().contains(&args.len()) {
-                        return Err(SemanticError::new(format!(
-                            "Custom hint: \"{function_name}\" : invalid number of arguments",
-                        ))
-                        .into());
-                    }
-                    return Ok(Line::CustomHint(hint, args));
-                }
-                // Regular function call - allow array access targets
-                Ok(Line::Statement {
-                    targets: return_data,
-                    value: Expression::FunctionCall { function_name, args },
-                    line_number,
-                })
-            }
+            return Ok(Line::Panic);
         }
+
+        // Everything else (including print, private_input_start, precompiles, custom hints)
+        // is treated as a regular function call and handled in a_simplify_lang.rs
+        Ok(Line::Statement {
+            targets: return_data,
+            value: Expression::FunctionCall { function_name, args },
+            line_number,
+        })
     }
 }
 

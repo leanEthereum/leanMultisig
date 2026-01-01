@@ -1,0 +1,24 @@
+fn main() {
+    assert test_func(0, 1) == 111;
+    assert test_func(1, 0) == 200;
+    return;
+}
+
+fn test_func(sel, cond) -> 1 {
+    mut x = 100;
+
+    match sel {
+        0 => {
+            x = x + 10;
+        }
+        1 => {
+            x = x + 100;
+        }
+    }
+
+    if cond == 1 {
+        x = x + 1;
+    }
+
+    return x;
+}

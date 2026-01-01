@@ -1,0 +1,9 @@
+// Error: wrong number of returned vars (expecting 1, got 2)
+fn main() {
+    a = f();
+    return;
+}
+
+fn f() -> 1 {
+    return 0, 1;
+}

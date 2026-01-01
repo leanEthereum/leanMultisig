@@ -1,0 +1,16 @@
+fn main() {
+    mut even_sum = 0;
+    mut odd_sum = 0;
+
+    for i in 0..6 unroll {
+        remainder = i % 2;
+        if remainder == 0 {
+            even_sum = even_sum + i;
+        } else {
+            odd_sum = odd_sum + i;
+        }
+    }
+    assert even_sum == 6;
+    assert odd_sum == 9;
+    return;
+}

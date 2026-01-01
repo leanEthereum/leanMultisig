@@ -1,0 +1,4 @@
+// Error: no main function
+fn not_main() {
+    return;
+}

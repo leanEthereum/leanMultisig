@@ -41,9 +41,19 @@ pub struct ForwardDeclarationParser;
 
 impl Parse<Line> for ForwardDeclarationParser {
     fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
-        let mut inner = pair.into_inner();
+        let mut inner = pair.into_inner().peekable();
+
+        // Check for mut keyword
+        let is_mutable = inner.peek().map(|p| p.as_rule() == Rule::mut_keyword).unwrap_or(false);
+        if is_mutable {
+            inner.next();
+        }
+
         let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
-        Ok(Line::ForwardDeclaration { var })
+        Ok(Line::ForwardDeclaration {
+            var,
+            mutable: is_mutable,
+        })
     }
 }
 

@@ -1,0 +1,125 @@
+fn main() {
+    fib_result = fib_iterative(10);
+    assert fib_result == 55;
+
+    mut accum = 0;
+    for i in 0..5 unroll {
+        accum = step_accumulate(accum, i);
+    }
+    assert accum == 25;
+
+    a, b, c = chain_compute(5, 3);
+    assert a == 11;
+    assert b == 3;
+    assert c == 39;
+
+    result = nested_mut_params(100);
+    assert result == 106;
+
+    mut state = 0;
+    for phase in 0..5 unroll {
+        state = state_machine_step(state, phase);
+    }
+    assert state == 151;
+
+    mut x = 10;
+    mut y = 20;
+
+    cond1 = 1;
+    if cond1 == 1 {
+        x = x + y;
+        y = y - 5;
+    } else {
+        x = x * 2;
+    }
+
+    cond2 = 0;
+    if cond2 == 1 {
+        x = x * 100;
+    } else {
+        y = y + x;
+    }
+
+    assert x == 30;
+    assert y == 45;
+
+    mut sum_outer = 0;
+    mut sum_inner = 0;
+    for i in 0..3 unroll {
+        sum_outer = sum_outer + i;
+        for j in 0..4 unroll {
+            sum_inner = sum_inner + j;
+        }
+    }
+    assert sum_outer == 3;
+    assert sum_inner == 18;
+
+    result8 = complex_chain(2, 3, 5);
+    assert result8 == 31;
+
+    return;
+}
+
+fn fib_iterative(const n) -> 1 {
+    mut prev = 0;
+    mut curr = 1;
+    for i in 0..n unroll {
+        if i == 0 {
+        } else {
+            next = prev + curr;
+            prev = curr;
+            curr = next;
+        }
+    }
+    return curr;
+}
+
+fn step_accumulate(acc, i) -> 1 {
+    return acc + i * 2 + 1;
+}
+
+fn step_compute(x, y) -> 3 {
+    sum = x + y;
+    product = x * y;
+    return sum, y, product;
+}
+
+fn chain_compute(x, y) -> 3 {
+    a1, b1, c1 = step_compute(x, y);
+    a2, b2, c2 = step_compute(a1, b1);
+    return a2, b2, c1 + c2;
+}
+
+fn nested_mut_params(mut base) -> 1 {
+    for i in 0..3 unroll {
+        base = base + i * 2;
+    }
+    return base;
+}
+
+fn state_machine_step(current_state, phase) -> 1 {
+    var result;
+    if phase == 0 {
+        if current_state == 0 {
+            result = 1;
+        } else {
+            result = current_state + 1000;
+        }
+    } else if phase == 1 {
+        result = current_state + 11;
+    } else if phase == 2 {
+        result = current_state + 3;
+    } else if phase == 3 {
+        result = current_state * 10;
+    } else {
+        result = current_state + 1;
+    }
+    return result;
+}
+
+fn complex_chain(a, b, c) -> 1 {
+    sum = a + b;
+    product1 = sum * c;
+    product2 = a * b;
+    return product1 + product2;
+}

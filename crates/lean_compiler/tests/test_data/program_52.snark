@@ -1,0 +1,26 @@
+fn main() {
+    mut a = 1;
+    mut b = 2;
+    mut c = 3;
+
+    a = a + b;      // a = 3
+    b = b + c;      // b = 5
+    c = c + a;      // c = 6
+
+    a = a * 2;      // a = 6
+    b = b * 2;      // b = 10
+    c = c * 2;      // c = 12
+
+    assert a == 6;
+    assert b == 10;
+    assert c == 12;
+
+    a = b + c;      // a = 22
+    b = c + a;      // b = 34 (uses new a)
+    c = a + b;      // c = 56 (uses new a and b)
+
+    assert a == 22;
+    assert b == 34;
+    assert c == 56;
+    return;
+}

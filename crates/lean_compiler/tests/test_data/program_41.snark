@@ -1,0 +1,8 @@
+fn main() {
+    mut sum = 0;
+    for i in 0..5 unroll {
+        sum = sum + i;
+    }
+    assert sum == 10;
+    return;
+}

@@ -1,0 +1,7 @@
+fn main() {
+    mut x = 1;
+    x = x + 1;
+    x = x + 1;
+    assert x == 3;
+    return;
+}

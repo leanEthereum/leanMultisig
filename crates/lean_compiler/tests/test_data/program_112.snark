@@ -1,0 +1,112 @@
+fn main() {
+    var result1;
+    outer_sel = 1;
+    match outer_sel {
+        0 => {
+            result1 = 100;
+        }
+        1 => {
+            inner_sel = 2;
+            match inner_sel {
+                0 => {
+                    result1 = 200;
+                }
+                1 => {
+                    result1 = 300;
+                }
+                2 => {
+                    result1 = 456;
+                }
+            }
+        }
+    }
+    assert result1 == 456;
+
+    var mut counter;
+    var mut flag;
+
+    phase = 1;
+    if phase == 0 {
+        counter = 0;
+        flag = 100;
+    } else if phase == 1 {
+        counter = 10;
+        flag = 200;
+    } else {
+        counter = 100;
+        flag = 300;
+    }
+
+    counter = counter + 5;
+    flag = flag * 2;
+
+    assert counter == 15;
+    assert flag == 400;
+
+    var mut x;
+    var mut y;
+
+    init_sel = 0;
+    if init_sel == 0 {
+        x = 5;
+        y = 10;
+    } else {
+        x = 50;
+        y = 100;
+    }
+
+    x = x * 2;
+    y = y + x;
+    x = x + 1;
+    x = x * y;
+
+    assert x == 220;
+    assert y == 20;
+
+    var outcome;
+    selector = 4;
+    match selector {
+        0 => { outcome = compute_outcome(0, 0); }
+        1 => { outcome = compute_outcome(1, 1); }
+        2 => { outcome = compute_outcome(2, 4); }
+        3 => { outcome = compute_outcome(3, 9); }
+        4 => { outcome = compute_outcome(4, 16); }
+        5 => { outcome = compute_outcome(5, 25); }
+    }
+    assert outcome == 84;
+
+    var p;
+    var q;
+    var r;
+
+    s1 = 1;
+    if s1 == 1 {
+        p = 1;
+    } else {
+        p = 10;
+    }
+
+    s2 = 0;
+    if s2 == 1 {
+        q = 100;
+    } else {
+        q = p + 10;
+    }
+
+    s3 = 1;
+    if s3 == 1 {
+        r = p + q + 100;
+    } else {
+        r = 999;
+    }
+
+    assert p == 1;
+    assert q == 11;
+    assert r == 112;
+
+    return;
+}
+
+fn compute_outcome(a, b) -> 1 {
+    return a * b + a + b;
+}

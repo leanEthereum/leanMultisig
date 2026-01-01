@@ -31,7 +31,7 @@ Benchmarks are performed on 2 laptops:
 Poseidon2 over 16 KoalaBear field elements.
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- poseidon --log-n-perms 20
+cargo run --release -- poseidon --log-n-perms 20
 ```
 
 ![Alt text](docs/benchmark_graphs/graphs/raw_poseidons.svg)
@@ -45,7 +45,7 @@ The full recursion program is not finished yet. Instead, we prove validity of a 
 - n-to-1: Recursive proof of many WHIR openings (≈ 8) (we report prover time per WHIR)
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 19
+cargo run --release -- recursion --count 19
 ```
 
 ![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)
@@ -54,7 +54,7 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- recursion --count 19
 ### XMSS aggregation
 
 ```console
-RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1250
+cargo run --release -- xmss --n-signatures 1250
 ```
 
 [Trivial encoding](docs/XMSS_trivial_encoding.pdf) (for now).
@@ -69,7 +69,7 @@ RUSTFLAGS='-C target-cpu=native' cargo run --release -- xmss --n-signatures 1250
 n = 2,000,000
 
 ```
-FIB_N=2000000 RUSTFLAGS='-C target-cpu=native' cargo test --release --package lean_prover --lib -- test_zkvm::test_prove_fibonacci --exact --nocapture 
+FIB_N=2000000 cargo test --release --package lean_prover --lib -- test_zkvm::test_prove_fibonacci --exact --nocapture 
 
 ```
 

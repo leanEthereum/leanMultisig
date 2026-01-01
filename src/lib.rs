@@ -27,10 +27,6 @@ pub type F = p3_koala_bear::KoalaBear;
 
 /*
 WARNING: Toy XMSS, do not consider this secure (for now)!
-
-For performance, don't forget:
-1) RUSTFLAGS='-C target-cpu=native'
-2) --release
 */
 
 #[cfg(test)]

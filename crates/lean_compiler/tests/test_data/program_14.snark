@@ -1,0 +1,17 @@
+fn main() {
+    arr = malloc(10);
+    arr[6] = 42;
+    arr[8] = 11;
+    sum_1 = func_1(arr[6], arr[8]);
+    assert sum_1 == 53;
+    return;
+}
+
+fn func_1(i, j) inline -> 1 {
+    for k in 0..i {
+        for u in 0..j {
+            assert k + u != 1000000;
+        }
+    }
+    return i + j;
+}

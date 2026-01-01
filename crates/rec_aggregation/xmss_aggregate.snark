@@ -77,21 +77,19 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
         assert dummy_2 == 88888888;
         assert dummy_3 == 88888888;
 
-        partial_sums = malloc(13);
-        partial_sums[0] = remaining[i] * 2**24;
+        mut partial_sum = remaining[i] * 2**24;
         for j in 1..13 unroll {
-            partial_sums[j] = partial_sums[j - 1] + encoding[i * 12 + (j-1)] * 4**(j-1);
+            partial_sum += encoding[i * 12 + (j-1)] * 4**(j-1);
         }
-        assert partial_sums[12] == compressed_vals[i];
+        assert partial_sum == compressed_vals[i];
     }
     
     // we need to check the target sum
-    sums = malloc(V);
-    sums[0] = encoding[0];
+    mut target_sum = encoding[0];
     for i in 1..V unroll {
-        sums[i] = sums[i - 1] + encoding[i];
+        target_sum += encoding[i];
     }
-    assert sums[V - 1] == TARGET_SUM;
+    assert target_sum == TARGET_SUM;
 
     public_key = malloc(V * VECTOR_LEN);
 

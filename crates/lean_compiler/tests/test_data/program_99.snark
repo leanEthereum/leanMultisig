@@ -1,0 +1,12 @@
+fn main() {
+    result = accumulate(5);
+    assert result == 8;
+    return;
+}
+
+fn accumulate(mut x) -> 1 {
+    for i in 0..3 unroll {
+        x = x + i;
+    }
+    return x;
+}

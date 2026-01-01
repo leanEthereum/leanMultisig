@@ -1,0 +1,22 @@
+const N = 6;
+
+fn main() {
+    mut factorial = 1;
+    for i in 1..N unroll {
+        factorial = factorial * i;
+    }
+    assert factorial == 120;
+
+    mut sum_squares = 0;
+    for i in 1..N unroll {
+        sum_squares = sum_squares + i * i;
+    }
+    assert sum_squares == 55;
+
+    mut triangular = 0;
+    for i in 1..N unroll {
+        triangular = triangular + i;
+    }
+    assert triangular == 15;
+    return;
+}

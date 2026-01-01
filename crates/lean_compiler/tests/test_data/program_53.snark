@@ -1,0 +1,28 @@
+fn main() {
+    mut fib_prev = 0;
+    mut fib_curr = 1;
+
+    temp0 = fib_curr;
+    fib_curr = fib_prev + fib_curr;
+    fib_prev = temp0;
+
+    temp1 = fib_curr;
+    fib_curr = fib_prev + fib_curr;
+    fib_prev = temp1;
+
+    temp2 = fib_curr;
+    fib_curr = fib_prev + fib_curr;
+    fib_prev = temp2;
+
+    temp3 = fib_curr;
+    fib_curr = fib_prev + fib_curr;
+    fib_prev = temp3;
+
+    temp4 = fib_curr;
+    fib_curr = fib_prev + fib_curr;
+    fib_prev = temp4;
+
+    assert fib_curr == 8;
+    assert fib_prev == 5;
+    return;
+}

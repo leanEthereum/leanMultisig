@@ -1,0 +1,17 @@
+const N = 5;
+const M = 3;
+
+fn main() {
+    mut acc = 0;
+    for i in 0..N unroll {
+        acc = acc + M;
+    }
+    assert acc == 15;
+
+    mut product = 1;
+    for i in 0..M unroll {
+        product = product * 2;
+    }
+    assert product == 8;
+    return;
+}

@@ -1,0 +1,14 @@
+fn main() {
+    mut total = 0;
+    for i in 0..5 unroll {
+        if i == 2 {
+            total = total + 100;
+        } else if i == 4 {
+            total = total + 1000;
+        } else {
+            total = total + 1;
+        }
+    }
+    assert total == 1103;
+    return;
+}

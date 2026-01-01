@@ -1,0 +1,103 @@
+fn main() {
+    assert five_way(0) == 1;
+    assert five_way(1) == 2;
+    assert five_way(2) == 4;
+    assert five_way(3) == 8;
+    assert five_way(4) == 16;
+
+    a0, b0, c0 = five_way_multi(0);
+    assert a0 == 1;
+    assert b0 == 0;
+    assert c0 == 0;
+
+    a2, b2, c2 = five_way_multi(2);
+    assert a2 == 0;
+    assert b2 == 0;
+    assert c2 == 4;
+
+    a4, b4, c4 = five_way_multi(4);
+    assert a4 == 0;
+    assert b4 == 16;
+    assert c4 == 0;
+
+    result = five_way_postmerge(2);
+    assert result == 24;  // 4 * 6
+
+    result2 = nested_five_way(1, 2);
+    assert result2 == 1020;
+
+    return;
+}
+
+fn five_way(n) -> 1 {
+    mut x = 0;
+    match n {
+        0 => { x = 1; }
+        1 => { x = 2; }
+        2 => { x = 4; }
+        3 => { x = 8; }
+        4 => { x = 16; }
+    }
+    return x;
+}
+
+fn five_way_multi(n) -> 3 {
+    mut a = 0;
+    mut b = 0;
+    mut c = 0;
+    match n {
+        0 => { a = 1; }
+        1 => { b = 2; }
+        2 => { c = 4; }
+        3 => { a = 8; }
+        4 => { b = 16; }
+    }
+    return a, b, c;
+}
+
+fn five_way_postmerge(n) -> 1 {
+    mut x = 0;
+    match n {
+        0 => { x = 1; }
+        1 => { x = 2; }
+        2 => { x = 4; }
+        3 => { x = 8; }
+        4 => { x = 16; }
+    }
+    result = x * 6;
+    return result;
+}
+
+fn nested_five_way(outer, inner) -> 1 {
+    mut x = 1000;
+    match outer {
+        0 => {
+            match inner {
+                0 => { x = x + 1; }
+                1 => { x = x + 2; }
+                2 => { x = x + 3; }
+                3 => { x = x + 4; }
+                4 => { x = x + 5; }
+            }
+        }
+        1 => {
+            match inner {
+                0 => { x = x + 10; }
+                1 => { x = x + 20; }
+                2 => { x = x + 20; }
+                3 => { x = x + 30; }
+                4 => { x = x + 40; }
+            }
+        }
+        2 => {
+            match inner {
+                0 => { x = x + 100; }
+                1 => { x = x + 200; }
+                2 => { x = x + 300; }
+                3 => { x = x + 400; }
+                4 => { x = x + 500; }
+            }
+        }
+    }
+    return x;
+}

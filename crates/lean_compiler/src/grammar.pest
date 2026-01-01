@@ -15,7 +15,7 @@ array_element = { array_literal | expression }
 function = { pragma? ~ "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ inlined_statement? ~ return_count? ~ "{" ~ statement* ~ "}" }
 pragma = { "#![assume_always_returns]" }
 parameter_list = { parameter ~ ("," ~ parameter)* }
-parameter = { (const_keyword)? ~ identifier }
+parameter = { const_keyword? ~ mut_keyword? ~ identifier }
 const_keyword = { "const" }
 inlined_statement = { "inline" }
 return_count = { "->" ~ number }
@@ -39,12 +39,16 @@ return_statement = { "return" ~ (tuple_expression)? ~ ";" }
 break_statement = { "break" ~ ";" }
 continue_statement = { "continue" ~ ";" }
 
-forward_declaration = { "var" ~ identifier ~ ";" }
+mut_keyword = @{ "mut" ~ !(ASCII_ALPHANUMERIC | "_") }
 
-// General assignment: LHS is optional list of variables/array accesses, RHS is any expression
-assignment = { (assignment_target_list ~ "=")? ~ expression ~ ";" }
+forward_declaration = { "var" ~ mut_keyword? ~ identifier ~ ";" }
+
+// General assignment: LHS is optional, RHS is any expression
+// Compound operators (+=, -=, *=, /=) only allow single target without mut (enforced in parser)
+assignment = { (assignment_target_list ~ assign_op)? ~ expression ~ ";" }
+assign_op = { "+=" | "-=" | "*=" | "/=" | "=" }
 assignment_target_list = { assignment_target ~ ("," ~ assignment_target)* }
-assignment_target = { array_access_expr | identifier }
+assignment_target = { (mut_keyword ~ identifier) | array_access_expr | identifier }
 
 if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_if_clause* ~ else_clause? }
 

@@ -1,0 +1,68 @@
+fn main() {
+    r1 = cross_level_mut();
+    assert r1 == 130;
+
+    a, b = loop_match_multi_mut();
+    assert a == 9;   // 1+3+5 = 9
+    assert b == 6;   // 2+4 = 6
+
+    r2 = triple_same_mut();
+    assert r2 == 492;
+
+    r3 = outer_used_after_inner();
+    assert r3 == 45;
+
+    return;
+}
+
+fn cross_level_mut() -> 1 {
+    mut total = 0;
+    for i in 0..5 unroll {
+        mut local = i * 10;
+        for j in 0..3 unroll {
+            local = local + j;
+            total = total + 1;
+        }
+        total = total + local;
+    }
+    return total;
+}
+
+fn loop_match_multi_mut() -> 2 {
+    mut sum_a = 0;
+    mut sum_b = 0;
+    for i in 0..5 unroll {
+        match i {
+            0 => { sum_a = sum_a + 1; }
+            1 => { sum_b = sum_b + 2; }
+            2 => { sum_a = sum_a + 3; }
+            3 => { sum_b = sum_b + 4; }
+            4 => { sum_a = sum_a + 5; }
+        }
+    }
+    return sum_a, sum_b;
+}
+
+fn triple_same_mut() -> 1 {
+    mut x = 0;
+    for i in 0..3 unroll {
+        x = x + i * 100;
+        for j in 0..4 unroll {
+            x = x + j * 10;
+            for k in 0..2 unroll {
+                x = x + k;
+            }
+        }
+    }
+    return x;
+}
+
+fn outer_used_after_inner() -> 1 {
+    mut outer = 0;
+    for i in 0..5 unroll {
+        for j in 0..3 unroll {
+            outer = outer + i + j;
+        }
+    }
+    return outer;
+}

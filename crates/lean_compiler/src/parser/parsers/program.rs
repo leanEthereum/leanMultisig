@@ -54,8 +54,7 @@ impl Parse<Program> for ProgramParser {
                         ctx.current_filepath = filepath.clone();
                         ctx.imported_filepaths.insert(filepath.clone());
                         ctx.current_source_code = ProgramSource::Filepath(filepath.clone())
-                            .get_content(&ctx.flags)
-                            .unwrap();
+                            .get_content(&ctx.flags)?;
                         let subprogram = parse_program_helper(ctx)?;
                         functions.extend(subprogram.functions);
                         function_locations.extend(subprogram.function_locations);

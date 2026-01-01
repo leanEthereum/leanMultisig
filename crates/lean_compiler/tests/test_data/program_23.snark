@@ -1,0 +1,15 @@
+fn main() {
+    f(1);
+    return;
+}
+
+fn f(n) {
+    if 0 == 0 {
+        res = malloc(2);
+        res[1] = 0;
+        return;
+    } else {
+        res = malloc(n * 1);
+        return;
+    }
+}

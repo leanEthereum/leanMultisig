@@ -1,0 +1,26 @@
+fn main() {
+    mut x = 1;
+    x = step1(x);
+    x = step2(x);
+    x = step3(x);
+    assert x == 47;
+    return;
+}
+
+fn step1(mut n) -> 1 {
+    n = n * 2;
+    n = n + 1;
+    return n;
+}
+
+fn step2(mut n) -> 1 {
+    n = n * 3;
+    n = n + 2;
+    return n;
+}
+
+fn step3(mut n) -> 1 {
+    n = n * 4;
+    n = n + 3;
+    return n;
+}

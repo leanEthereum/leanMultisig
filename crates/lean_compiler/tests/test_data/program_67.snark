@@ -1,0 +1,6 @@
+fn main() {
+    var mut_a;
+    mut_a = 5;
+    assert mut_a == 5;
+    return;
+}

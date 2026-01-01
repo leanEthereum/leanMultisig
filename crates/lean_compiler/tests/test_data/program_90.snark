@@ -1,0 +1,18 @@
+fn main() {
+    mut total = 0;
+    for i in 0..3 unroll {
+        match i {
+            0 => {
+                total = total + 1;
+            }
+            1 => {
+                total = total + 10;
+            }
+            2 => {
+                total = total + 100;
+            }
+        }
+    }
+    assert total == 111;
+    return;
+}

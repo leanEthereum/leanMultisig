@@ -1,0 +1,11 @@
+fn main() {
+    a, mut b = get_two();
+    b = b + 1;
+    assert a == 10;
+    assert b == 21;
+    return;
+}
+
+fn get_two() -> 2 {
+    return 10, 20;
+}

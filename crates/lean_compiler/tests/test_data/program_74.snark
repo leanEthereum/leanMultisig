@@ -1,0 +1,23 @@
+fn main() {
+    assert test_func(1, 0) == 11;
+    assert test_func(1, 1) == 20;
+    assert test_func(0, 0) == 100;
+    return;
+}
+
+fn test_func(cond, selector) -> 1 {
+    mut x = 10;
+    if cond == 1 {
+        match selector {
+            0 => {
+                x = x + 1;
+            }
+            1 => {
+                x = x + 10;
+            }
+        }
+    } else {
+        x = x + 90;
+    }
+    return x;
+}

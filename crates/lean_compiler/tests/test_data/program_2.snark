@@ -1,0 +1,8 @@
+import "misc/bar.snark";
+import "misc/foo.snark";
+
+fn main() {
+    x = bar(FOO);
+    assert x == 6;
+    return;
+}

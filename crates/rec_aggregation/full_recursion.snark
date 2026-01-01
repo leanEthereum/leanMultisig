@@ -14,11 +14,11 @@ const LOOKUPS_F_VALUES = LOOKUPS_F_VALUES_PLACEHOLDER;
 
 fn main() {
     proof_transcript = private_input_start();
-    fs_1 = fs_new(proof_transcript);
+    mut fs = fs_new(proof_transcript);
 
     // table dims
     debug_assert N_TABLES + 1 < VECTOR_LEN; // (because duplex only once bellow)
-    fs_2, mem_and_table_dims = fs_receive_chunks(fs_1, 1);
+    fs, mem_and_table_dims = fs_receive_chunks(fs, 1);
     for i in N_TABLES + 1..8 unroll {
         assert mem_and_table_dims[i] == 0;
     }
@@ -33,66 +33,57 @@ fn main() {
     full_range_check(MIN_LOG_MEMORY_SIZE - 1, log_memory, MAX_LOG_MEMORY_SIZE + 1);
 
     // parse 1st whir commitment
-    fs_3, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs_2, NUM_OOD_COMMIT);
+    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, NUM_OOD_COMMIT);
 
-    logup_c = fs_sample_ef(fs_3);
-    fs_6 = duplexing(fs_3);
-    logup_alpha = fs_sample_ef(fs_6);
-    fs_8 = duplexing(fs_6);
+    logup_c = fs_sample_ef(fs);
+    fs = duplexing(fs);
+    logup_alpha = fs_sample_ef(fs);
+    fs = duplexing(fs);
 
     // verify_generic_logup
 
-    fs9, quotient_gkr, point_gkr, claims_num, claims_den = verify_gkr_quotient(fs_8, N_VARS_FIRST_GKR);
+    fs, quotient_gkr, point_gkr, claims_num, claims_den = verify_gkr_quotient(fs, N_VARS_FIRST_GKR);
     set_to_5_zeros(quotient_gkr);
 
     alpha_powers = powers(logup_alpha, MAX_BUS_WIDTH);
 
-    retrieved_numerators_value = malloc(100); // TODO proper size
-    retrieved_denominators_value = malloc(100); // TODO proper size
 
     memory_and_acc_prefix = multilinear_location_prefix(0, N_VARS_FIRST_GKR - log_memory, point_gkr);
 
-    fs10, value_acc = fs_receive_ef(fs9, 1);
-    fs11, value_memory = fs_receive_ef(fs10, 1);
+    fs, value_acc = fs_receive_ef(fs, 1);
+    fs, value_memory = fs_receive_ef(fs, 1);
 
-    pref_mul_value_acc = mul_extension_ret(memory_and_acc_prefix, value_acc);
-    retrieved_numerators_value[0] = opposite_extension_ret(pref_mul_value_acc);
+    mut retrieved_numerators_value = opposite_extension_ret(mul_extension_ret(memory_and_acc_prefix, value_acc));
 
     value_index = mle_of_01234567_etc(point_gkr + (N_VARS_FIRST_GKR - log_memory) * DIM, log_memory);
     fingerprint_memory = fingerprint_2(MEMORY_TABLE_INDEX, value_index, value_memory, alpha_powers);
-    retrieved_denominators_value[0] = mul_extension_ret(memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory));
+    mut retrieved_denominators_value = mul_extension_ret(memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory));
 
-    all_fs = malloc(100); // TODO proper size
-    all_offsets = malloc(100); // TODO proper size
-    all_fs[0] = fs11;
-    all_offsets[0] = powers_of_two(log_memory);
+    offset = powers_of_two(log_memory);
     all_bus_statements_points = malloc(N_TABLES);
     all_bus_statements_numerators_claims = malloc(N_TABLES);
     all_bus_statements_denominators_claims = malloc(N_TABLES);
     for table_index in 0..N_TABLES unroll {
         log_n_rows = table_dims[table_index];
         n_rows = powers_of_two(log_n_rows);
-        offset = all_offsets[table_index];
         inner_point = point_gkr + (N_VARS_FIRST_GKR - log_n_rows) * DIM;
         inner_inner_point = inner_point + DIM * UNIVARIATE_SKIPS;
-        
+
         prefix = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr);
         poly_eq_missing_inner_point = poly_eq_extension(inner_point, UNIVARIATE_SKIPS);
 
-        fs_a1, evals_on_selector = fs_receive_ef(all_fs[table_index], 2**UNIVARIATE_SKIPS);
+        fs, evals_on_selector = fs_receive_ef(fs, 2**UNIVARIATE_SKIPS);
         evals_on_selector_ml_eval = malloc(DIM);
         dot_product(evals_on_selector, poly_eq_missing_inner_point, evals_on_selector_ml_eval, 2**UNIVARIATE_SKIPS, EE);
-        retrieved_numerators_value_new_term = mul_extension_ret(prefix, evals_on_selector_ml_eval);
-        retrieved_numerators_value[table_index + 1] = add_extension_ret(retrieved_numerators_value[table_index], retrieved_numerators_value_new_term);
-        
-        fs_a2, evals_on_data = fs_receive_ef(fs_a1, 2**UNIVARIATE_SKIPS);
+        retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, mul_extension_ret(prefix, evals_on_selector_ml_eval));
+
+        fs, evals_on_data = fs_receive_ef(fs, 2**UNIVARIATE_SKIPS);
         evals_on_data_ml_eval = malloc(DIM);
         dot_product(evals_on_data, poly_eq_missing_inner_point, evals_on_data_ml_eval, 2**UNIVARIATE_SKIPS, EE);
-        retrieved_denominators_value_new_term = mul_extension_ret(prefix, evals_on_data_ml_eval);
-        retrieved_denominators_value[table_index + 1] = add_extension_ret(retrieved_denominators_value[table_index], retrieved_denominators_value_new_term);
+        retrieved_denominators_value = add_extension_ret(retrieved_denominators_value, mul_extension_ret(prefix, evals_on_data_ml_eval));
 
-        gamma = fs_sample_ef(fs_a2);
-        fs_a3 = duplexing(fs_a2);
+        gamma = fs_sample_ef(fs);
+        fs = duplexing(fs);
 
         bus_point = malloc((log_n_rows - UNIVARIATE_SKIPS + 1) * DIM);
         copy_5(gamma, bus_point);
@@ -113,8 +104,6 @@ fn main() {
             col_index = LOOKUPS_F_INDEXES[table_index][lookup_f_index];
             // f_value = LOOKUPS_F_VALUES[table_index][lookup_f_index];
         }
-        all_fs[table_index + 1] = fs_a3; // TODO
-        all_offsets[table_index + 1] = 0; // TODO
 
         return;
     }
@@ -175,17 +164,17 @@ fn verify_gkr_quotient(fs, n_vars) -> 5 {
     for i in 1..n_vars {
         all_fs[i], points[i], claims_num[i], claims_den[i] = verify_gkr_quotient_step(all_fs[i - 1], i, points[i - 1], claims_num[i - 1], claims_den[i - 1]);
     }
-    
+
     return all_fs[n_vars - 1], quotient, points[n_vars - 1], claims_num[n_vars - 1], claims_den[n_vars - 1];
 }
 
-fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) -> 4 {
+fn verify_gkr_quotient_step(mut fs, n_vars, point, claim_num, claim_den) -> 4 {
     alpha = fs_sample_ef(fs);
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den);
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den);
     postponed_point = malloc((n_vars + 1) * DIM);
-    fs2, postponed_value = sumcheck_verify_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM);
-    fs3, inner_evals = fs_receive_ef(fs2, 4);
+    fs, postponed_value = sumcheck_verify_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM);
+    fs, inner_evals = fs_receive_ef(fs, 4);
     a_num = inner_evals;
     b_num = inner_evals + DIM;
     a_den = inner_evals + 2 * DIM;
@@ -195,9 +184,9 @@ fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) -> 4 {
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha);
     eq_factor = eq_mle_extension(point, postponed_point + DIM, n_vars);
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value);
-    
-    beta = fs_sample_ef(fs3);
-    fs5 = duplexing(fs3);
+
+    beta = fs_sample_ef(fs);
+    fs = duplexing(fs);
     point_poly_eq = poly_eq_extension(beta, 1);
     new_claim_num = malloc(DIM);
     new_claim_den = malloc(DIM);
@@ -206,6 +195,6 @@ fn verify_gkr_quotient_step(fs, n_vars, point, claim_num, claim_den) -> 4 {
 
     copy_5(beta, postponed_point);
 
-    return fs5, postponed_point, new_claim_num, new_claim_den;
-    
+    return fs, postponed_point, new_claim_num, new_claim_den;
+
 }

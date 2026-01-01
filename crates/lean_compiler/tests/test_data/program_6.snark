@@ -1,0 +1,6 @@
+fn main() {
+    a = malloc(1);
+    a[0] = 0;
+    assert a[8 - 8] == 0;
+    return;
+}

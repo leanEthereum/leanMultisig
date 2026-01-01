@@ -1,0 +1,15 @@
+fn main() {
+    x = func();
+    return;
+}
+fn func() -> 1 {
+    var a;
+    if 0 == 0 {
+        a = aux();
+    }
+    return a;
+}
+
+fn aux() inline -> 1 {
+    return 1;
+}

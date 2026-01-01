@@ -1,0 +1,120 @@
+fn main() {
+    mut sum1 = 0;
+    mut sum2 = 0;
+    mut count = 0;
+
+    for i in 0..4 unroll {
+        for j in 0..3 unroll {
+            count = count + 1;
+            remainder = j % 2;
+            if remainder == 0 {
+                sum1 = sum1 + i + j;
+            } else {
+                sum2 = sum2 + i * j;
+            }
+        }
+    }
+
+    assert count == 12;
+    assert sum1 == 20;
+    assert sum2 == 6;
+
+    mut state = 0;
+    for phase in 0..5 unroll {
+        match phase {
+            0 => {
+                state = state + 1;
+            }
+            1 => {
+                state = state * 10;
+            }
+            2 => {
+                if state == 10 {
+                    state = state + 5;
+                } else {
+                    state = state + 1000;
+                }
+            }
+            3 => {
+                state = state * 2;
+            }
+            4 => {
+                state = state + 1;
+            }
+        }
+    }
+    assert state == 31;
+
+    mut a = 5;
+    mut b = 10;
+
+    for round in 0..3 unroll {
+        x, y = double_and_add(a, b);
+        a = x;
+        b = y;
+    }
+    assert a == 40;
+    assert b == 25;
+
+    mut p = 1;
+    mut q = 2;
+    mut r = 3;
+
+    outer_sel = 1;
+    if outer_sel == 0 {
+        p = p + 100;
+    } else if outer_sel == 1 {
+        inner_sel = 2;
+        match inner_sel {
+            0 => {
+                q = q + 200;
+            }
+            1 => {
+                r = r + 300;
+            }
+            2 => {
+                deep_cond = 0;
+                if deep_cond == 0 {
+                    p = p * 10;
+                    q = q * 10;
+                    r = r * 10;
+                } else {
+                    p = p + 9999;
+                }
+            }
+        }
+    } else {
+        r = r + 400;
+    }
+
+    assert p == 10;
+    assert q == 20;
+    assert r == 30;
+
+    result = complex_compute(3, 4, 5);
+    assert result == 47;
+
+    var mut fwd_val;
+    cond = 1;
+    if cond == 0 {
+        fwd_val = 100;
+    } else {
+        fwd_val = 200;
+    }
+    fwd_val = fwd_val + 50;
+    fwd_val = fwd_val * 2;
+    assert fwd_val == 500;
+
+    return;
+}
+
+fn double_and_add(x, y) -> 2 {
+    return x * 2, y + 5;
+}
+
+fn complex_compute(a, b, c) -> 1 {
+    sum = a + b;
+    product = sum * c;
+    extra = a * b;
+    return product + extra;
+}

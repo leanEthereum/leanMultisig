@@ -1,0 +1,25 @@
+fn main() {
+    assert test_func(0) == 11;
+    assert test_func(1) == 12;
+    assert test_func(2) == 13;
+    return;
+}
+
+fn test_func(sel) -> 1 {
+    mut x = 10;
+    match sel {
+        0 => {
+            x = x + 1;
+        }
+        1 => {
+            x = x + 1;
+            x = x + 1;
+        }
+        2 => {
+            x = x + 1;
+            x = x + 1;
+            x = x + 1;
+        }
+    }
+    return x;
+}
