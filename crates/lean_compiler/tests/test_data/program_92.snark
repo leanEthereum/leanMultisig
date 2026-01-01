@@ -1,0 +1,17 @@
+// test_mutable_edge_with_function_return_in_branch
+fn main() {
+    mut x = 5;
+    cond = 1;
+    if cond == 1 {
+        x = compute(x, 3);
+    } else {
+        x = compute(x, 10);
+    }
+    // compute(5, 3) = 5 * 3 + 3 = 18
+    assert x == 18;
+    return;
+}
+
+fn compute(a, b) -> 1 {
+    return a * b + b;
+}

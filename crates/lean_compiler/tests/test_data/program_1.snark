@@ -1,9 +1,4 @@
-import "misc/bar.snark";
-import "misc/foo.snark";
-
-fn bar() {
-    return;
-}
+import "misc/circular_import.snark";
 
 fn main() {
     return;

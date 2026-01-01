@@ -1,4 +1,5 @@
-import "asdfasdfadsfasdf.snark";
+import "misc/foo.snark";
+import "misc/foo.snark";
 
 fn main() {
     return;

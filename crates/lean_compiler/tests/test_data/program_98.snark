@@ -1,0 +1,18 @@
+// test_mutable_edge_unrolled_rev_with_conditions
+fn main() {
+    mut sum = 0;
+    mut odd_sum = 0;
+    for i in rev 0..5 unroll {
+        sum = sum + i;
+        remainder = i % 2;
+        if remainder == 1 {
+            odd_sum = odd_sum + i;
+        }
+    }
+    // i: 4, 3, 2, 1, 0
+    // sum = 4+3+2+1+0 = 10
+    // odd: 3+1 = 4
+    assert sum == 10;
+    assert odd_sum == 4;
+    return;
+}

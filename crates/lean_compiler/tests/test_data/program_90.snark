@@ -1,0 +1,20 @@
+// test_mutable_edge_loop_with_match_inside
+fn main() {
+    mut total = 0;
+    for i in 0..3 unroll {
+        match i {
+            0 => {
+                total = total + 1;
+            }
+            1 => {
+                total = total + 10;
+            }
+            2 => {
+                total = total + 100;
+            }
+        }
+    }
+    // 1 + 10 + 100 = 111
+    assert total == 111;
+    return;
+}

@@ -1,0 +1,11 @@
+// test_mutable_rev_unrolled_loop
+fn main() {
+    mut countdown = 0;
+    for i in rev 0..5 unroll {
+        countdown = countdown * 10 + i;
+    }
+    // i goes: 4, 3, 2, 1, 0
+    // countdown: 0*10+4=4, 4*10+3=43, 43*10+2=432, 432*10+1=4321, 4321*10+0=43210
+    assert countdown == 43210;
+    return;
+}

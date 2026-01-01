@@ -1,0 +1,22 @@
+// test_mutable_edge_swap_pattern
+fn main() {
+    mut a = 10;
+    mut b = 20;
+
+    // Swap
+    temp = a;
+    a = b;
+    b = temp;
+
+    assert a == 20;
+    assert b == 10;
+
+    // Swap back
+    temp2 = a;
+    a = b;
+    b = temp2;
+
+    assert a == 10;
+    assert b == 20;
+    return;
+}

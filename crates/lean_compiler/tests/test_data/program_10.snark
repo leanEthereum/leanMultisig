@@ -1,0 +1,5 @@
+// test_rev_unroll
+fn main() {
+    print(785 * 78 + 874 - 1);
+    return;
+}

@@ -1,0 +1,97 @@
+// test_deeply_nested_match
+fn main() {
+    // Test each combination with expected values
+    assert compute(0, 0, 0) == 1008;
+    assert compute(0, 0, 1) == 1009;
+    assert compute(0, 1, 0) == 1012;
+    assert compute(0, 1, 1) == 1013;
+    assert compute(1, 0, 0) == 1036;
+    assert compute(1, 0, 1) == 1037;
+    assert compute(1, 1, 0) == 1046;
+    assert compute(1, 1, 1) == 1047;
+    return;
+}
+
+fn compute(a, b, c) -> 1 {
+    base = 1000;
+    var outer_val;
+    var mid_val;
+    var inner_val;
+
+    match a {
+        0 => {
+            outer_val = 5;
+            var local_a;
+            local_a = a + outer_val;
+
+            match b {
+                0 => {
+                    mid_val = 3;
+                    var local_b;
+                    local_b = local_a + mid_val;
+
+                    match c {
+                        0 => {
+                            inner_val = base + local_b + c;
+                        }
+                        1 => {
+                            inner_val = base + local_b + c;
+                        }
+                    }
+                }
+                1 => {
+                    mid_val = 7;
+                    var local_b;
+                    local_b = local_a + mid_val;
+
+                    match c {
+                        0 => {
+                            inner_val = base + local_b + c;
+                        }
+                        1 => {
+                            inner_val = base + local_b + c;
+                        }
+                    }
+                }
+            }
+        }
+        1 => {
+            outer_val = 15;
+            var local_a;
+            local_a = a + outer_val;
+
+            match b {
+                0 => {
+                    mid_val = 20;
+                    var local_b;
+                    local_b = local_a + mid_val;
+
+                    match c {
+                        0 => {
+                            inner_val = base + local_b + c;
+                        }
+                        1 => {
+                            inner_val = base + local_b + c;
+                        }
+                    }
+                }
+                1 => {
+                    mid_val = 30;
+                    var local_b;
+                    local_b = local_a + mid_val;
+
+                    match c {
+                        0 => {
+                            inner_val = base + local_b + c;
+                        }
+                        1 => {
+                            inner_val = base + local_b + c;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return inner_val;
+}

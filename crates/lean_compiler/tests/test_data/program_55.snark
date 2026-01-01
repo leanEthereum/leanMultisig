@@ -1,0 +1,20 @@
+// test_mutable_in_match
+fn main() {
+    selector = 2;
+    match selector {
+        0 => {
+            mut result = 1;
+            assert result == 1;
+        }
+        1 => {
+            mut result = 10;
+            assert result == 10;
+        }
+        2 => {
+            mut result = 100;
+            result = result + 5;
+            assert result == 105;
+        }
+    }
+    return;
+}

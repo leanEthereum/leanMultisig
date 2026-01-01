@@ -1,0 +1,14 @@
+// test_mutable_edge_mutation_after_control_flow
+fn main() {
+    mut x = 1;
+    cond = 1;
+    if cond == 1 {
+        x = x + 10;
+    } else {
+        x = x + 100;
+    }
+    // After merge, x is unified to version 2
+    x = x + 1000; // Should work on unified version
+    assert x == 1011;
+    return;
+}

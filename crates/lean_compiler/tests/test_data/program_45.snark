@@ -1,0 +1,8 @@
+// test_mutable_forward_declaration
+fn main() {
+    var mut x;
+    x = 5;
+    x = x + 1;
+    assert x == 6;
+    return;
+}

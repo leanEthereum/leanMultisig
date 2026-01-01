@@ -22,3 +22,5 @@ air.workspace = true
 sub_protocols.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true
+
+[dev-dependencies]

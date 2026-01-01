@@ -1,0 +1,17 @@
+// test_match_shrink
+fn main() {
+    match 1 {
+        0 => {
+            y = 90;
+        }
+        1 => {
+            y = 10;
+            z = func_2(y);
+        }
+    }
+    return;
+}
+
+fn func_2(x) inline -> 1 {
+    return x * x;
+}

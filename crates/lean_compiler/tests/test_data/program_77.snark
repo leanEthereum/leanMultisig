@@ -1,0 +1,29 @@
+// test_mutable_edge_multiple_control_flows_sequential
+fn main() {
+    mut x = 0;
+
+    cond1 = 1;
+    if cond1 == 1 {
+        x = x + 1;
+    } else {
+        x = x + 10;
+    }
+
+    cond2 = 0;
+    if cond2 == 1 {
+        x = x + 100;
+    } else {
+        x = x + 200;
+    }
+
+    cond3 = 1;
+    if cond3 == 1 {
+        x = x + 1000;
+    } else {
+        x = x + 2000;
+    }
+
+    // x = 0 + 1 + 200 + 1000 = 1201
+    assert x == 1201;
+    return;
+}

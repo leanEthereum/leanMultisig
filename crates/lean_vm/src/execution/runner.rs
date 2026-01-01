@@ -47,16 +47,16 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory
 }
 
-/// Execute bytecode with the given inputs and execution context
+/// Execute bytecode with the given inputs and execution context, returning a Result
 ///
 /// This is the main VM execution entry point that processes bytecode instructions
 /// and generates execution traces with witness data.
-pub fn execute_bytecode(
+pub fn try_execute_bytecode(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
     profiling: bool,
     poseidons_16_precomputed: &Poseidon16History,
-) -> ExecutionResult {
+) -> Result<ExecutionResult, RunnerError> {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
     let result = execute_bytecode_helper(
@@ -67,10 +67,10 @@ pub fn execute_bytecode(
         profiling,
         poseidons_16_precomputed,
     )
-    .unwrap_or_else(|(last_pc, err)| {
+    .map_err(|(last_pc, err)| {
         let lines_history = &instruction_history.lines;
         let latest_instructions = &lines_history[lines_history.len().saturating_sub(STACK_TRACE_INSTRUCTIONS)..];
-        println!(
+        eprintln!(
             "\n{}",
             crate::diagnostics::pretty_stack_trace(
                 &bytecode.source_code,
@@ -81,13 +81,13 @@ pub fn execute_bytecode(
             )
         );
         if !std_out.is_empty() {
-            println!("╔══════════════════════════════════════════════════════════════╗");
-            println!("║                         STD-OUT                              ║");
-            println!("╚══════════════════════════════════════════════════════════════╝\n");
-            print!("{std_out}");
+            eprintln!("╔══════════════════════════════════════════════════════════════╗");
+            eprintln!("║                         STD-OUT                              ║");
+            eprintln!("╚══════════════════════════════════════════════════════════════╝\n");
+            eprint!("{std_out}");
         }
-        panic!("Error during bytecode execution: {err}");
-    });
+        err
+    })?;
     if profiling {
         print_line_cycle_counts(instruction_history, &bytecode.filepaths);
         print_instruction_cycle_counts(bytecode, result.pcs.clone());
@@ -95,7 +95,20 @@ pub fn execute_bytecode(
             print!("{}", memory_profiling_report(mem_profile));
         }
     }
-    result
+    Ok(result)
+}
+
+/// Execute bytecode with the given inputs and execution context
+///
+/// Panics on execution errors. Use `try_execute_bytecode` for error handling.
+pub fn execute_bytecode(
+    bytecode: &Bytecode,
+    (public_input, private_input): (&[F], &[F]),
+    profiling: bool,
+    poseidons_16_precomputed: &Poseidon16History,
+) -> ExecutionResult {
+    try_execute_bytecode(bytecode, (public_input, private_input), profiling, poseidons_16_precomputed)
+        .unwrap_or_else(|err| panic!("Error during bytecode execution: {err}"))
 }
 
 fn print_line_cycle_counts(history: ExecutionHistory, filepaths: &BTreeMap<FileId, String>) {

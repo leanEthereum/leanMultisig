@@ -1,0 +1,7 @@
+// Error: duplicate constant name (A defined twice)
+const A = 1;
+const A = 0;
+
+fn main() {
+    return;
+}

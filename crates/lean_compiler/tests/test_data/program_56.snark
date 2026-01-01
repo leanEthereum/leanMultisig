@@ -1,0 +1,13 @@
+// test_mutable_const_array_iteration
+const WEIGHTS = [1, 2, 3, 4, 5];
+const N = 5;
+
+fn main() {
+    mut weighted_sum = 0;
+    for i in 0..N unroll {
+        weighted_sum = weighted_sum + WEIGHTS[i] * (i + 1);
+    }
+    // weighted_sum = 1*1 + 2*2 + 3*3 + 4*4 + 5*5 = 1 + 4 + 9 + 16 + 25 = 55
+    assert weighted_sum == 55;
+    return;
+}

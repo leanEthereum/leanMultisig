@@ -1,0 +1,33 @@
+// test_many_if_else
+fn main() {
+    for i in 0..6 {
+        mut x = i;
+        x = x + 1;
+        for j in 0..3 {
+            mut y = x + 1;
+            y = y + j;
+            if i == 10 {
+                y = y - 1;
+            }
+            if j == 10000 {
+                y = y - 2;
+            } else if i != 1000 {
+                y = y + 2;
+            }
+            if j == 10000 {
+                y = y - 2;
+            } else if i == 1000 {
+                y = y + 2;
+            }
+            if j == 10000 {
+                y = y - 2;
+            } else if i != 1000 {
+                y = y + 2;
+            } else {
+                y = y + 2;
+            }
+            assert y == i + j + 6;
+        }
+    }
+    return;
+}

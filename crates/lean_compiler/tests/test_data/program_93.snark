@@ -1,0 +1,13 @@
+// test_mutable_edge_same_var_name_diff_scopes
+fn main() {
+    mut outer_x = 0;
+    for i in 0..2 unroll {
+        mut x = 1;  // fresh x each iteration
+        x = x + i;
+        outer_x = outer_x + x;
+    }
+    // i=0: x=1, x=1+0=1, outer_x=0+1=1
+    // i=1: x=1, x=1+1=2, outer_x=1+2=3
+    assert outer_x == 3;
+    return;
+}

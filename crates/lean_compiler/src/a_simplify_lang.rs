@@ -148,9 +148,9 @@ impl SimpleLine {
     }
 }
 
-pub fn simplify_program(mut program: Program) -> SimpleProgram {
+pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     check_program_scoping(&program);
-    handle_inlined_functions(&mut program);
+    handle_inlined_functions(&mut program)?;
 
     // Iterate between unrolling and const argument handling until fixed point
     let mut unroll_counter = Counter::new();
@@ -162,7 +162,9 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
         any_change |= handle_const_arguments(&mut program);
 
         max_iterations -= 1;
-        assert!(max_iterations > 0, "Too many iterations while simplifying program");
+        if max_iterations == 0 {
+            return Err("Too many iterations while simplifying program".to_string());
+        }
         if !any_change {
             break;
         }
@@ -210,7 +212,7 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
             func.n_returned_vars,
             &func.body,
             false,
-        );
+        )?;
         let arguments = func
             .arguments
             .iter()
@@ -227,14 +229,14 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
             instructions: simplified_instructions,
         };
         if !func.assume_always_returns {
-            check_function_always_returns(&simplified_function);
+            check_function_always_returns(&simplified_function)?;
         }
         new_functions.insert(name.clone(), simplified_function);
         const_malloc.map.clear();
     }
-    SimpleProgram {
+    Ok(SimpleProgram {
         functions: new_functions,
-    }
+    })
 }
 
 fn unroll_loops_in_program(program: &mut Program, unroll_counter: &mut Counter) -> bool {
@@ -320,16 +322,17 @@ fn unroll_loops_in_lines(
 }
 
 /// Analyzes a simplified function to verify that it returns on each code path.
-fn check_function_always_returns(func: &SimpleFunction) {
-    check_block_always_returns(&func.name, &func.instructions);
+fn check_function_always_returns(func: &SimpleFunction) -> Result<(), String> {
+    check_block_always_returns(&func.name, &func.instructions)
 }
 
-fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine]) {
+fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine]) -> Result<(), String> {
     match instructions.last() {
         Some(SimpleLine::Match { value: _, arms }) => {
             for arm in arms {
-                check_block_always_returns(function_name, arm);
+                check_block_always_returns(function_name, arm)?;
             }
+            Ok(())
         }
         Some(SimpleLine::IfNotZero {
             condition: _,
@@ -337,18 +340,12 @@ fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine
             else_branch,
             line_number: _,
         }) => {
-            check_block_always_returns(function_name, then_branch);
-            check_block_always_returns(function_name, else_branch);
+            check_block_always_returns(function_name, then_branch)?;
+            check_block_always_returns(function_name, else_branch)
         }
-        Some(SimpleLine::FunctionRet { return_data: _ }) => {
-            // good
-        }
-        Some(SimpleLine::Panic) => {
-            // good
-        }
-        _ => {
-            panic!("Cannot prove that function always returns: {function_name}");
-        }
+        Some(SimpleLine::FunctionRet { return_data: _ }) => Ok(()),
+        Some(SimpleLine::Panic) => Ok(()),
+        _ => Err(format!("Cannot prove that function always returns: {function_name}")),
     }
 }
 
@@ -628,7 +625,7 @@ fn simplify_lines(
     n_returned_vars: usize,
     lines: &[Line],
     in_a_loop: bool,
-) -> Vec<SimpleLine> {
+) -> Result<Vec<SimpleLine>, String> {
     let mut res = Vec::new();
     for line in lines {
         match line {
@@ -664,7 +661,7 @@ fn simplify_lines(
                         n_returned_vars,
                         statements,
                         in_a_loop,
-                    );
+                    )?;
                     simple_arms.push(arm_simplified);
                     arm_versions.push(state.mut_tracker.versions.clone());
                 }
@@ -752,22 +749,22 @@ fn simplify_lines(
                 match value {
                     Expression::FunctionCall { function_name, args } => {
                         // Function call - may have zero, one, or multiple targets
-                        let function = ctx.functions.get(function_name).unwrap_or_else(|| {
-                            panic!("Function used but not defined: {function_name}, at line {line_number}")
-                        });
+                        let function = ctx.functions.get(function_name).ok_or_else(|| {
+                            format!("Function used but not defined: {function_name}, at line {line_number}")
+                        })?;
                         if targets.len() != function.n_returned_vars {
-                            panic!(
+                            return Err(format!(
                                 "Expected {} returned vars (and not {}) in call to {function_name}, at line {line_number}",
                                 function.n_returned_vars,
                                 targets.len()
-                            );
+                            ));
                         }
                         if args.len() != function.arguments.len() {
-                            panic!(
+                            return Err(format!(
                                 "Expected {} arguments (and not {}) in call to {function_name}, at line {line_number}",
                                 function.arguments.len(),
                                 args.len()
-                            );
+                            ));
                         }
 
                         let simplified_args = args
@@ -967,15 +964,15 @@ fn simplify_lines(
                                         // Assertion passes at compile time, no code needed
                                         continue;
                                     } else {
-                                        panic!(
-                                            "Compile-time assertion failed: {} != {} (lines {})",
+                                        return Err(format!(
+                                            "Compile-time assertion failed: {} != {} (line {})",
                                             left_val.to_usize(),
                                             right_val.to_usize(),
                                             line_number
-                                        );
+                                        ));
                                     }
                                 }
-                                panic!("Unsupported equality assertion: {left:?}, {right:?}")
+                                return Err(format!("Unsupported equality assertion: {left:?}, {right:?}"))
                             };
                             res.push(SimpleLine::equality(var, other));
                         }
@@ -1036,7 +1033,7 @@ fn simplify_lines(
                     n_returned_vars,
                     then_branch,
                     in_a_loop,
-                );
+                )?;
                 let then_versions = mut_tracker_then.versions.clone();
 
                 let mut array_manager_else = array_manager_then.clone();
@@ -1060,7 +1057,7 @@ fn simplify_lines(
                     n_returned_vars,
                     else_branch,
                     in_a_loop,
-                );
+                )?;
                 let else_versions = mut_tracker_else.versions.clone();
 
                 // Merge mutable variable versions: ensure both branches end with same version
@@ -1178,7 +1175,7 @@ fn simplify_lines(
                     0,
                     body,
                     true,
-                );
+                )?;
 
                 const_malloc.counter = loop_const_malloc.counter;
                 state.array_manager.valid = valid_aux_vars_in_array_manager_before; // restore the valid aux vars
@@ -1259,12 +1256,15 @@ fn simplify_lines(
                 });
             }
             Line::FunctionRet { return_data } => {
-                assert!(!in_a_loop, "Function return inside a loop is not currently supported");
-                assert!(
-                    return_data.len() == n_returned_vars,
-                    "Wrong number of return values in return statement; expected {n_returned_vars} but got {}",
-                    return_data.len()
-                );
+                if in_a_loop {
+                    return Err("Function return inside a loop is not currently supported".to_string());
+                }
+                if return_data.len() != n_returned_vars {
+                    return Err(format!(
+                        "Wrong number of return values in return statement; expected {n_returned_vars} but got {}",
+                        return_data.len()
+                    ));
+                }
                 let simplified_return_data = return_data
                     .iter()
                     .map(|ret| simplify_expr(ctx, state, const_malloc, ret, &mut res))
@@ -1337,7 +1337,7 @@ fn simplify_lines(
         }
     }
 
-    res
+    Ok(res)
 }
 
 fn simplify_expr(
@@ -2159,7 +2159,7 @@ fn replace_vars_for_unroll(
     }
 }
 
-fn handle_inlined_functions(program: &mut Program) {
+fn handle_inlined_functions(program: &mut Program) -> Result<(), String> {
     let inlined_functions = program
         .functions
         .iter()
@@ -2168,14 +2168,12 @@ fn handle_inlined_functions(program: &mut Program) {
         .collect::<BTreeMap<_, _>>();
 
     for func in inlined_functions.values() {
-        assert!(
-            !func.has_mutable_arguments(),
-            "Inlined functions with mutable arguments are not supported yet"
-        );
-        assert!(
-            !func.has_const_arguments(),
-            "Inlined functions with constant arguments are not supported yet"
-        );
+        if func.has_mutable_arguments() {
+            return Err("Inlined functions with mutable arguments are not supported yet".to_string());
+        }
+        if func.has_const_arguments() {
+            return Err("Inlined functions with constant arguments are not supported yet".to_string());
+        }
     }
 
     // Process inline functions iteratively to handle dependencies
@@ -2236,12 +2234,15 @@ fn handle_inlined_functions(program: &mut Program) {
         max_iterations -= 1;
     }
 
-    assert!(max_iterations > 0, "Too many iterations processing inline functions");
+    if max_iterations == 0 {
+        return Err("Too many iterations processing inline functions".to_string());
+    }
 
     // Remove all inlined functions from the program (they've been inlined)
     for func_name in inlined_functions.keys() {
         program.functions.remove(func_name);
     }
+    Ok(())
 }
 
 /// Recursively extracts inlined function calls from an expression.

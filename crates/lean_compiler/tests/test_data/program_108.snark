@@ -1,0 +1,20 @@
+// bug
+fn main() {
+    assert test_func(0, 0) == 6;
+    return;
+}
+
+fn test_func(a, b) -> 1 {
+    mut x = 1;
+    match a {
+        0 => {
+            x = x + 2;
+            match b {
+                0 => {
+                    x = x + 3;
+                }
+            }
+        }
+    }
+    return x;
+}

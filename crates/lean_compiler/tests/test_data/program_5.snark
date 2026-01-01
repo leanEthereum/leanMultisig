@@ -1,8 +1,12 @@
-import "misc/bar.snark";
-import "misc/foo.snark";
-
+// test_edge_case_0
 fn main() {
-    x = bar(FOO);
-    assert x == 6;
+    a = malloc(1);
+    a[0] = 0;
+    for i in 0..1 {
+        x = 1 + a[i];
+    }
+    for i in 0..1 {
+        y = 1 + a[i];
+    }
     return;
 }

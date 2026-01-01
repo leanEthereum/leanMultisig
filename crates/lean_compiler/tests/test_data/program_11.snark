@@ -1,0 +1,14 @@
+// test_mini_program_0
+fn main() {
+    for i in 0..5 {
+        for j in i..2*i*(2+1) {
+            print(i, j);
+            if i == 4 {
+                if j == 7 {
+                    break;
+                }
+            }
+        }
+    }
+    return;
+}

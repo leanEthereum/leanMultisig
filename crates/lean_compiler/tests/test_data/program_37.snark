@@ -1,0 +1,7 @@
+// test_const_array_element_exponentiation
+const ARR = [[5]];
+fn main() {
+    x = ARR[0][0]**2;
+    assert x == 25;
+    return;
+}

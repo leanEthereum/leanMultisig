@@ -1,0 +1,14 @@
+// test_mutable_edge_mutable_function_arg_modified_in_loop
+fn main() {
+    result = accumulate(5);
+    // 5 + 0 + 1 + 2 = 8
+    assert result == 8;
+    return;
+}
+
+fn accumulate(mut x) -> 1 {
+    for i in 0..3 unroll {
+        x = x + i;
+    }
+    return x;
+}

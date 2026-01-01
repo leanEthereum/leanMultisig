@@ -1,0 +1,27 @@
+// test_mutable_nested_function_calls
+fn main() {
+    mut a = 1;
+    mut b = 2;
+    a, b = swap(a, b);
+    assert a == 2;
+    assert b == 1;
+
+    a, b = swap(a, b);
+    assert a == 1;
+    assert b == 2;
+
+    mut c = compute(a, b);
+    assert c == 5;  // 1 + 2*2 = 5
+    c = compute(c, c);
+    assert c == 15; // 5 + 5*2 = 15
+    return;
+}
+
+fn swap(x, y) -> 2 {
+    return y, x;
+}
+
+fn compute(x, y) -> 1 {
+    result = x + y * 2;
+    return result;
+}

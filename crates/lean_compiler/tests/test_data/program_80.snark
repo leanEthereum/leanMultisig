@@ -1,0 +1,17 @@
+// test_mutable_edge_in_unrolled_loop_with_control_flow
+fn main() {
+    mut total = 0;
+    for i in 0..5 unroll {
+        if i == 2 {
+            total = total + 100;
+        } else if i == 4 {
+            total = total + 1000;
+        } else {
+            total = total + 1;
+        }
+    }
+    // i=0: +1, i=1: +1, i=2: +100, i=3: +1, i=4: +1000
+    // total = 1 + 1 + 100 + 1 + 1000 = 1103
+    assert total == 1103;
+    return;
+}

@@ -1,0 +1,32 @@
+// test_nested_function_call
+fn main() {
+    assert incr(incr(incr(1))) == 4;
+    x = add(incr(1), incr(2));
+    assert x == 5;
+
+    assert incr_inline(incr_inline(incr_inline(1))) == 4;
+    y = add_inlined(incr_inline(1), add_inlined(incr_inline(2), incr_inline(2)));
+    assert y == 8;
+
+    return;
+}
+
+fn add(a, b) -> 1 {
+    return a + b;
+}
+
+fn incr(x) -> 1 {
+    return x + 1;
+}
+
+fn incr_inline(x) inline -> 1 {
+    return x + 1;
+}
+
+
+fn add_inlined(a, b) inline -> 1 {
+    c = malloc(1);
+    zero = 0;
+    c[zero] = a + b;
+    return c[0];
+}

@@ -1,5 +1,15 @@
-import "misc/circular_import.snark";
-
+// test_fibonacci_program
+// a program to check the value of the 30th Fibonacci number (832040)
 fn main() {
+    fibonacci(0, 1, 0, 30);
+    return;
+}
+
+fn fibonacci(a, b, i, n) {
+    if i == n {
+        print(a);
+        return;
+    }
+    fibonacci(b, a + b, i + 1, n);
     return;
 }

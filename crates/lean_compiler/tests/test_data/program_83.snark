@@ -1,0 +1,13 @@
+// test_mutable_edge_forward_decl_then_mutation_in_branch
+fn main() {
+    var mut x;
+    cond = 1;
+    if cond == 1 {
+        x = 10;
+    } else {
+        x = 20;
+    }
+    x = x + 1;
+    assert x == 11;
+    return;
+}

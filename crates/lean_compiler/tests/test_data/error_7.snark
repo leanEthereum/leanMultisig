@@ -1,0 +1,8 @@
+// Error: inline functions with mut parameters are not supported
+fn main() {
+    return;
+}
+fn double(mut x) inline -> 1 {
+    x = x * 2;
+    return x;
+}

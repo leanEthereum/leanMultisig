@@ -1,0 +1,29 @@
+// test_mutable_accumulator_pattern
+const N = 6;
+
+fn main() {
+    // Compute factorial of 5 using mutable accumulator
+    mut factorial = 1;
+    for i in 1..N unroll {
+        factorial = factorial * i;
+    }
+    // 1 * 1 * 2 * 3 * 4 * 5 = 120
+    assert factorial == 120;
+
+    // Compute sum of squares
+    mut sum_squares = 0;
+    for i in 1..N unroll {
+        sum_squares = sum_squares + i * i;
+    }
+    // 1 + 4 + 9 + 16 + 25 = 55
+    assert sum_squares == 55;
+
+    // Compute triangular number
+    mut triangular = 0;
+    for i in 1..N unroll {
+        triangular = triangular + i;
+    }
+    // 1 + 2 + 3 + 4 + 5 = 15
+    assert triangular == 15;
+    return;
+}

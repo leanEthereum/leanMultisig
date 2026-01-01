@@ -1,0 +1,12 @@
+// test_const_malloc_end_iterator_loop
+fn main() {
+    x = malloc(2);
+    x[0] = 3;
+    x[1] = 5;
+    for i in 0..2 unroll {
+        for j in 0..x[i] {
+            print(i, j);
+        }
+    }
+    return;
+}

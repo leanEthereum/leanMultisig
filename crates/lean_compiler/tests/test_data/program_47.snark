@@ -1,0 +1,26 @@
+// test_mutable_triple_nested_unrolled_loops
+fn main() {
+    mut count = 0;
+    mut sum_i = 0;
+    mut sum_j = 0;
+    mut sum_k = 0;
+    for i in 0..2 unroll {
+        sum_i = sum_i + i;
+        for j in 0..3 unroll {
+            sum_j = sum_j + j;
+            for k in 0..2 unroll {
+                sum_k = sum_k + k;
+                count = count + 1;
+            }
+        }
+    }
+    // count = 2 * 3 * 2 = 12
+    assert count == 12;
+    // sum_i = 0 + 1 = 1
+    assert sum_i == 1;
+    // sum_j = (0+1+2) * 2 = 6
+    assert sum_j == 6;
+    // sum_k = (0+1) * 6 = 6
+    assert sum_k == 6;
+    return;
+}

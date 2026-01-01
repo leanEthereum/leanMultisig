@@ -1,0 +1,14 @@
+// test_inlined_2
+fn main() {
+    b = is_one();
+    c = b;
+    return;
+}
+
+fn is_one() inline -> 1 {
+    if !!assume_bool(1) {
+        return 1;
+    } else {
+        return 0;
+    }
+}

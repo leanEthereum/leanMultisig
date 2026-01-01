@@ -1,0 +1,6 @@
+// Error: undefined import (file does not exist)
+import "asdfasdfadsfasdf.snark";
+
+fn main() {
+    return;
+}

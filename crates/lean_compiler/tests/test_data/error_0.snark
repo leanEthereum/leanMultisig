@@ -1,0 +1,9 @@
+// Error: imported constant name clash (FOO defined in foo.snark)
+import "misc/bar.snark";
+import "misc/foo.snark";
+
+const FOO = 5;
+
+fn main() {
+    return;
+}

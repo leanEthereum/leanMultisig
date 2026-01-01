@@ -1,0 +1,20 @@
+// test_nested_inline_functions
+fn main() {
+    result = level_one(3);
+    print(result);
+    return;
+}
+
+fn level_one(x) inline -> 1 {
+    result = level_two(x);
+    return result;
+}
+
+fn level_two(y) inline -> 1 {
+    result = level_three(y);
+    return result;
+}
+
+fn level_three(z) inline -> 1 {
+    return z * z * z;
+}

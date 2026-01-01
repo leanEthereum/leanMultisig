@@ -1,0 +1,11 @@
+// test_len_2d_array
+const ARR = [[1], [7, 3], [7]];
+const N = 2 + len(ARR[0]);
+fn main() {
+    for i in 0..N unroll {
+        for j in 0..len(ARR[i]) unroll {
+            assert j * (j - 1) == 0;
+        }
+    }
+    return;
+}

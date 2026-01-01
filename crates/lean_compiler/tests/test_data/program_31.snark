@@ -1,0 +1,7 @@
+// test_direct_const_arr_access
+const ARR = [10, 100];
+fn main() {
+    a = ARR[0];
+    assert a == 10;
+    return;
+}

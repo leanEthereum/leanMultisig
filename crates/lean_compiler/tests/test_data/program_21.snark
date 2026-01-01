@@ -1,0 +1,16 @@
+// test_inline_functions_calling_inline_functions
+fn main() {
+    x = double(3);
+    y = quad(x);
+    print(y);
+    return;
+}
+
+fn double(a) inline -> 1 {
+    return a + a;
+}
+
+fn quad(b) inline -> 1 {
+    result = double(b);
+    return result + result;
+}
