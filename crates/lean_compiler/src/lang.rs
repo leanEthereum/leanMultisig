@@ -477,30 +477,12 @@ pub enum Line {
     FunctionRet {
         return_data: Vec<Expression>,
     },
-    Precompile {
-        table: Table,
-        args: Vec<Expression>,
-    },
     Break,
     Panic,
-    // Hints:
-    Print {
-        line_info: String,
-        content: Vec<Expression>,
-    },
-    MAlloc {
-        var: Var,
-        size: Expression,
-        is_mutable: bool,
-    },
-    PrivateInputStart {
-        result: Var,
-    },
     // noop, debug purpose only
     LocationReport {
         location: SourceLocation,
     },
-    CustomHint(CustomHint, Vec<Expression>),
 }
 
 /// A context specifying which variables are in scope.
@@ -613,9 +595,6 @@ impl Line {
                     format!("{targets_str} = {value}")
                 }
             }
-            Self::PrivateInputStart { result } => {
-                format!("{result} = private_input_start()")
-            }
             Self::Assert {
                 debug,
                 boolean,
@@ -677,27 +656,6 @@ impl Line {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("return {return_data_str}")
-            }
-            Self::Precompile {
-                table: precompile,
-                args,
-            } => {
-                format!(
-                    "{}({})",
-                    precompile.name(),
-                    args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ")
-                )
-            }
-            Self::Print { line_info: _, content } => {
-                let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
-                format!("print({content_str})")
-            }
-            Self::MAlloc { var, size, .. } => {
-                format!("{var} = malloc({size})")
-            }
-            Self::CustomHint(hint, args) => {
-                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
-                format!("{}({args_str})", hint.name())
             }
             Self::Break => "break".to_string(),
             Self::Panic => "panic".to_string(),

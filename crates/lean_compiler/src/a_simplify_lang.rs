@@ -8,7 +8,8 @@ use crate::{
 };
 use core::panic;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, FileId, FunctionName, SourceLineNumber, SourceLocation, Table, TableT,
+    ALL_TABLES, Boolean, BooleanExpr, CustomHint, FileId, FunctionName, SourceLineNumber, SourceLocation, Table,
+    TableT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -438,31 +439,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                     check_expr_scoping(expr, ctx);
                 }
             }
-            Line::Precompile { table: _, args } => {
-                for arg in args {
-                    check_expr_scoping(arg, ctx);
-                }
-            }
             Line::Break | Line::Panic | Line::LocationReport { .. } => {}
-            Line::Print { line_info: _, content } => {
-                for expr in content {
-                    check_expr_scoping(expr, ctx);
-                }
-            }
-            Line::MAlloc { var, size, .. } => {
-                check_expr_scoping(size, ctx);
-                if !ctx.defines(var) {
-                    ctx.add_var(var);
-                }
-            }
-            Line::CustomHint(_, args) => {
-                for arg in args {
-                    check_expr_scoping(arg, ctx);
-                }
-            }
-            Line::PrivateInputStart { result } => {
-                ctx.add_var(result);
-            }
         }
     }
 }
@@ -750,7 +727,141 @@ fn simplify_lines(
 
                 match value {
                     Expression::FunctionCall { function_name, args } => {
-                        // Function call - may have zero, one, or multiple targets
+                        // Special handling for malloc builtin
+                        if function_name == "malloc" {
+                            if args.len() != 1 {
+                                return Err(format!(
+                                    "malloc expects exactly 1 argument, got {}, at line {line_number}",
+                                    args.len()
+                                ));
+                            }
+                            if targets.len() != 1 {
+                                return Err(format!(
+                                    "malloc expects exactly 1 return target, got {}, at line {line_number}",
+                                    targets.len()
+                                ));
+                            }
+                            let target = &targets[0];
+                            match target {
+                                AssignmentTarget::Var { var, is_mutable } => {
+                                    let target_var = get_target_var_name(state, var, *is_mutable);
+                                    let simplified_size =
+                                        simplify_expr(ctx, state, const_malloc, &args[0], &mut res);
+                                    match simplified_size {
+                                        SimpleExpr::Constant(const_size) => {
+                                            let label = const_malloc.counter;
+                                            const_malloc.counter += 1;
+                                            const_malloc.map.insert(target_var.clone(), label);
+                                            res.push(SimpleLine::ConstMalloc {
+                                                var: target_var,
+                                                size: const_size,
+                                                label,
+                                            });
+                                        }
+                                        _ => {
+                                            res.push(SimpleLine::HintMAlloc {
+                                                var: target_var,
+                                                size: simplified_size,
+                                            });
+                                        }
+                                    }
+                                }
+                                AssignmentTarget::ArrayAccess { .. } => {
+                                    return Err(format!(
+                                        "malloc does not support array access as return target, at line {line_number}"
+                                    ));
+                                }
+                            }
+                            continue;
+                        }
+
+                        // Special handling for print builtin
+                        if function_name == "print" {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "print should not return values, at line {line_number}"
+                                ));
+                            }
+                            let simplified_content = args
+                                .iter()
+                                .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                .collect::<Vec<_>>();
+                            res.push(SimpleLine::Print {
+                                line_info: format!("line {line_number}"),
+                                content: simplified_content,
+                            });
+                            continue;
+                        }
+
+                        // Special handling for private_input_start builtin
+                        if function_name == "private_input_start" {
+                            if !args.is_empty() {
+                                return Err(format!(
+                                    "private_input_start takes no arguments, at line {line_number}"
+                                ));
+                            }
+                            if targets.len() != 1 {
+                                return Err(format!(
+                                    "private_input_start expects exactly 1 return target, got {}, at line {line_number}",
+                                    targets.len()
+                                ));
+                            }
+                            let target = &targets[0];
+                            match target {
+                                AssignmentTarget::Var { var, is_mutable } => {
+                                    let target_var = get_target_var_name(state, var, *is_mutable);
+                                    res.push(SimpleLine::PrivateInputStart { result: target_var });
+                                }
+                                AssignmentTarget::ArrayAccess { .. } => {
+                                    return Err(format!(
+                                        "private_input_start does not support array access as return target, at line {line_number}"
+                                    ));
+                                }
+                            }
+                            continue;
+                        }
+
+                        // Special handling for precompile functions (poseidon16, dot_product)
+                        if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name)
+                            && table != Table::execution()
+                        {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "Precompile {function_name} should not return values, at line {line_number}"
+                                ));
+                            }
+                            let simplified_args = args
+                                .iter()
+                                .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                .collect::<Vec<_>>();
+                            res.push(SimpleLine::Precompile {
+                                table,
+                                args: simplified_args,
+                            });
+                            continue;
+                        }
+
+                        // Special handling for custom hints
+                        if let Some(hint) = CustomHint::find_by_name(function_name) {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "Custom hint {function_name} should not return values, at line {line_number}"
+                                ));
+                            }
+                            if !hint.n_args_range().contains(&args.len()) {
+                                return Err(format!(
+                                    "Custom hint {function_name}: invalid number of arguments, at line {line_number}"
+                                ));
+                            }
+                            let simplified_args = args
+                                .iter()
+                                .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                .collect::<Vec<_>>();
+                            res.push(SimpleLine::CustomHint(hint, simplified_args));
+                            continue;
+                        }
+
+                        // Regular function call - may have zero, one, or multiple targets
                         let function = ctx.functions.get(function_name).ok_or_else(|| {
                             format!("Function used but not defined: {function_name}, at line {line_number}")
                         })?;
@@ -1297,69 +1408,9 @@ fn simplify_lines(
                     return_data: simplified_return_data,
                 });
             }
-            Line::Precompile { table, args } => {
-                let simplified_args = args
-                    .iter()
-                    .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
-                    .collect::<Vec<_>>();
-                res.push(SimpleLine::Precompile {
-                    table: *table,
-                    args: simplified_args,
-                });
-            }
-            Line::Print { line_info, content } => {
-                let simplified_content = content
-                    .iter()
-                    .map(|var| simplify_expr(ctx, state, const_malloc, var, &mut res))
-                    .collect::<Vec<_>>();
-                res.push(SimpleLine::Print {
-                    line_info: line_info.clone(),
-                    content: simplified_content,
-                });
-            }
             Line::Break => {
                 assert!(in_a_loop, "Break statement outside of a loop");
                 res.push(SimpleLine::FunctionRet { return_data: vec![] });
-            }
-            Line::MAlloc { var, size, is_mutable } => {
-                // Handle mutable variable versioning
-                let target_var = if *is_mutable {
-                    state.mut_tracker.register_mutable(var);
-                    state.mut_tracker.current_name(var)
-                } else {
-                    var.clone()
-                };
-
-                let simplified_size = simplify_expr(ctx, state, const_malloc, size, &mut res);
-                match simplified_size {
-                    SimpleExpr::Constant(const_size) => {
-                        let label = const_malloc.counter;
-                        const_malloc.counter += 1;
-                        // Store versioned name in const_malloc map
-                        const_malloc.map.insert(target_var.clone(), label);
-                        res.push(SimpleLine::ConstMalloc {
-                            var: target_var,
-                            size: const_size,
-                            label,
-                        });
-                    }
-                    _ => {
-                        res.push(SimpleLine::HintMAlloc {
-                            var: target_var,
-                            size: simplified_size,
-                        });
-                    }
-                }
-            }
-            Line::PrivateInputStart { result } => {
-                res.push(SimpleLine::PrivateInputStart { result: result.clone() });
-            }
-            Line::CustomHint(hint, args) => {
-                let simplified_args = args
-                    .iter()
-                    .map(|expr| simplify_expr(ctx, state, const_malloc, expr, &mut res))
-                    .collect::<Vec<_>>();
-                res.push(SimpleLine::CustomHint(*hint, simplified_args));
             }
             Line::Panic => {
                 res.push(SimpleLine::Panic);
@@ -1610,28 +1661,6 @@ pub fn find_variable_usage(
                     on_new_expr(ret, &internal_vars, &mut external_vars);
                 }
             }
-            Line::MAlloc { var, size, .. } => {
-                on_new_expr(size, &internal_vars, &mut external_vars);
-                internal_vars.insert(var.clone());
-            }
-            Line::Precompile { table: _, args } => {
-                for arg in args {
-                    on_new_expr(arg, &internal_vars, &mut external_vars);
-                }
-            }
-            Line::Print { content, .. } => {
-                for var in content {
-                    on_new_expr(var, &internal_vars, &mut external_vars);
-                }
-            }
-            Line::PrivateInputStart { result } => {
-                internal_vars.insert(result.clone());
-            }
-            Line::CustomHint(_, args) => {
-                for expr in args {
-                    on_new_expr(expr, &internal_vars, &mut external_vars);
-                }
-            }
             Line::ForLoop {
                 iterator,
                 start,
@@ -1796,31 +1825,6 @@ fn inline_lines(
                         })
                         .collect::<Vec<_>>(),
                 ));
-            }
-            Line::MAlloc { var, size, .. } => {
-                inline_expr(size, args, inlining_count);
-                inline_internal_var(var);
-            }
-            Line::Precompile {
-                table: _,
-                args: precompile_args,
-            } => {
-                for arg in precompile_args {
-                    inline_expr(arg, args, inlining_count);
-                }
-            }
-            Line::Print { content, .. } => {
-                for var in content {
-                    inline_expr(var, args, inlining_count);
-                }
-            }
-            Line::CustomHint(_, decomposed_args) => {
-                for expr in decomposed_args {
-                    inline_expr(expr, args, inlining_count);
-                }
-            }
-            Line::PrivateInputStart { result } => {
-                inline_internal_var(result);
             }
             Line::ForLoop {
                 iterator,
@@ -2162,32 +2166,6 @@ fn replace_vars_for_unroll(
             Line::FunctionRet { return_data } => {
                 for ret in return_data {
                     replace_vars_for_unroll_in_expr(ret, iterator, unroll_index, iterator_value, internal_vars);
-                }
-            }
-            Line::Precompile { table: _, args } => {
-                for arg in args {
-                    replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
-                }
-            }
-            Line::Print { line_info, content } => {
-                // Print statements are not unrolled, so we don't need to change them
-                *line_info += &format!(" (unrolled {unroll_index} {iterator_value})");
-                for var in content {
-                    replace_vars_for_unroll_in_expr(var, iterator, unroll_index, iterator_value, internal_vars);
-                }
-            }
-            Line::MAlloc { var, size, .. } => {
-                assert!(var != iterator, "Weird");
-                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-                replace_vars_for_unroll_in_expr(size, iterator, unroll_index, iterator_value, internal_vars);
-            }
-            Line::PrivateInputStart { result } => {
-                assert!(result != iterator, "Weird");
-                *result = format!("@unrolled_{unroll_index}_{iterator_value}_{result}");
-            }
-            Line::CustomHint(_, decomposed_args) => {
-                for expr in decomposed_args {
-                    replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
                 }
             }
             Line::Break | Line::Panic | Line::LocationReport { .. } => {}
@@ -2575,12 +2553,6 @@ fn handle_inlined_functions_helper(
                 lines_out.push(line.clone());
                 ctx.add_var(var);
             }
-            Line::PrivateInputStart { result } => {
-                lines_out.push(line.clone());
-                if !ctx.defines(result) {
-                    ctx.add_var(result);
-                }
-            }
             Line::ForLoop {
                 iterator,
                 start,
@@ -2634,19 +2606,6 @@ fn handle_inlined_functions_helper(
                     line_number: *line_number,
                 });
             }
-            Line::Print { line_info, content } => {
-                let mut new_content = vec![];
-                for expr in content {
-                    let (expr, expr_lines) =
-                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
-                    lines_out.extend(expr_lines);
-                    new_content.push(expr);
-                }
-                lines_out.push(Line::Print {
-                    line_info: line_info.clone(),
-                    content: new_content,
-                });
-            }
             Line::FunctionRet { return_data } => {
                 let mut new_return_data = vec![];
                 for expr in return_data {
@@ -2658,38 +2617,6 @@ fn handle_inlined_functions_helper(
                 lines_out.push(Line::FunctionRet {
                     return_data: new_return_data,
                 });
-            }
-            Line::Precompile { table, args } => {
-                let mut new_args = vec![];
-                for expr in args {
-                    let (expr, new_lines) =
-                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
-                    lines_out.extend(new_lines);
-                    new_args.push(expr);
-                }
-                lines_out.push(Line::Precompile {
-                    table: *table,
-                    args: new_args,
-                });
-            }
-            Line::MAlloc { var, size, is_mutable } => {
-                let (size, size_lines) = extract_inlined_calls_from_expr(size, inlined_functions, inlined_var_counter);
-                lines_out.extend(size_lines);
-
-                if !ctx.defines(var) {
-                    ctx.add_var(var);
-                }
-                lines_out.push(Line::MAlloc { var: var.clone(), size, is_mutable: *is_mutable });
-            }
-            Line::CustomHint(hint, args) => {
-                let mut new_args = vec![];
-                for expr in args {
-                    let (expr, new_lines) =
-                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
-                    lines_out.extend(new_lines);
-                    new_args.push(expr);
-                }
-                lines_out.push(Line::CustomHint(*hint, new_args));
             }
         };
     }
@@ -2971,28 +2898,6 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 for ret in return_data {
                     replace_vars_by_const_in_expr(ret, map);
                 }
-            }
-            Line::Precompile { table: _, args } => {
-                for arg in args {
-                    replace_vars_by_const_in_expr(arg, map);
-                }
-            }
-            Line::Print { content, .. } => {
-                for var in content {
-                    replace_vars_by_const_in_expr(var, map);
-                }
-            }
-            Line::CustomHint(_, decomposed_args) => {
-                for expr in decomposed_args {
-                    replace_vars_by_const_in_expr(expr, map);
-                }
-            }
-            Line::PrivateInputStart { result } => {
-                assert!(!map.contains_key(result), "Variable {result} is a constant");
-            }
-            Line::MAlloc { var, size, .. } => {
-                assert!(!map.contains_key(var), "Variable {var} is a constant");
-                replace_vars_by_const_in_expr(size, map);
             }
             Line::Panic | Line::Break | Line::LocationReport { .. } => {}
         }

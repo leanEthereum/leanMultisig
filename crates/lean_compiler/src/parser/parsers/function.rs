@@ -9,7 +9,6 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{ALL_TABLES, CustomHint, Table, TableT};
 
 /// Parser for complete function definitions.
 pub struct FunctionParser;
@@ -240,94 +239,21 @@ impl AssignmentParser {
         args: Vec<Expression>,
         return_data: Vec<AssignmentTarget>,
     ) -> ParseResult<Line> {
-        // Helper to extract a single variable from return_data for builtins
-        let require_single_var = |return_data: &[AssignmentTarget], builtin_name: &str| -> ParseResult<String> {
-            if return_data.len() != 1 {
-                return Err(SemanticError::new(format!("Invalid {builtin_name} call: expected 1 return value")).into());
+        // Only panic is truly special (it's a control-flow statement, not a function)
+        if function_name == "panic" {
+            if !return_data.is_empty() || !args.is_empty() {
+                return Err(SemanticError::new("Panic has no args and returns no values").into());
             }
-            match &return_data[0] {
-                AssignmentTarget::Var { var, .. } => Ok(var.clone()),
-                AssignmentTarget::ArrayAccess { .. } => Err(SemanticError::new(format!(
-                    "{builtin_name} does not support array access as return target"
-                ))
-                .into()),
-            }
-        };
-
-        match function_name.as_str() {
-            "malloc" => {
-                if args.len() != 1 {
-                    return Err(SemanticError::new("Invalid malloc call").into());
-                }
-                if return_data.len() != 1 {
-                    return Err(SemanticError::new("Invalid malloc call: expected 1 return value").into());
-                }
-                let (var, is_mutable) = match &return_data[0] {
-                    AssignmentTarget::Var { var, is_mutable } => (var.clone(), *is_mutable),
-                    AssignmentTarget::ArrayAccess { .. } => {
-                        return Err(SemanticError::new("malloc does not support array access as return target").into())
-                    }
-                };
-                Ok(Line::MAlloc {
-                    var,
-                    size: args[0].clone(),
-                    is_mutable,
-                })
-            }
-            "print" => {
-                if !return_data.is_empty() {
-                    return Err(SemanticError::new("Print function should not return values").into());
-                }
-                Ok(Line::Print {
-                    line_info: function_name.clone(),
-                    content: args,
-                })
-            }
-            "private_input_start" => {
-                if !args.is_empty() {
-                    return Err(SemanticError::new("Invalid private_input_start call").into());
-                }
-                let result = require_single_var(&return_data, "private_input_start")?;
-                Ok(Line::PrivateInputStart { result })
-            }
-            "panic" => {
-                if !return_data.is_empty() || !args.is_empty() {
-                    return Err(SemanticError::new("Panic has no args and returns no values").into());
-                }
-                Ok(Line::Panic)
-            }
-            _ => {
-                // Check for special precompile functions
-                if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name)
-                    && table != Table::execution()
-                {
-                    return Ok(Line::Precompile { table, args });
-                }
-
-                // Check for custom hint
-                if let Some(hint) = CustomHint::find_by_name(&function_name) {
-                    if !return_data.is_empty() {
-                        return Err(SemanticError::new(format!(
-                            "Custom hint: \"{function_name}\" should not return values",
-                        ))
-                        .into());
-                    }
-                    if !hint.n_args_range().contains(&args.len()) {
-                        return Err(SemanticError::new(format!(
-                            "Custom hint: \"{function_name}\" : invalid number of arguments",
-                        ))
-                        .into());
-                    }
-                    return Ok(Line::CustomHint(hint, args));
-                }
-                // Regular function call - allow array access targets
-                Ok(Line::Statement {
-                    targets: return_data,
-                    value: Expression::FunctionCall { function_name, args },
-                    line_number,
-                })
-            }
+            return Ok(Line::Panic);
         }
+
+        // Everything else (including print, private_input_start, precompiles, custom hints)
+        // is treated as a regular function call and handled in a_simplify_lang.rs
+        Ok(Line::Statement {
+            targets: return_data,
+            value: Expression::FunctionCall { function_name, args },
+            line_number,
+        })
     }
 }
 
