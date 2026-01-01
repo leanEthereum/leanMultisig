@@ -43,8 +43,10 @@ mut_keyword = @{ "mut" ~ !(ASCII_ALPHANUMERIC | "_") }
 
 forward_declaration = { "var" ~ mut_keyword? ~ identifier ~ ";" }
 
-// General assignment: LHS is optional list of variables/array accesses, RHS is any expression
-assignment = { (assignment_target_list ~ "=")? ~ expression ~ ";" }
+// General assignment: LHS is optional, RHS is any expression
+// Compound operators (+=, -=, *=, /=) only allow single target without mut (enforced in parser)
+assignment = { (assignment_target_list ~ assign_op)? ~ expression ~ ";" }
+assign_op = { "+=" | "-=" | "*=" | "/=" | "=" }
 assignment_target_list = { assignment_target ~ ("," ~ assignment_target)* }
 assignment_target = { (mut_keyword ~ identifier) | array_access_expr | identifier }
 
