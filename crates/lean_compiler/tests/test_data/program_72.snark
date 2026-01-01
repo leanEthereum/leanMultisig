@@ -1,4 +1,3 @@
-// test_mutable_edge_deeply_nested_if_else
 fn main() {
     mut x = 0;
     a = 1;
@@ -19,7 +18,6 @@ fn main() {
     } else {
         x = x + 1000;
     }
-    // Expected: 0 + 1 + 10 + 100 = 111
     assert x == 111;
     return;
 }

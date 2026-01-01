@@ -1,4 +1,3 @@
-// test_inline_functions_calling_inline_functions
 fn main() {
     x = double(3);
     y = quad(x);

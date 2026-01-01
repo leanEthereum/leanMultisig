@@ -1,4 +1,3 @@
-// test_nested_function_call
 fn main() {
     assert incr(incr(incr(1))) == 4;
     x = add(incr(1), incr(2));

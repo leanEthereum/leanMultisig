@@ -1,4 +1,3 @@
-// test_mutable_edge_three_way_if_else_chain
 fn main() {
     assert test_func(0) == 11;
     assert test_func(1) == 20;

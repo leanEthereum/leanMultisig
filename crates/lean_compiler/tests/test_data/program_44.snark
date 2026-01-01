@@ -1,4 +1,3 @@
-// test_mutable_selective_in_multi_return
 fn main() {
     a, mut b = get_two();
     b = b + 1;

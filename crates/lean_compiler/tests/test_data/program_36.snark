@@ -1,4 +1,3 @@
-// test_2d_nested_array_with_expressions
 const TWO = 2;
 const ARR = [[1 + 1, TWO * 2], [3 + TWO]];
 const INCR_ARR = [[0, 1, 2], [1, 2, 3], [2, 3, 4], [3, 4, 5]];

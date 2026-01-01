@@ -1,4 +1,3 @@
-// test_match_shrink
 fn main() {
     match 1 {
         0 => {

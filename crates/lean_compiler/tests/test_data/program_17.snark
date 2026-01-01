@@ -1,4 +1,3 @@
-// test_inlined_3
 fn main() {
     x = func();
     return;

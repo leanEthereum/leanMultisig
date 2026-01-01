@@ -1,4 +1,3 @@
-// test_mutable_edge_long_chain_mutations
 fn main() {
     mut x = 0;
     x = x + 1;  // 1

@@ -1,4 +1,3 @@
-// test_next_multiple_of
 fn main() {
     a = double(next_multiple_of(12, 8));
     assert a == 32;

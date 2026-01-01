@@ -1,0 +1,48 @@
+fn main() {
+    result1 = match_on_loop_var();
+    assert result1 == 100;
+
+    result2 = match_computed_selector();
+    assert result2 == 10;
+
+    result3 = match_complex_selector();
+    assert result3 == 222;
+
+    return;
+}
+
+fn match_on_loop_var() -> 1 {
+    mut acc = 0;
+    for i in 0..2 unroll {
+        match i {
+            0 => { acc = acc + i; }       // acc = 0
+            1 => { acc = acc + 100; }     // acc = 100
+        }
+    }
+    return acc;
+}
+
+fn match_computed_selector() -> 1 {
+    mut acc = 0;
+    for i in 0..4 unroll {
+        selector = i % 2;  // Use actual modulo
+        match selector {
+            0 => { acc = acc + i; }
+            1 => { acc = acc + i * 2; }
+        }
+    }
+    return acc;
+}
+
+fn match_complex_selector() -> 1 {
+    mut sum = 0;
+    for i in 0..6 unroll {
+        selector = i % 3;
+        match selector {
+            0 => { sum = sum + 1; }   // i=0,3: sum += 2
+            1 => { sum = sum + 10; }  // i=1,4: sum += 20
+            2 => { sum = sum + 100; } // i=2,5: sum += 200
+        }
+    }
+    return sum;
+}

@@ -1,4 +1,3 @@
-// test_const_fibonacci
 fn main() {
     res = fib(8);
     assert res == 21;

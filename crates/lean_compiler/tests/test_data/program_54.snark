@@ -1,4 +1,3 @@
-// test_mutable_with_arrays
 const N = 5;
 
 fn main() {
@@ -9,15 +8,12 @@ fn main() {
         arr[i] = i * 2;
         sum = sum + arr[i];
     }
-    // arr = [0, 2, 4, 6, 8]
-    // sum = 0 + 2 + 4 + 6 + 8 = 20
     assert sum == 20;
 
     mut product = 1;
     for i in 1..N unroll {
         product = product * arr[i];
     }
-    // product = 2 * 4 * 6 * 8 = 384
     assert product == 384;
     return;
 }

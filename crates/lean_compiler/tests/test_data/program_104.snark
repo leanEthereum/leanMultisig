@@ -1,4 +1,3 @@
-// test_mutable_edge_multi_return_mutation_chain
 fn main() {
     mut a = 1;
     mut b = 2;
@@ -11,7 +10,6 @@ fn main() {
     assert a == 3;
     assert b == 4;
 
-    // Now swap during multi-return
     a, b = pair_swap(a, b);  // a=4, b=3
     assert a == 4;
     assert b == 3;

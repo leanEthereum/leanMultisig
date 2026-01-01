@@ -1,4 +1,3 @@
-// test_match
 fn main() {
     for x in 0..3 unroll {
         func_match(x);

@@ -1,4 +1,3 @@
-// test_mutable_edge_asymmetric_mutation_counts
 fn main() {
     mut x = 1;
     cond = 1;

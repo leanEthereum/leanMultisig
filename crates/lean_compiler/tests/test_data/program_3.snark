@@ -1,4 +1,3 @@
-// test_assumed_return
 fn main() {
     a = f();
     return;

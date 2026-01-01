@@ -1,5 +1,3 @@
-// test_inlined
-// Dot product precompile:
 const BE = 1; // base-extension
 const EE = 0; // extension-extension
 

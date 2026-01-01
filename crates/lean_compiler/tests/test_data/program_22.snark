@@ -1,4 +1,3 @@
-// test_nested_inline_functions
 fn main() {
     result = level_one(3);
     print(result);

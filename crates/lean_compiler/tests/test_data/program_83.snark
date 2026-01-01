@@ -1,4 +1,3 @@
-// test_mutable_edge_forward_decl_then_mutation_in_branch
 fn main() {
     var mut x;
     cond = 1;

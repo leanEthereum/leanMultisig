@@ -1,8 +1,6 @@
-// test_mutable_edge_conditional_no_else
 fn main() {
     mut x = 5;
 
-    // Condition is true, mutation happens
     cond = 1;
     if cond == 1 {
         x = x + 10;
@@ -10,7 +8,6 @@ fn main() {
     }
     assert x == 15;
 
-    // Condition is false, mutation doesn't happen
     mut y = 5;
     cond2 = 0;
     if cond2 == 1 {

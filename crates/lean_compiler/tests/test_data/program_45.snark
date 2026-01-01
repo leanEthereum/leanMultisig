@@ -1,4 +1,3 @@
-// test_mutable_forward_declaration
 fn main() {
     var mut x;
     x = 5;

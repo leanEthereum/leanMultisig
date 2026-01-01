@@ -1,6 +1,4 @@
-// test_deeply_nested_match
 fn main() {
-    // Test each combination with expected values
     assert compute(0, 0, 0) == 1008;
     assert compute(0, 0, 1) == 1009;
     assert compute(0, 1, 0) == 1012;

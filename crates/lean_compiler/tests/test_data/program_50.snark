@@ -1,4 +1,3 @@
-// test_mutable_complex_if_else
 fn main() {
     mut x = 0;
     mut y = 0;

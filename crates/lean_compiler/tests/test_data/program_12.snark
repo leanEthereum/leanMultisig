@@ -1,4 +1,3 @@
-// test_mini_program_1
 const N = 10;
 
 fn main() {

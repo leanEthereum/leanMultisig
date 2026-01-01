@@ -1,4 +1,3 @@
-// test_array_return_targets_with_expressions
 fn main() {
     arr = malloc(20);
     for i in 0..5 {

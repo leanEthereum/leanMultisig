@@ -1,10 +1,8 @@
-// test_mutable_multiple_returns_chain
 fn main() {
     mut a = 1;
     mut b = 2;
     mut c = 3;
 
-    // Chain of multi-return function calls
     a, b = double_both(a, b);
     assert a == 2;
     assert b == 4;
@@ -17,7 +15,6 @@ fn main() {
     assert a == 4;
     assert c == 12;
 
-    // Final values
     assert a + b + c == 24;
     return;
 }

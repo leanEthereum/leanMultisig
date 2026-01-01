@@ -1,4 +1,3 @@
-// test_array_return_targets
 fn main() {
     a = malloc(10);
     b = malloc(10);

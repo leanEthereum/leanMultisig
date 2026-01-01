@@ -1,18 +1,15 @@
-// test_mutable_edge_only_one_branch_mutates
 fn main() {
     mut x = 5;
     cond = 1;
     if cond == 1 {
         x = x + 10;
     } else {
-        // no mutation
     }
     assert x == 15;
 
     mut y = 10;
     cond2 = 0;
     if cond2 == 1 {
-        // no mutation
     } else {
         y = y + 5;
     }

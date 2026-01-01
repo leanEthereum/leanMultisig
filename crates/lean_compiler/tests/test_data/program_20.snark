@@ -1,4 +1,3 @@
-// test_const_functions_calling_const_functions
 fn main() {
     y = compute_value(3);
     print(y);

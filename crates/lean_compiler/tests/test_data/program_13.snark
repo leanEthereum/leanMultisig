@@ -1,4 +1,3 @@
-// test_mini_program_2
 fn main() {
     for i in 0..10 {
         for j in i..10 {

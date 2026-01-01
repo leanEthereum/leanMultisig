@@ -1,4 +1,3 @@
-// test_mutable_edge_condition_depends_on_mutable
 fn main() {
     mut x = 0;
 

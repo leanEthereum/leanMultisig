@@ -1,4 +1,3 @@
-// test_mutable_edge_multiple_vars_in_loop_with_conditions
 fn main() {
     mut evens = 0;
     mut odds = 0;
@@ -14,9 +13,6 @@ fn main() {
         }
     }
 
-    // evens = 0 + 2 + 4 = 6
-    // odds = 1 + 3 + 5 = 9
-    // all = 6
     assert evens == 6;
     assert odds == 9;
     assert all == 6;

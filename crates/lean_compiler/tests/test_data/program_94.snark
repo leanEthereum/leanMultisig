@@ -1,4 +1,3 @@
-// test_mutable_edge_chained_if_else_mutations
 fn main() {
     mut x = 0;
 
@@ -23,7 +22,6 @@ fn main() {
         x = x + 1000;
     }
 
-    // x = 0 + 1 = 1, then 1 * 2 = 2, then 2 + 10 = 12
     assert x == 12;
     return;
 }

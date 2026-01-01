@@ -1,0 +1,96 @@
+fn main() {
+    r1 = partial_match_update(0);
+    assert r1 == 100;
+
+    r2 = partial_match_update(1);
+    assert r2 == 10;
+
+    r3 = partial_match_update(2);
+    assert r3 == 200;
+
+    a1, b1, c1 = scattered_updates(0);
+    assert a1 == 1;
+    assert b1 == 0;
+    assert c1 == 0;
+
+    a2, b2, c2 = scattered_updates(1);
+    assert a2 == 0;
+    assert b2 == 2;
+    assert c2 == 0;
+
+    a3, b3, c3 = scattered_updates(2);
+    assert a3 == 0;
+    assert b3 == 0;
+    assert c3 == 3;
+
+    r4 = sandwich_phi(0);
+    assert r4 == 60;
+
+    r5 = sandwich_phi(1);
+    assert r5 == 80;
+
+    r6 = loop_partial_match();
+    assert r6 == 10;  // 1+2+3+4
+
+    return;
+}
+
+fn partial_match_update(selector) -> 1 {
+    mut x = 10;
+    match selector {
+        0 => {
+            x = 100;  // Modified
+        }
+        1 => {
+        }
+        2 => {
+            x = 200;  // Modified
+        }
+    }
+    return x;
+}
+
+fn scattered_updates(selector) -> 3 {
+    mut a = 0;
+    mut b = 0;
+    mut c = 0;
+    match selector {
+        0 => {
+            a = 1;
+        }
+        1 => {
+            b = 2;
+        }
+        2 => {
+            c = 3;
+        }
+    }
+    return a, b, c;
+}
+
+fn sandwich_phi(cond) -> 1 {
+    mut x = 10;
+    x = x * 2;  // Pre-branch: x = 20
+
+    if cond == 0 {
+        x = x + 10;  // 30
+    } else {
+        x = x + 20;  // 40
+    }
+
+    x = x * 2;  // Post-branch: 60 or 80
+    return x;
+}
+
+fn loop_partial_match() -> 1 {
+    mut sum = 0;
+    for i in 0..4 unroll {
+        match i {
+            0 => { sum = sum + 1; }
+            1 => { sum = sum + 2; }
+            2 => { sum = sum + 3; }
+            3 => { sum = sum + 4; }
+        }
+    }
+    return sum;
+}

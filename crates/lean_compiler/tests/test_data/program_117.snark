@@ -1,0 +1,77 @@
+fn main() {
+    result1 = multi_ops();
+    assert result1 == 42;
+
+    result2 = double_use_expr();
+    assert result2 == 18;
+
+    a, b, c = cascade_assign();
+    assert a == 3;
+    assert b == 6;
+    assert c == 18;
+
+    result4 = mixed_mut_immut();
+    assert result4 == 35;
+
+    result5 = expr_tree();
+    assert result5 == 100;
+
+    return;
+}
+
+fn multi_ops() -> 1 {
+    mut x = 2;
+    x = x + 3;      // 5
+    x = x * 4;      // 20
+    x = x + 2;      // 22
+    x = x * 2;      // 44
+    x = x - 2;      // 42
+    return x;
+}
+
+fn double_use_expr() -> 1 {
+    mut x = 3;
+    y = x + x * 2;  // 3 + 6 = 9
+    x = y;          // x = 9
+    z = x + x;      // 18
+    return z;
+}
+
+fn cascade_assign() -> 3 {
+    mut a = 1;
+    mut b = 2;
+    mut c = 3;
+
+    a = a + 2;      // a = 3
+    b = a * 2;      // b = 6
+    c = b * 3;      // c = 18
+
+    return a, b, c;
+}
+
+fn mixed_mut_immut() -> 1 {
+    immut_x = 10;
+    mut y = 5;
+
+    y = y + immut_x;  // 15
+    y = y + immut_x;  // 25
+    y = y + immut_x;  // 35
+
+    return y;
+}
+
+fn expr_tree() -> 1 {
+    mut a = 2;
+    mut b = 3;
+    mut c = 5;
+
+    a = a * b + c;           // 2*3 + 5 = 11
+    b = a + c;               // 11 + 5 = 16
+    c = a * b - (a + b);     // 11*16 - 27 = 176 - 27 = 149
+
+    a = 10;
+    b = a;
+    c = a * b;  // 100
+
+    return c;
+}

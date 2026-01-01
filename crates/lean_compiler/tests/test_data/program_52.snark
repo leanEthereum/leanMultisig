@@ -1,4 +1,3 @@
-// test_mutable_multiple_variables_interleaved
 fn main() {
     mut a = 1;
     mut b = 2;
@@ -16,7 +15,6 @@ fn main() {
     assert b == 10;
     assert c == 12;
 
-    // Cross-dependencies
     a = b + c;      // a = 22
     b = c + a;      // b = 34 (uses new a)
     c = a + b;      // c = 56 (uses new a and b)

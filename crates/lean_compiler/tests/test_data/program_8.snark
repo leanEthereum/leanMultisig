@@ -1,4 +1,3 @@
-// test_decompose_bits
 const BIG_ENDIAN = 0;
 const LITTLE_ENDIAN = 1;
 fn main() {

@@ -1,0 +1,51 @@
+fn main() {
+    final_state = state_machine(0);
+    assert final_state == 3;
+
+    counter = counting_machine();
+    assert counter == 10;
+
+    fib = fib_machine();
+    assert fib == 13;
+
+    result = conditional_loop_machine();
+    assert result == 45;
+
+    return;
+}
+
+fn state_machine(initial) -> 1 {
+    mut state = initial;
+    for i in 0..3 unroll {
+        state = state + 1;
+    }
+    return state;
+}
+
+fn counting_machine() -> 1 {
+    mut counter = 0;
+    for i in 0..5 unroll {
+        counter = counter + 1;
+        counter = counter + 1;
+    }
+    return counter;
+}
+
+fn fib_machine() -> 1 {
+    mut a = 1;
+    mut b = 1;
+    for i in 0..5 unroll {
+        temp = a + b;
+        a = b;
+        b = temp;
+    }
+    return b;
+}
+
+fn conditional_loop_machine() -> 1 {
+    mut sum = 0;
+    for i in 0..10 unroll {
+        sum = sum + i;
+    }
+    return sum;
+}

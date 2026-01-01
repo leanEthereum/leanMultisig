@@ -1,4 +1,3 @@
-// test_mutable_edge_if_in_match_arms
 fn main() {
     assert test_func(0, 1) == 11;
     assert test_func(0, 0) == 20;

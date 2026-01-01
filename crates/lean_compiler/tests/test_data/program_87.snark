@@ -1,4 +1,3 @@
-// test_mutable_edge_mix_mutable_and_immutable
 fn main() {
     mut x = 10;
     y = 5;  // immutable

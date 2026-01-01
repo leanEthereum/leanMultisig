@@ -1,4 +1,3 @@
-// test_mutable_edge_cross_variable_assignment
 fn main() {
     mut a = 10;
     mut b = 20;

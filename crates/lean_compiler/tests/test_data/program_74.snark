@@ -1,4 +1,3 @@
-// test_mutable_edge_nested_match_in_if
 fn main() {
     assert test_func(1, 0) == 11;
     assert test_func(1, 1) == 20;

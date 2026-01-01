@@ -1,4 +1,3 @@
-// test_mutable_edge_loop_with_match_inside
 fn main() {
     mut total = 0;
     for i in 0..3 unroll {
@@ -14,7 +13,6 @@ fn main() {
             }
         }
     }
-    // 1 + 10 + 100 = 111
     assert total == 111;
     return;
 }

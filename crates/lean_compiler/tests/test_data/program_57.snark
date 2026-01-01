@@ -1,12 +1,8 @@
-// test_mutable_function_chain
 fn main() {
     mut x = 1;
     x = step1(x);
     x = step2(x);
     x = step3(x);
-    // step1: 1*2+1 = 3
-    // step2: 3*3+2 = 11
-    // step3: 11*4+3 = 47
     assert x == 47;
     return;
 }

@@ -1,4 +1,3 @@
-// test_const_malloc_end_iterator_loop
 fn main() {
     x = malloc(2);
     x[0] = 3;

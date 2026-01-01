@@ -1,4 +1,3 @@
-// test_mutable_edge_triple_nested_control_flow
 fn main() {
     assert test_func(0, 0, 0) == 1000;
     assert test_func(0, 0, 1) == 1001;
@@ -14,7 +13,6 @@ fn test_func(a, b, c) -> 1 {
         x = x + 1000;
         if b == 0 {
             if c == 0 {
-                // x stays at 1000
             } else {
                 x = x + 1;
             }

@@ -1,4 +1,3 @@
-// test_mutable_variable_in_if_else
 fn main() {
     mut x = 1;
     cond = 1;

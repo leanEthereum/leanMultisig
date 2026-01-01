@@ -1,4 +1,3 @@
-// test_mutable_in_match
 fn main() {
     selector = 2;
     match selector {

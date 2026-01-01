@@ -1,4 +1,3 @@
-// test_debug_assert_eq
 fn main() {
     a = 10;
     b = 20;

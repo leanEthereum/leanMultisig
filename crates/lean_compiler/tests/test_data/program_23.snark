@@ -1,4 +1,3 @@
-// test_const_and_nonconst_malloc_sharing_name
 fn main() {
     f(1);
     return;

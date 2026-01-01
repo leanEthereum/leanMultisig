@@ -1,4 +1,3 @@
-// test_mutable_if_else_in_unrolled_loop
 fn main() {
     mut even_sum = 0;
     mut odd_sum = 0;
@@ -11,8 +10,6 @@ fn main() {
             odd_sum = odd_sum + i;
         }
     }
-    // even: 0 + 2 + 4 = 6
-    // odd: 1 + 3 + 5 = 9
     assert even_sum == 6;
     assert odd_sum == 9;
     return;

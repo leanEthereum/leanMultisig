@@ -1,4 +1,3 @@
-// test_mutable_edge_match_with_empty_arm
 fn main() {
     assert test_func(0) == 11;
     assert test_func(1) == 10;  // no mutation
@@ -13,7 +12,6 @@ fn test_func(sel) -> 1 {
             x = x + 1;
         }
         1 => {
-            // empty - no mutation
         }
         2 => {
             x = x + 20;

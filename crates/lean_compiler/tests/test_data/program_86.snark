@@ -1,4 +1,3 @@
-// test_mutable_edge_mut_in_nested_loop_scopes
 fn main() {
     mut outer_sum = 0;
     for i in 0..3 unroll {
@@ -6,10 +5,8 @@ fn main() {
         for j in 0..4 unroll {
             inner_sum = inner_sum + j;
         }
-        // inner_sum = 0+1+2+3 = 6
         outer_sum = outer_sum + inner_sum;
     }
-    // outer_sum = 6 + 6 + 6 = 18
     assert outer_sum == 18;
     return;
 }

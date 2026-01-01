@@ -1,4 +1,3 @@
-// test_mutable_edge_multiple_mutations_same_branch
 fn main() {
     mut x = 1;
     cond = 1;

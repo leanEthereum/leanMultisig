@@ -1,4 +1,3 @@
-// test_len_2d_array
 const ARR = [[1], [7, 3], [7]];
 const N = 2 + len(ARR[0]);
 fn main() {

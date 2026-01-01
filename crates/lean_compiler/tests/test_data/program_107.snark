@@ -1,4 +1,3 @@
-// test_mutable_edge_interleaved_match_if
 fn main() {
     assert test_func(0, 1) == 111;
     assert test_func(1, 0) == 200;

@@ -1,4 +1,3 @@
-// intertwined_unrolled_loops_and_const_function_arguments
 const ARR = [10, 100];
 fn main() {
     buff = malloc(3);

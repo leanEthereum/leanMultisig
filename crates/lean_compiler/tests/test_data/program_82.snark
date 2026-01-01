@@ -1,4 +1,3 @@
-// test_mutable_edge_match_all_arms_different_versions
 fn main() {
     assert test_func(0) == 11;
     assert test_func(1) == 12;

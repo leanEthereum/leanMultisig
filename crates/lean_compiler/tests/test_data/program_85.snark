@@ -1,4 +1,3 @@
-// test_mutable_edge_deeply_nested_match
 fn main() {
     assert test_func(0, 0) == 111;
     assert test_func(0, 1) == 121;

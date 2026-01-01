@@ -1,12 +1,9 @@
-// test_mutable_with_inlined_in_loop
 fn main() {
     mut total = 0;
     for i in 0..5 unroll {
         temp = add_one_pure(i);
         total = total + temp;
     }
-    // add_one_pure(0) = 1, (1) = 2, (2) = 3, (3) = 4, (4) = 5
-    // total = 1+2+3+4+5 = 15
     assert total == 15;
     return;
 }

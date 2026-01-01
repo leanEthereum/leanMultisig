@@ -1,4 +1,3 @@
-// test_inlined_2
 fn main() {
     b = is_one();
     c = b;

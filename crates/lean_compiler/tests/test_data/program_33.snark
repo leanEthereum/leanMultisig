@@ -1,4 +1,3 @@
-// test_name_conflict
 fn main() {
     a = b();
     b = a();

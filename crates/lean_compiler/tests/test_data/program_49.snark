@@ -1,4 +1,3 @@
-// test_mutable_nested_function_calls
 fn main() {
     mut a = 1;
     mut b = 2;

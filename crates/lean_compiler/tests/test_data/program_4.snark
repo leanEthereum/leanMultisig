@@ -1,5 +1,3 @@
-// test_fibonacci_program
-// a program to check the value of the 30th Fibonacci number (832040)
 fn main() {
     fibonacci(0, 1, 0, 30);
     return;

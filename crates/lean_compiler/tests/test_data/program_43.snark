@@ -1,4 +1,3 @@
-// test_mutable_function_argument
 fn main() {
     result = increment_twice(5);
     assert result == 7;

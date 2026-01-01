@@ -1,4 +1,3 @@
-// test_mut_var_name
 fn main() {
     var mut_a;
     mut_a = 5;

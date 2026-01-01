@@ -1,9 +1,7 @@
-// test_mutable_fibonacci_unrolled
 fn main() {
     mut fib_prev = 0;
     mut fib_curr = 1;
 
-    // Manual unroll for clarity
     temp0 = fib_curr;
     fib_curr = fib_prev + fib_curr;
     fib_prev = temp0;
@@ -24,7 +22,6 @@ fn main() {
     fib_curr = fib_prev + fib_curr;
     fib_prev = temp4;
 
-    // After 5 iterations: fib = 0, 1, 1, 2, 3, 5, 8
     assert fib_curr == 8;
     assert fib_prev == 5;
     return;

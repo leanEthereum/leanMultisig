@@ -1,9 +1,7 @@
-// test_mutable_complex_expressions
 fn main() {
     mut a = 5;
     mut b = 3;
 
-    // Complex expression on RHS
     a = a * a + b * b;  // 25 + 9 = 34
     assert a == 34;
 
@@ -13,7 +11,6 @@ fn main() {
     mut c = a + b;      // 34 + 28 = 62
     assert c == 62;
 
-    // Multiple mutations
     c = c + 8;          // 70
     assert c == 70;
 
