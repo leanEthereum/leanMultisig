@@ -259,10 +259,19 @@ impl AssignmentParser {
                 if args.len() != 1 {
                     return Err(SemanticError::new("Invalid malloc call").into());
                 }
-                let var = require_single_var(&return_data, "malloc")?;
+                if return_data.len() != 1 {
+                    return Err(SemanticError::new("Invalid malloc call: expected 1 return value").into());
+                }
+                let (var, is_mutable) = match &return_data[0] {
+                    AssignmentTarget::Var { var, is_mutable } => (var.clone(), *is_mutable),
+                    AssignmentTarget::ArrayAccess { .. } => {
+                        return Err(SemanticError::new("malloc does not support array access as return target").into())
+                    }
+                };
                 Ok(Line::MAlloc {
                     var,
                     size: args[0].clone(),
+                    is_mutable,
                 })
             }
             "print" => {

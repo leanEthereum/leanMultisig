@@ -148,12 +148,25 @@ fn test_all_programs() {
 //     compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
 // }
 
-// #[test]
-// fn debug() {
-//     let program = r#"
-//     fn main() {
-//         return;
-//     }
-//    "#;
-//     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
-// }
+#[test]
+fn debug() {
+    let program = r#"
+    fn main() {
+        mut s = malloc(1);
+        s[0] = 10;
+        b = malloc(1);
+        b[0] = 20;
+        s = add_refs(s, b);
+        assert s[0] == 30;
+        return;
+    }
+
+    fn add_refs(a, b) -> 1 {
+        c = malloc(1);
+        c[0] = a[0] + b[0];
+        return c;
+    }
+        
+   "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}

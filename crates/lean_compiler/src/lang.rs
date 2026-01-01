@@ -491,6 +491,7 @@ pub enum Line {
     MAlloc {
         var: Var,
         size: Expression,
+        is_mutable: bool,
     },
     PrivateInputStart {
         result: Var,
@@ -691,7 +692,7 @@ impl Line {
                 let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
                 format!("print({content_str})")
             }
-            Self::MAlloc { var, size } => {
+            Self::MAlloc { var, size, .. } => {
                 format!("{var} = malloc({size})")
             }
             Self::CustomHint(hint, args) => {

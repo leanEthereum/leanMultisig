@@ -192,11 +192,22 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
         let mut array_manager = ArrayManager::default();
         let mut mut_tracker = MutableVarTracker::default();
 
-        for arg in &func.arguments {
-            if arg.is_mutable {
-                mut_tracker.register_mutable(&arg.name);
-            }
-        }
+        // Register mutable arguments and capture their initial versioned names
+        // BEFORE simplifying the body
+        let arguments: Vec<Var> = func
+            .arguments
+            .iter()
+            .map(|arg| {
+                assert!(!arg.is_const);
+                if arg.is_mutable {
+                    mut_tracker.register_mutable(&arg.name);
+                    // Capture the initial versioned name (version 0)
+                    mut_tracker.current_name(&arg.name)
+                } else {
+                    arg.name.clone()
+                }
+            })
+            .collect();
 
         let mut state = SimplifyState {
             counters: &mut counters,
@@ -213,14 +224,6 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
             &func.body,
             false,
         )?;
-        let arguments = func
-            .arguments
-            .iter()
-            .map(|arg| {
-                assert!(!arg.is_const);
-                arg.name.clone()
-            })
-            .collect::<Vec<_>>();
         let simplified_function = SimpleFunction {
             name: name.clone(),
             file_id: func.file_id,
@@ -446,7 +449,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                     check_expr_scoping(expr, ctx);
                 }
             }
-            Line::MAlloc { var, size } => {
+            Line::MAlloc { var, size, .. } => {
                 check_expr_scoping(size, ctx);
                 if !ctx.defines(var) {
                     ctx.add_var(var);
@@ -572,9 +575,11 @@ impl MutableVarTracker {
     }
 
     fn current_name(&self, var: &Var) -> Var {
-        match self.versions.get(var) {
-            Some(0) | None => var.clone(),
-            Some(v) => format!("@mut_{var}_{v}"),
+        if self.is_mutable(var) {
+            let v = self.versions.get(var).copied().unwrap_or(0);
+            format!("@mut_{var}_{v}")
+        } else {
+            var.clone()
         }
     }
 
@@ -703,11 +708,7 @@ fn simplify_lines(
 
                         // Add equality assignment at the end of each arm
                         for (arm_idx, arm_v) in versions.iter().enumerate() {
-                            let arm_var_name = if *arm_v == 0 {
-                                var.clone()
-                            } else {
-                                format!("@mut_{var}_{arm_v}")
-                            };
+                            let arm_var_name = format!("@mut_{var}_{arm_v}");
                             simple_arms[arm_idx].push(SimpleLine::equality(
                                 unified_var.clone(),
                                 SimpleExpr::Memory(VarOrConstMallocAccess::Var(arm_var_name)),
@@ -736,7 +737,8 @@ fn simplify_lines(
                     if is_mutable {
                         // First assignment with `mut` - register as mutable
                         state.mut_tracker.register_mutable(var);
-                        var.clone()
+                        // Return versioned name so subsequent reads can find it
+                        state.mut_tracker.current_name(var)
                     } else if state.mut_tracker.is_mutable(var) {
                         // Increment version and get new variable name
                         state.mut_tracker.increment_version(var)
@@ -1104,17 +1106,9 @@ fn simplify_lines(
                         let unified_version = then_v.max(else_v) + 1;
                         let unified_var = format!("@mut_{var}_{unified_version}");
 
-                        // Get variable names for each branch
-                        let then_var_name = if then_v == 0 {
-                            var.clone()
-                        } else {
-                            format!("@mut_{var}_{then_v}")
-                        };
-                        let else_var_name = if else_v == 0 {
-                            var.clone()
-                        } else {
-                            format!("@mut_{var}_{else_v}")
-                        };
+                        // Get variable names for each branch (always use versioned names)
+                        let then_var_name = format!("@mut_{var}_{then_v}");
+                        let else_var_name = format!("@mut_{var}_{else_v}");
 
                         unifications.push((var.clone(), unified_var, unified_version, then_var_name, else_var_name));
                     } else {
@@ -1327,22 +1321,31 @@ fn simplify_lines(
                 assert!(in_a_loop, "Break statement outside of a loop");
                 res.push(SimpleLine::FunctionRet { return_data: vec![] });
             }
-            Line::MAlloc { var, size } => {
+            Line::MAlloc { var, size, is_mutable } => {
+                // Handle mutable variable versioning
+                let target_var = if *is_mutable {
+                    state.mut_tracker.register_mutable(var);
+                    state.mut_tracker.current_name(var)
+                } else {
+                    var.clone()
+                };
+
                 let simplified_size = simplify_expr(ctx, state, const_malloc, size, &mut res);
                 match simplified_size {
                     SimpleExpr::Constant(const_size) => {
                         let label = const_malloc.counter;
                         const_malloc.counter += 1;
-                        const_malloc.map.insert(var.clone(), label);
+                        // Store versioned name in const_malloc map
+                        const_malloc.map.insert(target_var.clone(), label);
                         res.push(SimpleLine::ConstMalloc {
-                            var: var.clone(),
+                            var: target_var,
                             size: const_size,
                             label,
                         });
                     }
                     _ => {
                         res.push(SimpleLine::HintMAlloc {
-                            var: var.clone(),
+                            var: target_var,
                             size: simplified_size,
                         });
                     }
@@ -1890,8 +1893,11 @@ fn handle_array_assignment(
     simplified_index: &[SimpleExpr],
     access_type: ArrayAccessType,
 ) {
+    // Convert array name to versioned name if it's a mutable variable
+    let array = state.mut_tracker.current_name(array);
+
     if let ArrayAccessType::VarIsAssigned(var) = &access_type
-        && let Some(const_array) = ctx.const_arrays.get(array)
+        && let Some(const_array) = ctx.const_arrays.get(&array)
     {
         let idx = simplified_index
             .iter()
@@ -2170,7 +2176,7 @@ fn replace_vars_for_unroll(
                     replace_vars_for_unroll_in_expr(var, iterator, unroll_index, iterator_value, internal_vars);
                 }
             }
-            Line::MAlloc { var, size } => {
+            Line::MAlloc { var, size, .. } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                 replace_vars_for_unroll_in_expr(size, iterator, unroll_index, iterator_value, internal_vars);
@@ -2666,14 +2672,14 @@ fn handle_inlined_functions_helper(
                     args: new_args,
                 });
             }
-            Line::MAlloc { var, size } => {
+            Line::MAlloc { var, size, is_mutable } => {
                 let (size, size_lines) = extract_inlined_calls_from_expr(size, inlined_functions, inlined_var_counter);
                 lines_out.extend(size_lines);
 
                 if !ctx.defines(var) {
                     ctx.add_var(var);
                 }
-                lines_out.push(Line::MAlloc { var: var.clone(), size });
+                lines_out.push(Line::MAlloc { var: var.clone(), size, is_mutable: *is_mutable });
             }
             Line::CustomHint(hint, args) => {
                 let mut new_args = vec![];
