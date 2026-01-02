@@ -61,10 +61,7 @@ impl Parse<Function> for FunctionParser {
 
         // Check for reserved function names
         if is_reserved_function_name(&name) {
-            return Err(SemanticError::new(format!(
-                "Cannot define function with reserved name '{name}'"
-            ))
-            .into());
+            return Err(SemanticError::new(format!("Cannot define function with reserved name '{name}'")).into());
         }
 
         let mut arguments = Vec::new();
@@ -299,9 +296,7 @@ impl AssignmentParser {
             let targets: Vec<_> = target_list_pair.into_inner().collect();
 
             if targets.len() != 1 {
-                return Err(
-                    SemanticError::new("Compound assignment operators only allow a single target").into(),
-                );
+                return Err(SemanticError::new("Compound assignment operators only allow a single target").into());
             }
 
             let target_pair = targets.into_iter().next().unwrap();

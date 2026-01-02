@@ -141,7 +141,6 @@ fn test_all_programs() {
     }
 }
 
-
 #[test]
 fn test_reserved_function_names() {
     #[rustfmt::skip]
@@ -155,7 +154,6 @@ fn test_reserved_function_names() {
         );
     }
 }
-
 
 #[test]
 fn debug_file_program() {

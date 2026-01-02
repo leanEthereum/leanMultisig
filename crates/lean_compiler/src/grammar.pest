@@ -27,8 +27,6 @@ statement = {
     for_statement |
     match_statement |
     return_statement |
-    break_statement |
-    continue_statement |
     assert_statement |
     debug_assert_statement |
     assignment
@@ -36,8 +34,6 @@ statement = {
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
 
-break_statement = { "break" ~ ";" }
-continue_statement = { "continue" ~ ";" }
 
 mut_keyword = @{ "mut" ~ !(ASCII_ALPHANUMERIC | "_") }
 

@@ -29,8 +29,6 @@ impl Parse<Line> for StatementParser {
             Rule::return_statement => ReturnStatementParser.parse(inner, ctx),
             Rule::assert_statement => AssertParser::<false>.parse(inner, ctx),
             Rule::debug_assert_statement => AssertParser::<true>.parse(inner, ctx),
-            Rule::break_statement => Ok(Line::Break),
-            Rule::continue_statement => Err(SemanticError::new("Continue statement not implemented yet").into()),
             _ => Err(SemanticError::new("Unknown statement").into()),
         }
     }

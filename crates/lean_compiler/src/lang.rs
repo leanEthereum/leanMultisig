@@ -477,7 +477,6 @@ pub enum Line {
     FunctionRet {
         return_data: Vec<Expression>,
     },
-    Break,
     Panic,
     // noop, debug purpose only
     LocationReport {
@@ -657,7 +656,6 @@ impl Line {
                     .join(", ");
                 format!("return {return_data_str}")
             }
-            Self::Break => "break".to_string(),
             Self::Panic => "panic".to_string(),
         };
         format!("{spaces}{line_str}")

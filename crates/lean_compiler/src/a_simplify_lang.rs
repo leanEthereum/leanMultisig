@@ -438,7 +438,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                     check_expr_scoping(expr, ctx);
                 }
             }
-            Line::Break | Line::Panic | Line::LocationReport { .. } => {}
+            Line::Panic | Line::LocationReport { .. } => {}
         }
     }
 }
@@ -1402,10 +1402,6 @@ fn simplify_lines(
                     return_data: simplified_return_data,
                 });
             }
-            Line::Break => {
-                assert!(in_a_loop, "Break statement outside of a loop");
-                res.push(SimpleLine::FunctionRet { return_data: vec![] });
-            }
             Line::Panic => {
                 res.push(SimpleLine::Panic);
             }
@@ -1672,7 +1668,7 @@ pub fn find_variable_usage(
                 on_new_expr(start, &internal_vars, &mut external_vars);
                 on_new_expr(end, &internal_vars, &mut external_vars);
             }
-            Line::Panic | Line::Break | Line::LocationReport { .. } => {}
+            Line::Panic | Line::LocationReport { .. } => {}
         }
     }
 
@@ -1835,7 +1831,7 @@ fn inline_lines(
                 inline_expr(start, args, inlining_count);
                 inline_expr(end, args, inlining_count);
             }
-            Line::Panic | Line::Break | Line::LocationReport { .. } => {}
+            Line::Panic | Line::LocationReport { .. } => {}
         }
     }
     for (i, new_lines) in lines_to_replace.into_iter().rev() {
@@ -2163,7 +2159,7 @@ fn replace_vars_for_unroll(
                     replace_vars_for_unroll_in_expr(ret, iterator, unroll_index, iterator_value, internal_vars);
                 }
             }
-            Line::Break | Line::Panic | Line::LocationReport { .. } => {}
+            Line::Panic | Line::LocationReport { .. } => {}
         }
     }
 }
@@ -2381,7 +2377,7 @@ fn handle_inlined_functions_helper(
     let mut lines_out = vec![];
     for line in lines_in {
         match line {
-            Line::Break | Line::Panic | Line::LocationReport { .. } => {
+            Line::Panic | Line::LocationReport { .. } => {
                 lines_out.push(line.clone());
             }
             Line::Statement {
@@ -2894,7 +2890,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(ret, map);
                 }
             }
-            Line::Panic | Line::Break | Line::LocationReport { .. } => {}
+            Line::LocationReport { .. } | Line::Panic => {}
         }
     }
 }

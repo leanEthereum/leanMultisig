@@ -129,8 +129,7 @@ pub fn try_compile_program_with_flags(
     let filepaths = parsed_program.filepaths.clone();
     let simple_program = simplify_program(parsed_program)?;
     let intermediate_bytecode = compile_to_intermediate_bytecode(simple_program)?;
-    let bytecode =
-        compile_to_low_level_bytecode(intermediate_bytecode, function_locations, source_code, filepaths)?;
+    let bytecode = compile_to_low_level_bytecode(intermediate_bytecode, function_locations, source_code, filepaths)?;
     Ok(bytecode)
 }
 

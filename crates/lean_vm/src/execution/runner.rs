@@ -107,8 +107,13 @@ pub fn execute_bytecode(
     profiling: bool,
     poseidons_16_precomputed: &Poseidon16History,
 ) -> ExecutionResult {
-    try_execute_bytecode(bytecode, (public_input, private_input), profiling, poseidons_16_precomputed)
-        .unwrap_or_else(|err| panic!("Error during bytecode execution: {err}"))
+    try_execute_bytecode(
+        bytecode,
+        (public_input, private_input),
+        profiling,
+        poseidons_16_precomputed,
+    )
+    .unwrap_or_else(|err| panic!("Error during bytecode execution: {err}"))
 }
 
 fn print_line_cycle_counts(history: ExecutionHistory, filepaths: &BTreeMap<FileId, String>) {

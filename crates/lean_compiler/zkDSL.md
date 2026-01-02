@@ -191,14 +191,6 @@ for i in rev 0..10 { ... }       // reverse: 9, 8, ..., 0
 ```
 Use `unroll` when bounds are const or compile-time expansion is needed.
 
-### Break
-```
-for i in 0..100 {
-    if i == 50 { break; }
-    process(i);
-}
-```
-
 ## Expressions
 
 ### Arithmetic
