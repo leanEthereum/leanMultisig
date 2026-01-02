@@ -496,6 +496,7 @@ fn transform_mutable_in_loops_in_lines(
                 let mut new_lines = Vec::new();
 
                 // Create size variable: @loop_size_{suffix} = end - start
+                // TODO opti if start is zero
                 let size_var = format!("@loop_size_{suffix}");
                 new_lines.push(Line::Statement {
                     targets: vec![AssignmentTarget::Var {
@@ -521,11 +522,9 @@ fn transform_mutable_in_loops_in_lines(
                         value: Expression::FunctionCall {
                             function_name: "malloc".to_string(),
                             args: vec![Expression::MathExpr(
+                                // TODO opti in case there is only one mutated var
                                 MathOperation::Add,
-                                vec![
-                                    Expression::Value(VarOrConstMallocAccess::Var(size_var.clone()).into()),
-                                    Expression::scalar(1),
-                                ],
+                                vec![Expression::var(size_var.clone()), Expression::scalar(1)],
                             )],
                         },
                         line_number: line_num,
@@ -537,7 +536,7 @@ fn transform_mutable_in_loops_in_lines(
                             array: buff_name.clone(),
                             index: Box::new(Expression::zero()),
                         }],
-                        value: Expression::Value(VarOrConstMallocAccess::Var(var.clone()).into()),
+                        value: Expression::var(var.clone()),
                         line_number: line_num,
                     });
 
@@ -557,10 +556,7 @@ fn transform_mutable_in_loops_in_lines(
                     }],
                     value: Expression::MathExpr(
                         MathOperation::Sub,
-                        vec![
-                            Expression::Value(VarOrConstMallocAccess::Var(iterator.clone()).into()),
-                            start.clone(),
-                        ],
+                        vec![Expression::var(iterator.clone()), start.clone()], // TODO opti if start is zero
                     ),
                     line_number: line_num,
                 });
@@ -597,10 +593,7 @@ fn transform_mutable_in_loops_in_lines(
                     }],
                     value: Expression::MathExpr(
                         MathOperation::Add,
-                        vec![
-                            Expression::Value(VarOrConstMallocAccess::Var(buff_idx_var.clone()).into()),
-                            Expression::scalar(1),
-                        ],
+                        vec![Expression::var(buff_idx_var.clone()), Expression::scalar(1)],
                     ),
                     line_number: line_num,
                 });
@@ -610,11 +603,9 @@ fn transform_mutable_in_loops_in_lines(
                     new_body.push(Line::Statement {
                         targets: vec![AssignmentTarget::ArrayAccess {
                             array: buff_name.clone(),
-                            index: Box::new(Expression::Value(
-                                VarOrConstMallocAccess::Var(next_idx_var.clone()).into(),
-                            )),
+                            index: Expression::var(next_idx_var.clone()).into(),
                         }],
-                        value: Expression::Value(VarOrConstMallocAccess::Var(body_name.clone()).into()),
+                        value: Expression::var(body_name.clone()),
                         line_number: line_num,
                     });
                 }
@@ -638,7 +629,7 @@ fn transform_mutable_in_loops_in_lines(
                         }],
                         value: Expression::ArrayAccess {
                             array: buff_name.clone(),
-                            index: vec![Expression::Value(VarOrConstMallocAccess::Var(size_var.clone()).into())],
+                            index: vec![Expression::var(size_var.clone())],
                         },
                         line_number: line_num,
                     });
@@ -1035,6 +1026,61 @@ impl MutableVarTracker {
     fn restore_versions(&mut self, snapshot: BTreeMap<Var, usize>) {
         self.versions = snapshot;
     }
+
+    /// Unifies mutable variable versions across multiple branches.
+    /// Returns forward declarations to add before the branching construct.
+    fn unify_branch_versions(
+        &mut self,
+        snapshot_versions: &BTreeMap<Var, usize>,
+        branch_versions: &[BTreeMap<Var, usize>],
+        branches: &mut [Vec<SimpleLine>],
+    ) -> Vec<SimpleLine> {
+        let mut forward_decls = Vec::new();
+
+        for var in self.mutable_vars.clone().iter() {
+            let snapshot_v = snapshot_versions.get(var).copied().unwrap_or(0);
+            let versions: Vec<usize> = branch_versions
+                .iter()
+                .map(|v| v.get(var).copied().unwrap_or(0))
+                .collect();
+
+            if versions.iter().all(|&v| v == versions[0]) {
+                // All branches have same version
+                let branch_v = versions[0];
+                if branch_v > snapshot_v {
+                    // A new versioned variable was created in all branches
+                    let versioned_var = format!("@mut_{var}_{branch_v}");
+                    forward_decls.push(SimpleLine::ForwardDeclaration {
+                        var: versioned_var.clone(),
+                    });
+                    // Remove forward declarations from inside the branches to avoid shadowing
+                    for branch in branches.iter_mut() {
+                        remove_forward_declarations(branch, &versioned_var);
+                    }
+                }
+                self.versions.insert(var.clone(), branch_v);
+            } else {
+                // Versions differ - need to unify
+                let max_version = versions.iter().copied().max().unwrap();
+                let unified_version = max_version + 1;
+                let unified_var = format!("@mut_{var}_{unified_version}");
+
+                forward_decls.push(SimpleLine::ForwardDeclaration {
+                    var: unified_var.clone(),
+                });
+
+                // Add equality assignment at the end of each branch
+                for (branch_idx, branch_v) in versions.iter().enumerate() {
+                    let branch_var_name: Var = format!("@mut_{var}_{branch_v}");
+                    branches[branch_idx].push(SimpleLine::equality(unified_var.clone(), branch_var_name));
+                }
+
+                self.versions.insert(var.clone(), unified_version);
+            }
+        }
+
+        forward_decls
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1107,52 +1153,11 @@ fn simplify_lines(
                 }
 
                 // Unify mutable variable versions across all arms
-                for var in state.mut_tracker.mutable_vars.clone().iter() {
-                    let snapshot_v = snapshot_versions.get(var).copied().unwrap_or(0);
-
-                    let versions: Vec<usize> = arm_versions.iter().map(|v| v.get(var).copied().unwrap_or(0)).collect();
-
-                    if versions.iter().all(|&v| v == versions[0]) {
-                        // All arms have same version
-                        let arm_v = versions[0];
-                        if arm_v > snapshot_v {
-                            // A new versioned variable was created in all arms
-                            // We need to add a forward declaration before the match
-                            // so the variable is in scope after the match
-                            let versioned_var = format!("@mut_{var}_{arm_v}");
-                            res.push(SimpleLine::ForwardDeclaration {
-                                var: versioned_var.clone(),
-                            });
-                            // Remove forward declarations from inside the arms to avoid shadowing.
-                            // The outer declaration will be in scope for all nested control flow.
-                            for arm in simple_arms.iter_mut() {
-                                remove_forward_declarations(arm, &versioned_var);
-                            }
-                        }
-                        state.mut_tracker.versions.insert(var.clone(), arm_v);
-                    } else {
-                        // Versions differ - need to unify
-                        let max_version = versions.iter().copied().max().unwrap();
-                        let unified_version = max_version + 1;
-                        let unified_var = format!("@mut_{var}_{unified_version}");
-
-                        // Add forward declaration before the match
-                        res.push(SimpleLine::ForwardDeclaration {
-                            var: unified_var.clone(),
-                        });
-
-                        // Add equality assignment at the end of each arm
-                        for (arm_idx, arm_v) in versions.iter().enumerate() {
-                            let arm_var_name = format!("@mut_{var}_{arm_v}");
-                            simple_arms[arm_idx].push(SimpleLine::equality(
-                                unified_var.clone(),
-                                SimpleExpr::Memory(VarOrConstMallocAccess::Var(arm_var_name)),
-                            ));
-                        }
-
-                        state.mut_tracker.versions.insert(var.clone(), unified_version);
-                    }
-                }
+                let forward_decls =
+                    state
+                        .mut_tracker
+                        .unify_branch_versions(&snapshot_versions, &arm_versions, &mut simple_arms);
+                res.extend(forward_decls);
 
                 // Restore array manager to snapshot state
                 *state.array_manager = array_manager_snapshot;
@@ -1620,7 +1625,7 @@ fn simplify_lines(
                     array_manager: &mut array_manager_then,
                     mut_tracker: &mut mut_tracker_then,
                 };
-                let mut then_branch_simplified = simplify_lines(
+                let then_branch_simplified = simplify_lines(
                     ctx,
                     &mut state_then,
                     const_malloc,
@@ -1637,14 +1642,14 @@ fn simplify_lines(
 
                 // Restore mutable variable versions for else branch
                 let mut mut_tracker_else = state.mut_tracker.clone();
-                mut_tracker_else.restore_versions(mut_tracker_snapshot);
+                mut_tracker_else.restore_versions(mut_tracker_snapshot.clone());
 
                 let mut state_else = SimplifyState {
                     counters: state.counters,
                     array_manager: &mut array_manager_else,
                     mut_tracker: &mut mut_tracker_else,
                 };
-                let mut else_branch_simplified = simplify_lines(
+                let else_branch_simplified = simplify_lines(
                     ctx,
                     &mut state_else,
                     const_malloc,
@@ -1656,65 +1661,15 @@ fn simplify_lines(
                 )?;
                 let else_versions = mut_tracker_else.versions.clone();
 
-                // Merge mutable variable versions: ensure both branches end with same version
-                // First, collect all variables that need unification and their unified var names
-                let mut unifications = Vec::new();
-                let snapshot_versions = state.mut_tracker.snapshot_versions();
-                for var in state.mut_tracker.mutable_vars.iter() {
-                    let snapshot_v = snapshot_versions.get(var).copied().unwrap_or(0);
-                    let then_v = then_versions.get(var).copied().unwrap_or(0);
-                    let else_v = else_versions.get(var).copied().unwrap_or(0);
-
-                    if then_v != else_v {
-                        // Need to unify - create a new version for post-if/else
-                        let unified_version = then_v.max(else_v) + 1;
-                        let unified_var = format!("@mut_{var}_{unified_version}");
-
-                        // Get variable names for each branch (always use versioned names)
-                        let then_var_name = format!("@mut_{var}_{then_v}");
-                        let else_var_name = format!("@mut_{var}_{else_v}");
-
-                        unifications.push((var.clone(), unified_var, unified_version, then_var_name, else_var_name));
-                    } else {
-                        // Both branches have same version
-                        if then_v > snapshot_v {
-                            // A new versioned variable was created in both branches
-                            // We need to add a forward declaration before the if/else
-                            // so the variable is in scope after the if/else
-                            let versioned_var = format!("@mut_{var}_{then_v}");
-                            res.push(SimpleLine::ForwardDeclaration {
-                                var: versioned_var.clone(),
-                            });
-                            // Remove forward declarations from inside the branches
-                            // to avoid shadowing the outer declaration
-                            remove_forward_declarations(&mut then_branch_simplified, &versioned_var);
-                            remove_forward_declarations(&mut else_branch_simplified, &versioned_var);
-                        }
-                        state.mut_tracker.versions.insert(var.clone(), then_v);
-                    }
-                }
-
-                // Add forward declarations BEFORE the if/else for all unified variables
-                for (_, unified_var, _, _, _) in &unifications {
-                    res.push(SimpleLine::ForwardDeclaration {
-                        var: unified_var.clone(),
-                    });
-                }
-
-                // Add equality assignments at the end of each branch
-                for (var, unified_var, unified_version, then_var_name, else_var_name) in unifications {
-                    then_branch_simplified.push(SimpleLine::equality(
-                        unified_var.clone(),
-                        SimpleExpr::Memory(VarOrConstMallocAccess::Var(then_var_name)),
-                    ));
-
-                    else_branch_simplified.push(SimpleLine::equality(
-                        unified_var.clone(),
-                        SimpleExpr::Memory(VarOrConstMallocAccess::Var(else_var_name)),
-                    ));
-
-                    state.mut_tracker.versions.insert(var, unified_version);
-                }
+                // Unify mutable variable versions across both branches
+                let branch_versions = vec![then_versions, else_versions];
+                let mut branches = vec![then_branch_simplified, else_branch_simplified];
+                let forward_decls =
+                    state
+                        .mut_tracker
+                        .unify_branch_versions(&mut_tracker_snapshot, &branch_versions, &mut branches);
+                res.extend(forward_decls);
+                let [then_branch_simplified, else_branch_simplified] = <[_; 2]>::try_from(branches).unwrap();
 
                 *state.array_manager = array_manager_else.clone();
                 // keep the intersection both branches
@@ -2761,7 +2716,7 @@ fn extract_inlined_calls_from_expr(
                     },
                     line_number: 0,
                 });
-                (Expression::Value(VarOrConstMallocAccess::Var(aux_var).into()), lines)
+                (Expression::var(aux_var), lines)
             } else {
                 (expr.clone(), lines)
             }

@@ -353,11 +353,6 @@ impl From<SimpleExpr> for Expression {
     }
 }
 
-impl From<Var> for Expression {
-    fn from(var: Var) -> Self {
-        Self::Value(var.into())
-    }
-}
 
 impl Expression {
     pub fn naive_eval(&self, const_arrays: &BTreeMap<String, ConstArrayValue>) -> Option<F> {
@@ -407,6 +402,10 @@ impl Expression {
             Self::FunctionCall { .. } => None,
             Self::Len { .. } => None, // Handled directly in naive_eval
         }
+    }
+
+    pub fn var(var: Var) -> Self {
+        SimpleExpr::from(var).into()
     }
 
     pub fn scalar(scalar: usize) -> Self {
