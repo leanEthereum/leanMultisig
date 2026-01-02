@@ -1038,7 +1038,7 @@ fn simplify_lines(
                 res.push(SimpleLine::ForwardDeclaration { var: var.clone() });
             }
             Line::Match { value, arms } => {
-                let simple_value = simplify_expr(ctx, state, const_malloc, value, &mut res);
+                let simple_value = simplify_expr(ctx, state, const_malloc, value, &mut res)?;
 
                 // Snapshot mutable variable versions before processing arms
                 let snapshot_versions = state.mut_tracker.snapshot_versions();
@@ -1124,7 +1124,7 @@ fn simplify_lines(
                             match target {
                                 AssignmentTarget::Var { var, is_mutable } => {
                                     let target_var = get_target_var_name(state, var, *is_mutable);
-                                    let simplified_size = simplify_expr(ctx, state, const_malloc, &args[0], &mut res);
+                                    let simplified_size = simplify_expr(ctx, state, const_malloc, &args[0], &mut res)?;
                                     match simplified_size {
                                         SimpleExpr::Constant(const_size) => {
                                             let label = const_malloc.counter;
@@ -1161,7 +1161,7 @@ fn simplify_lines(
                             let simplified_content = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
-                                .collect::<Vec<_>>();
+                                .collect::<Result<Vec<_>, _>>()?;
                             res.push(SimpleLine::Print {
                                 line_info: format!("line {line_number}"),
                                 content: simplified_content,
@@ -1207,7 +1207,7 @@ fn simplify_lines(
                             let simplified_args = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
-                                .collect::<Vec<_>>();
+                                .collect::<Result<Vec<_>, _>>()?;
                             res.push(SimpleLine::Precompile {
                                 table,
                                 args: simplified_args,
@@ -1230,7 +1230,7 @@ fn simplify_lines(
                             let simplified_args = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
-                                .collect::<Vec<_>>();
+                                .collect::<Result<Vec<_>, _>>()?;
                             res.push(SimpleLine::CustomHint(hint, simplified_args));
                             continue;
                         }
@@ -1257,7 +1257,7 @@ fn simplify_lines(
                         let simplified_args = args
                             .iter()
                             .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
-                            .collect::<Vec<_>>();
+                            .collect::<Result<Vec<_>, _>>()?;
 
                         let mut temp_vars = Vec::new();
                         let mut array_targets: Vec<(usize, Var, Box<Expression>)> = Vec::new();
@@ -1290,7 +1290,7 @@ fn simplify_lines(
 
                         // For array access targets, add DEREF instructions to copy temp to array element
                         for (i, array, index) in array_targets {
-                            let simplified_index = simplify_expr(ctx, state, const_malloc, &index, &mut res);
+                            let simplified_index = simplify_expr(ctx, state, const_malloc, &index, &mut res)?;
                             let simplified_value = VarOrConstMallocAccess::Var(temp_vars[i].clone()).into();
                             handle_array_assignment(
                                 ctx,
@@ -1318,7 +1318,7 @@ fn simplify_lines(
                                             const_malloc,
                                             &Expression::Value(val.clone()),
                                             &mut res,
-                                        );
+                                        )?;
                                         let target_var = get_target_var_name(state, var, *is_mutable);
                                         if state.mut_tracker.is_mutable(var)
                                             && state.mut_tracker.current_version(var) > 0
@@ -1331,10 +1331,10 @@ fn simplify_lines(
                                     }
                                     Expression::ArrayAccess { array, index } => {
                                         // Pre-simplify indices before version update
-                                        let simplified_index: Vec<SimpleExpr> = index
+                                        let simplified_index = index
                                             .iter()
                                             .map(|idx| simplify_expr(ctx, state, const_malloc, idx, &mut res))
-                                            .collect();
+                                            .collect::<Result<Vec<_>, _>>()?;
                                         let target_var = get_target_var_name(state, var, *is_mutable);
                                         if state.mut_tracker.is_mutable(var)
                                             && state.mut_tracker.current_version(var) > 0
@@ -1353,10 +1353,10 @@ fn simplify_lines(
                                         );
                                     }
                                     Expression::MathExpr(operation, args) => {
-                                        let args_simplified: Vec<SimpleExpr> = args
+                                        let args_simplified = args
                                             .iter()
                                             .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
-                                            .collect();
+                                            .collect::<Result<Vec<_>, _>>()?;
                                         let target_var = get_target_var_name(state, var, *is_mutable);
                                         if state.mut_tracker.is_mutable(var)
                                             && state.mut_tracker.current_version(var) > 0
@@ -1386,7 +1386,7 @@ fn simplify_lines(
                             }
                             AssignmentTarget::ArrayAccess { array, index } => {
                                 // Array element assignment - pre-simplify index first
-                                let simplified_index = simplify_expr(ctx, state, const_malloc, index, &mut res);
+                                let simplified_index = simplify_expr(ctx, state, const_malloc, index, &mut res)?;
 
                                 // Optimization: direct math assignment to const_malloc array with constant index
                                 if let SimpleExpr::Constant(offset) = &simplified_index
@@ -1397,10 +1397,10 @@ fn simplify_lines(
                                         malloc_label: *label,
                                         offset: offset.clone(),
                                     };
-                                    let simplified_args: Vec<SimpleExpr> = args
+                                    let simplified_args = args
                                         .iter()
                                         .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
-                                        .collect();
+                                        .collect::<Result<Vec<_>, _>>()?;
                                     // If all operands are constants, evaluate at compile time
                                     if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
                                         let result = ConstExpression::MathExpr(*operation, const_args);
@@ -1416,7 +1416,7 @@ fn simplify_lines(
                                     }
                                 } else {
                                     // General case: pre-simplify value and use handle_array_assignment
-                                    let simplified_value = simplify_expr(ctx, state, const_malloc, value, &mut res);
+                                    let simplified_value = simplify_expr(ctx, state, const_malloc, value, &mut res)?;
                                     handle_array_assignment(
                                         ctx,
                                         state,
@@ -1436,8 +1436,8 @@ fn simplify_lines(
                 line_number,
                 debug,
             } => {
-                let left = simplify_expr(ctx, state, const_malloc, &boolean.left, &mut res);
-                let right = simplify_expr(ctx, state, const_malloc, &boolean.right, &mut res);
+                let left = simplify_expr(ctx, state, const_malloc, &boolean.left, &mut res)?;
+                let right = simplify_expr(ctx, state, const_malloc, &boolean.right, &mut res)?;
 
                 if *debug {
                     res.push(SimpleLine::DebugAssert(
@@ -1513,8 +1513,8 @@ fn simplify_lines(
                             Boolean::LessThan => unreachable!(),
                         };
 
-                        let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res);
-                        let right_simplified = simplify_expr(ctx, state, const_malloc, right, &mut res);
+                        let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;
+                        let right_simplified = simplify_expr(ctx, state, const_malloc, right, &mut res)?;
 
                         let diff_var = state.counters.aux_var();
                         res.push(SimpleLine::Assignment {
@@ -1526,7 +1526,7 @@ fn simplify_lines(
                         (diff_var.into(), then_branch, else_branch)
                     }
                     Condition::AssumeBoolean(condition) => {
-                        let condition_simplified = simplify_expr(ctx, state, const_malloc, condition, &mut res);
+                        let condition_simplified = simplify_expr(ctx, state, const_malloc, condition, &mut res)?;
                         (condition_simplified, then_branch, else_branch)
                     }
                 };
@@ -1653,8 +1653,8 @@ fn simplify_lines(
                     .map(|var| state.mut_tracker.current_name(&var))
                     .collect();
 
-                let start_simplified = simplify_expr(ctx, state, const_malloc, start, &mut res);
-                let mut end_simplified = simplify_expr(ctx, state, const_malloc, end, &mut res);
+                let start_simplified = simplify_expr(ctx, state, const_malloc, start, &mut res)?;
+                let mut end_simplified = simplify_expr(ctx, state, const_malloc, end, &mut res)?;
                 if let SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset }) =
                     end_simplified.clone()
                 {
@@ -1722,7 +1722,7 @@ fn simplify_lines(
                 let simplified_return_data = return_data
                     .iter()
                     .map(|ret| simplify_expr(ctx, state, const_malloc, ret, &mut res))
-                    .collect::<Vec<_>>();
+                    .collect::<Result<Vec<_>, _>>()?;
                 res.push(SimpleLine::FunctionRet {
                     return_data: simplified_return_data,
                 });
@@ -1745,15 +1745,15 @@ fn simplify_expr(
     const_malloc: &ConstMalloc,
     expr: &Expression,
     lines: &mut Vec<SimpleLine>,
-) -> SimpleExpr {
+) -> Result<SimpleExpr, String> {
     match expr {
         Expression::Value(value) => {
             // Translate mutable variable references to their current versioned name
             if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = value {
                 let versioned_var = state.mut_tracker.current_name(var);
-                SimpleExpr::Memory(VarOrConstMallocAccess::Var(versioned_var))
+                Ok(SimpleExpr::Memory(VarOrConstMallocAccess::Var(versioned_var)))
             } else {
-                value.clone()
+                Ok(value.clone())
             }
         }
         Expression::ArrayAccess { array, index } => {
@@ -1762,21 +1762,21 @@ fn simplify_expr(
                 let simplified_index = index
                     .iter()
                     .map(|idx| {
-                        simplify_expr(ctx, state, const_malloc, idx, lines)
+                        Ok(simplify_expr(ctx, state, const_malloc, idx, lines)?
                             .as_constant()
                             .expect("Const array access index should be constant")
                             .naive_eval()
                             .expect("Const array access index should be constant")
-                            .to_usize()
+                            .to_usize())
                     })
-                    .collect::<Vec<_>>();
+                    .collect::<Result<Vec<_>, String>>()?;
 
-                return SimpleExpr::Constant(ConstExpression::from(
+                return Ok(SimpleExpr::Constant(ConstExpression::from(
                     arr.navigate(&simplified_index)
                         .expect("Const array access index out of bounds")
                         .as_scalar()
                         .expect("Const array access should return a scalar"),
-                ));
+                )));
             }
 
             assert_eq!(index.len(), 1);
@@ -1785,21 +1785,21 @@ fn simplify_expr(
             if let Some(label) = const_malloc.map.get(array)
                 && let Ok(offset) = ConstExpression::try_from(index.clone())
             {
-                return VarOrConstMallocAccess::ConstMallocAccess {
+                return Ok(VarOrConstMallocAccess::ConstMallocAccess {
                     malloc_label: *label,
                     offset,
                 }
-                .into();
+                .into());
             }
 
             let versioned_array = state.mut_tracker.current_name(array);
             let aux_arr = state.array_manager.get_aux_var(&versioned_array, &index); // auxiliary var to store m[array + index]
 
             if !state.array_manager.valid.insert(aux_arr.clone()) {
-                return VarOrConstMallocAccess::Var(aux_arr).into();
+                return Ok(VarOrConstMallocAccess::Var(aux_arr).into());
             }
 
-            let simplified_index = simplify_expr(ctx, state, const_malloc, &index, lines);
+            let simplified_index = simplify_expr(ctx, state, const_malloc, &index, lines)?;
             handle_array_assignment(
                 ctx,
                 state,
@@ -1808,15 +1808,15 @@ fn simplify_expr(
                 &[simplified_index],
                 ArrayAccessType::VarIsAssigned(aux_arr.clone()),
             );
-            VarOrConstMallocAccess::Var(aux_arr).into()
+            Ok(VarOrConstMallocAccess::Var(aux_arr).into())
         }
         Expression::MathExpr(operation, args) => {
             let simplified_args = args
                 .iter()
                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, lines))
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>, _>>()?;
             if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
-                return SimpleExpr::Constant(ConstExpression::MathExpr(*operation, const_args));
+                return Ok(SimpleExpr::Constant(ConstExpression::MathExpr(*operation, const_args)));
             }
             let aux_var = state.counters.aux_var();
             assert_eq!(simplified_args.len(), 2);
@@ -1826,23 +1826,24 @@ fn simplify_expr(
                 arg0: simplified_args[0].clone(),
                 arg1: simplified_args[1].clone(),
             });
-            VarOrConstMallocAccess::Var(aux_var).into()
+            Ok(VarOrConstMallocAccess::Var(aux_var).into())
         }
         Expression::FunctionCall { function_name, args } => {
             let function = ctx
                 .functions
                 .get(function_name)
                 .unwrap_or_else(|| panic!("Function used but not defined: {function_name}"));
-            assert_eq!(
-                function.n_returned_vars, 1,
-                "Nested function call to '{function_name}' must return exactly 1 value, but returns {}",
-                function.n_returned_vars
-            );
+            if function.n_returned_vars != 1 {
+                return Err(format!(
+                    "Nested function calls must return exactly one value (function {function_name} returns {} values)",
+                    function.n_returned_vars
+                ));
+            }
 
             let simplified_args = args
                 .iter()
                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, lines))
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>, _>>()?;
 
             // Create a temporary variable for the function result
             let result_var = state.counters.aux_var();
@@ -1854,7 +1855,7 @@ fn simplify_expr(
                 line_number: 0, // No source line number for nested calls
             });
 
-            VarOrConstMallocAccess::Var(result_var).into()
+            Ok(VarOrConstMallocAccess::Var(result_var).into())
         }
         Expression::Len { .. } => unreachable!(),
     }
@@ -2371,7 +2372,7 @@ fn handle_inlined_functions(program: &mut Program) -> Result<(), String> {
                     &inlined_functions,
                     &mut counter1,
                     &mut counter2,
-                );
+                )?;
 
                 if func.body != old_body {
                     any_changes = true;
@@ -2389,7 +2390,13 @@ fn handle_inlined_functions(program: &mut Program) -> Result<(), String> {
                 for arg in func.arguments.iter() {
                     ctx.add_var(&arg.name);
                 }
-                handle_inlined_functions_helper(&mut ctx, &func.body, &inlined_functions, &mut counter1, &mut counter2);
+                handle_inlined_functions_helper(
+                    &mut ctx,
+                    &func.body,
+                    &inlined_functions,
+                    &mut counter1,
+                    &mut counter2,
+                )?;
 
                 if func.body != old_body {
                     any_changes = true;
@@ -2421,44 +2428,50 @@ fn extract_inlined_calls_from_expr(
     expr: &Expression,
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
-) -> (Expression, Vec<Line>) {
+) -> Result<(Expression, Vec<Line>), String> {
     let mut lines = vec![];
 
     match expr {
-        Expression::Value(_) => (expr.clone(), vec![]),
+        Expression::Value(_) => Ok((expr.clone(), vec![])),
         Expression::ArrayAccess { array, index } => {
             let mut index_new = vec![];
             for idx in index {
-                let (idx, idx_lines) = extract_inlined_calls_from_expr(idx, inlined_functions, inlined_var_counter);
+                let (idx, idx_lines) = extract_inlined_calls_from_expr(idx, inlined_functions, inlined_var_counter)?;
                 lines.extend(idx_lines);
                 index_new.push(idx);
             }
-            (
+            Ok((
                 Expression::ArrayAccess {
                     array: array.clone(),
                     index: index_new,
                 },
                 lines,
-            )
+            ))
         }
         Expression::MathExpr(operation, args) => {
             let mut args_new = vec![];
             for arg in args {
-                let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter);
+                let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter)?;
                 lines.extend(arg_lines);
                 args_new.push(arg);
             }
-            (Expression::MathExpr(*operation, args_new), lines)
+            Ok((Expression::MathExpr(*operation, args_new), lines))
         }
         Expression::FunctionCall { function_name, args } => {
             let mut args_new = vec![];
             for arg in args {
-                let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter);
+                let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter)?;
                 args_new.push(arg);
                 lines.extend(arg_lines);
             }
 
-            if inlined_functions.contains_key(function_name) {
+            if let Some(inlined_function) = inlined_functions.get(function_name) {
+                if inlined_function.n_returned_vars != 1 {
+                    return Err(format!(
+                        "Used inlined function '{}' with {} return values inside an expression; only single-return functions can be inlined in expressions",
+                        function_name, inlined_function.n_returned_vars
+                    ));
+                }
                 let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
                 lines.push(Line::ForwardDeclaration {
                     var: aux_var.clone(),
@@ -2475,25 +2488,25 @@ fn extract_inlined_calls_from_expr(
                     },
                     line_number: 0,
                 });
-                (Expression::var(aux_var), lines)
+                Ok((Expression::var(aux_var), lines))
             } else {
-                (expr.clone(), lines)
+                Ok((expr.clone(), lines))
             }
         }
         Expression::Len { array, indices } => {
             let mut new_indices = vec![];
             for idx in indices.iter() {
-                let (idx, idx_lines) = extract_inlined_calls_from_expr(idx, inlined_functions, inlined_var_counter);
+                let (idx, idx_lines) = extract_inlined_calls_from_expr(idx, inlined_functions, inlined_var_counter)?;
                 lines.extend(idx_lines);
                 new_indices.push(idx);
             }
-            (
+            Ok((
                 Expression::Len {
                     array: array.clone(),
                     indices: new_indices,
                 },
                 lines,
-            )
+            ))
         }
     }
 }
@@ -2502,32 +2515,32 @@ fn extract_inlined_calls_from_boolean_expr(
     boolean: &BooleanExpr<Expression>,
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
-) -> (BooleanExpr<Expression>, Vec<Line>) {
-    let (left, mut lines) = extract_inlined_calls_from_expr(&boolean.left, inlined_functions, inlined_var_counter);
-    let (right, right_lines) = extract_inlined_calls_from_expr(&boolean.right, inlined_functions, inlined_var_counter);
+) -> Result<(BooleanExpr<Expression>, Vec<Line>), String> {
+    let (left, mut lines) = extract_inlined_calls_from_expr(&boolean.left, inlined_functions, inlined_var_counter)?;
+    let (right, right_lines) = extract_inlined_calls_from_expr(&boolean.right, inlined_functions, inlined_var_counter)?;
     lines.extend(right_lines);
     let boolean = BooleanExpr {
         kind: boolean.kind,
         left,
         right,
     };
-    (boolean, lines)
+    Ok((boolean, lines))
 }
 
 fn extract_inlined_calls_from_condition(
     condition: &Condition,
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
-) -> (Condition, Vec<Line>) {
+) -> Result<(Condition, Vec<Line>), String> {
     match condition {
         Condition::AssumeBoolean(expr) => {
-            let (expr, expr_lines) = extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
-            (Condition::AssumeBoolean(expr), expr_lines)
+            let (expr, expr_lines) = extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter)?;
+            Ok((Condition::AssumeBoolean(expr), expr_lines))
         }
         Condition::Comparison(boolean) => {
             let (boolean, boolean_lines) =
-                extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter);
-            (Condition::Comparison(boolean), boolean_lines)
+                extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)?;
+            Ok((Condition::Comparison(boolean), boolean_lines))
         }
     }
 }
@@ -2538,7 +2551,7 @@ fn handle_inlined_functions_helper(
     inlined_functions: &BTreeMap<String, Function>,
     inlined_var_counter: &mut Counter,
     total_inlined_counter: &mut Counter,
-) -> Vec<Line> {
+) -> Result<Vec<Line>, String> {
     let mut lines_out = vec![];
     for line in lines_in {
         match line {
@@ -2639,7 +2652,7 @@ fn handle_inlined_functions_helper(
                 line_number,
             } => {
                 let (value, value_lines) =
-                    extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter);
+                    extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter)?;
                 lines_out.extend(value_lines);
                 for target in targets {
                     if let AssignmentTarget::Var { var, .. } = target
@@ -2660,7 +2673,7 @@ fn handle_inlined_functions_helper(
                 else_branch,
                 line_number,
             } => {
-                extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter);
+                extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter)?;
                 ctx.scopes.push(Scope::default());
                 let then_branch_out = handle_inlined_functions_helper(
                     ctx,
@@ -2668,7 +2681,7 @@ fn handle_inlined_functions_helper(
                     inlined_functions,
                     inlined_var_counter,
                     total_inlined_counter,
-                );
+                )?;
                 ctx.scopes.pop();
                 ctx.scopes.push(Scope::default());
                 let else_branch_out = handle_inlined_functions_helper(
@@ -2677,7 +2690,7 @@ fn handle_inlined_functions_helper(
                     inlined_functions,
                     inlined_var_counter,
                     total_inlined_counter,
-                );
+                )?;
                 ctx.scopes.pop();
                 lines_out.push(Line::IfCondition {
                     condition: condition.clone(),
@@ -2696,7 +2709,7 @@ fn handle_inlined_functions_helper(
                         inlined_functions,
                         inlined_var_counter,
                         total_inlined_counter,
-                    );
+                    )?;
                     ctx.scopes.pop();
                     arms_out.push((*i, arm_out));
                 }
@@ -2719,9 +2732,9 @@ fn handle_inlined_functions_helper(
             } => {
                 // Handle inlining in the loop bounds
                 let (start, start_lines) =
-                    extract_inlined_calls_from_expr(start, inlined_functions, inlined_var_counter);
+                    extract_inlined_calls_from_expr(start, inlined_functions, inlined_var_counter)?;
                 lines_out.extend(start_lines);
-                let (end, end_lines) = extract_inlined_calls_from_expr(end, inlined_functions, inlined_var_counter);
+                let (end, end_lines) = extract_inlined_calls_from_expr(end, inlined_functions, inlined_var_counter)?;
                 lines_out.extend(end_lines);
 
                 // Handle inlining in the loop body
@@ -2733,7 +2746,7 @@ fn handle_inlined_functions_helper(
                     inlined_functions,
                     inlined_var_counter,
                     total_inlined_counter,
-                );
+                )?;
                 ctx.scopes.pop();
 
                 // Push modified loop
@@ -2752,7 +2765,7 @@ fn handle_inlined_functions_helper(
                 line_number,
             } => {
                 let (boolean, boolean_lines) =
-                    extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter);
+                    extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)?;
                 lines_out.extend(boolean_lines);
                 lines_out.push(Line::Assert {
                     debug: *debug,
@@ -2764,7 +2777,7 @@ fn handle_inlined_functions_helper(
                 let mut new_return_data = vec![];
                 for expr in return_data {
                     let (expr, expr_lines) =
-                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter);
+                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter)?;
                     lines_out.extend(expr_lines);
                     new_return_data.push(expr);
                 }
@@ -2774,7 +2787,7 @@ fn handle_inlined_functions_helper(
             }
         };
     }
-    lines_out
+    Ok(lines_out)
 }
 
 fn handle_const_arguments(program: &mut Program) -> bool {

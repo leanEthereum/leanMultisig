@@ -1,0 +1,10 @@
+ fn main() {
+    a = 5;
+    b = 10;
+    a = swap(a, b) + 11;
+    return;
+}
+
+fn swap(a, b) inline -> 2 {
+    return b, a;
+}
