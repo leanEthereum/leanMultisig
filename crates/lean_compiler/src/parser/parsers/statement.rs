@@ -192,15 +192,6 @@ impl Parse<Line> for ForStatementParser {
         let mut inner = pair.into_inner();
         let iterator = next_inner_pair(&mut inner, "loop iterator")?.as_str().to_string();
 
-        // Check for optional reverse clause
-        let mut rev = false;
-        if let Some(next_peek) = inner.clone().next()
-            && next_peek.as_rule() == Rule::rev_clause
-        {
-            rev = true;
-            inner.next(); // Consume the rev clause
-        }
-
         let start = ExpressionParser.parse(next_inner_pair(&mut inner, "loop start")?, ctx)?;
         let end = ExpressionParser.parse(next_inner_pair(&mut inner, "loop end")?, ctx)?;
 
@@ -224,7 +215,6 @@ impl Parse<Line> for ForStatementParser {
             start,
             end,
             body,
-            rev,
             unroll,
             line_number,
         })

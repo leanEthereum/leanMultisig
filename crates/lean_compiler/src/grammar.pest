@@ -60,8 +60,7 @@ else_if_clause = { "else" ~ "if" ~ condition ~ "{" ~ statement* ~ "}" }
 
 else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 
-for_statement = { "for" ~ identifier ~ "in" ~ rev_clause? ~ expression ~ ".." ~ expression ~ unroll_clause? ~ "{" ~ statement* ~ "}" }
-rev_clause = { "rev" }
+for_statement = { "for" ~ identifier ~ "in" ~ expression ~ ".." ~ expression ~ unroll_clause? ~ "{" ~ statement* ~ "}" }
 unroll_clause = { "unroll" }
 
 match_statement = { "match" ~ expression ~ "{" ~ match_arm* ~ "}" }

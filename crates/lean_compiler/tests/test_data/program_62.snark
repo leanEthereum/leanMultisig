@@ -1,8 +1,0 @@
-fn main() {
-    mut countdown = 0;
-    for i in rev 0..5 unroll {
-        countdown = countdown * 10 + i;
-    }
-    assert countdown == 43210;
-    return;
-}

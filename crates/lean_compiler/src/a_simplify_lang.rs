@@ -285,7 +285,6 @@ fn unroll_loops_in_lines(
             start,
             end,
             body,
-            rev,
             unroll: true,
             line_number: _,
         } = &lines[i]
@@ -297,10 +296,7 @@ fn unroll_loops_in_lines(
 
             let (internal_vars, _) = find_variable_usage(body, const_arrays);
 
-            let mut range: Vec<_> = (start_usize..end_usize).collect();
-            if *rev {
-                range.reverse();
-            }
+            let range: Vec<_> = (start_usize..end_usize).collect();
 
             let iterator = iterator.clone();
             let body = body.clone();
@@ -421,7 +417,6 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 start,
                 end,
                 body,
-                rev: _,
                 unroll: _,
                 line_number: _,
             } => {
@@ -1278,15 +1273,10 @@ fn simplify_lines(
                 start,
                 end,
                 body,
-                rev,
                 unroll,
                 line_number,
             } => {
                 assert!(!*unroll, "Unrolled loops should have been handled already");
-
-                if *rev {
-                    unimplemented!("Reverse for non-unrolled loops are not implemented yet");
-                }
 
                 let mut loop_const_malloc = ConstMalloc {
                     counter: const_malloc.counter,
@@ -1657,7 +1647,6 @@ pub fn find_variable_usage(
                 start,
                 end,
                 body,
-                rev: _,
                 unroll: _,
                 line_number: _,
             } => {
@@ -1822,7 +1811,6 @@ fn inline_lines(
                 start,
                 end,
                 body,
-                rev: _,
                 unroll: _,
                 line_number: _,
             } => {
@@ -2144,7 +2132,6 @@ fn replace_vars_for_unroll(
                 start,
                 end,
                 body,
-                rev: _,
                 unroll: _,
                 line_number: _,
             } => {
@@ -2549,7 +2536,6 @@ fn handle_inlined_functions_helper(
                 start,
                 end,
                 body,
-                rev,
                 unroll,
                 line_number,
             } => {
@@ -2578,7 +2564,6 @@ fn handle_inlined_functions_helper(
                     start,
                     end,
                     body: loop_body_out,
-                    rev: *rev,
                     unroll: *unroll,
                     line_number: *line_number,
                 });

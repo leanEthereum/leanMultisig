@@ -470,7 +470,6 @@ pub enum Line {
         start: Expression,
         end: Expression,
         body: Vec<Self>,
-        rev: bool,
         unroll: bool,
         line_number: SourceLineNumber,
     },
@@ -628,7 +627,6 @@ impl Line {
                 start,
                 end,
                 body,
-                rev,
                 unroll,
                 line_number: _,
             } => {
@@ -638,10 +636,9 @@ impl Line {
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!(
-                    "for {} in {}{}..{} {}{{\n{}\n{}}}",
+                    "for {} in {}{}..{} {{\n{}\n{}}}",
                     iterator,
                     start,
-                    if *rev { "rev " } else { "" },
                     end,
                     if *unroll { "unroll " } else { "" },
                     body_str,

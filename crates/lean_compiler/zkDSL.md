@@ -187,7 +187,6 @@ match value {
 ```
 for i in 0..10 { ... }           // standard loop
 for i in 0..4 unroll { ... }     // unrolled at compile time
-for i in rev 0..10 { ... }       // reverse: 9, 8, ..., 0
 ```
 Use `unroll` when bounds are const or compile-time expansion is needed.
 
