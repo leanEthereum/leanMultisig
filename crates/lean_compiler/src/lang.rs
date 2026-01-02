@@ -241,6 +241,15 @@ impl Display for Condition {
     }
 }
 
+impl Condition {
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match self {
+            Self::AssumeBoolean(expr) => vec![expr],
+            Self::Comparison(cmp) => vec![&mut cmp.left, &mut cmp.right],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {
     Value(SimpleExpr),
@@ -353,12 +362,6 @@ impl From<SimpleExpr> for Expression {
     }
 }
 
-impl From<Var> for Expression {
-    fn from(var: Var) -> Self {
-        Self::Value(var.into())
-    }
-}
-
 impl Expression {
     pub fn naive_eval(&self, const_arrays: &BTreeMap<String, ConstArrayValue>) -> Option<F> {
         // Handle Len specially since it needs const_arrays
@@ -409,6 +412,30 @@ impl Expression {
         }
     }
 
+    pub fn inner_exprs_mut(&mut self) -> Vec<&mut Self> {
+        match self {
+            Self::Value(_) => vec![],
+            Self::ArrayAccess { index, .. } => index.iter_mut().collect(),
+            Self::MathExpr(_, args) => args.iter_mut().collect(),
+            Self::FunctionCall { args, .. } => args.iter_mut().collect(),
+            Self::Len { indices, .. } => indices.iter_mut().collect(),
+        }
+    }
+
+    pub fn inner_exprs(&self) -> Vec<&Self> {
+        match self {
+            Self::Value(_) => vec![],
+            Self::ArrayAccess { index, .. } => index.iter().collect(),
+            Self::MathExpr(_, args) => args.iter().collect(),
+            Self::FunctionCall { args, .. } => args.iter().collect(),
+            Self::Len { indices, .. } => indices.iter().collect(),
+        }
+    }
+
+    pub fn var(var: Var) -> Self {
+        SimpleExpr::from(var).into()
+    }
+
     pub fn scalar(scalar: usize) -> Self {
         SimpleExpr::scalar(scalar).into()
     }
@@ -435,6 +462,15 @@ impl Display for AssignmentTarget {
                 }
             }
             Self::ArrayAccess { array, index } => write!(f, "{array}[{index}]"),
+        }
+    }
+}
+
+impl AssignmentTarget {
+    pub fn index_expression_mut(&mut self) -> Option<&mut Expression> {
+        match self {
+            Self::Var { .. } => None,
+            Self::ArrayAccess { index, .. } => Some(index),
         }
     }
 }
@@ -656,6 +692,64 @@ impl Line {
             Self::Panic => "panic".to_string(),
         };
         format!("{spaces}{line_str}")
+    }
+
+    pub fn nested_blocks(&self) -> Vec<&Vec<Line>> {
+        match self {
+            Self::Match { arms, .. } => arms.iter().map(|(_, body)| body).collect(),
+            Self::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => vec![then_branch, else_branch],
+            Self::ForLoop { body, .. } => vec![body],
+            Self::ForwardDeclaration { .. }
+            | Self::Statement { .. }
+            | Self::Assert { .. }
+            | Self::FunctionRet { .. }
+            | Self::Panic
+            | Self::LocationReport { .. } => vec![],
+        }
+    }
+
+    pub fn nested_blocks_mut(&mut self) -> Vec<&mut Vec<Line>> {
+        match self {
+            Self::Match { arms, .. } => arms.iter_mut().map(|(_, body)| body).collect(),
+            Self::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => vec![then_branch, else_branch],
+            Self::ForLoop { body, .. } => vec![body],
+            Self::ForwardDeclaration { .. }
+            | Self::Statement { .. }
+            | Self::Assert { .. }
+            | Self::FunctionRet { .. }
+            | Self::Panic
+            | Self::LocationReport { .. } => vec![],
+        }
+    }
+
+    /// Returns mutable references to all expressions contained in this line.
+    /// Does NOT include expressions inside nested blocks (use nested_blocks_mut for those).
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match self {
+            Self::Match { value, .. } => vec![value],
+            Self::Statement { targets, value, .. } => {
+                let mut exprs = vec![value];
+                for target in targets {
+                    if let Some(idx) = target.index_expression_mut() {
+                        exprs.push(idx);
+                    }
+                }
+                exprs
+            }
+            Self::Assert { boolean, .. } => vec![&mut boolean.left, &mut boolean.right],
+            Self::IfCondition { condition, .. } => condition.expressions_mut(),
+            Self::ForLoop { start, end, .. } => vec![start, end],
+            Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
+            Self::ForwardDeclaration { .. } | Self::Panic | Self::LocationReport { .. } => vec![],
+        }
     }
 }
 

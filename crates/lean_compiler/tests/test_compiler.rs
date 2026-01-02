@@ -163,9 +163,34 @@ fn debug_file_program() {
 }
 
 #[test]
-fn debug_str_program() {
+fn debug_pass() {
     let program = r#"
     fn main() {
+        var mut two;
+        if 1 == 1 {
+            two = 2;
+        } else {
+            two = 3;
+        }
+        print(two);
+        return;
+    }
+   "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
+
+
+#[test]
+fn test_panics() {
+    let program = r#"
+    fn main() {
+        var mut two;
+        if 1 == 1 {
+            two = 2;
+        } else {
+            panic();
+        }
+        print(two);
         return;
     }
    "#;

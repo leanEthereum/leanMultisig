@@ -1,0 +1,11 @@
+// Test: Mutable variables with different operations in non-unrolled loop
+
+fn main() {
+    mut product = 1;
+    for i in 1..6 {
+        product *= i;
+    }
+    // 1 * 2 * 3 * 4 * 5 = 120
+    assert product == 120;
+    return;
+}

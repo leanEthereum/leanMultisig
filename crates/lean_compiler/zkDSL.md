@@ -157,7 +157,7 @@ arr[0] = 10;               // OK: same value
 arr[0] = 20;               // ERROR: different value at same location
 ```
 
-Use `mut` variables (not memory) when you need true mutability.
+Use `mut` variables when you need mutability, the compiler cannot handle mutability on hand-written allocated memory ("malloc(...)").
 
 ## Control Flow
 
@@ -189,6 +189,16 @@ for i in 0..10 { ... }           // standard loop
 for i in 0..4 unroll { ... }     // unrolled at compile time
 ```
 Use `unroll` when bounds are const or compile-time expansion is needed.
+
+**Mutable variables in non-unrolled loops:** Mutable variables can be modified inside non-unrolled loops. The compiler automatically transforms these into buffer-based implementations:
+
+```
+mut sum = 0;
+for i in 1..11 {
+    sum += i;
+}
+assert sum == 55;
+```
 
 Loops limitations:
 - no "continue" or "break" are supported yet
@@ -319,3 +329,134 @@ fn compute_sum(ptr, const n) -> 1 {
 3. Use `mut` sparingly - immutable is easier to verify
 4. Forward declare with `var` (immutable) or `var mut` (mutable) for branch-assigned variables
 5. Match patterns must be consecutive from 0 and exhaustive
+
+## Example: From high level syntaxic sugar to minimal ISA, with read-only memory
+
+Take the following program:
+
+````
+fn main() {
+    mut x = 0;
+    mut y = 3;
+    x += y;
+    y += x;
+    for i in 4..6 {
+        x += i;
+        x += y;
+        y = i;
+        y += x;
+    }
+    assert x == 35;
+    assert y == 40;
+    return;
+}
+```
+
+First, we use buffers to handle mutable variables accross (non-unrolled) loops.
+
+````
+fn main() {
+    mut x = 0;
+    mut y = 3;
+    x += y;
+    y += x;
+    size = 6 - 4;
+    x_buff = malloc(size + 1);
+    x_buff[0] = x;
+    y_buff = malloc(size + 1);
+    y_buff[0] = y;
+    for i in 4..6 {
+        buff_idx = i - 4;
+        mut x_body = x_buff[buff_idx];
+        mut y_body = y_buff[buff_idx];
+        x_body += i;
+        x_body += y_body;
+        y_body = i;
+        y_body += x_body;
+        next_idx = buff_idx + 1;
+        x_buff[next_idx] = x_body;
+        y_buff[next_idx] = y_body;
+    }
+    x = x_buff[size];
+    y = y_buff[size];
+    assert x == 35;
+    assert y == 40;
+    return;
+}
+```
+
+Then, use auxiliary variables to transform it into SSA form (Static Single-Assignment):
+
+
+````
+fn main() {
+    x = 0;
+    y = 3;
+    x2 = x + y;
+    y2 = y + x2;
+    size = 6 - 4;
+    x_buff = malloc(size + 1);
+    x_buff[0] = x2;
+    y_buff = malloc(size + 1);
+    y_buff[0] = y2;
+    for i in 4..6 {
+        buff_idx = i - 4;
+        x_body1 = x_buff[buff_idx];
+        y_body1 = y_buff[buff_idx];
+        x_body2 = x_body1 + i;
+        x_body3 = x_body2 + y_body1;
+        y_body2 = i;
+        y_body3 = y_body2 + x_body3;
+        next_idx = buff_idx + 1;
+        x_buff[next_idx] = x_body3;
+        y_buff[next_idx] = y_body3;
+    }
+    x3 = x_buff[size];
+    y3 = y_buff[size];
+    assert x3 == 35;
+    assert y3 == 40;
+    return;
+}
+```
+
+Finally, transform the loop into a recursisve function:
+
+```
+fn main() {
+    x = 0;
+    y = 3;
+    x2 = x + y;
+    y2 = y + x2;
+    size = 6 - 4;
+    x_buff = malloc(size + 1);
+    x_buff[0] = x2;
+    y_buff = malloc(size + 1);
+    y_buff[0] = y2;
+    loop(4, x_buff, y_buff);
+    x3 = x_buff[size];
+    y3 = y_buff[size];
+    assert x3 == 35;
+    assert y3 == 40;
+    return;
+}
+
+fn loop(i, x_buff, y_buff) {
+    if i == 6 {
+        return;
+    } else {
+        buff_idx = i - 4;
+        x_body1 = x_buff[buff_idx];
+        y_body1 = y_buff[buff_idx];
+        x_body2 = x_body1 + i;
+        x_body3 = x_body2 + y_body1;
+        y_body2 = i;
+        y_body3 = y_body2 + x_body3;
+        next_idx = buff_idx + 1;
+        x_buff[next_idx] = x_body3;
+        y_buff[next_idx] = y_body3;
+        loop(i + 1, x_buff, y_buff);
+    }
+    return;
+}
+````
+

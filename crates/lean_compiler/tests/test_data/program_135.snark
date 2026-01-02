@@ -1,0 +1,19 @@
+// Test: Match statement inside non-unrolled loop with mutable variables
+
+fn main() {
+    mut score = 0;
+    for i in 0..4 {
+        match i {
+            0 => { score += 100; }
+            1 => { score += 50; }
+            2 => { score += 25; }
+            3 => { score += 10; }
+        }
+    }
+    // i=0: score=100
+    // i=1: score=150
+    // i=2: score=175
+    // i=3: score=185
+    assert score == 185;
+    return;
+}

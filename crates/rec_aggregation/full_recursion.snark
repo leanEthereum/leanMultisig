@@ -47,7 +47,6 @@ fn main() {
 
     alpha_powers = powers(logup_alpha, MAX_BUS_WIDTH);
 
-
     memory_and_acc_prefix = multilinear_location_prefix(0, N_VARS_FIRST_GKR - log_memory, point_gkr);
 
     fs, value_acc = fs_receive_ef(fs, 1);
@@ -135,9 +134,9 @@ fn fingerprint_2(table_index, data_1, data_2, alpha_powers) -> 1 {
     return res4;
 }
 
-fn verify_gkr_quotient(fs, n_vars) -> 5 {
-    fs1, nums = fs_receive_ef(fs, 2);
-    fs4, denoms = fs_receive_ef(fs1, 2);
+fn verify_gkr_quotient(mut fs, n_vars) -> 5 {
+    fs, nums = fs_receive_ef(fs, 2);
+    fs, denoms = fs_receive_ef(fs, 2);
 
     q1 = div_extension(nums, denoms);
     q2 = div_extension(nums + DIM, denoms + DIM);
@@ -147,8 +146,8 @@ fn verify_gkr_quotient(fs, n_vars) -> 5 {
     claims_num = malloc(n_vars);
     claims_den = malloc(n_vars);
 
-    points[0] = fs_sample_ef(fs4);
-    fs6 = duplexing(fs4);
+    points[0] = fs_sample_ef(fs);
+    fs = duplexing(fs);
 
     point_poly_eq = poly_eq_extension(points[0], 1);
 
@@ -159,13 +158,11 @@ fn verify_gkr_quotient(fs, n_vars) -> 5 {
     claims_num[0] = first_claim_num;
     claims_den[0] = first_claim_den;
 
-    all_fs = malloc(n_vars);
-    all_fs[0] = fs6;
     for i in 1..n_vars {
-        all_fs[i], points[i], claims_num[i], claims_den[i] = verify_gkr_quotient_step(all_fs[i - 1], i, points[i - 1], claims_num[i - 1], claims_den[i - 1]);
+        fs, points[i], claims_num[i], claims_den[i] = verify_gkr_quotient_step(fs, i, points[i - 1], claims_num[i - 1], claims_den[i - 1]);
     }
 
-    return all_fs[n_vars - 1], quotient, points[n_vars - 1], claims_num[n_vars - 1], claims_den[n_vars - 1];
+    return fs, quotient, points[n_vars - 1], claims_num[n_vars - 1], claims_den[n_vars - 1];
 }
 
 fn verify_gkr_quotient_step(mut fs, n_vars, point, claim_num, claim_den) -> 4 {
