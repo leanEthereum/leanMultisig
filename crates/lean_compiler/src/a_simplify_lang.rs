@@ -201,6 +201,17 @@ impl SimpleLine {
     }
 }
 
+fn ends_with_early_exit(block: &[SimpleLine]) -> bool {
+    match block.last() {
+        Some(SimpleLine::Panic) | Some(SimpleLine::FunctionRet { .. }) => true,
+        Some(last) => {
+            let nested = last.nested_blocks();
+            !nested.is_empty() && nested.iter().all(|b| ends_with_early_exit(b))
+        }
+        None => false,
+    }
+}
+
 pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     check_program_scoping(&program);
     handle_inlined_functions(&mut program)?;
@@ -953,6 +964,8 @@ impl MutableVarTracker {
     ) -> Vec<SimpleLine> {
         let mut forward_decls = Vec::new();
 
+        let branch_exits_early: Vec<bool> = branches.iter().map(|b| ends_with_early_exit(b)).collect();
+
         for var in self.mutable_vars.clone().iter() {
             let snapshot_v = snapshot_versions.get(var).copied().unwrap_or(0);
             let versions: Vec<usize> = branch_versions
@@ -960,11 +973,26 @@ impl MutableVarTracker {
                 .map(|v| v.get(var).copied().unwrap_or(0))
                 .collect();
 
-            if versions.iter().all(|&v| v == versions[0]) {
-                // All branches have same version
-                let branch_v = versions[0];
+            // Only consider versions from branches that don't exit early for unification
+            let continuing_versions: Vec<usize> = versions
+                .iter()
+                .zip(branch_exits_early.iter())
+                .filter(|&(_, exits)| !exits)
+                .map(|(&v, _)| v)
+                .collect();
+
+            // If all branches exit early, no unification needed - just keep the snapshot version
+            if continuing_versions.is_empty() {
+                self.versions.insert(var.clone(), snapshot_v);
+                continue;
+            }
+
+            // Check if all continuing branches have the same version
+            if continuing_versions.iter().all(|&v| v == continuing_versions[0]) {
+                // All continuing branches have the same version
+                let branch_v = continuing_versions[0];
                 if branch_v > snapshot_v {
-                    // A new versioned variable was created in all branches
+                    // A new versioned variable was created in all continuing branches
                     let versioned_var = format!("@mut_{var}_{branch_v}");
                     forward_decls.push(SimpleLine::ForwardDeclaration {
                         var: versioned_var.clone(),
@@ -976,8 +1004,8 @@ impl MutableVarTracker {
                 }
                 self.versions.insert(var.clone(), branch_v);
             } else {
-                // Versions differ - need to unify
-                let max_version = versions.iter().copied().max().unwrap();
+                // Versions differ among continuing branches - need to unify
+                let max_version = continuing_versions.iter().copied().max().unwrap();
                 let unified_version = max_version + 1;
                 let unified_var = format!("@mut_{var}_{unified_version}");
 
@@ -985,8 +1013,12 @@ impl MutableVarTracker {
                     var: unified_var.clone(),
                 });
 
-                // Add equality assignment at the end of each branch
+                // Add equality assignment at the end of each branch that doesn't exit early
                 for (branch_idx, branch_v) in versions.iter().enumerate() {
+                    if branch_exits_early[branch_idx] {
+                        // Skip branches that exit early - they never reach code after the if/match
+                        continue;
+                    }
                     let branch_var_name: Var = format!("@mut_{var}_{branch_v}");
                     branches[branch_idx].push(SimpleLine::equality(unified_var.clone(), branch_var_name));
                 }

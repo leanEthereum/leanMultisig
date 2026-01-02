@@ -163,16 +163,35 @@ fn debug_file_program() {
 }
 
 #[test]
-fn debug_str_program() {
+fn debug_pass() {
     let program = r#"
     fn main() {
-        print(incr(incr(incr(5))));
+        var mut two;
+        if 1 == 1 {
+            two = 2;
+        } else {
+            two = 3;
+        }
+        print(two);
         return;
     }
+   "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
 
-    fn incr(a) inline -> 1 {
-        b = a + 1;
-        return b;
+
+#[test]
+fn test_panics() {
+    let program = r#"
+    fn main() {
+        var mut two;
+        if 1 == 1 {
+            two = 2;
+        } else {
+            panic();
+        }
+        print(two);
+        return;
     }
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
