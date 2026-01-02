@@ -357,9 +357,7 @@ fn powers_of_two(n) -> 1 {
 }
 
 fn mul_extension_ret(a, b) inline -> 1 {
-    c = malloc(DIM);
-    dot_product(a, b, c, 1, EE);
-    return c;
+    return dot_product_ret(a, b, 1, EE);
 }
 
 fn mul_extension(a, b, c) inline {
@@ -612,4 +610,10 @@ fn checked_decompose_bits_small_value(to_decompose, n_bits) -> 1 {
     }
     assert to_decompose == sum;
     return bits;
+}
+
+fn dot_product_ret(a, b, n, mode) inline -> 1 {
+    res = malloc(DIM);
+    dot_product(a, b, res, n, mode);
+    return res;
 }

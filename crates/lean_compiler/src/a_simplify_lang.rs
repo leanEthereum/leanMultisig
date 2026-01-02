@@ -146,6 +146,59 @@ impl SimpleLine {
             arg1: SimpleExpr::zero(),
         }
     }
+
+    /// Returns mutable references to all nested blocks (arms of match, branches of if).
+    pub fn nested_blocks_mut(&mut self) -> Vec<&mut Vec<SimpleLine>> {
+        match self {
+            Self::Match { arms, .. } => arms.iter_mut().collect(),
+            Self::IfNotZero {
+                then_branch,
+                else_branch,
+                ..
+            } => vec![then_branch, else_branch],
+            Self::ForwardDeclaration { .. }
+            | Self::Assignment { .. }
+            | Self::RawAccess { .. }
+            | Self::AssertZero { .. }
+            | Self::FunctionCall { .. }
+            | Self::FunctionRet { .. }
+            | Self::Precompile { .. }
+            | Self::Panic
+            | Self::CustomHint(..)
+            | Self::PrivateInputStart { .. }
+            | Self::Print { .. }
+            | Self::HintMAlloc { .. }
+            | Self::ConstMalloc { .. }
+            | Self::LocationReport { .. }
+            | Self::DebugAssert(..) => vec![],
+        }
+    }
+
+    pub fn nested_blocks(&self) -> Vec<&Vec<SimpleLine>> {
+        match self {
+            Self::Match { arms, .. } => arms.iter().collect(),
+            Self::IfNotZero {
+                then_branch,
+                else_branch,
+                ..
+            } => vec![then_branch, else_branch],
+            Self::ForwardDeclaration { .. }
+            | Self::Assignment { .. }
+            | Self::RawAccess { .. }
+            | Self::AssertZero { .. }
+            | Self::FunctionCall { .. }
+            | Self::FunctionRet { .. }
+            | Self::Precompile { .. }
+            | Self::Panic
+            | Self::CustomHint(..)
+            | Self::PrivateInputStart { .. }
+            | Self::Print { .. }
+            | Self::HintMAlloc { .. }
+            | Self::ConstMalloc { .. }
+            | Self::LocationReport { .. }
+            | Self::DebugAssert(..) => vec![],
+        }
+    }
 }
 
 pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
@@ -262,24 +315,8 @@ fn unroll_loops_in_lines(
     let mut i = 0;
     while i < lines.len() {
         // First, recursively process nested structures
-        match &mut lines[i] {
-            Line::ForLoop { body, .. } => {
-                changed |= unroll_loops_in_lines(body, const_arrays, unroll_counter);
-            }
-            Line::IfCondition {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                changed |= unroll_loops_in_lines(then_branch, const_arrays, unroll_counter);
-                changed |= unroll_loops_in_lines(else_branch, const_arrays, unroll_counter);
-            }
-            Line::Match { arms, .. } => {
-                for (_, arm_body) in arms {
-                    changed |= unroll_loops_in_lines(arm_body, const_arrays, unroll_counter);
-                }
-            }
-            _ => {}
+        for block in lines[i].nested_blocks_mut() {
+            changed |= unroll_loops_in_lines(block, const_arrays, unroll_counter);
         }
 
         // Now try to unroll if it's an unrollable loop
@@ -405,10 +442,10 @@ fn find_assigned_external_vars_helper(
                     }
                 }
             }
-            Line::Match { arms, .. } => {
-                for (_, body) in arms {
+            _ => {
+                for block in line.nested_blocks() {
                     find_assigned_external_vars_helper(
-                        body,
+                        block,
                         const_arrays,
                         internal_vars,
                         external_vars,
@@ -416,40 +453,6 @@ fn find_assigned_external_vars_helper(
                     );
                 }
             }
-            Line::IfCondition {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                find_assigned_external_vars_helper(
-                    then_branch,
-                    const_arrays,
-                    internal_vars,
-                    external_vars,
-                    modified_external_vars,
-                );
-                find_assigned_external_vars_helper(
-                    else_branch,
-                    const_arrays,
-                    internal_vars,
-                    external_vars,
-                    modified_external_vars,
-                );
-            }
-            Line::ForLoop { body, .. } => {
-                find_assigned_external_vars_helper(
-                    body,
-                    const_arrays,
-                    internal_vars,
-                    external_vars,
-                    modified_external_vars,
-                );
-            }
-            Line::ForwardDeclaration { .. }
-            | Line::Assert { .. }
-            | Line::FunctionRet { .. }
-            | Line::Panic
-            | Line::LocationReport { .. } => {}
         }
     }
 }
@@ -582,7 +585,7 @@ fn transform_mutable_in_loops_in_lines(
                 }
 
                 // Add the original body (now modified to use body_vars)
-                new_body.extend(body.drain(..));
+                new_body.append(body);
 
                 // next_idx = buff_idx + 1
                 let next_idx_var = format!("@loop_next_idx_{suffix}");
@@ -599,7 +602,7 @@ fn transform_mutable_in_loops_in_lines(
                 });
 
                 // For each modified variable: buff[next_idx] = body_var
-                for (_var, (buff_name, body_name)) in &var_to_buff {
+                for (buff_name, body_name) in var_to_buff.values() {
                     new_body.push(Line::Statement {
                         targets: vec![AssignmentTarget::ArrayAccess {
                             array: buff_name.clone(),
@@ -640,18 +643,9 @@ fn transform_mutable_in_loops_in_lines(
                 lines.splice(i..=i, new_lines);
                 i += num_new;
             }
-            Line::IfCondition {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                transform_mutable_in_loops_in_lines(then_branch, const_arrays, counter);
-                transform_mutable_in_loops_in_lines(else_branch, const_arrays, counter);
-                i += 1;
-            }
-            Line::Match { arms, .. } => {
-                for (_, body) in arms {
-                    transform_mutable_in_loops_in_lines(body, const_arrays, counter);
+            line @ (Line::IfCondition { .. } | Line::Match { .. }) => {
+                for block in line.nested_blocks_mut() {
+                    transform_mutable_in_loops_in_lines(block, const_arrays, counter);
                 }
                 i += 1;
             }
@@ -672,8 +666,7 @@ fn replace_var_in_lines(lines: &mut [Line], old_var: &Var, new_var: &Var) {
                     *var = new_var.clone();
                 }
             }
-            Line::Statement { targets, value, .. } => {
-                replace_var_in_expr(value, old_var, new_var);
+            Line::Statement { targets, .. } => {
                 for target in targets {
                     match target {
                         AssignmentTarget::Var { var, .. } => {
@@ -690,52 +683,13 @@ fn replace_var_in_lines(lines: &mut [Line], old_var: &Var, new_var: &Var) {
                     }
                 }
             }
-            Line::Assert { boolean, .. } => {
-                replace_var_in_expr(&mut boolean.left, old_var, new_var);
-                replace_var_in_expr(&mut boolean.right, old_var, new_var);
-            }
-            Line::IfCondition {
-                condition,
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                match condition {
-                    Condition::AssumeBoolean(expr) => replace_var_in_expr(expr, old_var, new_var),
-                    Condition::Comparison(cmp) => {
-                        replace_var_in_expr(&mut cmp.left, old_var, new_var);
-                        replace_var_in_expr(&mut cmp.right, old_var, new_var);
-                    }
-                }
-                replace_var_in_lines(then_branch, old_var, new_var);
-                replace_var_in_lines(else_branch, old_var, new_var);
-            }
-            Line::Match { value, arms } => {
-                replace_var_in_expr(value, old_var, new_var);
-                for (_, body) in arms {
-                    replace_var_in_lines(body, old_var, new_var);
-                }
-            }
-            Line::ForLoop {
-                iterator,
-                start,
-                end,
-                body,
-                ..
-            } => {
-                // Don't replace the iterator itself
-                if iterator != old_var {
-                    replace_var_in_expr(start, old_var, new_var);
-                    replace_var_in_expr(end, old_var, new_var);
-                    replace_var_in_lines(body, old_var, new_var);
-                }
-            }
-            Line::FunctionRet { return_data } => {
-                for expr in return_data {
-                    replace_var_in_expr(expr, old_var, new_var);
-                }
-            }
-            Line::Panic | Line::LocationReport { .. } => {}
+            _ => {}
+        }
+        for expr in line.expressions_mut() {
+            replace_var_in_expr(expr, old_var, new_var);
+        }
+        for block in line.nested_blocks_mut() {
+            replace_var_in_lines(block, old_var, new_var);
         }
     }
 }
@@ -743,35 +697,21 @@ fn replace_var_in_lines(lines: &mut [Line], old_var: &Var, new_var: &Var) {
 fn replace_var_in_expr(expr: &mut Expression, old_var: &Var, new_var: &Var) {
     match expr {
         Expression::Value(simple_expr) => {
-            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = simple_expr {
-                if var == old_var {
-                    *var = new_var.clone();
-                }
+            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = simple_expr
+                && var == old_var
+            {
+                *var = new_var.clone();
             }
         }
-        Expression::ArrayAccess { array, index } => {
+        Expression::ArrayAccess { array, .. } => {
             if array == old_var {
                 *array = new_var.clone();
             }
-            for idx in index {
-                replace_var_in_expr(idx, old_var, new_var);
-            }
         }
-        Expression::MathExpr(_, args) => {
-            for arg in args {
-                replace_var_in_expr(arg, old_var, new_var);
-            }
-        }
-        Expression::FunctionCall { args, .. } => {
-            for arg in args {
-                replace_var_in_expr(arg, old_var, new_var);
-            }
-        }
-        Expression::Len { indices, .. } => {
-            for idx in indices {
-                replace_var_in_expr(idx, old_var, new_var);
-            }
-        }
+        _ => {}
+    }
+    for inner_expr in expr.inner_exprs_mut() {
+        replace_var_in_expr(inner_expr, old_var, new_var);
     }
 }
 
@@ -781,26 +721,22 @@ fn check_function_always_returns(func: &SimpleFunction) -> Result<(), String> {
 }
 
 fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine]) -> Result<(), String> {
-    match instructions.last() {
-        Some(SimpleLine::Match { value: _, arms }) => {
-            for arm in arms {
-                check_block_always_returns(function_name, arm)?;
+    if let Some(last_instruction) = instructions.last() {
+        if matches!(
+            last_instruction,
+            SimpleLine::FunctionRet { return_data: _ } | SimpleLine::Panic
+        ) {
+            return Ok(());
+        }
+        let inner_blocks = last_instruction.nested_blocks();
+        if !inner_blocks.is_empty() {
+            for block in inner_blocks {
+                check_block_always_returns(function_name, block)?;
             }
-            Ok(())
+            return Ok(());
         }
-        Some(SimpleLine::IfNotZero {
-            condition: _,
-            then_branch,
-            else_branch,
-            line_number: _,
-        }) => {
-            check_block_always_returns(function_name, then_branch)?;
-            check_block_always_returns(function_name, else_branch)
-        }
-        Some(SimpleLine::FunctionRet { return_data: _ }) => Ok(()),
-        Some(SimpleLine::Panic) => Ok(()),
-        _ => Err(format!("Cannot prove that function always returns: {function_name}")),
     }
+    Err(format!("Cannot prove that function always returns: {function_name}"))
 }
 
 /// Analyzes the program to verify that each variable is defined in each context where it is used.
@@ -895,30 +831,11 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
 
 /// Analyzes the expression to verify that each variable is defined in the given context.
 fn check_expr_scoping(expr: &Expression, ctx: &Context) {
-    match expr {
-        Expression::Value(simple_expr) => {
-            check_simple_expr_scoping(simple_expr, ctx);
-        }
-        Expression::ArrayAccess { array: _, index } => {
-            for idx in index {
-                check_expr_scoping(idx, ctx);
-            }
-        }
-        Expression::MathExpr(_, args) => {
-            for arg in args {
-                check_expr_scoping(arg, ctx);
-            }
-        }
-        Expression::FunctionCall { args, .. } => {
-            for arg in args {
-                check_expr_scoping(arg, ctx);
-            }
-        }
-        Expression::Len { indices, .. } => {
-            for idx in indices {
-                check_expr_scoping(idx, ctx);
-            }
-        }
+    if let Expression::Value(simple_expr) = expr {
+        check_simple_expr_scoping(simple_expr, ctx);
+    }
+    for inner_expr in expr.inner_exprs() {
+        check_expr_scoping(inner_expr, ctx);
     }
 }
 
@@ -928,8 +845,7 @@ fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
         SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) => {
             assert!(ctx.defines(v), "Variable used but not defined: {v}");
         }
-        SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) => {}
-        SimpleExpr::Constant(_) => {}
+        SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) | SimpleExpr::Constant(_) => {}
     }
 }
 
@@ -1946,24 +1862,14 @@ fn simplify_expr(
 
 fn remove_forward_declarations(lines: &mut Vec<SimpleLine>, var: &Var) {
     for i in (0..lines.len()).rev() {
-        match &mut lines[i] {
-            SimpleLine::ForwardDeclaration { var: decl_var } if decl_var == var => {
-                lines.remove(i);
+        if let SimpleLine::ForwardDeclaration { var: decl_var } = &lines[i]
+            && decl_var == var
+        {
+            lines.remove(i);
+        } else {
+            for block in lines[i].nested_blocks_mut() {
+                remove_forward_declarations(block, var);
             }
-            SimpleLine::Match { arms, .. } => {
-                for statements in arms {
-                    remove_forward_declarations(statements, var);
-                }
-            }
-            SimpleLine::IfNotZero {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                remove_forward_declarations(then_branch, var);
-                remove_forward_declarations(else_branch, var);
-            }
-            _ => {}
         }
     }
 }
@@ -2098,7 +2004,7 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
         Expression::Value(value) => {
             inline_simple_expr(value, args, inlining_count);
         }
-        Expression::ArrayAccess { array, index } => {
+        Expression::ArrayAccess { array, .. } => {
             if let Some(replacement) = args.get(array) {
                 let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_array)) = replacement else {
                     panic!("Cannot inline array access with non-variable array argument");
@@ -2107,25 +2013,11 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
             } else {
                 *array = format!("@inlined_var_{inlining_count}_{array}");
             }
-            for idx in index {
-                inline_expr(idx, args, inlining_count);
-            }
         }
-        Expression::MathExpr(_, math_args) => {
-            for arg in math_args {
-                inline_expr(arg, args, inlining_count);
-            }
-        }
-        Expression::FunctionCall { args: func_args, .. } => {
-            for arg in func_args {
-                inline_expr(arg, args, inlining_count);
-            }
-        }
-        Expression::Len { indices, .. } => {
-            for idx in indices {
-                inline_expr(idx, args, inlining_count);
-            }
-        }
+        _ => {}
+    }
+    for inner_expr in expr.inner_exprs_mut() {
+        inline_expr(inner_expr, args, inlining_count);
     }
 }
 
@@ -2135,16 +2027,6 @@ fn inline_lines(
     res: &[AssignmentTarget],
     inlining_count: usize,
 ) {
-    let inline_comparison = |comparison: &mut BooleanExpr<Expression>| {
-        inline_expr(&mut comparison.left, args, inlining_count);
-        inline_expr(&mut comparison.right, args, inlining_count);
-    };
-
-    let inline_condition = |condition: &mut Condition| match condition {
-        Condition::Comparison(comparison) => inline_comparison(comparison),
-        Condition::AssumeBoolean(expr) => inline_expr(expr, args, inlining_count),
-    };
-
     let inline_internal_var = |var: &mut Var| {
         if let Some(replacement) = args.get(var) {
             // Variable is a mutable argument - replace with the caller's variable
@@ -2160,24 +2042,25 @@ fn inline_lines(
 
     let mut lines_to_replace = vec![];
     for (i, line) in lines.iter_mut().enumerate() {
+        for expr in line.expressions_mut() {
+            inline_expr(expr, args, inlining_count);
+        }
+
+        for block in line.nested_blocks_mut() {
+            inline_lines(block, args, res, inlining_count);
+        }
+
         match line {
             Line::ForwardDeclaration { var, .. } => {
                 inline_internal_var(var);
             }
-            Line::Match { value, arms } => {
-                inline_expr(value, args, inlining_count);
-                for (_, statements) in arms {
-                    inline_lines(statements, args, res, inlining_count);
-                }
-            }
-            Line::Statement { targets, value, .. } => {
-                inline_expr(value, args, inlining_count);
+            Line::Statement { targets, .. } => {
                 for target in targets {
                     match target {
                         AssignmentTarget::Var { var, .. } => {
                             inline_internal_var(var);
                         }
-                        AssignmentTarget::ArrayAccess { array, index } => {
+                        AssignmentTarget::ArrayAccess { array, .. } => {
                             if let Some(replacement) = args.get(array) {
                                 // Array is a function argument - replace with the argument's var name
                                 let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_array)) = replacement else {
@@ -2188,35 +2071,16 @@ fn inline_lines(
                                 // Internal variable - rename with inlining prefix
                                 *array = format!("@inlined_var_{inlining_count}_{array}");
                             }
-                            inline_expr(index, args, inlining_count);
                         }
                     }
                 }
             }
-            Line::IfCondition {
-                condition,
-                then_branch,
-                else_branch,
-                line_number: _,
-            } => {
-                inline_condition(condition);
-
-                inline_lines(then_branch, args, res, inlining_count);
-                inline_lines(else_branch, args, res, inlining_count);
-            }
-            Line::Assert { boolean, .. } => {
-                inline_comparison(boolean);
-            }
             Line::FunctionRet { return_data } => {
                 assert_eq!(return_data.len(), res.len());
-
-                for expr in return_data.iter_mut() {
-                    inline_expr(expr, args, inlining_count);
-                }
                 lines_to_replace.push((
                     i,
                     res.iter()
-                        .zip(return_data)
+                        .zip(return_data.iter())
                         .map(|(target, expr)| Line::Statement {
                             targets: vec![target.clone()],
                             value: expr.clone(),
@@ -2225,20 +2089,14 @@ fn inline_lines(
                         .collect::<Vec<_>>(),
                 ));
             }
-            Line::ForLoop {
-                iterator,
-                start,
-                end,
-                body,
-                unroll: _,
-                line_number: _,
-            } => {
-                inline_lines(body, args, res, inlining_count);
+            Line::ForLoop { iterator, .. } => {
                 inline_internal_var(iterator);
-                inline_expr(start, args, inlining_count);
-                inline_expr(end, args, inlining_count);
             }
-            Line::Panic | Line::LocationReport { .. } => {}
+            Line::Match { .. }
+            | Line::IfCondition { .. }
+            | Line::Assert { .. }
+            | Line::Panic
+            | Line::LocationReport { .. } => {}
         }
     }
     for (i, new_lines) in lines_to_replace.into_iter().rev() {
@@ -2249,34 +2107,16 @@ fn inline_lines(
 fn vars_in_expression(expr: &Expression, const_arrays: &BTreeMap<String, ConstArrayValue>) -> BTreeSet<Var> {
     let mut vars = BTreeSet::new();
     match expr {
-        Expression::Value(value) => {
-            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = value {
-                vars.insert(var.clone());
-            }
+        Expression::Value(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var))) => {
+            vars.insert(var.clone());
         }
-        Expression::ArrayAccess { array, index } => {
-            if !const_arrays.contains_key(array) {
-                vars.insert(array.clone());
-            }
-            for idx in index {
-                vars.extend(vars_in_expression(idx, const_arrays));
-            }
+        Expression::ArrayAccess { array, .. } if !const_arrays.contains_key(array) => {
+            vars.insert(array.clone());
         }
-        Expression::MathExpr(_, args) => {
-            for arg in args {
-                vars.extend(vars_in_expression(arg, const_arrays));
-            }
-        }
-        Expression::FunctionCall { args, .. } => {
-            for arg in args {
-                vars.extend(vars_in_expression(arg, const_arrays));
-            }
-        }
-        Expression::Len { indices, .. } => {
-            for idx in indices {
-                vars.extend(vars_in_expression(idx, const_arrays));
-            }
-        }
+        _ => {}
+    }
+    for inner_expr in expr.inner_exprs() {
+        vars.extend(vars_in_expression(inner_expr, const_arrays));
     }
     vars
 }
@@ -2427,30 +2267,16 @@ fn replace_vars_for_unroll_in_expr(
             }
             SimpleExpr::Constant(_) | SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) => {}
         },
-        Expression::ArrayAccess { array, index } => {
+        Expression::ArrayAccess { array, .. } => {
             assert!(array != iterator, "Weird");
             if internal_vars.contains(array) {
                 *array = format!("@unrolled_{unroll_index}_{iterator_value}_{array}");
             }
-            for index in index {
-                replace_vars_for_unroll_in_expr(index, iterator, unroll_index, iterator_value, internal_vars);
-            }
         }
-        Expression::MathExpr(_, args) => {
-            for arg in args {
-                replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
-            }
-        }
-        Expression::FunctionCall { args, .. } => {
-            for arg in args {
-                replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
-            }
-        }
-        Expression::Len { indices, .. } => {
-            for idx in indices {
-                replace_vars_for_unroll_in_expr(idx, iterator, unroll_index, iterator_value, internal_vars);
-            }
-        }
+        _ => {}
+    }
+    for inner_expr in expr.inner_exprs_mut() {
+        replace_vars_for_unroll_in_expr(inner_expr, iterator, unroll_index, iterator_value, internal_vars);
     }
 }
 
@@ -2462,18 +2288,17 @@ fn replace_vars_for_unroll(
     internal_vars: &BTreeSet<Var>,
 ) {
     for line in lines {
+        for expr in line.expressions_mut() {
+            replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
+        }
+        for block in line.nested_blocks_mut() {
+            replace_vars_for_unroll(block, iterator, unroll_index, iterator_value, internal_vars);
+        }
         match line {
-            Line::Match { value, arms } => {
-                replace_vars_for_unroll_in_expr(value, iterator, unroll_index, iterator_value, internal_vars);
-                for (_, statements) in arms {
-                    replace_vars_for_unroll(statements, iterator, unroll_index, iterator_value, internal_vars);
-                }
-            }
             Line::ForwardDeclaration { var, .. } => {
                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
             }
-            Line::Statement { targets, value, .. } => {
-                replace_vars_for_unroll_in_expr(value, iterator, unroll_index, iterator_value, internal_vars);
+            Line::Statement { targets, .. } => {
                 for target in targets {
                     match target {
                         AssignmentTarget::Var { var, .. } => {
@@ -2483,89 +2308,23 @@ fn replace_vars_for_unroll(
                                 *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
                             }
                         }
-                        AssignmentTarget::ArrayAccess { array, index } => {
+                        AssignmentTarget::ArrayAccess { array, .. } => {
                             assert!(array != iterator, "Weird");
                             if internal_vars.contains(array) {
                                 *array = format!("@unrolled_{unroll_index}_{iterator_value}_{array}");
                             }
-                            replace_vars_for_unroll_in_expr(
-                                index,
-                                iterator,
-                                unroll_index,
-                                iterator_value,
-                                internal_vars,
-                            );
                         }
                     }
                 }
             }
-            Line::Assert { boolean, .. } => {
-                replace_vars_for_unroll_in_expr(
-                    &mut boolean.left,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                replace_vars_for_unroll_in_expr(
-                    &mut boolean.right,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-            }
-            Line::IfCondition {
-                condition,
-                then_branch,
-                else_branch,
-                line_number: _,
-            } => {
-                match condition {
-                    Condition::Comparison(cond) => {
-                        replace_vars_for_unroll_in_expr(
-                            &mut cond.left,
-                            iterator,
-                            unroll_index,
-                            iterator_value,
-                            internal_vars,
-                        );
-                        replace_vars_for_unroll_in_expr(
-                            &mut cond.right,
-                            iterator,
-                            unroll_index,
-                            iterator_value,
-                            internal_vars,
-                        );
-                    }
-                    Condition::AssumeBoolean(expr) => {
-                        replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
-                    }
-                }
-
-                replace_vars_for_unroll(then_branch, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll(else_branch, iterator, unroll_index, iterator_value, internal_vars);
-            }
             Line::ForLoop {
                 iterator: other_iterator,
-                start,
-                end,
-                body,
-                unroll: _,
-                line_number: _,
+                ..
             } => {
                 assert!(other_iterator != iterator);
                 *other_iterator = format!("@unrolled_{unroll_index}_{iterator_value}_{other_iterator}");
-                replace_vars_for_unroll_in_expr(start, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll_in_expr(end, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll(body, iterator, unroll_index, iterator_value, internal_vars);
             }
-            Line::FunctionRet { return_data } => {
-                for ret in return_data {
-                    replace_vars_for_unroll_in_expr(ret, iterator, unroll_index, iterator_value, internal_vars);
-                }
-            }
-            Line::Panic | Line::LocationReport { .. } => {}
+            _ => {}
         }
     }
 }
