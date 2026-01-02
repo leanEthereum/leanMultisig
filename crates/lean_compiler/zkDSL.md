@@ -191,6 +191,10 @@ for i in rev 0..10 { ... }       // reverse: 9, 8, ..., 0
 ```
 Use `unroll` when bounds are const or compile-time expansion is needed.
 
+Loops limitations:
+- no "continue" or "break" are supported yet
+- the "return" keyword is not supported inside the body of a normal (non-unrolled) loop (because under the hood normal loops are transformed into recursive functions)
+
 ## Expressions
 
 ### Arithmetic
