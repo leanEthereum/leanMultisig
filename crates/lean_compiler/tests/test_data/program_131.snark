@@ -1,0 +1,11 @@
+// Test: Simple mutable variable in non-unrolled loop
+// Sum of 1 to 10
+
+fn main() {
+    mut s = 0;
+    for i in 1..11 {
+        s += i;
+    }
+    assert s == 55;
+    return;
+}

@@ -133,25 +133,19 @@ fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
 }
 
 fn sumcheck_verify_helper(fs_state, n_steps, claimed_sum, const degree, challenges) -> 2 {
-    fs_states_a = malloc(n_steps + 1);
-    fs_states_a[0] = fs_state;
-
-    claimed_sums = malloc(n_steps + 1);
-    claimed_sums[0] = claimed_sum;
+    mut fs = fs_state;
+    mut current_claimed_sum = claimed_sum;
 
     for sc_round in 0..n_steps {
-        fs_states_a[sc_round + 1], poly = fs_receive_ef(fs_states_a[sc_round], degree + 1);
+        fs, poly = fs_receive_ef(fs, degree + 1);
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree);
-        copy_5(sum_over_boolean_hypercube, claimed_sums[sc_round]);
-        rand = fs_sample_ef(fs_states_a[sc_round + 1]);
-        claimed_sums[sc_round + 1] = univariate_polynomial_eval(poly, rand, degree);
+        copy_5(sum_over_boolean_hypercube, current_claimed_sum);
+        rand = fs_sample_ef(fs);
+        current_claimed_sum = univariate_polynomial_eval(poly, rand, degree);
         copy_5(rand, challenges + sc_round * DIM);
     }
 
-    new_state = fs_states_a[n_steps];
-    new_claimed_sum = claimed_sums[n_steps];
-
-    return new_state, new_claimed_sum;
+    return fs, current_claimed_sum;
 }
 
 fn sample_stir_indexes_and_fold(mut fs, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits) -> 3 {
@@ -162,8 +156,6 @@ fn sample_stir_indexes_and_fold(mut fs, num_queries, merkle_leaves_in_basefield,
     fs, stir_challenges_indexes = sample_bits_dynamic(fs, num_queries, folded_domain_size);
 
     answers = malloc(num_queries); // a vector of pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
-    fs_states_b = malloc(num_queries + 1);
-    fs_states_b[0] = fs;
 
     var n_chunks_per_answer;
     // the number of chunk of 8 field elements per merkle leaf opened
@@ -174,10 +166,9 @@ fn sample_stir_indexes_and_fold(mut fs, num_queries, merkle_leaves_in_basefield,
     }
 
     for i in 0..num_queries {
-        fs_states_b[i + 1], answer = fs_hint(fs_states_b[i], n_chunks_per_answer);
+        fs, answer = fs_hint(fs, n_chunks_per_answer);
         answers[i] = answer;
     }
-    fs = fs_states_b[num_queries];
 
     leaf_hashes = malloc(num_queries); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
     batch_hash_slice(num_queries, answers, leaf_hashes, n_chunks_per_answer / VECTOR_LEN);

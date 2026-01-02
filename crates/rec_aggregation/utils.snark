@@ -153,13 +153,14 @@ fn eq_mle_extension(a, b, n) -> 1 {
         }
     }
 
-    prods = malloc(n*DIM);
-    copy_5(buff, prods);
+    mut current_prod = buff;
     for i in 0..n - 1 {
-        mul_extension(prods + i*DIM, buff + (i + 1)*DIM, prods + (i + 1)*DIM);
+        next_prod = malloc(DIM);
+        mul_extension(current_prod, buff + (i + 1)*DIM, next_prod);
+        current_prod = next_prod;
     }
 
-    return prods + (n - 1) * DIM;
+    return current_prod;
 }
 
 fn eq_mle_extension_base(a, b, n) -> 1 {
@@ -603,14 +604,12 @@ fn checked_decompose_bits(a, k) -> 2 {
 fn checked_decompose_bits_small_value(to_decompose, n_bits) -> 1 {
     bits = malloc(n_bits);
     hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN);
-    sums = malloc(n_bits);
-    powers_of_2 = malloc(n_bits);
-    sums[0] = bits[n_bits - 1];
-    powers_of_2[0] = 1;
+    mut sum = bits[n_bits - 1];
+    mut power_of_2 = 1;
     for i in 1..n_bits {
-        powers_of_2[i] = powers_of_2[i - 1] * 2;
-        sums[i] = sums[i - 1] + bits[n_bits - 1 - i] * powers_of_2[i];
+        power_of_2 *= 2;
+        sum += bits[n_bits - 1 - i] * power_of_2;
     }
-    assert to_decompose == sums[n_bits - 1];
+    assert to_decompose == sum;
     return bits;
 }

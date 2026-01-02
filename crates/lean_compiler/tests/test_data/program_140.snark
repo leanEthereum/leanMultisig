@@ -1,0 +1,15 @@
+// Test: Three levels of nested non-unrolled loops with mutable variable
+
+fn main() {
+    mut count = 0;
+    for i in 0..2 {
+        for j in 0..3 {
+            for k in 0..4 {
+                count += 1;
+            }
+        }
+    }
+    // Total iterations: 2 * 3 * 4 = 24
+    assert count == 24;
+    return;
+}

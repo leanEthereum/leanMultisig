@@ -181,6 +181,9 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
         program.functions.remove(&name);
     }
 
+    let mut mutable_loop_counter = MutableLoopTransformCounter::default();
+    transform_mutable_in_loops_in_program(&mut program, &mut mutable_loop_counter);
+
     let mut new_functions = BTreeMap::new();
     let mut counters = Counters::default();
     let mut const_malloc = ConstMalloc::default();
@@ -318,6 +321,467 @@ fn unroll_loops_in_lines(
         i += 1;
     }
     changed
+}
+
+// ============================================================================
+// TRANSFORMATION: Mutable variables in non-unrolled loops
+// ============================================================================
+//
+// This transformation handles mutable variables that are modified inside
+// non-unrolled loops by using buffers to store intermediate values.
+//
+// For a loop like:
+//   for i in start..end { x += i; }
+//
+// We transform it to:
+//   size = end - start;
+//   x_buff = malloc(size + 1);
+//   x_buff[0] = x;
+//   for i in start..end {
+//       buff_idx = i - start;
+//       mut x_body = x_buff[buff_idx];
+//       x_body += i;
+//       x_buff[buff_idx + 1] = x_body;
+//   }
+//   x = x_buff[size];
+
+/// Counter for generating unique variable names in the mutable loop transformation
+#[derive(Default)]
+struct MutableLoopTransformCounter {
+    counter: usize,
+}
+
+impl MutableLoopTransformCounter {
+    fn next_suffix(&mut self) -> usize {
+        let c = self.counter;
+        self.counter += 1;
+        c
+    }
+}
+
+/// Finds mutable variables that are:
+/// 1. Defined OUTSIDE this block (external)
+/// 2. Re-assigned INSIDE this block
+fn find_modified_external_vars(lines: &[Line], const_arrays: &BTreeMap<String, ConstArrayValue>) -> BTreeSet<Var> {
+    // Use the existing find_variable_usage to get external variables
+    // (variables that are read but not defined in this block)
+    let (internal_vars, external_vars) = find_variable_usage(lines, const_arrays);
+
+    // Now find which external variables are assigned to (modified)
+    let mut modified_external_vars = BTreeSet::new();
+    find_assigned_external_vars_helper(
+        lines,
+        const_arrays,
+        &internal_vars,
+        &external_vars,
+        &mut modified_external_vars,
+    );
+
+    modified_external_vars
+}
+
+/// Helper to find external variables that are assigned to inside a block.
+fn find_assigned_external_vars_helper(
+    lines: &[Line],
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    internal_vars: &BTreeSet<Var>,
+    external_vars: &BTreeSet<Var>,
+    modified_external_vars: &mut BTreeSet<Var>,
+) {
+    for line in lines {
+        match line {
+            Line::Statement { targets, .. } => {
+                for target in targets {
+                    if let AssignmentTarget::Var { var, is_mutable } = target {
+                        // Only non-mutable assignments can be modifications
+                        // (is_mutable: true means it's the initial declaration)
+                        if !*is_mutable
+                            && external_vars.contains(var)
+                            && !internal_vars.contains(var)
+                            && !const_arrays.contains_key(var)
+                        {
+                            modified_external_vars.insert(var.clone());
+                        }
+                    }
+                }
+            }
+            Line::Match { arms, .. } => {
+                for (_, body) in arms {
+                    find_assigned_external_vars_helper(
+                        body,
+                        const_arrays,
+                        internal_vars,
+                        external_vars,
+                        modified_external_vars,
+                    );
+                }
+            }
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                find_assigned_external_vars_helper(
+                    then_branch,
+                    const_arrays,
+                    internal_vars,
+                    external_vars,
+                    modified_external_vars,
+                );
+                find_assigned_external_vars_helper(
+                    else_branch,
+                    const_arrays,
+                    internal_vars,
+                    external_vars,
+                    modified_external_vars,
+                );
+            }
+            Line::ForLoop { body, .. } => {
+                find_assigned_external_vars_helper(
+                    body,
+                    const_arrays,
+                    internal_vars,
+                    external_vars,
+                    modified_external_vars,
+                );
+            }
+            Line::ForwardDeclaration { .. }
+            | Line::Assert { .. }
+            | Line::FunctionRet { .. }
+            | Line::Panic
+            | Line::LocationReport { .. } => {}
+        }
+    }
+}
+
+fn transform_mutable_in_loops_in_program(program: &mut Program, counter: &mut MutableLoopTransformCounter) {
+    for func in program.functions.values_mut() {
+        transform_mutable_in_loops_in_lines(&mut func.body, &program.const_arrays, counter);
+    }
+}
+
+fn transform_mutable_in_loops_in_lines(
+    lines: &mut Vec<Line>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    counter: &mut MutableLoopTransformCounter,
+) {
+    let mut i = 0;
+    while i < lines.len() {
+        match &mut lines[i] {
+            Line::ForLoop { body, unroll: true, .. } => {
+                transform_mutable_in_loops_in_lines(body, const_arrays, counter);
+                i += 1;
+            }
+            Line::ForLoop {
+                iterator,
+                start,
+                end,
+                body,
+                unroll: false,
+                line_number,
+            } => {
+                transform_mutable_in_loops_in_lines(body, const_arrays, counter);
+                let modified_vars = find_modified_external_vars(body, const_arrays);
+
+                if modified_vars.is_empty() {
+                    // No mutable variables modified, no transformation needed
+                    i += 1;
+                    continue;
+                }
+
+                let suffix = counter.next_suffix();
+                let line_num = *line_number;
+
+                // Generate the transformed code
+                let mut new_lines = Vec::new();
+
+                // Create size variable: @loop_size_{suffix} = end - start
+                let size_var = format!("@loop_size_{suffix}");
+                new_lines.push(Line::Statement {
+                    targets: vec![AssignmentTarget::Var {
+                        var: size_var.clone(),
+                        is_mutable: false,
+                    }],
+                    value: Expression::MathExpr(MathOperation::Sub, vec![end.clone(), start.clone()]),
+                    line_number: line_num,
+                });
+
+                let mut var_to_buff: BTreeMap<Var, (Var, Var)> = BTreeMap::new(); // var -> (buff_name, body_name)
+
+                for var in &modified_vars {
+                    let buff_name = format!("@loop_buff_{var}_{suffix}");
+                    let body_name = format!("@loop_body_{var}_{suffix}");
+
+                    // buff = malloc(size + 1)
+                    new_lines.push(Line::Statement {
+                        targets: vec![AssignmentTarget::Var {
+                            var: buff_name.clone(),
+                            is_mutable: false,
+                        }],
+                        value: Expression::FunctionCall {
+                            function_name: "malloc".to_string(),
+                            args: vec![Expression::MathExpr(
+                                MathOperation::Add,
+                                vec![
+                                    Expression::Value(VarOrConstMallocAccess::Var(size_var.clone()).into()),
+                                    Expression::scalar(1),
+                                ],
+                            )],
+                        },
+                        line_number: line_num,
+                    });
+
+                    // buff[0] = var (current value)
+                    new_lines.push(Line::Statement {
+                        targets: vec![AssignmentTarget::ArrayAccess {
+                            array: buff_name.clone(),
+                            index: Box::new(Expression::zero()),
+                        }],
+                        value: Expression::Value(VarOrConstMallocAccess::Var(var.clone()).into()),
+                        line_number: line_num,
+                    });
+
+                    var_to_buff.insert(var.clone(), (buff_name, body_name));
+                }
+
+                // Transform the loop body
+                let iterator = iterator.clone();
+                let mut new_body = Vec::new();
+
+                // buff_idx = i - start
+                let buff_idx_var = format!("@loop_buff_idx_{suffix}");
+                new_body.push(Line::Statement {
+                    targets: vec![AssignmentTarget::Var {
+                        var: buff_idx_var.clone(),
+                        is_mutable: false,
+                    }],
+                    value: Expression::MathExpr(
+                        MathOperation::Sub,
+                        vec![
+                            Expression::Value(VarOrConstMallocAccess::Var(iterator.clone()).into()),
+                            start.clone(),
+                        ],
+                    ),
+                    line_number: line_num,
+                });
+
+                // For each modified variable: mut body_var = buff[buff_idx]
+                for (var, (buff_name, body_name)) in &var_to_buff {
+                    new_body.push(Line::Statement {
+                        targets: vec![AssignmentTarget::Var {
+                            var: body_name.clone(),
+                            is_mutable: true,
+                        }],
+                        value: Expression::ArrayAccess {
+                            array: buff_name.clone(),
+                            index: vec![Expression::Value(
+                                VarOrConstMallocAccess::Var(buff_idx_var.clone()).into(),
+                            )],
+                        },
+                        line_number: line_num,
+                    });
+
+                    // Replace all references to var with body_name in the original body
+                    replace_var_in_lines(body, var, body_name);
+                }
+
+                // Add the original body (now modified to use body_vars)
+                new_body.extend(body.drain(..));
+
+                // next_idx = buff_idx + 1
+                let next_idx_var = format!("@loop_next_idx_{suffix}");
+                new_body.push(Line::Statement {
+                    targets: vec![AssignmentTarget::Var {
+                        var: next_idx_var.clone(),
+                        is_mutable: false,
+                    }],
+                    value: Expression::MathExpr(
+                        MathOperation::Add,
+                        vec![
+                            Expression::Value(VarOrConstMallocAccess::Var(buff_idx_var.clone()).into()),
+                            Expression::scalar(1),
+                        ],
+                    ),
+                    line_number: line_num,
+                });
+
+                // For each modified variable: buff[next_idx] = body_var
+                for (_var, (buff_name, body_name)) in &var_to_buff {
+                    new_body.push(Line::Statement {
+                        targets: vec![AssignmentTarget::ArrayAccess {
+                            array: buff_name.clone(),
+                            index: Box::new(Expression::Value(
+                                VarOrConstMallocAccess::Var(next_idx_var.clone()).into(),
+                            )),
+                        }],
+                        value: Expression::Value(VarOrConstMallocAccess::Var(body_name.clone()).into()),
+                        line_number: line_num,
+                    });
+                }
+
+                // Create the new loop
+                new_lines.push(Line::ForLoop {
+                    iterator: iterator.clone(),
+                    start: start.clone(),
+                    end: end.clone(),
+                    body: new_body,
+                    unroll: false,
+                    line_number: line_num,
+                });
+
+                // After the loop: var = buff[size]
+                for (var, (buff_name, _body_name)) in &var_to_buff {
+                    new_lines.push(Line::Statement {
+                        targets: vec![AssignmentTarget::Var {
+                            var: var.clone(),
+                            is_mutable: false,
+                        }],
+                        value: Expression::ArrayAccess {
+                            array: buff_name.clone(),
+                            index: vec![Expression::Value(VarOrConstMallocAccess::Var(size_var.clone()).into())],
+                        },
+                        line_number: line_num,
+                    });
+                }
+
+                // Replace the original loop with the new lines
+                let num_new = new_lines.len();
+                lines.splice(i..=i, new_lines);
+                i += num_new;
+            }
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                transform_mutable_in_loops_in_lines(then_branch, const_arrays, counter);
+                transform_mutable_in_loops_in_lines(else_branch, const_arrays, counter);
+                i += 1;
+            }
+            Line::Match { arms, .. } => {
+                for (_, body) in arms {
+                    transform_mutable_in_loops_in_lines(body, const_arrays, counter);
+                }
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+}
+
+/// Replaces all occurrences of a variable with another variable in a list of lines.
+/// This is used to replace references to mutable variables with their body counterparts.
+fn replace_var_in_lines(lines: &mut [Line], old_var: &Var, new_var: &Var) {
+    for line in lines {
+        match line {
+            Line::ForwardDeclaration { var, .. } => {
+                if var == old_var {
+                    *var = new_var.clone();
+                }
+            }
+            Line::Statement { targets, value, .. } => {
+                replace_var_in_expr(value, old_var, new_var);
+                for target in targets {
+                    match target {
+                        AssignmentTarget::Var { var, .. } => {
+                            if var == old_var {
+                                *var = new_var.clone();
+                            }
+                        }
+                        AssignmentTarget::ArrayAccess { array, index } => {
+                            if array == old_var {
+                                *array = new_var.clone();
+                            }
+                            replace_var_in_expr(index, old_var, new_var);
+                        }
+                    }
+                }
+            }
+            Line::Assert { boolean, .. } => {
+                replace_var_in_expr(&mut boolean.left, old_var, new_var);
+                replace_var_in_expr(&mut boolean.right, old_var, new_var);
+            }
+            Line::IfCondition {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                match condition {
+                    Condition::AssumeBoolean(expr) => replace_var_in_expr(expr, old_var, new_var),
+                    Condition::Comparison(cmp) => {
+                        replace_var_in_expr(&mut cmp.left, old_var, new_var);
+                        replace_var_in_expr(&mut cmp.right, old_var, new_var);
+                    }
+                }
+                replace_var_in_lines(then_branch, old_var, new_var);
+                replace_var_in_lines(else_branch, old_var, new_var);
+            }
+            Line::Match { value, arms } => {
+                replace_var_in_expr(value, old_var, new_var);
+                for (_, body) in arms {
+                    replace_var_in_lines(body, old_var, new_var);
+                }
+            }
+            Line::ForLoop {
+                iterator,
+                start,
+                end,
+                body,
+                ..
+            } => {
+                // Don't replace the iterator itself
+                if iterator != old_var {
+                    replace_var_in_expr(start, old_var, new_var);
+                    replace_var_in_expr(end, old_var, new_var);
+                    replace_var_in_lines(body, old_var, new_var);
+                }
+            }
+            Line::FunctionRet { return_data } => {
+                for expr in return_data {
+                    replace_var_in_expr(expr, old_var, new_var);
+                }
+            }
+            Line::Panic | Line::LocationReport { .. } => {}
+        }
+    }
+}
+
+fn replace_var_in_expr(expr: &mut Expression, old_var: &Var, new_var: &Var) {
+    match expr {
+        Expression::Value(simple_expr) => {
+            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = simple_expr {
+                if var == old_var {
+                    *var = new_var.clone();
+                }
+            }
+        }
+        Expression::ArrayAccess { array, index } => {
+            if array == old_var {
+                *array = new_var.clone();
+            }
+            for idx in index {
+                replace_var_in_expr(idx, old_var, new_var);
+            }
+        }
+        Expression::MathExpr(_, args) => {
+            for arg in args {
+                replace_var_in_expr(arg, old_var, new_var);
+            }
+        }
+        Expression::FunctionCall { args, .. } => {
+            for arg in args {
+                replace_var_in_expr(arg, old_var, new_var);
+            }
+        }
+        Expression::Len { indices, .. } => {
+            for idx in indices {
+                replace_var_in_expr(idx, old_var, new_var);
+            }
+        }
+    }
 }
 
 /// Analyzes a simplified function to verify that it returns on each code path.
