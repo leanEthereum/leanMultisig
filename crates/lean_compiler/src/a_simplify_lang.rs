@@ -2484,13 +2484,19 @@ fn extract_inlined_calls_from_expr(
                     }],
                     value: Expression::FunctionCall {
                         function_name: function_name.clone(),
-                        args: args.clone(),
+                        args: args_new.clone(),
                     },
                     line_number: 0,
                 });
                 Ok((Expression::var(aux_var), lines))
             } else {
-                Ok((expr.clone(), lines))
+                Ok((
+                    Expression::FunctionCall {
+                        function_name: function_name.clone(),
+                        args: args_new,
+                    },
+                    lines,
+                ))
             }
         }
         Expression::Len { array, indices } => {
@@ -2561,63 +2567,53 @@ fn handle_inlined_functions_helper(
             Line::Statement {
                 targets,
                 value: Expression::FunctionCall { function_name, args },
-                line_number: _,
-            } => {
-                if let Some(func) = inlined_functions.get(function_name) {
-                    let mut inlined_lines = vec![];
+                ..
+            } if inlined_functions.contains_key(function_name) => {
+                let func = inlined_functions.get(function_name).unwrap();
+                let mut inlined_lines = vec![];
 
-                    // Only add forward declarations for variable targets, not array accesses
-                    for target in targets.iter() {
-                        if let AssignmentTarget::Var { var, .. } = target
-                            && !ctx.defines(var)
-                        {
-                            inlined_lines.push(Line::ForwardDeclaration {
-                                var: var.clone(),
-                                mutable: false,
-                            });
-                            ctx.add_var(var);
-                        }
+                // Only add forward declarations for variable targets, not array accesses
+                for target in targets.iter() {
+                    if let AssignmentTarget::Var { var, .. } = target
+                        && !ctx.defines(var)
+                    {
+                        inlined_lines.push(Line::ForwardDeclaration {
+                            var: var.clone(),
+                            mutable: false,
+                        });
+                        ctx.add_var(var);
                     }
+                }
 
-                    let mut simplified_args = vec![];
-                    for arg in args {
-                        if let Expression::Value(simple_expr) = arg {
-                            simplified_args.push(simple_expr.clone());
-                        } else {
-                            let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
-                            // Check if the argument is a function call to an inlined function
-                            // If so, create a Line::Statement so it gets inlined in subsequent iterations
-                            if let Expression::FunctionCall {
-                                function_name: arg_func_name,
-                                args: arg_args,
-                            } = arg
-                            {
-                                if inlined_functions.contains_key(arg_func_name) {
-                                    inlined_lines.push(Line::ForwardDeclaration {
+                let mut simplified_args = vec![];
+                for arg in args {
+                    if let Expression::Value(simple_expr) = arg {
+                        simplified_args.push(simple_expr.clone());
+                    } else {
+                        let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
+                        // Check if the argument is a function call to an inlined function
+                        // If so, create a Line::Statement so it gets inlined in subsequent iterations
+                        if let Expression::FunctionCall {
+                            function_name: arg_func_name,
+                            args: arg_args,
+                        } = arg
+                        {
+                            if inlined_functions.contains_key(arg_func_name) {
+                                inlined_lines.push(Line::ForwardDeclaration {
+                                    var: aux_var.clone(),
+                                    mutable: false,
+                                });
+                                inlined_lines.push(Line::Statement {
+                                    targets: vec![AssignmentTarget::Var {
                                         var: aux_var.clone(),
-                                        mutable: false,
-                                    });
-                                    inlined_lines.push(Line::Statement {
-                                        targets: vec![AssignmentTarget::Var {
-                                            var: aux_var.clone(),
-                                            is_mutable: false,
-                                        }],
-                                        value: Expression::FunctionCall {
-                                            function_name: arg_func_name.clone(),
-                                            args: arg_args.clone(),
-                                        },
-                                        line_number: 0,
-                                    });
-                                } else {
-                                    inlined_lines.push(Line::Statement {
-                                        targets: vec![AssignmentTarget::Var {
-                                            var: aux_var.clone(),
-                                            is_mutable: false,
-                                        }],
-                                        value: arg.clone(),
-                                        line_number: 0,
-                                    });
-                                }
+                                        is_mutable: false,
+                                    }],
+                                    value: Expression::FunctionCall {
+                                        function_name: arg_func_name.clone(),
+                                        args: arg_args.clone(),
+                                    },
+                                    line_number: 0,
+                                });
                             } else {
                                 inlined_lines.push(Line::Statement {
                                     targets: vec![AssignmentTarget::Var {
@@ -2628,23 +2624,30 @@ fn handle_inlined_functions_helper(
                                     line_number: 0,
                                 });
                             }
-                            simplified_args.push(VarOrConstMallocAccess::Var(aux_var).into());
+                        } else {
+                            inlined_lines.push(Line::Statement {
+                                targets: vec![AssignmentTarget::Var {
+                                    var: aux_var.clone(),
+                                    is_mutable: false,
+                                }],
+                                value: arg.clone(),
+                                line_number: 0,
+                            });
                         }
+                        simplified_args.push(VarOrConstMallocAccess::Var(aux_var).into());
                     }
-                    assert_eq!(simplified_args.len(), func.arguments.len());
-                    let inlined_args = func
-                        .arguments
-                        .iter()
-                        .zip(&simplified_args)
-                        .map(|(arg, expr)| (arg.name.clone(), expr.clone()))
-                        .collect::<BTreeMap<_, _>>();
-                    let mut func_body = func.body.clone();
-                    inline_lines(&mut func_body, &inlined_args, targets, total_inlined_counter.next());
-                    inlined_lines.extend(func_body);
-                    lines_out.extend(inlined_lines);
-                } else {
-                    lines_out.push(line.clone());
                 }
+                assert_eq!(simplified_args.len(), func.arguments.len());
+                let inlined_args = func
+                    .arguments
+                    .iter()
+                    .zip(&simplified_args)
+                    .map(|(arg, expr)| (arg.name.clone(), expr.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                let mut func_body = func.body.clone();
+                inline_lines(&mut func_body, &inlined_args, targets, total_inlined_counter.next());
+                inlined_lines.extend(func_body);
+                lines_out.extend(inlined_lines);
             }
             Line::Statement {
                 targets,
@@ -2673,7 +2676,9 @@ fn handle_inlined_functions_helper(
                 else_branch,
                 line_number,
             } => {
-                extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter)?;
+                let (condition_new, condition_lines) =
+                    extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter)?;
+                lines_out.extend(condition_lines);
                 ctx.scopes.push(Scope::default());
                 let then_branch_out = handle_inlined_functions_helper(
                     ctx,
@@ -2693,7 +2698,7 @@ fn handle_inlined_functions_helper(
                 )?;
                 ctx.scopes.pop();
                 lines_out.push(Line::IfCondition {
-                    condition: condition.clone(),
+                    condition: condition_new,
                     then_branch: then_branch_out,
                     else_branch: else_branch_out,
                     line_number: *line_number,

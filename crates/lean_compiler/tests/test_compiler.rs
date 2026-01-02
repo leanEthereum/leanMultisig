@@ -166,7 +166,13 @@ fn debug_file_program() {
 fn debug_str_program() {
     let program = r#"
     fn main() {
+        print(incr(incr(incr(5))));
         return;
+    }
+
+    fn incr(a) inline -> 1 {
+        b = a + 1;
+        return b;
     }
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
