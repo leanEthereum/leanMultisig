@@ -2431,90 +2431,49 @@ fn extract_inlined_calls_from_expr(
 ) -> Result<(Expression, Vec<Line>), String> {
     let mut lines = vec![];
 
-    match expr {
-        Expression::Value(_) => Ok((expr.clone(), vec![])),
-        Expression::ArrayAccess { array, index } => {
-            let mut index_new = vec![];
-            for idx in index {
-                let (idx, idx_lines) = extract_inlined_calls_from_expr(idx, inlined_functions, inlined_var_counter)?;
-                lines.extend(idx_lines);
-                index_new.push(idx);
-            }
-            Ok((
-                Expression::ArrayAccess {
-                    array: array.clone(),
-                    index: index_new,
-                },
-                lines,
-            ))
+    if let Expression::FunctionCall { function_name, args } = expr {
+        let mut args_new = vec![];
+        for arg in args {
+            let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter)?;
+            args_new.push(arg);
+            lines.extend(arg_lines);
         }
-        Expression::MathExpr(operation, args) => {
-            let mut args_new = vec![];
-            for arg in args {
-                let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter)?;
-                lines.extend(arg_lines);
-                args_new.push(arg);
-            }
-            Ok((Expression::MathExpr(*operation, args_new), lines))
-        }
-        Expression::FunctionCall { function_name, args } => {
-            let mut args_new = vec![];
-            for arg in args {
-                let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter)?;
-                args_new.push(arg);
-                lines.extend(arg_lines);
-            }
 
-            if let Some(inlined_function) = inlined_functions.get(function_name) {
-                if inlined_function.n_returned_vars != 1 {
-                    return Err(format!(
-                        "Used inlined function '{}' with {} return values inside an expression; only single-return functions can be inlined in expressions",
-                        function_name, inlined_function.n_returned_vars
-                    ));
-                }
-                let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
-                lines.push(Line::ForwardDeclaration {
+        if let Some(inlined_function) = inlined_functions.get(function_name) {
+            if inlined_function.n_returned_vars != 1 {
+                return Err(format!(
+                    "Used inlined function '{}' with {} return values inside an expression; only single-return functions can be inlined in expressions",
+                    function_name, inlined_function.n_returned_vars
+                ));
+            }
+            let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
+            lines.push(Line::ForwardDeclaration {
+                var: aux_var.clone(),
+                mutable: false,
+            });
+            lines.push(Line::Statement {
+                targets: vec![AssignmentTarget::Var {
                     var: aux_var.clone(),
-                    mutable: false,
-                });
-                lines.push(Line::Statement {
-                    targets: vec![AssignmentTarget::Var {
-                        var: aux_var.clone(),
-                        is_mutable: false,
-                    }],
-                    value: Expression::FunctionCall {
-                        function_name: function_name.clone(),
-                        args: args_new.clone(),
-                    },
-                    line_number: 0,
-                });
-                Ok((Expression::var(aux_var), lines))
-            } else {
-                Ok((
-                    Expression::FunctionCall {
-                        function_name: function_name.clone(),
-                        args: args_new,
-                    },
-                    lines,
-                ))
-            }
-        }
-        Expression::Len { array, indices } => {
-            let mut new_indices = vec![];
-            for idx in indices.iter() {
-                let (idx, idx_lines) = extract_inlined_calls_from_expr(idx, inlined_functions, inlined_var_counter)?;
-                lines.extend(idx_lines);
-                new_indices.push(idx);
-            }
-            Ok((
-                Expression::Len {
-                    array: array.clone(),
-                    indices: new_indices,
+                    is_mutable: false,
+                }],
+                value: Expression::FunctionCall {
+                    function_name: function_name.clone(),
+                    args: args_new.clone(),
                 },
-                lines,
-            ))
+                line_number: 0,
+            });
+            return Ok((Expression::var(aux_var), lines));
         }
+    };
+
+    let mut expr = expr.clone();
+    for inner_expr in expr.inner_exprs_mut() {
+        let (new_expr, mut new_lines) =
+            extract_inlined_calls_from_expr(inner_expr, inlined_functions, inlined_var_counter)?;
+        *inner_expr = new_expr;
+        lines.extend(new_lines.drain(..));
     }
+    Ok((expr.clone(), lines))
 }
 
 fn extract_inlined_calls_from_boolean_expr(
