@@ -26,8 +26,7 @@ fn whir_recursion(transcript_start) {
     combination_randomness_gen_0 = fs_sample_ef(fs);
     combination_randomness_powers_0 = powers(combination_randomness_gen_0, NUM_OOD_COMMIT + 1);
 
-    claimed_sum_0_0 = malloc(DIM);
-    dot_product(ood_evals_commit, combination_randomness_powers_0, claimed_sum_0_0, NUM_OOD_COMMIT, EE);
+    claimed_sum_0_0 = dot_product_ret(ood_evals_commit, combination_randomness_powers_0, NUM_OOD_COMMIT, EE);
     claimed_sum_0_1 = mul_extension_ret(combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM, pcs_eval);
     mut claimed_sum = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
 
@@ -82,8 +81,7 @@ fn whir_recursion(transcript_start) {
         ood_rec = eq_mle_extension(expanded_from_univariate, folding_randomness_global, N_VARS);
         copy_5(ood_rec, all_ood_recovered_evals + i * DIM);
     }
-    mut s = malloc(DIM);
-    dot_product(all_ood_recovered_evals, combination_randomness_powers_0, s, NUM_OOD_COMMIT, EE);
+    mut s = dot_product_ret(all_ood_recovered_evals, combination_randomness_powers_0, NUM_OOD_COMMIT, EE);
 
     s2 = eq_mle_extension(pcs_point, folding_randomness_global, N_VARS);
     s3 = mul_extension_ret(s2, combination_randomness_powers_0 + NUM_OOD_COMMIT * DIM);
@@ -111,14 +109,12 @@ fn whir_recursion(transcript_start) {
             temp = eq_mle_extension_base(expanded_from_univariate, my_folding_randomness, n_vars);
             copy_5(temp, s6s + j * DIM);
         }
-        s7 = malloc(DIM);
-        dot_product(s6s, combination_randomness_powers + NUM_OODS[i] * DIM, s7, NUM_QUERIES[i], EE);
+        s7 = dot_product_ret(s6s, combination_randomness_powers + NUM_OODS[i] * DIM, NUM_QUERIES[i], EE);
         s = add_extension_ret(s, s7);
         s = add_extension_ret(summed_ood, s);
     }
     poly_eq_final = poly_eq_extension(all_folding_randomness[N_ROUNDS + 1], FINAL_VARS);
-    final_value = malloc(DIM);
-    dot_product(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS, EE);
+    final_value = dot_product_ret(poly_eq_final, final_coeffcients, 2**FINAL_VARS, EE);
     copy_5(mul_extension_ret(s, final_value), end_sum);
 
     fs = duplexing(fs);

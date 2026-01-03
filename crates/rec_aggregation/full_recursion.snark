@@ -72,13 +72,11 @@ fn main() {
         poly_eq_missing_inner_point = poly_eq_extension(inner_point, UNIVARIATE_SKIPS);
 
         fs, evals_on_selector = fs_receive_ef(fs, 2**UNIVARIATE_SKIPS);
-        evals_on_selector_ml_eval = malloc(DIM);
-        dot_product(evals_on_selector, poly_eq_missing_inner_point, evals_on_selector_ml_eval, 2**UNIVARIATE_SKIPS, EE);
+        evals_on_selector_ml_eval = dot_product_ret(evals_on_selector, poly_eq_missing_inner_point, 2**UNIVARIATE_SKIPS, EE);
         retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, mul_extension_ret(prefix, evals_on_selector_ml_eval));
 
         fs, evals_on_data = fs_receive_ef(fs, 2**UNIVARIATE_SKIPS);
-        evals_on_data_ml_eval = malloc(DIM);
-        dot_product(evals_on_data, poly_eq_missing_inner_point, evals_on_data_ml_eval, 2**UNIVARIATE_SKIPS, EE);
+        evals_on_data_ml_eval = dot_product_ret(evals_on_data, poly_eq_missing_inner_point, 2**UNIVARIATE_SKIPS, EE);
         retrieved_denominators_value = add_extension_ret(retrieved_denominators_value, mul_extension_ret(prefix, evals_on_data_ml_eval));
 
         gamma = fs_sample_ef(fs);
@@ -91,12 +89,10 @@ fn main() {
 
         unvariate_selectors_evals = eval_all_univariate_selectors(gamma);
 
-        univariate_value_on_selectors = malloc(DIM);
-        dot_product(evals_on_selector, unvariate_selectors_evals, univariate_value_on_selectors, 2**UNIVARIATE_SKIPS, EE);
+        univariate_value_on_selectors = dot_product_ret(evals_on_selector, unvariate_selectors_evals, 2**UNIVARIATE_SKIPS, EE);
         all_bus_statements_numerators_claims[table_index] = univariate_value_on_selectors;
 
-        univariate_value_on_data = malloc(DIM);
-        dot_product(evals_on_data, unvariate_selectors_evals, univariate_value_on_data, 2**UNIVARIATE_SKIPS, EE);
+        univariate_value_on_data = dot_product_ret(evals_on_data, unvariate_selectors_evals, 2**UNIVARIATE_SKIPS, EE);
         all_bus_statements_denominators_claims[table_index] = univariate_value_on_data;
 
         for lookup_f_index in 0..len(LOOKUPS_F_INDEXES[table_index]) unroll {
@@ -151,10 +147,8 @@ fn verify_gkr_quotient(mut fs, n_vars) -> 5 {
 
     point_poly_eq = poly_eq_extension(points[0], 1);
 
-    first_claim_num = malloc(DIM);
-    first_claim_den = malloc(DIM);
-    dot_product(nums, point_poly_eq, first_claim_num, 2, EE);
-    dot_product(denoms, point_poly_eq, first_claim_den, 2, EE);
+    first_claim_num = dot_product_ret(nums, point_poly_eq, 2, EE);
+    first_claim_den = dot_product_ret(denoms, point_poly_eq, 2, EE);
     claims_num[0] = first_claim_num;
     claims_den[0] = first_claim_den;
 
@@ -185,10 +179,8 @@ fn verify_gkr_quotient_step(mut fs, n_vars, point, claim_num, claim_den) -> 4 {
     beta = fs_sample_ef(fs);
     fs = duplexing(fs);
     point_poly_eq = poly_eq_extension(beta, 1);
-    new_claim_num = malloc(DIM);
-    new_claim_den = malloc(DIM);
-    dot_product(inner_evals, point_poly_eq, new_claim_num, 2, EE);
-    dot_product(inner_evals + 2 * DIM, point_poly_eq, new_claim_den, 2, EE);
+    new_claim_num = dot_product_ret(inner_evals, point_poly_eq, 2, EE);
+    new_claim_den = dot_product_ret(inner_evals + 2 * DIM, point_poly_eq, 2, EE);
 
     copy_5(beta, postponed_point);
 

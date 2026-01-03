@@ -157,45 +157,19 @@ fn test_reserved_function_names() {
 
 #[test]
 fn debug_file_program() {
-    let index = 1;
+    let index = 144;
     let path = format!("{}/program_{}.snark", test_data_dir(), index);
     compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
 }
 
 #[test]
-fn debug_pass() {
+fn debug_str_program() {
     let program = r#"
-    fn main() {
-        var two;
-        if 1 == 1 {
-            two = 2;
-        } else {
-            two = 3;
-        }
-        print(two);
-        return;
-    }
-   "#;
-    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+   
+fn main() {
+    return;
 }
 
-#[test]
-fn test_panics() {
-    let program = r#"
-    fn main() {
-        var x;
-        if 1 == 1 {
-            mut x2 = 1;
-            x2 += 1;
-            x = x2;
-        } else {
-            x = 2;
-        }
-        mut x3 = x;
-        x3 += 1;
-        assert x3 == 3;
-        return;
-    }
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }

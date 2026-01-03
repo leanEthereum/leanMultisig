@@ -244,7 +244,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Mul,
                     arg_a: value_simplified,
-                    arg_c: ConstExpression::Value(ConstantValue::MatchBlockSize { match_index }).into(),
+                    arg_b: ConstExpression::Value(ConstantValue::MatchBlockSize { match_index }).into(),
                     res: value_scaled_offset.clone(),
                 });
 
@@ -255,7 +255,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Add,
                     arg_a: value_scaled_offset,
-                    arg_c: ConstExpression::Value(ConstantValue::MatchFirstBlockStart { match_index }).into(),
+                    arg_b: ConstExpression::Value(ConstantValue::MatchFirstBlockStart { match_index }).into(),
                     res: jump_dest_offset.clone(),
                 });
                 instructions.push(IntermediateInstruction::Jump {
@@ -306,7 +306,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Mul,
                     arg_a: condition_simplified.clone(),
-                    arg_c: IntermediateValue::MemoryAfterFp {
+                    arg_b: IntermediateValue::MemoryAfterFp {
                         offset: condition_inverse_offset.into(),
                     },
                     res: IntermediateValue::MemoryAfterFp {
@@ -324,7 +324,7 @@ fn compile_lines(
                     arg_a: IntermediateValue::MemoryAfterFp {
                         offset: one_minus_product_offset.into(),
                     },
-                    arg_c: IntermediateValue::MemoryAfterFp {
+                    arg_b: IntermediateValue::MemoryAfterFp {
                         offset: product_offset.into(),
                     },
                     res: ConstExpression::one().into(),
@@ -336,7 +336,7 @@ fn compile_lines(
                     arg_a: IntermediateValue::MemoryAfterFp {
                         offset: one_minus_product_offset.into(),
                     },
-                    arg_c: condition_simplified,
+                    arg_b: condition_simplified,
                     res: ConstExpression::zero().into(),
                 });
 
@@ -470,11 +470,27 @@ fn compile_lines(
                     Table::Poseidon16(_) => assert_eq!(args.len(), 4),
                     Table::Execution(_) => unreachable!(),
                 }
+                // if arg_c is constant, create a variable (in memory) to hold it
+                let arg_c = if let SimpleExpr::Constant(cst) = &args[2] {
+                    instructions.push(IntermediateInstruction::Computation {
+                        operation: Operation::Add,
+                        arg_a: IntermediateValue::Constant(cst.clone()),
+                        arg_b: IntermediateValue::Constant(0.into()),
+                        res: IntermediateValue::MemoryAfterFp {
+                            offset: compiler.stack_pos.into(),
+                        },
+                    });
+                    let offset = compiler.stack_pos;
+                    compiler.stack_pos += 1;
+                    IntermediateValue::MemoryAfterFp { offset: offset.into() }
+                } else {
+                    IntermediateValue::from_simple_expr(&args[2], compiler)
+                };
                 instructions.push(IntermediateInstruction::Precompile {
                     table: *table,
                     arg_a: IntermediateValue::from_simple_expr(&args[0], compiler),
                     arg_b: IntermediateValue::from_simple_expr(&args[1], compiler),
-                    arg_c: IntermediateValue::from_simple_expr(&args[2], compiler),
+                    arg_c,
                     aux_1: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
                     aux_2: args.get(4).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
                 });
@@ -490,7 +506,7 @@ fn compile_lines(
                     instructions.push(IntermediateInstruction::Computation {
                         operation: Operation::Add,
                         arg_a: IntermediateValue::Constant(0.into()),
-                        arg_c: IntermediateValue::Constant(0.into()),
+                        arg_b: IntermediateValue::Constant(0.into()),
                         res: zero_value_offset.clone(),
                     });
                     instructions.push(IntermediateInstruction::Jump {
@@ -596,7 +612,7 @@ fn handle_const_malloc(
     instructions.push(IntermediateInstruction::Computation {
         operation: Operation::Add,
         arg_a: IntermediateValue::Constant(compiler.stack_pos.into()),
-        arg_c: IntermediateValue::Fp,
+        arg_b: IntermediateValue::Fp,
         res: IntermediateValue::MemoryAfterFp {
             offset: compiler.get_offset(&var.clone().into()),
         },

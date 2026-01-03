@@ -218,36 +218,34 @@ fn compile_block(
             IntermediateInstruction::Computation {
                 operation,
                 mut arg_a,
-                mut arg_c,
+                mut arg_b,
                 res,
             } => {
                 if let Some(arg_a_cst) = try_as_constant(&arg_a, compiler)
-                    && let Some(arg_b_cst) = try_as_constant(&arg_c, compiler)
+                    && let Some(arg_b_cst) = try_as_constant(&arg_b, compiler)
                 {
                     // res = constant +/x constant
 
                     let op_res = operation.compute(arg_a_cst, arg_b_cst);
 
-                    let res: MemOrFp = res.try_into_mem_or_fp(compiler).unwrap();
-
                     low_level_bytecode.push(Instruction::Computation {
                         operation: Operation::Add,
                         arg_a: MemOrConstant::zero(),
-                        arg_c: res,
+                        arg_c: res.try_into_mem_or_fp(compiler).unwrap(),
                         res: MemOrConstant::Constant(op_res),
                     });
                     pc += 1;
                     continue;
                 }
 
-                if arg_c.is_constant() {
-                    std::mem::swap(&mut arg_a, &mut arg_c);
+                if arg_b.is_constant() {
+                    std::mem::swap(&mut arg_a, &mut arg_b);
                 }
 
                 low_level_bytecode.push(Instruction::Computation {
                     operation,
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
-                    arg_c: try_as_mem_or_fp(&arg_c).unwrap(),
+                    arg_c: try_as_mem_or_fp(&arg_b).unwrap(),
                     res: try_as_mem_or_constant(&res).unwrap(),
                 });
             }

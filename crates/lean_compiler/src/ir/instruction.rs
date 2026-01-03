@@ -9,7 +9,7 @@ pub enum IntermediateInstruction {
     Computation {
         operation: Operation,
         arg_a: IntermediateValue,
-        arg_c: IntermediateValue,
+        arg_b: IntermediateValue,
         res: IntermediateValue,
     },
     Deref {
@@ -64,32 +64,32 @@ impl IntermediateInstruction {
     pub fn computation(
         operation: MathOperation,
         arg_a: IntermediateValue,
-        arg_c: IntermediateValue,
+        arg_b: IntermediateValue,
         res: IntermediateValue,
     ) -> Self {
         match operation {
             MathOperation::Add => Self::Computation {
                 operation: Operation::Add,
                 arg_a,
-                arg_c,
+                arg_b,
                 res,
             },
             MathOperation::Mul => Self::Computation {
                 operation: Operation::Mul,
                 arg_a,
-                arg_c,
+                arg_b,
                 res,
             },
             MathOperation::Sub => Self::Computation {
                 operation: Operation::Add,
                 arg_a: res,
-                arg_c,
+                arg_b,
                 res: arg_a,
             },
             MathOperation::Div => Self::Computation {
                 operation: Operation::Mul,
                 arg_a: res,
-                arg_c,
+                arg_b,
                 res: arg_a,
             },
             MathOperation::Exp
@@ -106,7 +106,7 @@ impl IntermediateInstruction {
         Self::Computation {
             operation: Operation::Add,
             arg_a: left,
-            arg_c: IntermediateValue::Constant(ConstExpression::zero()),
+            arg_b: IntermediateValue::Constant(ConstExpression::zero()),
             res: right,
         }
     }
@@ -118,10 +118,10 @@ impl Display for IntermediateInstruction {
             Self::Computation {
                 operation,
                 arg_a,
-                arg_c,
+                arg_b,
                 res,
             } => {
-                write!(f, "{res} = {arg_a} {operation} {arg_c}")
+                write!(f, "{res} = {arg_a} {operation} {arg_b}")
             }
             Self::Deref { shift_0, shift_1, res } => write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]"),
             Self::Panic => write!(f, "panic"),

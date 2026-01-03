@@ -216,12 +216,12 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     check_program_scoping(&program);
     handle_inlined_functions(&mut program)?;
 
-    // Iterate between unrolling and const argument handling until fixed point
     let mut unroll_counter = Counter::new();
     let mut max_iterations = 100;
     loop {
         let mut any_change = false;
 
+        any_change |= propagate_constants_in_program(&mut program);
         any_change |= unroll_loops_in_program(&mut program, &mut unroll_counter);
         any_change |= handle_const_arguments(&mut program);
 
@@ -307,6 +307,67 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     Ok(SimpleProgram {
         functions: new_functions,
     })
+}
+
+fn propagate_constants_in_program(program: &mut Program) -> bool {
+    let mut changed = false;
+    for func in program.functions.values_mut() {
+        changed |= propagate_constants_in_lines(&mut func.body, &program.const_arrays);
+    }
+    changed
+}
+
+fn propagate_constants_in_lines(lines: &mut Vec<Line>, const_arrays: &BTreeMap<String, ConstArrayValue>) -> bool {
+    let mut changed = false;
+
+    // Collect constant variable definitions: var -> expression (that is constant)
+    let mut const_var_exprs: BTreeMap<Var, Expression> = BTreeMap::new();
+
+    for line in &*lines {
+        if let Line::Statement { targets, value, .. } = line
+            && targets.len() == 1
+            && let AssignmentTarget::Var { var, is_mutable: false } = &targets[0]
+            && value.naive_eval(const_arrays).is_some()
+        {
+            const_var_exprs.insert(var.clone(), value.clone());
+        }
+    }
+
+    for line in lines {
+        changed |= substitute_const_vars_in_line(line, &const_var_exprs, const_arrays);
+    }
+
+    changed
+}
+
+fn substitute_const_vars_in_line(
+    line: &mut Line,
+    const_var_exprs: &BTreeMap<Var, Expression>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+) -> bool {
+    let mut changed = false;
+    for block in line.nested_blocks_mut() {
+        changed |= propagate_constants_in_lines(block, const_arrays);
+    }
+    for inner_expr in line.expressions_mut() {
+        changed |= substitute_const_vars_in_expr(inner_expr, const_var_exprs);
+    }
+    changed
+}
+
+fn substitute_const_vars_in_expr(expr: &mut Expression, const_var_exprs: &BTreeMap<Var, Expression>) -> bool {
+    if let Expression::Value(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var))) = expr
+        && let Some(replacement) = const_var_exprs.get(var)
+    {
+        *expr = replacement.clone();
+        return true;
+    }
+
+    let mut changed = false;
+    for inner in expr.inner_exprs_mut() {
+        changed |= substitute_const_vars_in_expr(inner, const_var_exprs);
+    }
+    changed
 }
 
 fn unroll_loops_in_program(program: &mut Program, unroll_counter: &mut Counter) -> bool {
@@ -2029,7 +2090,12 @@ fn inline_simple_expr(simple_expr: &mut SimpleExpr, args: &BTreeMap<Var, SimpleE
     }
 }
 
-fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining_count: usize) {
+fn inline_expr(
+    expr: &mut Expression,
+    args: &BTreeMap<Var, SimpleExpr>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    inlining_count: usize,
+) {
     match expr {
         Expression::Value(value) => {
             inline_simple_expr(value, args, inlining_count);
@@ -2040,20 +2106,23 @@ fn inline_expr(expr: &mut Expression, args: &BTreeMap<Var, SimpleExpr>, inlining
                     panic!("Cannot inline array access with non-variable array argument");
                 };
                 *array = new_array.clone();
-            } else {
+            } else if !const_arrays.contains_key(array) {
+                // Only rename non-const arrays (internal variables)
                 *array = format!("@inlined_var_{inlining_count}_{array}");
             }
+            // If it's a const array, keep the name unchanged
         }
         _ => {}
     }
     for inner_expr in expr.inner_exprs_mut() {
-        inline_expr(inner_expr, args, inlining_count);
+        inline_expr(inner_expr, args, const_arrays, inlining_count);
     }
 }
 
 fn inline_lines(
     lines: &mut Vec<Line>,
     args: &BTreeMap<Var, SimpleExpr>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
     res: &[AssignmentTarget],
     inlining_count: usize,
 ) {
@@ -2073,11 +2142,11 @@ fn inline_lines(
     let mut lines_to_replace = vec![];
     for (i, line) in lines.iter_mut().enumerate() {
         for expr in line.expressions_mut() {
-            inline_expr(expr, args, inlining_count);
+            inline_expr(expr, args, const_arrays, inlining_count);
         }
 
         for block in line.nested_blocks_mut() {
-            inline_lines(block, args, res, inlining_count);
+            inline_lines(block, args, const_arrays, res, inlining_count);
         }
 
         match line {
@@ -2097,8 +2166,8 @@ fn inline_lines(
                                     panic!("Cannot inline array access target with non-variable array argument");
                                 };
                                 *array = new_array.clone();
-                            } else {
-                                // Internal variable - rename with inlining prefix
+                            } else if !const_arrays.contains_key(array) {
+                                // Internal variable - rename with inlining prefix (but not const arrays)
                                 *array = format!("@inlined_var_{inlining_count}_{array}");
                             }
                         }
@@ -2392,6 +2461,7 @@ fn handle_inlined_functions(program: &mut Program) -> Result<(), String> {
                 let old_body = func.body.clone();
 
                 let mut ctx = Context::new();
+                ctx.const_arrays = program.const_arrays.clone();
                 for arg in func.arguments.iter() {
                     ctx.add_var(&arg.name);
                 }
@@ -2416,6 +2486,7 @@ fn handle_inlined_functions(program: &mut Program) -> Result<(), String> {
                 let old_body = func.body.clone();
 
                 let mut ctx = Context::new();
+                ctx.const_arrays = program.const_arrays.clone();
                 for arg in func.arguments.iter() {
                     ctx.add_var(&arg.name);
                 }
@@ -2624,7 +2695,13 @@ fn handle_inlined_functions_helper(
                     .map(|(arg, expr)| (arg.name.clone(), expr.clone()))
                     .collect::<BTreeMap<_, _>>();
                 let mut func_body = func.body.clone();
-                inline_lines(&mut func_body, &inlined_args, targets, total_inlined_counter.next());
+                inline_lines(
+                    &mut func_body,
+                    &inlined_args,
+                    &ctx.const_arrays,
+                    targets,
+                    total_inlined_counter.next(),
+                );
                 inlined_lines.extend(func_body);
                 lines_out.extend(inlined_lines);
             }
