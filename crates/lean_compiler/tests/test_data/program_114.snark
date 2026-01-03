@@ -29,8 +29,8 @@ fn main() {
     result4 = complex_nested_compute(2, 1, 3);
     assert result4 == 280;
 
-    var mut fwd_x;
-    var mut fwd_y;
+    var fwd_x;
+    var fwd_y;
 
     mode = 2;
     if mode == 0 {
@@ -44,11 +44,13 @@ fn main() {
         fwd_y = 200;
     }
 
-    fwd_x = fwd_x + fwd_y;
-    fwd_y = fwd_x - 100;
+    mut fwd_x2 = fwd_x;
+    mut fwd_y2 = fwd_y;
+    fwd_x2 = fwd_x2 + fwd_y2;
+    fwd_y2 = fwd_x2 - 100;
 
-    assert fwd_x == 300;
-    assert fwd_y == 200;
+    assert fwd_x2 == 300;
+    assert fwd_y2 == 200;
 
     result6 = chain_of_funcs(5);
     assert result6 == 115;

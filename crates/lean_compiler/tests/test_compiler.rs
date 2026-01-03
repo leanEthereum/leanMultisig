@@ -166,7 +166,7 @@ fn debug_file_program() {
 fn debug_pass() {
     let program = r#"
     fn main() {
-        var mut two;
+        var two;
         if 1 == 1 {
             two = 2;
         } else {
@@ -179,18 +179,21 @@ fn debug_pass() {
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
 
-
 #[test]
 fn test_panics() {
     let program = r#"
     fn main() {
-        var mut two;
+        var x;
         if 1 == 1 {
-            two = 2;
+            mut x2 = 1;
+            x2 += 1;
+            x = x2;
         } else {
-            panic();
+            x = 2;
         }
-        print(two);
+        mut x3 = x;
+        x3 += 1;
+        assert x3 == 3;
         return;
     }
    "#;

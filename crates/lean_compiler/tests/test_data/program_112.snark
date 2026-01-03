@@ -22,8 +22,8 @@ fn main() {
     }
     assert result1 == 456;
 
-    var mut counter;
-    var mut flag;
+    var counter;
+    var flag;
 
     phase = 1;
     if phase == 0 {
@@ -37,14 +37,16 @@ fn main() {
         flag = 300;
     }
 
-    counter = counter + 5;
-    flag = flag * 2;
+    mut counter2 = counter;
+    mut flag2 = flag;
+    counter2 = counter2 + 5;
+    flag2 = flag2 * 2;
 
-    assert counter == 15;
-    assert flag == 400;
+    assert counter2 == 15;
+    assert flag2 == 400;
 
-    var mut x;
-    var mut y;
+    var x;
+    var y;
 
     init_sel = 0;
     if init_sel == 0 {
@@ -55,13 +57,15 @@ fn main() {
         y = 100;
     }
 
-    x = x * 2;
-    y = y + x;
-    x = x + 1;
-    x = x * y;
+    mut x2 = x;
+    mut y2 = y;
+    x2 = x2 * 2;
+    y2 = y2 + x2;
+    x2 = x2 + 1;
+    x2 = x2 * y2;
 
-    assert x == 220;
-    assert y == 20;
+    assert x2 == 220;
+    assert y2 == 20;
 
     var outcome;
     selector = 4;

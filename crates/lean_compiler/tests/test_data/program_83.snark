@@ -1,12 +1,13 @@
 fn main() {
-    var mut x;
+    var x;
     cond = 1;
     if cond == 1 {
         x = 10;
     } else {
         x = 20;
     }
-    x = x + 1;
-    assert x == 11;
+    mut x2 = x;
+    x2 = x2 + 1;
+    assert x2 == 11;
     return;
 }

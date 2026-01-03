@@ -37,7 +37,7 @@ return_statement = { "return" ~ (tuple_expression)? ~ ";" }
 
 mut_keyword = @{ "mut" ~ !(ASCII_ALPHANUMERIC | "_") }
 
-forward_declaration = { "var" ~ mut_keyword? ~ identifier ~ ";" }
+forward_declaration = { "var" ~ identifier ~ ";" }
 
 // General assignment: LHS is optional, RHS is any expression
 // Compound operators (+=, -=, *=, /=) only allow single target without mut (enforced in parser)

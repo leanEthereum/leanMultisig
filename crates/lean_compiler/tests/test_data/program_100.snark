@@ -1,6 +1,6 @@
 fn main() {
-    var mut x;
-    var mut y;
+    var x;
+    var y;
 
     cond = 1;
     if cond == 1 {
@@ -11,10 +11,12 @@ fn main() {
         y = 200;
     }
 
-    x = x + y;  // 10 + 20 = 30
-    y = y - 5;  // 20 - 5 = 15
+    mut x2 = x;
+    mut y2 = y;
+    x2 = x2 + y2;  // 10 + 20 = 30
+    y2 = y2 - 5;   // 20 - 5 = 15
 
-    assert x == 30;
-    assert y == 15;
+    assert x2 == 30;
+    assert y2 == 15;
     return;
 }

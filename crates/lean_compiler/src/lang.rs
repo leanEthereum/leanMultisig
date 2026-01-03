@@ -483,7 +483,6 @@ pub enum Line {
     },
     ForwardDeclaration {
         var: Var,
-        mutable: bool,
     },
     Statement {
         targets: Vec<AssignmentTarget>, // LHS - can be empty for standalone calls
@@ -610,12 +609,8 @@ impl Line {
                     .join("\n");
                 format!("match {value} {{\n{arms_str}\n{spaces}}}")
             }
-            Self::ForwardDeclaration { var, mutable } => {
-                if *mutable {
-                    format!("var mut {var}")
-                } else {
-                    format!("var {var}")
-                }
+            Self::ForwardDeclaration { var } => {
+                format!("var {var}")
             }
             Self::Statement { targets, value, .. } => {
                 if targets.is_empty() {

@@ -1063,10 +1063,7 @@ fn simplify_lines(
     let mut res = Vec::new();
     for line in lines {
         match line {
-            Line::ForwardDeclaration { var, mutable } => {
-                if *mutable {
-                    state.mut_tracker.register_mutable(var);
-                }
+            Line::ForwardDeclaration { var } => {
                 res.push(SimpleLine::ForwardDeclaration { var: var.clone() });
             }
             Line::Match { value, arms } => {
@@ -2479,10 +2476,7 @@ fn extract_inlined_calls_from_expr(
                 ));
             }
             let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
-            lines.push(Line::ForwardDeclaration {
-                var: aux_var.clone(),
-                mutable: false,
-            });
+            lines.push(Line::ForwardDeclaration { var: aux_var.clone() });
             lines.push(Line::Statement {
                 targets: vec![AssignmentTarget::Var {
                     var: aux_var.clone(),
@@ -2503,7 +2497,7 @@ fn extract_inlined_calls_from_expr(
         let (new_expr, mut new_lines) =
             extract_inlined_calls_from_expr(inner_expr, inlined_functions, inlined_var_counter)?;
         *inner_expr = new_expr;
-        lines.extend(new_lines.drain(..));
+        lines.append(&mut new_lines);
     }
     Ok((expr.clone(), lines))
 }
@@ -2568,10 +2562,7 @@ fn handle_inlined_functions_helper(
                     if let AssignmentTarget::Var { var, .. } = target
                         && !ctx.defines(var)
                     {
-                        inlined_lines.push(Line::ForwardDeclaration {
-                            var: var.clone(),
-                            mutable: false,
-                        });
+                        inlined_lines.push(Line::ForwardDeclaration { var: var.clone() });
                         ctx.add_var(var);
                     }
                 }
@@ -2590,10 +2581,7 @@ fn handle_inlined_functions_helper(
                         } = arg
                         {
                             if inlined_functions.contains_key(arg_func_name) {
-                                inlined_lines.push(Line::ForwardDeclaration {
-                                    var: aux_var.clone(),
-                                    mutable: false,
-                                });
+                                inlined_lines.push(Line::ForwardDeclaration { var: aux_var.clone() });
                                 inlined_lines.push(Line::Statement {
                                     targets: vec![AssignmentTarget::Var {
                                         var: aux_var.clone(),

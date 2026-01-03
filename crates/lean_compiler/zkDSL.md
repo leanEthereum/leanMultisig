@@ -111,7 +111,6 @@ fn square(x) inline -> 1 { return x * x; }
 | `x = 10;` | immutable | cannot be reassigned |
 | `mut x = 10;` | mutable | can be reassigned |
 | `var x;` | immutable | forward declaration, assign exactly once |
-| `var mut x;` | mutable | forward declaration, can be reassigned |
 
 ### Forward Declarations
 
@@ -127,11 +126,17 @@ if cond == 1 {
 // result cannot be reassigned after this
 ```
 
+If you need mutability after branch assignment, create a new mutable variable:
+
 ```
-var mut counter;       // mutable: can be reassigned
-counter = 0;
-counter = counter + 1; // OK
-counter = counter + 1; // OK
+var x;
+if cond == 1 {
+    x = 10;
+} else {
+    x = 20;
+}
+mut x2 = x;           // create mutable copy
+x2 = x2 + 1;          // now can modify
 ```
 
 ## Memory and Arrays
@@ -327,7 +332,7 @@ fn compute_sum(ptr, const n) -> 1 {
 1. Use `unroll` for small, fixed-size loops
 2. Use `const` parameters when loop bounds depend on arguments
 3. Use `mut` sparingly - immutable is easier to verify
-4. Forward declare with `var` (immutable) or `var mut` (mutable) for branch-assigned variables
+4. Use `var` for forward-declaring variables that will be assigned in branches
 5. Match patterns must be consecutive from 0 and exhaustive
 
 ## Example: From high level syntaxic sugar to minimal ISA, with read-only memory

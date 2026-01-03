@@ -94,16 +94,17 @@ fn main() {
     result = complex_compute(3, 4, 5);
     assert result == 47;
 
-    var mut fwd_val;
+    var fwd_val;
     cond = 1;
     if cond == 0 {
         fwd_val = 100;
     } else {
         fwd_val = 200;
     }
-    fwd_val = fwd_val + 50;
-    fwd_val = fwd_val * 2;
-    assert fwd_val == 500;
+    mut fwd_val2 = fwd_val;
+    fwd_val2 = fwd_val2 + 50;
+    fwd_val2 = fwd_val2 * 2;
+    assert fwd_val2 == 500;
 
     return;
 }
