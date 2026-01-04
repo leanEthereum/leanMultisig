@@ -1593,6 +1593,27 @@ fn simplify_lines(
                 else_branch,
                 line_number,
             } => {
+                // Helper to simplify and extend with the chosen branch when condition is known at compile time
+                let simplify_chosen_branch = |chosen_branch: &Vec<Line>,
+                                              state: &mut SimplifyState<'_>,
+                                              const_malloc: &mut ConstMalloc,
+                                              new_functions: &mut BTreeMap<FunctionName, SimpleFunction>,
+                                              res: &mut Vec<SimpleLine>|
+                 -> Result<(), String> {
+                    let branch_simplified = simplify_lines(
+                        ctx,
+                        state,
+                        const_malloc,
+                        new_functions,
+                        file_id,
+                        n_returned_vars,
+                        chosen_branch,
+                        in_a_loop,
+                    )?;
+                    res.extend(branch_simplified);
+                    Ok(())
+                };
+
                 let (condition_simplified, then_branch, else_branch) = match condition {
                     Condition::Comparison(condition) => {
                         // Transform if a == b then X else Y into if a != b then Y else X
@@ -1606,6 +1627,18 @@ fn simplify_lines(
                         let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;
                         let right_simplified = simplify_expr(ctx, state, const_malloc, right, &mut res)?;
 
+                        if let (SimpleExpr::Constant(left_const), SimpleExpr::Constant(right_const)) =
+                            (&left_simplified, &right_simplified)
+                            && let (Some(left_val), Some(right_val)) =
+                                (left_const.naive_eval(), right_const.naive_eval())
+                        {
+                            // Condition is known at compile time
+                            let diff_is_not_zero = left_val != right_val;
+                            let chosen_branch = if diff_is_not_zero { then_branch } else { else_branch };
+                            simplify_chosen_branch(chosen_branch, state, const_malloc, new_functions, &mut res)?;
+                            continue;
+                        }
+
                         let diff_var = state.counters.aux_var();
                         res.push(SimpleLine::Assignment {
                             var: diff_var.clone().into(),
@@ -1617,6 +1650,17 @@ fn simplify_lines(
                     }
                     Condition::AssumeBoolean(condition) => {
                         let condition_simplified = simplify_expr(ctx, state, const_malloc, condition, &mut res)?;
+
+                        if let SimpleExpr::Constant(const_cond) = &condition_simplified
+                            && let Some(cond_val) = const_cond.naive_eval()
+                        {
+                            // Condition is known at compile time
+                            let not_zero = cond_val.to_usize() != 0;
+                            let chosen_branch = if not_zero { then_branch } else { else_branch };
+                            simplify_chosen_branch(chosen_branch, state, const_malloc, new_functions, &mut res)?;
+                            continue;
+                        }
+
                         (condition_simplified, then_branch, else_branch)
                     }
                 };
