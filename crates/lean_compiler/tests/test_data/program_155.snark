@@ -1,0 +1,17 @@
+// Test building vector and then reading in separate unrolled loops
+fn main() {
+    // Build a vector of squares
+    squares = vec![];
+    for i in 0..6 unroll {
+        push(squares, i * i);
+    }
+
+    // Verify in a separate loop
+    for i in 0..6 unroll {
+        assert squares[i] == i * i;
+    }
+
+    // Also check len
+    assert len(squares) == 6;
+    return;
+}

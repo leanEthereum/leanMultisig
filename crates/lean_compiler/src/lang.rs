@@ -18,6 +18,16 @@ pub struct Program {
     pub filepaths: BTreeMap<FileId, String>,
 }
 
+impl Program {
+    pub fn inlined_function_names(&self) -> BTreeSet<FunctionName> {
+        self.functions
+            .iter()
+            .filter(|(_, func)| func.inlined)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+}
+
 /// A function argument with its modifiers
 #[derive(Debug, Clone)]
 pub struct FunctionArg {
@@ -475,6 +485,16 @@ impl AssignmentTarget {
     }
 }
 
+/// A compile-time vector literal: vec![elem1, elem2, ...]
+/// Elements can be expressions or nested vector literals.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VecLiteral {
+    /// A scalar expression element
+    Expr(Expression),
+    /// A nested vector literal
+    Vec(Vec<VecLiteral>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Match {
@@ -515,6 +535,19 @@ pub enum Line {
     // noop, debug purpose only
     LocationReport {
         location: SourceLocation,
+    },
+    /// Compile-time vector declaration: var = vec![...]
+    VecDeclaration {
+        var: Var,
+        elements: Vec<VecLiteral>,
+        line_number: SourceLineNumber,
+    },
+    /// Compile-time vector push: push(vec_var, element) or push(vec_var[i][j], element)
+    Push {
+        vector: Var,
+        indices: Vec<Expression>,
+        element: VecLiteral,
+        line_number: SourceLineNumber,
     },
 }
 
@@ -685,6 +718,12 @@ impl Line {
                 format!("return {return_data_str}")
             }
             Self::Panic => "panic".to_string(),
+            Self::VecDeclaration { var, elements, .. } => {
+                format!("{var} = vec![{}]", elements.len())
+            }
+            Self::Push { vector, .. } => {
+                format!("push({vector}, ...)")
+            }
         };
         format!("{spaces}{line_str}")
     }
@@ -703,7 +742,9 @@ impl Line {
             | Self::Assert { .. }
             | Self::FunctionRet { .. }
             | Self::Panic
-            | Self::LocationReport { .. } => vec![],
+            | Self::LocationReport { .. }
+            | Self::VecDeclaration { .. }
+            | Self::Push { .. } => vec![],
         }
     }
 
@@ -721,7 +762,9 @@ impl Line {
             | Self::Assert { .. }
             | Self::FunctionRet { .. }
             | Self::Panic
-            | Self::LocationReport { .. } => vec![],
+            | Self::LocationReport { .. }
+            | Self::VecDeclaration { .. }
+            | Self::Push { .. } => vec![],
         }
     }
 
@@ -743,7 +786,11 @@ impl Line {
             Self::IfCondition { condition, .. } => condition.expressions_mut(),
             Self::ForLoop { start, end, .. } => vec![start, end],
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
-            Self::ForwardDeclaration { .. } | Self::Panic | Self::LocationReport { .. } => vec![],
+            Self::ForwardDeclaration { .. }
+            | Self::Panic
+            | Self::LocationReport { .. }
+            | Self::VecDeclaration { .. }
+            | Self::Push { .. } => vec![],
         }
     }
 }

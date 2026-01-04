@@ -1,0 +1,29 @@
+// Test pushing to nested vectors with indices
+fn main() {
+    // Create a vector of empty vectors
+    v = vec![vec![], vec![], vec![]];
+
+    // Push to nested vectors using indices
+    push(v[0], 10);
+    push(v[0], 20);
+    push(v[1], 30);
+    push(v[2], 40);
+    push(v[2], 50);
+    push(v[2], 60);
+
+    // Verify structure
+    assert len(v) == 3;
+    assert len(v[0]) == 2;
+    assert len(v[1]) == 1;
+    assert len(v[2]) == 3;
+
+    // Verify values
+    assert v[0][0] == 10;
+    assert v[0][1] == 20;
+    assert v[1][0] == 30;
+    assert v[2][0] == 40;
+    assert v[2][1] == 50;
+    assert v[2][2] == 60;
+
+    return;
+}

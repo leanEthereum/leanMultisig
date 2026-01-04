@@ -1,12 +1,12 @@
 use lean_vm::{Boolean, BooleanExpr};
 
-use super::expression::ExpressionParser;
+use super::expression::{ExpressionParser, VecElementParser, VecLiteralParser};
 use super::function::{AssignmentParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{Condition, Expression, Line, SourceLocation},
+    lang::{Condition, Expression, Line, SourceLocation, VecLiteral},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -29,6 +29,8 @@ impl Parse<Line> for StatementParser {
             Rule::return_statement => ReturnStatementParser.parse(inner, ctx),
             Rule::assert_statement => AssertParser::<false>.parse(inner, ctx),
             Rule::debug_assert_statement => AssertParser::<true>.parse(inner, ctx),
+            Rule::vec_declaration => VecDeclarationParser.parse(inner, ctx),
+            Rule::push_statement => PushStatementParser.parse(inner, ctx),
             _ => Err(SemanticError::new("Unknown statement").into()),
         }
     }
@@ -313,6 +315,70 @@ impl<const DEBUG: bool> Parse<Line> for AssertParser<DEBUG> {
         Ok(Line::Assert {
             debug: DEBUG,
             boolean,
+            line_number,
+        })
+    }
+}
+
+/// Parser for vector declarations: `var = vec![...]` (vectors are implicitly mutable for push)
+pub struct VecDeclarationParser;
+
+impl Parse<Line> for VecDeclarationParser {
+    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
+        let mut inner = pair.into_inner();
+
+        // Parse variable name
+        let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
+
+        // Parse the vec_literal
+        let vec_literal_pair = next_inner_pair(&mut inner, "vec literal")?;
+        let vec_literal = VecLiteralParser.parse(vec_literal_pair, _ctx)?;
+
+        // Extract elements from the VecLiteral::Vec
+        let elements = match vec_literal {
+            VecLiteral::Vec(elems) => elems,
+            VecLiteral::Expr(_) => {
+                return Err(SemanticError::new("Expected vec literal, got expression").into());
+            }
+        };
+
+        Ok(Line::VecDeclaration {
+            var,
+            elements,
+            line_number,
+        })
+    }
+}
+
+/// Parser for push statements: `push(vec_var, element);` or `push(vec_var[i][j], element);`
+pub struct PushStatementParser;
+
+impl Parse<Line> for PushStatementParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
+        let mut inner = pair.into_inner();
+
+        // Parse the push_target (identifier with optional indices)
+        let push_target = next_inner_pair(&mut inner, "push target")?;
+        let mut target_inner = push_target.into_inner();
+
+        // First element is the vector variable name
+        let vector = next_inner_pair(&mut target_inner, "vector variable")?.as_str().to_string();
+
+        // Remaining elements are index expressions
+        let indices: Vec<Expression> = target_inner
+            .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Parse the element to push (vec_element can be vec_literal or expression)
+        let element_pair = next_inner_pair(&mut inner, "push element")?;
+        let element = VecElementParser.parse(element_pair, ctx)?;
+
+        Ok(Line::Push {
+            vector,
+            indices,
+            element,
             line_number,
         })
     }

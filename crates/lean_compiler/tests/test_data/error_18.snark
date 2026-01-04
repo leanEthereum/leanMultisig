@@ -1,0 +1,8 @@
+// Error: push to outer-scope vector inside non-unrolled loop
+fn main() {
+    v = vec![1, 2, 3];  // Vector in outer scope
+    for i in 0..5 {
+        push(v, i);  // Error: cannot push to outer-scope vector inside non-unrolled loop
+    }
+    return;
+}

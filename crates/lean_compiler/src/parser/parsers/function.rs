@@ -19,6 +19,7 @@ const RESERVED_FUNCTION_NAMES: &[&str] = &[
     "malloc",
     "private_input_start",
     "panic",
+    "push", // Compile-time vector push
     // Compile-time only functions
     "len",
     "log2_ceil",

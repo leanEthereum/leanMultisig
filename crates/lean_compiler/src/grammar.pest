@@ -29,8 +29,17 @@ statement = {
     return_statement |
     assert_statement |
     debug_assert_statement |
+    vec_declaration |
+    push_statement |
     assignment
 }
+
+// Vector declaration: var = vec![...] (vectors are implicitly mutable for push)
+vec_declaration = { identifier ~ "=" ~ vec_literal ~ ";" }
+
+// Push statement: push(vec_var, element) or push(vec_var[i][j], element)
+push_statement = { "push" ~ "(" ~ push_target ~ "," ~ vec_element ~ ")" ~ ";" }
+push_target = { identifier ~ ("[" ~ expression ~ "]")* }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
 
@@ -89,6 +98,10 @@ primary = {
     function_call_expr |
     var_or_constant
 }
+
+// Vector literal: vec![elem1, elem2, ...] - compile-time dynamic arrays
+vec_literal = { "vec!" ~ "[" ~ (vec_element ~ ("," ~ vec_element)*)? ~ "]" }
+vec_element = { vec_literal | expression }
 function_call_expr = { identifier ~ "(" ~ tuple_expression? ~ ")" }
 log2_ceil_expr = { "log2_ceil" ~ "(" ~ expression ~ ")" }
 next_multiple_of_expr = { "next_multiple_of" ~ "(" ~ expression ~ "," ~ expression ~ ")" }

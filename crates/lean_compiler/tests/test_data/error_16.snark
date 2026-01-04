@@ -1,0 +1,9 @@
+// Error: push to outer-scope vector inside if branch
+fn main() {
+    v = vec![1, 2, 3];  // Vector in outer scope
+    x = 5;
+    if x == 5 {
+        push(v, 4);  // Error: cannot push to outer-scope vector inside if/else
+    }
+    return;
+}

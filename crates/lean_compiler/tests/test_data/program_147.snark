@@ -1,0 +1,12 @@
+// Test push() on vectors
+fn main() {
+    v = vec![1, 2, 3];
+    assert len(v) == 3;
+    push(v, 4);
+    assert len(v) == 4;
+    assert v[3] == 4;
+    push(v, 5);
+    assert len(v) == 5;
+    assert v[4] == 5;
+    return;
+}

@@ -1,0 +1,14 @@
+// Test: local vectors inside non-unrolled loops are allowed
+// This just tests that local vector creation and push works inside a loop
+fn main() {
+    for i in 0..3 {
+        // Local vector created fresh each iteration - allowed
+        v = vec![1, 2, 3];
+        push(v, 4);
+        // Use the vector within the same iteration
+        assert v[0] == 1;
+        assert v[3] == 4;
+        assert len(v) == 4;
+    }
+    return;
+}

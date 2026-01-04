@@ -2,7 +2,7 @@ use crate::{
     Counter, F,
     lang::{
         AssignmentTarget, Condition, ConstExpression, ConstMallocLabel, Context, Expression, Function, Line,
-        MathOperation, Program, Scope, SimpleExpr, Var,
+        MathOperation, Program, Scope, SimpleExpr, Var, VecLiteral,
     },
     parser::ConstArrayValue,
 };
@@ -214,6 +214,7 @@ fn ends_with_early_exit(block: &[SimpleLine]) -> bool {
 
 pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     check_program_scoping(&program);
+    validate_program_vectors(&program)?;
     handle_inlined_functions(&mut program)?;
 
     let mut unroll_counter = Counter::new();
@@ -258,6 +259,7 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     for (name, func) in &program.functions {
         let mut array_manager = ArrayManager::default();
         let mut mut_tracker = MutableVarTracker::default();
+        let mut vec_tracker = VectorTracker::default();
 
         // Register mutable arguments and capture their initial versioned names
         // BEFORE simplifying the body
@@ -280,6 +282,7 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
             counters: &mut counters,
             array_manager: &mut array_manager,
             mut_tracker: &mut mut_tracker,
+            vec_tracker: &mut vec_tracker,
         };
         let simplified_instructions = simplify_lines(
             &ctx,
@@ -787,7 +790,6 @@ fn replace_var_in_expr(expr: &mut Expression, old_var: &Var, new_var: &Var) {
     }
 }
 
-/// Analyzes a simplified function to verify that it returns on each code path.
 fn check_function_always_returns(func: &SimpleFunction) -> Result<(), String> {
     check_block_always_returns(&func.name, &func.instructions)
 }
@@ -811,7 +813,6 @@ fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine
     Err(format!("Cannot prove that function always returns: {function_name}"))
 }
 
-/// Analyzes the program to verify that each variable is defined in each context where it is used.
 fn check_program_scoping(program: &Program) {
     for (_, function) in program.functions.iter() {
         let mut scope = Scope { vars: BTreeSet::new() };
@@ -827,7 +828,6 @@ fn check_program_scoping(program: &Program) {
     }
 }
 
-/// Analyzes the block to verify that each variable is defined in each context where it is used.
 fn check_block_scoping(block: &[Line], ctx: &mut Context) {
     for line in block.iter() {
         match line {
@@ -897,11 +897,149 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 }
             }
             Line::Panic | Line::LocationReport { .. } => {}
+            Line::VecDeclaration { var, elements, .. } => {
+                // Check expressions in vec elements
+                check_vec_literal_scoping(elements, ctx);
+                // Add the vector variable to scope
+                ctx.add_var(var);
+            }
+            Line::Push {
+                vector,
+                indices,
+                element,
+                ..
+            } => {
+                // Check the vector variable is in scope
+                assert!(ctx.defines(vector), "Vector variable '{}' not in scope", vector);
+                // Check indices are in scope
+                for idx in indices {
+                    check_expr_scoping(idx, ctx);
+                }
+                // Check the pushed element
+                check_vec_literal_element_scoping(element, ctx);
+            }
         }
     }
 }
 
-/// Analyzes the expression to verify that each variable is defined in the given context.
+fn validate_program_vectors(program: &Program) -> Result<(), String> {
+    let inlined_functions = program.inlined_function_names();
+    for f in program.functions.values() {
+        validate_vectors(&f.body, &BTreeSet::new(), &inlined_functions, None)?;
+    }
+    Ok(())
+}
+
+fn validate_vectors(
+    lines: &[Line],
+    outer: &BTreeSet<Var>,
+    inlined: &BTreeSet<String>,
+    restrict: Option<usize>,
+) -> Result<(), String> {
+    let mut local: BTreeSet<Var> = BTreeSet::new();
+    macro_rules! all {
+        () => {
+            outer.union(&local).cloned().collect::<BTreeSet<Var>>()
+        };
+    }
+
+    for line in lines {
+        match line {
+            Line::VecDeclaration { var, elements, .. } => {
+                local.insert(var.clone());
+                validate_vec_lit(elements, &all!(), inlined)?;
+            }
+            Line::Push {
+                vector,
+                element,
+                line_number,
+                ..
+            } => {
+                if restrict.is_some() && outer.contains(vector) {
+                    return Err(format!("line {}: push to outer-scope vector '{}'", line_number, vector));
+                }
+                validate_vec_lit(std::slice::from_ref(element), &all!(), inlined)?;
+                if !local.contains(vector) && !outer.contains(vector) {
+                    return Err(format!("line {}: unknown vector '{}'", line_number, vector));
+                }
+            }
+            Line::Statement { value, line_number, .. } => {
+                check_vec_in_call(value, &all!(), inlined, *line_number)?;
+            }
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                line_number,
+                ..
+            } => {
+                validate_vectors(then_branch, &all!(), inlined, Some(*line_number))?;
+                validate_vectors(else_branch, &all!(), inlined, Some(*line_number))?;
+            }
+            Line::ForLoop {
+                body,
+                unroll,
+                line_number,
+                ..
+            } => {
+                validate_vectors(body, &all!(), inlined, if *unroll { None } else { Some(*line_number) })?;
+            }
+            Line::Match { arms, .. } => {
+                for (_, arm) in arms {
+                    validate_vectors(arm, &all!(), inlined, Some(0))?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_vec_lit(elems: &[VecLiteral], vecs: &BTreeSet<Var>, inlined: &BTreeSet<String>) -> Result<(), String> {
+    for e in elems {
+        match e {
+            VecLiteral::Expr(expr) => check_vec_in_call(expr, vecs, inlined, 0)?,
+            VecLiteral::Vec(inner) => validate_vec_lit(inner, vecs, inlined)?,
+        }
+    }
+    Ok(())
+}
+
+fn check_vec_in_call(
+    expr: &Expression,
+    vecs: &BTreeSet<Var>,
+    inlined: &BTreeSet<String>,
+    line: usize,
+) -> Result<(), String> {
+    if let Expression::FunctionCall { function_name, args } = expr
+        && !inlined.contains(function_name)
+    {
+        for arg in args {
+            if let Expression::Value(SimpleExpr::Memory(VarOrConstMallocAccess::Var(v))) = arg
+                && vecs.contains(v)
+            {
+                return Err(format!(
+                    "line {}: vector '{}' passed to function '{}'",
+                    line, v, function_name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_vec_literal_scoping(elements: &[VecLiteral], ctx: &Context) {
+    for elem in elements {
+        check_vec_literal_element_scoping(elem, ctx);
+    }
+}
+
+fn check_vec_literal_element_scoping(elem: &VecLiteral, ctx: &Context) {
+    match elem {
+        VecLiteral::Expr(expr) => check_expr_scoping(expr, ctx),
+        VecLiteral::Vec(inner) => check_vec_literal_scoping(inner, ctx),
+    }
+}
+
 fn check_expr_scoping(expr: &Expression, ctx: &Context) {
     if let Expression::Value(simple_expr) = expr {
         check_simple_expr_scoping(simple_expr, ctx);
@@ -911,7 +1049,6 @@ fn check_expr_scoping(expr: &Expression, ctx: &Context) {
     }
 }
 
-/// Analyzes the simple expression to verify that each variable is defined in the given context.
 fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
     match expr {
         SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) => {
@@ -960,6 +1097,7 @@ struct SimplifyState<'a> {
     counters: &'a mut Counters,
     array_manager: &'a mut ArrayManager,
     mut_tracker: &'a mut MutableVarTracker,
+    vec_tracker: &'a mut VectorTracker,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1092,6 +1230,78 @@ impl MutableVarTracker {
     }
 }
 
+/// Compile-time vector. Scalars hold variable names; Vectors hold nested values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VectorValue {
+    Scalar { var: Var },
+    Vector(Vec<VectorValue>),
+}
+
+impl VectorValue {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Vector(v) => v.len(),
+            _ => panic!("len on scalar"),
+        }
+    }
+
+    pub fn is_vector(&self) -> bool {
+        matches!(self, Self::Vector(_))
+    }
+
+    fn get(&self, i: usize) -> Option<&Self> {
+        match self {
+            Self::Vector(v) => v.get(i),
+            _ => None,
+        }
+    }
+
+    fn get_mut(&mut self, i: usize) -> Option<&mut Self> {
+        match self {
+            Self::Vector(v) => v.get_mut(i),
+            _ => None,
+        }
+    }
+
+    pub fn navigate(&self, idx: &[usize]) -> Option<&Self> {
+        idx.iter().try_fold(self, |v, &i| v.get(i))
+    }
+
+    pub fn navigate_mut(&mut self, idx: &[usize]) -> Option<&mut Self> {
+        idx.iter().try_fold(self, |v, &i| v.get_mut(i))
+    }
+
+    pub fn push(&mut self, elem: Self) {
+        match self {
+            Self::Vector(v) => v.push(elem),
+            _ => panic!("push on scalar"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct VectorTracker {
+    vectors: BTreeMap<Var, VectorValue>,
+}
+
+impl VectorTracker {
+    fn register(&mut self, var: &Var, value: VectorValue) {
+        self.vectors.insert(var.clone(), value);
+    }
+
+    fn is_vector(&self, var: &Var) -> bool {
+        self.vectors.contains_key(var)
+    }
+
+    fn get(&self, var: &Var) -> Option<&VectorValue> {
+        self.vectors.get(var)
+    }
+
+    fn get_mut(&mut self, var: &Var) -> Option<&mut VectorValue> {
+        self.vectors.get_mut(var)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ConstMalloc {
     counter: usize,
@@ -1107,6 +1317,50 @@ impl ArrayManager {
         self.counter += 1;
         self.aux_vars.insert((array.clone(), index.clone()), new_var.clone());
         new_var
+    }
+}
+
+fn build_vector_value(
+    ctx: &SimplifyContext<'_>,
+    state: &mut SimplifyState<'_>,
+    const_malloc: &mut ConstMalloc,
+    elements: &[VecLiteral],
+    lines: &mut Vec<SimpleLine>,
+    location: SourceLocation,
+) -> Result<VectorValue, String> {
+    let mut vec_elements = Vec::new();
+
+    for elem in elements {
+        vec_elements.push(build_vector_value_from_element(
+            ctx,
+            state,
+            const_malloc,
+            elem,
+            lines,
+            location,
+        )?);
+    }
+
+    Ok(VectorValue::Vector(vec_elements))
+}
+
+fn build_vector_value_from_element(
+    ctx: &SimplifyContext<'_>,
+    state: &mut SimplifyState<'_>,
+    const_malloc: &mut ConstMalloc,
+    element: &VecLiteral,
+    lines: &mut Vec<SimpleLine>,
+    location: SourceLocation,
+) -> Result<VectorValue, String> {
+    match element {
+        VecLiteral::Vec(inner) => build_vector_value(ctx, state, const_malloc, inner, lines, location),
+        VecLiteral::Expr(expr) => {
+            // Scalar expression - create auxiliary variable and emit assignment
+            let aux_var = state.counters.aux_var();
+            let simplified_value = simplify_expr(ctx, state, const_malloc, expr, lines)?;
+            lines.push(SimpleLine::equality(aux_var.clone(), simplified_value));
+            Ok(VectorValue::Scalar { var: aux_var })
+        }
     }
 }
 
@@ -1667,13 +1921,16 @@ fn simplify_lines(
 
                 // Snapshot mutable variable versions before processing branches
                 let mut_tracker_snapshot = state.mut_tracker.snapshot_versions();
+                let vec_tracker_snapshot = state.vec_tracker.clone();
 
                 let mut array_manager_then = state.array_manager.clone();
                 let mut mut_tracker_then = state.mut_tracker.clone();
+                let mut vec_tracker_then = state.vec_tracker.clone();
                 let mut state_then = SimplifyState {
                     counters: state.counters,
                     array_manager: &mut array_manager_then,
                     mut_tracker: &mut mut_tracker_then,
+                    vec_tracker: &mut vec_tracker_then,
                 };
                 let then_branch_simplified = simplify_lines(
                     ctx,
@@ -1693,11 +1950,13 @@ fn simplify_lines(
                 // Restore mutable variable versions for else branch
                 let mut mut_tracker_else = state.mut_tracker.clone();
                 mut_tracker_else.restore_versions(mut_tracker_snapshot.clone());
+                let mut vec_tracker_else = vec_tracker_snapshot.clone();
 
                 let mut state_else = SimplifyState {
                     counters: state.counters,
                     array_manager: &mut array_manager_else,
                     mut_tracker: &mut mut_tracker_else,
+                    vec_tracker: &mut vec_tracker_else,
                 };
                 let else_branch_simplified = simplify_lines(
                     ctx,
@@ -1867,6 +2126,80 @@ fn simplify_lines(
             Line::LocationReport { location } => {
                 res.push(SimpleLine::LocationReport { location: *location });
             }
+            Line::VecDeclaration {
+                var,
+                elements,
+                line_number,
+            } => {
+                // Build the VectorValue structure and register it
+                let location = SourceLocation {
+                    file_id,
+                    line_number: *line_number,
+                };
+                let vector_value = build_vector_value(ctx, state, const_malloc, elements, &mut res, location)?;
+                state.vec_tracker.register(var, vector_value);
+                // No SimpleLine for the variable itself - vector metadata is compile-time only
+            }
+            Line::Push {
+                vector,
+                indices,
+                element,
+                line_number,
+            } => {
+                // Get the vector and check it's a tracked vector
+                if !state.vec_tracker.is_vector(vector) {
+                    return Err(format!(
+                        "push called on non-vector variable '{}', at line {}",
+                        vector, line_number
+                    ));
+                }
+
+                // Evaluate indices at compile time
+                let const_indices: Vec<usize> = indices
+                    .iter()
+                    .map(|idx| {
+                        let simplified = simplify_expr(ctx, state, const_malloc, idx, &mut res)?;
+                        let const_val = simplified.as_constant().ok_or_else(|| {
+                            format!("push index must be a compile-time constant, at line {}", line_number)
+                        })?;
+                        let val = const_val.naive_eval().ok_or_else(|| {
+                            format!("push index must be evaluable at compile time, at line {}", line_number)
+                        })?;
+                        Ok(val.to_usize())
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+
+                // Build VectorValue for the element being pushed
+                let location = SourceLocation {
+                    file_id,
+                    line_number: *line_number,
+                };
+                let new_element =
+                    build_vector_value_from_element(ctx, state, const_malloc, element, &mut res, location)?;
+
+                // Navigate to the target vector and push
+                let vector_value = state
+                    .vec_tracker
+                    .get_mut(vector)
+                    .expect("Vector should exist after is_vector check");
+
+                if const_indices.is_empty() {
+                    // Push directly to the top-level vector
+                    vector_value.push(new_element);
+                } else {
+                    // Navigate to the nested vector and push
+                    let target = vector_value
+                        .navigate_mut(&const_indices)
+                        .ok_or_else(|| format!("push target index out of bounds, at line {}", line_number))?;
+                    if !target.is_vector() {
+                        return Err(format!(
+                            "push target must be a vector, not a scalar, at line {}",
+                            line_number
+                        ));
+                    }
+                    target.push(new_element);
+                }
+            }
         }
     }
 
@@ -1911,6 +2244,43 @@ fn simplify_expr(
                         .as_scalar()
                         .expect("Const array access should return a scalar"),
                 )));
+            }
+
+            // Check for compile-time vector access
+            let versioned_array = state.mut_tracker.current_name(array);
+            if state.vec_tracker.is_vector(&versioned_array) {
+                // Vector access - indices must all be compile-time constant
+                // First, simplify all indices (this may mutate state)
+                let mut const_indices: Vec<usize> = Vec::new();
+                for idx in index {
+                    let simplified = simplify_expr(ctx, state, const_malloc, idx, lines)?;
+                    let SimpleExpr::Constant(const_expr) = simplified else {
+                        return Err("Vector index must be compile-time constant".to_string());
+                    };
+                    let val = const_expr
+                        .naive_eval()
+                        .ok_or_else(|| "Cannot evaluate vector index".to_string())?
+                        .to_usize();
+                    const_indices.push(val);
+                }
+
+                // Now we can borrow vec_tracker again
+                let vector_value = state.vec_tracker.get(&versioned_array).unwrap();
+
+                // Navigate to the element
+                let element = vector_value
+                    .navigate(&const_indices)
+                    .ok_or_else(|| format!("Vector index out of bounds: {:?}", const_indices))?;
+
+                match element {
+                    VectorValue::Scalar { var } => {
+                        // Return memory reference to this variable
+                        return Ok(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var.clone())));
+                    }
+                    VectorValue::Vector(_) => {
+                        return Err("Cannot use nested vector as expression value".to_string());
+                    }
+                }
             }
 
             assert_eq!(index.len(), 1);
@@ -1991,7 +2361,42 @@ fn simplify_expr(
 
             Ok(VarOrConstMallocAccess::Var(result_var).into())
         }
-        Expression::Len { .. } => unreachable!(),
+        Expression::Len { array, indices } => {
+            // Check for compile-time vector len()
+            let versioned_array = state.mut_tracker.current_name(array);
+            if state.vec_tracker.is_vector(&versioned_array) {
+                // Evaluate indices at compile time - first simplify to avoid borrow issues
+                let mut const_indices: Vec<usize> = Vec::new();
+                for idx in indices {
+                    let simplified = simplify_expr(ctx, state, const_malloc, idx, lines)?;
+                    let SimpleExpr::Constant(const_expr) = simplified else {
+                        return Err("Vector len() index must be compile-time constant".to_string());
+                    };
+                    let val = const_expr
+                        .naive_eval()
+                        .ok_or_else(|| "Cannot evaluate len() index".to_string())?
+                        .to_usize();
+                    const_indices.push(val);
+                }
+
+                // Now we can borrow vec_tracker again
+                let vector_value = state.vec_tracker.get(&versioned_array).unwrap();
+
+                // Navigate and get length
+                let target = if const_indices.is_empty() {
+                    vector_value
+                } else {
+                    vector_value
+                        .navigate(&const_indices)
+                        .ok_or_else(|| "len() index out of bounds".to_string())?
+                };
+
+                return Ok(SimpleExpr::Constant(ConstExpression::from(target.len())));
+            }
+
+            // Fall through to const array handling (should be unreachable for vectors)
+            unreachable!("len() should have been resolved at parse time for const arrays")
+        }
     }
 }
 
@@ -2118,10 +2523,64 @@ pub fn find_variable_usage(
                 on_new_expr(end, &internal_vars, &mut external_vars);
             }
             Line::Panic | Line::LocationReport { .. } => {}
+            Line::VecDeclaration { var, elements, .. } => {
+                // Process expressions in vec elements
+                process_vec_elements_usage(elements, &internal_vars, &mut external_vars, const_arrays);
+                // Add the vector variable to internal vars
+                internal_vars.insert(var.clone());
+            }
+            Line::Push {
+                vector,
+                indices,
+                element,
+                ..
+            } => {
+                // The vector variable is used
+                if !internal_vars.contains(vector) {
+                    external_vars.insert(vector.clone());
+                }
+                // Process index expressions
+                for idx in indices {
+                    on_new_expr(idx, &internal_vars, &mut external_vars);
+                }
+                // Process the pushed element
+                process_vec_element_usage(element, &internal_vars, &mut external_vars, const_arrays);
+            }
         }
     }
 
     (internal_vars, external_vars)
+}
+
+fn process_vec_elements_usage(
+    elements: &[VecLiteral],
+    internal_vars: &BTreeSet<Var>,
+    external_vars: &mut BTreeSet<Var>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+) {
+    for elem in elements {
+        process_vec_element_usage(elem, internal_vars, external_vars, const_arrays);
+    }
+}
+
+fn process_vec_element_usage(
+    elem: &VecLiteral,
+    internal_vars: &BTreeSet<Var>,
+    external_vars: &mut BTreeSet<Var>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+) {
+    match elem {
+        VecLiteral::Expr(expr) => {
+            for var in vars_in_expression(expr, const_arrays) {
+                if !internal_vars.contains(&var) && !const_arrays.contains_key(&var) {
+                    external_vars.insert(var);
+                }
+            }
+        }
+        VecLiteral::Vec(inner) => {
+            process_vec_elements_usage(inner, internal_vars, external_vars, const_arrays);
+        }
+    }
 }
 
 fn inline_simple_expr(simple_expr: &mut SimpleExpr, args: &BTreeMap<Var, SimpleExpr>, inlining_count: usize) {
@@ -2234,6 +2693,67 @@ fn inline_lines(
             }
             Line::ForLoop { iterator, .. } => {
                 inline_internal_var(iterator);
+            }
+            Line::VecDeclaration { var, elements, .. } => {
+                inline_internal_var(var);
+                // Inline expressions in vec elements
+                fn inline_vec_elements(
+                    elements: &mut [VecLiteral],
+                    args: &BTreeMap<Var, SimpleExpr>,
+                    const_arrays: &BTreeMap<String, ConstArrayValue>,
+                    inlining_count: usize,
+                ) {
+                    for elem in elements {
+                        match elem {
+                            VecLiteral::Expr(expr) => {
+                                inline_expr(expr, args, const_arrays, inlining_count);
+                            }
+                            VecLiteral::Vec(inner) => {
+                                inline_vec_elements(inner, args, const_arrays, inlining_count);
+                            }
+                        }
+                    }
+                }
+                inline_vec_elements(elements, args, const_arrays, inlining_count);
+            }
+            Line::Push {
+                vector,
+                indices,
+                element,
+                ..
+            } => {
+                // If vector is an arg, replace with the arg's var name
+                if let Some(replacement) = args.get(vector) {
+                    let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_var)) = replacement else {
+                        panic!("Cannot inline push target with non-variable argument");
+                    };
+                    *vector = new_var.clone();
+                } else {
+                    *vector = format!("@inlined_var_{inlining_count}_{vector}");
+                }
+                // Inline expressions in the indices
+                for idx in indices {
+                    inline_expr(idx, args, const_arrays, inlining_count);
+                }
+                // Inline expressions in the pushed element
+                fn inline_vec_element(
+                    elem: &mut VecLiteral,
+                    args: &BTreeMap<Var, SimpleExpr>,
+                    const_arrays: &BTreeMap<String, ConstArrayValue>,
+                    inlining_count: usize,
+                ) {
+                    match elem {
+                        VecLiteral::Expr(expr) => {
+                            inline_expr(expr, args, const_arrays, inlining_count);
+                        }
+                        VecLiteral::Vec(inner) => {
+                            for e in inner {
+                                inline_vec_element(e, args, const_arrays, inlining_count);
+                            }
+                        }
+                    }
+                }
+                inline_vec_element(element, args, const_arrays, inlining_count);
             }
             Line::Match { .. }
             | Line::IfCondition { .. }
@@ -2467,7 +2987,67 @@ fn replace_vars_for_unroll(
                 assert!(other_iterator != iterator);
                 *other_iterator = format!("@unrolled_{unroll_index}_{iterator_value}_{other_iterator}");
             }
+            Line::VecDeclaration { var, elements, .. } => {
+                // Replace iterator in expressions inside vec elements
+                replace_vars_for_unroll_in_vec_elements(
+                    elements,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                // Rename the vector variable if internal
+                if internal_vars.contains(var) {
+                    *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
+                }
+            }
+            Line::Push {
+                vector,
+                indices,
+                element,
+                ..
+            } => {
+                // Replace iterator in the index expressions
+                for idx in indices {
+                    replace_vars_for_unroll_in_expr(idx, iterator, unroll_index, iterator_value, internal_vars);
+                }
+                // Replace iterator in the pushed element's expression
+                replace_vars_for_unroll_in_vec_element(element, iterator, unroll_index, iterator_value, internal_vars);
+                // Rename the vector variable if internal
+                if internal_vars.contains(vector) {
+                    *vector = format!("@unrolled_{unroll_index}_{iterator_value}_{vector}");
+                }
+            }
             _ => {}
+        }
+    }
+}
+
+fn replace_vars_for_unroll_in_vec_elements(
+    elements: &mut [VecLiteral],
+    iterator: &Var,
+    unroll_index: usize,
+    iterator_value: usize,
+    internal_vars: &BTreeSet<Var>,
+) {
+    for elem in elements {
+        replace_vars_for_unroll_in_vec_element(elem, iterator, unroll_index, iterator_value, internal_vars);
+    }
+}
+
+fn replace_vars_for_unroll_in_vec_element(
+    elem: &mut VecLiteral,
+    iterator: &Var,
+    unroll_index: usize,
+    iterator_value: usize,
+    internal_vars: &BTreeSet<Var>,
+) {
+    match elem {
+        VecLiteral::Expr(expr) => {
+            replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
+        }
+        VecLiteral::Vec(inner) => {
+            replace_vars_for_unroll_in_vec_elements(inner, iterator, unroll_index, iterator_value, internal_vars);
         }
     }
 }
@@ -2890,6 +3470,17 @@ fn handle_inlined_functions_helper(
                     return_data: new_return_data,
                 });
             }
+            Line::VecDeclaration { var, .. } => {
+                // Handle inlining in vec elements (but vec elements are VecLiteral, not Expression)
+                // For now, just pass through - inlining function calls in vec elements would need
+                // special handling that we don't support yet
+                lines_out.push(line.clone());
+                ctx.add_var(var);
+            }
+            Line::Push { .. } => {
+                // Similar to VecDeclaration - pass through for now
+                lines_out.push(line.clone());
+            }
         };
     }
     Ok(lines_out)
@@ -3172,6 +3763,10 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 }
             }
             Line::LocationReport { .. } | Line::Panic => {}
+            Line::VecDeclaration { .. } | Line::Push { .. } => {
+                // VecDeclaration and Push contain VecLiteral elements which may have expressions
+                // but these are compile-time constructs handled separately
+            }
         }
     }
 }

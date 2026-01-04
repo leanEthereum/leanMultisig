@@ -144,7 +144,7 @@ fn test_all_programs() {
 #[test]
 fn test_reserved_function_names() {
     #[rustfmt::skip]
-    let reserved_names = ["print", "malloc", "private_input_start", "panic", "len", "log2_ceil", "next_multiple_of", "saturating_sub", "hint_decompose_bits_xmss", "hint_decompose_bits", "poseidon16", "dot_product"];
+    let reserved_names = ["push", "print", "malloc", "private_input_start", "panic", "len", "log2_ceil", "next_multiple_of", "saturating_sub", "hint_decompose_bits_xmss", "hint_decompose_bits", "poseidon16", "dot_product"];
 
     for name in reserved_names {
         let program = format!("fn main() {{ return; }} fn {name}() {{ return; }}");
@@ -165,11 +165,9 @@ fn debug_file_program() {
 #[test]
 fn debug_str_program() {
     let program = r#"
-   
-fn main() {
-    return;
-}
-
+    fn main() {
+        return;
+    }
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }

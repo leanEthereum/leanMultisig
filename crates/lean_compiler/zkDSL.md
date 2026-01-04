@@ -164,6 +164,66 @@ arr[0] = 20;               // ERROR: different value at same location
 
 Use `mut` variables when you need mutability, the compiler cannot handle mutability on hand-written allocated memory ("malloc(...)").
 
+## Vectors (Compile-Time Dynamic Arrays)
+
+Vectors are compile-time constructs for building dynamic arrays. Unlike `malloc`, vectors track structure at compile time—each element gets its own memory slot.
+
+```
+v = vec![1, 2, 3];        // create vector
+push(v, 4);               // append element
+x = v[2];                 // access (index must be compile-time constant)
+n = len(v);               // get length
+```
+
+### Nested Vectors
+
+```
+matrix = vec![vec![1, 2], vec![3, 4, 5]];
+push(matrix[1], 6);       // push to inner vector
+x = matrix[0][1];         // x = 2
+n = len(matrix[1]);       // n = 4
+```
+
+### Building Vectors in Loops
+
+Use `unroll` loops to build vectors dynamically:
+
+```
+v = vec![];
+for i in 0..5 unroll {
+    push(v, i * i);       // v = [0, 1, 4, 9, 16]
+}
+```
+
+### Restrictions
+
+Vectors are compile-time only. The compiler must know the exact structure at every point:
+
+1. **Indices must be compile-time constants** (literals or unroll loop variables)
+2. **Push to outer-scope vectors forbidden** inside `if/else`, `match`, or non-unrolled loops
+3. **Vectors cannot be passed to non-inlined functions**
+
+```
+// OK: local vector in branch
+if cond == 1 {
+    v = vec![1, 2];
+    push(v, 3);
+}
+
+// ERROR: push to outer-scope vector in branch
+v = vec![1, 2];
+if cond == 1 {
+    push(v, 3);           // compile error
+}
+
+// OK: same variable name in different branches
+if cond == 1 {
+    v = vec![1];
+} else {
+    v = vec![2, 3];       // different structure, but only one executes
+}
+```
+
 ## Control Flow
 
 ### If/Else
@@ -232,7 +292,7 @@ Only allowed at compile time:
 log2_ceil(x)              // ceiling of log2
 next_multiple_of(x, n)    // smallest multiple of n >= x
 saturating_sub(a, b)      // max(0, a - b)
-len(array)                // length of const array
+len(array)                // length of const array or vector
 ```
 
 ## Assertions
