@@ -95,7 +95,10 @@ impl Parse<Line> for IfStatementParser {
                 condition: else_if_condition,
                 then_branch: else_if_branch,
                 else_branch: Vec::new(),
-                line_number,
+                location: SourceLocation {
+                    file_id: ctx.current_file_id,
+                    line_number,
+                },
             });
             inner_else_branch = match &mut inner_else_branch[0] {
                 Line::IfCondition { else_branch, .. } => else_branch,
@@ -109,7 +112,10 @@ impl Parse<Line> for IfStatementParser {
             condition,
             then_branch,
             else_branch: outer_else_branch,
-            line_number,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
     }
 }
@@ -208,7 +214,10 @@ impl Parse<Line> for ForStatementParser {
             end,
             body,
             unroll,
-            line_number,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
     }
 }
@@ -239,6 +248,7 @@ pub struct MatchStatementParser;
 
 impl Parse<Line> for MatchStatementParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let value = ExpressionParser.parse(next_inner_pair(&mut inner, "match value")?, ctx)?;
 
@@ -260,8 +270,11 @@ impl Parse<Line> for MatchStatementParser {
                 arms.push((pattern, statements));
             }
         }
-
-        Ok(Line::Match { value, arms })
+        let location = SourceLocation {
+            file_id: ctx.current_file_id,
+            line_number,
+        };
+        Ok(Line::Match { value, arms, location })
     }
 }
 
@@ -315,7 +328,10 @@ impl<const DEBUG: bool> Parse<Line> for AssertParser<DEBUG> {
         Ok(Line::Assert {
             debug: DEBUG,
             boolean,
-            line_number,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
     }
 }
@@ -324,7 +340,7 @@ impl<const DEBUG: bool> Parse<Line> for AssertParser<DEBUG> {
 pub struct VecDeclarationParser;
 
 impl Parse<Line> for VecDeclarationParser {
-    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
 
@@ -333,7 +349,7 @@ impl Parse<Line> for VecDeclarationParser {
 
         // Parse the vec_literal
         let vec_literal_pair = next_inner_pair(&mut inner, "vec literal")?;
-        let vec_literal = VecLiteralParser.parse(vec_literal_pair, _ctx)?;
+        let vec_literal = VecLiteralParser.parse(vec_literal_pair, ctx)?;
 
         // Extract elements from the VecLiteral::Vec
         let elements = match vec_literal {
@@ -346,7 +362,10 @@ impl Parse<Line> for VecDeclarationParser {
         Ok(Line::VecDeclaration {
             var,
             elements,
-            line_number,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
     }
 }
@@ -364,7 +383,9 @@ impl Parse<Line> for PushStatementParser {
         let mut target_inner = push_target.into_inner();
 
         // First element is the vector variable name
-        let vector = next_inner_pair(&mut target_inner, "vector variable")?.as_str().to_string();
+        let vector = next_inner_pair(&mut target_inner, "vector variable")?
+            .as_str()
+            .to_string();
 
         // Remaining elements are index expressions
         let indices: Vec<Expression> = target_inner
@@ -379,7 +400,10 @@ impl Parse<Line> for PushStatementParser {
             vector,
             indices,
             element,
-            line_number,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
     }
 }

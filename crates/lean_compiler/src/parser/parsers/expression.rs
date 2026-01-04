@@ -1,3 +1,5 @@
+use lean_vm::SourceLocation;
+
 use super::literal::{VarOrConstantParser, evaluate_const_expr};
 use super::{ConstArrayValue, Parse, ParseContext, next_inner_pair};
 use crate::lang::MathOperation;
@@ -58,6 +60,7 @@ pub struct FunctionCallExprParser;
 
 impl Parse<Expression> for FunctionCallExprParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+        let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let function_name = next_inner_pair(&mut inner, "function name")?.as_str().to_string();
 
@@ -70,7 +73,14 @@ impl Parse<Expression> for FunctionCallExprParser {
             Vec::new()
         };
 
-        Ok(Expression::FunctionCall { function_name, args })
+        Ok(Expression::FunctionCall {
+            function_name,
+            args,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
+        })
     }
 }
 
@@ -141,9 +151,11 @@ impl Parse<Expression> for LenParser {
 
                 let length = match target {
                     ConstArrayValue::Scalar(_) => {
-                        return Err(
-                            SemanticError::with_context("Cannot call len() on a scalar value", "len expression").into(),
-                        );
+                        return Err(SemanticError::with_context(
+                            "Cannot call len() on a scalar value",
+                            "len expression",
+                        )
+                        .into());
                     }
                     ConstArrayValue::Array(arr) => arr.len(),
                 };

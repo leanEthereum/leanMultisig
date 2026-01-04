@@ -57,7 +57,6 @@ impl FunctionArg {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
-    pub file_id: FileId,
     pub arguments: Vec<FunctionArg>,
     pub inlined: bool,
     pub n_returned_vars: usize,
@@ -271,6 +270,7 @@ pub enum Expression {
     FunctionCall {
         function_name: String,
         args: Vec<Self>,
+        location: SourceLocation,
     },
     Len {
         array: String,
@@ -500,6 +500,7 @@ pub enum Line {
     Match {
         value: Expression,
         arms: Vec<(usize, Vec<Self>)>,
+        location: SourceLocation,
     },
     ForwardDeclaration {
         var: Var,
@@ -507,18 +508,18 @@ pub enum Line {
     Statement {
         targets: Vec<AssignmentTarget>, // LHS - can be empty for standalone calls
         value: Expression,              // RHS - any expression
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     Assert {
         debug: bool,
         boolean: BooleanExpr<Expression>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     IfCondition {
         condition: Condition,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     ForLoop {
         iterator: Var,
@@ -526,7 +527,7 @@ pub enum Line {
         end: Expression,
         body: Vec<Self>,
         unroll: bool,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     FunctionRet {
         return_data: Vec<Expression>,
@@ -540,14 +541,14 @@ pub enum Line {
     VecDeclaration {
         var: Var,
         elements: Vec<VecLiteral>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     /// Compile-time vector push: push(vec_var, element) or push(vec_var[i][j], element)
     Push {
         vector: Var,
         indices: Vec<Expression>,
         element: VecLiteral,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
 }
 
@@ -607,7 +608,7 @@ impl Display for Expression {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{math_expr}({args_str})")
             }
-            Self::FunctionCall { function_name, args } => {
+            Self::FunctionCall { function_name, args, .. } => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{function_name}({args_str})")
             }
@@ -627,7 +628,7 @@ impl Line {
                 // print nothing
                 Default::default()
             }
-            Self::Match { value, arms } => {
+            Self::Match { value, arms, .. } => {
                 let arms_str = arms
                     .iter()
                     .map(|(const_expr, body)| {
@@ -660,13 +661,13 @@ impl Line {
             Self::Assert {
                 debug,
                 boolean,
-                line_number: _,
+                location: _,
             } => format!("{}assert {}", if *debug { "debug_" } else { "" }, boolean),
             Self::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
-                line_number: _,
+                location: _,
             } => {
                 let then_str = then_branch
                     .iter()
@@ -692,7 +693,7 @@ impl Line {
                 end,
                 body,
                 unroll,
-                line_number: _,
+                location: _,
             } => {
                 let body_str = body
                     .iter()

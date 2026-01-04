@@ -2,7 +2,6 @@ use super::expression::ExpressionParser;
 use super::statement::StatementParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
-    SourceLineNumber,
     a_simplify_lang::VarOrConstMallocAccess,
     lang::{AssignmentTarget, Expression, Function, FunctionArg, Line, MathOperation, SimpleExpr, SourceLocation},
     parser::{
@@ -94,7 +93,6 @@ impl Parse<Function> for FunctionParser {
 
         Ok(Function {
             name,
-            file_id: ctx.current_file_id,
             arguments,
             inlined,
             n_returned_vars,
@@ -235,7 +233,10 @@ impl Parse<Line> for AssignmentParser {
         // Parse the RHS expression
         let expr_pair = next_inner_pair(&mut inner, "expression")?;
         let rhs_expr = ExpressionParser.parse(expr_pair, ctx)?;
-
+        let location = SourceLocation {
+            file_id: ctx.current_file_id,
+            line_number,
+        };
         match lhs_info {
             Some(LhsInfo::Compound { target, lhs_expr, op }) => {
                 // Desugar: target op= expr -> target = target op expr
@@ -243,7 +244,7 @@ impl Parse<Line> for AssignmentParser {
                 Ok(Line::Statement {
                     targets: vec![target],
                     value: desugared_expr,
-                    line_number,
+                    location,
                 })
             }
             Some(LhsInfo::Simple { mut targets }) => {
@@ -254,11 +255,11 @@ impl Parse<Line> for AssignmentParser {
                         *var = ctx.next_trash_var();
                     }
                 }
-                Self::finalize_simple_assignment(line_number, targets, rhs_expr)
+                Self::finalize_simple_assignment(location, targets, rhs_expr)
             }
             None => {
                 // No LHS - expression statement (e.g., function call)
-                Self::finalize_simple_assignment(line_number, Vec::new(), rhs_expr)
+                Self::finalize_simple_assignment(location, Vec::new(), rhs_expr)
             }
         }
     }
@@ -361,13 +362,13 @@ impl AssignmentParser {
 
     /// Finalize a simple assignment (handles function calls vs regular expressions)
     fn finalize_simple_assignment(
-        line_number: SourceLineNumber,
+        location: SourceLocation,
         targets: Vec<AssignmentTarget>,
         expr: Expression,
     ) -> ParseResult<Line> {
         match &expr {
-            Expression::FunctionCall { function_name, args } => {
-                Self::handle_function_call(line_number, function_name.clone(), args.clone(), targets)
+            Expression::FunctionCall { function_name, args, .. } => {
+                Self::handle_function_call(location, function_name.clone(), args.clone(), targets)
             }
             _ => {
                 if targets.is_empty() {
@@ -382,7 +383,7 @@ impl AssignmentParser {
                 Ok(Line::Statement {
                     targets,
                     value: expr,
-                    line_number,
+                    location,
                 })
             }
         }
@@ -391,7 +392,7 @@ impl AssignmentParser {
 
 impl AssignmentParser {
     fn handle_function_call(
-        line_number: SourceLineNumber,
+        location: SourceLocation,
         function_name: String,
         args: Vec<Expression>,
         return_data: Vec<AssignmentTarget>,
@@ -408,8 +409,8 @@ impl AssignmentParser {
         // is treated as a regular function call and handled in a_simplify_lang.rs
         Ok(Line::Statement {
             targets: return_data,
-            value: Expression::FunctionCall { function_name, args },
-            line_number,
+            value: Expression::FunctionCall { function_name, args, location },
+            location,
         })
     }
 }

@@ -7,9 +7,7 @@ use crate::{
     parser::ConstArrayValue,
 };
 use core::panic;
-use lean_vm::{
-    ALL_TABLES, Boolean, BooleanExpr, CustomHint, FileId, FunctionName, SourceLineNumber, SourceLocation, Table, TableT,
-};
+use lean_vm::{ALL_TABLES, Boolean, BooleanExpr, CustomHint, FunctionName, SourceLocation, Table, TableT};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -24,7 +22,6 @@ pub struct SimpleProgram {
 #[derive(Debug, Clone)]
 pub struct SimpleFunction {
     pub name: String,
-    pub file_id: FileId,
     pub arguments: Vec<Var>,
     pub n_returned_vars: usize,
     pub instructions: Vec<SimpleLine>,
@@ -86,7 +83,7 @@ pub enum SimpleLine {
         condition: SimpleExpr,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     AssertZero {
         operation: MathOperation,
@@ -97,7 +94,7 @@ pub enum SimpleLine {
         function_name: String,
         args: Vec<SimpleExpr>,
         return_data: Vec<Var>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     FunctionRet {
         return_data: Vec<SimpleExpr>,
@@ -134,7 +131,7 @@ pub enum SimpleLine {
     LocationReport {
         location: SourceLocation,
     },
-    DebugAssert(BooleanExpr<SimpleExpr>, SourceLineNumber),
+    DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
 }
 
 impl SimpleLine {
@@ -289,14 +286,12 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
             &mut state,
             &mut const_malloc,
             &mut new_functions,
-            func.file_id,
             func.n_returned_vars,
             &func.body,
             false,
         )?;
         let simplified_function = SimpleFunction {
             name: name.clone(),
-            file_id: func.file_id,
             arguments,
             n_returned_vars: func.n_returned_vars,
             instructions: simplified_instructions,
@@ -401,7 +396,7 @@ fn unroll_loops_in_lines(
             end,
             body,
             unroll: true,
-            line_number: _,
+            location: _,
         } = &lines[i]
             && let (Some(start_val), Some(end_val)) = (start.naive_eval(const_arrays), end.naive_eval(const_arrays))
         {
@@ -556,7 +551,7 @@ fn transform_mutable_in_loops_in_lines(
                 end,
                 body,
                 unroll: false,
-                line_number,
+                location,
             } => {
                 transform_mutable_in_loops_in_lines(body, const_arrays, counter);
                 let modified_vars = find_modified_external_vars(body, const_arrays);
@@ -568,10 +563,11 @@ fn transform_mutable_in_loops_in_lines(
                 }
 
                 let suffix = counter.next_suffix();
-                let line_num = *line_number;
 
                 // Generate the transformed code
                 let mut new_lines = Vec::new();
+
+                let location = *location;
 
                 // Create size variable: @loop_size_{suffix} = end - start
                 // TODO opti if start is zero
@@ -582,7 +578,7 @@ fn transform_mutable_in_loops_in_lines(
                         is_mutable: false,
                     }],
                     value: Expression::MathExpr(MathOperation::Sub, vec![end.clone(), start.clone()]),
-                    line_number: line_num,
+                    location,
                 });
 
                 let mut var_to_buff: BTreeMap<Var, (Var, Var)> = BTreeMap::new(); // var -> (buff_name, body_name)
@@ -604,8 +600,9 @@ fn transform_mutable_in_loops_in_lines(
                                 MathOperation::Add,
                                 vec![Expression::var(size_var.clone()), Expression::scalar(1)],
                             )],
+                            location,
                         },
-                        line_number: line_num,
+                        location,
                     });
 
                     // buff[0] = var (current value)
@@ -615,7 +612,7 @@ fn transform_mutable_in_loops_in_lines(
                             index: Box::new(Expression::zero()),
                         }],
                         value: Expression::var(var.clone()),
-                        line_number: line_num,
+                        location,
                     });
 
                     var_to_buff.insert(var.clone(), (buff_name, body_name));
@@ -636,7 +633,7 @@ fn transform_mutable_in_loops_in_lines(
                         MathOperation::Sub,
                         vec![Expression::var(iterator.clone()), start.clone()], // TODO opti if start is zero
                     ),
-                    line_number: line_num,
+                    location,
                 });
 
                 // For each modified variable: mut body_var = buff[buff_idx]
@@ -652,7 +649,7 @@ fn transform_mutable_in_loops_in_lines(
                                 VarOrConstMallocAccess::Var(buff_idx_var.clone()).into(),
                             )],
                         },
-                        line_number: line_num,
+                        location,
                     });
 
                     // Replace all references to var with body_name in the original body
@@ -673,7 +670,7 @@ fn transform_mutable_in_loops_in_lines(
                         MathOperation::Add,
                         vec![Expression::var(buff_idx_var.clone()), Expression::scalar(1)],
                     ),
-                    line_number: line_num,
+                    location,
                 });
 
                 // For each modified variable: buff[next_idx] = body_var
@@ -684,7 +681,7 @@ fn transform_mutable_in_loops_in_lines(
                             index: Expression::var(next_idx_var.clone()).into(),
                         }],
                         value: Expression::var(body_name.clone()),
-                        line_number: line_num,
+                        location,
                     });
                 }
 
@@ -695,7 +692,7 @@ fn transform_mutable_in_loops_in_lines(
                     end: end.clone(),
                     body: new_body,
                     unroll: false,
-                    line_number: line_num,
+                    location,
                 });
 
                 // After the loop: var = buff[size]
@@ -709,7 +706,7 @@ fn transform_mutable_in_loops_in_lines(
                             array: buff_name.clone(),
                             index: vec![Expression::var(size_var.clone())],
                         },
-                        line_number: line_num,
+                        location,
                     });
                 }
 
@@ -834,7 +831,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
             Line::ForwardDeclaration { var, .. } => {
                 ctx.add_var(var);
             }
-            Line::Match { value, arms } => {
+            Line::Match { value, arms, .. } => {
                 check_expr_scoping(value, ctx);
                 for (_, arm) in arms {
                     ctx.scopes.push(Scope { vars: BTreeSet::new() });
@@ -866,7 +863,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 condition,
                 then_branch,
                 else_branch,
-                line_number: _,
+                location: _,
             } => {
                 check_condition_scoping(condition, ctx);
                 for branch in [then_branch, else_branch] {
@@ -881,7 +878,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 end,
                 body,
                 unroll: _,
-                line_number: _,
+                location: _,
             } => {
                 check_expr_scoping(start, ctx);
                 check_expr_scoping(end, ctx);
@@ -934,7 +931,7 @@ fn validate_vectors(
     lines: &[Line],
     outer: &BTreeSet<Var>,
     inlined: &BTreeSet<String>,
-    restrict: Option<usize>,
+    restrict: Option<SourceLocation>,
 ) -> Result<(), String> {
     let mut local: BTreeSet<Var> = BTreeSet::new();
     macro_rules! all {
@@ -945,47 +942,48 @@ fn validate_vectors(
 
     for line in lines {
         match line {
-            Line::VecDeclaration { var, elements, .. } => {
+            Line::VecDeclaration {
+                var,
+                elements,
+                location,
+            } => {
                 local.insert(var.clone());
-                validate_vec_lit(elements, &all!(), inlined)?;
+                validate_vec_lit(elements, &all!(), inlined, *location)?;
             }
             Line::Push {
                 vector,
                 element,
-                line_number,
+                location,
                 ..
             } => {
                 if restrict.is_some() && outer.contains(vector) {
-                    return Err(format!("line {}: push to outer-scope vector '{}'", line_number, vector));
+                    return Err(format!("line {}: push to outer-scope vector '{}'", location, vector));
                 }
-                validate_vec_lit(std::slice::from_ref(element), &all!(), inlined)?;
+                validate_vec_lit(std::slice::from_ref(element), &all!(), inlined, *location)?;
                 if !local.contains(vector) && !outer.contains(vector) {
-                    return Err(format!("line {}: unknown vector '{}'", line_number, vector));
+                    return Err(format!("line {}: unknown vector '{}'", location, vector));
                 }
             }
-            Line::Statement { value, line_number, .. } => {
-                check_vec_in_call(value, &all!(), inlined, *line_number)?;
+            Line::Statement { value, .. } => {
+                check_vec_in_call(value, &all!(), inlined)?;
             }
             Line::IfCondition {
                 then_branch,
                 else_branch,
-                line_number,
+                location,
                 ..
             } => {
-                validate_vectors(then_branch, &all!(), inlined, Some(*line_number))?;
-                validate_vectors(else_branch, &all!(), inlined, Some(*line_number))?;
+                validate_vectors(then_branch, &all!(), inlined, Some(*location))?;
+                validate_vectors(else_branch, &all!(), inlined, Some(*location))?;
             }
             Line::ForLoop {
-                body,
-                unroll,
-                line_number,
-                ..
+                body, unroll, location, ..
             } => {
-                validate_vectors(body, &all!(), inlined, if *unroll { None } else { Some(*line_number) })?;
+                validate_vectors(body, &all!(), inlined, if *unroll { None } else { Some(*location) })?;
             }
-            Line::Match { arms, .. } => {
+            Line::Match { arms, location, .. } => {
                 for (_, arm) in arms {
-                    validate_vectors(arm, &all!(), inlined, Some(0))?;
+                    validate_vectors(arm, &all!(), inlined, Some(*location))?;
                 }
             }
             _ => {}
@@ -994,23 +992,27 @@ fn validate_vectors(
     Ok(())
 }
 
-fn validate_vec_lit(elems: &[VecLiteral], vecs: &BTreeSet<Var>, inlined: &BTreeSet<String>) -> Result<(), String> {
+fn validate_vec_lit(
+    elems: &[VecLiteral],
+    vecs: &BTreeSet<Var>,
+    inlined: &BTreeSet<String>,
+    location: SourceLocation,
+) -> Result<(), String> {
     for e in elems {
         match e {
-            VecLiteral::Expr(expr) => check_vec_in_call(expr, vecs, inlined, 0)?,
-            VecLiteral::Vec(inner) => validate_vec_lit(inner, vecs, inlined)?,
+            VecLiteral::Expr(expr) => check_vec_in_call(expr, vecs, inlined)?,
+            VecLiteral::Vec(inner) => validate_vec_lit(inner, vecs, inlined, location)?,
         }
     }
     Ok(())
 }
 
-fn check_vec_in_call(
-    expr: &Expression,
-    vecs: &BTreeSet<Var>,
-    inlined: &BTreeSet<String>,
-    line: usize,
-) -> Result<(), String> {
-    if let Expression::FunctionCall { function_name, args } = expr
+fn check_vec_in_call(expr: &Expression, vecs: &BTreeSet<Var>, inlined: &BTreeSet<String>) -> Result<(), String> {
+    if let Expression::FunctionCall {
+        function_name,
+        args,
+        location,
+    } = expr
         && !inlined.contains(function_name)
     {
         for arg in args {
@@ -1019,7 +1021,7 @@ fn check_vec_in_call(
             {
                 return Err(format!(
                     "line {}: vector '{}' passed to function '{}'",
-                    line, v, function_name
+                    location, v, function_name
                 ));
             }
         }
@@ -1108,7 +1110,7 @@ struct ArrayManager {
 }
 
 /// Tracks the current "version" of each mutable variable for SSA-like transformation
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct MutableVarTracker {
     /// Set of variables declared as mutable
     mutable_vars: BTreeSet<Var>,
@@ -1370,7 +1372,6 @@ fn simplify_lines(
     state: &mut SimplifyState<'_>,
     const_malloc: &mut ConstMalloc,
     new_functions: &mut BTreeMap<String, SimpleFunction>,
-    file_id: FileId,
     n_returned_vars: usize,
     lines: &[Line],
     in_a_loop: bool,
@@ -1381,7 +1382,7 @@ fn simplify_lines(
             Line::ForwardDeclaration { var } => {
                 res.push(SimpleLine::ForwardDeclaration { var: var.clone() });
             }
-            Line::Match { value, arms } => {
+            Line::Match { value, arms, .. } => {
                 let simple_value = simplify_expr(ctx, state, const_malloc, value, &mut res)?;
 
                 // Snapshot mutable variable versions before processing arms
@@ -1403,7 +1404,6 @@ fn simplify_lines(
                         state,
                         const_malloc,
                         new_functions,
-                        file_id,
                         n_returned_vars,
                         statements,
                         in_a_loop,
@@ -1430,7 +1430,7 @@ fn simplify_lines(
             Line::Statement {
                 targets,
                 value,
-                line_number,
+                location,
             } => {
                 // Helper function to get the target variable name, handling mutable variable versioning
                 let get_target_var_name = |state: &mut SimplifyState<'_>, var: &Var, is_mutable: bool| -> Var {
@@ -1449,18 +1449,20 @@ fn simplify_lines(
                 };
 
                 match value {
-                    Expression::FunctionCall { function_name, args } => {
+                    Expression::FunctionCall {
+                        function_name, args, ..
+                    } => {
                         // Special handling for malloc builtin
                         if function_name == "malloc" {
                             if args.len() != 1 {
                                 return Err(format!(
-                                    "malloc expects exactly 1 argument, got {}, at line {line_number}",
+                                    "malloc expects exactly 1 argument, got {}, at {location}",
                                     args.len()
                                 ));
                             }
                             if targets.len() != 1 {
                                 return Err(format!(
-                                    "malloc expects exactly 1 return target, got {}, at line {line_number}",
+                                    "malloc expects exactly 1 return target, got {}, at {location}",
                                     targets.len()
                                 ));
                             }
@@ -1490,7 +1492,7 @@ fn simplify_lines(
                                 }
                                 AssignmentTarget::ArrayAccess { .. } => {
                                     return Err(format!(
-                                        "malloc does not support array access as return target, at line {line_number}"
+                                        "malloc does not support array access as return target, at {location}"
                                     ));
                                 }
                             }
@@ -1500,14 +1502,14 @@ fn simplify_lines(
                         // Special handling for print builtin
                         if function_name == "print" {
                             if !targets.is_empty() {
-                                return Err(format!("print should not return values, at line {line_number}"));
+                                return Err(format!("print should not return values, at {location}"));
                             }
                             let simplified_content = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
                             res.push(SimpleLine::Print {
-                                line_info: format!("line {line_number}"),
+                                line_info: format!("line {}", location.line_number),
                                 content: simplified_content,
                             });
                             continue;
@@ -1516,11 +1518,11 @@ fn simplify_lines(
                         // Special handling for private_input_start builtin
                         if function_name == "private_input_start" {
                             if !args.is_empty() {
-                                return Err(format!("private_input_start takes no arguments, at line {line_number}"));
+                                return Err(format!("private_input_start takes no arguments, at {location}"));
                             }
                             if targets.len() != 1 {
                                 return Err(format!(
-                                    "private_input_start expects exactly 1 return target, got {}, at line {line_number}",
+                                    "private_input_start expects exactly 1 return target, got {}, at {location}",
                                     targets.len()
                                 ));
                             }
@@ -1532,7 +1534,7 @@ fn simplify_lines(
                                 }
                                 AssignmentTarget::ArrayAccess { .. } => {
                                     return Err(format!(
-                                        "private_input_start does not support array access as return target, at line {line_number}"
+                                        "private_input_start does not support array access as return target, at {location}"
                                     ));
                                 }
                             }
@@ -1545,7 +1547,7 @@ fn simplify_lines(
                         {
                             if !targets.is_empty() {
                                 return Err(format!(
-                                    "Precompile {function_name} should not return values, at line {line_number}"
+                                    "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
                             let simplified_args = args
@@ -1563,12 +1565,12 @@ fn simplify_lines(
                         if let Some(hint) = CustomHint::find_by_name(function_name) {
                             if !targets.is_empty() {
                                 return Err(format!(
-                                    "Custom hint {function_name} should not return values, at line {line_number}"
+                                    "Custom hint {function_name} should not return values, at {location}"
                                 ));
                             }
                             if !hint.n_args_range().contains(&args.len()) {
                                 return Err(format!(
-                                    "Custom hint {function_name}: invalid number of arguments, at line {line_number}"
+                                    "Custom hint {function_name}: invalid number of arguments, at {location}"
                                 ));
                             }
                             let simplified_args = args
@@ -1580,19 +1582,20 @@ fn simplify_lines(
                         }
 
                         // Regular function call - may have zero, one, or multiple targets
-                        let function = ctx.functions.get(function_name).ok_or_else(|| {
-                            format!("Function used but not defined: {function_name}, at line {line_number}")
-                        })?;
+                        let function = ctx
+                            .functions
+                            .get(function_name)
+                            .ok_or_else(|| format!("Function used but not defined: {function_name}, at {location}"))?;
                         if targets.len() != function.n_returned_vars {
                             return Err(format!(
-                                "Expected {} returned vars (and not {}) in call to {function_name}, at line {line_number}",
+                                "Expected {} returned vars (and not {}) in call to {function_name}, at {location}",
                                 function.n_returned_vars,
                                 targets.len()
                             ));
                         }
                         if args.len() != function.arguments.len() {
                             return Err(format!(
-                                "Expected {} arguments (and not {}) in call to {function_name}, at line {line_number}",
+                                "Expected {} arguments (and not {}) in call to {function_name}, at {location}",
                                 function.arguments.len(),
                                 args.len()
                             ));
@@ -1629,7 +1632,7 @@ fn simplify_lines(
                             function_name: function_name.clone(),
                             args: simplified_args,
                             return_data: temp_vars.clone(),
-                            line_number: *line_number,
+                            location: *location,
                         });
 
                         // For array access targets, add DEREF instructions to copy temp to array element
@@ -1777,8 +1780,8 @@ fn simplify_lines(
             }
             Line::Assert {
                 boolean,
-                line_number,
                 debug,
+                location,
             } => {
                 let left = simplify_expr(ctx, state, const_malloc, &boolean.left, &mut res)?;
                 let right = simplify_expr(ctx, state, const_malloc, &boolean.right, &mut res)?;
@@ -1790,7 +1793,7 @@ fn simplify_lines(
                             right,
                             kind: boolean.kind,
                         },
-                        *line_number,
+                        *location,
                     ));
                 } else {
                     match boolean.kind {
@@ -1806,7 +1809,7 @@ fn simplify_lines(
                                 condition: diff_var.into(),
                                 then_branch: vec![],
                                 else_branch: vec![SimpleLine::Panic],
-                                line_number: *line_number,
+                                location: *location,
                             });
                         }
                         Boolean::Equal => {
@@ -1826,10 +1829,10 @@ fn simplify_lines(
                                         continue;
                                     } else {
                                         return Err(format!(
-                                            "Compile-time assertion failed: {} != {} (line {})",
+                                            "Compile-time assertion failed: {} != {} ({})",
                                             left_val.to_usize(),
                                             right_val.to_usize(),
-                                            line_number
+                                            location
                                         ));
                                     }
                                 }
@@ -1845,7 +1848,7 @@ fn simplify_lines(
                 condition,
                 then_branch,
                 else_branch,
-                line_number,
+                location,
             } => {
                 // Helper to simplify and extend with the chosen branch when condition is known at compile time
                 let simplify_chosen_branch = |chosen_branch: &Vec<Line>,
@@ -1859,7 +1862,6 @@ fn simplify_lines(
                         state,
                         const_malloc,
                         new_functions,
-                        file_id,
                         n_returned_vars,
                         chosen_branch,
                         in_a_loop,
@@ -1937,7 +1939,6 @@ fn simplify_lines(
                     &mut state_then,
                     const_malloc,
                     new_functions,
-                    file_id,
                     n_returned_vars,
                     then_branch,
                     in_a_loop,
@@ -1963,7 +1964,6 @@ fn simplify_lines(
                     &mut state_else,
                     const_malloc,
                     new_functions,
-                    file_id,
                     n_returned_vars,
                     else_branch,
                     in_a_loop,
@@ -1993,7 +1993,7 @@ fn simplify_lines(
                     condition: condition_simplified,
                     then_branch: then_branch_simplified,
                     else_branch: else_branch_simplified,
-                    line_number: *line_number,
+                    location: *location,
                 });
             }
             Line::ForLoop {
@@ -2002,7 +2002,7 @@ fn simplify_lines(
                 end,
                 body,
                 unroll,
-                line_number,
+                location,
             } => {
                 assert!(!*unroll, "Unrolled loops should have been handled already");
 
@@ -2013,21 +2013,12 @@ fn simplify_lines(
                 let valid_aux_vars_in_array_manager_before = state.array_manager.valid.clone();
                 state.array_manager.valid.clear();
 
-                let simplified_body = simplify_lines(
-                    ctx,
-                    state,
-                    &mut loop_const_malloc,
-                    new_functions,
-                    file_id,
-                    0,
-                    body,
-                    true,
-                )?;
+                let simplified_body = simplify_lines(ctx, state, &mut loop_const_malloc, new_functions, 0, body, true)?;
 
                 const_malloc.counter = loop_const_malloc.counter;
                 state.array_manager.valid = valid_aux_vars_in_array_manager_before; // restore the valid aux vars
 
-                let func_name = format!("@loop_{}_line_{}", state.counters.loops, line_number);
+                let func_name = format!("@loop_{}_{}", state.counters.loops, location);
                 state.counters.loops += 1;
 
                 // Find variables used inside loop but defined outside
@@ -2079,10 +2070,7 @@ fn simplify_lines(
                 // Create recursive function body
                 let recursive_func = create_recursive_function(
                     func_name.clone(),
-                    SourceLocation {
-                        line_number: *line_number,
-                        file_id,
-                    },
+                    *location,
                     func_args,
                     iterator.clone(),
                     end_simplified,
@@ -2099,7 +2087,7 @@ fn simplify_lines(
                     function_name: func_name,
                     args: call_args,
                     return_data: vec![],
-                    line_number: *line_number,
+                    location: *location,
                 });
             }
             Line::FunctionRet { return_data } => {
@@ -2129,14 +2117,9 @@ fn simplify_lines(
             Line::VecDeclaration {
                 var,
                 elements,
-                line_number,
+                location,
             } => {
-                // Build the VectorValue structure and register it
-                let location = SourceLocation {
-                    file_id,
-                    line_number: *line_number,
-                };
-                let vector_value = build_vector_value(ctx, state, const_malloc, elements, &mut res, location)?;
+                let vector_value = build_vector_value(ctx, state, const_malloc, elements, &mut res, *location)?;
                 state.vec_tracker.register(var, vector_value);
                 // No SimpleLine for the variable itself - vector metadata is compile-time only
             }
@@ -2144,13 +2127,13 @@ fn simplify_lines(
                 vector,
                 indices,
                 element,
-                line_number,
+                location,
             } => {
                 // Get the vector and check it's a tracked vector
                 if !state.vec_tracker.is_vector(vector) {
                     return Err(format!(
-                        "push called on non-vector variable '{}', at line {}",
-                        vector, line_number
+                        "push called on non-vector variable '{}', at {}",
+                        vector, location
                     ));
                 }
 
@@ -2159,23 +2142,19 @@ fn simplify_lines(
                     .iter()
                     .map(|idx| {
                         let simplified = simplify_expr(ctx, state, const_malloc, idx, &mut res)?;
-                        let const_val = simplified.as_constant().ok_or_else(|| {
-                            format!("push index must be a compile-time constant, at line {}", line_number)
-                        })?;
-                        let val = const_val.naive_eval().ok_or_else(|| {
-                            format!("push index must be evaluable at compile time, at line {}", line_number)
-                        })?;
+                        let const_val = simplified
+                            .as_constant()
+                            .ok_or_else(|| format!("push index must be a compile-time constant, at {}", location))?;
+                        let val = const_val
+                            .naive_eval()
+                            .ok_or_else(|| format!("push index must be evaluable at compile time, at {}", location))?;
                         Ok(val.to_usize())
                     })
                     .collect::<Result<Vec<_>, String>>()?;
 
                 // Build VectorValue for the element being pushed
-                let location = SourceLocation {
-                    file_id,
-                    line_number: *line_number,
-                };
                 let new_element =
-                    build_vector_value_from_element(ctx, state, const_malloc, element, &mut res, location)?;
+                    build_vector_value_from_element(ctx, state, const_malloc, element, &mut res, *location)?;
 
                 // Navigate to the target vector and push
                 let vector_value = state
@@ -2190,12 +2169,9 @@ fn simplify_lines(
                     // Navigate to the nested vector and push
                     let target = vector_value
                         .navigate_mut(&const_indices)
-                        .ok_or_else(|| format!("push target index out of bounds, at line {}", line_number))?;
+                        .ok_or_else(|| format!("push target index out of bounds, at {}", location))?;
                     if !target.is_vector() {
-                        return Err(format!(
-                            "push target must be a vector, not a scalar, at line {}",
-                            line_number
-                        ));
+                        return Err(format!("push target must be a vector, not a scalar, at {}", location));
                     }
                     target.push(new_element);
                 }
@@ -2332,7 +2308,11 @@ fn simplify_expr(
             });
             Ok(VarOrConstMallocAccess::Var(aux_var).into())
         }
-        Expression::FunctionCall { function_name, args } => {
+        Expression::FunctionCall {
+            function_name,
+            args,
+            location,
+        } => {
             let function = ctx
                 .functions
                 .get(function_name)
@@ -2356,7 +2336,7 @@ fn simplify_expr(
                 function_name: function_name.clone(),
                 args: simplified_args,
                 return_data: vec![result_var.clone()],
-                line_number: 0, // No source line number for nested calls
+                location: *location,
             });
 
             Ok(VarOrConstMallocAccess::Var(result_var).into())
@@ -2446,7 +2426,7 @@ pub fn find_variable_usage(
             Line::ForwardDeclaration { var, .. } => {
                 internal_vars.insert(var.clone());
             }
-            Line::Match { value, arms } => {
+            Line::Match { value, arms, .. } => {
                 on_new_expr(value, &internal_vars, &mut external_vars);
                 for (_, statements) in arms {
                     let (stmt_internal, stmt_external) = find_variable_usage(statements, const_arrays);
@@ -2480,7 +2460,7 @@ pub fn find_variable_usage(
                 condition,
                 then_branch,
                 else_branch,
-                line_number: _,
+                ..
             } => {
                 on_new_condition(condition, &internal_vars, &mut external_vars);
 
@@ -2512,8 +2492,7 @@ pub fn find_variable_usage(
                 start,
                 end,
                 body,
-                unroll: _,
-                line_number: _,
+                ..
             } => {
                 let (body_internal, body_external) = find_variable_usage(body, const_arrays);
                 internal_vars.extend(body_internal);
@@ -2686,7 +2665,10 @@ fn inline_lines(
                         .map(|(target, expr)| Line::Statement {
                             targets: vec![target.clone()],
                             value: expr.clone(),
-                            line_number: 0,
+                            location: SourceLocation {
+                                file_id: 0,
+                                line_number: 0,
+                            }, // TODO
                         })
                         .collect::<Vec<_>>(),
                 ));
@@ -2882,7 +2864,7 @@ fn create_recursive_function(
         function_name: name.clone(),
         args: recursive_args,
         return_data: vec![],
-        line_number: location.line_number,
+        location,
     });
     body.push(SimpleLine::FunctionRet { return_data: vec![] });
 
@@ -2899,13 +2881,12 @@ fn create_recursive_function(
             condition: diff_var.into(),
             then_branch: body,
             else_branch: vec![SimpleLine::FunctionRet { return_data: vec![] }],
-            line_number: location.line_number,
+            location,
         },
     ];
 
     SimpleFunction {
         name,
-        file_id: location.file_id,
         arguments: args,
         n_returned_vars: 0,
         instructions,
@@ -3155,7 +3136,12 @@ fn extract_inlined_calls_from_expr(
 ) -> Result<(Expression, Vec<Line>), String> {
     let mut lines = vec![];
 
-    if let Expression::FunctionCall { function_name, args } = expr {
+    if let Expression::FunctionCall {
+        function_name,
+        args,
+        location,
+    } = expr
+    {
         let mut args_new = vec![];
         for arg in args {
             let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter)?;
@@ -3180,8 +3166,9 @@ fn extract_inlined_calls_from_expr(
                 value: Expression::FunctionCall {
                     function_name: function_name.clone(),
                     args: args_new.clone(),
+                    location: location.clone(),
                 },
-                line_number: 0,
+                location: location.clone(),
             });
             return Ok((Expression::var(aux_var), lines));
         }
@@ -3246,7 +3233,7 @@ fn handle_inlined_functions_helper(
             }
             Line::Statement {
                 targets,
-                value: Expression::FunctionCall { function_name, args },
+                value: Expression::FunctionCall { function_name, args, location },
                 ..
             } if inlined_functions.contains_key(function_name) => {
                 let func = inlined_functions.get(function_name).unwrap();
@@ -3273,6 +3260,7 @@ fn handle_inlined_functions_helper(
                         if let Expression::FunctionCall {
                             function_name: arg_func_name,
                             args: arg_args,
+                            location
                         } = arg
                         {
                             if inlined_functions.contains_key(arg_func_name) {
@@ -3285,8 +3273,9 @@ fn handle_inlined_functions_helper(
                                     value: Expression::FunctionCall {
                                         function_name: arg_func_name.clone(),
                                         args: arg_args.clone(),
+                                        location: *location,
                                     },
-                                    line_number: 0,
+                                    location: *location,
                                 });
                             } else {
                                 inlined_lines.push(Line::Statement {
@@ -3295,7 +3284,7 @@ fn handle_inlined_functions_helper(
                                         is_mutable: false,
                                     }],
                                     value: arg.clone(),
-                                    line_number: 0,
+                                    location: *location,
                                 });
                             }
                         } else {
@@ -3305,7 +3294,7 @@ fn handle_inlined_functions_helper(
                                     is_mutable: false,
                                 }],
                                 value: arg.clone(),
-                                line_number: 0,
+                                location: *location
                             });
                         }
                         simplified_args.push(VarOrConstMallocAccess::Var(aux_var).into());
@@ -3332,7 +3321,7 @@ fn handle_inlined_functions_helper(
             Line::Statement {
                 targets,
                 value,
-                line_number,
+                location
             } => {
                 let (value, value_lines) =
                     extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter)?;
@@ -3347,14 +3336,14 @@ fn handle_inlined_functions_helper(
                 lines_out.push(Line::Statement {
                     targets: targets.clone(),
                     value,
-                    line_number: *line_number,
+                    location: *location,
                 });
             }
             Line::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
-                line_number,
+                location,
             } => {
                 let (condition_new, condition_lines) =
                     extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter)?;
@@ -3381,10 +3370,10 @@ fn handle_inlined_functions_helper(
                     condition: condition_new,
                     then_branch: then_branch_out,
                     else_branch: else_branch_out,
-                    line_number: *line_number,
+                    location: *location,
                 });
             }
-            Line::Match { value, arms } => {
+            Line::Match { value, arms, location } => {
                 let mut arms_out: Vec<(usize, Vec<Line>)> = Vec::new();
                 for (i, arm) in arms {
                     ctx.scopes.push(Scope::default());
@@ -3401,6 +3390,7 @@ fn handle_inlined_functions_helper(
                 lines_out.push(Line::Match {
                     value: value.clone(),
                     arms: arms_out,
+                    location: *location,
                 });
             }
             Line::ForwardDeclaration { var, .. } => {
@@ -3413,7 +3403,7 @@ fn handle_inlined_functions_helper(
                 end,
                 body,
                 unroll,
-                line_number,
+                location,
             } => {
                 // Handle inlining in the loop bounds
                 let (start, start_lines) =
@@ -3441,13 +3431,13 @@ fn handle_inlined_functions_helper(
                     end,
                     body: loop_body_out,
                     unroll: *unroll,
-                    line_number: *line_number,
+                    location: *location,
                 });
             }
             Line::Assert {
                 debug,
                 boolean,
-                line_number,
+                location,
             } => {
                 let (boolean, boolean_lines) =
                     extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)?;
@@ -3455,7 +3445,7 @@ fn handle_inlined_functions_helper(
                 lines_out.push(Line::Assert {
                     debug: *debug,
                     boolean,
-                    line_number: *line_number,
+                    location: *location,
                 });
             }
             Line::FunctionRet { return_data } => {
@@ -3500,7 +3490,6 @@ fn handle_const_arguments(program: &mut Program) -> bool {
     for func in program.functions.values_mut() {
         if !func.has_const_arguments() {
             any_changes |= handle_const_arguments_helper(
-                func.file_id,
                 &mut func.body,
                 &constant_functions,
                 &mut new_functions,
@@ -3525,7 +3514,6 @@ fn handle_const_arguments(program: &mut Program) -> bool {
             if let Some(func) = new_functions.get_mut(&name) {
                 let initial_count = additional_functions.len();
                 handle_const_arguments_helper(
-                    func.file_id,
                     &mut func.body,
                     &constant_functions,
                     &mut additional_functions,
@@ -3562,7 +3550,6 @@ fn handle_const_arguments(program: &mut Program) -> bool {
 }
 
 fn handle_const_arguments_helper(
-    file_id: FileId,
     lines: &mut [Line],
     constant_functions: &BTreeMap<String, Function>,
     new_functions: &mut BTreeMap<String, Function>,
@@ -3573,8 +3560,8 @@ fn handle_const_arguments_helper(
         match line {
             Line::Statement {
                 targets: _,
-                value: Expression::FunctionCall { function_name, args },
-                line_number: _,
+                value: Expression::FunctionCall { function_name, args, .. },
+                ..
             } => {
                 if let Some(func) = constant_functions.get(function_name.as_str()) {
                     // Check if all const arguments can be evaluated
@@ -3620,7 +3607,6 @@ fn handle_const_arguments_helper(
                         const_funct_name.clone(),
                         Function {
                             name: const_funct_name,
-                            file_id,
                             arguments: func.arguments.iter().filter(|arg| !arg.is_const).cloned().collect(),
                             inlined: false,
                             body: new_body,
@@ -3637,14 +3623,12 @@ fn handle_const_arguments_helper(
                 ..
             } => {
                 changed |= handle_const_arguments_helper(
-                    file_id,
                     then_branch,
                     constant_functions,
                     new_functions,
                     const_arrays,
                 );
                 changed |= handle_const_arguments_helper(
-                    file_id,
                     else_branch,
                     constant_functions,
                     new_functions,
@@ -3653,12 +3637,12 @@ fn handle_const_arguments_helper(
             }
             Line::ForLoop { body, unroll: _, .. } => {
                 // TODO we should unroll before const arguments handling
-                handle_const_arguments_helper(file_id, body, constant_functions, new_functions, const_arrays);
+                handle_const_arguments_helper(body, constant_functions, new_functions, const_arrays);
             }
             Line::Match { arms, .. } => {
                 for (_, arm) in arms {
                     changed |=
-                        handle_const_arguments_helper(file_id, arm, constant_functions, new_functions, const_arrays);
+                        handle_const_arguments_helper(arm, constant_functions, new_functions, const_arrays);
                 }
             }
             _ => {}
@@ -3707,7 +3691,7 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
 fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
     for line in lines {
         match line {
-            Line::Match { value, arms } => {
+            Line::Match { value, arms, .. } => {
                 replace_vars_by_const_in_expr(value, map);
                 for (_, statements) in arms {
                     replace_vars_by_const_in_lines(statements, map);
@@ -3734,7 +3718,7 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 condition,
                 then_branch,
                 else_branch,
-                line_number: _,
+                ..
             } => {
                 match condition {
                     Condition::Comparison(cond) => {
@@ -3845,7 +3829,7 @@ impl SimpleLine {
                 condition,
                 then_branch,
                 else_branch,
-                line_number: _,
+                ..
             } => {
                 let then_str = then_branch
                     .iter()
@@ -3869,7 +3853,7 @@ impl SimpleLine {
                 function_name,
                 args,
                 return_data,
-                line_number: _,
+                ..
             } => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 let return_data_str = return_data
