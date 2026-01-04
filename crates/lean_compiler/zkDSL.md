@@ -170,7 +170,7 @@ Vectors are compile-time constructs for building dynamic arrays. Unlike `malloc`
 
 ```
 v = vec![1, 2, 3];        // create vector
-push(v, 4);               // append element
+v.push(4);                // append element
 x = v[2];                 // access (index must be compile-time constant)
 n = len(v);               // get length
 ```
@@ -179,7 +179,7 @@ n = len(v);               // get length
 
 ```
 matrix = vec![vec![1, 2], vec![3, 4, 5]];
-push(matrix[1], 6);       // push to inner vector
+matrix[1].push(6);        // push to inner vector
 x = matrix[0][1];         // x = 2
 n = len(matrix[1]);       // n = 4
 ```
@@ -191,7 +191,7 @@ Use `unroll` loops to build vectors dynamically:
 ```
 v = vec![];
 for i in 0..5 unroll {
-    push(v, i * i);       // v = [0, 1, 4, 9, 16]
+    v.push(i * i);        // v = [0, 1, 4, 9, 16]
 }
 ```
 
@@ -207,13 +207,13 @@ Vectors are compile-time only. The compiler must know the exact structure at eve
 // OK: local vector in branch
 if cond == 1 {
     v = vec![1, 2];
-    push(v, 3);
+    v.push(3);
 }
 
 // ERROR: push to outer-scope vector in branch
 v = vec![1, 2];
 if cond == 1 {
-    push(v, 3);           // compile error
+    v.push(3);            // compile error
 }
 
 // OK: same variable name in different branches

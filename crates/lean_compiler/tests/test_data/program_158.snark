@@ -8,7 +8,7 @@ fn main() {
     // Fill each row with its index repeated
     for i in 0..3 unroll {
         for j in 0..3 unroll {
-            push(rows[i], i + len(ARR) - 1 + ARR[0] - 3 + j - 2);
+            rows[i].push(i + len(ARR) - 1 + ARR[0] - 3 + j - 2);
         }
     }
 

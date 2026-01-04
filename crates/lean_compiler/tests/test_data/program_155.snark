@@ -3,7 +3,7 @@ fn main() {
     // Build a vector of squares
     squares = vec![];
     for i in 0..6 unroll {
-        push(squares, i * i);
+        squares.push(i * i);
     }
 
     // Verify in a separate loop

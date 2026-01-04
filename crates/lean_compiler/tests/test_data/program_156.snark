@@ -3,7 +3,7 @@ fn main() {
     // Build Fibonacci-like sequence using vector
     fib = vec![1, 1];
     for i in 2..8 unroll {
-        push(fib, fib[i - 1] + fib[i - 2]);
+        fib.push(fib[i - 1] + fib[i - 2]);
     }
 
     assert len(fib) == 8;

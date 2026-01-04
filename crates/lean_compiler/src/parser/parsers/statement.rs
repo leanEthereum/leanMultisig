@@ -370,7 +370,7 @@ impl Parse<Line> for VecDeclarationParser {
     }
 }
 
-/// Parser for push statements: `push(vec_var, element);` or `push(vec_var[i][j], element);`
+/// Parser for push statements: `vec_var.push(element);` or `vec_var[i][j].push(element);`
 pub struct PushStatementParser;
 
 impl Parse<Line> for PushStatementParser {

@@ -5,7 +5,7 @@ fn main() {
     if x == 5 {
         x = 6;
     } else {
-        push(v, 4);  // Error: cannot push to outer-scope vector inside if/else
+        v.push(4);  // Error: cannot push to outer-scope vector inside if/else
     }
     return;
 }

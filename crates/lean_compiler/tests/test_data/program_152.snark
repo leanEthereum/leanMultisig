@@ -3,7 +3,7 @@ fn main() {
     v = vec![];
     for i in 0..3 unroll {
         for j in 0..2 unroll {
-            push(v, i * 10 + j);
+            v.push(i * 10 + j);
         }
     }
     assert len(v) == 6;

@@ -4,16 +4,16 @@ fn main() {
     if x == 5 {
         // Local vector in then branch - allowed
         v = vec![1, 2, 3];
-        push(v, 4);
+        v.push(4);
         assert v[3] == 4;
         assert len(v) == 4;
         w = vec![];
-        push(w, 100);
+        w.push(100);
         assert w[0] == 100;
     } else {
         // Different local vector in else branch - allowed (no clash, different control flow)
         w = vec![10, 20];
-        push(w, 30);
+        w.push(30);
         assert w[2] == 30;
     }
     return;

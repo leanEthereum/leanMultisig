@@ -2,6 +2,6 @@
 fn main() {
     v = vec![];
     print(v[0]);
-    push(v, 10);
+    v.push(10);
     return;
 }

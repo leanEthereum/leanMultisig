@@ -4,12 +4,12 @@ fn main() {
     v = vec![vec![], vec![], vec![]];
 
     // Push to nested vectors using indices
-    push(v[0], 10);
-    push(v[0], 20);
-    push(v[1], 30);
-    push(v[2], 40);
-    push(v[2], 50);
-    push(v[2], 60);
+    v[0].push(10);
+    v[0].push(20);
+    v[1].push(30);
+    v[2].push(40);
+    v[2].push(50);
+    v[2].push(60);
 
     // Verify structure
     assert len(v) == 3;

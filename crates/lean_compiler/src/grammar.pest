@@ -37,8 +37,8 @@ statement = {
 // Vector declaration: var = vec![...] (vectors are implicitly mutable for push)
 vec_declaration = { identifier ~ "=" ~ vec_literal ~ ";" }
 
-// Push statement: push(vec_var, element) or push(vec_var[i][j], element)
-push_statement = { "push" ~ "(" ~ push_target ~ "," ~ vec_element ~ ")" ~ ";" }
+// Push statement: vec_var.push(element) or vec_var[i][j].push(element)
+push_statement = { push_target ~ "." ~ "push" ~ "(" ~ vec_element ~ ")" ~ ";" }
 push_target = { identifier ~ ("[" ~ expression ~ "]")* }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }

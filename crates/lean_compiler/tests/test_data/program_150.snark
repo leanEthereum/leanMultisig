@@ -2,7 +2,7 @@
 fn main() {
     v = vec![];
     for i in 0..5 unroll {
-        push(v, i * 2);
+        v.push(i * 2);
     }
     assert len(v) == 5;
     assert v[0] == 0;
