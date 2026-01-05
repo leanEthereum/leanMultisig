@@ -787,11 +787,12 @@ impl Line {
             Self::IfCondition { condition, .. } => condition.expressions_mut(),
             Self::ForLoop { start, end, .. } => vec![start, end],
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
+            Self::Push {  indices, .. } => indices.iter_mut().collect(),
             Self::ForwardDeclaration { .. }
             | Self::Panic
             | Self::LocationReport { .. }
             | Self::VecDeclaration { .. }
-            | Self::Push { .. } => vec![],
+            => vec![],
         }
     }
 }

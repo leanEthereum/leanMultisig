@@ -404,8 +404,7 @@ pub fn verify_generic_logup(
                 assert!(!table_values.contains_key(col_index));
                 table_values.insert(*col_index, value_eval);
 
-                let pos = offset + (i << log_n_rows);
-                let bits = to_big_endian_in_field::<EF>(pos >> log_n_rows, n_missing_vars);
+                let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
                 let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
                 retrieved_numerators_value += pref;
                 retrieved_denominators_value += pref
@@ -414,8 +413,8 @@ pub fn verify_generic_logup(
                         &[index_eval + F::from_usize(i), value_eval],
                         &alpha_powers,
                     ));
+                offset += 1 << log_n_rows;
             }
-            offset += lookup_f.values.len() << log_n_rows;
         }
 
         for lookup_ef in table.lookups_ef() {
@@ -426,8 +425,7 @@ pub fn verify_generic_logup(
             for i in 0..DIMENSION {
                 let value_eval = verifier_state.next_extension_scalar()?;
 
-                let pos = offset + (i << log_n_rows);
-                let bits = to_big_endian_in_field::<EF>(pos >> log_n_rows, n_missing_vars);
+                let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
                 let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
                 retrieved_numerators_value += pref;
                 retrieved_denominators_value += pref
@@ -439,8 +437,8 @@ pub fn verify_generic_logup(
                 let global_index = table.n_commited_columns_f() + lookup_ef.values * DIMENSION + i;
                 assert!(!table_values.contains_key(&global_index));
                 table_values.insert(global_index, value_eval);
+                offset += 1 << log_n_rows;
             }
-            offset += DIMENSION << log_n_rows;
         }
         columns_values.insert(table, table_values);
     }
