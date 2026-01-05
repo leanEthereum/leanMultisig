@@ -9,8 +9,13 @@ const N_VARS_FIRST_GKR = N_VARS_FIRST_GKR_PLACEHOLDER;
 const MAX_BUS_WIDTH = MAX_BUS_WIDTH_PLACEHOLDER;
 const MEMORY_TABLE_INDEX = MEMORY_TABLE_INDEX_PLACEHOLDER;
 const UNIVARIATE_SKIPS = UNIVARIATE_SKIPS_PLACEHOLDER;
-const LOOKUPS_F_INDEXES = LOOKUPS_F_INDEXES_PLACEHOLDER;
-const LOOKUPS_F_VALUES = LOOKUPS_F_VALUES_PLACEHOLDER;
+
+const LOOKUPS_F_INDEXES = LOOKUPS_F_INDEXES_PLACEHOLDER; // [[_; ?]; N_TABLES]
+const LOOKUPS_F_VALUES = LOOKUPS_F_VALUES_PLACEHOLDER; // [[[_; ?]; ?]; N_TABLES]
+
+const LOOKUPS_EF_INDEXES = LOOKUPS_EF_INDEXES_PLACEHOLDER; // [[_; ?]; N_TABLES]
+const LOOKUPS_EF_VALUES = LOOKUPS_EF_VALUES_PLACEHOLDER; // [[_; ?]; N_TABLES]
+
 const NUM_COLS_F_AIR = NUM_COLS_F_AIR_PLACEHOLDER;
 const NUM_COLS_EF_AIR = NUM_COLS_EF_AIR_PLACEHOLDER;
 
@@ -121,10 +126,28 @@ fn main() {
                 debug_assert len(columns_values[table_index][col_index]) == 0;
                 columns_values[table_index][col_index].push(value_eval);
 
-                prefix = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr); // TODO there is some duplication here
-                // TODO
+                pref = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr); // TODO there is some duplication here
+                retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, pref);
+                fingerp = fingerprint_2(table_index, add_base_extension_ret(i, index_eval), value_eval, alpha_powers);
+                retrieved_denominators_value = add_extension_ret(retrieved_denominators_value, mul_extension_ret(pref, sub_extension_ret(logup_c, fingerp)));
 
                 offset += n_rows;
+            }
+        }
+
+        for lookup_ef_index in 0..len(LOOKUPS_EF_INDEXES[table_index]) unroll {
+            col_index = LOOKUPS_EF_INDEXES[table_index][lookup_ef_index];
+            fs, index_eval = fs_receive_ef(fs, 1);
+            if len(columns_values[table_index][col_index]) == 0 {
+                // columns_values[table_index][col_index].push(index_eval);
+            } else {
+                // assert equal
+                // copy_5(index_eval, columns_values[table_index][col_index][0]);
+            }
+
+            for i in 0..DIM unroll{
+                fs, value_eval = fs_receive_ef(fs, 1);
+                print_ef(value_eval);
             }
         }
 

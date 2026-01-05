@@ -211,7 +211,6 @@ fn ends_with_early_exit(block: &[SimpleLine]) -> bool {
 
 pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     check_program_scoping(&program);
-    validate_program_vectors(&program)?;
     handle_inlined_functions(&mut program)?;
 
     let mut unroll_counter = Counter::new();
@@ -231,6 +230,8 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
             break;
         }
     }
+
+    validate_program_vectors(&program)?;
 
     // Remove all const functions - they should all have been specialized by now
     let const_func_names: Vec<_> = program
@@ -922,7 +923,13 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
 fn validate_program_vectors(program: &Program) -> Result<(), String> {
     let inlined_functions = program.inlined_function_names();
     for f in program.functions.values() {
-        validate_vectors(&f.body, &BTreeSet::new(), &inlined_functions, &program.const_arrays, None)?;
+        validate_vectors(
+            &f.body,
+            &BTreeSet::new(),
+            &inlined_functions,
+            &program.const_arrays,
+            None,
+        )?;
     }
     Ok(())
 }
@@ -992,7 +999,13 @@ fn validate_vectors(
             Line::ForLoop {
                 body, unroll, location, ..
             } => {
-                validate_vectors(body, &all!(), inlined, const_arrays, if *unroll { None } else { Some(*location) })?;
+                validate_vectors(
+                    body,
+                    &all!(),
+                    inlined,
+                    const_arrays,
+                    if *unroll { None } else { Some(*location) },
+                )?;
             }
             Line::Match { arms, location, .. } => {
                 for (_, arm) in arms {
@@ -3246,7 +3259,12 @@ fn handle_inlined_functions_helper(
             }
             Line::Statement {
                 targets,
-                value: Expression::FunctionCall { function_name, args, location },
+                value:
+                    Expression::FunctionCall {
+                        function_name,
+                        args,
+                        location,
+                    },
                 ..
             } if inlined_functions.contains_key(function_name) => {
                 let func = inlined_functions.get(function_name).unwrap();
@@ -3273,7 +3291,7 @@ fn handle_inlined_functions_helper(
                         if let Expression::FunctionCall {
                             function_name: arg_func_name,
                             args: arg_args,
-                            location
+                            location,
                         } = arg
                         {
                             if inlined_functions.contains_key(arg_func_name) {
@@ -3307,7 +3325,7 @@ fn handle_inlined_functions_helper(
                                     is_mutable: false,
                                 }],
                                 value: arg.clone(),
-                                location: *location
+                                location: *location,
                             });
                         }
                         simplified_args.push(VarOrConstMallocAccess::Var(aux_var).into());
@@ -3334,7 +3352,7 @@ fn handle_inlined_functions_helper(
             Line::Statement {
                 targets,
                 value,
-                location
+                location,
             } => {
                 let (value, value_lines) =
                     extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter)?;
@@ -3573,7 +3591,9 @@ fn handle_const_arguments_helper(
         match line {
             Line::Statement {
                 targets: _,
-                value: Expression::FunctionCall { function_name, args, .. },
+                value: Expression::FunctionCall {
+                    function_name, args, ..
+                },
                 ..
             } => {
                 if let Some(func) = constant_functions.get(function_name.as_str()) {
@@ -3635,18 +3655,8 @@ fn handle_const_arguments_helper(
                 else_branch,
                 ..
             } => {
-                changed |= handle_const_arguments_helper(
-                    then_branch,
-                    constant_functions,
-                    new_functions,
-                    const_arrays,
-                );
-                changed |= handle_const_arguments_helper(
-                    else_branch,
-                    constant_functions,
-                    new_functions,
-                    const_arrays,
-                );
+                changed |= handle_const_arguments_helper(then_branch, constant_functions, new_functions, const_arrays);
+                changed |= handle_const_arguments_helper(else_branch, constant_functions, new_functions, const_arrays);
             }
             Line::ForLoop { body, unroll: _, .. } => {
                 // TODO we should unroll before const arguments handling
@@ -3654,8 +3664,7 @@ fn handle_const_arguments_helper(
             }
             Line::Match { arms, .. } => {
                 for (_, arm) in arms {
-                    changed |=
-                        handle_const_arguments_helper(arm, constant_functions, new_functions, const_arrays);
+                    changed |= handle_const_arguments_helper(arm, constant_functions, new_functions, const_arrays);
                 }
             }
             _ => {}
