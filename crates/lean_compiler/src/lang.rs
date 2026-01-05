@@ -626,7 +626,9 @@ impl Display for Expression {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{math_expr}({args_str})")
             }
-            Self::FunctionCall { function_name, args, .. } => {
+            Self::FunctionCall {
+                function_name, args, ..
+            } => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{function_name}({args_str})")
             }
@@ -719,7 +721,7 @@ impl Line {
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!(
-                    "for {} in {}{}..{} {{\n{}\n{}}}",
+                    "for {} in {}..{} {}{{\n{}\n{}}}",
                     iterator,
                     start,
                     end,
@@ -805,12 +807,11 @@ impl Line {
             Self::IfCondition { condition, .. } => condition.expressions_mut(),
             Self::ForLoop { start, end, .. } => vec![start, end],
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
-            Self::Push {  indices, .. } => indices.iter_mut().collect(),
+            Self::Push { indices, .. } => indices.iter_mut().collect(),
             Self::ForwardDeclaration { .. }
             | Self::Panic
             | Self::LocationReport { .. }
-            | Self::VecDeclaration { .. }
-            => vec![],
+            | Self::VecDeclaration { .. } => vec![],
         }
     }
 }
