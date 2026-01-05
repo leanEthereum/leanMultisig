@@ -1,0 +1,5 @@
+minimal_zkVM.synctex.gz
+build/
+images/.DS_Store
+.latexmkrc
+.DS_Store
