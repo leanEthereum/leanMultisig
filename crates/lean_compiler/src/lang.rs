@@ -18,6 +18,16 @@ pub struct Program {
     pub filepaths: BTreeMap<FileId, String>,
 }
 
+impl Program {
+    pub fn inlined_function_names(&self) -> BTreeSet<FunctionName> {
+        self.functions
+            .iter()
+            .filter(|(_, func)| func.inlined)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+}
+
 /// A function argument with its modifiers
 #[derive(Debug, Clone)]
 pub struct FunctionArg {
@@ -47,7 +57,6 @@ impl FunctionArg {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
-    pub file_id: FileId,
     pub arguments: Vec<FunctionArg>,
     pub inlined: bool,
     pub n_returned_vars: usize,
@@ -261,6 +270,7 @@ pub enum Expression {
     FunctionCall {
         function_name: String,
         args: Vec<Self>,
+        location: SourceLocation,
     },
     Len {
         array: String,
@@ -475,11 +485,22 @@ impl AssignmentTarget {
     }
 }
 
+/// A compile-time vector literal: vec![elem1, elem2, ...]
+/// Elements can be expressions or nested vector literals.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VecLiteral {
+    /// A scalar expression element
+    Expr(Expression),
+    /// A nested vector literal
+    Vec(Vec<VecLiteral>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Match {
         value: Expression,
         arms: Vec<(usize, Vec<Self>)>,
+        location: SourceLocation,
     },
     ForwardDeclaration {
         var: Var,
@@ -487,18 +508,18 @@ pub enum Line {
     Statement {
         targets: Vec<AssignmentTarget>, // LHS - can be empty for standalone calls
         value: Expression,              // RHS - any expression
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     Assert {
         debug: bool,
         boolean: BooleanExpr<Expression>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     IfCondition {
         condition: Condition,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     ForLoop {
         iterator: Var,
@@ -506,7 +527,7 @@ pub enum Line {
         end: Expression,
         body: Vec<Self>,
         unroll: bool,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     FunctionRet {
         return_data: Vec<Expression>,
@@ -514,6 +535,19 @@ pub enum Line {
     Panic,
     // noop, debug purpose only
     LocationReport {
+        location: SourceLocation,
+    },
+    /// Compile-time vector declaration: var = vec![...]
+    VecDeclaration {
+        var: Var,
+        elements: Vec<VecLiteral>,
+        location: SourceLocation,
+    },
+    /// Compile-time vector push: push(vec_var, element) or push(vec_var[i][j], element)
+    Push {
+        vector: Var,
+        indices: Vec<Expression>,
+        element: VecLiteral,
         location: SourceLocation,
     },
 }
@@ -574,7 +608,7 @@ impl Display for Expression {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{math_expr}({args_str})")
             }
-            Self::FunctionCall { function_name, args } => {
+            Self::FunctionCall { function_name, args, .. } => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{function_name}({args_str})")
             }
@@ -594,7 +628,7 @@ impl Line {
                 // print nothing
                 Default::default()
             }
-            Self::Match { value, arms } => {
+            Self::Match { value, arms, .. } => {
                 let arms_str = arms
                     .iter()
                     .map(|(const_expr, body)| {
@@ -627,13 +661,13 @@ impl Line {
             Self::Assert {
                 debug,
                 boolean,
-                line_number: _,
+                location: _,
             } => format!("{}assert {}", if *debug { "debug_" } else { "" }, boolean),
             Self::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
-                line_number: _,
+                location: _,
             } => {
                 let then_str = then_branch
                     .iter()
@@ -659,7 +693,7 @@ impl Line {
                 end,
                 body,
                 unroll,
-                line_number: _,
+                location: _,
             } => {
                 let body_str = body
                     .iter()
@@ -685,6 +719,12 @@ impl Line {
                 format!("return {return_data_str}")
             }
             Self::Panic => "panic".to_string(),
+            Self::VecDeclaration { var, elements, .. } => {
+                format!("{var} = vec![{}]", elements.len())
+            }
+            Self::Push { vector, .. } => {
+                format!("push({vector}, ...)")
+            }
         };
         format!("{spaces}{line_str}")
     }
@@ -703,7 +743,9 @@ impl Line {
             | Self::Assert { .. }
             | Self::FunctionRet { .. }
             | Self::Panic
-            | Self::LocationReport { .. } => vec![],
+            | Self::LocationReport { .. }
+            | Self::VecDeclaration { .. }
+            | Self::Push { .. } => vec![],
         }
     }
 
@@ -721,7 +763,9 @@ impl Line {
             | Self::Assert { .. }
             | Self::FunctionRet { .. }
             | Self::Panic
-            | Self::LocationReport { .. } => vec![],
+            | Self::LocationReport { .. }
+            | Self::VecDeclaration { .. }
+            | Self::Push { .. } => vec![],
         }
     }
 
@@ -743,7 +787,12 @@ impl Line {
             Self::IfCondition { condition, .. } => condition.expressions_mut(),
             Self::ForLoop { start, end, .. } => vec![start, end],
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
-            Self::ForwardDeclaration { .. } | Self::Panic | Self::LocationReport { .. } => vec![],
+            Self::Push {  indices, .. } => indices.iter_mut().collect(),
+            Self::ForwardDeclaration { .. }
+            | Self::Panic
+            | Self::LocationReport { .. }
+            | Self::VecDeclaration { .. }
+            => vec![],
         }
     }
 }

@@ -1,0 +1,10 @@
+// Error: vector passed to non-inlined function
+fn main() {
+    v = vec![1, 2, 3];
+    process(v);  // Error: vectors cannot be passed to non-inlined functions
+    return;
+}
+
+fn process(x) {
+    return;
+}

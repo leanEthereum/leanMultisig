@@ -11,6 +11,8 @@ const MEMORY_TABLE_INDEX = MEMORY_TABLE_INDEX_PLACEHOLDER;
 const UNIVARIATE_SKIPS = UNIVARIATE_SKIPS_PLACEHOLDER;
 const LOOKUPS_F_INDEXES = LOOKUPS_F_INDEXES_PLACEHOLDER;
 const LOOKUPS_F_VALUES = LOOKUPS_F_VALUES_PLACEHOLDER;
+const NUM_COLS_F_AIR = NUM_COLS_F_AIR_PLACEHOLDER;
+const NUM_COLS_EF_AIR = NUM_COLS_EF_AIR_PLACEHOLDER;
 
 fn main() {
     proof_transcript = private_input_start();
@@ -58,11 +60,14 @@ fn main() {
     fingerprint_memory = fingerprint_2(MEMORY_TABLE_INDEX, value_index, value_memory, alpha_powers);
     mut retrieved_denominators_value = mul_extension_ret(memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory));
 
-    offset = powers_of_two(log_memory);
-    all_bus_statements_points = malloc(N_TABLES);
-    all_bus_statements_numerators_claims = malloc(N_TABLES);
-    all_bus_statements_denominators_claims = malloc(N_TABLES);
+    mut offset = powers_of_two(log_memory);
+    all_bus_statements_points = vec![];
+    all_bus_statements_numerators_claims = vec![];
+    all_bus_statements_denominators_claims = vec![];
+    columns_values = vec![];
     for table_index in 0..N_TABLES unroll {
+        // I] Bus (data flow between tables)
+
         log_n_rows = table_dims[table_index];
         n_rows = powers_of_two(log_n_rows);
         inner_point = point_gkr + (N_VARS_FIRST_GKR - log_n_rows) * DIM;
@@ -85,19 +90,42 @@ fn main() {
         bus_point = malloc((log_n_rows - UNIVARIATE_SKIPS + 1) * DIM);
         copy_5(gamma, bus_point);
         copy_many_ef(inner_inner_point, bus_point + DIM, log_n_rows - UNIVARIATE_SKIPS);
-        all_bus_statements_points[table_index] = bus_point;
+        all_bus_statements_points.push(bus_point);
 
         unvariate_selectors_evals = eval_all_univariate_selectors(gamma);
 
         univariate_value_on_selectors = dot_product_ret(evals_on_selector, unvariate_selectors_evals, 2**UNIVARIATE_SKIPS, EE);
-        all_bus_statements_numerators_claims[table_index] = univariate_value_on_selectors;
+        all_bus_statements_numerators_claims.push(univariate_value_on_selectors);
 
         univariate_value_on_data = dot_product_ret(evals_on_data, unvariate_selectors_evals, 2**UNIVARIATE_SKIPS, EE);
-        all_bus_statements_denominators_claims[table_index] = univariate_value_on_data;
+        all_bus_statements_denominators_claims.push(univariate_value_on_data);
+
+        offset += n_rows;
+        
+        // II] Lookup into memory
+
+        columns_values.push(vec![]);
+        total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index];
+        for col in 0..total_num_cols unroll {
+            columns_values[table_index].push(vec![]);
+        }
 
         for lookup_f_index in 0..len(LOOKUPS_F_INDEXES[table_index]) unroll {
             col_index = LOOKUPS_F_INDEXES[table_index][lookup_f_index];
-            // f_value = LOOKUPS_F_VALUES[table_index][lookup_f_index];
+            fs, index_eval = fs_receive_ef(fs, 1);
+            debug_assert len(columns_values[table_index][col_index]) == 0;
+            columns_values[table_index][col_index].push(index_eval);
+            for i in 0..len(LOOKUPS_F_VALUES[table_index][lookup_f_index]) unroll {
+                fs, value_eval = fs_receive_ef(fs, 1);
+                col_index = LOOKUPS_F_VALUES[table_index][lookup_f_index][i];
+                debug_assert len(columns_values[table_index][col_index]) == 0;
+                columns_values[table_index][col_index].push(value_eval);
+
+                prefix = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr); // TODO there is some duplication here
+                // TODO
+
+                offset += n_rows;
+            }
         }
 
         return;

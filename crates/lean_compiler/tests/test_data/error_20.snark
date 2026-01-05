@@ -1,0 +1,7 @@
+// timing matters
+fn main() {
+    v = vec![];
+    print(v[0]);
+    v.push(10);
+    return;
+}

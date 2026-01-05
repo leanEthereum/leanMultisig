@@ -1,0 +1,11 @@
+const ARR = [0, 1,2,3,4];
+fn main() {
+    vector = vec![];
+    for i in 0..len(ARR) unroll {
+        k = ARR[i];
+        vector.push(vec![]);
+        vector[k].push(k);
+        assert vector[k][0] == k;
+    }
+    return;
+}

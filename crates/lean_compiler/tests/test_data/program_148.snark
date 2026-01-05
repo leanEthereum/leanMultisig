@@ -1,0 +1,12 @@
+// Test nested vectors
+fn main() {
+    v = vec![vec![1, 2], vec![3, 4, 5]];
+    assert len(v) == 2;
+    assert len(v[0]) == 2;
+    assert len(v[1]) == 3;
+    assert v[0][0] == 1;
+    assert v[0][1] == 2;
+    assert v[1][0] == 3;
+    assert v[1][2] == 5;
+    return;
+}

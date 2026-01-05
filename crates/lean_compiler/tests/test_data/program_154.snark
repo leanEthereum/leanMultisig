@@ -1,0 +1,11 @@
+// Test accessing vector elements inside unrolled loop
+fn main() {
+    v = vec![10, 20, 30, 40, 50];
+
+    mut sum = 0;
+    for i in 0..5 unroll {
+        sum = sum + v[i];
+    }
+    assert sum == 150;
+    return;
+}

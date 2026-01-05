@@ -99,6 +99,8 @@ pub fn run_end2end_recursion_benchmark() {
     replacements.insert("UNIVARIATE_SKIPS_PLACEHOLDER".to_string(), UNIVARIATE_SKIPS.to_string());
     let mut lookup_f_indexes_str = vec![];
     let mut lookup_f_values_str = vec![];
+    let mut num_cols_f = vec![];
+    let mut num_cols_ef = vec![];
     for table in ALL_TABLES {
         let indexes_str = table
             .lookups_f()
@@ -106,6 +108,8 @@ pub fn run_end2end_recursion_benchmark() {
             .map(|lookup_f| lookup_f.index.to_string())
             .collect::<Vec<_>>();
         lookup_f_indexes_str.push(format!("[{}]", indexes_str.join(", ")));
+        num_cols_f.push(table.n_columns_f_air().to_string());
+        num_cols_ef.push(table.n_columns_ef_air().to_string());
         let values_str = table
             .lookups_f()
             .iter()
@@ -130,6 +134,14 @@ pub fn run_end2end_recursion_benchmark() {
     replacements.insert(
         "LOOKUPS_F_VALUES_PLACEHOLDER".to_string(),
         format!("[{}]", lookup_f_values_str.join(", ")),
+    );
+    replacements.insert(
+        "NUM_COLS_F_AIR_PLACEHOLDER".to_string(),
+        format!("[{}]", num_cols_f.join(", ")),
+    );
+    replacements.insert(
+        "NUM_COLS_EF_AIR_PLACEHOLDER".to_string(),
+        format!("[{}]", num_cols_ef.join(", ")),
     );
 
     let public_input = vec![];
