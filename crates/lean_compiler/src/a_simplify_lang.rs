@@ -922,7 +922,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
 fn validate_program_vectors(program: &Program) -> Result<(), String> {
     let inlined_functions = program.inlined_function_names();
     for f in program.functions.values() {
-        validate_vectors(&f.body, &BTreeSet::new(), &inlined_functions, None)?;
+        validate_vectors(&f.body, &BTreeSet::new(), &inlined_functions, &program.const_arrays, None)?;
     }
     Ok(())
 }
@@ -931,6 +931,7 @@ fn validate_vectors(
     lines: &[Line],
     outer: &BTreeSet<Var>,
     inlined: &BTreeSet<String>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
     restrict: Option<SourceLocation>,
 ) -> Result<(), String> {
     let mut local: BTreeSet<Var> = BTreeSet::new();
@@ -968,22 +969,34 @@ fn validate_vectors(
                 check_vec_in_call(value, &all!(), inlined)?;
             }
             Line::IfCondition {
+                condition,
                 then_branch,
                 else_branch,
                 location,
-                ..
             } => {
-                validate_vectors(then_branch, &all!(), inlined, Some(*location))?;
-                validate_vectors(else_branch, &all!(), inlined, Some(*location))?;
+                // If condition can be evaluated at compile time, only validate the taken branch
+                // (without restrictions since it will be inlined)
+                match condition.try_eval_at_compile_time(const_arrays) {
+                    Some(true) => {
+                        validate_vectors(then_branch, &all!(), inlined, const_arrays, restrict)?;
+                    }
+                    Some(false) => {
+                        validate_vectors(else_branch, &all!(), inlined, const_arrays, restrict)?;
+                    }
+                    None => {
+                        validate_vectors(then_branch, &all!(), inlined, const_arrays, Some(*location))?;
+                        validate_vectors(else_branch, &all!(), inlined, const_arrays, Some(*location))?;
+                    }
+                }
             }
             Line::ForLoop {
                 body, unroll, location, ..
             } => {
-                validate_vectors(body, &all!(), inlined, if *unroll { None } else { Some(*location) })?;
+                validate_vectors(body, &all!(), inlined, const_arrays, if *unroll { None } else { Some(*location) })?;
             }
             Line::Match { arms, location, .. } => {
                 for (_, arm) in arms {
-                    validate_vectors(arm, &all!(), inlined, Some(*location))?;
+                    validate_vectors(arm, &all!(), inlined, const_arrays, Some(*location))?;
                 }
             }
             _ => {}

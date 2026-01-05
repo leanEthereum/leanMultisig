@@ -1,0 +1,12 @@
+// Test: compile-time true condition allows push to outer-scope vector in then branch
+const FLAG = 1;
+fn main() {
+    v = vec![1, 2, 3];
+    if FLAG == 1 {
+        v.push(4);  // OK: condition is compile-time true, branch is inlined
+    } else {
+        v.push(5);
+    }
+    assert v[3] == 4;
+    return;
+}

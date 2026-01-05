@@ -257,6 +257,24 @@ impl Condition {
             Self::Comparison(cmp) => vec![&mut cmp.left, &mut cmp.right],
         }
     }
+
+    pub fn try_eval_at_compile_time(&self, const_arrays: &BTreeMap<String, ConstArrayValue>) -> Option<bool> {
+        match self {
+            Self::AssumeBoolean(expr) => {
+                let val = expr.naive_eval(const_arrays)?;
+                Some(val.to_usize() != 0)
+            }
+            Self::Comparison(cmp) => {
+                let left = cmp.left.naive_eval(const_arrays)?;
+                let right = cmp.right.naive_eval(const_arrays)?;
+                Some(match cmp.kind {
+                    Boolean::Equal => left == right,
+                    Boolean::Different => left != right,
+                    Boolean::LessThan => left.to_usize() < right.to_usize(),
+                })
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
