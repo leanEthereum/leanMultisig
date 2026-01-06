@@ -6,8 +6,8 @@ use crate::{
     },
     parser::ConstArrayValue,
 };
-use core::panic;
 use lean_vm::{ALL_TABLES, Boolean, BooleanExpr, CustomHint, FunctionName, SourceLocation, Table, TableT};
+use multilinear_toolkit::prelude::PrimeCharacteristicRing;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -214,20 +214,14 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     handle_inlined_functions(&mut program)?;
 
     let mut unroll_counter = Counter::new();
-    let mut max_iterations = 100;
-    loop {
-        let mut any_change = false;
-
-        any_change |= propagate_constants_in_program(&mut program);
-        any_change |= unroll_loops_in_program(&mut program, &mut unroll_counter);
-        any_change |= handle_const_arguments(&mut program);
+    let mut max_iterations = 1000;
+    let mut any_change = true;
+    while any_change {
+        any_change = simplify_constants_in_program(&mut program, &mut unroll_counter)?;
 
         max_iterations -= 1;
         if max_iterations == 0 {
             return Err("Too many iterations while simplifying program".to_string());
-        }
-        if !any_change {
-            break;
         }
     }
 
@@ -308,125 +302,327 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     })
 }
 
-fn propagate_constants_in_program(program: &mut Program) -> bool {
-    let mut changed = false;
-    for func in program.functions.values_mut() {
-        changed |= propagate_constants_in_lines(&mut func.body, &program.const_arrays);
-    }
-    changed
+#[derive(Debug, Clone, Default)]
+pub struct VectorLenTracker {
+    vectors: BTreeMap<Var, VectorLenValue>,
 }
 
-fn propagate_constants_in_lines(lines: &mut Vec<Line>, const_arrays: &BTreeMap<String, ConstArrayValue>) -> bool {
-    let mut changed = false;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VectorLenValue {
+    Scalar,
+    Vector(Vec<VectorLenValue>),
+}
 
-    // Collect constant variable definitions: var -> expression (that is constant)
-    let mut const_var_exprs: BTreeMap<Var, Expression> = BTreeMap::new();
+impl VectorLenTracker {
+    fn register(&mut self, var: &Var, value: VectorLenValue) {
+        self.vectors.insert(var.clone(), value);
+    }
 
-    for line in &*lines {
-        if let Line::Statement { targets, value, .. } = line
-            && targets.len() == 1
-            && let AssignmentTarget::Var { var, is_mutable: false } = &targets[0]
-            && value.naive_eval(const_arrays).is_some()
-        {
-            const_var_exprs.insert(var.clone(), value.clone());
+    fn is_vector(&self, var: &Var) -> bool {
+        self.vectors.contains_key(var)
+    }
+
+    pub fn get(&self, var: &Var) -> Option<&VectorLenValue> {
+        self.vectors.get(var)
+    }
+
+    fn get_mut(&mut self, var: &Var) -> Option<&mut VectorLenValue> {
+        self.vectors.get_mut(var)
+    }
+}
+
+impl VectorLenValue {
+    pub fn push(&mut self, elem: Self) {
+        match self {
+            Self::Vector(v) => v.push(elem),
+            _ => panic!("push on scalar"),
         }
     }
 
-    for line in lines {
-        changed |= substitute_const_vars_in_line(line, &const_var_exprs, const_arrays);
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Vector(v) => v.len(),
+            _ => panic!("len on scalar"),
+        }
     }
 
-    changed
+    pub fn is_vector(&self) -> bool {
+        matches!(self, Self::Vector(_))
+    }
+
+    fn get(&self, i: usize) -> Option<&Self> {
+        match self {
+            Self::Vector(v) => v.get(i),
+            _ => None,
+        }
+    }
+
+    fn get_mut(&mut self, i: usize) -> Option<&mut Self> {
+        match self {
+            Self::Vector(v) => v.get_mut(i),
+            _ => None,
+        }
+    }
+
+    pub fn navigate(&self, idx: &[usize]) -> Option<&Self> {
+        idx.iter().try_fold(self, |v, &i| v.get(i))
+    }
+
+    pub fn navigate_mut(&mut self, idx: &[usize]) -> Option<&mut Self> {
+        idx.iter().try_fold(self, |v, &i| v.get_mut(i))
+    }
 }
 
-fn substitute_const_vars_in_line(
-    line: &mut Line,
-    const_var_exprs: &BTreeMap<Var, Expression>,
-    const_arrays: &BTreeMap<String, ConstArrayValue>,
-) -> bool {
+fn build_vector_len_value(elements: &[VecLiteral]) -> VectorLenValue {
+    let mut vec_elements = Vec::new();
+
+    for elem in elements {
+        let elem_len_value = build_vector_len_value_from_element(elem);
+        vec_elements.push(elem_len_value);
+    }
+
+    VectorLenValue::Vector(vec_elements)
+}
+
+fn build_vector_len_value_from_element(element: &VecLiteral) -> VectorLenValue {
+    match element {
+        VecLiteral::Vec(inner) => build_vector_len_value(inner),
+        VecLiteral::Expr(_) => VectorLenValue::Scalar,
+    }
+}
+
+fn simplify_constants_in_program(program: &mut Program, unroll_counter: &mut Counter) -> Result<bool, String> {
     let mut changed = false;
-    for block in line.nested_blocks_mut() {
-        changed |= propagate_constants_in_lines(block, const_arrays);
+    let existing_functions = program.functions.clone();
+    let const_arrays = program.const_arrays.clone();
+    let mut new_functions = BTreeMap::new();
+    for func in program.non_constant_functions_mut() {
+        changed |= simplify_constants_in_lines(
+            &mut func.body,
+            &const_arrays,
+            &existing_functions,
+            &mut new_functions,
+            unroll_counter,
+        )?;
     }
-    for inner_expr in line.expressions_mut() {
-        changed |= substitute_const_vars_in_expr(inner_expr, const_var_exprs);
+    for (func_name, func) in new_functions {
+        assert!(!program.functions.contains_key(&func_name));
+        program.functions.insert(func_name, func);
+    }
+    Ok(changed)
+}
+
+fn simplify_constants_in_lines(
+    lines: &mut Vec<Line>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    existing_functions: &BTreeMap<String, Function>,
+    new_functions: &mut BTreeMap<String, Function>,
+    unroll_counter: &mut Counter,
+) -> Result<bool, String> {
+    let mut changed = false;
+    let mut vector_len_tracker = VectorLenTracker::default();
+
+    // Collect constant variable definitions: var -> expression (that is constant)
+    let mut const_var_exprs: BTreeMap<Var, F> = BTreeMap::new();
+
+    for i in 0..lines.len() {
+        let line = &mut lines[i];
+        for expr in line.expressions_mut() {
+            changed |= substitute_const_vars_in_expr(expr, &const_var_exprs);
+            changed |= simplify_constants_in_expr(expr, const_arrays, &vector_len_tracker); // TODO make constant propagation wok on inner scopes
+        }
+        match line {
+            Line::Statement {
+                targets: _,
+                value: Expression::FunctionCall {
+                    function_name, args, ..
+                },
+                ..
+            } => {
+                if let Some(func) = existing_functions.get(function_name)
+                    && func.has_const_arguments()
+                {
+                    // Check if all const arguments can be evaluated
+                    let mut const_evals = Vec::new();
+                    for (arg_expr, arg) in args.iter().zip(&func.arguments) {
+                        if arg.is_const {
+                            if let Some(const_eval) = arg_expr.as_scalar() {
+                                const_evals.push((arg.name.clone(), F::from_usize(const_eval)));
+                            } else {
+                                return Err(format!(
+                                    "Cannot evaluate const argument '{}' for function '{}'",
+                                    arg.name, function_name
+                                ));
+                            }
+                        }
+                    }
+
+                    let const_funct_name = format!(
+                        "{function_name}_{}",
+                        const_evals
+                            .iter()
+                            .map(|(arg_var, const_eval)| { format!("{arg_var}={const_eval}") })
+                            .collect::<Vec<_>>()
+                            .join("_")
+                    );
+
+                    *function_name = const_funct_name.clone(); // change the name of the function called
+                    // ... and remove constant arguments
+                    *args = args
+                        .iter()
+                        .zip(&func.arguments)
+                        .filter(|(_, arg)| !arg.is_const)
+                        .map(|(arg_expr, _)| arg_expr.clone())
+                        .collect();
+
+                    changed = true;
+
+                    if !new_functions.contains_key(&const_funct_name)
+                        && !existing_functions.contains_key(&const_funct_name)
+                    {
+                        let mut new_body = func.body.clone();
+                        replace_vars_by_const_in_lines(&mut new_body, &const_evals.iter().cloned().collect());
+                        new_functions.insert(
+                            const_funct_name.clone(),
+                            Function {
+                                name: const_funct_name,
+                                arguments: func.arguments.iter().filter(|arg| !arg.is_const).cloned().collect(),
+                                inlined: false,
+                                body: new_body,
+                                n_returned_vars: func.n_returned_vars,
+                                assume_always_returns: func.assume_always_returns,
+                            },
+                        );
+                    }
+                }
+            }
+            Line::VecDeclaration { var, elements, .. } => {
+                vector_len_tracker.register(var, build_vector_len_value(elements));
+            }
+            Line::Push {
+                vector,
+                indices,
+                element,
+                ..
+            } => {
+                let Some(const_indices) = indices.iter().map(|idx| idx.as_scalar()).collect::<Option<Vec<_>>>() else {
+                    return Err("push with non-constant indices".to_string());
+                };
+
+                let new_element = build_vector_len_value_from_element(element);
+
+                let vector_value = vector_len_tracker
+                    .get_mut(vector)
+                    .ok_or_else(|| "pushing to undeclared vector".to_string())?;
+
+                if const_indices.is_empty() {
+                    // Push directly to the top-level vector
+                    vector_value.push(new_element);
+                } else {
+                    // Navigate to the nested vector and push
+                    let target = vector_value
+                        .navigate_mut(&const_indices)
+                        .ok_or_else(|| "push target index out of bounds".to_string())?;
+                    if !target.is_vector() {
+                        return Err("push target is not a vector".to_string());
+                    }
+                    target.push(new_element);
+                }
+            }
+            Line::IfCondition {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                if let Some(constant_condition) = condition.compile_time_eval(const_arrays, &vector_len_tracker) {
+                    let chosen_branch = if constant_condition { then_branch } else { else_branch }.clone();
+                    lines.splice(i..=i, chosen_branch);
+                    return Ok(true);
+                }
+            }
+            Line::Statement { targets, value, .. } => {
+                if targets.len() == 1
+                    && let AssignmentTarget::Var { var, is_mutable: false } = &targets[0]
+                    && let Some(value_const) = value.compile_time_eval(const_arrays, &vector_len_tracker)
+                {
+                    const_var_exprs.insert(var.clone(), value_const);
+                }
+            }
+            Line::ForLoop {
+                iterator,
+                start,
+                end,
+                body,
+                unroll: true,
+                location: _,
+            } => {
+                let Some(start_usize) = start.as_scalar() else {
+                    return Ok(changed);
+                };
+                let Some(end_usize) = end.as_scalar() else {
+                    return Ok(changed);
+                };
+
+                let unroll_index = unroll_counter.next();
+
+                let (internal_vars, _) = find_variable_usage(body, const_arrays);
+
+                let range: Vec<_> = (start_usize..end_usize).collect();
+
+                let iterator = iterator.clone();
+                let body = body.clone();
+
+                let mut unrolled = Vec::new();
+                for j in range {
+                    let mut body_copy = body.clone();
+                    replace_vars_for_unroll(&mut body_copy, &iterator, unroll_index, j, &internal_vars);
+                    unrolled.extend(body_copy);
+                }
+
+                lines.splice(i..=i, unrolled);
+                return Ok(true);
+            }
+            _ => {}
+        }
+        for block in line.nested_blocks_mut() {
+            changed |=
+                simplify_constants_in_lines(block, const_arrays, existing_functions, new_functions, unroll_counter)?;
+        }
+    }
+    Ok(changed)
+}
+
+fn simplify_constants_in_expr(
+    expr: &mut Expression,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    vector_len_tracker: &VectorLenTracker,
+) -> bool {
+    if expr.is_scalar() {
+        return false;
+    }
+    if let Some(scalar) = expr.compile_time_eval(const_arrays, vector_len_tracker) {
+        *expr = Expression::scalar(scalar.to_usize());
+        return true;
+    }
+    let mut changed = false;
+    for inner_expr in expr.inner_exprs_mut() {
+        changed |= simplify_constants_in_expr(inner_expr, const_arrays, vector_len_tracker);
     }
     changed
 }
 
-fn substitute_const_vars_in_expr(expr: &mut Expression, const_var_exprs: &BTreeMap<Var, Expression>) -> bool {
+fn substitute_const_vars_in_expr(expr: &mut Expression, const_var_exprs: &BTreeMap<Var, F>) -> bool {
     if let Expression::Value(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var))) = expr
         && let Some(replacement) = const_var_exprs.get(var)
     {
-        *expr = replacement.clone();
+        *expr = Expression::scalar(replacement.to_usize());
         return true;
     }
 
     let mut changed = false;
     for inner in expr.inner_exprs_mut() {
         changed |= substitute_const_vars_in_expr(inner, const_var_exprs);
-    }
-    changed
-}
-
-fn unroll_loops_in_program(program: &mut Program, unroll_counter: &mut Counter) -> bool {
-    let mut changed = false;
-    for func in program.functions.values_mut() {
-        changed |= unroll_loops_in_lines(&mut func.body, &program.const_arrays, unroll_counter);
-    }
-    changed
-}
-
-fn unroll_loops_in_lines(
-    lines: &mut Vec<Line>,
-    const_arrays: &BTreeMap<String, ConstArrayValue>,
-    unroll_counter: &mut Counter,
-) -> bool {
-    let mut changed = false;
-    let mut i = 0;
-    while i < lines.len() {
-        // First, recursively process nested structures
-        for block in lines[i].nested_blocks_mut() {
-            changed |= unroll_loops_in_lines(block, const_arrays, unroll_counter);
-        }
-
-        // Now try to unroll if it's an unrollable loop
-        if let Line::ForLoop {
-            iterator,
-            start,
-            end,
-            body,
-            unroll: true,
-            location: _,
-        } = &lines[i]
-            && let (Some(start_val), Some(end_val)) = (start.naive_eval(const_arrays), end.naive_eval(const_arrays))
-        {
-            let start_usize = start_val.to_usize();
-            let end_usize = end_val.to_usize();
-            let unroll_index = unroll_counter.next();
-
-            let (internal_vars, _) = find_variable_usage(body, const_arrays);
-
-            let range: Vec<_> = (start_usize..end_usize).collect();
-
-            let iterator = iterator.clone();
-            let body = body.clone();
-
-            let mut unrolled = Vec::new();
-            for j in range {
-                let mut body_copy = body.clone();
-                replace_vars_for_unroll(&mut body_copy, &iterator, unroll_index, j, &internal_vars);
-                unrolled.extend(body_copy);
-            }
-
-            let num_inserted = unrolled.len();
-            lines.splice(i..=i, unrolled);
-            changed = true;
-            i += num_inserted;
-            continue;
-        }
-
-        i += 1;
     }
     changed
 }
@@ -923,13 +1119,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
 fn validate_program_vectors(program: &Program) -> Result<(), String> {
     let inlined_functions = program.inlined_function_names();
     for f in program.functions.values() {
-        validate_vectors(
-            &f.body,
-            &BTreeSet::new(),
-            &inlined_functions,
-            &program.const_arrays,
-            None,
-        )?;
+        validate_vectors(&f.body, &BTreeSet::new(), &inlined_functions, None)?;
     }
     Ok(())
 }
@@ -938,7 +1128,6 @@ fn validate_vectors(
     lines: &[Line],
     outer: &BTreeSet<Var>,
     inlined: &BTreeSet<String>,
-    const_arrays: &BTreeMap<String, ConstArrayValue>,
     restrict: Option<SourceLocation>,
 ) -> Result<(), String> {
     let mut local: BTreeSet<Var> = BTreeSet::new();
@@ -950,13 +1139,9 @@ fn validate_vectors(
 
     for line in lines {
         match line {
-            Line::VecDeclaration {
-                var,
-                elements,
-                location,
-            } => {
+            Line::VecDeclaration { var, elements, .. } => {
                 local.insert(var.clone());
-                validate_vec_lit(elements, &all!(), inlined, *location)?;
+                validate_vec_lit(elements, &all!(), inlined)?;
             }
             Line::Push {
                 vector,
@@ -967,7 +1152,7 @@ fn validate_vectors(
                 if restrict.is_some() && outer.contains(vector) {
                     return Err(format!("line {}: push to outer-scope vector '{}'", location, vector));
                 }
-                validate_vec_lit(std::slice::from_ref(element), &all!(), inlined, *location)?;
+                validate_vec_lit(std::slice::from_ref(element), &all!(), inlined)?;
                 if !local.contains(vector) && !outer.contains(vector) {
                     return Err(format!("line {}: unknown vector '{}'", location, vector));
                 }
@@ -976,40 +1161,22 @@ fn validate_vectors(
                 check_vec_in_call(value, &all!(), inlined)?;
             }
             Line::IfCondition {
-                condition,
                 then_branch,
                 else_branch,
                 location,
+                ..
             } => {
-                // If condition can be evaluated at compile time, only validate the taken branch
-                // (without restrictions since it will be inlined)
-                match condition.try_eval_at_compile_time(const_arrays) {
-                    Some(true) => {
-                        validate_vectors(then_branch, &all!(), inlined, const_arrays, restrict)?;
-                    }
-                    Some(false) => {
-                        validate_vectors(else_branch, &all!(), inlined, const_arrays, restrict)?;
-                    }
-                    None => {
-                        validate_vectors(then_branch, &all!(), inlined, const_arrays, Some(*location))?;
-                        validate_vectors(else_branch, &all!(), inlined, const_arrays, Some(*location))?;
-                    }
-                }
+                validate_vectors(then_branch, &all!(), inlined, Some(*location))?;
+                validate_vectors(else_branch, &all!(), inlined, Some(*location))?;
             }
             Line::ForLoop {
                 body, unroll, location, ..
             } => {
-                validate_vectors(
-                    body,
-                    &all!(),
-                    inlined,
-                    const_arrays,
-                    if *unroll { None } else { Some(*location) },
-                )?;
+                validate_vectors(body, &all!(), inlined, if *unroll { None } else { Some(*location) })?;
             }
             Line::Match { arms, location, .. } => {
                 for (_, arm) in arms {
-                    validate_vectors(arm, &all!(), inlined, const_arrays, Some(*location))?;
+                    validate_vectors(arm, &all!(), inlined, Some(*location))?;
                 }
             }
             _ => {}
@@ -1018,16 +1185,11 @@ fn validate_vectors(
     Ok(())
 }
 
-fn validate_vec_lit(
-    elems: &[VecLiteral],
-    vecs: &BTreeSet<Var>,
-    inlined: &BTreeSet<String>,
-    location: SourceLocation,
-) -> Result<(), String> {
+fn validate_vec_lit(elems: &[VecLiteral], vecs: &BTreeSet<Var>, inlined: &BTreeSet<String>) -> Result<(), String> {
     for e in elems {
         match e {
             VecLiteral::Expr(expr) => check_vec_in_call(expr, vecs, inlined)?,
-            VecLiteral::Vec(inner) => validate_vec_lit(inner, vecs, inlined, location)?,
+            VecLiteral::Vec(inner) => validate_vec_lit(inner, vecs, inlined)?,
         }
     }
     Ok(())
@@ -1703,27 +1865,45 @@ fn simplify_lines(
                                         res.push(SimpleLine::equality(target_var, simplified_val));
                                     }
                                     Expression::ArrayAccess { array, index } => {
-                                        // Pre-simplify indices before version update
-                                        let simplified_index = index
-                                            .iter()
-                                            .map(|idx| simplify_expr(ctx, state, const_malloc, idx, &mut res))
-                                            .collect::<Result<Vec<_>, _>>()?;
-                                        let target_var = get_target_var_name(state, var, *is_mutable);
-                                        if state.mut_tracker.is_mutable(var)
-                                            && state.mut_tracker.current_version(var) > 0
-                                        {
-                                            res.push(SimpleLine::ForwardDeclaration {
-                                                var: target_var.clone(),
-                                            });
+                                        // Check if array is a vector (needs to be handled before simplifying indices)
+                                        let versioned_array = state.mut_tracker.current_name(array);
+                                        if state.vec_tracker.is_vector(&versioned_array) {
+                                            // Use simplify_expr which handles vectors correctly
+                                            let simplified_val = simplify_expr(
+                                                ctx,
+                                                state,
+                                                const_malloc,
+                                                &Expression::ArrayAccess {
+                                                    array: array.clone(),
+                                                    index: index.clone(),
+                                                },
+                                                &mut res,
+                                            )?;
+                                            let target_var = get_target_var_name(state, var, *is_mutable);
+                                            res.push(SimpleLine::equality(target_var, simplified_val));
+                                        } else {
+                                            // Pre-simplify indices before version update
+                                            let simplified_index = index
+                                                .iter()
+                                                .map(|idx| simplify_expr(ctx, state, const_malloc, idx, &mut res))
+                                                .collect::<Result<Vec<_>, _>>()?;
+                                            let target_var = get_target_var_name(state, var, *is_mutable);
+                                            if state.mut_tracker.is_mutable(var)
+                                                && state.mut_tracker.current_version(var) > 0
+                                            {
+                                                res.push(SimpleLine::ForwardDeclaration {
+                                                    var: target_var.clone(),
+                                                });
+                                            }
+                                            handle_array_assignment(
+                                                ctx,
+                                                state,
+                                                &mut res,
+                                                array,
+                                                &simplified_index,
+                                                ArrayAccessType::VarIsAssigned(target_var),
+                                            );
                                         }
-                                        handle_array_assignment(
-                                            ctx,
-                                            state,
-                                            &mut res,
-                                            array,
-                                            &simplified_index,
-                                            ArrayAccessType::VarIsAssigned(target_var),
-                                        );
                                     }
                                     Expression::MathExpr(operation, args) => {
                                         let args_simplified = args
@@ -1876,26 +2056,6 @@ fn simplify_lines(
                 else_branch,
                 location,
             } => {
-                // Helper to simplify and extend with the chosen branch when condition is known at compile time
-                let simplify_chosen_branch = |chosen_branch: &Vec<Line>,
-                                              state: &mut SimplifyState<'_>,
-                                              const_malloc: &mut ConstMalloc,
-                                              new_functions: &mut BTreeMap<FunctionName, SimpleFunction>,
-                                              res: &mut Vec<SimpleLine>|
-                 -> Result<(), String> {
-                    let branch_simplified = simplify_lines(
-                        ctx,
-                        state,
-                        const_malloc,
-                        new_functions,
-                        n_returned_vars,
-                        chosen_branch,
-                        in_a_loop,
-                    )?;
-                    res.extend(branch_simplified);
-                    Ok(())
-                };
-
                 let (condition_simplified, then_branch, else_branch) = match condition {
                     Condition::Comparison(condition) => {
                         // Transform if a == b then X else Y into if a != b then Y else X
@@ -1909,18 +2069,6 @@ fn simplify_lines(
                         let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;
                         let right_simplified = simplify_expr(ctx, state, const_malloc, right, &mut res)?;
 
-                        if let (SimpleExpr::Constant(left_const), SimpleExpr::Constant(right_const)) =
-                            (&left_simplified, &right_simplified)
-                            && let (Some(left_val), Some(right_val)) =
-                                (left_const.naive_eval(), right_const.naive_eval())
-                        {
-                            // Condition is known at compile time
-                            let diff_is_not_zero = left_val != right_val;
-                            let chosen_branch = if diff_is_not_zero { then_branch } else { else_branch };
-                            simplify_chosen_branch(chosen_branch, state, const_malloc, new_functions, &mut res)?;
-                            continue;
-                        }
-
                         let diff_var = state.counters.aux_var();
                         res.push(SimpleLine::Assignment {
                             var: diff_var.clone().into(),
@@ -1932,16 +2080,6 @@ fn simplify_lines(
                     }
                     Condition::AssumeBoolean(condition) => {
                         let condition_simplified = simplify_expr(ctx, state, const_malloc, condition, &mut res)?;
-
-                        if let SimpleExpr::Constant(const_cond) = &condition_simplified
-                            && let Some(cond_val) = const_cond.naive_eval()
-                        {
-                            // Condition is known at compile time
-                            let not_zero = cond_val.to_usize() != 0;
-                            let chosen_branch = if not_zero { then_branch } else { else_branch };
-                            simplify_chosen_branch(chosen_branch, state, const_malloc, new_functions, &mut res)?;
-                            continue;
-                        }
 
                         (condition_simplified, then_branch, else_branch)
                     }
@@ -2231,12 +2369,8 @@ fn simplify_expr(
                 let simplified_index = index
                     .iter()
                     .map(|idx| {
-                        Ok(simplify_expr(ctx, state, const_malloc, idx, lines)?
-                            .as_constant()
-                            .expect("Const array access index should be constant")
-                            .naive_eval()
-                            .expect("Const array access index should be constant")
-                            .to_usize())
+                        idx.as_scalar()
+                            .ok_or_else(|| "Const array access index must be a compile-time constant".to_string())
                     })
                     .collect::<Result<Vec<_>, String>>()?;
 
@@ -3192,9 +3326,9 @@ fn extract_inlined_calls_from_expr(
                 value: Expression::FunctionCall {
                     function_name: function_name.clone(),
                     args: args_new.clone(),
-                    location: location.clone(),
+                    location: *location,
                 },
-                location: location.clone(),
+                location: *location,
             });
             return Ok((Expression::var(aux_var), lines));
         }
@@ -3505,172 +3639,6 @@ fn handle_inlined_functions_helper(
         };
     }
     Ok(lines_out)
-}
-
-fn handle_const_arguments(program: &mut Program) -> bool {
-    let mut any_changes = false;
-    let mut new_functions = BTreeMap::<String, Function>::new();
-    let constant_functions = program
-        .functions
-        .iter()
-        .filter(|(_, func)| func.has_const_arguments())
-        .map(|(name, func)| (name.clone(), func.clone()))
-        .collect::<BTreeMap<_, _>>();
-
-    // First pass: process non-const functions that call const functions
-    for func in program.functions.values_mut() {
-        if !func.has_const_arguments() {
-            any_changes |= handle_const_arguments_helper(
-                &mut func.body,
-                &constant_functions,
-                &mut new_functions,
-                &program.const_arrays,
-            );
-        }
-    }
-
-    // Process newly created functions recursively until no more changes
-    let mut changed = true;
-    let mut const_depth = 0;
-    while changed {
-        changed = false;
-        const_depth += 1;
-        assert!(const_depth < 100, "Too many levels of constant arguments");
-        let mut additional_functions = BTreeMap::new();
-
-        // Collect all function names to process
-        let function_names: Vec<String> = new_functions.keys().cloned().collect();
-
-        for name in function_names {
-            if let Some(func) = new_functions.get_mut(&name) {
-                let initial_count = additional_functions.len();
-                handle_const_arguments_helper(
-                    &mut func.body,
-                    &constant_functions,
-                    &mut additional_functions,
-                    &program.const_arrays,
-                );
-                if additional_functions.len() > initial_count {
-                    changed = true;
-                    any_changes = true;
-                }
-            }
-        }
-
-        // Add any newly discovered functions
-        for (name, func) in additional_functions {
-            if let std::collections::btree_map::Entry::Vacant(e) = new_functions.entry(name) {
-                e.insert(func);
-                changed = true;
-                any_changes = true;
-            }
-        }
-    }
-
-    any_changes |= !new_functions.is_empty();
-
-    for (name, func) in new_functions {
-        assert!(!program.functions.contains_key(&name));
-        program.functions.insert(name, func);
-    }
-
-    // DON'T remove const functions here - they might be needed in subsequent iterations
-    // They will be removed at the end of simplify_program
-
-    any_changes
-}
-
-fn handle_const_arguments_helper(
-    lines: &mut [Line],
-    constant_functions: &BTreeMap<String, Function>,
-    new_functions: &mut BTreeMap<String, Function>,
-    const_arrays: &BTreeMap<String, ConstArrayValue>,
-) -> bool {
-    let mut changed = false;
-    'outer: for line in lines {
-        match line {
-            Line::Statement {
-                targets: _,
-                value: Expression::FunctionCall {
-                    function_name, args, ..
-                },
-                ..
-            } => {
-                if let Some(func) = constant_functions.get(function_name.as_str()) {
-                    // Check if all const arguments can be evaluated
-                    let mut const_evals = Vec::new();
-                    for (arg_expr, arg) in args.iter().zip(&func.arguments) {
-                        if arg.is_const {
-                            if let Some(const_eval) = arg_expr.naive_eval(const_arrays) {
-                                const_evals.push((arg.name.clone(), const_eval));
-                            } else {
-                                // Skip this call, will be handled in a later pass after more unrolling
-                                continue 'outer;
-                            }
-                        }
-                    }
-
-                    let const_funct_name = format!(
-                        "{function_name}_{}",
-                        const_evals
-                            .iter()
-                            .map(|(arg_var, const_eval)| { format!("{arg_var}={const_eval}") })
-                            .collect::<Vec<_>>()
-                            .join("_")
-                    );
-
-                    *function_name = const_funct_name.clone(); // change the name of the function called
-                    // ... and remove constant arguments
-                    *args = args
-                        .iter()
-                        .zip(&func.arguments)
-                        .filter(|(_, arg)| !arg.is_const)
-                        .map(|(arg_expr, _)| arg_expr.clone())
-                        .collect();
-
-                    changed = true;
-
-                    if new_functions.contains_key(&const_funct_name) {
-                        continue;
-                    }
-
-                    let mut new_body = func.body.clone();
-                    replace_vars_by_const_in_lines(&mut new_body, &const_evals.iter().cloned().collect());
-                    new_functions.insert(
-                        const_funct_name.clone(),
-                        Function {
-                            name: const_funct_name,
-                            arguments: func.arguments.iter().filter(|arg| !arg.is_const).cloned().collect(),
-                            inlined: false,
-                            body: new_body,
-                            n_returned_vars: func.n_returned_vars,
-                            assume_always_returns: func.assume_always_returns,
-                        },
-                    );
-                }
-            }
-            Line::Statement { .. } => {}
-            Line::IfCondition {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                changed |= handle_const_arguments_helper(then_branch, constant_functions, new_functions, const_arrays);
-                changed |= handle_const_arguments_helper(else_branch, constant_functions, new_functions, const_arrays);
-            }
-            Line::ForLoop { body, unroll: _, .. } => {
-                // TODO we should unroll before const arguments handling
-                handle_const_arguments_helper(body, constant_functions, new_functions, const_arrays);
-            }
-            Line::Match { arms, .. } => {
-                for (_, arm) in arms {
-                    changed |= handle_const_arguments_helper(arm, constant_functions, new_functions, const_arrays);
-                }
-            }
-            _ => {}
-        }
-    }
-    changed
 }
 
 fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) {

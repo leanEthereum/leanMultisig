@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
-use crate::a_simplify_lang::VarOrConstMallocAccess;
+use crate::a_simplify_lang::{VarOrConstMallocAccess, VectorLenTracker};
 use crate::{F, parser::ConstArrayValue};
 pub use lean_vm::{FileId, FunctionName, SourceLocation};
 
@@ -26,10 +26,18 @@ impl Program {
             .map(|(name, _)| name.clone())
             .collect()
     }
+
+    pub fn non_constant_functions_mut(&mut self) -> BTreeSet<&mut Function> {
+        self.functions
+            .iter_mut()
+            .filter(|(_, func)| !func.has_const_arguments())
+            .map(|(_, func)| func)
+            .collect()
+    }
 }
 
 /// A function argument with its modifiers
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FunctionArg {
     pub name: Var,
     pub is_const: bool,
@@ -54,7 +62,7 @@ impl FunctionArg {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Function {
     pub name: String,
     pub arguments: Vec<FunctionArg>,
@@ -258,15 +266,19 @@ impl Condition {
         }
     }
 
-    pub fn try_eval_at_compile_time(&self, const_arrays: &BTreeMap<String, ConstArrayValue>) -> Option<bool> {
+    pub fn compile_time_eval(
+        &self,
+        const_arrays: &BTreeMap<String, ConstArrayValue>,
+        vector_len: &VectorLenTracker,
+    ) -> Option<bool> {
         match self {
             Self::AssumeBoolean(expr) => {
-                let val = expr.naive_eval(const_arrays)?;
+                let val = expr.compile_time_eval(const_arrays, vector_len)?;
                 Some(val.to_usize() != 0)
             }
             Self::Comparison(cmp) => {
-                let left = cmp.left.naive_eval(const_arrays)?;
-                let right = cmp.right.naive_eval(const_arrays)?;
+                let left = cmp.left.compile_time_eval(const_arrays, vector_len)?;
+                let right = cmp.right.compile_time_eval(const_arrays, vector_len)?;
                 Some(match cmp.kind {
                     Boolean::Equal => left == right,
                     Boolean::Different => left != right,
@@ -391,17 +403,26 @@ impl From<SimpleExpr> for Expression {
 }
 
 impl Expression {
-    pub fn naive_eval(&self, const_arrays: &BTreeMap<String, ConstArrayValue>) -> Option<F> {
+    pub fn compile_time_eval(
+        &self,
+        const_arrays: &BTreeMap<String, ConstArrayValue>,
+        vector_len: &VectorLenTracker,
+    ) -> Option<F> {
         // Handle Len specially since it needs const_arrays
         if let Self::Len { array, indices } = self {
-            let idx: Option<Vec<_>> = indices
+            let idx = indices
                 .iter()
-                .map(|e| e.naive_eval(const_arrays).map(|f| f.to_usize()))
-                .collect();
-            let idx = idx?;
-            let arr = const_arrays.get(array)?;
-            let target = arr.navigate(&idx)?;
-            return Some(F::from_usize(target.len()));
+                .map(|e| e.compile_time_eval(const_arrays, vector_len).map(|f| f.to_usize()))
+                .collect::<Option<Vec<usize>>>()?;
+            if let Some(arr) = const_arrays.get(array) {
+                let target = arr.navigate(&idx)?;
+                return Some(F::from_usize(target.len()));
+            }
+            if let Some(arr) = vector_len.get(array) {
+                let target = arr.navigate(&idx)?;
+                return Some(F::from_usize(target.len()));
+            }
+            return None;
         }
         self.eval_with(
             &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
@@ -466,6 +487,19 @@ impl Expression {
 
     pub fn scalar(scalar: usize) -> Self {
         SimpleExpr::scalar(scalar).into()
+    }
+
+    pub fn as_scalar(&self) -> Option<usize> {
+        match self {
+            Self::Value(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(start_val)))) => {
+                Some(*start_val)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        self.as_scalar().is_some()
     }
 
     pub fn zero() -> Self {
@@ -742,8 +776,18 @@ impl Line {
             Self::VecDeclaration { var, elements, .. } => {
                 format!("{var} = vec![{}]", elements.len())
             }
-            Self::Push { vector, .. } => {
-                format!("push({vector}, ...)")
+            Self::Push {
+                vector,
+                indices,
+                element,
+                ..
+            } => {
+                format!(
+                    "{}[{}].push({})",
+                    vector,
+                    indices.iter().map(|i| format!("{i}")).collect::<Vec<_>>().join("]["),
+                    element
+                )
             }
         };
         format!("{spaces}{line_str}")
@@ -833,6 +877,22 @@ impl Display for ConstantValue {
             }
             Self::MatchBlockSize { match_index } => {
                 write!(f, "@match_block_size_{match_index}")
+            }
+        }
+    }
+}
+
+impl Display for VecLiteral {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Expr(expr) => write!(f, "{expr}"),
+            Self::Vec(elements) => {
+                let elements_str = elements
+                    .iter()
+                    .map(|elem| format!("{elem}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "vec![{elements_str}]")
             }
         }
     }

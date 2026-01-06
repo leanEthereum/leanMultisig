@@ -31,7 +31,10 @@ impl Parse<(String, ParsedConstant)> for ConstantDeclarationParser {
                 let expr = ExpressionParser.parse(value_pair, ctx)?;
 
                 let value = evaluate_const_expr(&expr, ctx).ok_or_else(|| {
-                    SemanticError::with_context(format!("Failed to evaluate constant: {name}, with expression: {}", expr), "constant declaration")
+                    SemanticError::with_context(
+                        format!("Failed to evaluate constant: {name}, with expression: {}", expr),
+                        "constant declaration",
+                    )
                 })?;
 
                 Ok((name, ParsedConstant::Scalar(value)))

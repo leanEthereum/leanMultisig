@@ -139,10 +139,10 @@ fn main() {
             col_index = LOOKUPS_EF_INDEXES[table_index][lookup_ef_index];
             fs, index_eval = fs_receive_ef(fs, 1);
             if len(columns_values[table_index][col_index]) == 0 {
-                // columns_values[table_index][col_index].push(index_eval);
+                columns_values[table_index][col_index].push(index_eval);
             } else {
                 // assert equal
-                // copy_5(index_eval, columns_values[table_index][col_index][0]);
+                copy_5(index_eval, columns_values[table_index][col_index][0]);
             }
 
             for i in 0..DIM unroll{

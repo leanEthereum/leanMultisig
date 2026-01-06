@@ -157,7 +157,7 @@ fn test_reserved_function_names() {
 
 #[test]
 fn debug_file_program() {
-    let index = 144;
+    let index = 20;
     let path = format!("{}/program_{}.snark", test_data_dir(), index);
     compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
 }

@@ -367,9 +367,9 @@ impl AssignmentParser {
         expr: Expression,
     ) -> ParseResult<Line> {
         match &expr {
-            Expression::FunctionCall { function_name, args, .. } => {
-                Self::handle_function_call(location, function_name.clone(), args.clone(), targets)
-            }
+            Expression::FunctionCall {
+                function_name, args, ..
+            } => Self::handle_function_call(location, function_name.clone(), args.clone(), targets),
             _ => {
                 if targets.is_empty() {
                     return Err(SemanticError::new("Expression statement has no effect").into());
@@ -409,7 +409,11 @@ impl AssignmentParser {
         // is treated as a regular function call and handled in a_simplify_lang.rs
         Ok(Line::Statement {
             targets: return_data,
-            value: Expression::FunctionCall { function_name, args, location },
+            value: Expression::FunctionCall {
+                function_name,
+                args,
+                location,
+            },
             location,
         })
     }

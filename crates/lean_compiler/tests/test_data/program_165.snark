@@ -1,0 +1,118 @@
+// Comprehensive test: nested unrolled loops, vectors with pushes in various scopes
+
+fn main() {
+    // === PART 1: Basic nested loops over 2D vector ===
+
+    outer = vec![vec![1, 2], vec![10, 20, 30]];
+
+    mut total = 0;
+    for i in 0..len(outer) unroll {
+        mut row_sum = 0;
+        for j in 0..len(outer[i]) unroll {
+            row_sum = row_sum + outer[i][j];
+        }
+        total = total + row_sum;
+    }
+    assert total == 63;
+
+    // === PART 2: Push new row to outer, iterate again ===
+
+    outer.push(vec![100, 200]);
+    assert len(outer) == 3;
+
+    mut total = 0;
+    for i in 0..len(outer) unroll {
+        mut row_sum = 0;
+        for j in 0..len(outer[i]) unroll {
+            row_sum = row_sum + outer[i][j];
+        }
+        total = total + row_sum;
+    }
+    assert total == 363;
+
+
+    // === PART 3: Multiple vectors cross product ===
+
+    v1 = vec![1, 2, 3];
+    v2 = vec![10, 20];
+
+    mut cross_sum = 0;
+    for i in 0..len(v1) unroll {
+        for j in 0..len(v2) unroll {
+            cross_sum = cross_sum + v1[i] * v2[j];
+        }
+    }
+    assert cross_sum == 180;
+
+    v2.push(30);
+    mut cross_sum = 0;
+    for i in 0..len(v1) unroll {
+        for j in 0..len(v2) unroll {
+            cross_sum = cross_sum + v1[i] * v2[j];
+        }
+    }
+    assert cross_sum == 360;
+
+    // === PART 4: Accumulator reused without reset ===
+
+    data = vec![5, 10, 15, 20];
+
+    mut acc = 0;
+    for i in 0..len(data) unroll {
+        acc = acc + data[i];
+    }
+    assert acc == 50;
+
+    for i in 0..len(data) unroll {
+        acc = acc + data[i] * data[i];
+    }
+    assert acc == 800;
+
+    // === PART 5: if inside unrolled loop (compile-time condition) ===
+
+    data2 = vec![1, 2, 3, 4];
+    mut acc2 = 0;
+    for i in 0..len(data2) unroll {
+        acc2 = acc2 + data2[i];
+        if i == 2 {
+            acc2 = acc2 * 2;
+        }
+    }
+    assert acc2 == 16;
+
+    assert inlined() == 5;
+
+
+    return;
+}
+
+
+
+fn inlined() -> 1 {
+    v = vec![1, 2, 3];
+    mut sum = 0;
+    for i in 0..len(v) unroll {
+        sum = sum + v[i];
+    }
+    debug_assert sum == 6;
+    v.push(4);
+    assert len(v) == 4;
+    mut sum = 0;
+    for i in 0..len(v) unroll {
+        sum += v[i];
+    }
+    assert sum == 10;
+    w = vec![];
+    for i in 0..5 unroll {
+        w.push(vec![]);
+        for j in 0..i unroll {
+            w[i].push(1);
+        }
+        mut sum = 0;
+        for j in 0..len(w[i]) unroll {
+            sum += w[i][j];
+        }
+        assert sum == i;
+    }
+    return len(w);
+}

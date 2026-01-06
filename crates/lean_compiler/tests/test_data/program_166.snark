@@ -1,0 +1,42 @@
+const EE = 0; 
+const DIM = 5;
+
+fn main() {
+    v = vec![1, 2, 3];
+    mut sum1 = 0;
+    for i in 0..len(v) unroll {
+        sum1 = sum1 + v[i];
+    }
+    assert sum1 == 6;
+    v.push(4);
+    assert len(v) == 4;
+    mut sum2 = 0;
+    for i in 0..len(v) unroll {
+        sum2 = sum2 + v[i];
+    }
+    assert sum2 == 10;
+    // Test nested vectors with len(w[i])
+    w = vec![];
+    for i in 0..5 unroll {
+        w.push(vec![]);
+        for j in 0..i unroll {
+            w[i].push(1);
+        }
+        assert len(w[i]) == i;
+    }
+    assert len(w) == 5;
+    a = malloc(DIM);
+    for i in 0..DIM unroll {
+        a[i] = 1;
+    }
+    w.push(vec![a]);
+    b = malloc(DIM);
+    copy_5(w[5][0], b);
+    return;
+}
+
+
+fn copy_5(a, b) inline {
+    dot_product(a, pointer_to_one_vector, b, 1, EE);
+    return;
+}
