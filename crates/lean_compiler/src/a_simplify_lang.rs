@@ -2934,7 +2934,17 @@ fn inline_expr(
             }
             // If it's a const array, keep the name unchanged
         }
-        _ => {}
+        Expression::Len { array, .. } => {
+            if let Some(replacement) = args.get(array) {
+                let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_array)) = replacement else {
+                    panic!("Cannot inline len with non-variable array argument");
+                };
+                *array = new_array.clone();
+            } else if !const_arrays.contains_key(array) {
+                *array = format!("@inlined_var_{inlining_count}_{array}");
+            }
+        }
+        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => { /* handled below */ }
     }
     for inner_expr in expr.inner_exprs_mut() {
         inline_expr(inner_expr, args, const_arrays, inlining_count);
@@ -3016,66 +3026,11 @@ fn inline_lines(
             Line::ForLoop { iterator, .. } => {
                 inline_internal_var(iterator);
             }
-            Line::VecDeclaration { var, elements, .. } => {
+            Line::VecDeclaration { var, .. } => {
                 inline_internal_var(var);
-                // Inline expressions in vec elements
-                fn inline_vec_elements(
-                    elements: &mut [VecLiteral],
-                    args: &BTreeMap<Var, SimpleExpr>,
-                    const_arrays: &BTreeMap<String, ConstArrayValue>,
-                    inlining_count: usize,
-                ) {
-                    for elem in elements {
-                        match elem {
-                            VecLiteral::Expr(expr) => {
-                                inline_expr(expr, args, const_arrays, inlining_count);
-                            }
-                            VecLiteral::Vec(inner) => {
-                                inline_vec_elements(inner, args, const_arrays, inlining_count);
-                            }
-                        }
-                    }
-                }
-                inline_vec_elements(elements, args, const_arrays, inlining_count);
             }
-            Line::Push {
-                vector,
-                indices,
-                element,
-                ..
-            } => {
-                // If vector is an arg, replace with the arg's var name
-                if let Some(replacement) = args.get(vector) {
-                    let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_var)) = replacement else {
-                        panic!("Cannot inline push target with non-variable argument");
-                    };
-                    *vector = new_var.clone();
-                } else {
-                    *vector = format!("@inlined_var_{inlining_count}_{vector}");
-                }
-                // Inline expressions in the indices
-                for idx in indices {
-                    inline_expr(idx, args, const_arrays, inlining_count);
-                }
-                // Inline expressions in the pushed element
-                fn inline_vec_element(
-                    elem: &mut VecLiteral,
-                    args: &BTreeMap<Var, SimpleExpr>,
-                    const_arrays: &BTreeMap<String, ConstArrayValue>,
-                    inlining_count: usize,
-                ) {
-                    match elem {
-                        VecLiteral::Expr(expr) => {
-                            inline_expr(expr, args, const_arrays, inlining_count);
-                        }
-                        VecLiteral::Vec(inner) => {
-                            for e in inner {
-                                inline_vec_element(e, args, const_arrays, inlining_count);
-                            }
-                        }
-                    }
-                }
-                inline_vec_element(element, args, const_arrays, inlining_count);
+            Line::Push { vector, .. } => {
+                inline_internal_var(vector);
             }
             Line::Match { .. }
             | Line::IfCondition { .. }

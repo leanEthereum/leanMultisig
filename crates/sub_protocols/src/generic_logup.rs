@@ -307,7 +307,7 @@ pub fn verify_generic_logup(
 
     let total_n_vars = compute_total_n_vars(log_memory, &tables_heights_sorted.iter().cloned().collect());
 
-    let (sum, claim_point_gkr, numerators_value, denominators_value) =
+    let (sum, point_gkr, numerators_value, denominators_value) =
         verify_gkr_quotient(verifier_state, total_n_vars)?;
 
     if sum != EF::ZERO {
@@ -320,10 +320,10 @@ pub fn verify_generic_logup(
     let mut retrieved_denominators_value = EF::ZERO;
 
     // Memory ...
-    let memory_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log_memory).to_vec());
+    let memory_acc_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
     let bits = to_big_endian_in_field::<EF>(0, total_n_vars - log_memory);
     let pref = MultilinearPoint(bits)
-        .eq_poly_outside(&MultilinearPoint(claim_point_gkr[..total_n_vars - log_memory].to_vec()));
+        .eq_poly_outside(&MultilinearPoint(point_gkr[..total_n_vars - log_memory].to_vec()));
 
     let value_acc = verifier_state.next_extension_scalar()?;
     retrieved_numerators_value -= pref * value_acc;
@@ -346,8 +346,8 @@ pub fn verify_generic_logup(
     let mut offset = 1 << log_memory;
     for &(table, log_n_rows) in &tables_heights_sorted {
         let n_missing_vars = total_n_vars - log_n_rows;
-        let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
-        let missing_point = MultilinearPoint(claim_point_gkr[..n_missing_vars].to_vec());
+        let inner_point = MultilinearPoint(from_end(&point_gkr, log_n_rows).to_vec());
+        let missing_point = MultilinearPoint(point_gkr[..n_missing_vars].to_vec());
         let missing_inner_point = MultilinearPoint(inner_point[..univariate_skips].to_vec());
 
         columns_points.insert(table, inner_point.clone());
@@ -443,7 +443,7 @@ pub fn verify_generic_logup(
         columns_values.insert(table, table_values);
     }
 
-    retrieved_denominators_value += mle_of_zeros_then_ones(offset, &claim_point_gkr); // to compensate for the final padding: XYZ111111...1
+    retrieved_denominators_value += mle_of_zeros_then_ones(offset, &point_gkr); // to compensate for the final padding: XYZ111111...1
     if retrieved_numerators_value != numerators_value {
         return Err(ProofError::InvalidProof);
     }

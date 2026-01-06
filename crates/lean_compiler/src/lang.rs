@@ -544,6 +544,21 @@ pub enum VecLiteral {
     Vec(Vec<VecLiteral>),
 }
 
+impl VecLiteral {
+    pub fn all_exprs_mut_in_slice(arr: &mut [Self]) -> Vec<&mut Expression> {
+        let mut exprs = Vec::new();
+        for elem in arr {
+            match elem {
+                Self::Expr(expr) => exprs.push(expr),
+                Self::Vec(nested) => {
+                    exprs.extend(Self::all_exprs_mut_in_slice(nested));
+                }
+            }
+        }
+        exprs
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Match {
@@ -848,11 +863,13 @@ impl Line {
             Self::IfCondition { condition, .. } => condition.expressions_mut(),
             Self::ForLoop { start, end, .. } => vec![start, end],
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
-            Self::Push { indices, .. } => indices.iter_mut().collect(),
-            Self::ForwardDeclaration { .. }
-            | Self::Panic
-            | Self::LocationReport { .. }
-            | Self::VecDeclaration { .. } => vec![],
+            Self::Push { indices, element, .. } => {
+                let mut exprs = indices.iter_mut().collect::<Vec<_>>();
+                exprs.extend(VecLiteral::all_exprs_mut_in_slice(std::slice::from_mut(element)));
+                exprs
+            }
+            Self::VecDeclaration { elements, .. } => VecLiteral::all_exprs_mut_in_slice(elements),
+            Self::ForwardDeclaration { .. } | Self::Panic | Self::LocationReport { .. } => vec![],
         }
     }
 }
