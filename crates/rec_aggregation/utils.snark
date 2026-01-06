@@ -617,3 +617,36 @@ fn dot_product_ret(a, b, n, mode) inline -> 1 {
     dot_product(a, b, res, n, mode);
     return res;
 }
+
+fn mle_of_zeros_then_ones(point, n_zeros, n_vars) -> 1 {
+    if n_vars == 0 {
+        res = malloc(DIM);
+        res[0] = 1 - n_zeros;
+        for i in 1..DIM unroll { res[i] = 0; }
+        return res;
+    }
+
+    n_values = powers_of_two(n_vars);
+    debug_assert n_zeros <= n_values;
+
+    if n_zeros == n_values {
+        return pointer_to_zero_vector;
+    }
+
+    bits, _ = checked_decompose_bits(n_zeros, 0);
+
+    mut res = malloc(DIM);
+    set_to_one(res);
+
+    for i in 0..n_vars {
+        p = point + (n_vars - 1 - i) * DIM;
+        if bits[i] == 0 {
+            one_minus_p = one_minus_self_extension_ret(p);
+            tmp = mul_extension_ret(one_minus_p, res);
+            res = add_extension_ret(tmp, p);
+        } else {
+            res = mul_extension_ret(p, res);
+        }
+    }
+    return res;
+}

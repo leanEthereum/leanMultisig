@@ -174,6 +174,7 @@ impl ComparisonParser {
             "==" => Boolean::Equal,
             "!=" => Boolean::Different,
             "<" => Boolean::LessThan,
+            "<=" => Boolean::LessOrEqual,
             _ => unreachable!(),
         };
 

@@ -138,6 +138,7 @@ pub enum Boolean {
     Equal,
     Different,
     LessThan,
+    LessOrEqual,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -258,6 +259,7 @@ impl Hint {
                     Boolean::Equal => left == right,
                     Boolean::Different => left != right,
                     Boolean::LessThan => left < right,
+                    Boolean::LessOrEqual => left <= right,
                 };
                 if !condition_holds {
                     return Err(RunnerError::DebugAssertFailed(
@@ -341,6 +343,7 @@ impl Display for Boolean {
             Self::Equal => write!(f, "=="),
             Self::Different => write!(f, "!="),
             Self::LessThan => write!(f, "<"),
+            Self::LessOrEqual => write!(f, "<="),
         }
     }
 }

@@ -1991,7 +1991,6 @@ fn simplify_lines(
             } => {
                 let left = simplify_expr(ctx, state, const_malloc, &boolean.left, &mut res)?;
                 let right = simplify_expr(ctx, state, const_malloc, &boolean.right, &mut res)?;
-
                 if *debug {
                     res.push(SimpleLine::DebugAssert(
                         BooleanExpr {
@@ -2046,7 +2045,7 @@ fn simplify_lines(
                             };
                             res.push(SimpleLine::equality(var, other));
                         }
-                        Boolean::LessThan => unreachable!(),
+                        Boolean::LessThan | Boolean::LessOrEqual => unreachable!(),
                     }
                 }
             }
@@ -2063,7 +2062,7 @@ fn simplify_lines(
                         let (left, right, then_branch, else_branch) = match condition.kind {
                             Boolean::Equal => (&condition.left, &condition.right, else_branch, then_branch), // switched
                             Boolean::Different => (&condition.left, &condition.right, then_branch, else_branch),
-                            Boolean::LessThan => unreachable!(),
+                            Boolean::LessThan | Boolean::LessOrEqual => unreachable!(),
                         };
 
                         let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;

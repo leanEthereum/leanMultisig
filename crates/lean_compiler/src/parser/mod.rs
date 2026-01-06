@@ -2,7 +2,6 @@
 
 mod error;
 mod grammar;
-mod lexer;
 mod parsers;
 
 pub use error::ParseError;

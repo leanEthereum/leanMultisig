@@ -52,7 +52,7 @@ fn main() {
 
     // verify_generic_logup
 
-    fs, quotient_gkr, point_gkr, claims_num, claims_den = verify_gkr_quotient(fs, N_VARS_FIRST_GKR);
+    fs, quotient_gkr, point_gkr, numerators_value, denominators_value = verify_gkr_quotient(fs, N_VARS_FIRST_GKR);
     set_to_5_zeros(quotient_gkr);
 
     alpha_powers = powers(logup_alpha, MAX_BUS_WIDTH);
@@ -164,8 +164,10 @@ fn main() {
         }
     }
 
-    print_ef(retrieved_numerators_value); // correct !
-    print_ef(retrieved_denominators_value); // correct ! 
+    retrieved_denominators_value = add_extension_ret(retrieved_denominators_value, mle_of_zeros_then_ones(point_gkr, offset, N_VARS_FIRST_GKR));
+
+    copy_5(retrieved_numerators_value, numerators_value);
+    copy_5(retrieved_denominators_value, denominators_value);
 
     return;
 }

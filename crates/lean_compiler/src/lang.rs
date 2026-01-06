@@ -283,6 +283,7 @@ impl Condition {
                     Boolean::Equal => left == right,
                     Boolean::Different => left != right,
                     Boolean::LessThan => left.to_usize() < right.to_usize(),
+                    Boolean::LessOrEqual => left.to_usize() <= right.to_usize(),
                 })
             }
         }

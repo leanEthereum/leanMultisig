@@ -63,7 +63,7 @@ assumed_bool_expr = { "!!assume_bool" ~ "(" ~ expression ~ ")" }
 
 // Comparisons (shared between conditions and assertions)
 comparison = { add_expr ~ comparison_op ~ add_expr }
-comparison_op = { "==" | "!=" | "<" }
+comparison_op = { "==" | "!=" | "<=" | "<" }
 
 else_if_clause = { "else" ~ "if" ~ condition ~ "{" ~ statement* ~ "}" }
 

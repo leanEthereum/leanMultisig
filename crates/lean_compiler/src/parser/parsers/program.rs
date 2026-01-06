@@ -6,7 +6,6 @@ use crate::{
     parser::{
         error::{ParseError, ParseResult, SemanticError},
         grammar::{ParsePair, Rule, parse_source},
-        lexer,
         parsers::{Parse, ParseContext, ParsedConstant, next_inner_pair},
     },
 };
@@ -130,9 +129,27 @@ impl Parse<String> for ImportStatementParser {
     }
 }
 
+pub fn remove_comments(input: &str) -> String {
+    let mut s = input;
+    let mut result = String::with_capacity(input.len());
+    while !s.is_empty() {
+        if let Some(rest) = s.strip_prefix("//") {
+            s = rest.find('\n').map_or("", |i| &rest[i..]);
+        } else if let Some(rest) = s.strip_prefix("/*") {
+            s = rest.find("*/").map_or("", |i| &rest[i + 2..]);
+        } else if let Some(i) = s[1..].find('/') {
+            result.push_str(&s[..i + 1]);
+            s = &s[i + 1..];
+        } else {
+            result.push_str(s);
+            break;
+        }
+    }
+    result
+}
+
 fn parse_program_helper(ctx: &mut ParseContext) -> Result<Program, ParseError> {
-    // Preprocess source to remove comments
-    let processed_input = lexer::preprocess_source(&ctx.current_source_code);
+    let processed_input = remove_comments(&ctx.current_source_code);
 
     // Parse grammar into AST nodes
     let program_pair = parse_source(&processed_input)?;
