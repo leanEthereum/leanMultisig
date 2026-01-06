@@ -214,7 +214,7 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
 
     let mut unroll_counter = Counter::new();
     let mut inline_counter = Counter::new();
-    simplify_constants_in_program(&mut program, &mut unroll_counter, &mut inline_counter)?;
+    compile_time_transform_in_program(&mut program, &mut unroll_counter, &mut inline_counter)?;
 
     // Remove all inlined functions (they've been inlined)
     program.functions.retain(|_, func| !func.inlined);
@@ -385,7 +385,7 @@ fn build_vector_len_value_from_element(element: &VecLiteral) -> VectorLenValue {
     }
 }
 
-fn simplify_constants_in_program(
+fn compile_time_transform_in_program(
     program: &mut Program,
     unroll_counter: &mut Counter,
     inline_counter: &mut Counter,
@@ -428,7 +428,7 @@ fn simplify_constants_in_program(
             processed.insert(func_name.clone());
             let func = program.functions.get_mut(&func_name).unwrap();
             let mut new_functions = BTreeMap::new();
-            simplify_constants_in_lines(
+            compile_time_transform_in_lines(
                 &mut func.body,
                 &const_arrays,
                 &existing_functions,
@@ -448,7 +448,7 @@ fn simplify_constants_in_program(
     Ok(())
 }
 
-fn simplify_constants_in_lines(
+fn compile_time_transform_in_lines(
     lines: &mut Vec<Line>,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
     existing_functions: &BTreeMap<String, Function>,
@@ -466,7 +466,7 @@ fn simplify_constants_in_lines(
 
         for expr in line.expressions_mut() {
             substitute_const_vars_in_expr(expr, &const_var_exprs);
-            simplify_constants_in_expr(expr, const_arrays, &vector_len_tracker);
+            compile_time_transform_in_expr(expr, const_arrays, &vector_len_tracker);
         }
 
         // Extract nested inlined calls from expressions (e.g., `x = a + inlined_func(b)`)
@@ -616,7 +616,7 @@ fn simplify_constants_in_lines(
         }
 
         for block in lines[i].nested_blocks_mut() {
-            simplify_constants_in_lines(
+            compile_time_transform_in_lines(
                 block,
                 const_arrays,
                 existing_functions,
@@ -774,7 +774,7 @@ fn extract_inlined_calls(
     }
 }
 
-fn simplify_constants_in_expr(
+fn compile_time_transform_in_expr(
     expr: &mut Expression,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
     vector_len_tracker: &VectorLenTracker,
@@ -788,7 +788,7 @@ fn simplify_constants_in_expr(
     }
     let mut changed = false;
     for inner_expr in expr.inner_exprs_mut() {
-        changed |= simplify_constants_in_expr(inner_expr, const_arrays, vector_len_tracker);
+        changed |= compile_time_transform_in_expr(inner_expr, const_arrays, vector_len_tracker);
     }
     changed
 }
