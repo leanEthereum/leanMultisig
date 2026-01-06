@@ -67,6 +67,9 @@ pub fn verify_execution(
         UNIVARIATE_SKIPS,
     )?;
 
+    let bus_beta = verifier_state.sample();
+    verifier_state.duplexing();
+
     let (mut air_points, mut air_evals) = (BTreeMap::new(), BTreeMap::new());
     for (table, log_n_rows) in &table_n_vars {
         let (this_air_point, this_air_evals) = verify_bus_and_air(
@@ -75,6 +78,7 @@ pub fn verify_execution(
             *log_n_rows,
             logup_c,
             logup_alpha,
+            bus_beta,
             &logup_statements.bus_points[table],
             logup_statements.bus_numerators_values[table],
             logup_statements.bus_denominators_values[table],
@@ -191,12 +195,11 @@ fn verify_bus_and_air(
     log_n_nrows: usize,
     logup_c: EF,
     logup_alpha: EF,
+    bus_beta: EF,
     bus_point: &MultilinearPoint<EF>,
     bus_numerator_value: EF,
     bus_denominator_value: EF,
 ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)> {
-    let bus_beta = verifier_state.sample();
-    verifier_state.duplexing();
 
     let bus_final_value = bus_numerator_value
         * match table.bus().direction {

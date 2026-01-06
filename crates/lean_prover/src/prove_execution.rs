@@ -104,6 +104,9 @@ pub fn prove_execution(
         UNIVARIATE_SKIPS,
     );
 
+    let bus_beta = prover_state.sample();
+    prover_state.duplexing();
+
     let (mut air_points, mut air_evals) = (BTreeMap::new(), BTreeMap::new());
     for (table, trace) in traces.iter() {
         let (this_air_point, this_air_evals) = prove_bus_and_air(
@@ -112,6 +115,7 @@ pub fn prove_execution(
             trace,
             logup_c,
             logup_alpha,
+            bus_beta,
             &logup_statements.bus_points[table],
             logup_statements.bus_numerators_values[table],
             logup_statements.bus_denominators_values[table],
@@ -239,12 +243,11 @@ fn prove_bus_and_air(
     trace: &TableTrace,
     logup_c: EF,
     logup_alpha: EF,
+    bus_beta: EF,
     bus_point: &MultilinearPoint<EF>,
     bus_numerator_value: EF,
     bus_denominator_value: EF,
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
-    let bus_beta = prover_state.sample();
-    prover_state.duplexing();
 
     let bus_final_value = bus_numerator_value
         * match table.bus().direction {

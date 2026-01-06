@@ -171,6 +171,10 @@ pub fn run_end2end_recursion_benchmark() {
         "LOOKUPS_EF_VALUES_PLACEHOLDER".to_string(),
         format!("[{}]", lookup_ef_values_str.join(", ")),
     );
+    replacements.insert(
+        "EXECUTION_TABLE_INDEX_PLACEHOLDER".to_string(),
+        Table::execution().index().to_string(),
+    );
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;
