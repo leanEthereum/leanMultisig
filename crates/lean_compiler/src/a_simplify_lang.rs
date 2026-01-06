@@ -211,19 +211,13 @@ fn ends_with_early_exit(block: &[SimpleLine]) -> bool {
 
 pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     check_program_scoping(&program);
-    handle_inlined_functions(&mut program)?;
 
     let mut unroll_counter = Counter::new();
-    let mut max_iterations = 1000;
-    let mut any_change = true;
-    while any_change {
-        any_change = simplify_constants_in_program(&mut program, &mut unroll_counter)?;
+    let mut inline_counter = Counter::new();
+    simplify_constants_in_program(&mut program, &mut unroll_counter, &mut inline_counter)?;
 
-        max_iterations -= 1;
-        if max_iterations == 0 {
-            return Err("Too many iterations while simplifying program".to_string());
-        }
-    }
+    // Remove all inlined functions (they've been inlined)
+    program.functions.retain(|_, func| !func.inlined);
 
     validate_program_vectors(&program)?;
 
@@ -391,114 +385,170 @@ fn build_vector_len_value_from_element(element: &VecLiteral) -> VectorLenValue {
     }
 }
 
-fn simplify_constants_in_program(program: &mut Program, unroll_counter: &mut Counter) -> Result<bool, String> {
-    let mut changed = false;
-    let existing_functions = program.functions.clone();
+fn simplify_constants_in_program(
+    program: &mut Program,
+    unroll_counter: &mut Counter,
+    inline_counter: &mut Counter,
+) -> Result<(), String> {
     let const_arrays = program.const_arrays.clone();
-    let mut new_functions = BTreeMap::new();
-    for func in program.non_constant_functions_mut() {
-        changed |= simplify_constants_in_lines(
-            &mut func.body,
-            &const_arrays,
-            &existing_functions,
-            &mut new_functions,
-            unroll_counter,
-        )?;
+
+    // Collect inlined functions
+    let inlined_functions: BTreeMap<_, _> = program
+        .functions
+        .iter()
+        .filter(|(_, func)| func.inlined)
+        .map(|(name, func)| (name.clone(), func.clone()))
+        .collect();
+
+    for func in inlined_functions.values() {
+        if func.has_mutable_arguments() {
+            return Err("Inlined functions with mutable arguments are not supported yet".to_string());
+        }
+        if func.has_const_arguments() {
+            return Err("Inlined functions with constant arguments are not supported yet".to_string());
+        }
     }
-    for (func_name, func) in new_functions {
-        assert!(!program.functions.contains_key(&func_name));
-        program.functions.insert(func_name, func);
+
+    // Process all functions, including newly created specialized ones
+    let mut processed: BTreeSet<String> = BTreeSet::new();
+    loop {
+        let to_process: Vec<_> = program
+            .functions
+            .iter()
+            .filter(|(name, func)| !func.inlined && !func.has_const_arguments() && !processed.contains(*name))
+            .map(|(name, _)| name.clone())
+            .collect();
+
+        if to_process.is_empty() {
+            break;
+        }
+
+        let existing_functions = program.functions.clone();
+        for func_name in to_process {
+            processed.insert(func_name.clone());
+            let func = program.functions.get_mut(&func_name).unwrap();
+            let mut new_functions = BTreeMap::new();
+            simplify_constants_in_lines(
+                &mut func.body,
+                &const_arrays,
+                &existing_functions,
+                &inlined_functions,
+                &mut new_functions,
+                unroll_counter,
+                inline_counter,
+            )?;
+            // Add new specialized functions - they'll be processed in the next iteration of this loop
+            for (name, new_func) in new_functions {
+                if !program.functions.contains_key(&name) {
+                    program.functions.insert(name, new_func);
+                }
+            }
+        }
     }
-    Ok(changed)
+    Ok(())
 }
 
 fn simplify_constants_in_lines(
     lines: &mut Vec<Line>,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
     existing_functions: &BTreeMap<String, Function>,
+    inlined_functions: &BTreeMap<String, Function>,
     new_functions: &mut BTreeMap<String, Function>,
     unroll_counter: &mut Counter,
-) -> Result<bool, String> {
-    let mut changed = false;
+    inline_counter: &mut Counter,
+) -> Result<(), String> {
     let mut vector_len_tracker = VectorLenTracker::default();
-
-    // Collect constant variable definitions: var -> expression (that is constant)
     let mut const_var_exprs: BTreeMap<Var, F> = BTreeMap::new();
 
-    for i in 0..lines.len() {
+    let mut i = 0;
+    while i < lines.len() {
         let line = &mut lines[i];
+
         for expr in line.expressions_mut() {
-            changed |= substitute_const_vars_in_expr(expr, &const_var_exprs);
-            changed |= simplify_constants_in_expr(expr, const_arrays, &vector_len_tracker); // TODO make constant propagation wok on inner scopes
+            substitute_const_vars_in_expr(expr, &const_var_exprs);
+            simplify_constants_in_expr(expr, const_arrays, &vector_len_tracker);
         }
+
+        // Extract nested inlined calls from expressions (e.g., `x = a + inlined_func(b)`)
+        if let Some(new_lines) = extract_inlined_calls(line, inlined_functions, inline_counter)? {
+            lines.splice(i..=i, new_lines);
+            continue;
+        }
+
         match line {
-            Line::Statement {
-                targets: _,
-                value: Expression::FunctionCall {
-                    function_name, args, ..
-                },
-                ..
-            } => {
-                if let Some(func) = existing_functions.get(function_name)
-                    && func.has_const_arguments()
+            Line::Statement { targets, value, .. } => {
+                if let Some(inlined) = try_inline_call(value, targets, inlined_functions, const_arrays, inline_counter)
                 {
-                    // Check if all const arguments can be evaluated
-                    let mut const_evals = Vec::new();
-                    for (arg_expr, arg) in args.iter().zip(&func.arguments) {
-                        if arg.is_const {
-                            if let Some(const_eval) = arg_expr.as_scalar() {
-                                const_evals.push((arg.name.clone(), F::from_usize(const_eval)));
-                            } else {
-                                return Err(format!(
-                                    "Cannot evaluate const argument '{}' for function '{}'",
-                                    arg.name, function_name
-                                ));
+                    lines.splice(i..=i, inlined);
+                    continue;
+                }
+                // Specialize functions with const arguments
+                if let Expression::FunctionCall {
+                    function_name, args, ..
+                } = value
+                {
+                    if let Some(func) = existing_functions.get(function_name.as_str())
+                        && func.has_const_arguments()
+                    {
+                        let mut const_evals = Vec::new();
+                        for (arg_expr, arg) in args.iter().zip(&func.arguments) {
+                            if arg.is_const {
+                                if let Some(const_eval) = arg_expr.as_scalar() {
+                                    const_evals.push((arg.name.clone(), F::from_usize(const_eval)));
+                                } else {
+                                    return Err(format!(
+                                        "Cannot evaluate const argument '{}' for function '{}'",
+                                        arg.name, function_name
+                                    ));
+                                }
                             }
                         }
-                    }
-
-                    let const_funct_name = format!(
-                        "{function_name}_{}",
-                        const_evals
-                            .iter()
-                            .map(|(arg_var, const_eval)| { format!("{arg_var}={const_eval}") })
-                            .collect::<Vec<_>>()
-                            .join("_")
-                    );
-
-                    *function_name = const_funct_name.clone(); // change the name of the function called
-                    // ... and remove constant arguments
-                    *args = args
-                        .iter()
-                        .zip(&func.arguments)
-                        .filter(|(_, arg)| !arg.is_const)
-                        .map(|(arg_expr, _)| arg_expr.clone())
-                        .collect();
-
-                    changed = true;
-
-                    if !new_functions.contains_key(&const_funct_name)
-                        && !existing_functions.contains_key(&const_funct_name)
-                    {
-                        let mut new_body = func.body.clone();
-                        replace_vars_by_const_in_lines(&mut new_body, &const_evals.iter().cloned().collect());
-                        new_functions.insert(
-                            const_funct_name.clone(),
-                            Function {
-                                name: const_funct_name,
-                                arguments: func.arguments.iter().filter(|arg| !arg.is_const).cloned().collect(),
-                                inlined: false,
-                                body: new_body,
-                                n_returned_vars: func.n_returned_vars,
-                                assume_always_returns: func.assume_always_returns,
-                            },
+                        let const_funct_name = format!(
+                            "{function_name}_{}",
+                            const_evals
+                                .iter()
+                                .map(|(v, c)| format!("{v}={c}"))
+                                .collect::<Vec<_>>()
+                                .join("_")
                         );
+                        *function_name = const_funct_name.clone();
+                        *args = args
+                            .iter()
+                            .zip(&func.arguments)
+                            .filter(|(_, arg)| !arg.is_const)
+                            .map(|(e, _)| e.clone())
+                            .collect();
+                        if !new_functions.contains_key(&const_funct_name)
+                            && !existing_functions.contains_key(&const_funct_name)
+                        {
+                            let mut new_body = func.body.clone();
+                            replace_vars_by_const_in_lines(&mut new_body, &const_evals.iter().cloned().collect());
+                            new_functions.insert(
+                                const_funct_name.clone(),
+                                Function {
+                                    name: const_funct_name,
+                                    arguments: func.arguments.iter().filter(|a| !a.is_const).cloned().collect(),
+                                    inlined: false,
+                                    body: new_body,
+                                    n_returned_vars: func.n_returned_vars,
+                                    assume_always_returns: func.assume_always_returns,
+                                },
+                            );
+                        }
                     }
                 }
+                if targets.len() == 1
+                    && let AssignmentTarget::Var { var, is_mutable: false } = &targets[0]
+                    && let Some(value_const) = value.as_scalar()
+                {
+                    const_var_exprs.insert(var.clone(), F::from_usize(value_const));
+                }
             }
+
             Line::VecDeclaration { var, elements, .. } => {
                 vector_len_tracker.register(var, build_vector_len_value(elements));
             }
+
             Line::Push {
                 vector,
                 indices,
@@ -508,18 +558,13 @@ fn simplify_constants_in_lines(
                 let Some(const_indices) = indices.iter().map(|idx| idx.as_scalar()).collect::<Option<Vec<_>>>() else {
                     return Err("push with non-constant indices".to_string());
                 };
-
                 let new_element = build_vector_len_value_from_element(element);
-
                 let vector_value = vector_len_tracker
                     .get_mut(vector)
                     .ok_or_else(|| "pushing to undeclared vector".to_string())?;
-
                 if const_indices.is_empty() {
-                    // Push directly to the top-level vector
                     vector_value.push(new_element);
                 } else {
-                    // Navigate to the nested vector and push
                     let target = vector_value
                         .navigate_mut(&const_indices)
                         .ok_or_else(|| "push target index out of bounds".to_string())?;
@@ -529,68 +574,204 @@ fn simplify_constants_in_lines(
                     target.push(new_element);
                 }
             }
+
             Line::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
                 ..
             } => {
-                if let Some(constant_condition) = condition.compile_time_eval(const_arrays, &vector_len_tracker) {
+                if let Some(constant_condition) = condition.eval_with(&|expr| expr.as_scalar()) {
                     let chosen_branch = if constant_condition { then_branch } else { else_branch }.clone();
                     lines.splice(i..=i, chosen_branch);
-                    return Ok(true);
+                    continue;
                 }
             }
-            Line::Statement { targets, value, .. } => {
-                if targets.len() == 1
-                    && let AssignmentTarget::Var { var, is_mutable: false } = &targets[0]
-                    && let Some(value_const) = value.compile_time_eval(const_arrays, &vector_len_tracker)
-                {
-                    const_var_exprs.insert(var.clone(), value_const);
-                }
-            }
+
             Line::ForLoop {
                 iterator,
                 start,
                 end,
                 body,
                 unroll: true,
-                location: _,
+                ..
             } => {
-                let Some(start_usize) = start.as_scalar() else {
-                    return Ok(changed);
+                let (Some(start_usize), Some(end_usize)) = (start.as_scalar(), end.as_scalar()) else {
+                    return Err("Cannot unroll loop with non-constant bounds".to_string());
                 };
-                let Some(end_usize) = end.as_scalar() else {
-                    return Ok(changed);
-                };
-
                 let unroll_index = unroll_counter.next();
-
                 let (internal_vars, _) = find_variable_usage(body, const_arrays);
-
-                let range: Vec<_> = (start_usize..end_usize).collect();
-
                 let iterator = iterator.clone();
                 let body = body.clone();
-
                 let mut unrolled = Vec::new();
-                for j in range {
+                for j in start_usize..end_usize {
                     let mut body_copy = body.clone();
                     replace_vars_for_unroll(&mut body_copy, &iterator, unroll_index, j, &internal_vars);
                     unrolled.extend(body_copy);
                 }
-
                 lines.splice(i..=i, unrolled);
-                return Ok(true);
+                continue;
             }
             _ => {}
         }
-        for block in line.nested_blocks_mut() {
-            changed |=
-                simplify_constants_in_lines(block, const_arrays, existing_functions, new_functions, unroll_counter)?;
+
+        for block in lines[i].nested_blocks_mut() {
+            simplify_constants_in_lines(
+                block,
+                const_arrays,
+                existing_functions,
+                inlined_functions,
+                new_functions,
+                unroll_counter,
+                inline_counter,
+            )?;
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
+/// Try to inline a function call. Returns Some(inlined_lines) if successful.
+fn try_inline_call(
+    value: &Expression,
+    targets: &[AssignmentTarget],
+    inlined_functions: &BTreeMap<String, Function>,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    inline_counter: &mut Counter,
+) -> Option<Vec<Line>> {
+    let Expression::FunctionCall {
+        function_name,
+        args,
+        location,
+    } = value
+    else {
+        return None;
+    };
+    let func = inlined_functions.get(function_name)?;
+
+    // If any arg is not simple, extract it first
+    if args.iter().any(|a| !matches!(a, Expression::Value(_))) {
+        let mut new_lines = vec![];
+        let mut new_args = vec![];
+        for arg in args {
+            if let Expression::Value(v) = arg {
+                new_args.push(Expression::Value(v.clone()));
+            } else {
+                let tmp = format!("@inline_arg_{}", inline_counter.next());
+                new_lines.push(Line::ForwardDeclaration { var: tmp.clone() });
+                new_lines.push(Line::Statement {
+                    targets: vec![AssignmentTarget::Var {
+                        var: tmp.clone(),
+                        is_mutable: false,
+                    }],
+                    value: arg.clone(),
+                    location: *location,
+                });
+                new_args.push(Expression::var(tmp));
+            }
+        }
+        new_lines.push(Line::Statement {
+            targets: targets.to_vec(),
+            value: Expression::FunctionCall {
+                function_name: function_name.clone(),
+                args: new_args,
+                location: *location,
+            },
+            location: *location,
+        });
+        return Some(new_lines);
+    }
+
+    // All args are simple - inline the function body
+    let args_map: BTreeMap<Var, SimpleExpr> = func
+        .arguments
+        .iter()
+        .zip(args)
+        .map(|(arg, expr)| {
+            let Expression::Value(v) = expr else { unreachable!() };
+            (arg.name.clone(), v.clone())
+        })
+        .collect();
+
+    let mut body = func.body.clone();
+    inline_lines(&mut body, &args_map, const_arrays, targets, inline_counter.next());
+    Some(body)
+}
+
+/// Extract nested inlined function calls from expressions, replacing them with temp vars.
+fn extract_inlined_calls(
+    line: &mut Line,
+    inlined_functions: &BTreeMap<String, Function>,
+    counter: &mut Counter,
+) -> Result<Option<Vec<Line>>, String> {
+    fn extract(
+        expr: &mut Expression,
+        funcs: &BTreeMap<String, Function>,
+        counter: &mut Counter,
+        out: &mut Vec<Line>,
+    ) -> Result<(), String> {
+        for inner in expr.inner_exprs_mut() {
+            extract(inner, funcs, counter, out)?;
+        }
+        if let Expression::FunctionCall {
+            function_name,
+            args,
+            location,
+        } = expr
+        {
+            if let Some(func) = funcs.get(function_name) {
+                if func.n_returned_vars != 1 {
+                    return Err(format!(
+                        "Inlined function '{}' with {} return values cannot appear in expression",
+                        function_name, func.n_returned_vars
+                    ));
+                }
+                let tmp = format!("@inline_tmp_{}", counter.next());
+                out.push(Line::ForwardDeclaration { var: tmp.clone() });
+                out.push(Line::Statement {
+                    targets: vec![AssignmentTarget::Var {
+                        var: tmp.clone(),
+                        is_mutable: false,
+                    }],
+                    value: Expression::FunctionCall {
+                        function_name: function_name.clone(),
+                        args: args.clone(),
+                        location: *location,
+                    },
+                    location: *location,
+                });
+                *expr = Expression::var(tmp);
+            }
+        }
+        Ok(())
+    }
+
+    let mut extractions = vec![];
+    // For direct inlined calls, only extract from arguments; otherwise extract from all expressions
+    match line {
+        Line::Statement {
+            value: Expression::FunctionCall {
+                function_name, args, ..
+            },
+            ..
+        } if inlined_functions.contains_key(function_name) => {
+            for arg in args.iter_mut() {
+                extract(arg, inlined_functions, counter, &mut extractions)?;
+            }
+        }
+        _ => {
+            for expr in line.expressions_mut() {
+                extract(expr, inlined_functions, counter, &mut extractions)?;
+            }
         }
     }
-    Ok(changed)
+
+    if extractions.is_empty() {
+        Ok(None)
+    } else {
+        extractions.push(line.clone());
+        Ok(Some(extractions))
+    }
 }
 
 fn simplify_constants_in_expr(
@@ -3190,454 +3371,6 @@ fn replace_vars_for_unroll_in_vec_element(
             replace_vars_for_unroll_in_vec_elements(inner, iterator, unroll_index, iterator_value, internal_vars);
         }
     }
-}
-
-fn handle_inlined_functions(program: &mut Program) -> Result<(), String> {
-    let inlined_functions = program
-        .functions
-        .iter()
-        .filter(|(_, func)| func.inlined)
-        .map(|(name, func)| (name.clone(), func.clone()))
-        .collect::<BTreeMap<_, _>>();
-
-    for func in inlined_functions.values() {
-        if func.has_mutable_arguments() {
-            return Err("Inlined functions with mutable arguments are not supported yet".to_string());
-        }
-        if func.has_const_arguments() {
-            return Err("Inlined functions with constant arguments are not supported yet".to_string());
-        }
-    }
-
-    // Process inline functions iteratively to handle dependencies
-    // Repeat until all inline function calls are resolved
-    let mut max_iterations = 10;
-
-    let mut counter1 = Counter::new();
-    let mut counter2 = Counter::new();
-
-    while max_iterations > 0 {
-        let mut any_changes = false;
-
-        // Process non-inlined functions
-        for func in program.functions.values_mut() {
-            if !func.inlined {
-                let old_body = func.body.clone();
-
-                let mut ctx = Context::new();
-                ctx.const_arrays = program.const_arrays.clone();
-                for arg in func.arguments.iter() {
-                    ctx.add_var(&arg.name);
-                }
-                func.body = handle_inlined_functions_helper(
-                    &mut ctx,
-                    &func.body,
-                    &inlined_functions,
-                    &mut counter1,
-                    &mut counter2,
-                )?;
-
-                if func.body != old_body {
-                    any_changes = true;
-                }
-            }
-        }
-
-        // Process inlined functions that may call other inlined functions
-        // We need to update them so that when they get inlined later, they don't have unresolved calls
-        for func in program.functions.values_mut() {
-            if func.inlined {
-                let old_body = func.body.clone();
-
-                let mut ctx = Context::new();
-                ctx.const_arrays = program.const_arrays.clone();
-                for arg in func.arguments.iter() {
-                    ctx.add_var(&arg.name);
-                }
-                handle_inlined_functions_helper(
-                    &mut ctx,
-                    &func.body,
-                    &inlined_functions,
-                    &mut counter1,
-                    &mut counter2,
-                )?;
-
-                if func.body != old_body {
-                    any_changes = true;
-                }
-            }
-        }
-
-        if !any_changes {
-            break;
-        }
-
-        max_iterations -= 1;
-    }
-
-    if max_iterations == 0 {
-        return Err("Too many iterations processing inline functions".to_string());
-    }
-
-    // Remove all inlined functions from the program (they've been inlined)
-    for func_name in inlined_functions.keys() {
-        program.functions.remove(func_name);
-    }
-    Ok(())
-}
-
-/// Recursively extracts inlined function calls from an expression.
-/// Returns the modified expression and lines to prepend (forward declarations and function calls).
-fn extract_inlined_calls_from_expr(
-    expr: &Expression,
-    inlined_functions: &BTreeMap<String, Function>,
-    inlined_var_counter: &mut Counter,
-) -> Result<(Expression, Vec<Line>), String> {
-    let mut lines = vec![];
-
-    if let Expression::FunctionCall {
-        function_name,
-        args,
-        location,
-    } = expr
-    {
-        let mut args_new = vec![];
-        for arg in args {
-            let (arg, arg_lines) = extract_inlined_calls_from_expr(arg, inlined_functions, inlined_var_counter)?;
-            args_new.push(arg);
-            lines.extend(arg_lines);
-        }
-
-        if let Some(inlined_function) = inlined_functions.get(function_name) {
-            if inlined_function.n_returned_vars != 1 {
-                return Err(format!(
-                    "Used inlined function '{}' with {} return values inside an expression; only single-return functions can be inlined in expressions",
-                    function_name, inlined_function.n_returned_vars
-                ));
-            }
-            let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
-            lines.push(Line::ForwardDeclaration { var: aux_var.clone() });
-            lines.push(Line::Statement {
-                targets: vec![AssignmentTarget::Var {
-                    var: aux_var.clone(),
-                    is_mutable: false,
-                }],
-                value: Expression::FunctionCall {
-                    function_name: function_name.clone(),
-                    args: args_new.clone(),
-                    location: *location,
-                },
-                location: *location,
-            });
-            return Ok((Expression::var(aux_var), lines));
-        }
-    };
-
-    let mut expr = expr.clone();
-    for inner_expr in expr.inner_exprs_mut() {
-        let (new_expr, mut new_lines) =
-            extract_inlined_calls_from_expr(inner_expr, inlined_functions, inlined_var_counter)?;
-        *inner_expr = new_expr;
-        lines.append(&mut new_lines);
-    }
-    Ok((expr.clone(), lines))
-}
-
-fn extract_inlined_calls_from_boolean_expr(
-    boolean: &BooleanExpr<Expression>,
-    inlined_functions: &BTreeMap<String, Function>,
-    inlined_var_counter: &mut Counter,
-) -> Result<(BooleanExpr<Expression>, Vec<Line>), String> {
-    let (left, mut lines) = extract_inlined_calls_from_expr(&boolean.left, inlined_functions, inlined_var_counter)?;
-    let (right, right_lines) = extract_inlined_calls_from_expr(&boolean.right, inlined_functions, inlined_var_counter)?;
-    lines.extend(right_lines);
-    let boolean = BooleanExpr {
-        kind: boolean.kind,
-        left,
-        right,
-    };
-    Ok((boolean, lines))
-}
-
-fn extract_inlined_calls_from_condition(
-    condition: &Condition,
-    inlined_functions: &BTreeMap<String, Function>,
-    inlined_var_counter: &mut Counter,
-) -> Result<(Condition, Vec<Line>), String> {
-    match condition {
-        Condition::AssumeBoolean(expr) => {
-            let (expr, expr_lines) = extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter)?;
-            Ok((Condition::AssumeBoolean(expr), expr_lines))
-        }
-        Condition::Comparison(boolean) => {
-            let (boolean, boolean_lines) =
-                extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)?;
-            Ok((Condition::Comparison(boolean), boolean_lines))
-        }
-    }
-}
-
-fn handle_inlined_functions_helper(
-    ctx: &mut Context,
-    lines_in: &Vec<Line>,
-    inlined_functions: &BTreeMap<String, Function>,
-    inlined_var_counter: &mut Counter,
-    total_inlined_counter: &mut Counter,
-) -> Result<Vec<Line>, String> {
-    let mut lines_out = vec![];
-    for line in lines_in {
-        match line {
-            Line::Panic | Line::LocationReport { .. } => {
-                lines_out.push(line.clone());
-            }
-            Line::Statement {
-                targets,
-                value:
-                    Expression::FunctionCall {
-                        function_name,
-                        args,
-                        location,
-                    },
-                ..
-            } if inlined_functions.contains_key(function_name) => {
-                let func = inlined_functions.get(function_name).unwrap();
-                let mut inlined_lines = vec![];
-
-                // Only add forward declarations for variable targets, not array accesses
-                for target in targets.iter() {
-                    if let AssignmentTarget::Var { var, .. } = target
-                        && !ctx.defines(var)
-                    {
-                        inlined_lines.push(Line::ForwardDeclaration { var: var.clone() });
-                        ctx.add_var(var);
-                    }
-                }
-
-                let mut simplified_args = vec![];
-                for arg in args {
-                    if let Expression::Value(simple_expr) = arg {
-                        simplified_args.push(simple_expr.clone());
-                    } else {
-                        let aux_var = format!("@inlined_var_{}", inlined_var_counter.next());
-                        // Check if the argument is a function call to an inlined function
-                        // If so, create a Line::Statement so it gets inlined in subsequent iterations
-                        if let Expression::FunctionCall {
-                            function_name: arg_func_name,
-                            args: arg_args,
-                            location,
-                        } = arg
-                        {
-                            if inlined_functions.contains_key(arg_func_name) {
-                                inlined_lines.push(Line::ForwardDeclaration { var: aux_var.clone() });
-                                inlined_lines.push(Line::Statement {
-                                    targets: vec![AssignmentTarget::Var {
-                                        var: aux_var.clone(),
-                                        is_mutable: false,
-                                    }],
-                                    value: Expression::FunctionCall {
-                                        function_name: arg_func_name.clone(),
-                                        args: arg_args.clone(),
-                                        location: *location,
-                                    },
-                                    location: *location,
-                                });
-                            } else {
-                                inlined_lines.push(Line::Statement {
-                                    targets: vec![AssignmentTarget::Var {
-                                        var: aux_var.clone(),
-                                        is_mutable: false,
-                                    }],
-                                    value: arg.clone(),
-                                    location: *location,
-                                });
-                            }
-                        } else {
-                            inlined_lines.push(Line::Statement {
-                                targets: vec![AssignmentTarget::Var {
-                                    var: aux_var.clone(),
-                                    is_mutable: false,
-                                }],
-                                value: arg.clone(),
-                                location: *location,
-                            });
-                        }
-                        simplified_args.push(VarOrConstMallocAccess::Var(aux_var).into());
-                    }
-                }
-                assert_eq!(simplified_args.len(), func.arguments.len());
-                let inlined_args = func
-                    .arguments
-                    .iter()
-                    .zip(&simplified_args)
-                    .map(|(arg, expr)| (arg.name.clone(), expr.clone()))
-                    .collect::<BTreeMap<_, _>>();
-                let mut func_body = func.body.clone();
-                inline_lines(
-                    &mut func_body,
-                    &inlined_args,
-                    &ctx.const_arrays,
-                    targets,
-                    total_inlined_counter.next(),
-                );
-                inlined_lines.extend(func_body);
-                lines_out.extend(inlined_lines);
-            }
-            Line::Statement {
-                targets,
-                value,
-                location,
-            } => {
-                let (value, value_lines) =
-                    extract_inlined_calls_from_expr(value, inlined_functions, inlined_var_counter)?;
-                lines_out.extend(value_lines);
-                for target in targets {
-                    if let AssignmentTarget::Var { var, .. } = target
-                        && !ctx.defines(var)
-                    {
-                        ctx.add_var(var);
-                    }
-                }
-                lines_out.push(Line::Statement {
-                    targets: targets.clone(),
-                    value,
-                    location: *location,
-                });
-            }
-            Line::IfCondition {
-                condition,
-                then_branch,
-                else_branch,
-                location,
-            } => {
-                let (condition_new, condition_lines) =
-                    extract_inlined_calls_from_condition(condition, inlined_functions, inlined_var_counter)?;
-                lines_out.extend(condition_lines);
-                ctx.scopes.push(Scope::default());
-                let then_branch_out = handle_inlined_functions_helper(
-                    ctx,
-                    then_branch,
-                    inlined_functions,
-                    inlined_var_counter,
-                    total_inlined_counter,
-                )?;
-                ctx.scopes.pop();
-                ctx.scopes.push(Scope::default());
-                let else_branch_out = handle_inlined_functions_helper(
-                    ctx,
-                    else_branch,
-                    inlined_functions,
-                    inlined_var_counter,
-                    total_inlined_counter,
-                )?;
-                ctx.scopes.pop();
-                lines_out.push(Line::IfCondition {
-                    condition: condition_new,
-                    then_branch: then_branch_out,
-                    else_branch: else_branch_out,
-                    location: *location,
-                });
-            }
-            Line::Match { value, arms, location } => {
-                let mut arms_out: Vec<(usize, Vec<Line>)> = Vec::new();
-                for (i, arm) in arms {
-                    ctx.scopes.push(Scope::default());
-                    let arm_out = handle_inlined_functions_helper(
-                        ctx,
-                        arm,
-                        inlined_functions,
-                        inlined_var_counter,
-                        total_inlined_counter,
-                    )?;
-                    ctx.scopes.pop();
-                    arms_out.push((*i, arm_out));
-                }
-                lines_out.push(Line::Match {
-                    value: value.clone(),
-                    arms: arms_out,
-                    location: *location,
-                });
-            }
-            Line::ForwardDeclaration { var, .. } => {
-                lines_out.push(line.clone());
-                ctx.add_var(var);
-            }
-            Line::ForLoop {
-                iterator,
-                start,
-                end,
-                body,
-                unroll,
-                location,
-            } => {
-                // Handle inlining in the loop bounds
-                let (start, start_lines) =
-                    extract_inlined_calls_from_expr(start, inlined_functions, inlined_var_counter)?;
-                lines_out.extend(start_lines);
-                let (end, end_lines) = extract_inlined_calls_from_expr(end, inlined_functions, inlined_var_counter)?;
-                lines_out.extend(end_lines);
-
-                // Handle inlining in the loop body
-                ctx.scopes.push(Scope::default());
-                ctx.add_var(iterator);
-                let loop_body_out = handle_inlined_functions_helper(
-                    ctx,
-                    body,
-                    inlined_functions,
-                    inlined_var_counter,
-                    total_inlined_counter,
-                )?;
-                ctx.scopes.pop();
-
-                // Push modified loop
-                lines_out.push(Line::ForLoop {
-                    iterator: iterator.clone(),
-                    start,
-                    end,
-                    body: loop_body_out,
-                    unroll: *unroll,
-                    location: *location,
-                });
-            }
-            Line::Assert {
-                debug,
-                boolean,
-                location,
-            } => {
-                let (boolean, boolean_lines) =
-                    extract_inlined_calls_from_boolean_expr(boolean, inlined_functions, inlined_var_counter)?;
-                lines_out.extend(boolean_lines);
-                lines_out.push(Line::Assert {
-                    debug: *debug,
-                    boolean,
-                    location: *location,
-                });
-            }
-            Line::FunctionRet { return_data } => {
-                let mut new_return_data = vec![];
-                for expr in return_data {
-                    let (expr, expr_lines) =
-                        extract_inlined_calls_from_expr(expr, inlined_functions, inlined_var_counter)?;
-                    lines_out.extend(expr_lines);
-                    new_return_data.push(expr);
-                }
-                lines_out.push(Line::FunctionRet {
-                    return_data: new_return_data,
-                });
-            }
-            Line::VecDeclaration { var, .. } => {
-                // Handle inlining in vec elements (but vec elements are VecLiteral, not Expression)
-                // For now, just pass through - inlining function calls in vec elements would need
-                // special handling that we don't support yet
-                lines_out.push(line.clone());
-                ctx.add_var(var);
-            }
-            Line::Push { .. } => {
-                // Similar to VecDeclaration - pass through for now
-                lines_out.push(line.clone());
-            }
-        };
-    }
-    Ok(lines_out)
 }
 
 fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) {

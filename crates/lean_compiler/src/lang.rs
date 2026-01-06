@@ -266,24 +266,20 @@ impl Condition {
         }
     }
 
-    pub fn compile_time_eval(
-        &self,
-        const_arrays: &BTreeMap<String, ConstArrayValue>,
-        vector_len: &VectorLenTracker,
-    ) -> Option<bool> {
+    pub fn eval_with(&self, eval_expr: &impl Fn(&Expression) -> Option<usize>) -> Option<bool> {
         match self {
             Self::AssumeBoolean(expr) => {
-                let val = expr.compile_time_eval(const_arrays, vector_len)?;
-                Some(val.to_usize() != 0)
+                let val = eval_expr(expr)?;
+                Some(val != 0)
             }
             Self::Comparison(cmp) => {
-                let left = cmp.left.compile_time_eval(const_arrays, vector_len)?;
-                let right = cmp.right.compile_time_eval(const_arrays, vector_len)?;
+                let left = eval_expr(&cmp.left)?;
+                let right = eval_expr(&cmp.right)?;
                 Some(match cmp.kind {
                     Boolean::Equal => left == right,
                     Boolean::Different => left != right,
-                    Boolean::LessThan => left.to_usize() < right.to_usize(),
-                    Boolean::LessOrEqual => left.to_usize() <= right.to_usize(),
+                    Boolean::LessThan => left < right,
+                    Boolean::LessOrEqual => left <= right,
                 })
             }
         }
