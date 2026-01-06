@@ -101,8 +101,9 @@ pub fn run_end2end_recursion_benchmark() {
     let mut lookup_f_values_str = vec![];
     let mut lookup_ef_indexes_str = vec![];
     let mut lookup_ef_values_str = vec![];
-    let mut num_cols_f = vec![];
-    let mut num_cols_ef = vec![];
+    let mut num_cols_f_air = vec![];
+    let mut num_cols_ef_air = vec![];
+    let mut num_cols_f_committed = vec![];
     for table in ALL_TABLES {
         let this_look_f_indexes_str = table
             .lookups_f()
@@ -116,8 +117,9 @@ pub fn run_end2end_recursion_benchmark() {
             .collect::<Vec<_>>();
         lookup_f_indexes_str.push(format!("[{}]", this_look_f_indexes_str.join(", ")));
         lookup_ef_indexes_str.push(format!("[{}]", this_look_ef_indexes_str.join(", ")));
-        num_cols_f.push(table.n_columns_f_air().to_string());
-        num_cols_ef.push(table.n_columns_ef_air().to_string());
+        num_cols_f_air.push(table.n_columns_f_air().to_string());
+        num_cols_ef_air.push(table.n_columns_ef_air().to_string());
+        num_cols_f_committed.push(table.n_commited_columns_f().to_string());
         let this_lookup_f_values_str = table
             .lookups_f()
             .iter()
@@ -151,11 +153,15 @@ pub fn run_end2end_recursion_benchmark() {
     );
     replacements.insert(
         "NUM_COLS_F_AIR_PLACEHOLDER".to_string(),
-        format!("[{}]", num_cols_f.join(", ")),
+        format!("[{}]", num_cols_f_air.join(", ")),
     );
     replacements.insert(
         "NUM_COLS_EF_AIR_PLACEHOLDER".to_string(),
-        format!("[{}]", num_cols_ef.join(", ")),
+        format!("[{}]", num_cols_ef_air.join(", ")),
+    );
+    replacements.insert(
+        "NUM_COLS_F_COMMITED_PLACEHOLDER".to_string(),
+        format!("[{}]", num_cols_f_committed.join(", ")),
     );
     replacements.insert(
         "LOOKUPS_EF_INDEXES_PLACEHOLDER".to_string(),
