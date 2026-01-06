@@ -79,10 +79,14 @@ fn test_air_fibonacci() {
     )
     .unwrap();
 
+    let alpha = prover_state.sample();
+    prover_state.duplexing();
+    let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
+
     let (point_prover, evaluations_remaining_to_prove_f, evaluations_remaining_to_prove_ef) = prove_air(
         &mut prover_state,
         &air,
-        vec![],
+        air_alpha_powers,
         UNIVARIATE_SKIPS,
         &columns_ref_f,
         &columns_ref_ef,
@@ -93,10 +97,14 @@ fn test_air_fibonacci() {
     );
     let mut verifier_state = build_verifier_state(prover_state);
 
+    let alpha = verifier_state.sample();
+    verifier_state.duplexing();
+    let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
+
     let (point_verifier, evaluations_remaining_to_verify_f, evaluations_remaining_to_verify_ef) = verify_air(
         &mut verifier_state,
         &air,
-        vec![],
+        air_alpha_powers,
         UNIVARIATE_SKIPS,
         log_n_rows,
         &last_row_f,

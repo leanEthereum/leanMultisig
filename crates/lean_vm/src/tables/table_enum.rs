@@ -125,6 +125,10 @@ pub fn max_bus_width() -> usize {
     1 + ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap()
 }
 
+pub fn max_air_constraints() -> usize {
+    ALL_TABLES.iter().map(|table| table.n_constraints()).max().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

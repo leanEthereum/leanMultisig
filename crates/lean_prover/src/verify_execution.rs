@@ -69,6 +69,8 @@ pub fn verify_execution(
 
     let bus_beta = verifier_state.sample();
     verifier_state.duplexing();
+    let air_alpha = verifier_state.sample();
+    let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
 
     let (mut air_points, mut air_evals) = (BTreeMap::new(), BTreeMap::new());
     for (table, log_n_rows) in &table_n_vars {
@@ -79,6 +81,7 @@ pub fn verify_execution(
             logup_c,
             logup_alpha,
             bus_beta,
+            air_alpha_powers.clone(),
             &logup_statements.bus_points[table],
             logup_statements.bus_numerators_values[table],
             logup_statements.bus_denominators_values[table],
@@ -196,6 +199,7 @@ fn verify_bus_and_air(
     logup_c: EF,
     logup_alpha: EF,
     bus_beta: EF,
+    air_alpha_powers: Vec<EF>,
     bus_point: &MultilinearPoint<EF>,
     bus_numerator_value: EF,
     bus_denominator_value: EF,
@@ -215,7 +219,7 @@ fn verify_bus_and_air(
         logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha).powers().collect_n(max_bus_width()),
         bus_beta,
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
-        alpha_powers: vec![], // filled later
+        alpha_powers: air_alpha_powers,
     };
 
     let (air_point, mut evals_f, evals_ef) = {

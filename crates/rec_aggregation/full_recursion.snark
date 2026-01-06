@@ -7,6 +7,7 @@ const MIN_LOG_MEMORY_SIZE = MIN_LOG_MEMORY_SIZE_PLACEHOLDER;
 const MAX_LOG_MEMORY_SIZE = MAX_LOG_MEMORY_SIZE_PLACEHOLDER;
 const N_VARS_FIRST_GKR = N_VARS_FIRST_GKR_PLACEHOLDER;
 const MAX_BUS_WIDTH = MAX_BUS_WIDTH_PLACEHOLDER;
+const MAX_NUM_AIR_CONSTRAINTS = MAX_NUM_AIR_CONSTRAINTS_PLACEHOLDER;
 const MEMORY_TABLE_INDEX = MEMORY_TABLE_INDEX_PLACEHOLDER;
 const UNIVARIATE_SKIPS = UNIVARIATE_SKIPS_PLACEHOLDER;
 
@@ -182,6 +183,8 @@ fn main() {
     bus_beta = fs_sample_ef(fs);
     fs = duplexing(fs);
 
+    air_alpha = fs_sample_ef(fs);
+
     for table_index in 0..N_TABLES unroll {
         bus_numerator_value = bus_numerators_values[table_index];
         bus_denominator_value = bus_denominators_values[table_index];
@@ -192,7 +195,9 @@ fn main() {
         }
         bus_final_value = add_extension_ret(bus_final_value, mul_extension_ret(bus_beta, sub_extension_ret(bus_denominator_value, logup_c)));
 
-        print_ef(bus_final_value); // correct
+        print_ef(bus_final_value);
+
+        zerocheck_challenges = bus_points[table_index];
 
         return;
     }

@@ -175,6 +175,10 @@ pub fn run_end2end_recursion_benchmark() {
         "EXECUTION_TABLE_INDEX_PLACEHOLDER".to_string(),
         Table::execution().index().to_string(),
     );
+    replacements.insert(
+        "MAX_NUM_AIR_CONSTRAINTS_PLACEHOLDER".to_string(),
+        max_air_constraints().to_string(),
+    );
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;

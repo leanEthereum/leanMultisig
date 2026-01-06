@@ -8,7 +8,7 @@ use crate::utils::next_mle;
 pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     verifier_state: &mut impl FSVerifier<EF>,
     air: &A,
-    mut extra_data: A::ExtraData,
+    extra_data: A::ExtraData,
     univariate_skips: usize,
     log_n_rows: usize,
     last_row_f: &[PF<EF>],
@@ -18,13 +18,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
 where
     A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
 {
-    let alpha = verifier_state.sample(); // random challenge for batching constraints
-    verifier_state.duplexing();
-
-    *extra_data.alpha_powers_mut() = alpha
-        .powers()
-        .take(air.n_constraints() + virtual_column_statement.is_some() as usize)
-        .collect();
+    assert!(extra_data.alpha_powers().len() >= air.n_constraints() + virtual_column_statement.is_some() as usize);
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
     let zerocheck_challenges = virtual_column_statement

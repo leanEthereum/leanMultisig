@@ -16,7 +16,7 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     prover_state: &mut impl FSProver<EF>,
     air: &A,
-    mut extra_data: A::ExtraData,
+    extra_data: A::ExtraData,
     univariate_skips: usize,
     columns_f: &[impl AsRef<[PF<EF>]>],
     columns_ef: &[impl AsRef<[EF]>],
@@ -49,13 +49,7 @@ where
     // )
     // .unwrap();
 
-    let alpha = prover_state.sample(); // random challenge for batching constraints
-    prover_state.duplexing();
-
-    *extra_data.alpha_powers_mut() = alpha
-        .powers()
-        .take(air.n_constraints() + virtual_column_statement.is_some() as usize)
-        .collect();
+    assert!(extra_data.alpha_powers().len() >= air.n_constraints() + virtual_column_statement.is_some() as usize);
 
     let n_sc_rounds = log_n_rows + 1 - univariate_skips;
 
