@@ -2902,52 +2902,93 @@ fn process_vec_element_usage(
     }
 }
 
-fn inline_simple_expr(simple_expr: &mut SimpleExpr, args: &BTreeMap<Var, SimpleExpr>, inlining_count: usize) {
-    if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = simple_expr {
-        if let Some(replacement) = args.get(var) {
-            *simple_expr = replacement.clone();
-        } else {
-            *var = format!("@inlined_var_{inlining_count}_{var}");
+enum VarTransform {
+    ReplaceWithExpr(SimpleExpr),
+    Rename(String),
+    Keep,
+}
+
+impl VarTransform {
+    fn apply_to_var(self, var: &mut Var) {
+        match self {
+            VarTransform::ReplaceWithExpr(SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_var))) => {
+                *var = new_var;
+            }
+            VarTransform::ReplaceWithExpr(_) => {
+                panic!("Cannot replace variable with non-variable expression in this context");
+            }
+            VarTransform::Rename(new_name) => {
+                *var = new_name;
+            }
+            VarTransform::Keep => {}
         }
     }
 }
 
-fn inline_expr(
-    expr: &mut Expression,
-    args: &BTreeMap<Var, SimpleExpr>,
-    const_arrays: &BTreeMap<String, ConstArrayValue>,
-    inlining_count: usize,
-) {
+fn transform_vars_in_simple_expr(simple_expr: &mut SimpleExpr, transform: &impl Fn(&Var) -> VarTransform) {
+    if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = simple_expr {
+        match transform(var) {
+            VarTransform::ReplaceWithExpr(replacement) => {
+                *simple_expr = replacement;
+            }
+            VarTransform::Rename(new_name) => {
+                *var = new_name;
+            }
+            VarTransform::Keep => {}
+        }
+    }
+}
+
+fn transform_vars_in_expr(expr: &mut Expression, transform: &impl Fn(&Var) -> VarTransform) {
     match expr {
         Expression::Value(value) => {
-            inline_simple_expr(value, args, inlining_count);
+            transform_vars_in_simple_expr(value, transform);
         }
-        Expression::ArrayAccess { array, .. } => {
-            if let Some(replacement) = args.get(array) {
-                let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_array)) = replacement else {
-                    panic!("Cannot inline array access with non-variable array argument");
-                };
-                *array = new_array.clone();
-            } else if !const_arrays.contains_key(array) {
-                // Only rename non-const arrays (internal variables)
-                *array = format!("@inlined_var_{inlining_count}_{array}");
-            }
-            // If it's a const array, keep the name unchanged
+        Expression::ArrayAccess { array, .. } | Expression::Len { array, .. } => {
+            transform(array).apply_to_var(array);
         }
-        Expression::Len { array, .. } => {
-            if let Some(replacement) = args.get(array) {
-                let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_array)) = replacement else {
-                    panic!("Cannot inline len with non-variable array argument");
-                };
-                *array = new_array.clone();
-            } else if !const_arrays.contains_key(array) {
-                *array = format!("@inlined_var_{inlining_count}_{array}");
-            }
-        }
-        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => { /* handled below */ }
+        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => {}
     }
     for inner_expr in expr.inner_exprs_mut() {
-        inline_expr(inner_expr, args, const_arrays, inlining_count);
+        transform_vars_in_expr(inner_expr, transform);
+    }
+}
+
+fn transform_vars_in_lines(lines: &mut [Line], transform: &impl Fn(&Var) -> VarTransform) {
+    for line in lines {
+        for expr in line.expressions_mut() {
+            transform_vars_in_expr(expr, transform);
+        }
+        for block in line.nested_blocks_mut() {
+            transform_vars_in_lines(block, transform);
+        }
+        match line {
+            Line::ForwardDeclaration { var, .. } => {
+                transform(var).apply_to_var(var);
+            }
+            Line::Statement { targets, .. } => {
+                for target in targets {
+                    match target {
+                        AssignmentTarget::Var { var, .. } => {
+                            transform(var).apply_to_var(var);
+                        }
+                        AssignmentTarget::ArrayAccess { array, .. } => {
+                            transform(array).apply_to_var(array);
+                        }
+                    }
+                }
+            }
+            Line::ForLoop { iterator, .. } => {
+                transform(iterator).apply_to_var(iterator);
+            }
+            Line::VecDeclaration { var, .. } => {
+                transform(var).apply_to_var(var);
+            }
+            Line::Push { vector, .. } => {
+                transform(vector).apply_to_var(vector);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -2958,85 +2999,47 @@ fn inline_lines(
     res: &[AssignmentTarget],
     inlining_count: usize,
 ) {
-    let inline_internal_var = |var: &mut Var| {
+    let transform = |var: &Var| -> VarTransform {
         if let Some(replacement) = args.get(var) {
-            // Variable is a mutable argument - replace with the caller's variable
-            let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_var)) = replacement else {
-                panic!("Cannot inline mutable argument re-assignment with non-variable argument");
-            };
-            *var = new_var.clone();
+            VarTransform::ReplaceWithExpr(replacement.clone())
+        } else if const_arrays.contains_key(var) {
+            VarTransform::Keep
         } else {
-            // Internal variable - rename with inlining prefix
-            *var = format!("@inlined_var_{inlining_count}_{var}");
+            VarTransform::Rename(format!("@inlined_var_{inlining_count}_{var}"))
         }
     };
 
-    let mut lines_to_replace = vec![];
-    for (i, line) in lines.iter_mut().enumerate() {
-        for expr in line.expressions_mut() {
-            inline_expr(expr, args, const_arrays, inlining_count);
-        }
+    transform_vars_in_lines(lines, &transform);
+    replace_function_ret_in_lines(lines, res);
+}
 
+fn replace_function_ret_in_lines(lines: &mut Vec<Line>, res: &[AssignmentTarget]) {
+    // First recurse into nested blocks
+    for line in lines.iter_mut() {
         for block in line.nested_blocks_mut() {
-            inline_lines(block, args, const_arrays, res, inlining_count);
+            replace_function_ret_in_lines(block, res);
         }
+    }
 
-        match line {
-            Line::ForwardDeclaration { var, .. } => {
-                inline_internal_var(var);
-            }
-            Line::Statement { targets, .. } => {
-                for target in targets {
-                    match target {
-                        AssignmentTarget::Var { var, .. } => {
-                            inline_internal_var(var);
-                        }
-                        AssignmentTarget::ArrayAccess { array, .. } => {
-                            if let Some(replacement) = args.get(array) {
-                                // Array is a function argument - replace with the argument's var name
-                                let SimpleExpr::Memory(VarOrConstMallocAccess::Var(new_array)) = replacement else {
-                                    panic!("Cannot inline array access target with non-variable array argument");
-                                };
-                                *array = new_array.clone();
-                            } else if !const_arrays.contains_key(array) {
-                                // Internal variable - rename with inlining prefix (but not const arrays)
-                                *array = format!("@inlined_var_{inlining_count}_{array}");
-                            }
-                        }
-                    }
-                }
-            }
-            Line::FunctionRet { return_data } => {
-                assert_eq!(return_data.len(), res.len());
-                lines_to_replace.push((
-                    i,
-                    res.iter()
-                        .zip(return_data.iter())
-                        .map(|(target, expr)| Line::Statement {
-                            targets: vec![target.clone()],
-                            value: expr.clone(),
-                            location: SourceLocation {
-                                file_id: 0,
-                                line_number: 0,
-                            }, // TODO
-                        })
-                        .collect::<Vec<_>>(),
-                ));
-            }
-            Line::ForLoop { iterator, .. } => {
-                inline_internal_var(iterator);
-            }
-            Line::VecDeclaration { var, .. } => {
-                inline_internal_var(var);
-            }
-            Line::Push { vector, .. } => {
-                inline_internal_var(vector);
-            }
-            Line::Match { .. }
-            | Line::IfCondition { .. }
-            | Line::Assert { .. }
-            | Line::Panic
-            | Line::LocationReport { .. } => {}
+    // Then handle FunctionRet → Statement conversion at this level
+    let mut lines_to_replace = vec![];
+    for (i, line) in lines.iter().enumerate() {
+        if let Line::FunctionRet { return_data } = line {
+            assert_eq!(return_data.len(), res.len());
+            lines_to_replace.push((
+                i,
+                res.iter()
+                    .zip(return_data.iter())
+                    .map(|(target, expr)| Line::Statement {
+                        targets: vec![target.clone()],
+                        value: expr.clone(),
+                        location: SourceLocation {
+                            file_id: 0,
+                            line_number: 0,
+                        }, // TODO
+                    })
+                    .collect::<Vec<_>>(),
+            ));
         }
     }
     for (i, new_lines) in lines_to_replace.into_iter().rev() {
@@ -3188,37 +3191,6 @@ fn create_recursive_function(
     }
 }
 
-fn replace_vars_for_unroll_in_expr(
-    expr: &mut Expression,
-    iterator: &Var,
-    unroll_index: usize,
-    iterator_value: usize,
-    internal_vars: &BTreeSet<Var>,
-) {
-    match expr {
-        Expression::Value(value_expr) => match value_expr {
-            SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) => {
-                if var == iterator {
-                    *value_expr = SimpleExpr::Constant(ConstExpression::from(iterator_value));
-                } else if internal_vars.contains(var) {
-                    *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-                }
-            }
-            SimpleExpr::Constant(_) | SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) => {}
-        },
-        Expression::ArrayAccess { array, .. } => {
-            assert!(array != iterator, "Weird");
-            if internal_vars.contains(array) {
-                *array = format!("@unrolled_{unroll_index}_{iterator_value}_{array}");
-            }
-        }
-        _ => {}
-    }
-    for inner_expr in expr.inner_exprs_mut() {
-        replace_vars_for_unroll_in_expr(inner_expr, iterator, unroll_index, iterator_value, internal_vars);
-    }
-}
-
 fn replace_vars_for_unroll(
     lines: &mut [Line],
     iterator: &Var,
@@ -3226,106 +3198,17 @@ fn replace_vars_for_unroll(
     iterator_value: usize,
     internal_vars: &BTreeSet<Var>,
 ) {
-    for line in lines {
-        for expr in line.expressions_mut() {
-            replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
+    let transform = |var: &Var| -> VarTransform {
+        if var == iterator {
+            VarTransform::ReplaceWithExpr(SimpleExpr::Constant(ConstExpression::from(iterator_value)))
+        } else if internal_vars.contains(var) {
+            VarTransform::Rename(format!("@unrolled_{unroll_index}_{iterator_value}_{var}"))
+        } else {
+            VarTransform::Keep
         }
-        for block in line.nested_blocks_mut() {
-            replace_vars_for_unroll(block, iterator, unroll_index, iterator_value, internal_vars);
-        }
-        match line {
-            Line::ForwardDeclaration { var, .. } => {
-                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-            }
-            Line::Statement { targets, .. } => {
-                for target in targets {
-                    match target {
-                        AssignmentTarget::Var { var, .. } => {
-                            assert!(var != iterator, "Weird");
-                            // Only rename internal variables - external (mutable) vars keep their name
-                            if internal_vars.contains(var) {
-                                *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-                            }
-                        }
-                        AssignmentTarget::ArrayAccess { array, .. } => {
-                            assert!(array != iterator, "Weird");
-                            if internal_vars.contains(array) {
-                                *array = format!("@unrolled_{unroll_index}_{iterator_value}_{array}");
-                            }
-                        }
-                    }
-                }
-            }
-            Line::ForLoop {
-                iterator: other_iterator,
-                ..
-            } => {
-                assert!(other_iterator != iterator);
-                *other_iterator = format!("@unrolled_{unroll_index}_{iterator_value}_{other_iterator}");
-            }
-            Line::VecDeclaration { var, elements, .. } => {
-                // Replace iterator in expressions inside vec elements
-                replace_vars_for_unroll_in_vec_elements(
-                    elements,
-                    iterator,
-                    unroll_index,
-                    iterator_value,
-                    internal_vars,
-                );
-                // Rename the vector variable if internal
-                if internal_vars.contains(var) {
-                    *var = format!("@unrolled_{unroll_index}_{iterator_value}_{var}");
-                }
-            }
-            Line::Push {
-                vector,
-                indices,
-                element,
-                ..
-            } => {
-                // Replace iterator in the index expressions
-                for idx in indices {
-                    replace_vars_for_unroll_in_expr(idx, iterator, unroll_index, iterator_value, internal_vars);
-                }
-                // Replace iterator in the pushed element's expression
-                replace_vars_for_unroll_in_vec_element(element, iterator, unroll_index, iterator_value, internal_vars);
-                // Rename the vector variable if internal
-                if internal_vars.contains(vector) {
-                    *vector = format!("@unrolled_{unroll_index}_{iterator_value}_{vector}");
-                }
-            }
-            _ => {}
-        }
-    }
-}
+    };
 
-fn replace_vars_for_unroll_in_vec_elements(
-    elements: &mut [VecLiteral],
-    iterator: &Var,
-    unroll_index: usize,
-    iterator_value: usize,
-    internal_vars: &BTreeSet<Var>,
-) {
-    for elem in elements {
-        replace_vars_for_unroll_in_vec_element(elem, iterator, unroll_index, iterator_value, internal_vars);
-    }
-}
-
-fn replace_vars_for_unroll_in_vec_element(
-    elem: &mut VecLiteral,
-    iterator: &Var,
-    unroll_index: usize,
-    iterator_value: usize,
-    internal_vars: &BTreeSet<Var>,
-) {
-    match elem {
-        VecLiteral::Expr(expr) => {
-            replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
-        }
-        VecLiteral::Vec(inner) => {
-            replace_vars_for_unroll_in_vec_elements(inner, iterator, unroll_index, iterator_value, internal_vars);
-        }
-    }
+    transform_vars_in_lines(lines, &transform);
 }
 
 fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) {
