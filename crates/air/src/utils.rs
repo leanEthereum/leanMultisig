@@ -11,7 +11,7 @@ use multilinear_toolkit::prelude::*;
 /// ...      ...   ...
 /// (0 0 0 0 ... 0 1 0)
 /// (0 0 0 0 ... 0 0 1)
-/// (0 0 0 0 ... 0 0 0)
+/// (0 0 0 0 ... 0 0 1)
 ///
 /// # Arguments
 /// - `point`: A slice of 2n field elements representing two n-bit vectors concatenated.
@@ -71,12 +71,13 @@ pub(crate) fn next_mle<F: Field>(point: &[F]) -> F {
             eq_high_bits * carry_bit * low_bits_are_one_zero
         })
         // Sum over all carry positions: any valid "k" gives contribution 1.
-        .sum()
+        .sum::<F>()
+        + point.iter().copied().product::<F>()
 }
 
-pub(crate) fn column_shifted<F: Field>(column: &[F], final_value: F) -> Vec<F> {
+pub(crate) fn column_shifted<F: Field>(column: &[F]) -> Vec<F> {
     let mut down = unsafe { uninitialized_vec(column.len()) };
     parallel_clone(&column[1..], &mut down[..column.len() - 1]);
-    down[column.len() - 1] = final_value;
+    down[column.len() - 1] = column[column.len() - 1];
     down
 }

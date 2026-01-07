@@ -11,8 +11,6 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     extra_data: A::ExtraData,
     univariate_skips: usize,
     log_n_rows: usize,
-    last_row_f: &[PF<EF>],
-    last_row_ef: &[EF],
     virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError>
 where
@@ -80,8 +78,6 @@ where
         &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
         &outer_selector_evals,
         log_n_rows,
-        last_row_f,
-        last_row_ef,
     )
 }
 
@@ -94,31 +90,16 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     univariate_skips: usize,
     columns_with_shift_f: &[usize],
     columns_with_shift_ef: &[usize],
-    mut evals_up_and_down: Vec<EF>,
+    evals_up_and_down: Vec<EF>,
     outer_sumcheck_challenge: &Evaluation<EF>,
     outer_selector_evals: &[EF],
     log_n_rows: usize,
-    last_row_f: &[PF<EF>],
-    last_row_ef: &[EF],
 ) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError> {
     let n_columns = n_columns_f + n_columns_ef;
-    assert_eq!(
-        n_columns + last_row_f.len() + last_row_ef.len(),
-        evals_up_and_down.len()
-    );
-    let last_row_selector = outer_selector_evals[(1 << univariate_skips) - 1]
-        * outer_sumcheck_challenge.point.iter().copied().product::<EF>();
-    for (&last_row_value, down_col_eval) in last_row_f.iter().zip(&mut evals_up_and_down[n_columns..]) {
-        *down_col_eval -= last_row_selector * last_row_value;
-    }
-    for (&last_row_value, down_col_eval) in last_row_ef
-        .iter()
-        .zip(&mut evals_up_and_down[n_columns + last_row_f.len()..])
-    {
-        *down_col_eval -= last_row_selector * last_row_value;
-    }
 
-    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns + last_row_f.len() + last_row_ef.len()));
+    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(
+        n_columns + columns_with_shift_f.len() + columns_with_shift_ef.len(),
+    ));
 
     let eval_eq_batching_scalars = eval_eq(&batching_scalars);
     let batching_scalars_up = &eval_eq_batching_scalars[..n_columns];

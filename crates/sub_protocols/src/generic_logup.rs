@@ -307,8 +307,7 @@ pub fn verify_generic_logup(
 
     let total_n_vars = compute_total_n_vars(log_memory, &tables_heights_sorted.iter().cloned().collect());
 
-    let (sum, point_gkr, numerators_value, denominators_value) =
-        verify_gkr_quotient(verifier_state, total_n_vars)?;
+    let (sum, point_gkr, numerators_value, denominators_value) = verify_gkr_quotient(verifier_state, total_n_vars)?;
 
     if sum != EF::ZERO {
         return Err(ProofError::InvalidProof);
@@ -322,8 +321,8 @@ pub fn verify_generic_logup(
     // Memory ...
     let memory_acc_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
     let bits = to_big_endian_in_field::<EF>(0, total_n_vars - log_memory);
-    let pref = MultilinearPoint(bits)
-        .eq_poly_outside(&MultilinearPoint(point_gkr[..total_n_vars - log_memory].to_vec()));
+    let pref =
+        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..total_n_vars - log_memory].to_vec()));
 
     let value_acc = verifier_state.next_extension_scalar()?;
     retrieved_numerators_value -= pref * value_acc;

@@ -81,8 +81,10 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         let alpha = prover_state.sample();
         prover_state.duplexing();
         let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
-        let mut extra_data = ExtraDataForBuses::default();
-        extra_data.alpha_powers = air_alpha_powers;
+        let extra_data = ExtraDataForBuses {
+            alpha_powers: air_alpha_powers,
+            ..Default::default()
+        };
 
         let (prover_point, prover_evals, _) = prove_air::<EF, _>(
             &mut prover_state,
@@ -91,8 +93,6 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             UNIVARIATE_SKIPS,
             &collect_refs(&trace),
             &[] as &[&[EF]],
-            &[],
-            &[],
             None,
             true,
         );
@@ -123,16 +123,16 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         let alpha = verifier_state.sample();
         verifier_state.duplexing();
         let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
-        let mut extra_data = ExtraDataForBuses::default();
-        extra_data.alpha_powers = air_alpha_powers;
+        let extra_data = ExtraDataForBuses {
+            alpha_powers: air_alpha_powers,
+            ..Default::default()
+        };
         let (verifier_point, verifier_evals, _) = verify_air(
             &mut verifier_state,
             &air,
             extra_data,
             UNIVARIATE_SKIPS,
             log2_ceil_usize(n_rows),
-            &[],
-            &[],
             None,
         )
         .unwrap();

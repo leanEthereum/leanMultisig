@@ -204,7 +204,6 @@ fn verify_bus_and_air(
     bus_numerator_value: EF,
     bus_denominator_value: EF,
 ) -> ProofResult<(MultilinearPoint<EF>, Vec<EF>)> {
-
     let bus_final_value = bus_numerator_value
         * match table.bus().direction {
             BusDirection::Pull => EF::NEG_ONE,
@@ -231,8 +230,6 @@ fn verify_bus_and_air(
                     extra_data,
                     UNIVARIATE_SKIPS,
                     log_n_nrows,
-                    &table.air_padding_row_f(),
-                    &table.air_padding_row_ef(),
                     Some(bus_virtual_statement),
                 )?
             };

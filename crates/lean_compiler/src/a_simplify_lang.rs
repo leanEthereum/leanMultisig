@@ -439,9 +439,7 @@ fn compile_time_transform_in_program(
             )?;
             // Add new specialized functions - they'll be processed in the next iteration of this loop
             for (name, new_func) in new_functions {
-                if !program.functions.contains_key(&name) {
-                    program.functions.insert(name, new_func);
-                }
+                program.functions.entry(name).or_insert(new_func);
             }
         }
     }
@@ -482,59 +480,56 @@ fn compile_time_transform_in_lines(
                     lines.splice(i..=i, inlined);
                     continue;
                 }
-                // Specialize functions with const arguments
                 if let Expression::FunctionCall {
                     function_name, args, ..
                 } = value
+                    && let Some(func) = existing_functions.get(function_name.as_str())
+                    && func.has_const_arguments()
                 {
-                    if let Some(func) = existing_functions.get(function_name.as_str())
-                        && func.has_const_arguments()
-                    {
-                        let mut const_evals = Vec::new();
-                        for (arg_expr, arg) in args.iter().zip(&func.arguments) {
-                            if arg.is_const {
-                                if let Some(const_eval) = arg_expr.as_scalar() {
-                                    const_evals.push((arg.name.clone(), F::from_usize(const_eval)));
-                                } else {
-                                    return Err(format!(
-                                        "Cannot evaluate const argument '{}' for function '{}'",
-                                        arg.name, function_name
-                                    ));
-                                }
+                    let mut const_evals = Vec::new();
+                    for (arg_expr, arg) in args.iter().zip(&func.arguments) {
+                        if arg.is_const {
+                            if let Some(const_eval) = arg_expr.as_scalar() {
+                                const_evals.push((arg.name.clone(), F::from_usize(const_eval)));
+                            } else {
+                                return Err(format!(
+                                    "Cannot evaluate const argument '{}' for function '{}'",
+                                    arg.name, function_name
+                                ));
                             }
                         }
-                        let const_funct_name = format!(
-                            "{function_name}_{}",
-                            const_evals
-                                .iter()
-                                .map(|(v, c)| format!("{v}={c}"))
-                                .collect::<Vec<_>>()
-                                .join("_")
-                        );
-                        *function_name = const_funct_name.clone();
-                        *args = args
+                    }
+                    let const_funct_name = format!(
+                        "{function_name}_{}",
+                        const_evals
                             .iter()
-                            .zip(&func.arguments)
-                            .filter(|(_, arg)| !arg.is_const)
-                            .map(|(e, _)| e.clone())
-                            .collect();
-                        if !new_functions.contains_key(&const_funct_name)
-                            && !existing_functions.contains_key(&const_funct_name)
-                        {
-                            let mut new_body = func.body.clone();
-                            replace_vars_by_const_in_lines(&mut new_body, &const_evals.iter().cloned().collect());
-                            new_functions.insert(
-                                const_funct_name.clone(),
-                                Function {
-                                    name: const_funct_name,
-                                    arguments: func.arguments.iter().filter(|a| !a.is_const).cloned().collect(),
-                                    inlined: false,
-                                    body: new_body,
-                                    n_returned_vars: func.n_returned_vars,
-                                    assume_always_returns: func.assume_always_returns,
-                                },
-                            );
-                        }
+                            .map(|(v, c)| format!("{v}={c}"))
+                            .collect::<Vec<_>>()
+                            .join("_")
+                    );
+                    *function_name = const_funct_name.clone();
+                    *args = args
+                        .iter()
+                        .zip(&func.arguments)
+                        .filter(|(_, arg)| !arg.is_const)
+                        .map(|(e, _)| e.clone())
+                        .collect();
+                    if !new_functions.contains_key(&const_funct_name)
+                        && !existing_functions.contains_key(&const_funct_name)
+                    {
+                        let mut new_body = func.body.clone();
+                        replace_vars_by_const_in_lines(&mut new_body, &const_evals.iter().cloned().collect());
+                        new_functions.insert(
+                            const_funct_name.clone(),
+                            Function {
+                                name: const_funct_name,
+                                arguments: func.arguments.iter().filter(|a| !a.is_const).cloned().collect(),
+                                inlined: false,
+                                body: new_body,
+                                n_returned_vars: func.n_returned_vars,
+                                assume_always_returns: func.assume_always_returns,
+                            },
+                        );
                     }
                 }
                 if targets.len() == 1
@@ -718,30 +713,29 @@ fn extract_inlined_calls(
             args,
             location,
         } = expr
+            && let Some(func) = funcs.get(function_name)
         {
-            if let Some(func) = funcs.get(function_name) {
-                if func.n_returned_vars != 1 {
-                    return Err(format!(
-                        "Inlined function '{}' with {} return values cannot appear in expression",
-                        function_name, func.n_returned_vars
-                    ));
-                }
-                let tmp = format!("@inline_tmp_{}", counter.next());
-                out.push(Line::ForwardDeclaration { var: tmp.clone() });
-                out.push(Line::Statement {
-                    targets: vec![AssignmentTarget::Var {
-                        var: tmp.clone(),
-                        is_mutable: false,
-                    }],
-                    value: Expression::FunctionCall {
-                        function_name: function_name.clone(),
-                        args: args.clone(),
-                        location: *location,
-                    },
-                    location: *location,
-                });
-                *expr = Expression::var(tmp);
+            if func.n_returned_vars != 1 {
+                return Err(format!(
+                    "Inlined function '{}' with {} return values cannot appear in expression",
+                    function_name, func.n_returned_vars
+                ));
             }
+            let tmp = format!("@inline_tmp_{}", counter.next());
+            out.push(Line::ForwardDeclaration { var: tmp.clone() });
+            out.push(Line::Statement {
+                targets: vec![AssignmentTarget::Var {
+                    var: tmp.clone(),
+                    is_mutable: false,
+                }],
+                value: Expression::FunctionCall {
+                    function_name: function_name.clone(),
+                    args: args.clone(),
+                    location: *location,
+                },
+                location: *location,
+            });
+            *expr = Expression::var(tmp);
         }
         Ok(())
     }

@@ -122,7 +122,7 @@ fn padd_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
         .enumerate()
         .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, table.name()));
 
-    trace.log_n_rows = log2_ceil_usize(h).max(MIN_LOG_N_ROWS_PER_TABLE);
+    trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
     let padding_len = (1 << trace.log_n_rows) - h;
     let padding_row_f = table.padding_row_f();
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {

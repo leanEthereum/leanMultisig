@@ -252,7 +252,6 @@ fn prove_bus_and_air(
     bus_numerator_value: EF,
     bus_denominator_value: EF,
 ) -> (MultilinearPoint<EF>, Vec<EF>) {
-
     let bus_final_value = bus_numerator_value
         * match table.bus().direction {
             BusDirection::Pull => EF::NEG_ONE,
@@ -267,7 +266,7 @@ fn prove_bus_and_air(
         logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha).powers().collect_n(max_bus_width()),
         bus_beta,
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
-        alpha_powers: air_alpha_powers
+        alpha_powers: air_alpha_powers,
     };
 
     let (air_point, mut evals_f, evals_ef) = info_span!("AIR proof", table = table.name()).in_scope(|| {
@@ -280,8 +279,6 @@ fn prove_bus_and_air(
                     UNIVARIATE_SKIPS,
                     &trace.base[..$t.n_columns_f_air()],
                     &trace.ext[..$t.n_columns_ef_air()],
-                    &$t.air_padding_row_f(),
-                    &$t.air_padding_row_ef(),
                     Some(bus_virtual_statement),
                     $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
                 )

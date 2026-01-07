@@ -20,8 +20,6 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     univariate_skips: usize,
     columns_f: &[impl AsRef<[PF<EF>]>],
     columns_ef: &[impl AsRef<[EF]>],
-    last_row_shifted_f: &[PF<EF>],
-    last_row_shifted_ef: &[EF],
     virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
     store_intermediate_foldings: bool,
 ) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>)
@@ -62,14 +60,12 @@ where
     let shifted_rows_f = air
         .down_column_indexes_f()
         .par_iter()
-        .zip_eq(last_row_shifted_f)
-        .map(|(&col_index, &final_value)| column_shifted(columns_f[col_index], final_value.as_base().unwrap()))
+        .map(|&col_index| column_shifted(columns_f[col_index]))
         .collect::<Vec<_>>();
     let shifted_rows_ef = air
         .down_column_indexes_ef()
         .par_iter()
-        .zip_eq(last_row_shifted_ef)
-        .map(|(&col_index, &final_value)| column_shifted(columns_ef[col_index], final_value))
+        .map(|&col_index| column_shifted(columns_ef[col_index]))
         .collect::<Vec<_>>();
 
     let mut columns_up_down_f = columns_f.to_vec(); // orginal columns, followed by shifted ones
@@ -178,7 +174,7 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
             &MultilinearPoint(outer_sumcheck_challenge[1..].to_vec()),
         );
         let sub_evals_down = fold_multilinear_chunks(
-            &column_shifted(&batched_column_down, EF::ZERO),
+            &column_shifted(&batched_column_down),
             &MultilinearPoint(outer_sumcheck_challenge[1..].to_vec()),
         );
         sub_evals_up

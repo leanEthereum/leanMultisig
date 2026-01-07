@@ -146,20 +146,6 @@ pub trait TableT: Air {
         self.n_columns_ef_air()
     }
 
-    fn air_padding_row_f(&self) -> Vec<F> {
-        // only the shited_columns
-        self.down_column_indexes_f()
-            .into_iter()
-            .map(|i| self.padding_row_f()[i])
-            .collect()
-    }
-    fn air_padding_row_ef(&self) -> Vec<EF> {
-        // only the shited_columns
-        self.down_column_indexes_ef()
-            .into_iter()
-            .map(|i| self.padding_row_ef()[i])
-            .collect()
-    }
     fn is_execution_table(&self) -> bool {
         false
     }
