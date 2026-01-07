@@ -122,14 +122,13 @@ fn whir_recursion(transcript_start) {
     return;
 }
 
-fn sumcheck_verify(fs_state, n_steps, claimed_sum, const degree) -> 3 {
+fn sumcheck_verify(mut fs, n_steps, claimed_sum, const degree) -> 3 {
     challenges = malloc(n_steps * DIM);
-    new_state, new_claimed_sum = sumcheck_verify_helper(fs_state, n_steps, claimed_sum, degree, challenges);
-    return new_state, challenges, new_claimed_sum;
+    fs, new_claimed_sum = sumcheck_verify_helper(fs, n_steps, claimed_sum, degree, challenges);
+    return fs, challenges, new_claimed_sum;
 }
 
-fn sumcheck_verify_helper(fs_state, n_steps, claimed_sum, const degree, challenges) -> 2 {
-    mut fs = fs_state;
+fn sumcheck_verify_helper(mut fs, n_steps, claimed_sum, const degree, challenges) -> 2 {
     mut current_claimed_sum = claimed_sum;
 
     for sc_round in 0..n_steps {

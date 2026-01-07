@@ -22,6 +22,7 @@ const NUM_COLS_EF_AIR = NUM_COLS_EF_AIR_PLACEHOLDER;
 const NUM_COLS_F_COMMITED = NUM_COLS_F_COMMITED_PLACEHOLDER;
 
 const EXECUTION_TABLE_INDEX = EXECUTION_TABLE_INDEX_PLACEHOLDER;
+const AIR_DEGREES = AIR_DEGREES_PLACEHOLDER; // [_; N_TABLES]
 
 
 fn main() {
@@ -166,8 +167,10 @@ fn main() {
     fs = duplexing(fs);
 
     air_alpha = fs_sample_ef(fs);
+    air_alpha_powers = powers_const(air_alpha, MAX_NUM_AIR_CONSTRAINTS + 1);
 
     for table_index in 0..N_TABLES unroll {
+        log_n_rows = table_dims[table_index];
         bus_numerator_value = bus_numerators_values[table_index];
         bus_denominator_value = bus_denominators_values[table_index];
         
@@ -177,9 +180,9 @@ fn main() {
         }
         bus_final_value = add_extension_ret(bus_final_value, mul_extension_ret(bus_beta, sub_extension_ret(bus_denominator_value, logup_c)));
 
-        print_ef(bus_final_value);
-
         zerocheck_challenges = logup_points[table_index];
+
+        fs, outer_point, outer_eval = sumcheck_verify(fs, log_n_rows, bus_final_value, AIR_DEGREES[table_index] + 1);
 
         return;
     }

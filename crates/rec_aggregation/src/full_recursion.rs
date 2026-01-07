@@ -103,6 +103,7 @@ pub fn run_end2end_recursion_benchmark() {
     let mut num_cols_f_air = vec![];
     let mut num_cols_ef_air = vec![];
     let mut num_cols_f_committed = vec![];
+    let mut air_degrees = vec![];
     for table in ALL_TABLES {
         let this_look_f_indexes_str = table
             .lookups_f()
@@ -141,6 +142,7 @@ pub fn run_end2end_recursion_benchmark() {
             .collect::<Vec<_>>();
         lookup_f_values_str.push(format!("[{}]", this_lookup_f_values_str.join(", ")));
         lookup_ef_values_str.push(format!("[{}]", this_lookup_ef_values_str.join(", ")));
+        air_degrees.push(table.degree_air().to_string());
     }
     replacements.insert(
         "LOOKUPS_F_INDEXES_PLACEHOLDER".to_string(),
@@ -177,6 +179,10 @@ pub fn run_end2end_recursion_benchmark() {
     replacements.insert(
         "MAX_NUM_AIR_CONSTRAINTS_PLACEHOLDER".to_string(),
         max_air_constraints().to_string(),
+    );
+    replacements.insert(
+        "AIR_DEGREES_PLACEHOLDER".to_string(),
+        format!("[{}]", air_degrees.join(", ")),
     );
 
     let public_input = vec![];
