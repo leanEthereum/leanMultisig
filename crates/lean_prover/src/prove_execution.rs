@@ -94,21 +94,13 @@ pub fn prove_execution(
     let logup_alpha = prover_state.sample();
     prover_state.duplexing();
 
-    let logup_statements = prove_generic_logup(
-        &mut prover_state,
-        logup_c,
-        logup_alpha,
-        &memory,
-        &acc,
-        &traces,
-        UNIVARIATE_SKIPS,
-    );
+    let logup_statements = prove_generic_logup(&mut prover_state, logup_c, logup_alpha, &memory, &acc, &traces);
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
         committed_statements.insert(
             table,
             vec![(
-                logup_statements.columns_points[&table].clone(),
+                logup_statements.points[&table].clone(),
                 logup_statements.columns_values[&table].clone(),
             )],
         );
@@ -128,7 +120,7 @@ pub fn prove_execution(
             logup_alpha,
             bus_beta,
             air_alpha_powers.clone(),
-            &logup_statements.bus_points[table],
+            &logup_statements.points[table],
             logup_statements.bus_numerators_values[table],
             logup_statements.bus_denominators_values[table],
         );
@@ -237,6 +229,7 @@ pub fn prove_execution(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 fn prove_bus_and_air(
     prover_state: &mut impl FSProver<EF>,
     table: &Table,
@@ -273,7 +266,7 @@ fn prove_bus_and_air(
                     prover_state,
                     $t,
                     extra_data,
-                    UNIVARIATE_SKIPS,
+                    1,
                     &trace.base[..$t.n_columns_f_air()],
                     &trace.ext[..$t.n_columns_ef_air()],
                     Some(bus_virtual_statement),
@@ -336,9 +329,9 @@ fn prove_bus_and_air(
                 .collect::<Vec<_>>();
             assert_eq!(dot_product_with_base(&transposed), value); // sanity check
             prover_state.add_extension_scalars(&transposed);
-            for j in 0..DIMENSION {
+            for (j, v) in transposed.iter().enumerate() {
                 let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-                down_evals.insert(virtual_index, transposed[j]);
+                down_evals.insert(virtual_index, *v);
             }
         }
         res.push((down_point, down_evals));

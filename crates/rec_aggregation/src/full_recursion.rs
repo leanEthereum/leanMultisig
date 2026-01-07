@@ -96,7 +96,6 @@ pub fn run_end2end_recursion_benchmark() {
         "MEMORY_TABLE_INDEX_PLACEHOLDER".to_string(),
         MEMORY_TABLE_INDEX.to_string(),
     );
-    replacements.insert("UNIVARIATE_SKIPS_PLACEHOLDER".to_string(), UNIVARIATE_SKIPS.to_string());
     let mut lookup_f_indexes_str = vec![];
     let mut lookup_f_values_str = vec![];
     let mut lookup_ef_indexes_str = vec![];

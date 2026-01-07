@@ -310,7 +310,7 @@ fn open_columns_no_skip<EF: ExtensionField<PF<EF>>>(
             });
     }
 
-    let matrix_down = matrix_next_mle_folded(&outer_sumcheck_challenge);
+    let matrix_down = matrix_next_mle_folded(outer_sumcheck_challenge);
     let inner_mle = info_span!("packing").in_scope(|| {
         MleGroupOwned::ExtensionPacked(vec![pack_extension(&matrix_down), pack_extension(&batched_column_down)])
     });

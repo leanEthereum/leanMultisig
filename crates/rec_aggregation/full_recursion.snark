@@ -9,7 +9,6 @@ const N_VARS_FIRST_GKR = N_VARS_FIRST_GKR_PLACEHOLDER;
 const MAX_BUS_WIDTH = MAX_BUS_WIDTH_PLACEHOLDER;
 const MAX_NUM_AIR_CONSTRAINTS = MAX_NUM_AIR_CONSTRAINTS_PLACEHOLDER;
 const MEMORY_TABLE_INDEX = MEMORY_TABLE_INDEX_PLACEHOLDER;
-const UNIVARIATE_SKIPS = UNIVARIATE_SKIPS_PLACEHOLDER;
 
 const LOOKUPS_F_INDEXES = LOOKUPS_F_INDEXES_PLACEHOLDER; // [[_; ?]; N_TABLES]
 const LOOKUPS_F_VALUES = LOOKUPS_F_VALUES_PLACEHOLDER; // [[[_; ?]; ?]; N_TABLES]
@@ -72,10 +71,9 @@ fn main() {
     mut retrieved_denominators_value = mul_extension_ret(memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory));
 
     mut offset = powers_of_two(log_memory);
-    bus_points = vec![];
     bus_numerators_values = vec![];
     bus_denominators_values = vec![];
-    columns_points = vec![];
+    logup_points = vec![];
     columns_values = vec![];
     for table_index in 0..N_TABLES unroll {
         // I] Bus (data flow between tables)
@@ -83,35 +81,19 @@ fn main() {
         log_n_rows = table_dims[table_index];
         n_rows = powers_of_two(log_n_rows);
         inner_point = point_gkr + (N_VARS_FIRST_GKR - log_n_rows) * DIM;
-        columns_points.push(inner_point);
-        inner_inner_point = inner_point + DIM * UNIVARIATE_SKIPS;
+        logup_points.push(inner_point);
 
         prefix = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr);
-        poly_eq_missing_inner_point = poly_eq_extension(inner_point, UNIVARIATE_SKIPS);
 
-        fs, evals_on_selector = fs_receive_ef(fs, 2**UNIVARIATE_SKIPS);
-        evals_on_selector_ml_eval = dot_product_ret(evals_on_selector, poly_eq_missing_inner_point, 2**UNIVARIATE_SKIPS, EE);
-        retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, mul_extension_ret(prefix, evals_on_selector_ml_eval));
+        fs, eval_on_selector = fs_receive_ef(fs, 1);
+        retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, mul_extension_ret(prefix, eval_on_selector));
 
-        fs, evals_on_data = fs_receive_ef(fs, 2**UNIVARIATE_SKIPS);
-        evals_on_data_ml_eval = dot_product_ret(evals_on_data, poly_eq_missing_inner_point, 2**UNIVARIATE_SKIPS, EE);
-        retrieved_denominators_value = add_extension_ret(retrieved_denominators_value, mul_extension_ret(prefix, evals_on_data_ml_eval));
+        fs, eval_on_data = fs_receive_ef(fs, 1);
+        retrieved_denominators_value = add_extension_ret(retrieved_denominators_value, mul_extension_ret(prefix, eval_on_data));
 
-        gamma = fs_sample_ef(fs);
-        fs = duplexing(fs);
+        bus_numerators_values.push(eval_on_selector);
 
-        bus_point = malloc((log_n_rows - UNIVARIATE_SKIPS + 1) * DIM);
-        copy_5(gamma, bus_point);
-        copy_many_ef(inner_inner_point, bus_point + DIM, log_n_rows - UNIVARIATE_SKIPS);
-        bus_points.push(bus_point);
-
-        unvariate_selectors_evals = eval_all_univariate_selectors(gamma);
-
-        univariate_value_on_selectors = dot_product_ret(evals_on_selector, unvariate_selectors_evals, 2**UNIVARIATE_SKIPS, EE);
-        bus_numerators_values.push(univariate_value_on_selectors);
-
-        univariate_value_on_data = dot_product_ret(evals_on_data, unvariate_selectors_evals, 2**UNIVARIATE_SKIPS, EE);
-        bus_denominators_values.push(univariate_value_on_data);
+        bus_denominators_values.push(eval_on_data);
 
         offset += n_rows;
         
@@ -197,23 +179,12 @@ fn main() {
 
         print_ef(bus_final_value);
 
-        zerocheck_challenges = bus_points[table_index];
+        zerocheck_challenges = logup_points[table_index];
 
         return;
     }
 
     return;
-}
-
-
-fn eval_all_univariate_selectors(a) -> 1 {
-    a_powers = powers_const(a, 2**UNIVARIATE_SKIPS);
-    res = malloc(DIM * 2**UNIVARIATE_SKIPS);
-    for i in 0..2**UNIVARIATE_SKIPS unroll {
-        selector_poly = pointer_to_univariate_selectors + i * 2**UNIVARIATE_SKIPS;
-        dot_product(selector_poly, a_powers, res + i * DIM, 2**UNIVARIATE_SKIPS, BE);
-    }
-    return res;
 }
 
 fn multilinear_location_prefix(offset, n_vars, point) -> 1 {

@@ -58,20 +58,13 @@ pub fn verify_execution(
     let logup_alpha = verifier_state.sample();
     verifier_state.duplexing();
 
-    let logup_statements = verify_generic_logup(
-        &mut verifier_state,
-        logup_c,
-        logup_alpha,
-        log_memory,
-        &table_n_vars,
-        UNIVARIATE_SKIPS,
-    )?;
+    let logup_statements = verify_generic_logup(&mut verifier_state, logup_c, logup_alpha, log_memory, &table_n_vars)?;
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
         committed_statements.insert(
             table,
             vec![(
-                logup_statements.columns_points[&table].clone(),
+                logup_statements.points[&table].clone(),
                 logup_statements.columns_values[&table].clone(),
             )],
         );
@@ -91,7 +84,7 @@ pub fn verify_execution(
             logup_alpha,
             bus_beta,
             air_alpha_powers.clone(),
-            &logup_statements.bus_points[table],
+            &logup_statements.points[table],
             logup_statements.bus_numerators_values[table],
             logup_statements.bus_denominators_values[table],
         )?;
@@ -189,6 +182,7 @@ pub fn verify_execution(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 fn verify_bus_and_air(
     verifier_state: &mut impl FSVerifier<EF>,
     table: &Table,
@@ -225,7 +219,7 @@ fn verify_bus_and_air(
                     verifier_state,
                     $t,
                     extra_data,
-                    UNIVARIATE_SKIPS,
+                    1,
                     log_n_nrows,
                     Some(bus_virtual_statement),
                 )?
@@ -256,7 +250,10 @@ fn verify_bus_and_air(
     let mut res = vec![(air_claims.point.clone(), evals)];
 
     if let Some(down_point) = air_claims.down_point {
-        assert_eq!(air_claims.evals_f_on_down_columns.len(), table.down_column_indexes_f().len());
+        assert_eq!(
+            air_claims.evals_f_on_down_columns.len(),
+            table.down_column_indexes_f().len()
+        );
         let mut down_evals = BTreeMap::new();
         for (value_f, col_index) in air_claims
             .evals_f_on_down_columns
@@ -279,9 +276,9 @@ fn verify_bus_and_air(
             if dot_product_with_base(&transposed) != value {
                 return Err(ProofError::InvalidProof);
             }
-            for j in 0..DIMENSION {
+            for (j, v) in transposed.iter().enumerate() {
                 let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-                down_evals.insert(virtual_index, transposed[j]);
+                down_evals.insert(virtual_index, *v);
             }
         }
         res.push((down_point, down_evals));

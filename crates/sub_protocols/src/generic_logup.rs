@@ -26,10 +26,9 @@ pub struct GenericLogupStatements {
     pub memory_acc_point: MultilinearPoint<EF>,
     pub value_memory: EF,
     pub value_acc: EF,
-    pub bus_points: BTreeMap<Table, MultilinearPoint<EF>>,
     pub bus_numerators_values: BTreeMap<Table, EF>,
     pub bus_denominators_values: BTreeMap<Table, EF>,
-    pub columns_points: BTreeMap<Table, MultilinearPoint<EF>>,
+    pub points: BTreeMap<Table, MultilinearPoint<EF>>,
     pub columns_values: BTreeMap<Table, BTreeMap<ColIndex, EF>>,
     // Used in recursion
     pub total_n_vars: usize,
@@ -43,7 +42,6 @@ pub fn prove_generic_logup(
     memory: &[F],
     acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
-    univariate_skips: usize,
 ) -> GenericLogupStatements {
     assert!(memory[0].is_zero());
     assert!(memory.len().is_power_of_two());
@@ -186,10 +184,9 @@ pub fn prove_generic_logup(
     prover_state.add_extension_scalar(value_memory);
 
     // ... Rest of the tables:
-    let mut bus_points = BTreeMap::new();
+    let mut points = BTreeMap::new();
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
-    let mut columns_points = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
     let mut offset = memory.len();
     for (table, _) in &tables_heights_sorted {
@@ -197,47 +194,19 @@ pub fn prove_generic_logup(
         let log_n_rows = trace.log_n_rows;
 
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
-        columns_points.insert(*table, inner_point.clone());
+        points.insert(*table, inner_point.clone());
 
         // I] Bus (data flow between tables)
 
-        let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
-        let evals_on_selector = trace.base[table.bus().selector]
-            .par_chunks_exact(1 << (log_n_rows - univariate_skips))
-            .map(|chunk| chunk.evaluate(&inner_inner_point) * table.bus().direction.to_field_flag())
-            .collect::<Vec<EF>>();
-        prover_state.add_extension_scalars(&evals_on_selector);
+        let eval_on_selector =
+            trace.base[table.bus().selector].evaluate(&inner_point) * table.bus().direction.to_field_flag();
+        prover_state.add_extension_scalar(eval_on_selector);
 
-        let eval_on_data = denominators[offset..][..1 << log_n_rows]
-            .par_chunks_exact(1 << (log_n_rows - univariate_skips))
-            .map(|chunk| chunk.evaluate(&inner_inner_point))
-            .collect::<Vec<EF>>();
-        prover_state.add_extension_scalars(&eval_on_data);
+        let eval_on_data = (&denominators[offset..][..1 << log_n_rows]).evaluate(&inner_point);
+        prover_state.add_extension_scalar(eval_on_data);
 
-        let gamma = prover_state.sample();
-        prover_state.duplexing();
-
-        let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
-            .iter()
-            .map(|p| p.evaluate(gamma))
-            .collect::<Vec<EF>>();
-
-        bus_points.insert(*table, {
-            let mut point = inner_inner_point.clone();
-            point.insert(0, gamma);
-            point
-        });
-        bus_numerators_values.insert(
-            *table,
-            dot_product(
-                unvariate_selectors_evals.iter().copied(),
-                evals_on_selector.iter().copied(),
-            ),
-        );
-        bus_denominators_values.insert(
-            *table,
-            dot_product(unvariate_selectors_evals.iter().copied(), eval_on_data.iter().copied()),
-        );
+        bus_numerators_values.insert(*table, eval_on_selector);
+        bus_denominators_values.insert(*table, eval_on_data);
 
         // II] Lookup into memory
 
@@ -275,7 +244,7 @@ pub fn prove_generic_logup(
                 table_values.insert(global_index, value_eval);
             }
         }
-        columns_points.insert(*table, inner_point);
+        points.insert(*table, inner_point);
         columns_values.insert(*table, table_values);
 
         offset += offset_for_table(table, log_n_rows);
@@ -285,10 +254,9 @@ pub fn prove_generic_logup(
         memory_acc_point,
         value_memory,
         value_acc,
-        bus_points,
         bus_numerators_values,
         bus_denominators_values,
-        columns_points,
+        points,
         columns_values,
         total_n_vars,
     }
@@ -301,7 +269,6 @@ pub fn verify_generic_logup(
     alpha: EF,
     log_memory: usize,
     table_log_n_rows: &BTreeMap<Table, VarCount>,
-    univariate_skips: usize,
 ) -> ProofResult<GenericLogupStatements> {
     let tables_heights_sorted = sort_tables_by_height(table_log_n_rows);
 
@@ -337,56 +304,31 @@ pub fn verify_generic_logup(
         ));
 
     // ... Rest of the tables:
-    let mut bus_points = BTreeMap::new();
+    let mut points = BTreeMap::new();
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
-    let mut columns_points = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
     let mut offset = 1 << log_memory;
     for &(table, log_n_rows) in &tables_heights_sorted {
         let n_missing_vars = total_n_vars - log_n_rows;
         let inner_point = MultilinearPoint(from_end(&point_gkr, log_n_rows).to_vec());
         let missing_point = MultilinearPoint(point_gkr[..n_missing_vars].to_vec());
-        let missing_inner_point = MultilinearPoint(inner_point[..univariate_skips].to_vec());
 
-        columns_points.insert(table, inner_point.clone());
+        points.insert(table, inner_point.clone());
 
         // I] Bus (data flow between tables)
 
-        let inner_inner_point = MultilinearPoint(inner_point[univariate_skips..].to_vec());
-        let evals_on_selector = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
+        let eval_on_selector = verifier_state.next_extension_scalar()?;
 
         let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
         let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
-        retrieved_numerators_value += pref * evals_on_selector.evaluate(&missing_inner_point);
+        retrieved_numerators_value += pref * eval_on_selector;
 
-        let eval_on_data = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
-        retrieved_denominators_value += pref * eval_on_data.evaluate(&missing_inner_point);
+        let eval_on_data = verifier_state.next_extension_scalar()?;
+        retrieved_denominators_value += pref * eval_on_data;
 
-        let gamma = verifier_state.sample();
-        verifier_state.duplexing();
-
-        let unvariate_selectors_evals = univariate_selectors::<PF<EF>>(univariate_skips)
-            .iter()
-            .map(|p| p.evaluate(gamma))
-            .collect::<Vec<EF>>();
-
-        bus_points.insert(table, {
-            let mut point = inner_inner_point.clone();
-            point.insert(0, gamma);
-            point
-        });
-        bus_numerators_values.insert(
-            table,
-            dot_product(
-                unvariate_selectors_evals.iter().copied(),
-                evals_on_selector.iter().copied(),
-            ),
-        );
-        bus_denominators_values.insert(
-            table,
-            dot_product(unvariate_selectors_evals.iter().copied(), eval_on_data.iter().copied()),
-        );
+        bus_numerators_values.insert(table, eval_on_selector);
+        bus_denominators_values.insert(table, eval_on_data);
 
         offset += 1 << log_n_rows;
 
@@ -454,10 +396,9 @@ pub fn verify_generic_logup(
         memory_acc_point,
         value_memory,
         value_acc,
-        bus_points,
         bus_numerators_values,
         bus_denominators_values,
-        columns_points,
+        points,
         columns_values,
         total_n_vars,
     })
