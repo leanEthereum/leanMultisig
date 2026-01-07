@@ -16,7 +16,7 @@ pub const STARTING_PC: usize = 1;
 pub const ENDING_PC: usize = 0;
 
 /// See section 5 of https://eprint.iacr.org/2024/108.pdf
-pub const UNIVARIATE_SKIPS: usize = 3;
+pub const UNIVARIATE_SKIPS: usize = 1;
 
 /// Memory layout:
 ///

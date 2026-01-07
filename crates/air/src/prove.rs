@@ -3,7 +3,7 @@ use p3_util::{log2_ceil_usize, log2_strict_usize};
 use tracing::{info_span, instrument};
 use utils::{fold_multilinear_chunks, multilinears_linear_combination};
 
-use crate::{uni_skip_utils::matrix_next_mle_folded, utils::column_shifted};
+use crate::{AirClaims, uni_skip_utils::matrix_next_mle_folded, utils::column_shifted};
 
 /*
 
@@ -22,7 +22,7 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     columns_ef: &[impl AsRef<[EF]>],
     virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
     store_intermediate_foldings: bool,
-) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>)
+) -> AirClaims<EF>
 where
     A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
 {
@@ -100,15 +100,27 @@ where
 
     prover_state.add_extension_scalars(&inner_sums);
 
-    open_columns(
-        prover_state,
-        univariate_skips,
-        &air.down_column_indexes_f(),
-        &air.down_column_indexes_ef(),
-        &columns_f,
-        &columns_ef,
-        &outer_sumcheck_challenge,
-    )
+    if univariate_skips == 1 {
+        open_columns_no_skip(
+            prover_state,
+            &inner_sums,
+            &air.down_column_indexes_f(),
+            &air.down_column_indexes_ef(),
+            &columns_f,
+            &columns_ef,
+            &outer_sumcheck_challenge,
+        )
+    } else {
+        open_columns(
+            prover_state,
+            univariate_skips,
+            &air.down_column_indexes_f(),
+            &air.down_column_indexes_ef(),
+            &columns_f,
+            &columns_ef,
+            &outer_sumcheck_challenge,
+        )
+    }
 }
 
 #[instrument(skip_all)]
@@ -120,7 +132,7 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     columns_f: &[&[PF<EF>]],
     columns_ef: &[&[EF]],
     outer_sumcheck_challenge: &[EF],
-) -> (MultilinearPoint<EF>, Vec<EF>, Vec<EF>) {
+) -> AirClaims<EF> {
     let n_up_down_columns =
         columns_f.len() + columns_ef.len() + columns_with_shift_f.len() + columns_with_shift_ef.len();
     let batching_scalars = prover_state.sample_vec(log2_ceil_usize(n_up_down_columns));
@@ -234,11 +246,118 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     prover_state.add_extension_scalars(&evaluations_remaining_to_prove_f);
     prover_state.add_extension_scalars(&evaluations_remaining_to_prove_ef);
 
-    (
-        inner_challenges,
-        evaluations_remaining_to_prove_f,
-        evaluations_remaining_to_prove_ef,
-    )
+    AirClaims {
+        point: inner_challenges,
+        evals_f: evaluations_remaining_to_prove_f,
+        evals_ef: evaluations_remaining_to_prove_ef,
+        down_point: None,
+        evals_f_on_down_columns: vec![],
+        evals_ef_on_down_columns: vec![],
+    }
+}
+
+#[instrument(skip_all)]
+fn open_columns_no_skip<EF: ExtensionField<PF<EF>>>(
+    prover_state: &mut impl FSProver<EF>,
+    inner_evals: &[EF],
+    columns_with_shift_f: &[usize],
+    columns_with_shift_ef: &[usize],
+    columns_f: &[&[PF<EF>]],
+    columns_ef: &[&[EF]],
+    outer_sumcheck_challenge: &[EF],
+) -> AirClaims<EF> {
+    let n_columns_f_up = columns_f.len();
+    let n_columns_ef_up = columns_ef.len();
+    let n_columns_f_down = columns_with_shift_f.len();
+    let n_columns_ef_down = columns_with_shift_ef.len();
+    let n_down_columns = n_columns_f_down + n_columns_ef_down;
+    assert_eq!(inner_evals.len(), n_columns_f_up + n_columns_ef_up + n_down_columns);
+
+    let evals_up_f = inner_evals[..n_columns_f_up].to_vec();
+    let evals_down_f = &inner_evals[n_columns_f_up..][..n_columns_f_down];
+    let evals_up_ef = inner_evals[n_columns_f_up + n_columns_f_down..][..n_columns_ef_up].to_vec();
+    let evals_down_ef = &inner_evals[n_columns_f_up + n_columns_f_down + n_columns_ef_up..];
+
+    if n_down_columns == 0 {
+        return AirClaims {
+            point: MultilinearPoint(outer_sumcheck_challenge.to_vec()),
+            evals_f: evals_up_f,
+            evals_ef: evals_up_ef,
+            down_point: None,
+            evals_f_on_down_columns: vec![],
+            evals_ef_on_down_columns: vec![],
+        };
+    }
+
+    let batching_scalars = prover_state.sample_vec(log2_ceil_usize(n_down_columns));
+
+    let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_down_columns].to_vec();
+
+    let columns_shifted_f = &columns_with_shift_f.iter().map(|&i| columns_f[i]).collect::<Vec<_>>();
+    let columns_shifted_ef = &columns_with_shift_ef.iter().map(|&i| columns_ef[i]).collect::<Vec<_>>();
+
+    let mut batched_column_down =
+        multilinears_linear_combination(columns_shifted_f, &eval_eq_batching_scalars[..n_columns_f_down]);
+
+    if n_columns_ef_down > 0 {
+        let batched_column_down_ef =
+            multilinears_linear_combination(columns_shifted_ef, &eval_eq_batching_scalars[n_columns_f_down..]);
+        batched_column_down
+            .par_iter_mut()
+            .zip(&batched_column_down_ef)
+            .for_each(|(a, &b)| {
+                *a += b;
+            });
+    }
+
+    let matrix_down = matrix_next_mle_folded(&outer_sumcheck_challenge);
+    let inner_mle = info_span!("packing").in_scope(|| {
+        MleGroupOwned::ExtensionPacked(vec![pack_extension(&matrix_down), pack_extension(&batched_column_down)])
+    });
+
+    let inner_sum = dot_product(
+        evals_down_f.iter().chain(evals_down_ef).copied(),
+        eval_eq_batching_scalars.iter().copied(),
+    );
+
+    let (inner_challenges, _, _) = info_span!("structured columns sumcheck").in_scope(|| {
+        sumcheck_prove::<EF, _, _>(
+            1,
+            inner_mle,
+            None,
+            &ProductComputation {},
+            &vec![],
+            None,
+            false,
+            prover_state,
+            inner_sum,
+            false,
+        )
+    });
+
+    let (evals_f_on_down_columns, evals_ef_on_down_columns) = info_span!("final evals").in_scope(|| {
+        (
+            columns_shifted_f
+                .par_iter()
+                .map(|col| col.evaluate(&inner_challenges))
+                .collect::<Vec<_>>(),
+            columns_shifted_ef
+                .par_iter()
+                .map(|col| col.evaluate(&inner_challenges))
+                .collect::<Vec<_>>(),
+        )
+    });
+    prover_state.add_extension_scalars(&evals_f_on_down_columns);
+    prover_state.add_extension_scalars(&evals_ef_on_down_columns);
+
+    AirClaims {
+        point: MultilinearPoint(outer_sumcheck_challenge.to_vec()),
+        evals_f: evals_up_f,
+        evals_ef: evals_up_ef,
+        down_point: Some(inner_challenges),
+        evals_f_on_down_columns,
+        evals_ef_on_down_columns,
+    }
 }
 
 struct MySumcheck;

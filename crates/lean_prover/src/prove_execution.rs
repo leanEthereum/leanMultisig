@@ -103,15 +103,24 @@ pub fn prove_execution(
         &traces,
         UNIVARIATE_SKIPS,
     );
+    let mut committed_statements: CommittedStatements = Default::default();
+    for table in ALL_TABLES {
+        committed_statements.insert(
+            table,
+            vec![(
+                logup_statements.columns_points[&table].clone(),
+                logup_statements.columns_values[&table].clone(),
+            )],
+        );
+    }
 
     let bus_beta = prover_state.sample();
     prover_state.duplexing();
     let air_alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
 
-    let (mut air_points, mut air_evals) = (BTreeMap::new(), BTreeMap::new());
     for (table, trace) in traces.iter() {
-        let (this_air_point, this_air_evals) = prove_bus_and_air(
+        let this_air_claims = prove_bus_and_air(
             &mut prover_state,
             table,
             trace,
@@ -123,8 +132,7 @@ pub fn prove_execution(
             logup_statements.bus_numerators_values[table],
             logup_statements.bus_denominators_values[table],
         );
-        air_points.insert(*table, this_air_point);
-        air_evals.insert(*table, this_air_evals);
+        committed_statements.get_mut(table).unwrap().extend(this_air_claims);
     }
 
     let bytecode_compression_challenges =
@@ -132,14 +140,18 @@ pub fn prove_execution(
 
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
 
+    let bytecode_air_entry = &mut committed_statements.get_mut(&Table::execution()).unwrap()[1];
+    let bytecode_air_point = bytecode_air_entry.0.clone();
+    let mut bytecode_air_values = vec![];
+    for bytecode_col_index in N_COMMITTED_EXEC_COLUMNS..N_COMMITTED_EXEC_COLUMNS + N_INSTRUCTION_COLUMNS {
+        bytecode_air_values.push(bytecode_air_entry.1.remove(&bytecode_col_index).unwrap());
+    }
+
     let bytecode_lookup_claim = Evaluation::new(
-        air_points[&Table::execution()].clone(),
-        padd_with_zero_to_next_power_of_two(
-            &air_evals[&Table::execution()][N_COMMITTED_EXEC_COLUMNS..][..N_INSTRUCTION_COLUMNS],
-        )
-        .evaluate(&bytecode_compression_challenges),
+        bytecode_air_point.clone(),
+        padd_with_zero_to_next_power_of_two(&bytecode_air_values).evaluate(&bytecode_compression_challenges),
     );
-    let bytecode_poly_eq_point = eval_eq(&air_points[&Table::execution()]);
+    let bytecode_poly_eq_point = eval_eq(&bytecode_lookup_claim.point);
     let bytecode_pushforward = MleOwned::Extension(compute_pushforward(
         &traces[&Table::execution()].base[COL_INDEX_PC],
         folded_bytecode.len(),
@@ -159,21 +171,6 @@ pub fn prove_execution(
         &bytecode_pushforward.by_ref(),
         Some(bytecode.instructions.len()),
     );
-
-    let mut committed_statements: CommittedStatements = Default::default();
-    for table in ALL_TABLES {
-        let table_statements = vec![
-            (
-                air_points[&table].clone(),
-                table.commited_air_values(&air_evals[&table]),
-            ),
-            (
-                logup_statements.columns_points[&table].clone(),
-                logup_statements.columns_values[&table].clone(),
-            ),
-        ];
-        committed_statements.insert(table, table_statements);
-    }
 
     committed_statements.get_mut(&Table::execution()).unwrap().push((
         bytecode_logup_star_statements.on_indexes.point.clone(),
@@ -251,7 +248,7 @@ fn prove_bus_and_air(
     bus_point: &MultilinearPoint<EF>,
     bus_numerator_value: EF,
     bus_denominator_value: EF,
-) -> (MultilinearPoint<EF>, Vec<EF>) {
+) -> Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>)> {
     let bus_final_value = bus_numerator_value
         * match table.bus().direction {
             BusDirection::Pull => EF::NEG_ONE,
@@ -269,7 +266,7 @@ fn prove_bus_and_air(
         alpha_powers: air_alpha_powers,
     };
 
-    let (air_point, mut evals_f, evals_ef) = info_span!("AIR proof", table = table.name()).in_scope(|| {
+    let air_claims = info_span!("AIR proof", table = table.name()).in_scope(|| {
         macro_rules! prove_air_for_table {
             ($t:expr) => {
                 prove_air(
@@ -287,19 +284,65 @@ fn prove_bus_and_air(
         delegate_to_inner!(table => prove_air_for_table)
     });
 
-    assert_eq!(evals_f.len(), table.n_columns_f_air());
-    assert_eq!(evals_ef.len(), table.n_columns_ef_air());
-    for (value, col) in evals_ef.into_iter().zip(&trace.ext) {
+    assert_eq!(air_claims.evals_f.len(), table.n_columns_f_air());
+    assert_eq!(air_claims.evals_ef.len(), table.n_columns_ef_air());
+    let mut evals = air_claims
+        .evals_f
+        .iter()
+        .copied()
+        .enumerate()
+        .collect::<BTreeMap<_, _>>();
+    for (col_index, (value, col)) in air_claims.evals_ef.into_iter().zip(&trace.ext).enumerate() {
         let transposed = transpose_slice_to_basis_coefficients::<F, EF>(col)
             .iter()
-            .map(|base_col| base_col.evaluate(&air_point))
+            .map(|base_col| base_col.evaluate(&air_claims.point))
             .collect::<Vec<_>>();
         prover_state.add_extension_scalars(&transposed);
-        if dot_product_with_base(&transposed) != value {
-            panic!(); // sanity check
+        assert_eq!(dot_product_with_base(&transposed), value); // sanity check
+        for (j, v) in transposed.into_iter().enumerate() {
+            let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
+            evals.insert(virtual_index, v);
         }
-        evals_f.extend(transposed);
     }
 
-    (air_point, evals_f)
+    let mut res = vec![(air_claims.point.clone(), evals)];
+
+    if let Some(down_point) = air_claims.down_point {
+        assert_eq!(
+            air_claims.evals_f_on_down_columns.len(),
+            table.down_column_indexes_f().len()
+        );
+        let mut down_evals = BTreeMap::new();
+        for (value_f, col_index) in air_claims
+            .evals_f_on_down_columns
+            .iter()
+            .zip(table.down_column_indexes_f())
+        {
+            down_evals.insert(col_index, *value_f);
+        }
+
+        assert_eq!(
+            air_claims.evals_ef_on_down_columns.len(),
+            table.down_column_indexes_ef().len()
+        );
+        for (col_index, value) in table
+            .down_column_indexes_ef()
+            .into_iter()
+            .zip(air_claims.evals_ef_on_down_columns)
+        {
+            let transposed = transpose_slice_to_basis_coefficients::<F, EF>(&trace.ext[col_index])
+                .iter()
+                .map(|base_col| base_col.evaluate(&down_point))
+                .collect::<Vec<_>>();
+            assert_eq!(dot_product_with_base(&transposed), value); // sanity check
+            prover_state.add_extension_scalars(&transposed);
+            for j in 0..DIMENSION {
+                let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
+                down_evals.insert(virtual_index, transposed[j]);
+            }
+        }
+        res.push((down_point, down_evals));
+    }
+
+    res
 }

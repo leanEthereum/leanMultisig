@@ -1,7 +1,7 @@
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
 
-use crate::utils::next_mle;
+use crate::{AirClaims, utils::next_mle};
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -12,7 +12,7 @@ pub fn verify_air<EF: ExtensionField<PF<EF>>, A: Air>(
     univariate_skips: usize,
     log_n_rows: usize,
     virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
-) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError>
+) -> ProofResult<AirClaims<EF>>
 where
     A::ExtraData: AlphaPowersMut<EF> + AlphaPowers<EF>,
 {
@@ -41,15 +41,15 @@ where
         .map(|s| s.evaluate(outer_statement.point[0]))
         .collect::<Vec<_>>();
 
-    let mut inner_sums = verifier_state.next_extension_scalars_vec(
+    let mut inner_evals = verifier_state.next_extension_scalars_vec(
         air.n_columns_air() + air.down_column_indexes_f().len() + air.down_column_indexes_ef().len(),
     )?;
 
     let n_columns_down_f = air.down_column_indexes_f().len();
     let constraint_evals = SumcheckComputation::eval_extension(
         air,
-        &inner_sums[..air.n_columns_f_air() + n_columns_down_f],
-        &inner_sums[air.n_columns_f_air() + n_columns_down_f..],
+        &inner_evals[..air.n_columns_f_air() + n_columns_down_f],
+        &inner_evals[air.n_columns_f_air() + n_columns_down_f..],
         &extra_data,
     );
 
@@ -59,26 +59,30 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    inner_sums = [
-        inner_sums[..air.n_columns_f_air()].to_vec(),
-        inner_sums[air.n_columns_f_air() + n_columns_down_f..][..air.n_columns_ef_air()].to_vec(),
-        inner_sums[air.n_columns_f_air()..][..n_columns_down_f].to_vec(),
-        inner_sums[air.n_columns_f_air() + n_columns_down_f + air.n_columns_ef_air()..].to_vec(),
+    inner_evals = [
+        inner_evals[..air.n_columns_f_air()].to_vec(),
+        inner_evals[air.n_columns_f_air() + n_columns_down_f..][..air.n_columns_ef_air()].to_vec(),
+        inner_evals[air.n_columns_f_air()..][..n_columns_down_f].to_vec(),
+        inner_evals[air.n_columns_f_air() + n_columns_down_f + air.n_columns_ef_air()..].to_vec(),
     ]
     .concat();
 
-    open_columns(
-        verifier_state,
-        air.n_columns_f_air(),
-        air.n_columns_ef_air(),
-        univariate_skips,
-        &air.down_column_indexes_f(),
-        &air.down_column_indexes_ef(),
-        inner_sums,
-        &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
-        &outer_selector_evals,
-        log_n_rows,
-    )
+    if univariate_skips == 1 {
+        open_columns_no_skip(verifier_state, air, log_n_rows, &inner_evals, &outer_statement.point)
+    } else {
+        open_columns(
+            verifier_state,
+            air.n_columns_f_air(),
+            air.n_columns_ef_air(),
+            univariate_skips,
+            &air.down_column_indexes_f(),
+            &air.down_column_indexes_ef(),
+            inner_evals,
+            &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
+            &outer_selector_evals,
+            log_n_rows,
+        )
+    }
 }
 
 #[allow(clippy::too_many_arguments)] // TODO
@@ -90,11 +94,11 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     univariate_skips: usize,
     columns_with_shift_f: &[usize],
     columns_with_shift_ef: &[usize],
-    evals_up_and_down: Vec<EF>,
+    inner_evals: Vec<EF>,
     outer_sumcheck_challenge: &Evaluation<EF>,
     outer_selector_evals: &[EF],
     log_n_rows: usize,
-) -> Result<(MultilinearPoint<EF>, Vec<EF>, Vec<EF>), ProofError> {
+) -> ProofResult<AirClaims<EF>> {
     let n_columns = n_columns_f + n_columns_ef;
 
     let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(
@@ -108,10 +112,7 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     let sub_evals = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
 
     if dot_product::<EF, _, _>(sub_evals.iter().copied(), outer_selector_evals.iter().copied())
-        != dot_product::<EF, _, _>(
-            evals_up_and_down.iter().copied(),
-            eval_eq_batching_scalars.iter().copied(),
-        )
+        != dot_product::<EF, _, _>(inner_evals.iter().copied(), eval_eq_batching_scalars.iter().copied())
     {
         return Err(ProofError::InvalidProof);
     }
@@ -163,9 +164,84 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
     {
         return Err(ProofError::InvalidProof);
     }
-    Ok((
-        inner_sumcheck_stement.point.clone(),
-        evaluations_remaining_to_verify_f,
-        evaluations_remaining_to_verify_ef,
-    ))
+    Ok(AirClaims {
+        point: inner_sumcheck_stement.point.clone(),
+        evals_f: evaluations_remaining_to_verify_f,
+        evals_ef: evaluations_remaining_to_verify_ef,
+        down_point: None,
+        evals_f_on_down_columns: vec![],
+        evals_ef_on_down_columns: vec![],
+    })
+}
+
+fn open_columns_no_skip<A: Air, EF: ExtensionField<PF<EF>>>(
+    verifier_state: &mut impl FSVerifier<EF>,
+    air: &A,
+    log_n_rows: usize,
+    inner_evals: &[EF],
+    outer_sumcheck_challenge: &[EF],
+) -> ProofResult<AirClaims<EF>> {
+    let n_columns_f_up = air.n_columns_f_air();
+    let n_columns_ef_up = air.n_columns_ef_air();
+    let n_columns_f_down = air.down_column_indexes_f().len();
+    let n_columns_ef_down = air.down_column_indexes_ef().len();
+    let n_up_columns = n_columns_f_up + n_columns_ef_up;
+    let n_down_columns = n_columns_f_down + n_columns_ef_down;
+    assert_eq!(inner_evals.len(), n_columns_f_up + n_columns_ef_up + n_down_columns);
+
+    let evls_up = &inner_evals[..n_up_columns];
+    let evals_down = &inner_evals[n_up_columns..];
+    let evals_up_f = evls_up[..n_columns_f_up].to_vec();
+    let evals_up_ef = evls_up[n_columns_f_up..].to_vec();
+
+    if n_down_columns == 0 {
+        return Ok(AirClaims {
+            point: MultilinearPoint(outer_sumcheck_challenge.to_vec()),
+            evals_f: evals_up_f,
+            evals_ef: evals_up_ef,
+            down_point: None,
+            evals_f_on_down_columns: vec![],
+            evals_ef_on_down_columns: vec![],
+        });
+    }
+
+    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_down_columns));
+    let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_down_columns].to_vec();
+
+    let inner_sum: EF = dot_product(evals_down.iter().copied(), eval_eq_batching_scalars.iter().copied());
+
+    let (inner_sum_retrieved, inner_sumcheck_stement) = sumcheck_verify(verifier_state, log_n_rows, 2)?;
+
+    if inner_sum != inner_sum_retrieved {
+        return Err(ProofError::InvalidProof);
+    }
+
+    let matrix_down_sc_eval = next_mle(
+        &[
+            outer_sumcheck_challenge.to_vec(),
+            inner_sumcheck_stement.point.0.clone(),
+        ]
+        .concat(),
+    );
+
+    let evals_f_on_down_columns = verifier_state.next_extension_scalars_vec(n_columns_f_down)?;
+    let evals_ef_on_down_columns = verifier_state.next_extension_scalars_vec(n_columns_ef_down)?;
+    let evaluations_remaining_to_verify = [evals_f_on_down_columns.clone(), evals_ef_on_down_columns.clone()].concat();
+    let batched_col_down_sc_eval = dot_product::<EF, _, _>(
+        eval_eq_batching_scalars.iter().copied(),
+        evaluations_remaining_to_verify.iter().copied(),
+    );
+
+    if inner_sumcheck_stement.value != matrix_down_sc_eval * batched_col_down_sc_eval {
+        return Err(ProofError::InvalidProof);
+    }
+
+    Ok(AirClaims {
+        point: MultilinearPoint(outer_sumcheck_challenge.to_vec()),
+        evals_f: evals_up_f,
+        evals_ef: evals_up_ef,
+        down_point: Some(inner_sumcheck_stement.point.clone()),
+        evals_f_on_down_columns,
+        evals_ef_on_down_columns,
+    })
 }
