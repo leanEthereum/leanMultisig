@@ -456,7 +456,7 @@ fn compile_time_transform_in_lines(
     inline_counter: &mut Counter,
 ) -> Result<(), String> {
     let mut vector_len_tracker = VectorLenTracker::default();
-    let mut const_var_exprs: BTreeMap<Var, F> = BTreeMap::new();
+    let mut const_var_exprs: BTreeMap<Var, F> = BTreeMap::new(); // used to simplify expressions containing variables with known constant values
 
     let mut i = 0;
     while i < lines.len() {
@@ -776,13 +776,13 @@ fn compile_time_transform_in_expr(
     if expr.is_scalar() {
         return false;
     }
-    if let Some(scalar) = expr.compile_time_eval(const_arrays, vector_len_tracker) {
-        *expr = Expression::scalar(scalar.to_usize());
-        return true;
-    }
     let mut changed = false;
     for inner_expr in expr.inner_exprs_mut() {
         changed |= compile_time_transform_in_expr(inner_expr, const_arrays, vector_len_tracker);
+    }
+    if let Some(scalar) = expr.compile_time_eval(const_arrays, vector_len_tracker) {
+        *expr = Expression::scalar(scalar.to_usize());
+        changed = true;
     }
     changed
 }

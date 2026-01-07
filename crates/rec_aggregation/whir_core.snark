@@ -128,19 +128,17 @@ fn sumcheck_verify(mut fs, n_steps, claimed_sum, const degree) -> 3 {
     return fs, challenges, new_claimed_sum;
 }
 
-fn sumcheck_verify_helper(mut fs, n_steps, claimed_sum, const degree, challenges) -> 2 {
-    mut current_claimed_sum = claimed_sum;
-
+fn sumcheck_verify_helper(mut fs, n_steps, mut claimed_sum, const degree, challenges) -> 2 {
     for sc_round in 0..n_steps {
         fs, poly = fs_receive_ef(fs, degree + 1);
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree);
-        copy_5(sum_over_boolean_hypercube, current_claimed_sum);
+        copy_5(sum_over_boolean_hypercube, claimed_sum);
         rand = fs_sample_ef(fs);
-        current_claimed_sum = univariate_polynomial_eval(poly, rand, degree);
+        claimed_sum = univariate_polynomial_eval(poly, rand, degree);
         copy_5(rand, challenges + sc_round * DIM);
     }
 
-    return fs, current_claimed_sum;
+    return fs, claimed_sum;
 }
 
 fn sample_stir_indexes_and_fold(mut fs, num_queries, merkle_leaves_in_basefield, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits) -> 3 {

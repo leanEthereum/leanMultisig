@@ -23,7 +23,10 @@ const NUM_COLS_F_COMMITED = NUM_COLS_F_COMMITED_PLACEHOLDER;
 
 const EXECUTION_TABLE_INDEX = EXECUTION_TABLE_INDEX_PLACEHOLDER;
 const AIR_DEGREES = AIR_DEGREES_PLACEHOLDER; // [_; N_TABLES]
-
+const N_AIR_COLUMNS_F = N_AIR_COLUMNS_F_PLACEHOLDER; // [_; N_TABLES]
+const N_AIR_COLUMNS_EF = N_AIR_COLUMNS_EF_PLACEHOLDER; // [_; N_TABLES]
+const AIR_DOWN_COLUMNS_F = AIR_DOWN_COLUMNS_F_PLACEHOLDER; // [[_; ?]; N_TABLES]
+const AIR_DOWN_COLUMNS_EF = AIR_DOWN_COLUMNS_EF_PLACEHOLDER; // [[_; _]; N_TABLES]
 
 fn main() {
     proof_transcript = private_input_start();
@@ -183,6 +186,9 @@ fn main() {
         zerocheck_challenges = logup_points[table_index];
 
         fs, outer_point, outer_eval = sumcheck_verify(fs, log_n_rows, bus_final_value, AIR_DEGREES[table_index] + 1);
+
+        n_up_and_down_cols = N_AIR_COLUMNS_F[table_index] + N_AIR_COLUMNS_EF[table_index] + len(AIR_DOWN_COLUMNS_F[table_index]) + len(AIR_DOWN_COLUMNS_EF[table_index]);
+        fs, inner_evals = fs_receive_ef(fs, n_up_and_down_cols);
 
         return;
     }

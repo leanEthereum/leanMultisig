@@ -104,6 +104,10 @@ pub fn run_end2end_recursion_benchmark() {
     let mut num_cols_ef_air = vec![];
     let mut num_cols_f_committed = vec![];
     let mut air_degrees = vec![];
+    let mut n_air_columns_f = vec![];
+    let mut n_air_columns_ef = vec![];
+    let mut air_down_columns_f = vec![];
+    let mut air_down_columns_ef = vec![];
     for table in ALL_TABLES {
         let this_look_f_indexes_str = table
             .lookups_f()
@@ -143,6 +147,26 @@ pub fn run_end2end_recursion_benchmark() {
         lookup_f_values_str.push(format!("[{}]", this_lookup_f_values_str.join(", ")));
         lookup_ef_values_str.push(format!("[{}]", this_lookup_ef_values_str.join(", ")));
         air_degrees.push(table.degree_air().to_string());
+        n_air_columns_f.push(table.n_columns_f_air().to_string());
+        n_air_columns_ef.push(table.n_columns_ef_air().to_string());
+        air_down_columns_f.push(format!(
+            "[{}]",
+            table
+                .down_column_indexes_f()
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        air_down_columns_ef.push(format!(
+            "[{}]",
+            table
+                .down_column_indexes_ef()
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     replacements.insert(
         "LOOKUPS_F_INDEXES_PLACEHOLDER".to_string(),
@@ -183,6 +207,22 @@ pub fn run_end2end_recursion_benchmark() {
     replacements.insert(
         "AIR_DEGREES_PLACEHOLDER".to_string(),
         format!("[{}]", air_degrees.join(", ")),
+    );
+    replacements.insert(
+        "N_AIR_COLUMNS_F_PLACEHOLDER".to_string(),
+        format!("[{}]", n_air_columns_f.join(", ")),
+    );
+    replacements.insert(
+        "N_AIR_COLUMNS_EF_PLACEHOLDER".to_string(),
+        format!("[{}]", n_air_columns_ef.join(", ")),
+    );
+    replacements.insert(
+        "AIR_DOWN_COLUMNS_F_PLACEHOLDER".to_string(),
+        format!("[{}]", air_down_columns_f.join(", ")),
+    );
+    replacements.insert(
+        "AIR_DOWN_COLUMNS_EF_PLACEHOLDER".to_string(),
+        format!("[{}]", air_down_columns_ef.join(", ")),
     );
 
     let public_input = vec![];

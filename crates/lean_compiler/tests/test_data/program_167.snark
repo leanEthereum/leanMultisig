@@ -1,0 +1,10 @@
+const ARR = [1, 2, 3, 4, 5];
+fn main() {
+    x = (len(ARR) + ARR[2]) / ARR[3];
+    mut sum = 0;
+    for i in 0..x {
+        sum += 1;
+    }
+    assert sum == 2;
+    return;
+}

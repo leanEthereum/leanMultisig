@@ -36,11 +36,6 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    let outer_selector_evals = univariate_selectors::<PF<EF>>(univariate_skips)
-        .iter()
-        .map(|s| s.evaluate(outer_statement.point[0]))
-        .collect::<Vec<_>>();
-
     let mut inner_evals = verifier_state.next_extension_scalars_vec(
         air.n_columns_air() + air.down_column_indexes_f().len() + air.down_column_indexes_ef().len(),
     )?;
@@ -70,6 +65,10 @@ where
     if univariate_skips == 1 {
         open_columns_no_skip(verifier_state, air, log_n_rows, &inner_evals, &outer_statement.point)
     } else {
+        let outer_selector_evals = univariate_selectors::<PF<EF>>(univariate_skips)
+            .iter()
+            .map(|s| s.evaluate(outer_statement.point[0]))
+            .collect::<Vec<_>>();
         open_columns(
             verifier_state,
             air.n_columns_f_air(),
