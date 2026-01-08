@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::Mutex;
 use std::time::Instant;
 
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program, compile_program_with_flags};
@@ -9,7 +8,7 @@ use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
 use lean_prover::{STARTING_LOG_INV_RATE_BASE, STARTING_LOG_INV_RATE_EXTENSION, SnarkParams, whir_config_builder};
 use lean_vm::*;
-use multilinear_toolkit::prelude::symbolic::{SymbolicExpression, SymbolicOperation};
+use multilinear_toolkit::prelude::symbolic::{SymbolicExpression, SymbolicOperation, get_symbolic_constraints};
 use multilinear_toolkit::prelude::*;
 use utils::{Counter, MEMORY_TABLE_INDEX};
 use whir_p3::{WhirConfig, precompute_dft_twiddles};
@@ -228,6 +227,10 @@ pub fn run_end2end_recursion_benchmark() {
         "AIR_DOWN_COLUMNS_EF_PLACEHOLDER".to_string(),
         format!("[{}]", air_down_columns_ef.join(", ")),
     );
+    replacements.insert(
+        "EVALUATE_AIR_FUNCTIONS_PLACEHOLDER".to_string(),
+        all_air_evals_in_zk_dsl(),
+    );
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;
@@ -266,21 +269,52 @@ fn test_end2end_recursion() {
     run_end2end_recursion_benchmark();
 }
 
-#[test]
-fn air_to_snark_constraints() {
-    use multilinear_toolkit::prelude::symbolic::get_symbolic_constraints;
+fn all_air_evals_in_zk_dsl() -> String {
+    let mut res = r#"fn evaluate_air_constraints(table_index, inner_evals, alpha_powers) -> 1 {
+    var res;
+    debug_assert table_index < 3;
+    match table_index {
+        0 => { res = evaluate_air_constraints_table_0(inner_evals, alpha_powers); }
+        1 => { res = evaluate_air_constraints_table_1(inner_evals, alpha_powers); }
+        2 => { res = evaluate_air_constraints_table_2(inner_evals, alpha_powers); }
+    }  
+    return res;
+}
+"#
+    .to_string();
+    res += &air_eval_in_zk_dsl(ExecutionTable::<false> {}, 0);
+    res += &air_eval_in_zk_dsl(DotProductPrecompile::<false> {}, 1);
+    res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {}, 2);
+    res
+}
 
-    let air = Poseidon16Precompile::<false> {};
+fn air_eval_in_zk_dsl<A: Air>(air: A, table_index: usize) -> String
+where
+    A::ExtraData: Default,
+{
     let constraints = get_symbolic_constraints::<F, _>(&air);
-    let alpha_powers_var = "alpha_powers".to_string();
     let mut vars_counter = Counter::new();
     let mut cache: HashMap<*const (), String> = HashMap::new();
-    for c in constraints {
-        let mut res = String::new();
-        let var = write_down_air_constraint_eval(&c, &mut cache, &mut res, &mut vars_counter);
-        dbg!(var);
-        println!("{}\n\n", res);
+
+    let mut res = format!(
+        "fn evaluate_air_constraints_table_{}(inner_evals, alpha_powers) -> 1 {{\n",
+        table_index
+    );
+    res += "\tmut sum = pointer_to_zero_vector;\n";
+
+    for (index, constraint) in constraints.iter().enumerate() {
+        res += "\n";
+        let constraint_eval = write_down_air_constraint_eval(&constraint, &mut cache, &mut res, &mut vars_counter);
+        res += format!(
+            "\tsum = add_extension_ret(sum, mul_extension_ret(alpha_powers + {} * DIM, {}));\n",
+            index + 1,
+            constraint_eval
+        )
+        .as_str();
     }
+    res += "\treturn sum;\n";
+    res += "}\n";
+    res
 }
 
 const AIR_INNER_VALUES_VAR: &str = "inner_evals";
@@ -296,7 +330,7 @@ fn write_down_air_constraint_eval(
             unreachable!()
         }
         SymbolicExpression::Variable(v) => {
-            format!("{}[{}]", AIR_INNER_VALUES_VAR, v.index)
+            format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index)
         }
         SymbolicExpression::Operation(operation) => {
             let key = Rc::as_ptr(operation) as *const ();
@@ -309,7 +343,7 @@ fn write_down_air_constraint_eval(
                 SymbolicOperation::Neg => {
                     assert_eq!(args.len(), 1);
                     let arg_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
-                    let aux_var = format!("@aux_{}", vars_counter.next());
+                    let aux_var = format!("aux_{}", vars_counter.next());
                     res.push_str(&format!("\t{} = opposite_extension_ret({});\n", aux_var, arg_str));
                     return aux_var;
                 }
@@ -321,6 +355,7 @@ fn write_down_air_constraint_eval(
                     "add_base_extension_ret",
                     "add_base_extension_ret",
                     "add_extension_ret",
+                    true
                 ),
                 SymbolicOperation::Sub => handle_operation_on_two(
                     args,
@@ -330,6 +365,7 @@ fn write_down_air_constraint_eval(
                     "sub_base_extension_ret",
                     "sub_extension_base_ret",
                     "sub_extension_ret",
+                    false
                 ),
                 SymbolicOperation::Mul => handle_operation_on_two(
                     args,
@@ -339,6 +375,7 @@ fn write_down_air_constraint_eval(
                     "mul_base_extension_ret",
                     "mul_base_extension_ret",
                     "mul_extension_ret",
+                    true
                 ),
             };
             assert!(!cache.contains_key(&key));
@@ -356,23 +393,34 @@ fn handle_operation_on_two(
     be_func: &str,
     eb_func: &str,
     ee_func: &str,
+    switch_args: bool,
 ) -> String {
     assert_eq!(args.len(), 2);
     if let SymbolicExpression::Constant(c1) = args[0] {
         let arg2_str = write_down_air_constraint_eval(&args[1], cache, res, vars_counter);
-        let aux_var = format!("@aux_{}", vars_counter.next());
+        let aux_var = format!("aux_{}", vars_counter.next());
         res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, be_func, c1, arg2_str));
         return aux_var;
     }
     if let SymbolicExpression::Constant(c2) = args[1] {
         let arg1_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
-        let aux_var = format!("@aux_{}", vars_counter.next());
-        res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, eb_func, c2, arg1_str));
+        let aux_var = format!("aux_{}", vars_counter.next());
+        let (term0, term1) = if switch_args {
+            (c2.to_string(), arg1_str)
+        } else {
+            (arg1_str, c2.to_string())
+        };
+        res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, eb_func, term0, term1));
         return aux_var;
     }
     let arg1_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
     let arg2_str = write_down_air_constraint_eval(&args[1], cache, res, vars_counter);
-    let aux_var = format!("@aux_{}", vars_counter.next());
+    let aux_var = format!("aux_{}", vars_counter.next());
     res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, ee_func, arg1_str, arg2_str));
     return aux_var;
+}
+
+#[test]
+fn display_all_air_evals_in_zk_dsl() {
+    println!("{}", all_air_evals_in_zk_dsl());
 }

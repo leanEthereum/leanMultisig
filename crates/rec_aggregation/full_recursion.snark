@@ -200,9 +200,7 @@ fn main() {
     return;
 }
 
-fn evaluate_air_constraints(const table_index, inner_evals, air_alpha_powers) -> 1 {
-    panic();
-}
+
 
 fn multilinear_location_prefix(offset, n_vars, point) -> 1 {
     bits = checked_decompose_bits_small_value(offset, n_vars);
@@ -275,3 +273,5 @@ fn verify_gkr_quotient_step(mut fs, n_vars, point, claim_num, claim_den) -> 4 {
     return fs, postponed_point, new_claim_num, new_claim_den;
 
 }
+
+EVALUATE_AIR_FUNCTIONS_PLACEHOLDER
