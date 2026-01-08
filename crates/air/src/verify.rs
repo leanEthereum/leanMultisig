@@ -36,11 +36,12 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    let mut inner_evals = verifier_state.next_extension_scalars_vec(
+    let inner_evals = verifier_state.next_extension_scalars_vec(
         air.n_columns_air() + air.down_column_indexes_f().len() + air.down_column_indexes_ef().len(),
     )?;
 
     let n_columns_down_f = air.down_column_indexes_f().len();
+    let n_columns_down_ef = air.down_column_indexes_ef().len();
     let constraint_evals = SumcheckComputation::eval_extension(
         air,
         &inner_evals[..air.n_columns_f_air() + n_columns_down_f],
@@ -54,45 +55,38 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    inner_evals = [
-        inner_evals[..air.n_columns_f_air()].to_vec(),
-        inner_evals[air.n_columns_f_air() + n_columns_down_f..][..air.n_columns_ef_air()].to_vec(),
-        inner_evals[air.n_columns_f_air()..][..n_columns_down_f].to_vec(),
-        inner_evals[air.n_columns_f_air() + n_columns_down_f + air.n_columns_ef_air()..].to_vec(),
-    ]
-    .concat();
-
     if univariate_skips == 1 {
         open_columns_no_skip(verifier_state, air, log_n_rows, &inner_evals, &outer_statement.point)
-    } else {
+    } else if n_columns_down_f == 0 && n_columns_down_ef == 0 {
+        // usefull for poseidon2 benchmark
         let outer_selector_evals = univariate_selectors::<PF<EF>>(univariate_skips)
             .iter()
             .map(|s| s.evaluate(outer_statement.point[0]))
             .collect::<Vec<_>>();
-        open_columns(
+        open_flat_columns(
             verifier_state,
             air.n_columns_f_air(),
             air.n_columns_ef_air(),
             univariate_skips,
-            &air.down_column_indexes_f(),
-            &air.down_column_indexes_ef(),
             inner_evals,
             &Evaluation::new(outer_statement.point[1..].to_vec(), outer_statement.value),
             &outer_selector_evals,
             log_n_rows,
         )
+    } else {
+        panic!(
+            "Currently unsupported for simplicty (checkout c7944152a4325b1e1913446e6684112099db5d78 for a version that supported this case)"
+        );
     }
 }
 
 #[allow(clippy::too_many_arguments)] // TODO
 #[allow(clippy::type_complexity)]
-fn open_columns<EF: ExtensionField<PF<EF>>>(
+fn open_flat_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut impl FSVerifier<EF>,
     n_columns_f: usize,
     n_columns_ef: usize,
     univariate_skips: usize,
-    columns_with_shift_f: &[usize],
-    columns_with_shift_ef: &[usize],
     inner_evals: Vec<EF>,
     outer_sumcheck_challenge: &Evaluation<EF>,
     outer_selector_evals: &[EF],
@@ -100,13 +94,10 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
 ) -> ProofResult<AirClaims<EF>> {
     let n_columns = n_columns_f + n_columns_ef;
 
-    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(
-        n_columns + columns_with_shift_f.len() + columns_with_shift_ef.len(),
-    ));
+    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_columns));
 
     let eval_eq_batching_scalars = eval_eq(&batching_scalars);
     let batching_scalars_up = &eval_eq_batching_scalars[..n_columns];
-    let batching_scalars_down = &eval_eq_batching_scalars[n_columns..];
 
     let sub_evals = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
 
@@ -126,14 +117,6 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
 
     let matrix_up_sc_eval = MultilinearPoint([epsilons.0.clone(), outer_sumcheck_challenge.point.0.clone()].concat())
         .eq_poly_outside(&inner_sumcheck_stement.point);
-    let matrix_down_sc_eval = next_mle(
-        &[
-            epsilons.0,
-            outer_sumcheck_challenge.point.to_vec(),
-            inner_sumcheck_stement.point.0.clone(),
-        ]
-        .concat(),
-    );
 
     let evaluations_remaining_to_verify_f = verifier_state.next_extension_scalars_vec(n_columns_f)?;
     let evaluations_remaining_to_verify_ef = verifier_state.next_extension_scalars_vec(n_columns_ef)?;
@@ -146,21 +129,8 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
         batching_scalars_up.iter().copied(),
         evaluations_remaining_to_verify.iter().copied(),
     );
-    let mut columns_with_shift = columns_with_shift_f.to_vec();
-    columns_with_shift.extend_from_slice(
-        columns_with_shift_ef
-            .iter()
-            .map(|&x| x + n_columns_f)
-            .collect::<Vec<_>>()
-            .as_slice(),
-    );
-    let batched_col_down_sc_eval = (0..columns_with_shift.len())
-        .map(|i| evaluations_remaining_to_verify[columns_with_shift[i]] * batching_scalars_down[i])
-        .sum::<EF>();
 
-    if inner_sumcheck_stement.value
-        != matrix_up_sc_eval * batched_col_up_sc_eval + matrix_down_sc_eval * batched_col_down_sc_eval
-    {
+    if inner_sumcheck_stement.value != matrix_up_sc_eval * batched_col_up_sc_eval {
         return Err(ProofError::InvalidProof);
     }
     Ok(AirClaims {
@@ -184,14 +154,13 @@ fn open_columns_no_skip<A: Air, EF: ExtensionField<PF<EF>>>(
     let n_columns_ef_up = air.n_columns_ef_air();
     let n_columns_f_down = air.down_column_indexes_f().len();
     let n_columns_ef_down = air.down_column_indexes_ef().len();
-    let n_up_columns = n_columns_f_up + n_columns_ef_up;
     let n_down_columns = n_columns_f_down + n_columns_ef_down;
     assert_eq!(inner_evals.len(), n_columns_f_up + n_columns_ef_up + n_down_columns);
 
-    let evls_up = &inner_evals[..n_up_columns];
-    let evals_down = &inner_evals[n_up_columns..];
-    let evals_up_f = evls_up[..n_columns_f_up].to_vec();
-    let evals_up_ef = evls_up[n_columns_f_up..].to_vec();
+    let evals_up_f = inner_evals[..n_columns_f_up].to_vec();
+    let evals_down_f = inner_evals[n_columns_f_up..][..n_columns_f_down].to_vec();
+    let evals_up_ef = inner_evals[n_columns_f_up + n_columns_f_down..][..n_columns_ef_up].to_vec();
+    let evals_down_ef = inner_evals[n_columns_f_up + n_columns_f_down + n_columns_ef_up..].to_vec();
 
     if n_down_columns == 0 {
         return Ok(AirClaims {
@@ -207,7 +176,10 @@ fn open_columns_no_skip<A: Air, EF: ExtensionField<PF<EF>>>(
     let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_down_columns));
     let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_down_columns].to_vec();
 
-    let inner_sum: EF = dot_product(evals_down.iter().copied(), eval_eq_batching_scalars.iter().copied());
+    let inner_sum: EF = dot_product(
+        evals_down_f.into_iter().chain(evals_down_ef),
+        eval_eq_batching_scalars.iter().copied(),
+    );
 
     let (inner_sum_retrieved, inner_sumcheck_stement) = sumcheck_verify(verifier_state, log_n_rows, 2)?;
 

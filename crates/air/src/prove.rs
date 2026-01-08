@@ -110,31 +110,31 @@ where
             &columns_ef,
             &outer_sumcheck_challenge,
         )
-    } else {
-        open_columns(
+    } else if shifted_rows_f.is_empty() && shifted_rows_ef.is_empty() {
+        // usefull for poseidon2 benchmark
+        open_flat_columns(
             prover_state,
             univariate_skips,
-            &air.down_column_indexes_f(),
-            &air.down_column_indexes_ef(),
             &columns_f,
             &columns_ef,
             &outer_sumcheck_challenge,
         )
+    } else {
+        panic!(
+            "Currently unsupported for simplicty (checkout c7944152a4325b1e1913446e6684112099db5d78 for a version that supported this case)"
+        );
     }
 }
 
 #[instrument(skip_all)]
-fn open_columns<EF: ExtensionField<PF<EF>>>(
+fn open_flat_columns<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     univariate_skips: usize,
-    columns_with_shift_f: &[usize],
-    columns_with_shift_ef: &[usize],
     columns_f: &[&[PF<EF>]],
     columns_ef: &[&[EF]],
     outer_sumcheck_challenge: &[EF],
 ) -> AirClaims<EF> {
-    let n_up_down_columns =
-        columns_f.len() + columns_ef.len() + columns_with_shift_f.len() + columns_with_shift_ef.len();
+    let n_up_down_columns = columns_f.len() + columns_ef.len();
     let batching_scalars = prover_state.sample_vec(log2_ceil_usize(n_up_down_columns));
 
     let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_up_down_columns].to_vec();
@@ -154,47 +154,10 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
             });
     }
 
-    let columns_shifted_f = &columns_with_shift_f.iter().map(|&i| columns_f[i]).collect::<Vec<_>>();
-    let columns_shifted_ef = &columns_with_shift_ef.iter().map(|&i| columns_ef[i]).collect::<Vec<_>>();
-
-    let mut batched_column_down = if columns_shifted_f.is_empty() {
-        tracing::warn!("TODO optimize open_columns when no shifted F columns");
-        vec![EF::ZERO; batched_column_up.len()]
-    } else {
-        multilinears_linear_combination(
-            columns_shifted_f,
-            &eval_eq_batching_scalars[columns_f.len() + columns_ef.len()..][..columns_shifted_f.len()],
-        )
-    };
-
-    if !columns_shifted_ef.is_empty() {
-        let batched_column_down_ef = multilinears_linear_combination(
-            columns_shifted_ef,
-            &eval_eq_batching_scalars[columns_f.len() + columns_ef.len() + columns_shifted_f.len()..],
-        );
-        batched_column_down
-            .par_iter_mut()
-            .zip(&batched_column_down_ef)
-            .for_each(|(a, &b)| {
-                *a += b;
-            });
-    }
-
-    let sub_evals = info_span!("fold_multilinear_chunks").in_scope(|| {
-        let sub_evals_up = fold_multilinear_chunks(
-            &batched_column_up,
-            &MultilinearPoint(outer_sumcheck_challenge[1..].to_vec()),
-        );
-        let sub_evals_down = fold_multilinear_chunks(
-            &column_shifted(&batched_column_down),
-            &MultilinearPoint(outer_sumcheck_challenge[1..].to_vec()),
-        );
-        sub_evals_up
-            .iter()
-            .zip(sub_evals_down.iter())
-            .map(|(&up, &down)| up + down)
-            .collect::<Vec<_>>()
-    });
+    let sub_evals = fold_multilinear_chunks(
+        &batched_column_up,
+        &MultilinearPoint(outer_sumcheck_challenge[1..].to_vec()),
+    );
     prover_state.add_extension_scalars(&sub_evals);
 
     let epsilons = prover_state.sample_vec(univariate_skips);
@@ -205,14 +168,8 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
 
     // TODO opti in case of flat AIR (no need of `matrix_next_mle_folded`)
     let matrix_up = eval_eq(&point);
-    let matrix_down = matrix_next_mle_folded(&point);
     let inner_mle = info_span!("packing").in_scope(|| {
-        MleGroupOwned::ExtensionPacked(vec![
-            pack_extension(&matrix_up),
-            pack_extension(&batched_column_up),
-            pack_extension(&matrix_down),
-            pack_extension(&batched_column_down),
-        ])
+        MleGroupOwned::ExtensionPacked(vec![pack_extension(&matrix_up), pack_extension(&batched_column_up)])
     });
 
     let (inner_challenges, _, _) = info_span!("structured columns sumcheck").in_scope(|| {
@@ -220,7 +177,7 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
             1,
             inner_mle,
             None,
-            &MySumcheck,
+            &ProductComputation {},
             &vec![],
             None,
             false,
@@ -357,36 +314,5 @@ fn open_columns_no_skip<EF: ExtensionField<PF<EF>>>(
         down_point: Some(inner_challenges),
         evals_f_on_down_columns,
         evals_ef_on_down_columns,
-    }
-}
-
-struct MySumcheck;
-
-impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for MySumcheck {
-    type ExtraData = Vec<EF>;
-
-    fn degree(&self) -> usize {
-        2
-    }
-    #[inline(always)]
-    fn eval_base(&self, _: &[PF<EF>], _: &[EF], _: &Self::ExtraData) -> EF {
-        unreachable!()
-    }
-    #[inline(always)]
-    fn eval_extension(&self, point: &[EF], _: &[EF], _: &Self::ExtraData) -> EF {
-        point[0] * point[1] + point[2] * point[3]
-    }
-    #[inline(always)]
-    fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EFPacking<EF>], _: &Self::ExtraData) -> EFPacking<EF> {
-        unreachable!()
-    }
-    #[inline(always)]
-    fn eval_packed_extension(
-        &self,
-        point: &[EFPacking<EF>],
-        _: &[EFPacking<EF>],
-        _: &Self::ExtraData,
-    ) -> EFPacking<EF> {
-        point[0] * point[1] + point[2] * point[3]
     }
 }
