@@ -8,7 +8,9 @@ use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
 use lean_prover::{STARTING_LOG_INV_RATE_BASE, STARTING_LOG_INV_RATE_EXTENSION, SnarkParams, whir_config_builder};
 use lean_vm::*;
-use multilinear_toolkit::prelude::symbolic::{SymbolicExpression, SymbolicOperation, get_symbolic_constraints};
+use multilinear_toolkit::prelude::symbolic::{
+    SymbolicExpression, SymbolicOperation, get_symbolic_constraints_and_bus_data_values,
+};
 use multilinear_toolkit::prelude::*;
 use utils::{Counter, MEMORY_TABLE_INDEX};
 use whir_p3::{WhirConfig, precompute_dft_twiddles};
@@ -270,35 +272,27 @@ fn test_end2end_recursion() {
 }
 
 fn all_air_evals_in_zk_dsl() -> String {
-    let mut res = r#"fn evaluate_air_constraints(table_index, inner_evals, alpha_powers) -> 1 {
-    var res;
-    debug_assert table_index < 3;
-    match table_index {
-        0 => { res = evaluate_air_constraints_table_0(inner_evals, alpha_powers); }
-        1 => { res = evaluate_air_constraints_table_1(inner_evals, alpha_powers); }
-        2 => { res = evaluate_air_constraints_table_2(inner_evals, alpha_powers); }
-    }  
-    return res;
-}
-"#
-    .to_string();
-    res += &air_eval_in_zk_dsl(ExecutionTable::<false> {}, 0);
-    res += &air_eval_in_zk_dsl(DotProductPrecompile::<false> {}, 1);
-    res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {}, 2);
+    let mut res = String::new();
+    res += &air_eval_in_zk_dsl(ExecutionTable::<false> {});
+    res += &air_eval_in_zk_dsl(DotProductPrecompile::<false> {});
+    res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {});
     res
 }
 
-fn air_eval_in_zk_dsl<A: Air>(air: A, table_index: usize) -> String
+const AIR_INNER_VALUES_VAR: &str = "inner_evals";
+
+fn air_eval_in_zk_dsl<T: TableT>(table: T) -> String
 where
-    A::ExtraData: Default,
+    T::ExtraData: Default,
 {
-    let constraints = get_symbolic_constraints::<F, _>(&air);
+    let (constraints, bus_data) = get_symbolic_constraints_and_bus_data_values::<F, _>(&table);
     let mut vars_counter = Counter::new();
     let mut cache: HashMap<*const (), String> = HashMap::new();
 
     let mut res = format!(
-        "fn evaluate_air_constraints_table_{}(inner_evals, alpha_powers) -> 1 {{\n",
-        table_index
+        "fn evaluate_air_constraints_table_{}({}, alpha_powers, bus_beta) -> 1 {{\n",
+        table.table().index() - 1,
+        AIR_INNER_VALUES_VAR
     );
     res += "\tmut sum = pointer_to_zero_vector;\n";
 
@@ -312,12 +306,30 @@ where
         )
         .as_str();
     }
+    // finally: bus data
+    let table_index = match table.bus().table {
+        BusTable::Constant(c) => format!("embedd_in_ef({})", c.index()),
+        BusTable::Variable(col) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, col),
+    };
+    let flag = format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, table.bus().selector);
+    res += &format!("\n\tbuff = malloc(DIM * {});", bus_data.len());
+    for (i, data) in bus_data.iter().enumerate() {
+        let data_str = write_down_air_constraint_eval(data, &mut cache, &mut res, &mut vars_counter);
+        res += &format!("\n\tcopy_5({}, buff + DIM * {});", data_str, i);
+    }
+    res += &format!(
+        "\n\tmut bus_res = dot_product_ret(buff, alpha_powers + DIM, {}, EE);",
+        bus_data.len()
+    );
+    res += &format!("\n\tbus_res = add_extension_ret({}, bus_res);", table_index);
+    res += &format!("\n\tbus_res = mul_extension_ret(bus_res, bus_beta);");
+    res += &format!("\n\tbus_res = add_extension_ret(bus_res, {});", flag);
+    res += &format!("\n\tsum = add_extension_ret(sum, bus_res);");
+
     res += "\treturn sum;\n";
     res += "}\n";
     res
 }
-
-const AIR_INNER_VALUES_VAR: &str = "inner_evals";
 
 fn write_down_air_constraint_eval(
     constraint: &SymbolicExpression<F>,
@@ -355,7 +367,7 @@ fn write_down_air_constraint_eval(
                     "add_base_extension_ret",
                     "add_base_extension_ret",
                     "add_extension_ret",
-                    true
+                    true,
                 ),
                 SymbolicOperation::Sub => handle_operation_on_two(
                     args,
@@ -365,7 +377,7 @@ fn write_down_air_constraint_eval(
                     "sub_base_extension_ret",
                     "sub_extension_base_ret",
                     "sub_extension_ret",
-                    false
+                    false,
                 ),
                 SymbolicOperation::Mul => handle_operation_on_two(
                     args,
@@ -375,7 +387,7 @@ fn write_down_air_constraint_eval(
                     "mul_base_extension_ret",
                     "mul_base_extension_ret",
                     "mul_extension_ret",
-                    true
+                    true,
                 ),
             };
             assert!(!cache.contains_key(&key));

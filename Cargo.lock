@@ -26,6 +26,7 @@ dependencies = [
 [[package]]
 name = "air"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#4b1ea3e803399b2d1731acf9f6f635a3120c3c96"
 dependencies = [
  "p3-field",
 ]
@@ -98,6 +99,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#4b1ea3e803399b2d1731acf9f6f635a3120c3c96"
 dependencies = [
  "itertools",
  "p3-field",
@@ -188,6 +190,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#4b1ea3e803399b2d1731acf9f6f635a3120c3c96"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -439,9 +442,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.179"
+version = "0.2.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5a2d376baa530d1238d133232d15e239abad80d05838b4b59354e5268af431f"
+checksum = "bcc35a38544a891a5f7c865aca548a982ccb3b8650a5b06d0fd33a10283c56fc"
 
 [[package]]
 name = "log"
@@ -467,6 +470,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#4b1ea3e803399b2d1731acf9f6f635a3120c3c96"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1071,6 +1075,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=lean-vm-simple#4b1ea3e803399b2d1731acf9f6f635a3120c3c96"
 dependencies = [
  "air 0.3.0",
  "backend",

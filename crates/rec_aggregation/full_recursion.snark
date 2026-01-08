@@ -190,8 +190,13 @@ fn main() {
         n_up_and_down_cols = N_AIR_COLUMNS_F[table_index] + N_AIR_COLUMNS_EF[table_index] + len(AIR_DOWN_COLUMNS_F[table_index]) + len(AIR_DOWN_COLUMNS_EF[table_index]);
         fs, inner_evals = fs_receive_ef(fs, n_up_and_down_cols);
 
-        // air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers);
-        // set_to_5_zeros(air_constraints_eval);
+        air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta);
+        q = eq_mle_extension(zerocheck_challenges, outer_point, log_n_rows);
+        r = mul_extension_ret(air_constraints_eval, q);
+
+        print_ef(air_constraints_eval);
+
+        // copy_5(r, outer_eval);
         
 
         return;
@@ -209,12 +214,14 @@ fn multilinear_location_prefix(offset, n_vars, point) -> 1 {
 }
 
 fn fingerprint_2(table_index, data_1, data_2, alpha_powers) -> 1 {
-    res1 = mul_extension_ret(data_1, alpha_powers + DIM);
-    res2 = mul_extension_ret(data_2, alpha_powers + 2 * DIM);
-    res3 = add_extension_ret(res1, res2);
-    res4 = add_base_extension_ret(table_index, res3);
-    return res4;
+    buff = malloc(DIM * 2);
+    copy_5(data_1, buff);
+    copy_5(data_2, buff + DIM);
+    mut res = dot_product_ret(buff, alpha_powers + DIM, 2, EE);
+    res = add_base_extension_ret(table_index, res);
+    return res;
 }
+
 
 fn verify_gkr_quotient(mut fs, n_vars) -> 5 {
     fs, nums = fs_receive_ef(fs, 2);
@@ -272,6 +279,17 @@ fn verify_gkr_quotient_step(mut fs, n_vars, point, claim_num, claim_den) -> 4 {
 
     return fs, postponed_point, new_claim_num, new_claim_den;
 
+}
+
+fn evaluate_air_constraints(table_index, inner_evals, alpha_powers, bus_beta) -> 1 {
+    var res;
+    debug_assert table_index < 3;
+    match table_index {
+        0 => { res = evaluate_air_constraints_table_0(inner_evals, alpha_powers, bus_beta); }
+        1 => { res = evaluate_air_constraints_table_1(inner_evals, alpha_powers, bus_beta); }
+        2 => { res = evaluate_air_constraints_table_2(inner_evals, alpha_powers, bus_beta); }
+    }  
+    return res;
 }
 
 EVALUATE_AIR_FUNCTIONS_PLACEHOLDER

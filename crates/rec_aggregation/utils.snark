@@ -682,3 +682,9 @@ fn mle_of_zeros_then_ones(point, n_zeros, n_vars) -> 1 {
     }
     return res;
 }
+
+fn embedd_in_ef(f) inline -> 1 {
+    res = malloc(DIM);
+    dot_product(f, pointer_to_one_vector, res, 1, BE);
+    return res;
+}

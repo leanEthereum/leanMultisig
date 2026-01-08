@@ -110,8 +110,8 @@ whir-p3.workspace = true
 # [patch."https://github.com/TomWambsgans/whir-p3.git"]
 # whir-p3 = { path = "../whir-p3" }
 
-[patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
-multilinear-toolkit = { path = "../multilinear-toolkit" }
+# [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
+# multilinear-toolkit = { path = "../multilinear-toolkit" }
 
 # [profile.release]
 # opt-level = 1

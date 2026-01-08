@@ -68,7 +68,6 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     }
 
     fn bus(&self) -> Bus {
-        assert!(BUS);
         Bus {
             table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
@@ -190,6 +189,13 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                     cols.compress.clone(),
                 ],
             ));
+        } else {
+            builder.declare_values(&[
+                cols.index_a.clone(),
+                cols.index_b.clone(),
+                cols.index_res.clone(),
+                cols.compress.clone(),
+            ]);
         }
 
         builder.assert_bool(cols.flag.clone());

@@ -98,6 +98,14 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
                     is_be.clone(),
                 ],
             ));
+        } else {
+            builder.declare_values(&[
+                index_a.clone(),
+                index_b.clone(),
+                index_res.clone(),
+                len.clone(),
+                is_be.clone(),
+            ]);
         }
 
         let is_ee = AB::F::ONE - is_be.clone();

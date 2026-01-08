@@ -121,6 +121,8 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
                 is_precompile.clone(),
                 &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()],
             ));
+        } else {
+            builder.declare_values(&[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()]);
         }
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
