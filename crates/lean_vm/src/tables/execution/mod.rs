@@ -5,9 +5,9 @@ mod air;
 pub use air::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ExecutionTable;
+pub struct ExecutionTable<const BUS: bool>;
 
-impl TableT for ExecutionTable {
+impl<const BUS: bool> TableT for ExecutionTable<BUS> {
     fn name(&self) -> &'static str {
         "execution"
     }

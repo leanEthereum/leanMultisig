@@ -11,9 +11,9 @@ pub use exec::fill_trace_dot_product;
 
 /// Dot product between 2 vectors in the extension field EF.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DotProductPrecompile; // BE = true for base-extension, false for extension-extension
+pub struct DotProductPrecompile<const BUS: bool>; // BE = true for base-extension, false for extension-extension
 
-impl TableT for DotProductPrecompile {
+impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
     fn name(&self) -> &'static str {
         "dot_product"
     }

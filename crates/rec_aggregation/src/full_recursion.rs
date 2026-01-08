@@ -261,3 +261,12 @@ pub fn run_end2end_recursion_benchmark() {
 fn test_end2end_recursion() {
     run_end2end_recursion_benchmark();
 }
+
+#[test]
+fn air_to_snark_constraints() {
+    use multilinear_toolkit::prelude::symbolic::get_symbolic_constraints;
+
+    let air = DotProductPrecompile::<false> {};
+    let constraints = get_symbolic_constraints::<F, _>(&air);
+    dbg!(&constraints);
+}

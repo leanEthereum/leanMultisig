@@ -37,13 +37,12 @@ where
     }
 
     let inner_evals = verifier_state.next_extension_scalars_vec(
-        air.n_columns_air() + air.down_column_indexes_f().len() + air.down_column_indexes_ef().len(),
+        air.n_columns_air() + air.n_down_columns_f() + air.n_down_columns_ef(),
     )?;
 
-    let n_columns_down_f = air.down_column_indexes_f().len();
-    let n_columns_down_ef = air.down_column_indexes_ef().len();
-    let constraint_evals = SumcheckComputation::eval_extension(
-        air,
+    let n_columns_down_f = air.n_down_columns_f();
+    let n_columns_down_ef = air.n_down_columns_ef();
+    let constraint_evals = air.eval_extension(
         &inner_evals[..air.n_columns_f_air() + n_columns_down_f],
         &inner_evals[air.n_columns_f_air() + n_columns_down_f..],
         &extra_data,
@@ -152,8 +151,8 @@ fn open_columns_no_skip<A: Air, EF: ExtensionField<PF<EF>>>(
 ) -> ProofResult<AirClaims<EF>> {
     let n_columns_f_up = air.n_columns_f_air();
     let n_columns_ef_up = air.n_columns_ef_air();
-    let n_columns_f_down = air.down_column_indexes_f().len();
-    let n_columns_ef_down = air.down_column_indexes_ef().len();
+    let n_columns_f_down = air.n_down_columns_f();
+    let n_columns_ef_down = air.n_down_columns_ef();
     let n_down_columns = n_columns_f_down + n_columns_ef_down;
     assert_eq!(inner_evals.len(), n_columns_f_up + n_columns_ef_up + n_down_columns);
 

@@ -190,10 +190,18 @@ fn main() {
         n_up_and_down_cols = N_AIR_COLUMNS_F[table_index] + N_AIR_COLUMNS_EF[table_index] + len(AIR_DOWN_COLUMNS_F[table_index]) + len(AIR_DOWN_COLUMNS_EF[table_index]);
         fs, inner_evals = fs_receive_ef(fs, n_up_and_down_cols);
 
+        // air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers);
+        // set_to_5_zeros(air_constraints_eval);
+        
+
         return;
     }
 
     return;
+}
+
+fn evaluate_air_constraints(const table_index, inner_evals, air_alpha_powers) -> 1 {
+    panic();
 }
 
 fn multilinear_location_prefix(offset, n_vars, point) -> 1 {

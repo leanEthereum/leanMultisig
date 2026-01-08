@@ -2,10 +2,10 @@ use p3_poseidon2::GenericPoseidon2LinearLayers;
 use std::any::TypeId;
 
 use crate::{tables::poseidon_16::trace_gen::default_poseidon_row, *};
-use multilinear_toolkit::prelude::*;
+use multilinear_toolkit::prelude::{symbolic::SymbolicExpression, *};
 use p3_koala_bear::{
     GenericPoseidon2LinearLayersKoalaBear, KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL,
-    KOALABEAR_RC16_INTERNAL,
+    KOALABEAR_RC16_INTERNAL, KoalaBear,
 };
 use utils::{ToUsize, poseidon16_permute};
 
@@ -341,7 +341,10 @@ fn add_koala_bear<A: 'static>(a: &mut A, value: F) {
         *unsafe { std::mem::transmute::<&mut A, &mut FPacking<F>>(a) } += value;
     } else if TypeId::of::<A>() == TypeId::of::<EFPacking<EF>>() {
         *unsafe { std::mem::transmute::<&mut A, &mut EFPacking<EF>>(a) } += FPacking::<F>::from(value);
+    } else if TypeId::of::<A>() == TypeId::of::<SymbolicExpression<KoalaBear>>() {
+        *unsafe { std::mem::transmute::<&mut A, &mut SymbolicExpression<KoalaBear>>(a) } += value;
     } else {
+        dbg!(std::any::type_name::<A>());
         unreachable!()
     }
 }

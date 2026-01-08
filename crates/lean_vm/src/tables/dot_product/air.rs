@@ -34,7 +34,7 @@ pub(super) const COL_VALUE_B: usize = 1;
 pub(super) const COL_VALUE_RES: usize = 2;
 pub(super) const COL_COMPUTATION: usize = 3;
 
-impl Air for DotProductPrecompile {
+impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f_air(&self) -> usize {
@@ -85,18 +85,20 @@ impl Air for DotProductPrecompile {
 
         let computation_down = down_ef[0].clone();
 
-        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
-            extra_data,
-            AB::F::from_usize(self.table().index()),
-            flag.clone(),
-            &[
-                index_a.clone(),
-                index_b.clone(),
-                index_res.clone(),
-                len.clone(),
-                is_be.clone(),
-            ],
-        ));
+        if BUS {
+            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+                extra_data,
+                AB::F::from_usize(self.table().index()),
+                flag.clone(),
+                &[
+                    index_a.clone(),
+                    index_b.clone(),
+                    index_res.clone(),
+                    len.clone(),
+                    is_be.clone(),
+                ],
+            ));
+        }
 
         let is_ee = AB::F::ONE - is_be.clone();
 

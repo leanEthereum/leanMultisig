@@ -9,8 +9,8 @@ pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::dot_produc
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(usize)]
 pub enum Table {
-    Execution(ExecutionTable),
-    DotProduct(DotProductPrecompile),
+    Execution(ExecutionTable<true>),
+    DotProduct(DotProductPrecompile<true>),
     Poseidon16(Poseidon16Precompile<true>),
 }
 

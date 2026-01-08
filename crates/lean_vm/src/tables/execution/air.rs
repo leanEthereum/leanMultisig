@@ -38,7 +38,7 @@ pub const COL_INDEX_EXEC_NU_A: usize = 22;
 pub const COL_INDEX_EXEC_NU_B: usize = 23;
 pub const COL_INDEX_EXEC_NU_C: usize = 24;
 
-impl Air for ExecutionTable {
+impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f_air(&self) -> usize {
@@ -114,12 +114,14 @@ impl Air for ExecutionTable {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
-            extra_data,
-            precompile_index.clone(),
-            is_precompile.clone(),
-            &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()],
-        ));
+        if BUS {
+            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+                extra_data,
+                precompile_index.clone(),
+                is_precompile.clone(),
+                &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()],
+            ));
+        }
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
         builder.assert_zero(flag_b_minus_one * (addr_b.clone() - fp_plus_operand_b));
