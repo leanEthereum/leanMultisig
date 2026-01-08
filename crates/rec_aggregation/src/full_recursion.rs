@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use std::path::Path;
+use std::rc::Rc;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program, compile_program_with_flags};
@@ -6,8 +9,9 @@ use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
 use lean_prover::{STARTING_LOG_INV_RATE_BASE, STARTING_LOG_INV_RATE_EXTENSION, SnarkParams, whir_config_builder};
 use lean_vm::*;
+use multilinear_toolkit::prelude::symbolic::{SymbolicExpression, SymbolicOperation};
 use multilinear_toolkit::prelude::*;
-use utils::MEMORY_TABLE_INDEX;
+use utils::{Counter, MEMORY_TABLE_INDEX};
 use whir_p3::{WhirConfig, precompute_dft_twiddles};
 
 use crate::whir_recursion::whir_recursion_placeholder_replacements;
@@ -266,7 +270,109 @@ fn test_end2end_recursion() {
 fn air_to_snark_constraints() {
     use multilinear_toolkit::prelude::symbolic::get_symbolic_constraints;
 
-    let air = DotProductPrecompile::<false> {};
+    let air = Poseidon16Precompile::<false> {};
     let constraints = get_symbolic_constraints::<F, _>(&air);
-    dbg!(&constraints);
+    let alpha_powers_var = "alpha_powers".to_string();
+    let mut vars_counter = Counter::new();
+    let mut cache: HashMap<*const (), String> = HashMap::new();
+    for c in constraints {
+        let mut res = String::new();
+        let var = write_down_air_constraint_eval(&c, &mut cache, &mut res, &mut vars_counter);
+        dbg!(var);
+        println!("{}\n\n", res);
+    }
+}
+
+const AIR_INNER_VALUES_VAR: &str = "inner_evals";
+
+fn write_down_air_constraint_eval(
+    constraint: &SymbolicExpression<F>,
+    cache: &mut HashMap<*const (), String>,
+    res: &mut String,
+    vars_counter: &mut Counter,
+) -> String {
+    match constraint {
+        SymbolicExpression::Constant(_) => {
+            unreachable!()
+        }
+        SymbolicExpression::Variable(v) => {
+            format!("{}[{}]", AIR_INNER_VALUES_VAR, v.index)
+        }
+        SymbolicExpression::Operation(operation) => {
+            let key = Rc::as_ptr(operation) as *const ();
+            if let Some(var_name) = cache.get(&key) {
+                return var_name.clone();
+            }
+            let (op, args) = &**operation;
+
+            let new_var = match *op {
+                SymbolicOperation::Neg => {
+                    assert_eq!(args.len(), 1);
+                    let arg_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
+                    let aux_var = format!("@aux_{}", vars_counter.next());
+                    res.push_str(&format!("\t{} = opposite_extension_ret({});\n", aux_var, arg_str));
+                    return aux_var;
+                }
+                SymbolicOperation::Add => handle_operation_on_two(
+                    args,
+                    cache,
+                    res,
+                    vars_counter,
+                    "add_base_extension_ret",
+                    "add_base_extension_ret",
+                    "add_extension_ret",
+                ),
+                SymbolicOperation::Sub => handle_operation_on_two(
+                    args,
+                    cache,
+                    res,
+                    vars_counter,
+                    "sub_base_extension_ret",
+                    "sub_extension_base_ret",
+                    "sub_extension_ret",
+                ),
+                SymbolicOperation::Mul => handle_operation_on_two(
+                    args,
+                    cache,
+                    res,
+                    vars_counter,
+                    "mul_base_extension_ret",
+                    "mul_base_extension_ret",
+                    "mul_extension_ret",
+                ),
+            };
+            assert!(!cache.contains_key(&key));
+            cache.insert(key, new_var.clone());
+            new_var
+        }
+    }
+}
+
+fn handle_operation_on_two(
+    args: &[SymbolicExpression<F>],
+    cache: &mut HashMap<*const (), String>,
+    res: &mut String,
+    vars_counter: &mut Counter,
+    be_func: &str,
+    eb_func: &str,
+    ee_func: &str,
+) -> String {
+    assert_eq!(args.len(), 2);
+    if let SymbolicExpression::Constant(c1) = args[0] {
+        let arg2_str = write_down_air_constraint_eval(&args[1], cache, res, vars_counter);
+        let aux_var = format!("@aux_{}", vars_counter.next());
+        res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, be_func, c1, arg2_str));
+        return aux_var;
+    }
+    if let SymbolicExpression::Constant(c2) = args[1] {
+        let arg1_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
+        let aux_var = format!("@aux_{}", vars_counter.next());
+        res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, eb_func, c2, arg1_str));
+        return aux_var;
+    }
+    let arg1_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
+    let arg2_str = write_down_air_constraint_eval(&args[1], cache, res, vars_counter);
+    let aux_var = format!("@aux_{}", vars_counter.next());
+    res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, ee_func, arg1_str, arg2_str));
+    return aux_var;
 }

@@ -136,3 +136,18 @@ pub fn collect_refs<T>(vecs: &[Vec<T>]) -> Vec<&[T]> {
 pub fn collect_inner_refs<T>(vecs: &[Vec<Vec<T>>]) -> Vec<Vec<&[T]>> {
     vecs.iter().map(|v| collect_refs(v)).collect()
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct Counter(usize);
+
+impl Counter {
+    pub fn next(&mut self) -> usize {
+        let val = self.0;
+        self.0 += 1;
+        val
+    }
+
+    pub fn new() -> Self {
+        Self(0)
+    }
+}

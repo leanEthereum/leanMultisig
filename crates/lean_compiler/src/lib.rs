@@ -159,18 +159,3 @@ pub fn compile_and_run(input: &ProgramSource, (public_input, private_input): (&[
     let summary = try_compile_and_run(input, (public_input, private_input), profiler).unwrap();
     println!("{summary}");
 }
-
-#[derive(Debug, Clone, Default)]
-struct Counter(usize);
-
-impl Counter {
-    const fn next(&mut self) -> usize {
-        let val = self.0;
-        self.0 += 1;
-        val
-    }
-
-    const fn new() -> Self {
-        Self(0)
-    }
-}

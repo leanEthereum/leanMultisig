@@ -1,5 +1,5 @@
 use crate::{
-    Counter, F,
+    F,
     lang::{
         AssignmentTarget, Condition, ConstExpression, ConstMallocLabel, Context, Expression, Function, Line,
         MathOperation, Program, Scope, SimpleExpr, Var, VecLiteral,
@@ -12,7 +12,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
 };
-use utils::ToUsize;
+use utils::{Counter, ToUsize};
 
 #[derive(Debug, Clone)]
 pub struct SimpleProgram {
@@ -1441,14 +1441,13 @@ fn check_condition_scoping(condition: &Condition, ctx: &Context) {
 
 #[derive(Debug, Clone, Default)]
 struct Counters {
-    aux_vars: usize,
-    loops: usize,
+    aux_vars: Counter,
+    loops: Counter,
 }
 
 impl Counters {
     fn aux_var(&mut self) -> Var {
-        let var = format!("@aux_var_{}", self.aux_vars);
-        self.aux_vars += 1;
+        let var = format!("@aux_var_{}", self.aux_vars.next());
         var
     }
 }
@@ -2356,8 +2355,7 @@ fn simplify_lines(
                 const_malloc.counter = loop_const_malloc.counter;
                 state.array_manager.valid = valid_aux_vars_in_array_manager_before; // restore the valid aux vars
 
-                let func_name = format!("@loop_{}_{}", state.counters.loops, location);
-                state.counters.loops += 1;
+                let func_name = format!("@loop_{}_{}", state.counters.loops.next(), location);
 
                 // Find variables used inside loop but defined outside
                 let (_, mut external_vars) = find_variable_usage(body, ctx.const_arrays);

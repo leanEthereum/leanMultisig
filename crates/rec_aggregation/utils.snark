@@ -411,6 +411,14 @@ fn add_base_extension_ret(a, b) inline -> 1 {
     return res;
 }
 
+fn mul_base_extension_ret(a, b) inline -> 1 {
+    // a: base
+    // b: extension
+    res = malloc(DIM);
+    dot_product(a, b, res, 1, BE);
+    return res;
+}
+
 fn div_extension(n, d) -> 1 {
     quotient = malloc(DIM);
     dot_product(d, quotient, n, 1, EE);
@@ -423,6 +431,30 @@ fn sub_extension(a, b, c) inline {
         c[i] = a[i] - b[i];
     }
     return;
+}
+
+fn sub_base_extension_ret(a, b) inline -> 1 {
+    // a: base
+    // b: extension
+    // return a - b
+    res = malloc(DIM);
+    res[0] = a - b[0];
+    for i in 1..DIM unroll {
+        res[i] = 0 - b[i];
+    }
+    return res;
+}
+
+fn sub_extension_base_ret(a, b) inline -> 1 {
+    // a: extension
+    // b: base
+    // return a - b
+    res = malloc(DIM);
+    res[0] = a[0] - b;
+    for i in 1..DIM unroll {
+        res[i] = a[i];
+    }
+    return res;
 }
 
 fn sub_extension_ret(a, b) inline -> 1 {
