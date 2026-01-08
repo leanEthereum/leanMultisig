@@ -290,7 +290,7 @@ where
     let mut cache: HashMap<*const (), String> = HashMap::new();
 
     let mut res = format!(
-        "fn evaluate_air_constraints_table_{}({}, alpha_powers, bus_beta) -> 1 {{\n",
+        "fn evaluate_air_constraints_table_{}({}, air_alpha_powers, bus_beta, bus_alpha_powers) -> 1 {{\n",
         table.table().index() - 1,
         AIR_INNER_VALUES_VAR
     );
@@ -300,7 +300,7 @@ where
         res += "\n";
         let constraint_eval = write_down_air_constraint_eval(&constraint, &mut cache, &mut res, &mut vars_counter);
         res += format!(
-            "\tsum = add_extension_ret(sum, mul_extension_ret(alpha_powers + {} * DIM, {}));\n",
+            "\tsum = add_extension_ret(sum, mul_extension_ret(air_alpha_powers + {} * DIM, {}));\n",
             index + 1,
             constraint_eval
         )
@@ -318,7 +318,7 @@ where
         res += &format!("\n\tcopy_5({}, buff + DIM * {});", data_str, i);
     }
     res += &format!(
-        "\n\tmut bus_res = dot_product_ret(buff, alpha_powers + DIM, {}, EE);",
+        "\n\tmut bus_res = dot_product_ret(buff, bus_alpha_powers + DIM, {}, EE);",
         bus_data.len()
     );
     res += &format!("\n\tbus_res = add_extension_ret({}, bus_res);", table_index);
@@ -326,8 +326,8 @@ where
     res += &format!("\n\tbus_res = add_extension_ret(bus_res, {});", flag);
     res += &format!("\n\tsum = add_extension_ret(sum, bus_res);");
 
-    res += "\treturn sum;\n";
-    res += "}\n";
+    res += "\n\treturn sum;";
+    res += "\n}\n";
     res
 }
 
