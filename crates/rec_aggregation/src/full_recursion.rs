@@ -294,19 +294,18 @@ where
         table.table().index() - 1,
         AIR_INNER_VALUES_VAR
     );
-    res += "\tmut sum = pointer_to_zero_vector;\n";
 
-    for (index, constraint) in constraints.iter().enumerate() {
-        res += "\n";
-        let constraint_eval = write_down_air_constraint_eval(constraint, &mut cache, &mut res, &mut vars_counter);
-        res += format!(
-            "\tsum = add_extension_ret(sum, mul_extension_ret(air_alpha_powers + {} * DIM, {}));\n",
-            index + 1,
-            constraint_eval
-        )
-        .as_str();
+    let mut constraints_evals = vec![];
+    for constraint in &constraints {
+        constraints_evals.push(write_down_air_constraint_eval(
+            constraint,
+            &mut cache,
+            &mut res,
+            &mut vars_counter,
+        ));
     }
-    // finally: bus data
+
+    // first: bus data
     let table_index = match table.bus().table {
         BusTable::Constant(c) => format!("embedd_in_ef({})", c.index()),
         BusTable::Variable(col) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, col),
@@ -323,8 +322,16 @@ where
     );
     res += &format!("\n\tbus_res = add_extension_ret({}, bus_res);", table_index);
     res += "\n\tbus_res = mul_extension_ret(bus_res, bus_beta);";
-    res += &format!("\n\tbus_res = add_extension_ret(bus_res, {});", flag);
-    res += "\n\tsum = add_extension_ret(sum, bus_res);";
+    res += &format!("\n\tmut sum = add_extension_ret(bus_res, {});", flag);
+
+    for (index, constraint_eval) in constraints_evals.iter().enumerate() {
+        res += format!(
+            "\n\tsum = add_extension_ret(sum, mul_extension_ret(air_alpha_powers + {} * DIM, {}));",
+            index + 1,
+            constraint_eval
+        )
+        .as_str();
+    }
 
     res += "\n\treturn sum;";
     res += "\n}\n";

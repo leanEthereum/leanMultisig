@@ -198,6 +198,8 @@ fn main() {
         n_down_columns = n_down_columns_f + n_down_columns_ef;
         fs, inner_evals = fs_receive_ef(fs, n_up_columns + n_down_columns);
 
+        print(table_index);
+
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alpha_powers);
         expected_outer_eval = mul_extension_ret(air_constraints_eval, eq_mle_extension(zerocheck_challenges, outer_point, log_n_rows));
         copy_5(expected_outer_eval, outer_eval);
