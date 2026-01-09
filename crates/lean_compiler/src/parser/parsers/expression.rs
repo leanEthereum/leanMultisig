@@ -47,6 +47,10 @@ impl Parse<Expression> for MathOperation {
         let mut inner = pair.into_inner();
         let mut expr = ExpressionParser.parse(next_inner_pair(&mut inner, "math expr left")?, ctx)?;
 
+        if self.is_unary() {
+            return Ok(Expression::MathExpr(*self, vec![expr]));
+        }
+
         for right in inner {
             let right_expr = ExpressionParser.parse(right, ctx)?;
             expr = Expression::MathExpr(*self, vec![expr, right_expr]);

@@ -356,6 +356,9 @@ impl Display for MathOperation {
 }
 
 impl MathOperation {
+    pub fn is_unary(&self) -> bool {
+        self.num_args() == 1
+    }
     pub fn num_args(&self) -> usize {
         match self {
             Self::Log2Ceil => 1,

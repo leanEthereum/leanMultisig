@@ -1,5 +1,6 @@
 fn main() {
     a = f();
+    assert log2_ceil(13) == 4;
     return;
 }
 
