@@ -43,7 +43,7 @@ mod tests {
                     x + 1 == y
                 });
                 assert_eq!(matrix.evaluate(&MultilinearPoint(y_bools.clone())), expected);
-                assert_eq!(next_mle(&[x_bools.clone(), y_bools].concat()), expected);
+                assert_eq!(next_mle(&x_bools, &y_bools), expected);
             }
         }
     }

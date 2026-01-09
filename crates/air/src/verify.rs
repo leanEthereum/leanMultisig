@@ -185,13 +185,7 @@ fn open_columns_no_skip<A: Air, EF: ExtensionField<PF<EF>>>(
         return Err(ProofError::InvalidProof);
     }
 
-    let matrix_down_sc_eval = next_mle(
-        &[
-            outer_sumcheck_challenge.to_vec(),
-            inner_sumcheck_stement.point.0.clone(),
-        ]
-        .concat(),
-    );
+    let matrix_down_sc_eval = next_mle(&outer_sumcheck_challenge, &inner_sumcheck_stement.point);
 
     let evals_f_on_down_columns = verifier_state.next_extension_scalars_vec(n_columns_f_down)?;
     let evals_ef_on_down_columns = verifier_state.next_extension_scalars_vec(n_columns_ef_down)?;
