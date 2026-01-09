@@ -233,6 +233,14 @@ pub fn run_end2end_recursion_benchmark() {
         "EVALUATE_AIR_FUNCTIONS_PLACEHOLDER".to_string(),
         all_air_evals_in_zk_dsl(),
     );
+    replacements.insert(
+        "NUM_BYTECODE_INSTRUCTIONS_PLACEHOLDER".to_string(),
+        N_INSTRUCTION_COLUMNS.to_string(),
+    );
+    replacements.insert(
+        "N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER".to_string(),
+        N_COMMITTED_EXEC_COLUMNS.to_string(),
+    );
 
     let public_input = vec![];
     let private_input = proof_to_prove.proof;

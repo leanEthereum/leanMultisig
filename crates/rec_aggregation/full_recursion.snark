@@ -28,6 +28,9 @@ const N_AIR_COLUMNS_EF = N_AIR_COLUMNS_EF_PLACEHOLDER; // [_; N_TABLES]
 const AIR_DOWN_COLUMNS_F = AIR_DOWN_COLUMNS_F_PLACEHOLDER; // [[_; ?]; N_TABLES]
 const AIR_DOWN_COLUMNS_EF = AIR_DOWN_COLUMNS_EF_PLACEHOLDER; // [[_; _]; N_TABLES]
 
+const NUM_BYTECODE_INSTRUCTIONS = NUM_BYTECODE_INSTRUCTIONS_PLACEHOLDER;
+const N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER;
+
 fn main() {
     proof_transcript = private_input_start();
     mut fs = fs_new(proof_transcript);
@@ -265,6 +268,30 @@ fn main() {
             }
         }
     }
+
+    log_num_instrs = log2_ceil(NUM_BYTECODE_INSTRUCTIONS);
+    bytecode_compression_challenges = malloc(DIM * log_num_instrs);
+    for i in 0..log_num_instrs unroll {
+        copy_5(fs_sample_ef(fs), bytecode_compression_challenges + i * DIM); // TODO avoid duplication
+        if i != log_num_instrs - 1 {
+            fs = duplexing(fs);
+        }
+    }
+
+    bytecode_air_point = pcs_points[EXECUTION_TABLE_INDEX - 1][2];
+    bytecode_air_values = malloc(DIM * 2 ** log_num_instrs);
+    for i in 0..NUM_BYTECODE_INSTRUCTIONS unroll {
+        col = N_COMMITTED_EXEC_COLUMNS + i;
+        copy_5(pcs_values[EXECUTION_TABLE_INDEX - 1][2][col][0], bytecode_air_values + i * DIM);
+        pcs_values[EXECUTION_TABLE_INDEX - 1][2][col].pop();
+    }
+    for i in NUM_BYTECODE_INSTRUCTIONS..2 ** log_num_instrs unroll {
+        set_to_5_zeros(bytecode_air_values + i * DIM);
+    }
+
+   bytecode_lookup_claim = dot_product_ret(bytecode_air_values, poly_eq_extension(bytecode_compression_challenges, log_num_instrs), 2 ** log_num_instrs, EE);
+   print_ef(bytecode_lookup_claim); // correct
+
 
     return;
 }
