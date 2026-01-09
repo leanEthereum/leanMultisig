@@ -189,9 +189,13 @@ fn main() {
 
         fs, outer_point, outer_eval = sumcheck_verify(fs, log_n_rows, bus_final_value, AIR_DEGREES[table_index] + 1);
 
-        n_down_columns = len(AIR_DOWN_COLUMNS_F[table_index]) + len(AIR_DOWN_COLUMNS_EF[table_index]);
-        n_up_and_down_cols = N_AIR_COLUMNS_F[table_index] + N_AIR_COLUMNS_EF[table_index] + n_down_columns;
-        fs, inner_evals = fs_receive_ef(fs, n_up_and_down_cols);
+        n_up_columns_f = N_AIR_COLUMNS_F[table_index];
+        n_up_columns_ef = N_AIR_COLUMNS_EF[table_index];
+        n_down_columns_f = len(AIR_DOWN_COLUMNS_F[table_index]);
+        n_down_columns_ef = len(AIR_DOWN_COLUMNS_EF[table_index]);
+        n_up_columns = n_up_columns_f + n_up_columns_ef;
+        n_down_columns = n_down_columns_f + n_down_columns_ef;
+        fs, inner_evals = fs_receive_ef(fs, n_up_columns + n_down_columns);
 
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alpha_powers);
         expected_outer_eval = mul_extension_ret(air_constraints_eval, eq_mle_extension(zerocheck_challenges, outer_point, log_n_rows));
@@ -200,8 +204,14 @@ fn main() {
         if len(AIR_DOWN_COLUMNS_F[table_index]) != 0  {
             batching_scalar = fs_sample_ef(fs);
             batching_scalar_powers = powers_const(batching_scalar, n_down_columns);
-            inner_sum = dot_product_ret(inner_evals, batching_scalar_powers, n_down_columns, EE);
-            // fs, inner_point, inner_eval = sumcheck_verify(fs, log_n_rows, inner_sum, 2);
+            evals_down_f = inner_evals + n_up_columns_f * DIM;
+            evals_down_ef = inner_evals + (n_up_columns_f + n_down_columns_f + n_up_columns_ef) * DIM;
+            mut inner_sum = dot_product_ret(evals_down_f, batching_scalar_powers, n_down_columns_f, EE);
+            if n_down_columns_ef != 0 {
+                inner_sum = add_extension_ret(inner_sum, dot_product_ret(evals_down_ef, batching_scalar_powers + n_down_columns_f, n_down_columns_ef, EE));
+            }
+            
+            fs, inner_point, inner_eval = sumcheck_verify(fs, log_n_rows, inner_sum, 2);
 
             print_ef(batching_scalar);
 
