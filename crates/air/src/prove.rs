@@ -246,19 +246,18 @@ fn open_columns_no_skip<EF: ExtensionField<PF<EF>>>(
         };
     }
 
-    let batching_scalars = prover_state.sample_vec(log2_ceil_usize(n_down_columns));
-
-    let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_down_columns].to_vec();
+    let batching_scalar = prover_state.sample();
+    let batching_scalar_powers = batching_scalar.powers().collect_n(n_down_columns);
 
     let columns_shifted_f = &columns_with_shift_f.iter().map(|&i| columns_f[i]).collect::<Vec<_>>();
     let columns_shifted_ef = &columns_with_shift_ef.iter().map(|&i| columns_ef[i]).collect::<Vec<_>>();
 
     let mut batched_column_down =
-        multilinears_linear_combination(columns_shifted_f, &eval_eq_batching_scalars[..n_columns_f_down]);
+        multilinears_linear_combination(columns_shifted_f, &batching_scalar_powers[..n_columns_f_down]);
 
     if n_columns_ef_down > 0 {
         let batched_column_down_ef =
-            multilinears_linear_combination(columns_shifted_ef, &eval_eq_batching_scalars[n_columns_f_down..]);
+            multilinears_linear_combination(columns_shifted_ef, &batching_scalar_powers[n_columns_f_down..]);
         batched_column_down
             .par_iter_mut()
             .zip(&batched_column_down_ef)
@@ -274,7 +273,7 @@ fn open_columns_no_skip<EF: ExtensionField<PF<EF>>>(
 
     let inner_sum = dot_product(
         evals_down_f.iter().chain(evals_down_ef).copied(),
-        eval_eq_batching_scalars.iter().copied(),
+        batching_scalar_powers.iter().copied(),
     );
 
     let (inner_challenges, _, _) = info_span!("structured columns sumcheck").in_scope(|| {

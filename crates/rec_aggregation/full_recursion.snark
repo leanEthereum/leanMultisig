@@ -77,15 +77,17 @@ fn main() {
     mut offset = powers_of_two(log_memory);
     bus_numerators_values = vec![];
     bus_denominators_values = vec![];
-    logup_points = vec![];
-    columns_values = vec![];
+    pcs_points = vec![]; // [[_; N]; N_TABLES]
+    for i in 0..N_TABLES unroll { pcs_points.push(vec![]); }
+    pcs_values = vec![]; // [[[[] or [_]; num cols]; N]; N_TABLES]
+    for i in 0..N_TABLES unroll { pcs_values.push(vec![]); }
     for table_index in 0..N_TABLES unroll {
         // I] Bus (data flow between tables)
 
         log_n_rows = table_dims[table_index];
         n_rows = powers_of_two(log_n_rows);
         inner_point = point_gkr + (N_VARS_FIRST_GKR - log_n_rows) * DIM;
-        logup_points.push(inner_point);
+        pcs_points[table_index].push(inner_point);
 
         prefix = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr);
 
@@ -103,22 +105,22 @@ fn main() {
         
         // II] Lookup into memory
 
-        columns_values.push(vec![]);
+        pcs_values[table_index].push(vec![]);
         total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index];
         for col in 0..total_num_cols unroll {
-            columns_values[table_index].push(vec![]);
+            pcs_values[table_index][0].push(vec![]);
         }
 
         for lookup_f_index in 0..len(LOOKUPS_F_INDEXES[table_index]) unroll {
             col_index = LOOKUPS_F_INDEXES[table_index][lookup_f_index];
             fs, index_eval = fs_receive_ef(fs, 1);
-            debug_assert len(columns_values[table_index][col_index]) == 0;
-            columns_values[table_index][col_index].push(index_eval);
+            debug_assert len(pcs_values[table_index][0][col_index]) == 0;
+            pcs_values[table_index][0][col_index].push(index_eval);
             for i in 0..len(LOOKUPS_F_VALUES[table_index][lookup_f_index]) unroll {
                 fs, value_eval = fs_receive_ef(fs, 1);
                 col_index = LOOKUPS_F_VALUES[table_index][lookup_f_index][i];
-                debug_assert len(columns_values[table_index][col_index]) == 0;
-                columns_values[table_index][col_index].push(value_eval);
+                debug_assert len(pcs_values[table_index][0][col_index]) == 0;
+                pcs_values[table_index][0][col_index].push(value_eval);
 
                 pref = multilinear_location_prefix(offset / n_rows, N_VARS_FIRST_GKR - log_n_rows, point_gkr); // TODO there is some duplication here
                 retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, pref);
@@ -132,11 +134,11 @@ fn main() {
         for lookup_ef_index in 0..len(LOOKUPS_EF_INDEXES[table_index]) unroll {
             col_index = LOOKUPS_EF_INDEXES[table_index][lookup_ef_index];
             fs, index_eval = fs_receive_ef(fs, 1);
-            if len(columns_values[table_index][col_index]) == 0 {
-                columns_values[table_index][col_index].push(index_eval);
+            if len(pcs_values[table_index][0][col_index]) == 0 {
+                pcs_values[table_index][0][col_index].push(index_eval);
             } else {
                 // assert equal
-                copy_5(index_eval, columns_values[table_index][col_index][0]);
+                copy_5(index_eval, pcs_values[table_index][0][col_index][0]);
             }
 
             for i in 0..DIM unroll {
@@ -147,8 +149,8 @@ fn main() {
                 retrieved_denominators_value = add_extension_ret(retrieved_denominators_value, mul_extension_ret(pref, sub_extension_ret(logup_c, fingerp)));
 
                 global_index = NUM_COLS_F_COMMITED[table_index] + LOOKUPS_EF_VALUES[table_index][lookup_ef_index] * DIM + i;
-                debug_assert len(columns_values[table_index][global_index]) == 0;
-                columns_values[table_index][global_index].push(value_eval);
+                debug_assert len(pcs_values[table_index][0][global_index]) == 0;
+                pcs_values[table_index][0][global_index].push(value_eval);
 
                 offset += n_rows;
             }
@@ -183,16 +185,39 @@ fn main() {
         }
         bus_final_value = add_extension_ret(bus_final_value, mul_extension_ret(bus_beta, sub_extension_ret(bus_denominator_value, logup_c)));
 
-        zerocheck_challenges = logup_points[table_index];
+        zerocheck_challenges = pcs_points[table_index][0];
 
         fs, outer_point, outer_eval = sumcheck_verify(fs, log_n_rows, bus_final_value, AIR_DEGREES[table_index] + 1);
 
-        n_up_and_down_cols = N_AIR_COLUMNS_F[table_index] + N_AIR_COLUMNS_EF[table_index] + len(AIR_DOWN_COLUMNS_F[table_index]) + len(AIR_DOWN_COLUMNS_EF[table_index]);
+        n_down_columns = len(AIR_DOWN_COLUMNS_F[table_index]) + len(AIR_DOWN_COLUMNS_EF[table_index]);
+        n_up_and_down_cols = N_AIR_COLUMNS_F[table_index] + N_AIR_COLUMNS_EF[table_index] + n_down_columns;
         fs, inner_evals = fs_receive_ef(fs, n_up_and_down_cols);
 
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alpha_powers);
         expected_outer_eval = mul_extension_ret(air_constraints_eval, eq_mle_extension(zerocheck_challenges, outer_point, log_n_rows));
         copy_5(expected_outer_eval, outer_eval);
+
+        if len(AIR_DOWN_COLUMNS_F[table_index]) != 0  {
+            batching_scalar = fs_sample_ef(fs);
+            batching_scalar_powers = powers_const(batching_scalar, n_down_columns);
+            inner_sum = dot_product_ret(inner_evals, batching_scalar_powers, n_down_columns, EE);
+            // fs, inner_point, inner_eval = sumcheck_verify(fs, log_n_rows, inner_sum, 2);
+
+            print_ef(batching_scalar);
+
+        }
+
+
+
+
+        pcs_points[table_index].push(outer_point);
+        pcs_values[table_index].push(vec![]);
+        for col_index in 0..N_AIR_COLUMNS_F[table_index] unroll {
+            pcs_values[table_index][1].push(inner_evals + col_index * DIM);
+        }
+
+
+        
 
         return;
     }

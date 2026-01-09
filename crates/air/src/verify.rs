@@ -36,9 +36,8 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    let inner_evals = verifier_state.next_extension_scalars_vec(
-        air.n_columns_air() + air.n_down_columns_f() + air.n_down_columns_ef(),
-    )?;
+    let inner_evals = verifier_state
+        .next_extension_scalars_vec(air.n_columns_air() + air.n_down_columns_f() + air.n_down_columns_ef())?;
 
     let n_columns_down_f = air.n_down_columns_f();
     let n_columns_down_ef = air.n_down_columns_ef();
@@ -172,12 +171,12 @@ fn open_columns_no_skip<A: Air, EF: ExtensionField<PF<EF>>>(
         });
     }
 
-    let batching_scalars = verifier_state.sample_vec(log2_ceil_usize(n_down_columns));
-    let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_down_columns].to_vec();
+    let batching_scalar = verifier_state.sample();
+    let batching_scalar_powers = batching_scalar.powers().collect_n(n_down_columns);
 
     let inner_sum: EF = dot_product(
         evals_down_f.into_iter().chain(evals_down_ef),
-        eval_eq_batching_scalars.iter().copied(),
+        batching_scalar_powers.iter().copied(),
     );
 
     let (inner_sum_retrieved, inner_sumcheck_stement) = sumcheck_verify(verifier_state, log_n_rows, 2)?;
@@ -198,7 +197,7 @@ fn open_columns_no_skip<A: Air, EF: ExtensionField<PF<EF>>>(
     let evals_ef_on_down_columns = verifier_state.next_extension_scalars_vec(n_columns_ef_down)?;
     let evaluations_remaining_to_verify = [evals_f_on_down_columns.clone(), evals_ef_on_down_columns.clone()].concat();
     let batched_col_down_sc_eval = dot_product::<EF, _, _>(
-        eval_eq_batching_scalars.iter().copied(),
+        batching_scalar_powers.iter().copied(),
         evaluations_remaining_to_verify.iter().copied(),
     );
 
