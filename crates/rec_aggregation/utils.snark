@@ -744,3 +744,9 @@ fn next_mle(x, y, n) -> 1 {
     result = add_extension_ret(sum, prod);
     return result;
 }
+
+fn dot_product_with_the_base_vectors(slice) inline -> 1 {
+    // slice: pointer to DIM extension field elements
+    // cf constants.rs: by convention, [10000] [01000] [00100] [00010] [00001] is harcoded in memory, starting at pointer_to_one_vector
+    return dot_product_ret(slice, pointer_to_one_vector, 1, EE);
+}

@@ -1,15 +1,15 @@
 //! VM execution runner
 
 use crate::core::{
-    DIMENSION, F, FileId, NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, VECTOR_LEN,
-    ZERO_VEC_PTR,
+    DIMENSION, F, FileId, NONRESERVED_PROGRAM_INPUT_START, POSEIDON_16_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
 };
 use crate::diagnostics::{ExecutionResult, MemoryProfile, RunnerError, memory_profiling_report};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, N_TABLES, STARTING_PC, SourceLocation, Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES, STARTING_PC,
+    SourceLocation, Table, TableTrace,
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,10 +32,11 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
         *slot = F::ZERO;
     }
 
-    // "one" vector
-    public_memory[ONE_VEC_PTR] = F::ONE;
-    for slot in public_memory.iter_mut().skip(ONE_VEC_PTR + 1).take(VECTOR_LEN - 1) {
-        *slot = F::ZERO;
+    // extension basis
+    for i in 0..DIMENSION {
+        let mut vec = F::zero_vec(DIMENSION);
+        vec[i] = F::ONE;
+        public_memory[EXTENSION_BASIS_PTR + i * DIMENSION..][..DIMENSION].copy_from_slice(&vec);
     }
 
     public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * VECTOR_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
