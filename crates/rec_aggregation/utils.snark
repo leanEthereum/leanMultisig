@@ -414,8 +414,13 @@ fn add_base_extension_ret(a, b) inline -> 1 {
 fn mul_base_extension_ret(a, b) inline -> 1 {
     // a: base
     // b: extension
+
+    // TODO: use dot_product_be
+
     res = malloc(DIM);
-    dot_product(a, b, res, 1, BE);
+    for i in 0..DIM unroll {
+        res[i] = a * b[i];
+    }
     return res;
 }
 
