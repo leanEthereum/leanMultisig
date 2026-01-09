@@ -215,21 +215,36 @@ fn main() {
 
             matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows);
 
-            print_ef(matrix_down_sc_eval);
+            fs, evals_f_on_down_columns = fs_receive_ef(fs, n_down_columns_f);
+            mut batched_col_down_sc_eval = dot_product_ret(evals_f_on_down_columns, batching_scalar_powers, n_down_columns_f, EE);
+
+            var evals_ef_on_down_columns;
+            if n_down_columns_ef != 0 {
+                fs, evals_ef_on_down_columns = fs_receive_ef(fs, n_down_columns_ef);
+                batched_col_down_sc_eval = add_extension_ret(batched_col_down_sc_eval, dot_product_ret(evals_ef_on_down_columns, batching_scalar_powers + n_down_columns_f, n_down_columns_ef, EE));
+            }
+
+            copy_5(inner_eval, mul_extension_ret(batched_col_down_sc_eval, matrix_down_sc_eval));
+
+            pcs_points[table_index].push(inner_point);
+            pcs_values[table_index].push(vec![]);
+            last_index = len(pcs_values[table_index]) - 1;
+            for _ in 0..n_up_columns_f unroll {
+                pcs_values[table_index][last_index].push(vec![]);
+            }
+            for i in 0..n_down_columns_f unroll {
+                pcs_values[table_index][last_index][AIR_DOWN_COLUMNS_F[table_index][i]].push(evals_f_on_down_columns + i * DIM);
+            }
+            
+            
 
         }
-
-
-
 
         pcs_points[table_index].push(outer_point);
         pcs_values[table_index].push(vec![]);
         for col_index in 0..N_AIR_COLUMNS_F[table_index] unroll {
             pcs_values[table_index][1].push(inner_evals + col_index * DIM);
         }
-
-
-        
 
         return;
     }

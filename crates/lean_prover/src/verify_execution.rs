@@ -94,7 +94,7 @@ pub fn verify_execution(
     let bytecode_compression_challenges =
         MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
-    let bytecode_air_entry = &mut committed_statements.get_mut(&Table::execution()).unwrap()[1];
+    let bytecode_air_entry = &mut committed_statements.get_mut(&Table::execution()).unwrap()[2];
     let bytecode_air_point = bytecode_air_entry.0.clone();
     let mut bytecode_air_values = vec![];
     for bytecode_col_index in N_COMMITTED_EXEC_COLUMNS..N_COMMITTED_EXEC_COLUMNS + N_INSTRUCTION_COLUMNS {
@@ -228,27 +228,7 @@ fn verify_bus_and_air(
         delegate_to_inner!(table => verify_air_for_table)
     };
 
-    assert_eq!(air_claims.evals_f.len(), table.n_columns_f_air());
-    assert_eq!(air_claims.evals_ef.len(), table.n_columns_ef_air());
-    let mut evals = air_claims
-        .evals_f
-        .iter()
-        .copied()
-        .enumerate()
-        .collect::<BTreeMap<_, _>>();
-    for (col_index, value) in air_claims.evals_ef.into_iter().enumerate() {
-        let transposed = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-        if dot_product_with_base(&transposed) != value {
-            return Err(ProofError::InvalidProof);
-        }
-        for (j, v) in transposed.into_iter().enumerate() {
-            let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-            evals.insert(virtual_index, v);
-        }
-    }
-
-    let mut res = vec![(air_claims.point.clone(), evals)];
-
+    let mut res = vec![];
     if let Some(down_point) = air_claims.down_point {
         assert_eq!(air_claims.evals_f_on_down_columns.len(), table.n_down_columns_f());
         let mut down_evals = BTreeMap::new();
@@ -277,6 +257,27 @@ fn verify_bus_and_air(
         }
         res.push((down_point, down_evals));
     }
+
+    assert_eq!(air_claims.evals_f.len(), table.n_columns_f_air());
+    assert_eq!(air_claims.evals_ef.len(), table.n_columns_ef_air());
+    let mut evals = air_claims
+        .evals_f
+        .iter()
+        .copied()
+        .enumerate()
+        .collect::<BTreeMap<_, _>>();
+    for (col_index, value) in air_claims.evals_ef.into_iter().enumerate() {
+        let transposed = verifier_state.next_extension_scalars_vec(DIMENSION)?;
+        if dot_product_with_base(&transposed) != value {
+            return Err(ProofError::InvalidProof);
+        }
+        for (j, v) in transposed.into_iter().enumerate() {
+            let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
+            evals.insert(virtual_index, v);
+        }
+    }
+
+    res.push((air_claims.point.clone(), evals));
 
     Ok(res)
 }
