@@ -213,7 +213,9 @@ fn main() {
             
             fs, inner_point, inner_eval = sumcheck_verify(fs, log_n_rows, inner_sum, 2);
 
-            print_ef(batching_scalar);
+            matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows);
+
+            print_ef(matrix_down_sc_eval);
 
         }
 
