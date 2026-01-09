@@ -1,0 +1,8 @@
+// Error test: pop from outer-scope vector in non-unroll loop
+fn main() {
+    v = vec![1, 2, 3];
+    for i in 0..2 {
+        v.pop();
+    }
+    return;
+}

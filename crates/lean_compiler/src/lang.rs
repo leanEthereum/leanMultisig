@@ -613,6 +613,12 @@ pub enum Line {
         element: VecLiteral,
         location: SourceLocation,
     },
+    /// Compile-time vector pop: vec_var.pop() or vec_var[i][j].pop()
+    Pop {
+        vector: Var,
+        indices: Vec<Expression>,
+        location: SourceLocation,
+    },
 }
 
 /// A context specifying which variables are in scope.
@@ -800,6 +806,17 @@ impl Line {
                     element
                 )
             }
+            Self::Pop { vector, indices, .. } => {
+                if indices.is_empty() {
+                    format!("{}.pop()", vector)
+                } else {
+                    format!(
+                        "{}[{}].pop()",
+                        vector,
+                        indices.iter().map(|i| format!("{i}")).collect::<Vec<_>>().join("][")
+                    )
+                }
+            }
         };
         format!("{spaces}{line_str}")
     }
@@ -820,7 +837,8 @@ impl Line {
             | Self::Panic
             | Self::LocationReport { .. }
             | Self::VecDeclaration { .. }
-            | Self::Push { .. } => vec![],
+            | Self::Push { .. }
+            | Self::Pop { .. } => vec![],
         }
     }
 
@@ -840,7 +858,8 @@ impl Line {
             | Self::Panic
             | Self::LocationReport { .. }
             | Self::VecDeclaration { .. }
-            | Self::Push { .. } => vec![],
+            | Self::Push { .. }
+            | Self::Pop { .. } => vec![],
         }
     }
 
@@ -867,6 +886,7 @@ impl Line {
                 exprs.extend(VecLiteral::all_exprs_mut_in_slice(std::slice::from_mut(element)));
                 exprs
             }
+            Self::Pop { indices, .. } => indices.iter_mut().collect(),
             Self::VecDeclaration { elements, .. } => VecLiteral::all_exprs_mut_in_slice(elements),
             Self::ForwardDeclaration { .. } | Self::Panic | Self::LocationReport { .. } => vec![],
         }

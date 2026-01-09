@@ -31,6 +31,7 @@ statement = {
     debug_assert_statement |
     vec_declaration |
     push_statement |
+    pop_statement |
     assignment
 }
 
@@ -40,6 +41,10 @@ vec_declaration = { identifier ~ "=" ~ vec_literal ~ ";" }
 // Push statement: vec_var.push(element) or vec_var[i][j].push(element)
 push_statement = { push_target ~ "." ~ "push" ~ "(" ~ vec_element ~ ")" ~ ";" }
 push_target = { identifier ~ ("[" ~ expression ~ "]")* }
+
+// Pop statement: vec_var.pop() or vec_var[i][j].pop()
+pop_statement = { pop_target ~ "." ~ "pop" ~ "(" ~ ")" ~ ";" }
+pop_target = { identifier ~ ("[" ~ expression ~ "]")* }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
 

@@ -141,7 +141,7 @@ pub fn collect_inner_refs<T>(vecs: &[Vec<Vec<T>>]) -> Vec<Vec<&[T]>> {
 pub struct Counter(usize);
 
 impl Counter {
-    pub fn next(&mut self) -> usize {
+    pub fn get_next(&mut self) -> usize {
         let val = self.0;
         self.0 += 1;
         val

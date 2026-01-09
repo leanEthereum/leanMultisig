@@ -298,7 +298,7 @@ where
 
     for (index, constraint) in constraints.iter().enumerate() {
         res += "\n";
-        let constraint_eval = write_down_air_constraint_eval(&constraint, &mut cache, &mut res, &mut vars_counter);
+        let constraint_eval = write_down_air_constraint_eval(constraint, &mut cache, &mut res, &mut vars_counter);
         res += format!(
             "\tsum = add_extension_ret(sum, mul_extension_ret(air_alpha_powers + {} * DIM, {}));\n",
             index + 1,
@@ -322,9 +322,9 @@ where
         bus_data.len()
     );
     res += &format!("\n\tbus_res = add_extension_ret({}, bus_res);", table_index);
-    res += &format!("\n\tbus_res = mul_extension_ret(bus_res, bus_beta);");
+    res += "\n\tbus_res = mul_extension_ret(bus_res, bus_beta);";
     res += &format!("\n\tbus_res = add_extension_ret(bus_res, {});", flag);
-    res += &format!("\n\tsum = add_extension_ret(sum, bus_res);");
+    res += "\n\tsum = add_extension_ret(sum, bus_res);";
 
     res += "\n\treturn sum;";
     res += "\n}\n";
@@ -355,7 +355,7 @@ fn write_down_air_constraint_eval(
                 SymbolicOperation::Neg => {
                     assert_eq!(args.len(), 1);
                     let arg_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
-                    let aux_var = format!("aux_{}", vars_counter.next());
+                    let aux_var = format!("aux_{}", vars_counter.get_next());
                     res.push_str(&format!("\t{} = opposite_extension_ret({});\n", aux_var, arg_str));
                     return aux_var;
                 }
@@ -364,9 +364,7 @@ fn write_down_air_constraint_eval(
                     cache,
                     res,
                     vars_counter,
-                    "add_base_extension_ret",
-                    "add_base_extension_ret",
-                    "add_extension_ret",
+                    ("add_base_extension_ret", "add_base_extension_ret", "add_extension_ret"),
                     true,
                 ),
                 SymbolicOperation::Sub => handle_operation_on_two(
@@ -374,9 +372,7 @@ fn write_down_air_constraint_eval(
                     cache,
                     res,
                     vars_counter,
-                    "sub_base_extension_ret",
-                    "sub_extension_base_ret",
-                    "sub_extension_ret",
+                    ("sub_base_extension_ret", "sub_extension_base_ret", "sub_extension_ret"),
                     false,
                 ),
                 SymbolicOperation::Mul => handle_operation_on_two(
@@ -384,9 +380,7 @@ fn write_down_air_constraint_eval(
                     cache,
                     res,
                     vars_counter,
-                    "mul_base_extension_ret",
-                    "mul_base_extension_ret",
-                    "mul_extension_ret",
+                    ("mul_base_extension_ret", "mul_base_extension_ret", "mul_extension_ret"),
                     true,
                 ),
             };
@@ -402,21 +396,19 @@ fn handle_operation_on_two(
     cache: &mut HashMap<*const (), String>,
     res: &mut String,
     vars_counter: &mut Counter,
-    be_func: &str,
-    eb_func: &str,
-    ee_func: &str,
+    (be_func, eb_func, ee_func): (&str, &str, &str),
     switch_args: bool,
 ) -> String {
     assert_eq!(args.len(), 2);
     if let SymbolicExpression::Constant(c1) = args[0] {
         let arg2_str = write_down_air_constraint_eval(&args[1], cache, res, vars_counter);
-        let aux_var = format!("aux_{}", vars_counter.next());
+        let aux_var = format!("aux_{}", vars_counter.get_next());
         res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, be_func, c1, arg2_str));
         return aux_var;
     }
     if let SymbolicExpression::Constant(c2) = args[1] {
         let arg1_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
-        let aux_var = format!("aux_{}", vars_counter.next());
+        let aux_var = format!("aux_{}", vars_counter.get_next());
         let (term0, term1) = if switch_args {
             (c2.to_string(), arg1_str)
         } else {
@@ -427,9 +419,9 @@ fn handle_operation_on_two(
     }
     let arg1_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
     let arg2_str = write_down_air_constraint_eval(&args[1], cache, res, vars_counter);
-    let aux_var = format!("aux_{}", vars_counter.next());
+    let aux_var = format!("aux_{}", vars_counter.get_next());
     res.push_str(&format!("\t{} = {}({}, {});\n", aux_var, ee_func, arg1_str, arg2_str));
-    return aux_var;
+    aux_var
 }
 
 #[test]

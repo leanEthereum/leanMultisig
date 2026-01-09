@@ -1,0 +1,6 @@
+// Error test: pop on empty vector
+fn main() {
+    v = vec![];
+    v.pop();
+    return;
+}

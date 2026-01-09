@@ -301,10 +301,7 @@ fn prove_bus_and_air(
     let mut res = vec![(air_claims.point.clone(), evals)];
 
     if let Some(down_point) = air_claims.down_point {
-        assert_eq!(
-            air_claims.evals_f_on_down_columns.len(),
-            table.n_down_columns_f()
-        );
+        assert_eq!(air_claims.evals_f_on_down_columns.len(), table.n_down_columns_f());
         let mut down_evals = BTreeMap::new();
         for (value_f, col_index) in air_claims
             .evals_f_on_down_columns
@@ -314,10 +311,7 @@ fn prove_bus_and_air(
             down_evals.insert(col_index, *value_f);
         }
 
-        assert_eq!(
-            air_claims.evals_ef_on_down_columns.len(),
-            table.n_down_columns_ef()
-        );
+        assert_eq!(air_claims.evals_ef_on_down_columns.len(), table.n_down_columns_ef());
         for (col_index, value) in table
             .down_column_indexes_ef()
             .into_iter()

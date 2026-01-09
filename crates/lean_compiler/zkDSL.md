@@ -171,6 +171,7 @@ Vectors are compile-time constructs for building dynamic arrays. Unlike `malloc`
 ```
 v = vec![1, 2, 3];        // create vector
 v.push(4);                // append element
+v.pop();                  // remove last element (does not return it)
 x = v[2];                 // access (index must be compile-time constant)
 n = len(v);               // get length
 ```
@@ -180,7 +181,8 @@ n = len(v);               // get length
 ```
 matrix = vec![vec![1, 2], vec![3, 4, 5]];
 matrix[1].push(6);        // push to inner vector
-x = matrix[0][1];         // x = 2
+matrix[0].pop();          // pop from inner vector
+x = matrix[0][0];         // x = 1
 n = len(matrix[1]);       // n = 4
 ```
 
@@ -200,8 +202,9 @@ for i in 0..5 unroll {
 Vectors are compile-time only. The compiler must know the exact structure at every point:
 
 1. **Indices must be compile-time constants** (literals or unroll loop variables)
-2. **Push to outer-scope vectors forbidden** inside `if/else`, `match`, or non-unrolled loops
+2. **Push/pop to outer-scope vectors forbidden** inside `if/else`, `match`, or non-unrolled loops
 3. **Vectors cannot be passed to non-inlined functions**
+4. **Pop on empty vector is a compile error**
 
 ```
 // OK: local vector in branch

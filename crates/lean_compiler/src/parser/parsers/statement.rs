@@ -31,6 +31,7 @@ impl Parse<Line> for StatementParser {
             Rule::debug_assert_statement => AssertParser::<true>.parse(inner, ctx),
             Rule::vec_declaration => VecDeclarationParser.parse(inner, ctx),
             Rule::push_statement => PushStatementParser.parse(inner, ctx),
+            Rule::pop_statement => PopStatementParser.parse(inner, ctx),
             _ => Err(SemanticError::new("Unknown statement").into()),
         }
     }
@@ -401,6 +402,39 @@ impl Parse<Line> for PushStatementParser {
             vector,
             indices,
             element,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
+        })
+    }
+}
+
+/// Parser for pop statements: `vec_var.pop();` or `vec_var[i][j].pop();`
+pub struct PopStatementParser;
+
+impl Parse<Line> for PopStatementParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
+        let mut inner = pair.into_inner();
+
+        // Parse the pop_target (identifier with optional indices)
+        let pop_target = next_inner_pair(&mut inner, "pop target")?;
+        let mut target_inner = pop_target.into_inner();
+
+        // First element is the vector variable name
+        let vector = next_inner_pair(&mut target_inner, "vector variable")?
+            .as_str()
+            .to_string();
+
+        // Remaining elements are index expressions
+        let indices: Vec<Expression> = target_inner
+            .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Line::Pop {
+            vector,
+            indices,
             location: SourceLocation {
                 file_id: ctx.current_file_id,
                 line_number,

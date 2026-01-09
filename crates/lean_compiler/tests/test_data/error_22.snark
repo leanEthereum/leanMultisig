@@ -1,0 +1,6 @@
+// Error test: pop on empty nested vector
+fn main() {
+    v = vec![vec![]];
+    v[0].pop();
+    return;
+}

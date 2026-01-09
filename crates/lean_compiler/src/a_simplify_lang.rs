@@ -333,6 +333,13 @@ impl VectorLenValue {
         }
     }
 
+    pub fn pop(&mut self) -> Option<Self> {
+        match self {
+            Self::Vector(v) => v.pop(),
+            _ => panic!("pop on scalar"),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self {
             Self::Vector(v) => v.len(),
@@ -570,6 +577,36 @@ fn compile_time_transform_in_lines(
                 }
             }
 
+            Line::Pop {
+                vector,
+                indices,
+                location,
+            } => {
+                let Some(const_indices) = indices.iter().map(|idx| idx.as_scalar()).collect::<Option<Vec<_>>>() else {
+                    return Err(format!("line {}: pop with non-constant indices", location));
+                };
+                let vector_value = vector_len_tracker
+                    .get_mut(vector)
+                    .ok_or_else(|| format!("line {}: pop on undeclared vector '{}'", location, vector))?;
+                if const_indices.is_empty() {
+                    if vector_value.len() == 0 {
+                        return Err(format!("line {}: pop on empty vector '{}'", location, vector));
+                    }
+                    vector_value.pop();
+                } else {
+                    let target = vector_value
+                        .navigate_mut(&const_indices)
+                        .ok_or_else(|| format!("line {}: pop target index out of bounds", location))?;
+                    if !target.is_vector() {
+                        return Err(format!("line {}: pop target is not a vector", location));
+                    }
+                    if target.len() == 0 {
+                        return Err(format!("line {}: pop on empty vector", location));
+                    }
+                    target.pop();
+                }
+            }
+
             Line::IfCondition {
                 condition,
                 then_branch,
@@ -594,7 +631,7 @@ fn compile_time_transform_in_lines(
                 let (Some(start_usize), Some(end_usize)) = (start.as_scalar(), end.as_scalar()) else {
                     return Err("Cannot unroll loop with non-constant bounds".to_string());
                 };
-                let unroll_index = unroll_counter.next();
+                let unroll_index = unroll_counter.get_next();
                 let (internal_vars, _) = find_variable_usage(body, const_arrays);
                 let iterator = iterator.clone();
                 let body = body.clone();
@@ -652,7 +689,7 @@ fn try_inline_call(
             if let Expression::Value(v) = arg {
                 new_args.push(Expression::Value(v.clone()));
             } else {
-                let tmp = format!("@inline_arg_{}", inline_counter.next());
+                let tmp = format!("@inline_arg_{}", inline_counter.get_next());
                 new_lines.push(Line::ForwardDeclaration { var: tmp.clone() });
                 new_lines.push(Line::Statement {
                     targets: vec![AssignmentTarget::Var {
@@ -689,7 +726,7 @@ fn try_inline_call(
         .collect();
 
     let mut body = func.body.clone();
-    inline_lines(&mut body, &args_map, const_arrays, targets, inline_counter.next());
+    inline_lines(&mut body, &args_map, const_arrays, targets, inline_counter.get_next());
     Some(body)
 }
 
@@ -721,7 +758,7 @@ fn extract_inlined_calls(
                     function_name, func.n_returned_vars
                 ));
             }
-            let tmp = format!("@inline_tmp_{}", counter.next());
+            let tmp = format!("@inline_tmp_{}", counter.get_next());
             out.push(Line::ForwardDeclaration { var: tmp.clone() });
             out.push(Line::Statement {
                 targets: vec![AssignmentTarget::Var {
@@ -1287,6 +1324,14 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 // Check the pushed element
                 check_vec_literal_element_scoping(element, ctx);
             }
+            Line::Pop { vector, indices, .. } => {
+                // Check the vector variable is in scope
+                assert!(ctx.defines(vector), "Vector variable '{}' not in scope", vector);
+                // Check indices are in scope
+                for idx in indices {
+                    check_expr_scoping(idx, ctx);
+                }
+            }
         }
     }
 }
@@ -1328,6 +1373,14 @@ fn validate_vectors(
                     return Err(format!("line {}: push to outer-scope vector '{}'", location, vector));
                 }
                 validate_vec_lit(std::slice::from_ref(element), &all!(), inlined)?;
+                if !local.contains(vector) && !outer.contains(vector) {
+                    return Err(format!("line {}: unknown vector '{}'", location, vector));
+                }
+            }
+            Line::Pop { vector, location, .. } => {
+                if restrict.is_some() && outer.contains(vector) {
+                    return Err(format!("line {}: pop from outer-scope vector '{}'", location, vector));
+                }
                 if !local.contains(vector) && !outer.contains(vector) {
                     return Err(format!("line {}: unknown vector '{}'", location, vector));
                 }
@@ -1447,7 +1500,7 @@ struct Counters {
 
 impl Counters {
     fn aux_var(&mut self) -> Var {
-        let var = format!("@aux_var_{}", self.aux_vars.next());
+        let var = format!("@aux_var_{}", self.aux_vars.get_next());
         var
     }
 }
@@ -1639,6 +1692,13 @@ impl VectorValue {
         match self {
             Self::Vector(v) => v.push(elem),
             _ => panic!("push on scalar"),
+        }
+    }
+
+    pub fn pop(&mut self) -> Option<Self> {
+        match self {
+            Self::Vector(v) => v.pop(),
+            _ => panic!("pop on scalar"),
         }
     }
 }
@@ -2355,7 +2415,7 @@ fn simplify_lines(
                 const_malloc.counter = loop_const_malloc.counter;
                 state.array_manager.valid = valid_aux_vars_in_array_manager_before; // restore the valid aux vars
 
-                let func_name = format!("@loop_{}_{}", state.counters.loops.next(), location);
+                let func_name = format!("@loop_{}_{}", state.counters.loops.get_next(), location);
 
                 // Find variables used inside loop but defined outside
                 let (_, mut external_vars) = find_variable_usage(body, ctx.const_arrays);
@@ -2510,6 +2570,60 @@ fn simplify_lines(
                         return Err(format!("push target must be a vector, not a scalar, at {}", location));
                     }
                     target.push(new_element);
+                }
+            }
+            Line::Pop {
+                vector,
+                indices,
+                location,
+            } => {
+                // Get the vector and check it's a tracked vector
+                if !state.vec_tracker.is_vector(vector) {
+                    return Err(format!(
+                        "pop called on non-vector variable '{}', at {}",
+                        vector, location
+                    ));
+                }
+
+                // Evaluate indices at compile time
+                let const_indices: Vec<usize> = indices
+                    .iter()
+                    .map(|idx| {
+                        let simplified = simplify_expr(ctx, state, const_malloc, idx, &mut res)?;
+                        let const_val = simplified
+                            .as_constant()
+                            .ok_or_else(|| format!("pop index must be a compile-time constant, at {}", location))?;
+                        let val = const_val
+                            .naive_eval()
+                            .ok_or_else(|| format!("pop index must be evaluable at compile time, at {}", location))?;
+                        Ok(val.to_usize())
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+
+                // Navigate to the target vector and pop
+                let vector_value = state
+                    .vec_tracker
+                    .get_mut(vector)
+                    .expect("Vector should exist after is_vector check");
+
+                if const_indices.is_empty() {
+                    // Pop directly from the top-level vector
+                    if vector_value.len() == 0 {
+                        return Err(format!("pop on empty vector '{}', at {}", vector, location));
+                    }
+                    vector_value.pop();
+                } else {
+                    // Navigate to the nested vector and pop
+                    let target = vector_value
+                        .navigate_mut(&const_indices)
+                        .ok_or_else(|| format!("pop target index out of bounds, at {}", location))?;
+                    if !target.is_vector() {
+                        return Err(format!("pop target must be a vector, not a scalar, at {}", location));
+                    }
+                    if target.len() == 0 {
+                        return Err(format!("pop on empty vector, at {}", location));
+                    }
+                    target.pop();
                 }
             }
         }
@@ -2857,6 +2971,16 @@ pub fn find_variable_usage(
                 // Process the pushed element
                 process_vec_element_usage(element, &internal_vars, &mut external_vars, const_arrays);
             }
+            Line::Pop { vector, indices, .. } => {
+                // The vector variable is used
+                if !internal_vars.contains(vector) {
+                    external_vars.insert(vector.clone());
+                }
+                // Process index expressions
+                for idx in indices {
+                    on_new_expr(idx, &internal_vars, &mut external_vars);
+                }
+            }
         }
     }
 
@@ -2977,6 +3101,9 @@ fn transform_vars_in_lines(lines: &mut [Line], transform: &impl Fn(&Var) -> VarT
                 transform(var).apply_to_var(var);
             }
             Line::Push { vector, .. } => {
+                transform(vector).apply_to_var(vector);
+            }
+            Line::Pop { vector, .. } => {
                 transform(vector).apply_to_var(vector);
             }
             _ => {}
@@ -3299,8 +3426,8 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 }
             }
             Line::LocationReport { .. } | Line::Panic => {}
-            Line::VecDeclaration { .. } | Line::Push { .. } => {
-                // VecDeclaration and Push contain VecLiteral elements which may have expressions
+            Line::VecDeclaration { .. } | Line::Push { .. } | Line::Pop { .. } => {
+                // VecDeclaration, Push and Pop contain VecLiteral elements which may have expressions
                 // but these are compile-time constructs handled separately
             }
         }
