@@ -33,6 +33,7 @@ impl Parse<Expression> for ExpressionParser {
             Rule::array_access_expr => ArrayAccessParser.parse(pair, ctx),
             Rule::len_expr => LenParser.parse(pair, ctx),
             Rule::function_call_expr => FunctionCallExprParser.parse(pair, ctx),
+            Rule::address_of_expr => AddressOfParser.parse(pair, ctx),
             Rule::primary => {
                 let inner = next_inner_pair(&mut pair.into_inner(), "primary expression")?;
                 Self.parse(inner, ctx)
@@ -170,6 +171,25 @@ impl Parse<Expression> for LenParser {
         Ok(Expression::Len {
             array: ident,
             indices: index_exprs,
+        })
+    }
+}
+
+/// Parser for &identifier (address-of operator)
+pub struct AddressOfParser;
+
+impl Parse<Expression> for AddressOfParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+        let line_number = pair.line_col().0;
+        let mut inner = pair.into_inner();
+        let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
+
+        Ok(Expression::AddressOf {
+            var,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
     }
 }

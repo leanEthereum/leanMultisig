@@ -132,6 +132,10 @@ pub enum SimpleLine {
         location: SourceLocation,
     },
     DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
+    AddressOf {
+        result: Var,
+        target_var: Var,
+    },
 }
 
 impl SimpleLine {
@@ -167,7 +171,8 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..) => vec![],
+            | Self::DebugAssert(..)
+            | Self::AddressOf { .. } => vec![],
         }
     }
 
@@ -193,7 +198,8 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..) => vec![],
+            | Self::DebugAssert(..)
+            | Self::AddressOf { .. } => vec![],
         }
     }
 }
@@ -2169,6 +2175,25 @@ fn simplify_lines(
                                     Expression::FunctionCall { .. } => {
                                         unreachable!("FunctionCall should be handled above")
                                     }
+                                    Expression::AddressOf {
+                                        var: target_var_ref,
+                                        ..
+                                    } => {
+                                        let target_var = get_target_var_name(state, var, *is_mutable);
+                                        if state.mut_tracker.is_mutable(var)
+                                            && state.mut_tracker.current_version(var) > 0
+                                        {
+                                            res.push(SimpleLine::ForwardDeclaration {
+                                                var: target_var.clone(),
+                                            });
+                                        }
+                                        // Resolve the target variable to its current SSA name
+                                        let resolved_target = state.mut_tracker.current_name(target_var_ref);
+                                        res.push(SimpleLine::AddressOf {
+                                            result: target_var,
+                                            target_var: resolved_target,
+                                        });
+                                    }
                                 }
                             }
                             AssignmentTarget::ArrayAccess { array, index } => {
@@ -2823,6 +2848,17 @@ fn simplify_expr(
             // Fall through to const array handling (should be unreachable for vectors)
             unreachable!("len() should have been resolved at parse time for const arrays")
         }
+        Expression::AddressOf { var, .. } => {
+            // Resolve the variable to its current SSA name
+            let resolved_var = state.mut_tracker.current_name(var);
+            // Create a temporary variable for the result
+            let result_var = state.counters.aux_var();
+            lines.push(SimpleLine::AddressOf {
+                result: result_var.clone(),
+                target_var: resolved_var,
+            });
+            Ok(VarOrConstMallocAccess::Var(result_var).into())
+        }
     }
 }
 
@@ -3063,6 +3099,9 @@ fn transform_vars_in_expr(expr: &mut Expression, transform: &impl Fn(&Var) -> Va
         Expression::ArrayAccess { array, .. } | Expression::Len { array, .. } => {
             transform(array).apply_to_var(array);
         }
+        Expression::AddressOf { var, .. } => {
+            transform(var).apply_to_var(var);
+        }
         Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => {}
     }
     for inner_expr in expr.inner_exprs_mut() {
@@ -3174,6 +3213,9 @@ fn vars_in_expression(expr: &Expression, const_arrays: &BTreeMap<String, ConstAr
         }
         Expression::ArrayAccess { array, .. } if !const_arrays.contains_key(array) => {
             vars.insert(array.clone());
+        }
+        Expression::AddressOf { var, .. } => {
+            vars.insert(var.clone());
         }
         _ => {}
     }
@@ -3363,6 +3405,10 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
             for idx in indices {
                 replace_vars_by_const_in_expr(idx, map);
             }
+        }
+        Expression::AddressOf { var, .. } => {
+            // &var just takes the address, the variable itself isn't replaced by a constant
+            assert!(!map.contains_key(var), "Cannot take address of constant variable {var}");
         }
     }
 }
@@ -3582,6 +3628,9 @@ impl SimpleLine {
             Self::LocationReport { .. } => Default::default(),
             Self::DebugAssert(bool, _) => {
                 format!("debug_assert({bool})")
+            }
+            Self::AddressOf { result, target_var } => {
+                format!("{result} = &{target_var}")
             }
         };
         format!("{spaces}{line_str}")

@@ -569,6 +569,26 @@ fn compile_lines(
                 };
                 instructions.push(IntermediateInstruction::DebugAssert(boolean_simplified, *location));
             }
+            SimpleLine::AddressOf { result, target_var } => {
+                // Allocate stack position for result if not in scope
+                if !compiler.is_in_scope(result) {
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout
+                        .var_positions
+                        .insert(result.clone(), compiler.stack_pos);
+                    compiler.stack_pos += 1;
+                }
+                // result = fp + offset(target_var)
+                let target_offset = compiler.get_offset(&target_var.clone().into());
+                instructions.push(IntermediateInstruction::Computation {
+                    operation: Operation::Add,
+                    arg_a: IntermediateValue::Fp,
+                    arg_b: IntermediateValue::Constant(target_offset),
+                    res: IntermediateValue::MemoryAfterFp {
+                        offset: compiler.get_offset(&result.clone().into()),
+                    },
+                });
+            }
         }
     }
 

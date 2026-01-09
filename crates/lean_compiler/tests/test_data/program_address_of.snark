@@ -1,0 +1,230 @@
+fn main() {
+    test_basic_address_of();
+    test_mutable_variable_versions();
+    test_pointer_arithmetic();
+    test_address_in_expressions();
+    test_pass_address_to_function();
+    test_address_of_function_args();
+    test_nested_function_calls_with_address();
+    test_address_in_loop();
+    test_address_in_conditionals();
+    test_multiple_addresses_same_scope();
+    test_address_with_malloc();
+    return;
+}
+
+fn test_basic_address_of() {
+    x = 42;
+    ptr = &x;
+    val = ptr[0];
+    assert val == 42;
+    return;
+}
+
+fn test_mutable_variable_versions() {
+    mut x = 10;
+    ptr1 = &x;
+    val1 = ptr1[0];
+    assert val1 == 10;
+
+    x = 20;
+    ptr2 = &x;
+    val2 = ptr2[0];
+    assert val2 == 20;
+
+    x = 30;
+    ptr3 = &x;
+    val3 = ptr3[0];
+    assert val3 == 30;
+
+    return;
+}
+
+fn test_pointer_arithmetic() {
+    a = 1;
+    b = 2;
+    c = 3;
+    d = 4;
+
+    ptr_a = &a;
+    ptr_b = &b;
+    ptr_c = &c;
+    ptr_d = &d;
+
+    diff_ba = ptr_b - ptr_a;
+    diff_ca = ptr_c - ptr_a;
+    diff_da = ptr_d - ptr_a;
+
+    assert diff_ba == 1;
+    assert diff_ca == 2;
+    assert diff_da == 3;
+
+    val_at_b = ptr_a[1];
+    val_at_c = ptr_a[2];
+    val_at_d = ptr_a[3];
+    assert val_at_b == 2;
+    assert val_at_c == 3;
+    assert val_at_d == 4;
+
+    return;
+}
+
+fn test_address_in_expressions() {
+    x = 100;
+    y = 200;
+
+    sum_of_addrs = &x + &y;
+    diff_of_addrs = &y - &x;
+
+    ptr_x = &x;
+    doubled_ptr = ptr_x * 2;
+    halved = doubled_ptr / 2;
+    assert halved == ptr_x;
+
+    return;
+}
+
+fn test_pass_address_to_function() {
+    val = 999;
+    ptr = &val;
+    result = read_value(ptr);
+    assert result == 999;
+
+    a = 10;
+    b = 20;
+    sum = sum_via_pointers(&a, &b);
+    assert sum == 30;
+
+    return;
+}
+
+fn read_value(p) -> 1 {
+    return p[0];
+}
+
+fn sum_via_pointers(p1, p2) -> 1 {
+    v1 = p1[0];
+    v2 = p2[0];
+    return v1 + v2;
+}
+
+fn test_address_of_function_args() {
+    check_arg_address(42);
+    check_arg_address(100);
+    return;
+}
+
+fn check_arg_address(x) {
+    ptr = &x;
+    val = ptr[0];
+    assert val == x;
+    return;
+}
+
+fn test_nested_function_calls_with_address() {
+    x = 50;
+    result = outer_func(&x);
+    assert result == 50;
+    return;
+}
+
+fn outer_func(ptr) -> 1 {
+    return inner_func(ptr);
+}
+
+fn inner_func(ptr) -> 1 {
+    return ptr[0];
+}
+
+fn test_address_in_loop() {
+    v0 = 0;
+    v1 = 1;
+    v2 = 2;
+    v3 = 3;
+
+    base = &v0;
+
+    for i in 0..4 unroll {
+        val = base[i];
+        assert val == i;
+    }
+
+    mut sum = 0;
+    for i in 0..4 unroll {
+        sum = sum + base[i];
+    }
+    assert sum == 6;
+
+    return;
+}
+
+fn test_address_in_conditionals() {
+    x = 10;
+    y = 20;
+
+    cond = 1;
+    if cond == 1 {
+        ptr = &x;
+    } else {
+        ptr = &y;
+    }
+    val = ptr[0];
+    assert val == 10;
+
+    cond2 = 0;
+    if cond2 == 1 {
+        ptr2 = &x;
+    } else {
+        ptr2 = &y;
+    }
+    val2 = ptr2[0];
+    assert val2 == 20;
+
+    return;
+}
+
+fn test_multiple_addresses_same_scope() {
+    a = 1;
+    b = 2;
+    c = 3;
+    d = 4;
+    e = 5;
+
+    pa = &a;
+    pb = &b;
+    pc = &c;
+    pd = &d;
+    pe = &e;
+
+    assert pa[0] == 1;
+    assert pb[0] == 2;
+    assert pc[0] == 3;
+    assert pd[0] == 4;
+    assert pe[0] == 5;
+
+    total = pa[0] + pb[0] + pc[0] + pd[0] + pe[0];
+    assert total == 15;
+
+    return;
+}
+
+fn test_address_with_malloc() {
+    arr = malloc(5);
+    arr[0] = 10;
+    arr[1] = 20;
+    arr[2] = 30;
+    arr[3] = 40;
+    arr[4] = 50;
+
+    ptr_arr = &arr;
+    base = ptr_arr[0];
+
+    val0 = base[0];
+    val1 = base[1];
+    val2 = base[2];
+    assert val0 == 10;
+    assert val1 == 20;
+    assert val2 == 30;
+
+    return;
+}

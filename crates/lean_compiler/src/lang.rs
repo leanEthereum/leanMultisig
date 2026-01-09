@@ -188,6 +188,7 @@ impl TryFrom<Expression> for ConstExpression {
             }
             Expression::FunctionCall { .. } => Err(()),
             Expression::Len { .. } => Err(()),
+            Expression::AddressOf { .. } => Err(()),
         }
     }
 }
@@ -301,6 +302,10 @@ pub enum Expression {
     Len {
         array: String,
         indices: Vec<Self>,
+    },
+    AddressOf {
+        var: Var,
+        location: SourceLocation,
     },
 }
 
@@ -454,6 +459,7 @@ impl Expression {
             }
             Self::FunctionCall { .. } => None,
             Self::Len { .. } => None, // Handled directly in naive_eval
+            Self::AddressOf { .. } => None, // Runtime-only
         }
     }
 
@@ -464,6 +470,7 @@ impl Expression {
             Self::MathExpr(_, args) => args.iter_mut().collect(),
             Self::FunctionCall { args, .. } => args.iter_mut().collect(),
             Self::Len { indices, .. } => indices.iter_mut().collect(),
+            Self::AddressOf { .. } => vec![],
         }
     }
 
@@ -474,6 +481,7 @@ impl Expression {
             Self::MathExpr(_, args) => args.iter().collect(),
             Self::FunctionCall { args, .. } => args.iter().collect(),
             Self::Len { indices, .. } => indices.iter().collect(),
+            Self::AddressOf { .. } => vec![],
         }
     }
 
@@ -687,6 +695,7 @@ impl Display for Expression {
                 let indices_str = indices.iter().map(|i| format!("[{i}]")).collect::<Vec<_>>().join("");
                 write!(f, "len({array}{indices_str})")
             }
+            Self::AddressOf { var, .. } => write!(f, "&{var}"),
         }
     }
 }

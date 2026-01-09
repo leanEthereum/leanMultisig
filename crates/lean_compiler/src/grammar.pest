@@ -99,10 +99,13 @@ primary = {
     next_multiple_of_expr |
     saturating_sub_expr |
     len_expr |
+    address_of_expr |
     array_access_expr |
     function_call_expr |
     var_or_constant
 }
+
+address_of_expr = { "&" ~ identifier }
 
 // Vector literal: vec![elem1, elem2, ...] - compile-time dynamic arrays
 vec_literal = { "vec!" ~ "[" ~ (vec_element ~ ("," ~ vec_element)*)? ~ "]" }
