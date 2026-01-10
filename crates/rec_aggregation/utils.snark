@@ -163,7 +163,7 @@ fn eq_mle_extension(a, b, n) -> 1 {
     return current_prod;
 }
 
-fn eq_mle_extension_base(a, b, n) -> 1 {
+fn eq_mle_base_extension(a, b, n) -> 1 {
     var res;
     debug_assert n < 23;
     match n {

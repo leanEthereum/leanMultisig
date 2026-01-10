@@ -100,7 +100,7 @@ fn whir_open_base(mut fs, mut root, ood_points_commit, combination_randomness_po
         circle_value_i = all_circle_values[i];
         for j in 0..NUM_QUERIES_BASE[i] { // unroll ?
             expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars);
-            temp = eq_mle_extension_base(expanded_from_univariate, my_folding_randomness, n_vars);
+            temp = eq_mle_base_extension(expanded_from_univariate, my_folding_randomness, n_vars);
             copy_5(temp, s6s + j * DIM);
         }
         s7 = dot_product_ret(s6s, combination_randomness_powers + NUM_OODS_BASE[i] * DIM, NUM_QUERIES_BASE[i], EE);
@@ -211,7 +211,7 @@ fn whir_open_ext(transcript_start) {
         circle_value_i = all_circle_values[i];
         for j in 0..NUM_QUERIES_EXT[i] { // unroll ?
             expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars);
-            temp = eq_mle_extension_base(expanded_from_univariate, my_folding_randomness, n_vars);
+            temp = eq_mle_base_extension(expanded_from_univariate, my_folding_randomness, n_vars);
             copy_5(temp, s6s + j * DIM);
         }
         s7 = dot_product_ret(s6s, combination_randomness_powers + NUM_OODS_EXT[i] * DIM, NUM_QUERIES_EXT[i], EE);
