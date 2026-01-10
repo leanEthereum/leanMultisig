@@ -16,6 +16,7 @@ pub struct ProofVerificationDetails {
     pub log_memory: usize,
     pub table_log_n_vars: BTreeMap<Table, VarCount>,
     pub first_quotient_gkr_n_vars: usize,
+    pub total_whir_statements_base: usize,
 }
 
 pub fn verify_execution(
@@ -156,7 +157,7 @@ pub fn verify_execution(
         &table_n_vars,
         &committed_statements,
     );
-
+    let total_whir_statements_base = global_statements_base.iter().map(|s| s.values.len()).sum();
     WhirConfig::new(&params.first_whir, parsed_commitment_base.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment_base,
@@ -177,6 +178,7 @@ pub fn verify_execution(
         log_memory,
         table_log_n_vars: table_n_vars,
         first_quotient_gkr_n_vars: logup_statements.total_n_vars,
+        total_whir_statements_base,
     })
 }
 

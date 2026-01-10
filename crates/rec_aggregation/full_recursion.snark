@@ -33,6 +33,9 @@ const N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER;
 
 const GUEST_BYTECODE_LEN = GUEST_BYTECODE_LEN_PLACEHOLDER;
 const COL_INDEX_PC = COL_INDEX_PC_PLACEHOLDER;
+const TOTAL_WHIR_STATEMENTS_BASE = TOTAL_WHIR_STATEMENTS_BASE_PLACEHOLDER;
+const STARTING_PC = STARTING_PC_PLACEHOLDER;
+const ENDING_PC = ENDING_PC_PLACEHOLDER;
 
 fn main() {
     priv_start = private_input_start();
@@ -350,8 +353,40 @@ fn main() {
     poly_eq_public_mem = poly_eq_extension_dynamic(public_memory_random_point, outer_public_memory_log_size);
     public_memory_eval = malloc(DIM);
     dot_product_be_dynamic(outer_public_memory, poly_eq_public_mem, public_memory_eval, powers_of_two(outer_public_memory_log_size));
-    print_ef(public_memory_eval);
-    
+
+    // WHIR BASE
+    combination_randomness_gen = fs_sample_ef(fs);
+    combination_randomness_powers = powers_const(combination_randomness_gen, NUM_OOD_COMMIT_BASE + TOTAL_WHIR_STATEMENTS_BASE);
+    mut whir_sum = dot_product_ret(whir_base_ood_evals, combination_randomness_powers, NUM_OOD_COMMIT_BASE, EE);
+    mut curr_randomness = combination_randomness_powers + NUM_OOD_COMMIT_BASE * DIM;
+
+    whir_sum = add_extension_ret(mul_extension_ret(value_memory, curr_randomness), whir_sum); 
+    curr_randomness += DIM;
+    whir_sum = add_extension_ret(mul_extension_ret(value_acc, curr_randomness), whir_sum);
+    curr_randomness += DIM;
+    whir_sum = add_extension_ret(mul_extension_ret(public_memory_eval, curr_randomness), whir_sum);
+    curr_randomness += DIM;
+
+    whir_sum = add_extension_ret(mul_extension_ret(embed_in_ef(STARTING_PC), curr_randomness), whir_sum);
+    curr_randomness += DIM;
+    whir_sum = add_extension_ret(mul_extension_ret(embed_in_ef(ENDING_PC), curr_randomness), whir_sum);
+    curr_randomness += DIM;
+
+    for table_index in 0..N_TABLES unroll {
+        debug_assert len(pcs_points[table_index]) == len(pcs_values[table_index]);
+        for i in 0..len(pcs_values[table_index]) unroll {
+            for j in 0..len(pcs_values[table_index][i]) unroll {
+                debug_assert len(pcs_values[table_index][i][j]) < 2;
+                if len(pcs_values[table_index][i][j]) == 1 {
+                    whir_sum = add_extension_ret(mul_extension_ret(pcs_values[table_index][i][j][0], curr_randomness), whir_sum);
+                    curr_randomness += DIM;
+                }
+            }
+        }
+    }
+
+    print_ef(whir_sum);
+
     return;
 }
 

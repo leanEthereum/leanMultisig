@@ -257,6 +257,12 @@ pub fn run_recursion_benchmark(tracing: bool) {
         "N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER".to_string(),
         N_COMMITTED_EXEC_COLUMNS.to_string(),
     );
+    replacements.insert(
+        "TOTAL_WHIR_STATEMENTS_BASE_PLACEHOLDER".to_string(),
+        verif_details.total_whir_statements_base.to_string(),
+    );
+    replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
+    replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
 
     let inner_public_input = vec![];
     let outer_public_memory = build_public_memory(&outer_public_input);
@@ -389,7 +395,7 @@ where
 
     // first: bus data
     let table_index = match table.bus().table {
-        BusTable::Constant(c) => format!("embedd_in_ef({})", c.index()),
+        BusTable::Constant(c) => format!("embed_in_ef({})", c.index()),
         BusTable::Variable(col) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, col),
     };
     let flag = format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, table.bus().selector);
