@@ -385,7 +385,9 @@ fn main() {
         }
     }
 
-    print_ef(whir_sum);
+    fs, folding_randomness_global, missing_base = whir_open_base(fs, whir_base_root, whir_base_ood_points, combination_randomness_powers, whir_sum);
+
+    
 
     return;
 }
@@ -410,8 +412,8 @@ fn verify_gkr_quotient(mut fs, n_vars) -> 5 {
     fs, nums = fs_receive_ef(fs, 2);
     fs, denoms = fs_receive_ef(fs, 2);
 
-    q1 = div_extension(nums, denoms);
-    q2 = div_extension(nums + DIM, denoms + DIM);
+    q1 = div_extension_ret(nums, denoms);
+    q2 = div_extension_ret(nums + DIM, denoms + DIM);
     quotient = add_extension_ret(q1, q2);
 
     points = malloc(n_vars);

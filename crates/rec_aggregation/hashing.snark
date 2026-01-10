@@ -13,11 +13,15 @@ const N_ROUNDS_EXT = len(NUM_QUERIES_EXT) - 1;
 
 fn batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len) {
     if len == DIM * 2 {
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM);
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM * 2);
         return;
     }
     if len == 16 {
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 8);
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 16);
+        return;
+    }
+    if len == 1 {
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 1);
         return;
     }
     TODO_batch_hash_slice = len;
@@ -35,16 +39,16 @@ fn batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, c
     return;    
 }
 
-fn slice_hash(seed, data, const half_len) -> 1 {
-    states = malloc(half_len * 2 * VECTOR_LEN);
+fn slice_hash(seed, data, const len) -> 1 {
+    states = malloc(len * VECTOR_LEN);
     poseidon16(pointer_to_zero_vector, data, states, COMPRESSION);
-    state_indexes = malloc(half_len * 2);
+    state_indexes = malloc(len);
     state_indexes[0] = states;
-    for j in 1..(half_len * 2) unroll {
+    for j in 1..len unroll {
         state_indexes[j] = state_indexes[j-1] + VECTOR_LEN;
         poseidon16(state_indexes[j-1], data + j * VECTOR_LEN, state_indexes[j], COMPRESSION);
     }
-    return state_indexes[half_len * 2 - 1];
+    return state_indexes[len - 1];
 }
 
 fn merkle_verif_batch(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries) {

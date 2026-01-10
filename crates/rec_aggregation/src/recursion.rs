@@ -39,7 +39,7 @@ pub fn run_recursion_benchmark(tracing: bool) {
     const EE = 0; // extension-extension
 
     fn main() {
-        for i in 0..1 {
+        for i in 0..1000 {
             null_ptr = pointer_to_zero_vector; // pointer to zero vector
             poseidon_of_zero = POSEIDON_OF_ZERO;
             poseidon16(null_ptr, null_ptr, poseidon_of_zero, PERMUTATION);

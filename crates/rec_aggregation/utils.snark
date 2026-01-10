@@ -444,7 +444,7 @@ fn mul_base_extension_ret(a, b) inline -> 1 {
     return res;
 }
 
-fn div_extension(n, d) -> 1 {
+fn div_extension_ret(n, d) -> 1 {
     quotient = malloc(DIM);
     dot_product(d, quotient, n, 1, EE);
     return quotient;

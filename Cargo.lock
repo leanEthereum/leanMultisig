@@ -1315,7 +1315,6 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-vm-simple#8829baa6f4b602af1a23c8b7b8ae9d4425164245"
 dependencies = [
  "itertools",
  "multilinear-toolkit",
