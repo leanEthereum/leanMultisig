@@ -53,7 +53,15 @@ pub fn run_recursion_benchmark(tracing: bool) {
     .replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
     let bytecode_to_prove = compile_program(&ProgramSource::Raw(program_to_prove.to_string()));
     precompute_dft_twiddles::<F>(1 << 24);
-    let proof_to_prove = prove_execution(&bytecode_to_prove, (&[], &[]), &vec![], &snark_params, false);
+    let outer_public_input = vec![];
+    let outer_private_input = vec![];
+    let proof_to_prove = prove_execution(
+        &bytecode_to_prove,
+        (&outer_public_input, &outer_private_input),
+        &vec![],
+        &snark_params,
+        false,
+    );
     let verif_details = verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
 
     let base_whir = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
@@ -250,8 +258,14 @@ pub fn run_recursion_benchmark(tracing: bool) {
         N_COMMITTED_EXEC_COLUMNS.to_string(),
     );
 
-    let public_input = vec![];
-    let private_input = proof_to_prove.proof;
+    let inner_public_input = vec![];
+    let outer_public_memory = build_public_memory(&outer_public_input);
+    let mut inner_private_input = vec![
+        F::from_usize(proof_to_prove.proof.len()),
+        F::from_usize(log2_strict_usize(outer_public_memory.len())),
+    ];
+    inner_private_input.extend(proof_to_prove.proof.to_vec());
+    inner_private_input.extend(outer_public_memory);
 
     let recursion_bytecode =
         compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements });
@@ -260,7 +274,7 @@ pub fn run_recursion_benchmark(tracing: bool) {
 
     let recursion_proof = prove_execution(
         &recursion_bytecode,
-        (&public_input, &private_input),
+        (&inner_public_input, &inner_private_input),
         &vec![], // TODO precompute poseidons
         &Default::default(),
         false,
@@ -268,7 +282,7 @@ pub fn run_recursion_benchmark(tracing: bool) {
     let proving_time = time.elapsed();
     verify_execution(
         &recursion_bytecode,
-        &public_input,
+        &inner_public_input,
         recursion_proof.proof,
         &Default::default(),
     )

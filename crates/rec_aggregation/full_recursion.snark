@@ -35,7 +35,11 @@ const GUEST_BYTECODE_LEN = GUEST_BYTECODE_LEN_PLACEHOLDER;
 const COL_INDEX_PC = COL_INDEX_PC_PLACEHOLDER;
 
 fn main() {
-    proof_transcript = private_input_start();
+    priv_start = private_input_start();
+    proof_size = priv_start[0];
+    outer_public_memory_log_size = priv_start[1];
+    proof_transcript = priv_start + 2;
+    outer_public_memory = proof_transcript + proof_size;
     mut fs = fs_new(proof_transcript);
 
     // table dims
@@ -336,8 +340,17 @@ fn main() {
     }
     pcs_values[EXECUTION_TABLE_INDEX - 1][last_len][COL_INDEX_PC].push(ls_on_indexes_eval);
 
-    // public_memory_random_point = malloc(pub)
+    // TODO verify the outer public memory is well constructed (with the conventions)
 
+    public_memory_random_point = malloc(outer_public_memory_log_size * DIM);
+    for i in 0..outer_public_memory_log_size {
+        copy_5(fs_sample_ef(fs), public_memory_random_point + i * DIM);
+        fs = duplexing(fs);
+    }
+    poly_eq_public_mem = poly_eq_extension_dynamic(public_memory_random_point, outer_public_memory_log_size);
+    public_memory_eval = malloc(DIM);
+    dot_product_be_dynamic(outer_public_memory, poly_eq_public_mem, public_memory_eval, powers_of_two(outer_public_memory_log_size));
+    print_ef(public_memory_eval);
     
     return;
 }

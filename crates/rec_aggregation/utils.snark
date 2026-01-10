@@ -271,7 +271,16 @@ fn expand_from_univariate_ext(alpha, n) -> 1 {
     }
     return res;
 }
-
+fn dot_product_be_dynamic(a, b, res, n) {
+    for i in 6..10 unroll {
+        if n == 2**i {
+            dot_product(a, b, res, 2**i, BE);
+            return;
+        }
+    }
+    print(173456665);
+    panic();
+}
 
 fn dot_product_ee_dynamic(a, b, res, n) { 
     if n == 16 {
