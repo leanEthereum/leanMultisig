@@ -104,6 +104,10 @@ pub fn run_recursion_benchmark(tracing: bool) {
         "MEMORY_TABLE_INDEX_PLACEHOLDER".to_string(),
         MEMORY_TABLE_INDEX.to_string(),
     );
+    replacements.insert(
+        "GUEST_BYTECODE_LEN_PLACEHOLDER".to_string(),
+        bytecode_to_prove.instructions.len().to_string(),
+    );
     let mut lookup_f_indexes_str = vec![];
     let mut lookup_f_values_str = vec![];
     let mut lookup_ef_indexes_str = vec![];
@@ -310,7 +314,10 @@ pub(crate) fn whir_recursion_placeholder_replacements(
         whir_config.committment_ood_samples.to_string(),
     );
     replacements.insert(format!("NUM_OODS{}", end), format!("[{}]", ood_samples.join(", ")));
-    replacements.insert(format!("GRINDING_BITS{}", end), format!("[{}]", grinding_bits.join(", ")));
+    replacements.insert(
+        format!("GRINDING_BITS{}", end),
+        format!("[{}]", grinding_bits.join(", ")),
+    );
     replacements.insert(
         format!("FOLDING_FACTORS{}", end),
         format!("[{}]", folding_factors.join(", ")),

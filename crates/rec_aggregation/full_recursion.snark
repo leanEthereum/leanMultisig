@@ -31,6 +31,8 @@ const AIR_DOWN_COLUMNS_EF = AIR_DOWN_COLUMNS_EF_PLACEHOLDER; // [[_; _]; N_TABLE
 const NUM_BYTECODE_INSTRUCTIONS = NUM_BYTECODE_INSTRUCTIONS_PLACEHOLDER;
 const N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER;
 
+const GUEST_BYTECODE_LEN = GUEST_BYTECODE_LEN_PLACEHOLDER;
+
 fn main() {
     proof_transcript = private_input_start();
     mut fs = fs_new(proof_transcript);
@@ -289,13 +291,33 @@ fn main() {
     }
 
     bytecode_air_point = pcs_points[EXECUTION_TABLE_INDEX - 1][2];
-    bytecode_lookup_values = dot_product_ret(bytecode_air_values, poly_eq_extension(bytecode_compression_challenges, log_num_instrs), 2 ** log_num_instrs, EE);
+    bytecode_lookup_claim = dot_product_ret(bytecode_air_values, poly_eq_extension(bytecode_compression_challenges, log_num_instrs), 2 ** log_num_instrs, EE);
+
+    fs, whir_ext_root, whir_ext_ood_points, whir_ext_ood_evals = parse_whir_commitment_const(fs, NUM_OOD_COMMIT_EXT);
+
+    // VERIFY LOGUP*
+
+    log_table_len = log2_ceil(GUEST_BYTECODE_LEN);
+    log_n_cycles = table_dims[EXECUTION_TABLE_INDEX - 1];
+    fs, scpostponed_point, postponed_value = sumcheck_verify(fs, log_table_len, bytecode_lookup_claim, 2);
+    fs, table_eval = fs_receive_ef(fs, 1);
+    fs, pushforward_eval = fs_receive_ef(fs, 1);
+    mul_extension(table_eval, pushforward_eval, postponed_value);
+
+    ls_c  = fs_sample_ef(fs);
+
+    fs, quotient_left, claim_point_left, claim_num_left, eval_c_minus_indexes = verify_gkr_quotient(fs, log_n_cycles);
+    fs, quotient_right, claim_point_right, pushforward_final_eval, claim_den_right = verify_gkr_quotient(fs, log_table_len);
+
+    copy_5(quotient_left, quotient_right);
+    
+    copy_5(eq_mle_extension(claim_point_left, bytecode_air_point, log_n_cycles), claim_num_left);
+    copy_5(sub_extension_ret(ls_c, mle_of_01234567_etc(claim_point_right, log_table_len)), claim_den_right);
 
 
+    
     return;
 }
-
-
 
 fn multilinear_location_prefix(offset, n_vars, point) -> 1 {
     bits = checked_decompose_bits_small_value(offset, n_vars);

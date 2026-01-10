@@ -114,8 +114,7 @@ pub fn verify_execution(
         &mut verifier_state,
         log2_ceil_usize(bytecode.instructions.len()),
         table_n_vars[&Table::execution()],
-        &[bytecode_lookup_claim],
-        EF::ONE,
+        bytecode_lookup_claim,
     )?;
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
     if folded_bytecode.evaluate(&bytecode_logup_star_statements.on_table.point)

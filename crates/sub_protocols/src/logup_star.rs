@@ -6,7 +6,7 @@ https://eprint.iacr.org/2025/946.pdf
 */
 
 use multilinear_toolkit::prelude::*;
-use utils::ToUsize;
+use utils::{ToUsize, mle_of_01234567_etc};
 
 use tracing::{info_span, instrument};
 
@@ -127,8 +127,7 @@ pub fn verify_logup_star<EF>(
     verifier_state: &mut impl FSVerifier<EF>,
     log_table_len: usize,
     log_indexes_len: usize,
-    claims: &[Evaluation<EF>],
-    alpha: EF, // batching challenge
+    claim: Evaluation<EF>,
 ) -> Result<LogupStarStatements<EF>, ProofError>
 where
     EF: ExtensionField<PF<EF>>,
@@ -136,7 +135,7 @@ where
 {
     let (sum, postponed) = sumcheck_verify(verifier_state, log_table_len, 2).map_err(|_| ProofError::InvalidProof)?;
 
-    if sum != claims.iter().zip(alpha.powers()).map(|(c, a)| c.value * a).sum::<EF>() {
+    if sum != claim.value {
         return Err(ProofError::InvalidProof);
     }
 
@@ -162,26 +161,13 @@ where
     }
 
     let on_indexes = Evaluation::new(claim_point_left.clone(), c - eval_c_minus_indexes);
-    if claim_num_left
-        != claims
-            .iter()
-            .zip(alpha.powers())
-            .map(|(claim, a)| claim_point_left.eq_poly_outside(&claim.point) * a)
-            .sum::<EF>()
-    {
+    if claim_num_left != claim_point_left.eq_poly_outside(&claim.point) {
         return Err(ProofError::InvalidProof);
     }
 
     on_pushforward.push(Evaluation::new(claim_point_right.clone(), pushforward_final_eval));
 
-    let big_endian_mle = claim_point_right
-        .iter()
-        .rev()
-        .enumerate()
-        .map(|(i, &p)| p * EF::TWO.exp_u64(i as u64))
-        .sum::<EF>();
-
-    if claim_den_right != c - big_endian_mle {
+    if claim_den_right != c - mle_of_01234567_etc(&claim_point_right) {
         return Err(ProofError::InvalidProof);
     }
 
@@ -279,7 +265,7 @@ mod tests {
         let last_prover_state = prover_state.state();
         let mut verifier_state = build_verifier_state(prover_state);
         let verifier_statements =
-            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &[claim], EF::ONE).unwrap();
+            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, claim).unwrap();
 
         assert_eq!(&verifier_statements, &prover_statements);
         assert_eq!(last_prover_state, verifier_state.state());
