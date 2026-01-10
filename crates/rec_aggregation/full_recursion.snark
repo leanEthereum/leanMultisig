@@ -32,6 +32,7 @@ const NUM_BYTECODE_INSTRUCTIONS = NUM_BYTECODE_INSTRUCTIONS_PLACEHOLDER;
 const N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER;
 
 const GUEST_BYTECODE_LEN = GUEST_BYTECODE_LEN_PLACEHOLDER;
+const COL_INDEX_PC = COL_INDEX_PC_PLACEHOLDER;
 
 fn main() {
     proof_transcript = private_input_start();
@@ -299,21 +300,43 @@ fn main() {
 
     log_table_len = log2_ceil(GUEST_BYTECODE_LEN);
     log_n_cycles = table_dims[EXECUTION_TABLE_INDEX - 1];
-    fs, scpostponed_point, postponed_value = sumcheck_verify(fs, log_table_len, bytecode_lookup_claim, 2);
+    fs, ls_sumcheck_point, ls_sumcheck_value = sumcheck_verify(fs, log_table_len, bytecode_lookup_claim, 2);
     fs, table_eval = fs_receive_ef(fs, 1);
     fs, pushforward_eval = fs_receive_ef(fs, 1);
-    mul_extension(table_eval, pushforward_eval, postponed_value);
+    mul_extension(table_eval, pushforward_eval, ls_sumcheck_value);
 
-    ls_c  = fs_sample_ef(fs);
+    ls_c = fs_sample_ef(fs);
 
     fs, quotient_left, claim_point_left, claim_num_left, eval_c_minus_indexes = verify_gkr_quotient(fs, log_n_cycles);
     fs, quotient_right, claim_point_right, pushforward_final_eval, claim_den_right = verify_gkr_quotient(fs, log_table_len);
 
     copy_5(quotient_left, quotient_right);
-    
+
     copy_5(eq_mle_extension(claim_point_left, bytecode_air_point, log_n_cycles), claim_num_left);
     copy_5(sub_extension_ret(ls_c, mle_of_01234567_etc(claim_point_right, log_table_len)), claim_den_right);
 
+    // logupstar statements:
+    ls_on_indexes_point = claim_point_left;
+    ls_on_indexes_eval = sub_extension_ret(ls_c, eval_c_minus_indexes);
+    ls_on_table_point = ls_sumcheck_point;
+    ls_on_table_eval = table_eval;
+    ls_on_pushforward_point_1 = ls_sumcheck_point;
+    ls_on_pushforward_eval_1 = pushforward_eval;
+    ls_on_pushforward_point_2 = claim_point_right;
+    ls_on_pushforward_eval_2 = pushforward_final_eval;
+
+    // TODO evaluate the folded bytecode
+
+    pcs_points[EXECUTION_TABLE_INDEX - 1].push(ls_on_indexes_point);
+    pcs_values[EXECUTION_TABLE_INDEX - 1].push(vec![]);
+    last_len = len(pcs_values[EXECUTION_TABLE_INDEX - 1]) - 1;
+    total_exec_cols = NUM_COLS_F_AIR[EXECUTION_TABLE_INDEX - 1] + DIM * NUM_COLS_EF_AIR[EXECUTION_TABLE_INDEX - 1];
+    for _ in 0..total_exec_cols unroll {
+        pcs_values[EXECUTION_TABLE_INDEX - 1][last_len].push(vec![]);
+    }
+    pcs_values[EXECUTION_TABLE_INDEX - 1][last_len][COL_INDEX_PC].push(ls_on_indexes_eval);
+
+    // public_memory_random_point = malloc(pub)
 
     
     return;

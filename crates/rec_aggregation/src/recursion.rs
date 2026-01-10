@@ -108,6 +108,7 @@ pub fn run_recursion_benchmark(tracing: bool) {
         "GUEST_BYTECODE_LEN_PLACEHOLDER".to_string(),
         bytecode_to_prove.instructions.len().to_string(),
     );
+    replacements.insert("COL_INDEX_PC_PLACEHOLDER".to_string(), COL_INDEX_PC.to_string());
     let mut lookup_f_indexes_str = vec![];
     let mut lookup_f_values_str = vec![];
     let mut lookup_ef_indexes_str = vec![];
