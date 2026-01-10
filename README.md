@@ -38,14 +38,10 @@ cargo run --release -- poseidon --log-n-perms 20
 
 ### Recursion
 
-
-The full recursion program is not finished yet. Instead, we prove validity of a WHIR opening, with 25 variables.
-
-- 1-to-1: Recursive proof of a single WHIR opening
-- n-to-1: Recursive proof of many WHIR openings (≈ 8) (we report prover time per WHIR)
+(Not 100% complete)
 
 ```console
-cargo run --release -- recursion --count 19
+cargo run --release -- recursion
 ```
 
 ![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)

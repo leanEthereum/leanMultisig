@@ -52,7 +52,7 @@ fn main() {
     full_range_check(MIN_LOG_MEMORY_SIZE - 1, log_memory, MAX_LOG_MEMORY_SIZE + 1);
 
     // parse 1st whir commitment
-    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, NUM_OOD_COMMIT);
+    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, NUM_OOD_COMMIT_BASE);
 
     logup_c = fs_sample_ef(fs);
     fs = duplexing(fs);
@@ -278,7 +278,6 @@ fn main() {
         }
     }
 
-    bytecode_air_point = pcs_points[EXECUTION_TABLE_INDEX - 1][2];
     bytecode_air_values = malloc(DIM * 2 ** log_num_instrs);
     for i in 0..NUM_BYTECODE_INSTRUCTIONS unroll {
         col = N_COMMITTED_EXEC_COLUMNS + i;
@@ -289,8 +288,8 @@ fn main() {
         set_to_5_zeros(bytecode_air_values + i * DIM);
     }
 
-   bytecode_lookup_claim = dot_product_ret(bytecode_air_values, poly_eq_extension(bytecode_compression_challenges, log_num_instrs), 2 ** log_num_instrs, EE);
-   print_ef(bytecode_lookup_claim); // correct
+    bytecode_air_point = pcs_points[EXECUTION_TABLE_INDEX - 1][2];
+    bytecode_lookup_values = dot_product_ret(bytecode_air_values, poly_eq_extension(bytecode_compression_challenges, log_num_instrs), 2 ** log_num_instrs, EE);
 
 
     return;

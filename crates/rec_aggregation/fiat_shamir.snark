@@ -107,9 +107,15 @@ fn sample_bits_const(mut fs, const n_samples, K) -> 2 {
 fn sample_bits_dynamic(fs_state, n_samples, K) -> 2 {
     var new_fs_state;
     var sampled_bits;
-    for r in 0..N_ROUNDS + 1 unroll {
-        if n_samples == NUM_QUERIES[r] {
-            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES[r], K);
+    for r in 0..N_ROUNDS_BASE + 1 unroll {
+        if n_samples == NUM_QUERIES_BASE[r] {
+            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_BASE[r], K);
+            return new_fs_state, sampled_bits;
+        }
+    }
+    for r in 0..N_ROUNDS_EXT + 1 unroll {
+        if n_samples == NUM_QUERIES_EXT[r] {
+            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_EXT[r], K);
             return new_fs_state, sampled_bits;
         }
     }

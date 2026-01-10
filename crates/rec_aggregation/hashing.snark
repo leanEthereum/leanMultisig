@@ -4,9 +4,12 @@ const PERMUTATION = 0;
 const DIM = 5; // extension degree
 const VECTOR_LEN = 8;
 
-const MERKLE_HEIGHTS = MERKLE_HEIGHTS_PLACEHOLDER;
-const NUM_QUERIES = NUM_QUERIES_PLACEHOLDER;
-const N_ROUNDS = len(NUM_QUERIES) - 1;
+const MERKLE_HEIGHTS_BASE = MERKLE_HEIGHTS_BASE_PLACEHOLDER;
+const MERKLE_HEIGHTS_EXT = MERKLE_HEIGHTS_EXT_PLACEHOLDER;
+const NUM_QUERIES_BASE = NUM_QUERIES_BASE_PLACEHOLDER;
+const NUM_QUERIES_EXT = NUM_QUERIES_EXT_PLACEHOLDER;
+const N_ROUNDS_BASE = len(NUM_QUERIES_BASE) - 1;
+const N_ROUNDS_EXT = len(NUM_QUERIES_EXT) - 1;
 
 fn batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len) {
     if len == DIM * 2 {
@@ -45,11 +48,15 @@ fn slice_hash(seed, data, const half_len) -> 1 {
 }
 
 fn merkle_verif_batch(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries) {
-    debug_assert len(MERKLE_HEIGHTS) == N_ROUNDS + 1;
-    debug_assert len(NUM_QUERIES) == N_ROUNDS + 1;
-    for i in 0..N_ROUNDS + 1 unroll {
-        if height + num_queries * 1000 == MERKLE_HEIGHTS[i] + NUM_QUERIES[i] * 1000 {
-            merkle_verif_batch_const(NUM_QUERIES[i], merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHTS[i]);
+    for i in 0..N_ROUNDS_BASE + 1 unroll {
+        if height + num_queries * 1000 == MERKLE_HEIGHTS_BASE[i] + NUM_QUERIES_BASE[i] * 1000 {
+            merkle_verif_batch_const(NUM_QUERIES_BASE[i], merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHTS_BASE[i]);
+            return;
+        }
+    }
+    for i in 0..N_ROUNDS_EXT + 1 unroll {
+        if height + num_queries * 1000 == MERKLE_HEIGHTS_EXT[i] + NUM_QUERIES_EXT[i] * 1000 {
+            merkle_verif_batch_const(NUM_QUERIES_EXT[i], merkle_paths, leaves_digests, leave_positions, root, MERKLE_HEIGHTS_EXT[i]);
             return;
         }
     }

@@ -2662,7 +2662,7 @@ fn simplify_expr(
 
                 return Ok(SimpleExpr::Constant(ConstExpression::from(
                     arr.navigate(&simplified_index)
-                        .expect("Const array access index out of bounds")
+                        .expect(&format!("Const array index out of bounds for array '{}'", array))
                         .as_scalar()
                         .expect("Const array access should return a scalar"),
                 )));

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
@@ -15,9 +15,10 @@ use multilinear_toolkit::prelude::*;
 use utils::{Counter, MEMORY_TABLE_INDEX};
 use whir_p3::{WhirConfig, precompute_dft_twiddles};
 
-use crate::whir_recursion::whir_recursion_placeholder_replacements;
-
-pub fn run_end2end_recursion_benchmark() {
+pub fn run_recursion_benchmark(tracing: bool) {
+    if tracing {
+        utils::init_tracing();
+    }
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("full_recursion.snark")
         .to_str()
@@ -55,9 +56,11 @@ pub fn run_end2end_recursion_benchmark() {
     let proof_to_prove = prove_execution(&bytecode_to_prove, (&[], &[]), &vec![], &snark_params, false);
     let verif_details = verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
 
-    let first_whir_config = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
+    let base_whir = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
+    let ext_whir = WhirConfig::<EF>::new(&snark_params.second_whir, log2_ceil_usize(program_to_prove.len()));
 
-    let mut replacements = whir_recursion_placeholder_replacements(&first_whir_config);
+    let mut replacements = whir_recursion_placeholder_replacements(&base_whir, true);
+    replacements.extend(whir_recursion_placeholder_replacements(&ext_whir, false));
 
     assert!(
         verif_details.log_memory >= verif_details.table_log_n_vars[&Table::execution()]
@@ -274,9 +277,58 @@ pub fn run_end2end_recursion_benchmark() {
     );
 }
 
-#[test]
-fn test_end2end_recursion() {
-    run_end2end_recursion_benchmark();
+pub(crate) fn whir_recursion_placeholder_replacements(
+    whir_config: &WhirConfig<EF>,
+    base: bool,
+) -> BTreeMap<String, String> {
+    let mut num_queries = vec![];
+    let mut ood_samples = vec![];
+    let mut grinding_bits = vec![];
+    let merkle_heights = (0..=whir_config.n_rounds())
+        .map(|r| whir_config.merkle_tree_height(r).to_string())
+        .collect::<Vec<_>>();
+    let mut folding_factors = vec![];
+    for round in &whir_config.round_parameters {
+        num_queries.push(round.num_queries.to_string());
+        ood_samples.push(round.ood_samples.to_string());
+        grinding_bits.push(round.pow_bits.to_string());
+        folding_factors.push(round.folding_factor.to_string());
+    }
+    folding_factors.push(whir_config.final_round_config().folding_factor.to_string());
+    grinding_bits.push(whir_config.final_pow_bits.to_string());
+    num_queries.push(whir_config.final_queries.to_string());
+
+    let end = if base { "_BASE_PLACEHOLDER" } else { "_EXT_PLACEHOLDER" };
+    let mut replacements = BTreeMap::new();
+    replacements.insert(
+        format!("MERKLE_HEIGHTS{}", end),
+        format!("[{}]", merkle_heights.join(", ")),
+    );
+    replacements.insert(format!("NUM_QUERIES{}", end), format!("[{}]", num_queries.join(", ")));
+    replacements.insert(
+        format!("NUM_OOD_COMMIT{}", end),
+        whir_config.committment_ood_samples.to_string(),
+    );
+    replacements.insert(format!("NUM_OODS{}", end), format!("[{}]", ood_samples.join(", ")));
+    replacements.insert(format!("GRINDING_BITS{}", end), format!("[{}]", grinding_bits.join(", ")));
+    replacements.insert(
+        format!("FOLDING_FACTORS{}", end),
+        format!("[{}]", folding_factors.join(", ")),
+    );
+    replacements.insert(format!("N_VARS{}", end), whir_config.num_variables.to_string());
+    replacements.insert(
+        format!("LOG_INV_RATE{}", end),
+        whir_config.starting_log_inv_rate.to_string(),
+    );
+    replacements.insert(
+        format!("FINAL_VARS{}", end),
+        whir_config.n_vars_of_final_polynomial().to_string(),
+    );
+    replacements.insert(
+        format!("FIRST_RS_REDUCTION_FACTOR{}", end),
+        whir_config.rs_domain_initial_reduction_factor.to_string(),
+    );
+    replacements
 }
 
 fn all_air_evals_in_zk_dsl() -> String {
@@ -442,4 +494,9 @@ fn handle_operation_on_two(
 #[test]
 fn display_all_air_evals_in_zk_dsl() {
     println!("{}", all_air_evals_in_zk_dsl());
+}
+
+#[test]
+fn test_end2end_recursion() {
+    run_recursion_benchmark(false);
 }

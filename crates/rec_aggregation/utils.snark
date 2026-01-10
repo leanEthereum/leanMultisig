@@ -287,16 +287,27 @@ fn dot_product_ee_dynamic(a, b, res, n) {
         return;
     }
 
-    for i in 0..N_ROUNDS + 1 unroll {
-        if n == NUM_QUERIES[i] {
-            dot_product(a, b, res, NUM_QUERIES[i], EE);
+    for i in 0..N_ROUNDS_BASE + 1 unroll {
+        if n == NUM_QUERIES_BASE[i] {
+            dot_product(a, b, res, NUM_QUERIES_BASE[i], EE);
             return;
         }
-        if n == NUM_QUERIES[i] + 1 {
-            dot_product(a, b, res, NUM_QUERIES[i] + 1, EE);
+        if n == NUM_QUERIES_BASE[i] + 1 {
+            dot_product(a, b, res, NUM_QUERIES_BASE[i] + 1, EE);
             return;
         }
     }
+    for i in 0..N_ROUNDS_EXT + 1 unroll {
+        if n == NUM_QUERIES_EXT[i] {
+            dot_product(a, b, res, NUM_QUERIES_EXT[i], EE);
+            return;
+        }
+        if n == NUM_QUERIES_EXT[i] + 1 {
+            dot_product(a, b, res, NUM_QUERIES_EXT[i] + 1, EE);
+            return;
+        }
+    }
+    
     print(123456665);
     panic();
 }
