@@ -385,33 +385,32 @@ fn main() {
         }
     }
 
-    fs, folding_randomness_global, missing_base = whir_open_base(fs, whir_base_root, whir_base_ood_points, combination_randomness_powers, whir_sum);
+    fs, folding_randomness_global, mut s, final_value, end_sum = whir_open_base(fs, whir_base_root, whir_base_ood_points, combination_randomness_powers, whir_sum);
 
     curr_randomness = combination_randomness_powers + NUM_OOD_COMMIT_BASE * DIM;
-    mut whir_retrieved = pointer_to_zero_vector;
 
     eq_memory_acc_point = eq_mle_extension(folding_randomness_global + (N_VARS_BASE - log_memory) * DIM, memory_acc_point, log_memory);
     prefix_mem = multilinear_location_prefix(0, N_VARS_BASE - log_memory, folding_randomness_global);
-    whir_retrieved = add_extension_ret(whir_retrieved, mul_extension_ret(mul_extension_ret(curr_randomness, prefix_mem), eq_memory_acc_point));
+    s = add_extension_ret(s, mul_extension_ret(mul_extension_ret(curr_randomness, prefix_mem), eq_memory_acc_point));
     curr_randomness += DIM;
 
     prefix_acc = multilinear_location_prefix(1, N_VARS_BASE - log_memory, folding_randomness_global);
-    whir_retrieved = add_extension_ret(whir_retrieved, mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc), eq_memory_acc_point));
+    s = add_extension_ret(s, mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc), eq_memory_acc_point));
     curr_randomness += DIM;
 
     eq_pub_mem = eq_mle_extension(folding_randomness_global + (N_VARS_BASE - outer_public_memory_log_size) * DIM, public_memory_random_point, outer_public_memory_log_size);
     prefix_pub_mem = multilinear_location_prefix(0, N_VARS_BASE - outer_public_memory_log_size, folding_randomness_global);
-    whir_retrieved = add_extension_ret(whir_retrieved, mul_extension_ret(mul_extension_ret(curr_randomness, prefix_pub_mem), eq_pub_mem));
+    s = add_extension_ret(s, mul_extension_ret(mul_extension_ret(curr_randomness, prefix_pub_mem), eq_pub_mem));
     curr_randomness += DIM;
 
     offset = powers_of_two(log_memory) * 2; // memory and acc
     
     prefix_pc_start = multilinear_location_prefix(offset + COL_INDEX_PC * powers_of_two(log_n_cycles), N_VARS_BASE, folding_randomness_global);
-    whir_retrieved = add_extension_ret(whir_retrieved, mul_extension_ret(curr_randomness, prefix_pc_start));
+    s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_start));
     curr_randomness += DIM;
 
     prefix_pc_end = multilinear_location_prefix(offset + (COL_INDEX_PC + 1) * powers_of_two(log_n_cycles) - 1, N_VARS_BASE, folding_randomness_global);
-    whir_retrieved = add_extension_ret(whir_retrieved, mul_extension_ret(curr_randomness, prefix_pc_end));
+    s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_end));
     curr_randomness += DIM;
 
     for table_index in 0..N_TABLES unroll {
@@ -425,8 +424,7 @@ fn main() {
             for j in 0..total_num_cols unroll {
                 if len(pcs_values[table_index][i][j]) == 1 {
                     prefix = multilinear_location_prefix(offset / n_rows + j, N_VARS_BASE - log_n_rows, folding_randomness_global);
-                    whir_retrieved = add_extension_ret(whir_retrieved, mul_extension_ret(mul_extension_ret(curr_randomness, prefix), eq_factor));
-                    print_ef(mul_extension_ret(mul_extension_ret(curr_randomness, prefix), eq_factor));
+                    s = add_extension_ret(s, mul_extension_ret(mul_extension_ret(curr_randomness, prefix), eq_factor));
                     curr_randomness += DIM;
                 }
             }
@@ -439,7 +437,8 @@ fn main() {
         }
         offset += n_rows * num_commited_cols;
     }
-    copy_5(whir_retrieved, missing_base);
+    
+    copy_5(mul_extension_ret(s, final_value), end_sum);
 
 
     return;
