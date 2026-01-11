@@ -13,6 +13,8 @@ pub mod prove_execution;
 mod test_zkvm;
 pub mod verify_execution;
 
+pub use witness_generation::bytecode_to_multilinear_polynomial;
+
 // Right now, hash digests = 8 koala-bear (p = 2^31 - 2^24 + 1, i.e. ≈ 30.98 bits per field element)
 // so ≈ 123.92 bits of security against collisions
 pub const SECURITY_BITS: usize = 123; // TODO 128 bits security (with Poseidon over 20 field elements)

@@ -76,6 +76,15 @@ pub fn run_recursion_benchmark(tracing: bool) {
         &snark_params.second_whir,
         log2_ceil_usize(bytecode_to_prove.instructions.len()),
     );
+
+    // let guest_program_commitment = {
+    //     let mut prover_state = build_prover_state();
+    //     let polynomial = MleOwned::Base(bytecode_to_multilinear_polynomial(&bytecode_to_prove.instructions));
+    //     let witness = ext_whir.commit(&mut prover_state, &polynomial);
+    //     let commitment_transcript = prover_state.proof().to_vec();
+    //     assert_eq!(commitment_transcript.len(), ext_whir.committment_ood_samples * DIMENSION + VECTOR_LEN);
+    // };
+
     let mut replacements = whir_recursion_placeholder_replacements(&base_whir, true);
     replacements.extend(whir_recursion_placeholder_replacements(&ext_whir, false));
 
