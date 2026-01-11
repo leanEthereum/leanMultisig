@@ -431,9 +431,14 @@ fn main() {
                 }
             }
         }
-        offset += n_rows * total_num_cols;
+        var num_commited_cols;
+        if table_index == EXECUTION_TABLE_INDEX - 1 {
+            num_commited_cols = N_COMMITTED_EXEC_COLUMNS;
+        } else {
+            num_commited_cols = total_num_cols;
+        }
+        offset += n_rows * num_commited_cols;
     }
-    
     copy_5(whir_retrieved, missing_base);
 
 
