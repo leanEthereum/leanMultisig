@@ -112,22 +112,7 @@ fn whir_open_base(mut fs, mut root, ood_points_commit, combination_randomness_po
     return fs, folding_randomness_global, s, final_value, end_sum;
 }
 
-fn whir_open_ext(transcript_start) {
-    mut fs = fs_new(transcript_start);
-
-    fs, mut root, ood_points_commit, ood_evals_commit = parse_whir_commitment_const(fs, NUM_OOD_COMMIT_EXT);
-
-    // In the future point / eval will come from the PIOP
-    fs, pcs_point = fs_hint(fs, N_VARS_EXT * DIM);
-    fs, pcs_eval = fs_hint(fs, 5);
-
-    combination_randomness_gen_0 = fs_sample_ef(fs);
-    combination_randomness_powers_0 = powers(combination_randomness_gen_0, NUM_OOD_COMMIT_EXT + 1);
-
-    claimed_sum_0_0 = dot_product_ret(ood_evals_commit, combination_randomness_powers_0, NUM_OOD_COMMIT_EXT, EE);
-    claimed_sum_0_1 = mul_extension_ret(combination_randomness_powers_0 + NUM_OOD_COMMIT_EXT * DIM, pcs_eval);
-    mut claimed_sum = add_extension_ret(claimed_sum_0_0, claimed_sum_0_1);
-
+fn whir_open_ext(mut fs, mut root, ood_points_commit, combination_randomness_powers_0, mut claimed_sum) -> 5 {
     all_folding_randomness = malloc(N_ROUNDS_EXT + 2);
     all_ood_points = malloc(N_ROUNDS_EXT);
     all_circle_values = malloc(N_ROUNDS_EXT + 1);
@@ -183,10 +168,6 @@ fn whir_open_ext(transcript_start) {
     }
     mut s = dot_product_ret(all_ood_recovered_evals, combination_randomness_powers_0, NUM_OOD_COMMIT_EXT, EE);
 
-    s2 = eq_mle_extension(pcs_point, folding_randomness_global, N_VARS_EXT);
-    s3 = mul_extension_ret(s2, combination_randomness_powers_0 + NUM_OOD_COMMIT_EXT * DIM);
-    s = add_extension_ret(s, s3);
-
     mut n_vars = N_VARS_EXT;
     mut my_folding_randomness = folding_randomness_global;
     for i in 0..N_ROUNDS_EXT unroll {
@@ -215,11 +196,11 @@ fn whir_open_ext(transcript_start) {
     }
     poly_eq_final = poly_eq_extension(all_folding_randomness[N_ROUNDS_EXT + 1], FINAL_VARS_EXT);
     final_value = dot_product_ret(poly_eq_final, final_coeffcients, 2**FINAL_VARS_EXT, EE);
-    copy_5(mul_extension_ret(s, final_value), end_sum);
+    // copy_5(mul_extension_ret(s, final_value), end_sum);
 
     fs = duplexing(fs);
 
-    return;
+    return fs, folding_randomness_global, s, final_value, end_sum;
 }
 
 fn sumcheck_verify(mut fs, n_steps, claimed_sum, const degree) -> 3 {

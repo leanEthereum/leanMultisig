@@ -36,6 +36,7 @@ const COL_INDEX_PC = COL_INDEX_PC_PLACEHOLDER;
 const TOTAL_WHIR_STATEMENTS_BASE = TOTAL_WHIR_STATEMENTS_BASE_PLACEHOLDER;
 const STARTING_PC = STARTING_PC_PLACEHOLDER;
 const ENDING_PC = ENDING_PC_PLACEHOLDER;
+const NONRESERVED_PROGRAM_INPUT_START = NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER;
 
 fn main() {
     priv_start = private_input_start();
@@ -343,7 +344,10 @@ fn main() {
     }
     pcs_values[EXECUTION_TABLE_INDEX - 1][last_len][COL_INDEX_PC].push(ls_on_indexes_eval);
 
-    // TODO verify the outer public memory is well constructed (with the conventions)
+    // verify the outer public memory is well constructed (with the conventions)
+    for i in 0..next_multiple_of(NONRESERVED_PROGRAM_INPUT_START, DIM) / DIM unroll {
+        copy_5(i * DIM, outer_public_memory + i * DIM);
+    }
 
     public_memory_random_point = malloc(outer_public_memory_log_size * DIM);
     for i in 0..outer_public_memory_log_size {
@@ -355,8 +359,8 @@ fn main() {
     dot_product_be_dynamic(outer_public_memory, poly_eq_public_mem, public_memory_eval, powers_of_two(outer_public_memory_log_size));
 
     // WHIR BASE
-    combination_randomness_gen = fs_sample_ef(fs);
-    combination_randomness_powers = powers_const(combination_randomness_gen, NUM_OOD_COMMIT_BASE + TOTAL_WHIR_STATEMENTS_BASE);
+    mut combination_randomness_gen = fs_sample_ef(fs);
+    mut combination_randomness_powers = powers_const(combination_randomness_gen, NUM_OOD_COMMIT_BASE + TOTAL_WHIR_STATEMENTS_BASE);
     mut whir_sum = dot_product_ret(whir_base_ood_evals, combination_randomness_powers, NUM_OOD_COMMIT_BASE, EE);
     mut curr_randomness = combination_randomness_powers + NUM_OOD_COMMIT_BASE * DIM;
 
@@ -385,7 +389,7 @@ fn main() {
         }
     }
 
-    fs, folding_randomness_global, mut s, final_value, end_sum = whir_open_base(fs, whir_base_root, whir_base_ood_points, combination_randomness_powers, whir_sum);
+    fs, mut folding_randomness_global, mut s, mut final_value, mut end_sum = whir_open_base(fs, whir_base_root, whir_base_ood_points, combination_randomness_powers, whir_sum);
 
     curr_randomness = combination_randomness_powers + NUM_OOD_COMMIT_BASE * DIM;
 
@@ -414,7 +418,6 @@ fn main() {
     curr_randomness += DIM;
 
     for table_index in 0..N_TABLES unroll {
-        print(table_index);
         log_n_rows = table_dims[table_index];
         n_rows = powers_of_two(log_n_rows);
         total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index];
@@ -437,9 +440,16 @@ fn main() {
         }
         offset += n_rows * num_commited_cols;
     }
-    
+
     copy_5(mul_extension_ret(s, final_value), end_sum);
 
+    // WHIR EXT (Pushforward)
+    combination_randomness_gen = fs_sample_ef(fs);
+    combination_randomness_powers = powers_const(combination_randomness_gen, NUM_OOD_COMMIT_EXT + 2);
+    whir_sum = dot_product_ret(whir_ext_ood_evals, combination_randomness_powers, NUM_OOD_COMMIT_EXT, EE);
+    whir_sum = add_extension_ret(whir_sum, mul_extension_ret(combination_randomness_powers + NUM_OOD_COMMIT_EXT * DIM, ls_on_pushforward_eval_1));
+    whir_sum = add_extension_ret(whir_sum, mul_extension_ret(combination_randomness_powers + (NUM_OOD_COMMIT_EXT + 1) * DIM, ls_on_pushforward_eval_2));
+    fs, folding_randomness_global, s, final_value, end_sum = whir_open_ext(fs, whir_ext_root, whir_ext_ood_points, combination_randomness_powers, whir_sum);
 
     return;
 }

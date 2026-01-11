@@ -47,6 +47,13 @@ pub fn run_recursion_benchmark(tracing: bool) {
             dot_product(null_ptr, null_ptr, null_ptr, 2, BE);
             dot_product(null_ptr, null_ptr, null_ptr, 2, EE);
         }
+        n = 100000;
+        x = 0;
+        mut sum = x[0];
+        for i in 0..n unroll {
+            sum += i;
+        }
+        assert sum == n * (n - 1) / 2;
         return;
     }
    "#
@@ -65,15 +72,17 @@ pub fn run_recursion_benchmark(tracing: bool) {
     let verif_details = verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
 
     let base_whir = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
-    let ext_whir = WhirConfig::<EF>::new(&snark_params.second_whir, log2_ceil_usize(program_to_prove.len()));
-
+    let ext_whir = WhirConfig::<EF>::new(
+        &snark_params.second_whir,
+        log2_ceil_usize(bytecode_to_prove.instructions.len()),
+    );
     let mut replacements = whir_recursion_placeholder_replacements(&base_whir, true);
     replacements.extend(whir_recursion_placeholder_replacements(&ext_whir, false));
 
     assert!(
-        verif_details.log_memory >= verif_details.table_log_n_vars[&Table::execution()]
+        verif_details.log_memory >= verif_details.table_n_vars[&Table::execution()]
             && verif_details
-                .table_log_n_vars
+                .table_n_vars
                 .values()
                 .collect::<Vec<_>>()
                 .windows(2)
@@ -81,7 +90,7 @@ pub fn run_recursion_benchmark(tracing: bool) {
         "TODO a more general recursion program",
     );
     assert_eq!(
-        verif_details.table_log_n_vars.keys().copied().collect::<Vec<_>>(),
+        verif_details.table_n_vars.keys().copied().collect::<Vec<_>>(),
         vec![Table::execution(), Table::dot_product(), Table::poseidon16()]
     );
 
@@ -117,6 +126,11 @@ pub fn run_recursion_benchmark(tracing: bool) {
         bytecode_to_prove.instructions.len().to_string(),
     );
     replacements.insert("COL_INDEX_PC_PLACEHOLDER".to_string(), COL_INDEX_PC.to_string());
+    replacements.insert(
+        "NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER".to_string(),
+        NONRESERVED_PROGRAM_INPUT_START.to_string(),
+    );
+
     let mut lookup_f_indexes_str = vec![];
     let mut lookup_f_values_str = vec![];
     let mut lookup_ef_indexes_str = vec![];
@@ -293,7 +307,13 @@ pub fn run_recursion_benchmark(tracing: bool) {
         &Default::default(),
     )
     .unwrap();
-
+    println!(
+        "(Outer proof: 2**{} memory, 2**{} cycles, 2**{} dot_product_rows, 2**{} poseidons)",
+        verif_details.log_memory,
+        verif_details.table_n_vars[&Table::execution()],
+        verif_details.table_n_vars[&Table::dot_product()],
+        verif_details.table_n_vars[&Table::poseidon16()],
+    );
     println!("{}", recursion_proof.exec_summary);
     println!(
         "Recursion proving time: {} ms, proof size: {} KiB (not optimized)",

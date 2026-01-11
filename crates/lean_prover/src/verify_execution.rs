@@ -14,7 +14,7 @@ use whir_p3::{SparseStatement, SparseValue, WhirConfig};
 #[derive(Debug, Clone)]
 pub struct ProofVerificationDetails {
     pub log_memory: usize,
-    pub table_log_n_vars: BTreeMap<Table, VarCount>,
+    pub table_n_vars: BTreeMap<Table, VarCount>,
     pub first_quotient_gkr_n_vars: usize,
     pub total_whir_statements_base: usize,
 }
@@ -176,7 +176,7 @@ pub fn verify_execution(
 
     Ok(ProofVerificationDetails {
         log_memory,
-        table_log_n_vars: table_n_vars,
+        table_n_vars,
         first_quotient_gkr_n_vars: logup_statements.total_n_vars,
         total_whir_statements_base,
     })

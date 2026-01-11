@@ -30,10 +30,10 @@ fn batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len) {
     panic();
 }
 
-fn batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, const half_len) {
+fn batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, const len) {
     for i in 0..num_queries {
         data = all_data_to_hash[i];
-        res = slice_hash(pointer_to_zero_vector, data, half_len);
+        res = slice_hash(pointer_to_zero_vector, data, len);
         all_resulting_hashes[i] = res;
     }
     return;    
