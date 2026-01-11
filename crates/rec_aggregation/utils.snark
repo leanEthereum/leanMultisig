@@ -586,28 +586,6 @@ fn read_memory(ptr) inline -> 1  {
     return mem[ptr];
 }
 
-fn range_check(a, b) inline {
-    // TODO (for now we simulate the cost)
-    dummy1 = a + b;
-    dummy2 = dummy1 * a;
-    dummy3 = dummy2 + b;
-    return;
-}
-
-fn full_range_check(l, x, r) inline {
-    // ensure that l < x < r
-    // TODO (for now we simulate the cost)
-    // cf section 2.5.3 of the minimal_zkVM.pdf
-    debug_assert l < x;
-    debug_assert x < r;
-    dummy1 = l + r;
-    dummy2 = dummy1 * 2;
-    dummy3 = dummy2 + 3;
-    dummy4 = dummy3 + 4;
-    dummy5 = dummy4 + 5;
-    return;
-}
-
 fn univariate_polynomial_eval(coeffs, point, const degree) -> 1 {
     powers = powers(point, degree + 1); // TODO use a const parameter version
     res = malloc(DIM);

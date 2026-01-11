@@ -130,10 +130,13 @@ impl Instruction {
                 if res.is_value_unknown(ctx.memory, *ctx.fp) {
                     let memory_address_res = res.memory_address(*ctx.fp)?;
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
-                    let value = ctx.memory.get(ptr.to_usize() + shift_1)?;
-                    ctx.memory.set(memory_address_res, value)?;
+                    if let Ok(value) = ctx.memory.get(ptr.to_usize() + shift_1) {
+                        ctx.memory.set(memory_address_res, value)?;
+                    } else {
+                        // Do nothing, we are probably in a range check, will be resolved later
+                    }
                 } else {
-                    let value = res.read_value(ctx.memory, *ctx.fp)?;
+                    let value = res.read_value(ctx.memory, *ctx.fp).unwrap();
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
                     ctx.memory.set(ptr.to_usize() + shift_1, value)?;
                 }

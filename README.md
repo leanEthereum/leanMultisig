@@ -50,7 +50,7 @@ cargo run --release -- recursion --n 2
 ### XMSS aggregation
 
 ```console
-cargo run --release -- xmss --n-signatures 1475
+cargo run --release -- xmss --n-signatures 1350
 ```
 
 [Trivial encoding](docs/XMSS_trivial_encoding.pdf) (for now).

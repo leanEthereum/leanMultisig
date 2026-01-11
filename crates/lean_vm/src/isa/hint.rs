@@ -57,6 +57,13 @@ pub enum Hint {
     /// Assert a boolean expression for debugging purposes
     DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
     Custom(CustomHint, Vec<MemOrConstant>),
+    /// Deref hint for range checks - records a constraint to be resolved at end of execution
+    /// Constraint: memory[fp + offset_target] = memory[memory[fp + offset_src]]
+    /// The runner resolves all these constraints at the end, in the correct order.
+    DerefHint {
+        offset_src: usize,
+        offset_target: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter)]
@@ -164,6 +171,10 @@ pub struct HintExecutionContext<'a> {
     pub checkpoint_ap: &'a mut usize,
     pub profiling: bool,
     pub memory_profile: &'a mut MemoryProfile,
+    /// Pending deref hints: (target_addr, src_addr)
+    /// Constraint: memory[target_addr] = memory[memory[src_addr]]
+    /// Resolved at end of execution in correct order.
+    pub pending_deref_hints: &'a mut Vec<(usize, usize)>,
 }
 
 impl Hint {
@@ -268,6 +279,15 @@ impl Hint {
                     ));
                 }
             }
+            Self::DerefHint {
+                offset_src,
+                offset_target,
+            } => {
+                // Record a deref constraint: memory[target_addr] = memory[memory[src_addr]]
+                let src_addr = ctx.fp + offset_src;
+                let target_addr = ctx.fp + offset_target;
+                ctx.pending_deref_hints.push((target_addr, src_addr));
+            }
         }
         Ok(())
     }
@@ -326,6 +346,12 @@ impl Display for Hint {
             }
             Self::DebugAssert(bool_expr, location) => {
                 write!(f, "debug_assert {bool_expr} at {location:?}")
+            }
+            Self::DerefHint {
+                offset_src,
+                offset_target,
+            } => {
+                write!(f, "m[fp + {offset_target}] = m[m[fp + {offset_src}]]")
             }
         }
     }

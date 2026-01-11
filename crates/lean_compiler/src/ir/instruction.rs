@@ -46,6 +46,13 @@ pub enum IntermediateInstruction {
         size: IntermediateValue, // the hint
     },
     CustomHint(CustomHint, Vec<IntermediateValue>),
+    /// Deref hint for range checks - records constraint resolved at end of execution
+    DerefHint {
+        /// Offset of cell containing the address to dereference
+        offset_src: ConstExpression,
+        /// Offset of cell where result will be stored
+        offset_target: ConstExpression,
+    },
     PrivateInputStart {
         res_offset: ConstExpression,
     },
@@ -185,6 +192,12 @@ impl Display for IntermediateInstruction {
             Self::LocationReport { .. } => Ok(()),
             Self::DebugAssert(boolean_expr, _) => {
                 write!(f, "debug_assert {boolean_expr}")
+            }
+            Self::DerefHint {
+                offset_src,
+                offset_target,
+            } => {
+                write!(f, "m[fp + {offset_target}] = m[m[fp + {offset_src}]]")
             }
         }
     }

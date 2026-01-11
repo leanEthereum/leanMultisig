@@ -15,7 +15,6 @@ pub const STARTING_PC: usize = 1;
 /// Ending program counter (the final block is a looping block of 1 instruction)
 pub const ENDING_PC: usize = 0;
 
-
 /// Memory layout:
 ///
 /// [memory] = [public_data] [private_data]
@@ -33,7 +32,7 @@ pub const ENDING_PC: usize = 0;
 /// Convention: pointing to 16 zeros
 pub const ZERO_VEC_PTR: usize = 0;
 
-/// Convention: pointing to [10000] [01000] [00100] [00010] [00001] 
+/// Convention: pointing to [10000] [01000] [00100] [00010] [00001]
 pub const EXTENSION_BASIS_PTR: usize = 2 * VECTOR_LEN;
 
 /// Convention: pointing to the 16 elements of poseidon_16(0)
@@ -43,4 +42,4 @@ pub const POSEIDON_16_NULL_HASH_PTR: usize = 2 * VECTOR_LEN + DIMENSION.pow(2);
 pub const NONRESERVED_PROGRAM_INPUT_START: usize = 4 * VECTOR_LEN + DIMENSION.pow(2);
 
 /// The first element of basis corresponds to one
-pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR; 
+pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;

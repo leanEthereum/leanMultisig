@@ -59,23 +59,10 @@ fn xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index) -> 
     // check that the decomposition is correct
     for i in 0..6 unroll {
         for j in 0..12 unroll {
-            // TODO Implem range check (https://github.com/leanEthereum/leanMultisig/issues/52)
-            // For now we use dummy instructions to replicate exactly the cost
-
-            // assert encoding[i * 12 + j] < 4;
-            dummy_0 = 88888888;
-            assert dummy_0 == 88888888;
-            assert dummy_0 == 88888888;
-            assert dummy_0 == 88888888;
+            assert encoding[i * 12 + j] <= 3;
         }
 
-        // assert remaining[i] < 2^7 - 1;
-        dummy_1 = 88888888;
-        dummy_2 = 88888888;
-        dummy_3 = 88888888;
-        assert dummy_1 == 88888888;
-        assert dummy_2 == 88888888;
-        assert dummy_3 == 88888888;
+        assert remaining[i] <= 2**7 - 2;
 
         mut partial_sum = remaining[i] * 2**24;
         for j in 1..13 unroll {

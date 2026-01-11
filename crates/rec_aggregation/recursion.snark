@@ -67,10 +67,12 @@ fn recursion(outer_public_memory_log_size, outer_public_memory, proof_transcript
 
     for i in 0..N_TABLES unroll {
         n_vars_for_table = table_dims[i];
-        range_check(n_vars_for_table, log_memory + 1);
-        full_range_check(MIN_LOG_N_ROWS_PER_TABLE - 1, n_vars_for_table, MAX_LOG_N_ROWS_PER_TABLE + 1);
+        assert n_vars_for_table <= log_memory;
+        assert MIN_LOG_N_ROWS_PER_TABLE <= n_vars_for_table;
+        assert n_vars_for_table <= MAX_LOG_N_ROWS_PER_TABLE;
     }
-    full_range_check(MIN_LOG_MEMORY_SIZE - 1, log_memory, MAX_LOG_MEMORY_SIZE + 1);
+    assert MIN_LOG_MEMORY_SIZE <= log_memory;
+    assert log_memory <= MAX_LOG_MEMORY_SIZE;
 
     // parse 1st whir commitment
     fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, NUM_OOD_COMMIT_BASE);
