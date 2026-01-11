@@ -93,7 +93,7 @@ pub enum ProgramSource {
 }
 
 impl ProgramSource {
-    pub fn get_content(&self, flags: &CompilationFlags) -> Result<String, std::io::Error> {
+    pub fn get_content(&self, flags: &CompilationFlags) -> Result<String, String> {
         match self {
             ProgramSource::Raw(src) => {
                 let mut result = src.clone();
@@ -103,7 +103,7 @@ impl ProgramSource {
                 Ok(result)
             }
             ProgramSource::Filepath(fp) => {
-                let mut result = std::fs::read_to_string(fp)?;
+                let mut result = std::fs::read_to_string(fp).map_err(|e| format!("Failed to read file {fp}: {e}"))?;
                 for (key, value) in flags.replacements.iter() {
                     result = result.replace(key, value);
                 }

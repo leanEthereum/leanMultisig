@@ -15,12 +15,12 @@ use multilinear_toolkit::prelude::*;
 use utils::{Counter, MEMORY_TABLE_INDEX};
 use whir_p3::{WhirConfig, precompute_dft_twiddles};
 
-pub fn run_recursion_benchmark(tracing: bool) {
+pub fn run_recursion_benchmark(count: usize, tracing: bool) {
     if tracing {
         utils::init_tracing();
     }
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("full_recursion.snark")
+        .join("recursion.snark")
         .to_str()
         .unwrap()
         .to_string();
@@ -46,6 +46,12 @@ pub fn run_recursion_benchmark(tracing: bool) {
             poseidon16(null_ptr, null_ptr, poseidon_of_zero, COMPRESSION);
             dot_product(null_ptr, null_ptr, null_ptr, 2, BE);
             dot_product(null_ptr, null_ptr, null_ptr, 2, EE);
+            mut x = 0;
+            n = 10;
+            for j in 0..n {
+                x += j;
+            }
+            assert x == n * (n - 1) / 2;
         }
         n = 100000;
         x = 0;
@@ -292,9 +298,12 @@ pub fn run_recursion_benchmark(tracing: bool) {
     let mut inner_private_input = vec![
         F::from_usize(proof_to_prove.proof.len()),
         F::from_usize(log2_strict_usize(outer_public_memory.len())),
+        F::from_usize(count),
     ];
-    inner_private_input.extend(proof_to_prove.proof.to_vec());
     inner_private_input.extend(outer_public_memory);
+    for _ in 0..count {
+        inner_private_input.extend(proof_to_prove.proof.to_vec());
+    }
 
     let recursion_bytecode =
         compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements });
@@ -325,8 +334,10 @@ pub fn run_recursion_benchmark(tracing: bool) {
     );
     println!("{}", recursion_proof.exec_summary);
     println!(
-        "Recursion proving time: {} ms, proof size: {} KiB (not optimized)",
+        "{}->1 recursion proving time: {} ms (1->1: {} ms), proof size: {} KiB (not optimized)",
+        count,
         proving_time.as_millis(),
+        proving_time.as_millis() / count as u128,
         recursion_proof.proof_size_fe * F::bits() / (8 * 1024)
     );
 }
@@ -555,5 +566,5 @@ fn display_all_air_evals_in_zk_dsl() {
 
 #[test]
 fn test_end2end_recursion() {
-    run_recursion_benchmark(false);
+    run_recursion_benchmark(1, false);
 }

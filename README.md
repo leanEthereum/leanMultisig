@@ -38,13 +38,13 @@ cargo run --release -- poseidon --log-n-perms 20
 
 ### Recursion
 
-(Not 100% complete)
+End-to-end 2->1 recursion.
 
 ```console
-cargo run --release -- recursion
+cargo run --release -- recursion --n 2
 ```
 
-![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)
+(Small detail remaining: evaluation of the guest program bytecode, at the end of recursion. There are multiple ways of handling it: PCS, n claims outside of the snark, n->1 sumcheck reduction + single claim outside of the snark... TBD soon)
 
 
 ### XMSS aggregation

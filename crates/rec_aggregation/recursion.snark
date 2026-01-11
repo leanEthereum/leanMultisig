@@ -1,4 +1,4 @@
-import "whir_core.snark";
+import "whir.snark";
 
 const N_TABLES = N_TABLES_PLACEHOLDER;
 const MIN_LOG_N_ROWS_PER_TABLE = MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER;
@@ -42,8 +42,18 @@ fn main() {
     priv_start = private_input_start();
     proof_size = priv_start[0];
     outer_public_memory_log_size = priv_start[1];
-    proof_transcript = priv_start + 2;
-    outer_public_memory = proof_transcript + proof_size;
+    outer_public_memory_size = powers_of_two(outer_public_memory_log_size);
+    n_recursions = priv_start[2];
+    outer_public_memory = priv_start + 3;
+    proofs_start = outer_public_memory + outer_public_memory_size;
+    for i in 0..n_recursions {
+        proof_transcript = proofs_start + i * proof_size;
+        recursion(outer_public_memory_log_size, outer_public_memory, proof_transcript);
+    }
+    return;
+}
+
+fn recursion(outer_public_memory_log_size, outer_public_memory, proof_transcript) {
     mut fs = fs_new(proof_transcript);
 
     // table dims
@@ -450,6 +460,8 @@ fn main() {
     whir_sum = add_extension_ret(whir_sum, mul_extension_ret(combination_randomness_powers + NUM_OOD_COMMIT_EXT * DIM, ls_on_pushforward_eval_1));
     whir_sum = add_extension_ret(whir_sum, mul_extension_ret(combination_randomness_powers + (NUM_OOD_COMMIT_EXT + 1) * DIM, ls_on_pushforward_eval_2));
     fs, folding_randomness_global, s, final_value, end_sum = whir_open_ext(fs, whir_ext_root, whir_ext_ood_points, combination_randomness_powers, whir_sum);
+
+    // Last TODO = Opening on the guest bytecode, but there are multiple ways to handle this
 
     return;
 }

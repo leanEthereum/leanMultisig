@@ -41,6 +41,7 @@ fn powers_const(alpha, const n) -> 1 {
 fn unit_root_pow_dynamic(domain_size, index_bits) -> 1 {
     // index_bits is a pointer to domain_size bits
     var res;
+    debug_assert domain_size < 26;
     match domain_size {
         0 => {  } // unreachable
         1 => { res = unit_root_pow_const(1, index_bits); }
@@ -65,6 +66,9 @@ fn unit_root_pow_dynamic(domain_size, index_bits) -> 1 {
         20 => { res = unit_root_pow_const(20, index_bits); }
         21 => { res = unit_root_pow_const(21, index_bits); }
         22 => { res = unit_root_pow_const(22, index_bits); }
+        23 => { res = unit_root_pow_const(23, index_bits); }
+        24 => { res = unit_root_pow_const(24, index_bits); }
+        25 => { res = unit_root_pow_const(25, index_bits); }
     }
     return res;
 }
@@ -165,7 +169,7 @@ fn eq_mle_extension(a, b, n) -> 1 {
 
 fn eq_mle_base_extension(a, b, n) -> 1 {
     var res;
-    debug_assert n < 23;
+    debug_assert n < 26;
     match n {
         0 => {  } // unreachable
         1 => { res = eq_mle_extension_base_const(a, b, 1); }
@@ -190,6 +194,9 @@ fn eq_mle_base_extension(a, b, n) -> 1 {
         20 => { res = eq_mle_extension_base_const(a, b, 20); }
         21 => { res = eq_mle_extension_base_const(a, b, 21); }
         22 => { res = eq_mle_extension_base_const(a, b, 22); }
+        23 => { res = eq_mle_extension_base_const(a, b, 23); }
+        24 => { res = eq_mle_extension_base_const(a, b, 24); }
+        25 => { res = eq_mle_extension_base_const(a, b, 25); }
     }
     return res;
 }

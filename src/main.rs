@@ -14,8 +14,10 @@ enum Cli {
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
-    #[command(about = "Run 1 recursive proof")]
+    #[command(about = "Run n->1 recursion")]
     Recursion {
+        #[arg(long, default_value = "1", help = "Number of recursive proofs to aggregate")]
+        n: usize,
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
@@ -36,8 +38,8 @@ fn main() {
             let log_lifetimes = (0..n_signatures).map(|_| XMSS_MAX_LOG_LIFETIME).collect::<Vec<_>>();
             run_xmss_benchmark(&log_lifetimes, tracing);
         }
-        Cli::Recursion { tracing } => {
-            run_recursion_benchmark(tracing);
+        Cli::Recursion { n, tracing } => {
+            run_recursion_benchmark(n, tracing);
         }
         Cli::Poseidon {
             log_n_perms: log_count,
