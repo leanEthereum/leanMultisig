@@ -20,19 +20,19 @@ use multilinear_toolkit::prelude::*;
 */
 
 // F columns
-pub(super) const COL_IS_BE: usize = 0;
-pub(super) const COL_FLAG: usize = 1;
-pub(super) const COL_START: usize = 2;
-pub(super) const COL_LEN: usize = 3;
-pub const COL_INDEX_A: usize = 4;
-pub(super) const COL_INDEX_B: usize = 5;
-pub(super) const COL_INDEX_RES: usize = 6;
-pub const COL_VALUE_A_F: usize = 7;
+pub(super) const DOT_COL_IS_BE: usize = 0;
+pub(super) const DOT_COL_FLAG: usize = 1;
+pub(super) const DOT_COL_START: usize = 2;
+pub(super) const DOT_COL_LEN: usize = 3;
+pub const DOT_COL_A: usize = 4;
+pub(super) const DOT_COL_B: usize = 5;
+pub(super) const DOT_COL_RES: usize = 6;
+pub const DOT_COL_VALUE_A_F: usize = 7;
 // EF columns
-pub const COL_VALUE_A_EF: usize = 0;
-pub(super) const COL_VALUE_B: usize = 1;
-pub(super) const COL_VALUE_RES: usize = 2;
-pub(super) const COL_COMPUTATION: usize = 3;
+pub const DOT_COL_VALUE_A_EF: usize = 0;
+pub(super) const DOT_COL_VALUE_B: usize = 1;
+pub(super) const DOT_COL_VALUE_RES: usize = 2;
+pub(super) const DOT_COL_COMPUTATION: usize = 3;
 
 impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
@@ -50,10 +50,10 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
         15 // TODO: update
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        vec![COL_START, COL_IS_BE, COL_LEN, COL_INDEX_A, COL_INDEX_B]
+        vec![DOT_COL_START, DOT_COL_IS_BE, DOT_COL_LEN, DOT_COL_A, DOT_COL_B]
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
-        vec![COL_COMPUTATION]
+        vec![DOT_COL_COMPUTATION]
     }
 
     #[inline]
@@ -63,19 +63,19 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
         let down_f = builder.down_f();
         let down_ef = builder.down_ef();
 
-        let is_be = up_f[COL_IS_BE].clone();
-        let flag = up_f[COL_FLAG].clone();
-        let start = up_f[COL_START].clone();
-        let len = up_f[COL_LEN].clone();
-        let index_a = up_f[COL_INDEX_A].clone();
-        let index_b = up_f[COL_INDEX_B].clone();
-        let index_res = up_f[COL_INDEX_RES].clone();
-        let value_a_f = up_f[COL_VALUE_A_F].clone();
+        let is_be = up_f[DOT_COL_IS_BE].clone();
+        let flag = up_f[DOT_COL_FLAG].clone();
+        let start = up_f[DOT_COL_START].clone();
+        let len = up_f[DOT_COL_LEN].clone();
+        let index_a = up_f[DOT_COL_A].clone();
+        let index_b = up_f[DOT_COL_B].clone();
+        let index_res = up_f[DOT_COL_RES].clone();
+        let value_a_f = up_f[DOT_COL_VALUE_A_F].clone();
 
-        let value_a_ef = up_ef[COL_VALUE_A_EF].clone();
-        let value_b = up_ef[COL_VALUE_B].clone();
-        let res = up_ef[COL_VALUE_RES].clone();
-        let computation = up_ef[COL_COMPUTATION].clone();
+        let value_a_ef = up_ef[DOT_COL_VALUE_A_EF].clone();
+        let value_b = up_ef[DOT_COL_VALUE_B].clone();
+        let res = up_ef[DOT_COL_VALUE_RES].clone();
+        let computation = up_ef[DOT_COL_COMPUTATION].clone();
 
         let start_down = down_f[0].clone();
         let is_be_down = down_f[1].clone();

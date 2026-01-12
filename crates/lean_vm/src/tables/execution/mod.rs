@@ -27,16 +27,16 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
     fn lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![
             LookupIntoMemory {
-                index: COL_INDEX_MEM_ADDRESS_A,
-                values: vec![COL_INDEX_MEM_VALUE_A],
+                index: COL_MEM_ADDRESS_A,
+                values: vec![COL_MEM_VALUE_A],
             },
             LookupIntoMemory {
-                index: COL_INDEX_MEM_ADDRESS_B,
-                values: vec![COL_INDEX_MEM_VALUE_B],
+                index: COL_MEM_ADDRESS_B,
+                values: vec![COL_MEM_VALUE_B],
             },
             LookupIntoMemory {
-                index: COL_INDEX_MEM_ADDRESS_C,
-                values: vec![COL_INDEX_MEM_VALUE_C],
+                index: COL_MEM_ADDRESS_C,
+                values: vec![COL_MEM_VALUE_C],
             },
         ]
     }
@@ -47,28 +47,22 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
 
     fn bus(&self) -> Bus {
         Bus {
-            table: BusTable::Variable(COL_INDEX_WHICH_PRECOMPILE),
+            table: BusTable::Variable(COL_PRECOMPILE_INDEX),
             direction: BusDirection::Push,
-            selector: COL_INDEX_IS_PRECOMPILE,
-            data: vec![
-                COL_INDEX_EXEC_NU_A,
-                COL_INDEX_EXEC_NU_B,
-                COL_INDEX_EXEC_NU_C,
-                COL_INDEX_AUX_1,
-                COL_INDEX_AUX_2,
-            ],
+            selector: COL_IS_PRECOMPILE,
+            data: vec![COL_EXEC_NU_A, COL_EXEC_NU_B, COL_EXEC_NU_C, COL_AUX_1, COL_AUX_2],
         }
     }
 
     fn padding_row_f(&self) -> Vec<F> {
         let mut padding_row = vec![F::ZERO; N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS];
-        padding_row[COL_INDEX_PC] = F::from_usize(ENDING_PC);
-        padding_row[COL_INDEX_JUMP] = F::ONE;
-        padding_row[COL_INDEX_FLAG_A] = F::ONE;
-        padding_row[COL_INDEX_OPERAND_A] = F::ONE;
-        padding_row[COL_INDEX_FLAG_B] = F::ONE;
-        padding_row[COL_INDEX_FLAG_C] = F::ONE;
-        padding_row[COL_INDEX_EXEC_NU_A] = F::ONE; // because at the end of program, we always jump (looping at pc=0, so condition = nu_a = 1)
+        padding_row[COL_PC] = F::from_usize(ENDING_PC);
+        padding_row[COL_JUMP] = F::ONE;
+        padding_row[COL_FLAG_A] = F::ONE;
+        padding_row[COL_OPERAND_A] = F::ONE;
+        padding_row[COL_FLAG_B] = F::ONE;
+        padding_row[COL_FLAG_C] = F::ONE;
+        padding_row[COL_EXEC_NU_A] = F::ONE; // because at the end of program, we always jump (looping at pc=0, so condition = nu_a = 1)
         padding_row
     }
 

@@ -122,7 +122,6 @@ Aggregate / Merge can be unified in a single program, which is the only one the 
 
 \section{VM specification}
 \subsection{Field}
-\subsubsection{Base field}
 
 \fbox{KoalaBear prime: $p = 2^{31} - 2^{24} + 1$}
 
@@ -135,33 +134,31 @@ Advantages:
     \item $< 2^{31}$ $\xrightarrow{}$ the sum of 2 field elements can be stored in an u32
 \end{itemize}
 
-The small 2-addicity (24) is not a problem in WHIR, thanks to the use of an interleaved Reed Solomon code (and by playing with the folding factors).
+The small 2-addicity (24) is not a limiting factor in WHIR, thanks to the use of an interleaved Reed Solomon code.
 
 % For instance, in a degree 8 extension, with rate = $1/2$, FRI/WHIR can commit to a polynomial of degree $2^{26}$ (FFT on a domain of size $2^{27}$), which is to equivalent to $2^{29}$ KoalaBear elements after RingSwitching \cite{fri_binius} $\approx 2 $ GiB of data (enough to prove the validity of $2$ million Poseidon2).
 
-\subsubsection{Extension field}
-
-\fbox{Extension of dimension 5 or 6}
 
 \vspace{3mm}
 
-Dimension 5 would require the conjecture 4.12 "up to capacity" in WHIR \cite{whir} to get $\approx 128$ bits of security.
+\fbox{Extension field: of degree 5} : enables 128 bits of security in WHIR, with the Johnson bound, thanks to the latest result of \cite{proximity_gaps_rs_codes_2}.
 
 \subsection{Memory}
 
 \begin{itemize}
     \item Read-Only Memory
     \item Word = KoalaBear field element
-    \item Size: $M = 2^m$ with $16 \leq m \leq 29$. The memory size (which depends on the execution) is communicated at the beginning of the proof.
-    \item The first $M' = 2^{m'}$ memory cells hold the "public input," which is written by the verifier and stores the arguments that the leanISA program may receive as input (in our case: message to sign and XMSS public keys), c.f. Figure \ref{memory}.
+    \item Memory size: $M = 2^m$ with $16 \leq m \leq 29$ ($m$ depends on the execution and is communicated at the beginning of the proof).
+    \item The first $M' = 2^{m'}$ memory cells hold the "public input", on which both prover and verifier must agree.
+    This enables to pass the arguments that the leanISA program receives as input (in our case: message to sign and XMSS public keys).
 \end{itemize}
 
-\begin{figure}[h]
-\caption{Memory structure}
-\centering
-\label{memory}
-\includegraphics[scale=0.7]{images/memory.png}
-\end{figure}
+% \begin{figure}[h]
+% \caption{Memory structure}
+% \centering
+% \label{memory}
+% \includegraphics[scale=0.7]{images/memory.png}
+% \end{figure}
 
 \subsection{Registers}
 
@@ -355,30 +352,25 @@ We can significantly reduce the commitments cost using logup*\cite{logup_star}. 
 
 \subsubsection{Commitment}
 
-\fbox{At each cycle, we commit to 5 (base) field elements:}
+\fbox{At each cycle, we commit to 8 (base) field elements:}
 
 \begin{itemize}
     \item pc (program counter)
     \item fp (frame pointer)
     % \item jump (non zero when a jump occurs)
     \item $\text{addr}_A$, $\text{addr}_B$, $\text{addr}_C$
-\end{itemize}
-
-The following 3 (virtual) columns can be interpreted as indexed lookups, and thus not be committed thanks to logup* (in practice though, the gains are modest compared to the indexed lookup into the bytecode, because memory accesses are less repeated):
-
-\begin{itemize}
     \item $\text{value}_A = \textbf{m}[\text{addr}_A]$, $\text{value}_B = \textbf{m}[\text{addr}_B]$, $\text{value}_C = \textbf{m}[\text{addr}_C]$
 \end{itemize}
 
 
 \subsubsection{Instruction Encoding}
 
-Each instruction is described by 15 field elements:
+Each instruction is described by 14 field elements:
 
 \begin{itemize}
     \item 3 operands ($\in \Fp$): $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
     \item 3 associated flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$
-    \item 8 opcode flags ($\in \{0, 1\}$): ADD, MUL, DEREF, JUMP, POSEIDON, DOT\_PRODUCT
+    \item 6 opcode flags ($\in \{0, 1\}$): ADD, MUL, DEREF, JUMP, IS\_PRECOMPILE, PRECOMPILE\_INDEX
     \item 2 multi-purpose operands: AUX\_1, AUX\_2
 \end{itemize}
 
@@ -449,59 +441,11 @@ Note: the constraint $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$ could be re
 
 \subsection{Interactions (buses)}
 
-Each precompile has a dedicated flag in the instruction encoding. For instance, the instruction corresponding the following Poseidon permutation over 16 field elements:
+TODO
 
-$$Poseidon(\underbrace{\textbf{m}[24],  \dots, \textbf{m}[31]}_{\textbf{m}[3\cdot8..4\cdot8]}, \underbrace{\textbf{m}[80],  \dots, \textbf{m}[87]}_{\textbf{m}[10\cdot8..11\cdot8]}) = \underbrace{(\textbf{m}[\textbf{m}[\text{fp} + 17] \cdot 8], \dots, \textbf{m}[\textbf{m}[\text{fp} + 17] \cdot 8 + 15])}_{\textbf{m}[\textbf{m}[\text{fp} + 17]\cdot8..(\textbf{m}[\text{fp} + 17] + 2)\cdot8]}$$
+\section{Annex: simple packing of multilinear polynomials}
 
-... is encoded by:
-
-\begin{itemize}
-    \item POSEIDON = 1
-    \item $\text{flag}_A = 1$, $\text{operand}_A = 3$
-    \item $\text{flag}_B = 1$, $\text{operand}_B = 10$
-    \item $\text{flag}_C = 0$, $\text{operand}_C = 17$
-\end{itemize}
-
-
-\textbf{Bus 1: Execution table $\xrightarrow[]{}$ precompiles} (logup GKR)
-
-\textbf{Bus 2: Execution table / Precompiles $\xrightarrow[]{}$ memory} (logup GKR)
-
-\textbf{Bus 3: Instruction fetching from bytecode $\xrightarrow[]{}$ execution table} (logup*)
-
-\vspace{5mm}
-
-TODO: details
-
-\vspace{5mm}
-
-\textit{Note}: In order to make the proof size even smaller, we could remove logup* (using logup GKR everywhere) at the cost of a slower prover (because we would have to commit to the various instruction columns). TODO Explore
-
-\section{Annex A: batched logup*}\label{annex_a}
-
-We use the same notations as in the logup* paper \cite{logup_star}, but instead of a single evaluation point $r$, we now have two of them: $r_1$ and $r_2$, and two corresponding claims: $I^*T(r_1) = e_1$ and $I^*T(r_2) = e_2$.
-
-\begin{enumerate}
-    \item Use a random challenge $\alpha$ to reduce both claims to:
-$I^*T(r_1) + \alpha \cdot I^*T(r_2) = e_1 + \alpha \cdot e_2$
-
-\item Commit to $I_*(eq_{r_1} + \alpha \cdot eq_{r_2})$
-
-\item Notice that $I^*T(r_1) + \alpha \cdot I^*T(r_2) = \langle I^*T, eq_{r_1} + \alpha \cdot eq_{r_2} \rangle = \langle T, I_* (eq_{r_1} + \alpha \cdot eq_{r_2}) \rangle$
-
-
-\item Run a sumcheck for $\langle T, I_* (eq_{r_1} + \alpha \cdot eq_{r_2}) \rangle = e_1 + \alpha \cdot e_2$
-
-\item Open $T$ and $I_* (eq_{r_1} + \alpha \cdot eq_{r_2})$
-
-Finally, ensuring that $I_* (eq_{r_1} + \alpha \cdot eq_{r_2})$ was correctly committed can be easily adapted from the original protocol, by simply using $X \xleftarrow{} eq_{r_1} + \alpha \cdot eq_{r_2}$.
-
-\end{enumerate}
-
-
-\section{Annex B: simple packing of multilinear polynomials}
-
-\textit{Note 1}: It's always possible to reduce $n$ claims about a multilinear polynomial to a single one, using sumcheck. But this trick is not necessary with WHIR, which natively supports an arbitrary number of claims about the committed polynomial. Given the fact that logup* also has a similar capacity (see \ref{annex_a}), the current proof system never requires this $n$-to-1 reduction.
+\textit{Note 1}: It's always possible to reduce $n$ claims about a multilinear polynomial to a single one, using sumcheck. But this trick is not necessary with WHIR, which natively supports an arbitrary number of claims about the committed polynomial.
 \vspace{3mm}
 
 \textit{Note 2:} Crucially, the proving cost to add an equality constraint of the form $P((x_1, \dots, x_n)) = y$ to a committed polynomial $P$ via WHIR is $O(2^k)$ where $k = {|\{i, x_i \notin \{0, 1\} \}|}$ is the number of "non-boolean variables". As a result, adding "sparse" ($(x_i)$ containing boolean values) equality constraints is essentially optimal.
@@ -538,10 +482,10 @@ The concatenated polynomial $P$, that we commit, has $5 = \lceil \log_2(2^4 + 2^
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}[scale=0.45, every node/.style={font=\small}]
-    \fill[sigblue] (0,0) rectangle (16,1.5);
-    \fill[siggreen] (16,0) rectangle (24,1.5);
-    \fill[sigyellow] (24,0) rectangle (28,1.5);
-    \fill[gray!30] (28,0) rectangle (32,1.5);
+    \fill[gray!10] (0,0) rectangle (16,1.5);
+    \fill[gray!20] (16,0) rectangle (24,1.5);
+    \fill[gray!10] (24,0) rectangle (28,1.5);
+    \fill[gray!20] (28,0) rectangle (32,1.5);
 
     \draw[black] (0,0) rectangle (32,1.5);
     \draw[black] (16,0) -- (16,1.5);
@@ -551,7 +495,7 @@ The concatenated polynomial $P$, that we commit, has $5 = \lceil \log_2(2^4 + 2^
     \node at (8,0.75) {$P_1$};
     \node at (20,0.75) {$P_2$};
     \node at (26,0.75) {$P_3$};
-    \node at (30,0.75) {\tiny padding};
+    \node at (30,0.75) {padding};
 
     \node[below] at (0,-0.1) {\footnotesize 0};
     \node[below] at (16,-0.1) {\footnotesize 16};
@@ -560,9 +504,9 @@ The concatenated polynomial $P$, that we commit, has $5 = \lceil \log_2(2^4 + 2^
     \node[below] at (32,-0.1) {\footnotesize 32};
 
     % Selector annotations above each section
-    \node[above] at (8,1.6) {$P(\textcolor{red}{\mathbf{0}}, x_1, x_2, x_3, x_4)$};
-    \node[above] at (20,1.6) {$P(\textcolor{red}{\mathbf{1}}, \textcolor{red}{\mathbf{0}}, x_1, x_2, x_3)$};
-    \node[above] at (26,1.6) {$P(\textcolor{red}{\mathbf{1}}, \textcolor{red}{\mathbf{1}}, \textcolor{red}{\mathbf{0}}, x_1, x_2)$};
+    \node[above] at (8,1.6) {$P({\mathbf{0}}, x_1, x_2, x_3, x_4)$};
+    \node[above] at (20,1.6) {$P({\mathbf{1}}, {\mathbf{0}}, x_1, x_2, x_3)$};
+    \node[above] at (26,1.6) {$P({\mathbf{1}}, {\mathbf{1}}, {\mathbf{0}}, x_1, x_2)$};
 \end{tikzpicture}
 \caption{Simple packing of $P_1, P_2, P_3$ into a single polynomial $P$}
 \label{fig:packing}

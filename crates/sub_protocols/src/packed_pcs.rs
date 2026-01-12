@@ -1,4 +1,4 @@
-use lean_vm::{COL_INDEX_PC, CommittedStatements, ENDING_PC, STARTING_PC, sort_tables_by_height};
+use lean_vm::{COL_PC, CommittedStatements, ENDING_PC, STARTING_PC, sort_tables_by_height};
 use lean_vm::{EF, F, Table, TableT, TableTrace};
 use multilinear_toolkit::prelude::*;
 use p3_util::log2_ceil_usize;
@@ -34,12 +34,12 @@ pub fn packed_pcs_global_statements(
             // Important: ensure both initial and final PC conditions are correct
             global_statements.push(SparseStatement::unique_value(
                 packed_n_vars,
-                offset + (COL_INDEX_PC << n_vars),
+                offset + (COL_PC << n_vars),
                 EF::from_usize(STARTING_PC),
             ));
             global_statements.push(SparseStatement::unique_value(
                 packed_n_vars,
-                offset + ((COL_INDEX_PC + 1) << n_vars) - 1,
+                offset + ((COL_PC + 1) << n_vars) - 1,
                 EF::from_usize(ENDING_PC),
             ));
         }

@@ -32,7 +32,7 @@ const NUM_BYTECODE_INSTRUCTIONS = NUM_BYTECODE_INSTRUCTIONS_PLACEHOLDER;
 const N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER;
 
 const GUEST_BYTECODE_LEN = GUEST_BYTECODE_LEN_PLACEHOLDER;
-const COL_INDEX_PC = COL_INDEX_PC_PLACEHOLDER;
+const COL_PC = COL_PC_PLACEHOLDER;
 const TOTAL_WHIR_STATEMENTS_BASE = TOTAL_WHIR_STATEMENTS_BASE_PLACEHOLDER;
 const STARTING_PC = STARTING_PC_PLACEHOLDER;
 const ENDING_PC = ENDING_PC_PLACEHOLDER;
@@ -354,7 +354,7 @@ fn recursion(outer_public_memory_log_size, outer_public_memory, proof_transcript
     for _ in 0..total_exec_cols unroll {
         pcs_values[EXECUTION_TABLE_INDEX - 1][last_len].push(vec![]);
     }
-    pcs_values[EXECUTION_TABLE_INDEX - 1][last_len][COL_INDEX_PC].push(ls_on_indexes_eval);
+    pcs_values[EXECUTION_TABLE_INDEX - 1][last_len][COL_PC].push(ls_on_indexes_eval);
 
     // verify the outer public memory is well constructed (with the conventions)
     for i in 0..next_multiple_of(NONRESERVED_PROGRAM_INPUT_START, DIM) / DIM unroll {
@@ -421,11 +421,11 @@ fn recursion(outer_public_memory_log_size, outer_public_memory, proof_transcript
 
     offset = powers_of_two(log_memory) * 2; // memory and acc
     
-    prefix_pc_start = multilinear_location_prefix(offset + COL_INDEX_PC * powers_of_two(log_n_cycles), N_VARS_BASE, folding_randomness_global);
+    prefix_pc_start = multilinear_location_prefix(offset + COL_PC * powers_of_two(log_n_cycles), N_VARS_BASE, folding_randomness_global);
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_start));
     curr_randomness += DIM;
 
-    prefix_pc_end = multilinear_location_prefix(offset + (COL_INDEX_PC + 1) * powers_of_two(log_n_cycles) - 1, N_VARS_BASE, folding_randomness_global);
+    prefix_pc_end = multilinear_location_prefix(offset + (COL_PC + 1) * powers_of_two(log_n_cycles) - 1, N_VARS_BASE, folding_randomness_global);
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_end));
     curr_randomness += DIM;
 

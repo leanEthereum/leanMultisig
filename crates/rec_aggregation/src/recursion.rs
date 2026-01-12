@@ -140,7 +140,7 @@ pub fn run_recursion_benchmark(count: usize, tracing: bool) {
         "GUEST_BYTECODE_LEN_PLACEHOLDER".to_string(),
         bytecode_to_prove.instructions.len().to_string(),
     );
-    replacements.insert("COL_INDEX_PC_PLACEHOLDER".to_string(), COL_INDEX_PC.to_string());
+    replacements.insert("COL_PC_PLACEHOLDER".to_string(), COL_PC.to_string());
     replacements.insert(
         "NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER".to_string(),
         NONRESERVED_PROGRAM_INPUT_START.to_string(),

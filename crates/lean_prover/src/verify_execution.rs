@@ -126,7 +126,7 @@ pub fn verify_execution(
 
     committed_statements.get_mut(&Table::execution()).unwrap().push((
         bytecode_logup_star_statements.on_indexes.point.clone(),
-        BTreeMap::from_iter([(COL_INDEX_PC, bytecode_logup_star_statements.on_indexes.value)]),
+        BTreeMap::from_iter([(COL_PC, bytecode_logup_star_statements.on_indexes.value)]),
     ));
 
     let public_memory_random_point =

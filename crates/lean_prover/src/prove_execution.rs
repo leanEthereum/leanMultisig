@@ -145,7 +145,7 @@ pub fn prove_execution(
     );
     let bytecode_poly_eq_point = eval_eq(&bytecode_lookup_claim.point);
     let bytecode_pushforward = MleOwned::Extension(compute_pushforward(
-        &traces[&Table::execution()].base[COL_INDEX_PC],
+        &traces[&Table::execution()].base[COL_PC],
         folded_bytecode.len(),
         &bytecode_poly_eq_point,
     ));
@@ -157,7 +157,7 @@ pub fn prove_execution(
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &MleRef::Extension(&folded_bytecode),
-        &traces[&Table::execution()].base[COL_INDEX_PC],
+        &traces[&Table::execution()].base[COL_PC],
         bytecode_lookup_claim.value,
         &bytecode_poly_eq_point,
         &bytecode_pushforward.by_ref(),
@@ -166,7 +166,7 @@ pub fn prove_execution(
 
     committed_statements.get_mut(&Table::execution()).unwrap().push((
         bytecode_logup_star_statements.on_indexes.point.clone(),
-        BTreeMap::from_iter([(COL_INDEX_PC, bytecode_logup_star_statements.on_indexes.value)]),
+        BTreeMap::from_iter([(COL_PC, bytecode_logup_star_statements.on_indexes.value)]),
     ));
 
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));

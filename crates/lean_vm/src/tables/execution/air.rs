@@ -7,36 +7,36 @@ pub const N_INSTRUCTION_COLUMNS: usize = 14;
 pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS;
 
 // Committed columns (IMPORTANT: they must be the first columns)
-pub const COL_INDEX_PC: usize = 0;
-pub const COL_INDEX_FP: usize = 1;
-pub const COL_INDEX_MEM_ADDRESS_A: usize = 2;
-pub const COL_INDEX_MEM_ADDRESS_B: usize = 3;
-pub const COL_INDEX_MEM_ADDRESS_C: usize = 4;
-pub const COL_INDEX_MEM_VALUE_A: usize = 5;
-pub const COL_INDEX_MEM_VALUE_B: usize = 6;
-pub const COL_INDEX_MEM_VALUE_C: usize = 7;
+pub const COL_PC: usize = 0;
+pub const COL_FP: usize = 1;
+pub const COL_MEM_ADDRESS_A: usize = 2;
+pub const COL_MEM_ADDRESS_B: usize = 3;
+pub const COL_MEM_ADDRESS_C: usize = 4;
+pub const COL_MEM_VALUE_A: usize = 5;
+pub const COL_MEM_VALUE_B: usize = 6;
+pub const COL_MEM_VALUE_C: usize = 7;
 
 // Decoded instruction columns (lookup into bytecode with logup*)
-pub const COL_INDEX_OPERAND_A: usize = 8;
-pub const COL_INDEX_OPERAND_B: usize = 9;
-pub const COL_INDEX_OPERAND_C: usize = 10;
-pub const COL_INDEX_FLAG_A: usize = 11;
-pub const COL_INDEX_FLAG_B: usize = 12;
-pub const COL_INDEX_FLAG_C: usize = 13;
-pub const COL_INDEX_ADD: usize = 14;
-pub const COL_INDEX_MUL: usize = 15;
-pub const COL_INDEX_DEREF: usize = 16;
-pub const COL_INDEX_JUMP: usize = 17;
-pub const COL_INDEX_AUX_1: usize = 18;
-pub const COL_INDEX_AUX_2: usize = 19;
-pub const COL_INDEX_IS_PRECOMPILE: usize = 20;
-pub const COL_INDEX_WHICH_PRECOMPILE: usize = 21;
+pub const COL_OPERAND_A: usize = 8;
+pub const COL_OPERAND_B: usize = 9;
+pub const COL_OPERAND_C: usize = 10;
+pub const COL_FLAG_A: usize = 11;
+pub const COL_FLAG_B: usize = 12;
+pub const COL_FLAG_C: usize = 13;
+pub const COL_ADD: usize = 14;
+pub const COL_MUL: usize = 15;
+pub const COL_DEREF: usize = 16;
+pub const COL_JUMP: usize = 17;
+pub const COL_AUX_1: usize = 18;
+pub const COL_AUX_2: usize = 19;
+pub const COL_IS_PRECOMPILE: usize = 20;
+pub const COL_PRECOMPILE_INDEX: usize = 21;
 
 // Temporary columns (stored to avoid duplicate computations)
 pub const N_TEMPORARY_EXEC_COLUMNS: usize = 3;
-pub const COL_INDEX_EXEC_NU_A: usize = 22;
-pub const COL_INDEX_EXEC_NU_B: usize = 23;
-pub const COL_INDEX_EXEC_NU_C: usize = 24;
+pub const COL_EXEC_NU_A: usize = 22;
+pub const COL_EXEC_NU_B: usize = 23;
+pub const COL_EXEC_NU_C: usize = 24;
 
 impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
@@ -51,7 +51,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         5
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        vec![COL_INDEX_PC, COL_INDEX_FP]
+        vec![COL_PC, COL_FP]
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
@@ -69,35 +69,31 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let next_fp = down[1].clone();
 
         let (operand_a, operand_b, operand_c) = (
-            up[COL_INDEX_OPERAND_A].clone(),
-            up[COL_INDEX_OPERAND_B].clone(),
-            up[COL_INDEX_OPERAND_C].clone(),
+            up[COL_OPERAND_A].clone(),
+            up[COL_OPERAND_B].clone(),
+            up[COL_OPERAND_C].clone(),
         );
-        let (flag_a, flag_b, flag_c) = (
-            up[COL_INDEX_FLAG_A].clone(),
-            up[COL_INDEX_FLAG_B].clone(),
-            up[COL_INDEX_FLAG_C].clone(),
-        );
-        let add = up[COL_INDEX_ADD].clone();
-        let mul = up[COL_INDEX_MUL].clone();
-        let deref = up[COL_INDEX_DEREF].clone();
-        let jump = up[COL_INDEX_JUMP].clone();
-        let aux_1 = up[COL_INDEX_AUX_1].clone();
-        let aux_2 = up[COL_INDEX_AUX_2].clone();
-        let is_precompile = up[COL_INDEX_IS_PRECOMPILE].clone();
-        let precompile_index = up[COL_INDEX_WHICH_PRECOMPILE].clone();
+        let (flag_a, flag_b, flag_c) = (up[COL_FLAG_A].clone(), up[COL_FLAG_B].clone(), up[COL_FLAG_C].clone());
+        let add = up[COL_ADD].clone();
+        let mul = up[COL_MUL].clone();
+        let deref = up[COL_DEREF].clone();
+        let jump = up[COL_JUMP].clone();
+        let aux_1 = up[COL_AUX_1].clone();
+        let aux_2 = up[COL_AUX_2].clone();
+        let is_precompile = up[COL_IS_PRECOMPILE].clone();
+        let precompile_index = up[COL_PRECOMPILE_INDEX].clone();
 
         let (value_a, value_b, value_c) = (
-            up[COL_INDEX_MEM_VALUE_A].clone(),
-            up[COL_INDEX_MEM_VALUE_B].clone(),
-            up[COL_INDEX_MEM_VALUE_C].clone(),
+            up[COL_MEM_VALUE_A].clone(),
+            up[COL_MEM_VALUE_B].clone(),
+            up[COL_MEM_VALUE_C].clone(),
         );
-        let pc = up[COL_INDEX_PC].clone();
-        let fp = up[COL_INDEX_FP].clone();
+        let pc = up[COL_PC].clone();
+        let fp = up[COL_FP].clone();
         let (addr_a, addr_b, addr_c) = (
-            up[COL_INDEX_MEM_ADDRESS_A].clone(),
-            up[COL_INDEX_MEM_ADDRESS_B].clone(),
-            up[COL_INDEX_MEM_ADDRESS_C].clone(),
+            up[COL_MEM_ADDRESS_A].clone(),
+            up[COL_MEM_ADDRESS_B].clone(),
+            up[COL_MEM_ADDRESS_C].clone(),
         );
 
         let flag_a_minus_one = flag_a.clone() - AB::F::ONE;

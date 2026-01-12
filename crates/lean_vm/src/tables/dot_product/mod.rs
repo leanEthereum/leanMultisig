@@ -24,24 +24,24 @@ impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
 
     fn lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![LookupIntoMemory {
-            index: COL_INDEX_A,
-            values: vec![COL_VALUE_A_F],
+            index: DOT_COL_A,
+            values: vec![DOT_COL_VALUE_A_F],
         }]
     }
 
     fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         vec![
             ExtensionFieldLookupIntoMemory {
-                index: COL_INDEX_A,
-                values: COL_VALUE_A_EF,
+                index: DOT_COL_A,
+                values: DOT_COL_VALUE_A_EF,
             },
             ExtensionFieldLookupIntoMemory {
-                index: COL_INDEX_B,
-                values: COL_VALUE_B,
+                index: DOT_COL_B,
+                values: DOT_COL_VALUE_B,
             },
             ExtensionFieldLookupIntoMemory {
-                index: COL_INDEX_RES,
-                values: COL_VALUE_RES,
+                index: DOT_COL_RES,
+                values: DOT_COL_VALUE_RES,
             },
         ]
     }
@@ -50,8 +50,8 @@ impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
         Bus {
             table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
-            selector: COL_FLAG,
-            data: vec![COL_INDEX_A, COL_INDEX_B, COL_INDEX_RES, COL_LEN, COL_IS_BE],
+            selector: DOT_COL_FLAG,
+            data: vec![DOT_COL_A, DOT_COL_B, DOT_COL_RES, DOT_COL_LEN, DOT_COL_IS_BE],
         }
     }
 
