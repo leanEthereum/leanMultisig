@@ -1,16 +1,12 @@
 use lean_compiler::*;
 use lean_prover::{prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
-use leansig::array::FieldArray;
-use leansig::serialization::Serializable;
 use leansig::signature::SignatureScheme;
 use leansig::signature::SignatureSchemeSecretKey;
 use leansig::symmetric::message_hash::MessageHash;
 use leansig::symmetric::tweak_hash::poseidon::PoseidonTweak;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use serde::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
 use std::sync::OnceLock;
 use std::time::Instant;
 use std::{mem::transmute, path::Path};
@@ -28,9 +24,6 @@ use config::{
     LeanSigSignature, MH, PARAMETER_LEN, RAND_LEN_FE, TWEAK_LEN_FE,
 };
 
-type ProofBytes = Vec<u8>;
-type EncodingRandomnessElement = FieldArray<RAND_LEN_FE>;
-
 static XMSS_AGGREGATION_PROGRAM: OnceLock<Bytecode> = OnceLock::new();
 
 fn get_xmss_aggregation_program() -> &'static Bytecode {
@@ -43,7 +36,7 @@ pub fn xmss_setup_aggregation_program() {
 
 fn build_public_input(
     pub_keys: &[LeanSigPubKey],
-    encoding_randomness: &[EncodingRandomnessElement],
+    encoding_randomness: &[[F; RAND_LEN_FE]],
     message: &[u8; 32],
     epoch: u32,
 ) -> Vec<F> {
@@ -225,13 +218,11 @@ pub fn xmss_aggregate_signatures(
     Ok(xmss_aggregate_signatures_helper(pub_keys, signatures, message, epoch)?.0)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone)]
 pub struct Devnet2XmssAggregateSignature {
     pub proof_bytes: Vec<u8>,
-    pub encoding_randomness: Vec<EncodingRandomnessElement>,
+    pub encoding_randomness: Vec<[F; RAND_LEN_FE]>,
 }
-
-impl Serializable for Devnet2XmssAggregateSignature {}
 
 fn xmss_aggregate_signatures_helper(
     pub_keys: &[LeanSigPubKey],
@@ -249,9 +240,9 @@ fn xmss_aggregate_signatures_helper(
     //     .ok_or(XmssAggregateError::InvalidSigature)?;
     tracing::warn!("TODO precompute poseidons in parallel + SIMD");
 
-    let encoding_randomness: Vec<EncodingRandomnessElement> = signatures
+    let encoding_randomness: Vec<[F; RAND_LEN_FE]> = signatures
         .iter()
-        .map(|sig| unsafe { transmute(*sig.rho()) })
+        .map(|sig| unsafe { transmute::<_, [F; RAND_LEN_FE]>(*sig.rho()) })
         .collect();
     let public_input = build_public_input(pub_keys, &encoding_randomness, message, epoch);
     let private_input = build_private_input(signatures);
