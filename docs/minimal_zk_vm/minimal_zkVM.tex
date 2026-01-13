@@ -43,16 +43,7 @@
 \algnewcommand\algorithmicprivateinput{\textbf{Private input:}}
 \algnewcommand\privateinput{\item[\algorithmicprivateinput]}
 
-\renewenvironment{leftbar}[1][\hsize]
-{%
-    \def\FrameCommand
-    {%
-        {\color{black}\vrule width 1pt}%
-        \hspace{0pt}%must no space.
-    }%
-    \MakeFramed{\hsize#1\advance\hsize-\width\FrameRestore}%
-}
-{\endMakeFramed}
+\newtheorem{lemma}{Lemma}
 
 \title{Minimal zkVM for Lean Ethereum (draft 0.5.0)}
 \date{}
@@ -439,9 +430,98 @@ When JUMP $= 1$, the condition is represented by $\nu_A$:
 
 Note: the constraint $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
 
-\subsection{Interactions (buses)}
+\subsection{Data flow between tables / memory}
 
-TODO
+
+\begin{lemma}
+    Let $a_0, a_1, \ldots, a_{n-1}$ be pairwise distinct poles in $\Fq$, and let $m_0, m_1, \ldots, m_{n-1}$ be an associated list of multiplicities in $\{0, 1, \dots, p - 1\}$. Consider the rational function:
+$$P(X) = \sum_{i=0}^{n-1} \frac{m_i}{X - a_i}$$
+
+Except with probability $n/q$, if $P(\alpha) = 0$ for a random $\alpha \in \Fq$, then all multiplicities $m_i = 0$.
+
+\end{lemma}
+
+\subsubsection{Indexed Lookup into Memory}
+
+We use logup \cite{logup}, in its indexed form, to allow tables to perform lookups into the read-only memory.
+
+
+\vspace{3mm}
+
+Let $\mathcal{T}$ denote the set of all tables in the system. For each table $T \in \mathcal{T}$ with $H_T$ rows, let $n_T$ denote the number of memory lookups. Each lookup $i < n_T$ consists of an \textbf{index column} $\text{col}_{\text{index},T,i}$ and a \textbf{value column} $\text{col}_{\text{val},T,i}$.
+
+\vspace{3mm}
+
+The rule to enforce is the following:
+$$\forall T \in \mathcal{T}, \forall i < n_T, \forall j < H_T: \quad \text{col}_{\text{val},T,i}(j) = \textbf{m}[\text{col}_{\text{index},T,i}(j)]$$
+
+Implicitly, we must also have $\text{col}_{\text{index},T,i}(j) < M$ (the memory size).
+
+\vspace{3mm}
+
+The prover initially commits to a multilinear polynomial $\textit{acc}$, having the same size as the memory, such that (in the honest case) for every $k < M$:
+$$\textit{acc}[k] = \sum_{T \in \mathcal{T}} \sum_{i < n_T} \left| \{ j < H_T : \text{col}_{\text{index},T,i}(j) = k \} \right|$$
+i.e., $\textit{acc}[k]$ represents the total number of times address $k$ is accessed by the lookups across all tables.
+
+\vspace{3mm}
+
+The verifier sends a random challenge $\alpha \in \Fq$ (TODO quantify soundness error). Let $N = \sum_{T \in \mathcal{T}} n_T \cdot H_T$ be the total number of memory lookups. Assuming $N < p$ (to avoid overflow), the indexed lookup into memory is valid, except with probability $(N + M)/q$, if for a randomly sampled $X \in \Fq$:
+
+$$\sum_{T \in \mathcal{T}} \sum_{i<n_T} \sum_{j<H_T} \frac{1}{X - (\text{col}_{\text{index},T,i}(j) + \alpha \cdot \text{col}_{\text{val},T,i}(j))} = \sum_{k<M} \frac{\textit{acc}(k)}{X - (k + \alpha \cdot \textbf{m}[k])}$$
+
+This can be computed via GKR, as introduced in \cite{logup_gkr}.
+
+\subsubsection{Buses: Data flow between tables}
+
+See OpenVM \cite{openvm}, definition 2.2.2, for more details.
+
+To each table is associated a list of buses. Declaring a bus for a given table requires specifying:
+
+\begin{enumerate}
+    \item \textbf{Direction}: either \textsc{Pull} or \textsc{Push}
+    \item \textbf{Bus index}: can be either a constant or given by a column
+    \item \textbf{Data columns}: a list (of arbitrary size) of columns defining which data is passed to the bus
+    \item \textbf{Selector column}: enforced via AIR constraint to only contain Boolean values ($\in \{0, 1\}$), indicating at which row the bus is active (1) or silenced (0)
+\end{enumerate}
+
+\vspace{3mm}
+
+\textbf{Balance rule:} At the end of execution, every bus (identified by its index) must be \textit{balanced} across all tables: for each data tuple, the number of pushes must equal the number of pulls.
+
+\vspace{5mm}
+
+\textbf{Proving system (logup):}
+
+Let $\mathcal{T}$ denote the set of all tables in the system. For each table $T \in \mathcal{T}$ with $H_T$ rows, let $\mathcal{B}_T$ denote the set of buses associated with $T$. For each bus $b \in \mathcal{B}_T$, we have:
+\begin{itemize}
+    \item $\text{dir}_{T,b} \in \{+1, -1\}$: the direction ($+1$ for \textsc{Push}, $-1$ for \textsc{Pull})
+    \item $\text{sel}_{T,b}: [0, H_T) \to \{0, 1\}$: the selector column
+    \item $\text{bus\_idx}_{T,b}: [0, H_T) \to \Fp$: the bus index (assumed to be a column here, but could also be a constant)
+    \item $\text{data}_{T,b} = (d_0, d_1, \ldots, d_{k-1})$: the $k$ data columns
+\end{itemize}
+
+\vspace{3mm}
+
+The verifier sends a random challenge $\alpha \in \Fq$ (TODO quantify soundness error). For a bus with index $\beta$ and data tuple $(c_0, c_1, \ldots, c_{k-1})$, define the encoding:
+$$\text{encode}(\beta, c_0, \ldots, c_{k-1}) = \beta + \sum_{i=0}^{k-1} \alpha^{i+1} \cdot c_i$$
+
+\vspace{3mm}
+
+Except with probability $N/q$, where $N = \sum_{T \in \mathcal{T}} |\mathcal{B}_T| \cdot H_T$ is the total number of bus interactions, the bus balance constraint is satisfied if for a randomly sampled $X \in \Fq$:
+
+$$\sum_{T \in \mathcal{T}} \sum_{b \in \mathcal{B}_T} \sum_{j=0}^{H_T - 1} \frac{\text{dir}_{T,b} \cdot \text{sel}_{T,b}(j)}{X - \text{encode}\big(\text{bus\_idx}_{T,b}(j), \text{data}_{T,b}(j)\big)} = 0$$
+
+
+\vspace{3mm}
+
+\textit{Overflow constraint:} For soundness, we must ensure that multiplicities do not overflow modulo $p$. This requires that for each bus index $\beta$, the total number of interactions (pushes and pulls combined) is strictly less than $p$:
+$$\forall \beta: \quad \sum_{\substack{T \in \mathcal{T}, b \in \mathcal{B}_T \\ \text{bus\_idx}_{T,b} = \beta}} H_T < p$$
+
+\vspace{3mm}
+
+As with the indexed lookup into memory, this sum can be computed efficiently via GKR \cite{logup_gkr}. In practice, all logup sums (bus balance and memory lookups) are batched into a single GKR instance, using random linear combination.
+
+\vspace{3mm} TODO: Unified vision in which memory is just another table, and memory accesses are just bus interactions?
 
 \section{Annex: simple packing of multilinear polynomials}
 
