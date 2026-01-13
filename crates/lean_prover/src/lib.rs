@@ -16,7 +16,7 @@ pub mod verify_execution;
 const UNIVARIATE_SKIPS: usize = 3;
 const TWO_POW_UNIVARIATE_SKIPS: usize = 1 << UNIVARIATE_SKIPS;
 
-pub const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = 12; // TODO optimize
+pub const LOG_SMALLEST_DECOMPOSITION_CHUNK: usize = usize::MAX; // Not used because buggy
 
 const DOT_PRODUCT_UNIVARIATE_SKIPS: usize = 1;
 const TWO_POW_DOT_PRODUCT_UNIVARIATE_SKIPS: usize = 1 << DOT_PRODUCT_UNIVARIATE_SKIPS;

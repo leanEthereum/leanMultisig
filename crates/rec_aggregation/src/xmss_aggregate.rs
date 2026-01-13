@@ -123,10 +123,10 @@ pub fn gen_pubkey_and_signature(
     activation_epoch: u32,
     epoch: u32,
     message: &[u8; 32],
+    rng: &mut impl Rng,
 ) -> (LeanSigPubKey, LeanSigSignature) {
     let lifetime = 1 << log_lifetime;
-    let mut rng = StdRng::seed_from_u64(0);
-    let (pk, mut sk) = LeanSigScheme::key_gen(&mut rng, activation_epoch as usize, lifetime as usize);
+    let (pk, mut sk) = LeanSigScheme::key_gen(rng, activation_epoch as usize, lifetime as usize);
     let mut iterations = 0;
     while !sk.get_prepared_interval().contains(&(epoch as u64)) && iterations < epoch {
         sk.advance_preparation();
@@ -156,6 +156,7 @@ pub fn run_xmss_benchmark(n_xmss: usize, tracing: bool) {
 
     let mut pub_keys = Vec::new();
     let mut signatures = Vec::new();
+    let mut rng = StdRng::seed_from_u64(0);
     for &log_lifetime in &log_lifetimes {
         let activation_epoch = epoch - log_lifetime;
 
@@ -178,7 +179,7 @@ pub fn run_xmss_benchmark(n_xmss: usize, tracing: bool) {
                 "Generating XMSS keypair and signature for log_lifetime = {}",
                 log_lifetime
             );
-            let (pk, sig) = gen_pubkey_and_signature(log_lifetime, activation_epoch, epoch, &message);
+            let (pk, sig) = gen_pubkey_and_signature(log_lifetime, activation_epoch, epoch, &message, &mut rng);
             let data = bincode::serialize(&(pk.clone(), sig.clone())).unwrap();
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &data).unwrap();

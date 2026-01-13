@@ -91,6 +91,7 @@ p3-koala-bear.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true
 whir-p3.workspace = true
+rand.workspace = true
 
 # [patch."https://github.com/TomWambsgans/Plonky3.git"]
 # p3-koala-bear = { path = "../Plonky3/koala-bear" }
