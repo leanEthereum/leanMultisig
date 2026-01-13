@@ -3,9 +3,6 @@ use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE};
 use crate::diagnostics::RunnerError;
 use multilinear_toolkit::prelude::*;
 
-pub const MIN_LOG_MEMORY_SIZE: usize = 16;
-pub const MAX_LOG_MEMORY_SIZE: usize = 29;
-
 /// VM memory implementation with sparse allocation
 #[derive(Debug, Clone, Default)]
 pub struct Memory(pub Vec<Option<F>>);

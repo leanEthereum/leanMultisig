@@ -35,8 +35,17 @@ pub fn verify_execution(
         .collect::<Vec<_>>();
     let log_memory = dims[0];
     let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 1])).collect();
-    for &n_vars in table_n_vars.values() {
-        if !(MIN_LOG_N_ROWS_PER_TABLE..=MAX_LOG_N_ROWS_PER_TABLE).contains(&n_vars) {
+    for (table, &n_vars) in &table_n_vars {
+        if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
+            return Err(ProofError::InvalidProof);
+        }
+        if n_vars
+            > MAX_LOG_N_ROWS_PER_TABLE
+                .iter()
+                .find(|(t, _)| t == table)
+                .map(|(_, m)| *m)
+                .unwrap()
+        {
             return Err(ProofError::InvalidProof);
         }
     }

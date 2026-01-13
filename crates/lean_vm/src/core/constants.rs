@@ -1,13 +1,24 @@
-/// Vector dimension for field operations
+use crate::Table;
+
+/// Large field = extension field of degree DIMENSION over koala-bear
 pub const DIMENSION: usize = 5;
-/// Logarithm of vector length
-pub const LOG_VECTOR_LEN: usize = 3;
 
-/// Vector length (2^LOG_VECTOR_LEN)
-pub const VECTOR_LEN: usize = 1 << LOG_VECTOR_LEN;
+pub const DIGEST_LEN: usize = 8;
 
-/// Maximum memory size for VM runner
+/// Minimum and maximum memory size (as powers of two)
+pub const MIN_LOG_MEMORY_SIZE: usize = 16;
+pub const MAX_LOG_MEMORY_SIZE: usize = 29;
+
+/// Maximum memory size for VM runner (specific to this implementation)
 pub const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
+
+/// Minimum and maximum number of rows per table (as powers of two), both inclusive
+pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to each at least, if this minimum is not reached, (ensuring AIR / GKR work fine, with SIMD, without too much edge cases). Long term, we should find a more elegant solution.
+pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
+    (Table::execution(), 29),   // 3 lookups
+    (Table::dot_product(), 25), // 4 lookups
+    (Table::poseidon16(), 25),  // 4 lookups
+]; // No overflow in logup: (TODO triple check) 3.2^29 + 4.2^25 + 4.2^25 < p = 2^31 - 2^24 + 1
 
 /// Starting program counter
 pub const STARTING_PC: usize = 1;
@@ -33,13 +44,13 @@ pub const ENDING_PC: usize = 0;
 pub const ZERO_VEC_PTR: usize = 0;
 
 /// Convention: pointing to [10000] [01000] [00100] [00010] [00001]
-pub const EXTENSION_BASIS_PTR: usize = 2 * VECTOR_LEN;
+pub const EXTENSION_BASIS_PTR: usize = 2 * DIGEST_LEN;
 
 /// Convention: pointing to the 16 elements of poseidon_16(0)
-pub const POSEIDON_16_NULL_HASH_PTR: usize = 2 * VECTOR_LEN + DIMENSION.pow(2);
+pub const POSEIDON_16_NULL_HASH_PTR: usize = 2 * DIGEST_LEN + DIMENSION.pow(2);
 
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = 4 * VECTOR_LEN + DIMENSION.pow(2);
+pub const NONRESERVED_PROGRAM_INPUT_START: usize = 4 * DIGEST_LEN + DIMENSION.pow(2);
 
 /// The first element of basis corresponds to one
 pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;

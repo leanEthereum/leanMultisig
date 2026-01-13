@@ -119,9 +119,20 @@ pub fn run_recursion_benchmark(count: usize, tracing: bool) {
         "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
         MIN_LOG_N_ROWS_PER_TABLE.to_string(),
     );
+    let mut max_log_n_rows_per_table = MAX_LOG_N_ROWS_PER_TABLE.to_vec();
+    max_log_n_rows_per_table.sort_by_key(|(table, _)| table.index());
+    max_log_n_rows_per_table.dedup();
+    assert_eq!(max_log_n_rows_per_table.len(), N_TABLES);
     replacements.insert(
         "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
-        MAX_LOG_N_ROWS_PER_TABLE.to_string(),
+        format!(
+            "[{}]",
+            max_log_n_rows_per_table
+                .iter()
+                .map(|(_, v)| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     );
     replacements.insert(
         "MIN_LOG_MEMORY_SIZE_PLACEHOLDER".to_string(),

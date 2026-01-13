@@ -39,7 +39,7 @@ fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message_hash: [F; 8], slo
     let mut acc = F::ZERO;
     for pk in xmss_pub_keys {
         public_input.push(acc);
-        acc += F::from_usize((1 + V + pk.log_lifetime) * VECTOR_LEN); // size of the signature
+        acc += F::from_usize((1 + V + pk.log_lifetime) * DIGEST_LEN); // size of the signature
     }
     public_input
 }
@@ -61,7 +61,7 @@ fn build_private_input(all_signatures: &[XmssSignature]) -> Vec<F> {
         }
 
         let sig_size = private_input.len() - initial_private_input_len;
-        assert!(sig_size.is_multiple_of(VECTOR_LEN));
+        assert!(sig_size.is_multiple_of(DIGEST_LEN));
     }
     private_input
 }

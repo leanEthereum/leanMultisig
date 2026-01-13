@@ -4,12 +4,6 @@ use multilinear_toolkit::prelude::*;
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
 use utils::VarCount;
 
-// Zero padding will be added to each at least, if this minimum is not reached
-// (ensuring AIR / GKR work fine, with SIMD, without too much edge cases)
-// Long term, we should find a more elegant solution.
-pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8;
-pub const MAX_LOG_N_ROWS_PER_TABLE: usize = 30; // To avoid overflow in logup (TODO ensure it's secure)
-
 pub type ColIndex = usize;
 
 pub type CommittedStatements = BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>)>>;

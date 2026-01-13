@@ -1,7 +1,7 @@
 //! VM execution runner
 
 use crate::core::{
-    DIMENSION, F, FileId, NONRESERVED_PROGRAM_INPUT_START, POSEIDON_16_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
+    DIMENSION, F, FileId, NONRESERVED_PROGRAM_INPUT_START, POSEIDON_16_NULL_HASH_PTR, DIGEST_LEN, ZERO_VEC_PTR,
 };
 use crate::diagnostics::{ExecutionResult, MemoryProfile, RunnerError, memory_profiling_report};
 use crate::execution::{ExecutionHistory, Memory};
@@ -28,7 +28,7 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
 
     // "zero" vector
     let zero_start = ZERO_VEC_PTR;
-    for slot in public_memory.iter_mut().skip(zero_start).take(2 * VECTOR_LEN) {
+    for slot in public_memory.iter_mut().skip(zero_start).take(2 * DIGEST_LEN) {
         *slot = F::ZERO;
     }
 
@@ -39,7 +39,7 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
         public_memory[EXTENSION_BASIS_PTR + i * DIMENSION..][..DIMENSION].copy_from_slice(&vec);
     }
 
-    public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * VECTOR_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
+    public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * DIGEST_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
     public_memory
 }
 

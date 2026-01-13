@@ -44,20 +44,20 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         vec![
             LookupIntoMemory {
                 index: POSEIDON_16_COL_A,
-                values: (POSEIDON_16_COL_INPUT_START..POSEIDON_16_COL_INPUT_START + VECTOR_LEN).collect(),
+                values: (POSEIDON_16_COL_INPUT_START..POSEIDON_16_COL_INPUT_START + DIGEST_LEN).collect(),
             },
             LookupIntoMemory {
                 index: POSEIDON_16_COL_B,
-                values: (POSEIDON_16_COL_INPUT_START + VECTOR_LEN..POSEIDON_16_COL_INPUT_START + VECTOR_LEN * 2)
+                values: (POSEIDON_16_COL_INPUT_START + DIGEST_LEN..POSEIDON_16_COL_INPUT_START + DIGEST_LEN * 2)
                     .collect(),
             },
             LookupIntoMemory {
                 index: POSEIDON_16_COL_RES,
-                values: (POSEIDON_16_COL_OUTPUT_START..POSEIDON_16_COL_OUTPUT_START + VECTOR_LEN).collect(),
+                values: (POSEIDON_16_COL_OUTPUT_START..POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN).collect(),
             },
             LookupIntoMemory {
                 index: POSEIDON_16_COL_RES_BIS,
-                values: (POSEIDON_16_COL_OUTPUT_START + VECTOR_LEN..POSEIDON_16_COL_OUTPUT_START + VECTOR_LEN * 2)
+                values: (POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN..POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN * 2)
                     .collect(),
             },
         ]
@@ -103,12 +103,12 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let is_compression = is_compression == 1;
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
-        let arg0 = ctx.memory.get_slice(arg_a.to_usize(), VECTOR_LEN)?;
-        let arg1 = ctx.memory.get_slice(arg_b.to_usize(), VECTOR_LEN)?;
+        let arg0 = ctx.memory.get_slice(arg_a.to_usize(), DIGEST_LEN)?;
+        let arg1 = ctx.memory.get_slice(arg_b.to_usize(), DIGEST_LEN)?;
 
-        let mut input = [F::ZERO; VECTOR_LEN * 2];
-        input[..VECTOR_LEN].copy_from_slice(&arg0);
-        input[VECTOR_LEN..].copy_from_slice(&arg1);
+        let mut input = [F::ZERO; DIGEST_LEN * 2];
+        input[..DIGEST_LEN].copy_from_slice(&arg0);
+        input[DIGEST_LEN..].copy_from_slice(&arg1);
 
         let output = match ctx.poseidon16_precomputed.get(*ctx.n_poseidon16_precomputed_used) {
             Some(precomputed) if precomputed.0 == input => {
@@ -118,13 +118,13 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             _ => poseidon16_permute(input),
         };
 
-        let res_a: [F; VECTOR_LEN] = output[..VECTOR_LEN].try_into().unwrap();
-        let (index_res_b, res_b): (F, [F; VECTOR_LEN]) = if is_compression {
-            (F::from_usize(ZERO_VEC_PTR), [F::ZERO; VECTOR_LEN])
+        let res_a: [F; DIGEST_LEN] = output[..DIGEST_LEN].try_into().unwrap();
+        let (index_res_b, res_b): (F, [F; DIGEST_LEN]) = if is_compression {
+            (F::from_usize(ZERO_VEC_PTR), [F::ZERO; DIGEST_LEN])
         } else {
             (
-                index_res_a + F::from_usize(VECTOR_LEN),
-                output[VECTOR_LEN..].try_into().unwrap(),
+                index_res_a + F::from_usize(DIGEST_LEN),
+                output[DIGEST_LEN..].try_into().unwrap(),
             )
         };
 
@@ -202,7 +202,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         builder.assert_bool(cols.compress.clone());
         builder.assert_eq(
             cols.index_res_bis.clone(),
-            (cols.index_res.clone() + AB::F::from_usize(VECTOR_LEN)) * (AB::F::ONE - cols.compress.clone()),
+            (cols.index_res.clone() + AB::F::from_usize(DIGEST_LEN)) * (AB::F::ONE - cols.compress.clone()),
         );
 
         eval(builder, &cols)
