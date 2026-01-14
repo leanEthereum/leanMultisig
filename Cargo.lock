@@ -1978,6 +1978,7 @@ version = "0.1.0"
 dependencies = [
  "air 0.1.0",
  "bincode",
+ "ethereum_ssz",
  "hex",
  "lean_compiler",
  "lean_prover",

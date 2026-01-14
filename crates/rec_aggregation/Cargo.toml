@@ -28,6 +28,7 @@ multilinear-toolkit.workspace = true
 bincode.workspace = true
 serde.workspace = true
 leansig.workspace = true
+ssz = { package = "ethereum_ssz", version = "0.10.0" }
 
 [features]
 test_config = []
