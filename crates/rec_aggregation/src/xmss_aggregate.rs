@@ -7,6 +7,7 @@ use leansig::symmetric::message_hash::MessageHash;
 use leansig::symmetric::tweak_hash::poseidon::PoseidonTweak;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use ssz::{Decode, DecodeError, Encode};
 use std::sync::OnceLock;
 use std::time::Instant;
 use std::{mem::transmute, path::Path};
@@ -225,6 +226,121 @@ pub struct Devnet2XmssAggregateSignature {
     pub encoding_randomness: Vec<[F; RAND_LEN_FE]>,
 }
 
+/// Number of bytes per field element (KoalaBear is 31-bit, stored as u32)
+const F_NUM_BYTES: usize = 4;
+
+impl Encode for Devnet2XmssAggregateSignature {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        // SSZ Container: offset (4) + offset (4) + proof_bytes (variable length) + encoding_randomness (variable length)
+        let offset_size = 4;
+        let proof_bytes_size = self.proof_bytes.len();
+        let encoding_randomness_size = self.encoding_randomness.len() * RAND_LEN_FE * F_NUM_BYTES;
+
+        offset_size + offset_size + proof_bytes_size + encoding_randomness_size
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let fixed_size = 4 + 4; // Two offsets
+
+        let offset_proof_bytes = fixed_size;
+        let offset_encoding_randomness = offset_proof_bytes + self.proof_bytes.len();
+
+        // Write offsets
+        buf.extend_from_slice(&(offset_proof_bytes as u32).to_le_bytes());
+        buf.extend_from_slice(&(offset_encoding_randomness as u32).to_le_bytes());
+
+        // Write proof_bytes
+        buf.extend_from_slice(&self.proof_bytes);
+
+        // Write encoding_randomness: each [F; RAND_LEN_FE] as RAND_LEN_FE * 4 bytes
+        buf.reserve(self.encoding_randomness.len() * RAND_LEN_FE * F_NUM_BYTES);
+        for randomness in &self.encoding_randomness {
+            for elem in randomness {
+                let value = elem.as_canonical_u32();
+                buf.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+    }
+}
+
+impl Decode for Devnet2XmssAggregateSignature {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let min_size = 8; // Two 4-byte offsets
+        if bytes.len() < min_size {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: min_size,
+            });
+        }
+
+        // Read offsets
+        let offset_proof_bytes = u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize;
+        let offset_encoding_randomness = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+
+        // Validate offsets
+        let expected_offset_proof_bytes = 8;
+        if offset_proof_bytes != expected_offset_proof_bytes {
+            return Err(DecodeError::InvalidByteLength {
+                len: offset_proof_bytes,
+                expected: expected_offset_proof_bytes,
+            });
+        }
+
+        if offset_proof_bytes > offset_encoding_randomness || offset_encoding_randomness > bytes.len() {
+            return Err(DecodeError::BytesInvalid(format!(
+                "Invalid variable offsets: proof_bytes={} encoding_randomness={} len={}",
+                offset_proof_bytes,
+                offset_encoding_randomness,
+                bytes.len()
+            )));
+        }
+
+        // Decode proof_bytes
+        let proof_bytes = bytes[offset_proof_bytes..offset_encoding_randomness].to_vec();
+
+        // Decode encoding_randomness
+        let encoding_randomness_bytes = &bytes[offset_encoding_randomness..];
+        let single_randomness_size = RAND_LEN_FE * F_NUM_BYTES;
+        if encoding_randomness_bytes.len() % single_randomness_size != 0 {
+            return Err(DecodeError::InvalidByteLength {
+                len: encoding_randomness_bytes.len(),
+                expected: encoding_randomness_bytes.len() / single_randomness_size * single_randomness_size,
+            });
+        }
+
+        let num_randomness = encoding_randomness_bytes.len() / single_randomness_size;
+        let mut encoding_randomness = Vec::with_capacity(num_randomness);
+        for i in 0..num_randomness {
+            let start = i * single_randomness_size;
+            let mut arr = [F::ZERO; RAND_LEN_FE];
+            for j in 0..RAND_LEN_FE {
+                let byte_start = start + j * F_NUM_BYTES;
+                let chunk: [u8; 4] = encoding_randomness_bytes[byte_start..byte_start + F_NUM_BYTES]
+                    .try_into()
+                    .map_err(|_| DecodeError::InvalidByteLength {
+                        len: encoding_randomness_bytes.len(),
+                        expected: byte_start + F_NUM_BYTES,
+                    })?;
+                arr[j] = F::new(u32::from_le_bytes(chunk));
+            }
+            encoding_randomness.push(arr);
+        }
+
+        Ok(Self {
+            proof_bytes,
+            encoding_randomness,
+        })
+    }
+}
+
 fn xmss_aggregate_signatures_helper(
     pub_keys: &[LeanSigPubKey],
     signatures: &[LeanSigSignature],
@@ -286,4 +402,49 @@ pub fn xmss_verify_aggregated_signatures(
 #[test]
 fn test_xmss_aggregate() {
     run_xmss_benchmark(3, false);
+}
+
+#[test]
+fn test_devnet2_xmss_aggregate_signature_ssz_roundtrip() {
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+
+    let mut rng = StdRng::seed_from_u64(42);
+
+    // Test with various sizes
+    for num_randomness in [0, 1, 3, 10] {
+        // Create random proof_bytes
+        let proof_bytes: Vec<u8> = (0..rng.random_range(0..500)).map(|_| rng.random()).collect();
+
+        // Create random encoding_randomness
+        let encoding_randomness: Vec<[F; RAND_LEN_FE]> = (0..num_randomness)
+            .map(|_| std::array::from_fn(|_| F::new(rng.random_range(0..F::ORDER_U32))))
+            .collect();
+
+        let original = Devnet2XmssAggregateSignature {
+            proof_bytes,
+            encoding_randomness,
+        };
+
+        // Encode to SSZ bytes
+        let encoded = original.as_ssz_bytes();
+
+        // Verify encoded length matches expected
+        assert_eq!(encoded.len(), original.ssz_bytes_len());
+
+        // Decode back
+        let decoded = Devnet2XmssAggregateSignature::from_ssz_bytes(&encoded).expect("SSZ decoding should succeed");
+
+        // Verify roundtrip
+        assert_eq!(original.proof_bytes, decoded.proof_bytes);
+        assert_eq!(original.encoding_randomness.len(), decoded.encoding_randomness.len());
+        for (orig, dec) in original
+            .encoding_randomness
+            .iter()
+            .zip(decoded.encoding_randomness.iter())
+        {
+            for (o, d) in orig.iter().zip(dec.iter()) {
+                assert_eq!(o.as_canonical_u32(), d.as_canonical_u32());
+            }
+        }
+    }
 }
