@@ -523,6 +523,8 @@ As with the indexed lookup into memory, this sum can be computed efficiently via
 
 \vspace{3mm} TODO: Unified vision in which memory is just another table, and memory accesses are just bus interactions?
 
+A detailled soundness analysis can be found in \href{https://github.com/openvm-org/stark-backend/blob/main/docs/Soundness_of_Interactions_via_LogUp.pdf}{Soundness of Interactions via LogUp}.
+
 \section{Annex: simple packing of multilinear polynomials}
 
 \textit{Note 1}: It's always possible to reduce $n$ claims about a multilinear polynomial to a single one, using sumcheck. But this trick is not necessary with WHIR, which natively supports an arbitrary number of claims about the committed polynomial.
