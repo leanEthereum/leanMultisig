@@ -34,8 +34,13 @@ def main():
     poseidon16(pub_start + 4 * VECTOR_LEN, pub_start + 5 * VECTOR_LEN, pub_start + 6 * VECTOR_LEN, COMPRESSION)
     dot_product(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N, BE)
     dot_product(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N, EE)
+    c: Mut = 0
+    for i in range(0,100):
+        c += 1
+    assert c == 100
 
     return
+
 "#;
 
     const N: usize = 11;
