@@ -4,7 +4,7 @@
   <img src="./misc/images/banner.svg">
 </p>
 
-Minimal based-based zkVM, targeting recursion and aggregation of hash-based signatures, for a Post-Quantum Ethereum.
+Minimal hash-based zkVM, targeting recursion and aggregation of hash-based signatures, for a Post-Quantum Ethereum.
 
 Documentation: [PDF](minimal_zkVM.pdf)
 
@@ -26,11 +26,11 @@ The VM design is inspired by the famous [Cairo paper](https://eprint.iacr.org/20
 
 Machine: M4 Max 48GB (CPU only)
 
-| Benchmark                  | Current              | Target           |
-| -------------------------- | -------------------- | ---------------- |
-| Poseidon2 (16 koala-bears) | `560K Poseidon2 / s` | n/a              |
-| 2 -> 1 Recursion           | `1.35 s`             | `0.25 s `        |
-| XMSS aggregation           | `554 XMSS / s`       | `1000 XMSS / s`· |
+| Benchmark                  | Current              | Target          |
+| -------------------------- | -------------------- | --------------- |
+| Poseidon2 (16 koala-bears) | `560K Poseidon2 / s` | n/a             |
+| 2 -> 1 Recursion           | `1.35 s`             | `0.25 s `       |
+| XMSS aggregation           | `554 XMSS / s`       | `1000 XMSS / s` |
 
 *Expect incoming perf improvements.*
 
