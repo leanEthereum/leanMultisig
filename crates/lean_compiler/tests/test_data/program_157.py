@@ -1,0 +1,31 @@
+from snark_lib import *
+
+
+# Test pushing to nested vectors with indices
+def main():
+    # Create a vector of empty vectors
+    v = DynArray([DynArray([]), DynArray([]), DynArray([])])
+
+    # Push to nested vectors using indices
+    v[0].push(10)
+    v[0].push(20)
+    v[1].push(30)
+    v[2].push(40)
+    v[2].push(50)
+    v[2].push(60)
+
+    # Verify structure
+    assert len(v) == 3
+    assert len(v[0]) == 2
+    assert len(v[1]) == 1
+    assert len(v[2]) == 3
+
+    # Verify values
+    assert v[0][0] == 10
+    assert v[0][1] == 20
+    assert v[1][0] == 30
+    assert v[2][0] == 40
+    assert v[2][1] == 50
+    assert v[2][2] == 60
+
+    return

@@ -1,0 +1,14 @@
+from snark_lib import *
+
+
+# Test vectors with expression elements
+def main():
+    x = 10
+    y = 20
+    v = DynArray([x, y, x + y, x * 2])
+    assert len(v) == 4
+    assert v[0] == 10
+    assert v[1] == 20
+    assert v[2] == 30
+    assert v[3] == 20
+    return

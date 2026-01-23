@@ -107,6 +107,27 @@ pub fn fold_multilinear_chunks<F: Field, EF: ExtensionField<F>>(
         .collect()
 }
 
+pub fn mle_of_01234567_etc<F: Field>(point: &[F]) -> F {
+    if point.is_empty() {
+        F::ZERO
+    } else {
+        let e = mle_of_01234567_etc(&point[1..]);
+        (F::ONE - point[0]) * e + point[0] * (e + F::from_usize(1 << (point.len() - 1)))
+    }
+}
+
+/// table = 0 is reversed for memory
+pub const MEMORY_TABLE_INDEX: usize = 0;
+
+pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF> + ExtensionField<F>>(
+    table: F,
+    data: &[IF],
+    alpha_powers: &[EF],
+) -> EF {
+    assert!(alpha_powers.len() > data.len());
+    dot_product::<EF, _, _>(alpha_powers[1..].iter().copied(), data.iter().copied()) + table
+}
+
 #[cfg(test)]
 mod tests {
     use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
@@ -146,5 +167,18 @@ mod tests {
                 .for_each(|coeff| *coeff = F::ONE);
             assert_eq!(eval, pol.evaluate(&MultilinearPoint(point.clone())));
         }
+    }
+
+    #[test]
+    fn test_mle_of_01234567_etc() {
+        let n_vars = 10;
+        let mut rng = StdRng::seed_from_u64(0);
+        let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<F>>();
+        let eval = mle_of_01234567_etc(&point);
+        let mut pol = F::zero_vec(1 << n_vars);
+        for (i, p) in pol.iter_mut().enumerate().take(1 << n_vars) {
+            *p = F::from_usize(i);
+        }
+        assert_eq!(eval, pol.evaluate(&MultilinearPoint(point)));
     }
 }

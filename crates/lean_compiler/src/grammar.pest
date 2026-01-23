@@ -1,78 +1,111 @@
-WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+WHITESPACE = _{ " " | "\t" }
+// Comments are stripped by preprocessing (remove_comments function)
+// Newlines are significant and represented as <NL> tokens
+
+// Newline marker - makes line boundaries significant
+newline = _{ "<NL>" }
 
 // Program structure
-program = { SOI ~ import_statement* ~ constant_declaration* ~ function* ~ EOI }
+program = { SOI ~ (import_statement ~ newline)* ~ (constant_declaration ~ newline)* ~ function* ~ EOI }
 
-// Imports
-import_statement = { "import" ~ filepath ~ ";" }
+import_statement = { "from" ~ module_path ~ "import" ~ "*" }
+module_path = { identifier ~ ("." ~ identifier)* }
 
 // Constants
-constant_declaration = { "const" ~ identifier ~ "=" ~ (array_literal | expression) ~ ";" }
-array_literal = { "[" ~ (array_element ~ ("," ~ array_element)*)? ~ "]" }
+constant_declaration = { identifier ~ "=" ~ (array_literal | expression) }
+array_literal = { "[" ~ (array_element ~ ("," ~ array_element)* ~ ","?)? ~ "]" }
 array_element = { array_literal | expression }
 
 // Functions
-function = { pragma? ~ "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ inlined_statement? ~ return_count? ~ "{" ~ statement* ~ "}" }
-pragma = { "#![assume_always_returns]" }
-parameter_list = { parameter ~ ("," ~ parameter)* }
-parameter = { (const_keyword)? ~ identifier }
-const_keyword = { "const" }
-inlined_statement = { "inline" }
-return_count = { "->" ~ number }
+decorator = { "@" ~ identifier ~ newline }
+function = { decorator? ~ "def" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ ":" ~ newline ~ statement* ~ end_block }
+parameter_list = { parameter ~ ("," ~ parameter)* ~ ","? }
+parameter = { identifier ~ param_annotation? }
+param_annotation = { ":" ~ ("Const" | "Mut") }
+end_block = { "<END>" ~ newline }
 
-// Statements
+// Statements - explicitly exclude end_block from being matched as a statement
+// Simple statements end with newline, compound statements (with blocks) have their own structure
 statement = {
+    !"<END>" ~ (
+        if_statement |
+        for_statement |
+        match_statement |
+        simple_statement ~ newline
+    )
+}
+
+simple_statement = {
     forward_declaration |
-    if_statement |
-    for_statement |
-    match_statement |
     return_statement |
-    break_statement |
-    continue_statement |
     assert_statement |
     debug_assert_statement |
+    vec_declaration |
+    push_statement |
+    pop_statement |
     assignment
 }
 
-return_statement = { "return" ~ (tuple_expression)? ~ ";" }
+// Vector declaration: var = vec![...] (vectors are implicitly mutable for push)
+vec_declaration = { identifier ~ "=" ~ vec_literal }
 
-break_statement = { "break" ~ ";" }
-continue_statement = { "continue" ~ ";" }
+// Push statement: vec_var.push(element) or vec_var[i][j].push(element)
+push_statement = { push_target ~ "." ~ "push" ~ "(" ~ vec_element ~ ")" }
+push_target = { identifier ~ ("[" ~ expression ~ "]")* }
 
-forward_declaration = { "var" ~ identifier ~ ";" }
+// Pop statement: vec_var.pop() or vec_var[i][j].pop()
+pop_statement = { pop_target ~ "." ~ "pop" ~ "(" ~ ")" }
+pop_target = { identifier ~ ("[" ~ expression ~ "]")* }
 
-// General assignment: LHS is optional list of variables/array accesses, RHS is any expression
-assignment = { (assignment_target_list ~ "=")? ~ expression ~ ";" }
-assignment_target_list = { assignment_target ~ ("," ~ assignment_target)* }
-assignment_target = { array_access_expr | identifier }
+return_statement = { "return" ~ (("(" ~ tuple_expression ~ ")") | tuple_expression)? }
 
-if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_if_clause* ~ else_clause? }
 
-condition = { assumed_bool_expr | comparison }
+mut_keyword = @{ "mut" ~ !(ASCII_ALPHANUMERIC | "_") }
+mut_annotation = { ":" ~ "Mut" }
+im_annotation = { ":" ~ "Imu" }
+
+// Forward declaration: x: Imu or x: Mut (not followed by =)
+forward_declaration = { identifier ~ (im_annotation | mut_annotation) ~ !("=") }
+
+// General assignment: LHS is optional, RHS is any expression
+// Compound operators (+=, -=, *=, /=) only allow single target without mut (enforced in parser)
+assignment = { (assignment_target_list ~ assign_op)? ~ expression }
+assign_op = { "+=" | "-=" | "*=" | "/=" | "=" }
+assignment_target_list = { ("(" ~ simple_target_list ~ ")") | simple_target_list }
+simple_target_list = { assignment_target ~ ("," ~ assignment_target)* ~ ","? }
+assignment_target = { (identifier ~ mut_annotation) | array_access_expr | identifier }
+
+if_statement = { "if" ~ condition ~ ":" ~ newline ~ statement* ~ end_block ~ else_if_clause* ~ else_clause? }
+
+condition = { assumed_bool_expr | "(" ~ comparison ~ ")" | comparison }
 
 assumed_bool_expr = { "!!assume_bool" ~ "(" ~ expression ~ ")" }
 
 // Comparisons (shared between conditions and assertions)
 comparison = { add_expr ~ comparison_op ~ add_expr }
-comparison_op = { "==" | "!=" | "<" }
+comparison_op = { "==" | "!=" | "<=" | "<" }
 
-else_if_clause = { "else" ~ "if" ~ condition ~ "{" ~ statement* ~ "}" }
+else_if_clause = { "else" ~ "if" ~ condition ~ ":" ~ newline ~ statement* ~ end_block }
 
-else_clause = { "else" ~ "{" ~ statement* ~ "}" }
+else_clause = { "else" ~ ":" ~ newline ~ statement* ~ end_block }
 
-for_statement = { "for" ~ identifier ~ "in" ~ rev_clause? ~ expression ~ ".." ~ expression ~ unroll_clause? ~ "{" ~ statement* ~ "}" }
-rev_clause = { "rev" }
-unroll_clause = { "unroll" }
+for_statement = { "for" ~ identifier ~ "in" ~ (unroll_range | range) ~ ":" ~ newline ~ statement* ~ end_block }
+range = { "range" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
+unroll_range = { "unroll" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 
-match_statement = { "match" ~ expression ~ "{" ~ match_arm* ~ "}" }
-match_arm = { pattern ~ "=>" ~ "{" ~ statement* ~ "}" }
+match_statement = { "match" ~ expression ~ ":" ~ newline ~ match_arm* ~ end_block }
+match_arm = { "case" ~ pattern ~ ":" ~ newline ~ statement* ~ end_block }
 pattern = { constant_value }
 
-assert_statement = { "assert" ~ comparison ~ ";" }
-debug_assert_statement = { "debug_assert" ~ comparison ~ ";" }
+assert_keyword = @{ "assert" ~ !(ASCII_ALPHANUMERIC | "_") }
+debug_assert_keyword = @{ "debug_assert" ~ !(ASCII_ALPHANUMERIC | "_") }
+assert_statement = { assert_keyword ~ (assert_false | "(" ~ comparison ~ ")" | comparison) }
+assert_false = { "False" ~ ("," ~ string_literal)? }
+debug_assert_statement = { debug_assert_keyword ~ "(" ~ comparison ~ ")" }
+string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 
 // Expressions
-tuple_expression = { expression ~ ("," ~ expression)* }
+tuple_expression = { expression ~ ("," ~ expression)* ~ ","? }
 expression = { add_expr }
 add_expr = { sub_expr ~ ("+" ~ sub_expr)* }
 sub_expr = { mul_expr ~ ("-" ~ mul_expr)* }
@@ -90,6 +123,10 @@ primary = {
     function_call_expr |
     var_or_constant
 }
+
+// DynArray literal: DynArray([elem1, elem2, ...]) - compile-time dynamic arrays
+vec_literal = { "DynArray" ~ "(" ~ "[" ~ (vec_element ~ ("," ~ vec_element)* ~ ","?)? ~ "]" ~ ")" }
+vec_element = { vec_literal | expression }
 function_call_expr = { identifier ~ "(" ~ tuple_expression? ~ ")" }
 log2_ceil_expr = { "log2_ceil" ~ "(" ~ expression ~ ")" }
 next_multiple_of_expr = { "next_multiple_of" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
@@ -100,10 +137,8 @@ array_access_expr = { identifier ~ ("[" ~ expression ~ "]")+ }
 
 // Basic elements
 var_or_constant = { constant_value | identifier }
-constant_value = { number | "public_input_start" | "pointer_to_zero_vector" | "pointer_to_one_vector" }
+constant_value = { number }
 
 // Lexical elements
 identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 number = @{ ASCII_DIGIT+ }
-filepath = { "\"" ~ filepath_character* ~ "\"" }
-filepath_character = { ASCII_ALPHANUMERIC | "-" | "_" | " " | "." | "+" | "/" }

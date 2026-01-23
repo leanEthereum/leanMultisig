@@ -1,5 +1,6 @@
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
+use utils::padd_with_zero_to_next_power_of_two;
 
 pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
     let mut fields = [F::ZERO; N_INSTRUCTION_COLUMNS];
@@ -12,10 +13,10 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
         } => {
             match operation {
                 Operation::Add => {
-                    fields[COL_INDEX_ADD] = F::ONE;
+                    fields[instr_idx(COL_ADD)] = F::ONE;
                 }
                 Operation::Mul => {
-                    fields[COL_INDEX_MUL] = F::ONE;
+                    fields[instr_idx(COL_MUL)] = F::ONE;
                 }
             }
 
@@ -24,25 +25,25 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             set_nu_c(&mut fields, arg_c);
         }
         Instruction::Deref { shift_0, shift_1, res } => {
-            fields[COL_INDEX_DEREF] = F::ONE;
-            fields[COL_INDEX_FLAG_A] = F::ZERO;
-            fields[COL_INDEX_OPERAND_A] = F::from_usize(*shift_0);
-            fields[COL_INDEX_FLAG_C] = F::ONE;
-            fields[COL_INDEX_OPERAND_C] = F::from_usize(*shift_1);
+            fields[instr_idx(COL_DEREF)] = F::ONE;
+            fields[instr_idx(COL_FLAG_A)] = F::ZERO;
+            fields[instr_idx(COL_OPERAND_A)] = F::from_usize(*shift_0);
+            fields[instr_idx(COL_FLAG_C)] = F::ONE;
+            fields[instr_idx(COL_OPERAND_C)] = F::from_usize(*shift_1);
             match res {
                 MemOrFpOrConstant::Constant(cst) => {
-                    fields[COL_INDEX_AUX] = F::ONE;
-                    fields[COL_INDEX_FLAG_B] = F::ONE;
-                    fields[COL_INDEX_OPERAND_B] = *cst;
+                    fields[instr_idx(COL_AUX_1)] = F::ONE;
+                    fields[instr_idx(COL_FLAG_B)] = F::ONE;
+                    fields[instr_idx(COL_OPERAND_B)] = *cst;
                 }
                 MemOrFpOrConstant::MemoryAfterFp { offset } => {
-                    fields[COL_INDEX_AUX] = F::ONE;
-                    fields[COL_INDEX_FLAG_B] = F::ZERO;
-                    fields[COL_INDEX_OPERAND_B] = F::from_usize(*offset);
+                    fields[instr_idx(COL_AUX_1)] = F::ONE;
+                    fields[instr_idx(COL_FLAG_B)] = F::ZERO;
+                    fields[instr_idx(COL_OPERAND_B)] = F::from_usize(*offset);
                 }
                 MemOrFpOrConstant::Fp => {
-                    fields[COL_INDEX_AUX] = F::ZERO;
-                    fields[COL_INDEX_FLAG_B] = F::ONE;
+                    fields[instr_idx(COL_AUX_1)] = F::ZERO;
+                    fields[instr_idx(COL_FLAG_B)] = F::ONE;
                 }
             }
         }
@@ -52,7 +53,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             dest,
             updated_fp,
         } => {
-            fields[COL_INDEX_JUMP] = F::ONE;
+            fields[instr_idx(COL_JUMP)] = F::ONE;
             set_nu_a(&mut fields, condition);
             set_nu_b(&mut fields, dest);
             set_nu_c(&mut fields, updated_fp);
@@ -62,14 +63,16 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             arg_a,
             arg_b,
             arg_c,
-            aux,
+            aux_1,
+            aux_2,
         } => {
-            fields[COL_INDEX_IS_PRECOMPILE] = F::ONE;
-            fields[COL_INDEX_PRECOMPILE_INDEX] = table.embed();
+            fields[instr_idx(COL_IS_PRECOMPILE)] = F::ONE;
+            fields[instr_idx(COL_PRECOMPILE_INDEX)] = table.embed();
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, arg_c);
-            fields[COL_INDEX_AUX] = F::from_usize(*aux);
+            fields[instr_idx(COL_AUX_1)] = F::from_usize(*aux_1);
+            fields[instr_idx(COL_AUX_2)] = F::from_usize(*aux_2);
         }
     }
     fields
@@ -78,12 +81,12 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
 fn set_nu_a(fields: &mut [F; N_INSTRUCTION_COLUMNS], a: &MemOrConstant) {
     match a {
         MemOrConstant::Constant(cst) => {
-            fields[COL_INDEX_FLAG_A] = F::ONE;
-            fields[COL_INDEX_OPERAND_A] = *cst;
+            fields[instr_idx(COL_FLAG_A)] = F::ONE;
+            fields[instr_idx(COL_OPERAND_A)] = *cst;
         }
         MemOrConstant::MemoryAfterFp { offset } => {
-            fields[COL_INDEX_FLAG_A] = F::ZERO;
-            fields[COL_INDEX_OPERAND_A] = F::from_usize(*offset);
+            fields[instr_idx(COL_FLAG_A)] = F::ZERO;
+            fields[instr_idx(COL_OPERAND_A)] = F::from_usize(*offset);
         }
     }
 }
@@ -91,12 +94,12 @@ fn set_nu_a(fields: &mut [F; N_INSTRUCTION_COLUMNS], a: &MemOrConstant) {
 fn set_nu_b(fields: &mut [F; N_INSTRUCTION_COLUMNS], b: &MemOrConstant) {
     match b {
         MemOrConstant::Constant(cst) => {
-            fields[COL_INDEX_FLAG_B] = F::ONE;
-            fields[COL_INDEX_OPERAND_B] = *cst;
+            fields[instr_idx(COL_FLAG_B)] = F::ONE;
+            fields[instr_idx(COL_OPERAND_B)] = *cst;
         }
         MemOrConstant::MemoryAfterFp { offset } => {
-            fields[COL_INDEX_FLAG_B] = F::ZERO;
-            fields[COL_INDEX_OPERAND_B] = F::from_usize(*offset);
+            fields[instr_idx(COL_FLAG_B)] = F::ZERO;
+            fields[instr_idx(COL_OPERAND_B)] = F::from_usize(*offset);
         }
     }
 }
@@ -104,11 +107,19 @@ fn set_nu_b(fields: &mut [F; N_INSTRUCTION_COLUMNS], b: &MemOrConstant) {
 fn set_nu_c(fields: &mut [F; N_INSTRUCTION_COLUMNS], c: &MemOrFp) {
     match c {
         MemOrFp::Fp => {
-            fields[COL_INDEX_FLAG_C] = F::ONE;
+            fields[instr_idx(COL_FLAG_C)] = F::ONE;
         }
         MemOrFp::MemoryAfterFp { offset } => {
-            fields[COL_INDEX_FLAG_C] = F::ZERO;
-            fields[COL_INDEX_OPERAND_C] = F::from_usize(*offset);
+            fields[instr_idx(COL_FLAG_C)] = F::ZERO;
+            fields[instr_idx(COL_OPERAND_C)] = F::from_usize(*offset);
         }
     }
+}
+
+pub fn bytecode_to_multilinear_polynomial(instructions: &[Instruction]) -> Vec<F> {
+    let res = instructions
+        .par_iter()
+        .flat_map(|instr| padd_with_zero_to_next_power_of_two(&field_representation(instr)))
+        .collect::<Vec<F>>();
+    padd_with_zero_to_next_power_of_two(&res)
 }

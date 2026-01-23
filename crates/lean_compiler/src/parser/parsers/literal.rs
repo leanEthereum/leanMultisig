@@ -1,3 +1,6 @@
+use lean_vm::{NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, PRIVATE_INPUT_START_PTR, ZERO_VEC_PTR};
+use multilinear_toolkit::prelude::*;
+
 use super::expression::ExpressionParser;
 use super::{ConstArrayValue, Parse, ParseContext, ParsedConstant, next_inner_pair};
 use crate::a_simplify_lang::VarOrConstMallocAccess;
@@ -9,8 +12,6 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use multilinear_toolkit::prelude::*;
-use utils::ToUsize;
 
 /// Parser for constant declarations.
 pub struct ConstantDeclarationParser;
@@ -31,7 +32,10 @@ impl Parse<(String, ParsedConstant)> for ConstantDeclarationParser {
                 let expr = ExpressionParser.parse(value_pair, ctx)?;
 
                 let value = evaluate_const_expr(&expr, ctx).ok_or_else(|| {
-                    SemanticError::with_context(format!("Failed to evaluate constant: {name}"), "constant declaration")
+                    SemanticError::with_context(
+                        format!("Failed to evaluate constant: {name}, with expression: {}", expr),
+                        "constant declaration",
+                    )
                 })?;
 
                 Ok((name, ParsedConstant::Scalar(value)))
@@ -87,21 +91,19 @@ fn parse_array_literal(pair: ParsePair<'_>, ctx: &mut ParseContext, const_name: 
 }
 
 /// Evaluate a const expression to a usize value at parse time.
-pub fn evaluate_const_expr(expr: &crate::lang::Expression, ctx: &ParseContext) -> Option<usize> {
+pub fn evaluate_const_expr(expr: &crate::lang::Expression, ctx: &ParseContext) -> Option<F> {
     expr.eval_with(
         &|simple_expr| match simple_expr {
             SimpleExpr::Constant(cst) => cst.naive_eval(),
-            SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) => ctx.get_constant(var).map(F::from_usize),
+            SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) => ctx.get_constant(var),
             SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) => None,
         },
         &|arr, index| {
             // Support const array access in expressions
-            let idx = index.iter().map(|e| e.to_usize()).collect::<Vec<_>>();
             let array = ctx.get_const_array(arr)?;
-            array.navigate(&idx)?.as_scalar().map(F::from_usize)
+            array.navigate(&index)?.as_scalar()
         },
     )
-    .map(|f| f.to_usize())
 }
 
 /// Parser for variable or constant references.
@@ -126,15 +128,12 @@ impl VarOrConstantParser {
     fn parse_identifier_or_constant(text: &str, ctx: &ParseContext) -> ParseResult<SimpleExpr> {
         match text {
             // Special built-in constants
-            "public_input_start" => Ok(SimpleExpr::Constant(ConstExpression::Value(
-                ConstantValue::PublicInputStart,
+            "NONRESERVED_PROGRAM_INPUT_START" => Ok(SimpleExpr::Constant(ConstExpression::from(
+                NONRESERVED_PROGRAM_INPUT_START,
             ))),
-            "pointer_to_zero_vector" => Ok(SimpleExpr::Constant(ConstExpression::Value(
-                ConstantValue::PointerToZeroVector,
-            ))),
-            "pointer_to_one_vector" => Ok(SimpleExpr::Constant(ConstExpression::Value(
-                ConstantValue::PointerToOneVector,
-            ))),
+            "PRIVATE_INPUT_START_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(PRIVATE_INPUT_START_PTR))),
+            "ZERO_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ZERO_VEC_PTR))),
+            "ONE_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ONE_VEC_PTR))),
             _ => {
                 // Check if it's a const array (error case - can't use array as value)
                 if ctx.get_const_array(text).is_some() {
@@ -154,7 +153,7 @@ impl VarOrConstantParser {
                 // Try to parse as numeric literal
                 else if let Ok(value) = text.parse::<usize>() {
                     Ok(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(
-                        value,
+                        F::from_usize(value),
                     ))))
                 }
                 // Otherwise treat as variable reference
@@ -169,22 +168,23 @@ impl VarOrConstantParser {
 /// Parser for constant expressions used in match patterns.
 pub struct ConstExprParser;
 
-impl Parse<usize> for ConstExprParser {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<usize> {
+impl Parse<F> for ConstExprParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<F> {
         let inner = pair.into_inner().next().unwrap();
 
         match inner.as_rule() {
             Rule::constant_value => {
                 let text = inner.as_str();
                 match text {
-                    "public_input_start" => {
-                        Err(SemanticError::new("public_input_start cannot be used as match pattern").into())
-                    }
+                    "NONRESERVED_PROGRAM_INPUT_START" => Err(SemanticError::new(
+                        "NONRESERVED_PROGRAM_INPUT_START cannot be used as match pattern",
+                    )
+                    .into()),
                     _ => {
                         if let Some(value) = ctx.get_constant(text) {
                             Ok(value)
                         } else if let Ok(value) = text.parse::<usize>() {
-                            Ok(value)
+                            Ok(F::from_usize(value))
                         } else {
                             Err(SemanticError::with_context(
                                 format!("Invalid constant expression in match pattern: {text}"),

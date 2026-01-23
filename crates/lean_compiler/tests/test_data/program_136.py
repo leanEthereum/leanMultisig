@@ -1,0 +1,20 @@
+from snark_lib import *
+# Test: Complex nested loops with multiple mutable variables
+# Outer loop updates one set of vars, inner loop updates another,
+# and they interact with each other
+
+
+def main():
+    outer_sum: Mut = 0
+    inner_count: Mut = 0
+    for i in range(1, 4):
+        outer_sum += i * 10
+        for j in range(0, i):
+            inner_count += 1
+            outer_sum += j
+    # i=1: outer_sum=10, inner: j=0: inner_count=1, outer_sum=10
+    # i=2: outer_sum=30, inner: j=0: inner_count=2, outer_sum=30; j=1: inner_count=3, outer_sum=31
+    # i=3: outer_sum=61, inner: j=0: inner_count=4, outer_sum=61; j=1: inner_count=5, outer_sum=62; j=2: inner_count=6, outer_sum=64
+    assert outer_sum == 64
+    assert inner_count == 6
+    return

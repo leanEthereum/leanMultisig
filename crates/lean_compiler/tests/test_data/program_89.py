@@ -1,0 +1,27 @@
+from snark_lib import *
+
+
+def main():
+    x: Mut = 0
+    a = 1
+    b = 1
+    c = 1
+    d = 1
+    if a == 1:
+        x = x + 1
+        if b == 1:
+            x = x + 10
+            if c == 1:
+                x = x + 100
+                if d == 1:
+                    x = x + 1000
+                else:
+                    x = x + 2000
+            else:
+                x = x + 200
+        else:
+            x = x + 20
+    else:
+        x = x + 2
+    assert x == 1111
+    return

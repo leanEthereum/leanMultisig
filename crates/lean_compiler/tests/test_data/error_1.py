@@ -1,0 +1,9 @@
+from snark_lib import *
+
+
+# Error: debug_assert(equality fails (10 * 2 != 25))
+def main():
+    a = 10
+    b = 25
+    debug_assert(a * 2 == b)
+    return

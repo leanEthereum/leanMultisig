@@ -1,4 +1,4 @@
-use crate::core::{F, LOG_VECTOR_LEN, Label, SourceLocation, VECTOR_LEN};
+use crate::core::{F, Label, SourceLocation};
 use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;
@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::ops::Range;
 use strum::IntoEnumIterator;
-use utils::{ToUsize, pretty_integer};
+use utils::{ToUsize, pretty_integer, to_big_endian_in_field, to_little_endian_in_field};
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -29,10 +29,6 @@ pub enum Hint {
         offset: usize,
         /// The requested memory size
         size: MemOrConstant,
-        /// Whether memory should be vectorized (aligned)
-        vectorized: bool,
-        /// Length for vectorized memory allocation
-        vectorized_len: usize,
     },
     /// Print debug information during execution
     Print {
@@ -40,9 +36,6 @@ pub enum Hint {
         line_info: String,
         /// Values to print
         content: Vec<MemOrConstant>,
-    },
-    PrivateInputStart {
-        res_offset: usize,
     },
     /// Report source code location for debugging
     LocationReport {
@@ -61,6 +54,17 @@ pub enum Hint {
     /// Assert a boolean expression for debugging purposes
     DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
     Custom(CustomHint, Vec<MemOrConstant>),
+    /// Deref hint for range checks - records a constraint to be resolved at end of execution
+    /// Constraint: memory[fp + offset_target] = memory[memory[fp + offset_src]]
+    /// The runner resolves all these constraints at the end, in the correct order.
+    DerefHint {
+        offset_src: usize,
+        offset_target: usize,
+    },
+    /// Panic hint with optional error message (for debugging)
+    Panic {
+        message: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter)]
@@ -85,7 +89,7 @@ impl CustomHint {
     pub fn n_args_range(&self) -> Range<usize> {
         match self {
             Self::DecomposeBitsXMSS => 3..usize::MAX,
-            Self::DecomposeBits => 2..3,
+            Self::DecomposeBits => 4..5,
         }
     }
 
@@ -110,11 +114,22 @@ impl CustomHint {
             }
             Self::DecomposeBits => {
                 let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let mut memory_index = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                for i in 0..F::bits() {
-                    let bit = F::from_bool(to_decompose & (1 << i) != 0);
-                    ctx.memory.set(memory_index, bit)?;
-                    memory_index += 1;
+                let memory_index = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let num_bits = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let endianness = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(
+                    endianness == 0 || endianness == 1,
+                    "Invalid endianness for DecomposeBits hint"
+                );
+                assert!(num_bits <= F::bits());
+                if endianness == 0 {
+                    // Big-endian
+                    ctx.memory
+                        .set_slice(memory_index, &to_big_endian_in_field::<F>(to_decompose, num_bits))?
+                } else {
+                    // Little-endian
+                    ctx.memory
+                        .set_slice(memory_index, &to_little_endian_in_field::<F>(to_decompose, num_bits))?
                 }
             }
         }
@@ -131,6 +146,7 @@ pub enum Boolean {
     Equal,
     Different,
     LessThan,
+    LessOrEqual,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -144,10 +160,8 @@ pub struct BooleanExpr<E> {
 #[derive(Debug)]
 pub struct HintExecutionContext<'a> {
     pub memory: &'a mut Memory,
-    pub private_input_start: usize, // normal pointer
     pub fp: usize,
     pub ap: &'a mut usize,
-    pub ap_vec: &'a mut usize,
     pub counter_hint: &'a mut usize,
     pub std_out: &'a mut String,
     pub instruction_history: &'a mut ExecutionHistory,
@@ -155,9 +169,12 @@ pub struct HintExecutionContext<'a> {
     pub cpu_cycles: usize,
     pub last_checkpoint_cpu_cycles: &'a mut usize,
     pub checkpoint_ap: &'a mut usize,
-    pub checkpoint_ap_vec: &'a mut usize,
     pub profiling: bool,
     pub memory_profile: &'a mut MemoryProfile,
+    /// Pending deref hints: (target_addr, src_addr)
+    /// Constraint: memory[target_addr] = memory[memory[src_addr]]
+    /// Resolved at end of execution in correct order.
+    pub pending_deref_hints: &'a mut Vec<(usize, usize)>,
 }
 
 impl Hint {
@@ -169,52 +186,22 @@ impl Hint {
                 function_name,
                 offset,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
                 let size = size.read_value(ctx.memory, ctx.fp)?.to_usize();
 
-                if *vectorized {
-                    assert!(*vectorized_len >= LOG_VECTOR_LEN, "TODO");
+                let allocation_start_addr = *ctx.ap;
+                ctx.memory.set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
+                *ctx.ap += size;
 
-                    // padding:
-                    while !(*ctx.ap_vec * VECTOR_LEN).is_multiple_of(1 << *vectorized_len) {
-                        *ctx.ap_vec += 1;
-                    }
-                    let allocation_start_addr = *ctx.ap_vec;
-                    ctx.memory.set(
-                        ctx.fp + *offset,
-                        F::from_usize(allocation_start_addr >> (*vectorized_len - LOG_VECTOR_LEN)),
-                    )?;
-                    let size_vectors = size << (*vectorized_len - LOG_VECTOR_LEN);
-                    let size_words = size_vectors * VECTOR_LEN;
-                    *ctx.ap_vec += size_vectors;
-
-                    if ctx.profiling {
-                        ctx.memory_profile.objects.insert(
-                            allocation_start_addr * VECTOR_LEN,
-                            MemoryObject {
-                                object_type: MemoryObjectType::VectorHeapObject,
-                                function_name: function_name.clone(),
-                                size: size_words,
-                            },
-                        );
-                    }
-                } else {
-                    let allocation_start_addr = *ctx.ap;
-                    ctx.memory.set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
-                    *ctx.ap += size;
-
-                    if ctx.profiling {
-                        ctx.memory_profile.objects.insert(
-                            allocation_start_addr,
-                            MemoryObject {
-                                object_type: MemoryObjectType::NonVectorHeapObject,
-                                function_name: function_name.clone(),
-                                size,
-                            },
-                        );
-                    }
+                if ctx.profiling {
+                    ctx.memory_profile.objects.insert(
+                        allocation_start_addr,
+                        MemoryObject {
+                            object_type: MemoryObjectType::NonVectorHeapObject,
+                            function_name: function_name.clone(),
+                            size,
+                        },
+                    );
                 }
             }
             Self::Custom(hint, args) => {
@@ -237,19 +224,16 @@ impl Hint {
                     } else {
                         assert_eq!(values.len(), 2);
                         let new_no_vec_memory = *ctx.ap - *ctx.checkpoint_ap;
-                        let new_vec_memory = (*ctx.ap_vec - *ctx.checkpoint_ap_vec) * VECTOR_LEN;
                         *ctx.std_out += &format!(
-                            "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {} ({:.1}% vec)\n",
+                            "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {}\n",
                             values[1],
                             pretty_integer(ctx.cpu_cycles - *ctx.last_checkpoint_cpu_cycles),
-                            pretty_integer(new_no_vec_memory + new_vec_memory),
-                            new_vec_memory as f64 / (new_no_vec_memory + new_vec_memory) as f64 * 100.0
+                            pretty_integer(new_no_vec_memory),
                         );
                     }
 
                     *ctx.last_checkpoint_cpu_cycles = ctx.cpu_cycles;
                     *ctx.checkpoint_ap = *ctx.ap;
-                    *ctx.checkpoint_ap_vec = *ctx.ap_vec;
                 }
 
                 let line_info = line_info.replace(';', "");
@@ -261,10 +245,6 @@ impl Hint {
                     .lines_cycles
                     .push(*ctx.cpu_cycles_before_new_line);
                 *ctx.cpu_cycles_before_new_line = 0;
-            }
-            Self::PrivateInputStart { res_offset } => {
-                ctx.memory
-                    .set(ctx.fp + *res_offset, F::from_usize(ctx.private_input_start))?;
             }
             Self::Label { .. } => {}
             Self::StackFrame { label, size } => {
@@ -286,12 +266,27 @@ impl Hint {
                     Boolean::Equal => left == right,
                     Boolean::Different => left != right,
                     Boolean::LessThan => left < right,
+                    Boolean::LessOrEqual => left <= right,
                 };
                 if !condition_holds {
                     return Err(RunnerError::DebugAssertFailed(
                         format!("{} {} {}", left, bool_expr.kind, right),
                         *location,
                     ));
+                }
+            }
+            Self::DerefHint {
+                offset_src,
+                offset_target,
+            } => {
+                // Record a deref constraint: memory[target_addr] = memory[memory[src_addr]]
+                let src_addr = ctx.fp + offset_src;
+                let target_addr = ctx.fp + offset_target;
+                ctx.pending_deref_hints.push((target_addr, src_addr));
+            }
+            Self::Panic { message } => {
+                if let Some(msg) = message {
+                    *ctx.std_out += &format!("[PANIC] {}\n", msg);
                 }
             }
         }
@@ -306,17 +301,8 @@ impl Display for Hint {
                 function_name: _,
                 offset,
                 size,
-                vectorized,
-                vectorized_len,
             } => {
-                if *vectorized {
-                    write!(f, "m[fp + {offset}] = request_memory_vec({size}, {vectorized_len})")
-                } else {
-                    write!(f, "m[fp + {offset}] = request_memory({size})")
-                }
-            }
-            Self::PrivateInputStart { res_offset } => {
-                write!(f, "m[fp + {res_offset}] = private_input_start()")
+                write!(f, "m[fp + {offset}] = request_memory({size})")
             }
             Self::Custom(hint, args) => {
                 let decomposed = &args[0];
@@ -356,9 +342,19 @@ impl Display for Hint {
             Self::StackFrame { label, size } => {
                 write!(f, "stack frame for {label} size {size}")
             }
-            Self::DebugAssert(bool_expr, line_number) => {
-                write!(f, "debug_assert {bool_expr} at line {line_number}")
+            Self::DebugAssert(bool_expr, location) => {
+                write!(f, "debug_assert {bool_expr} at {location:?}")
             }
+            Self::DerefHint {
+                offset_src,
+                offset_target,
+            } => {
+                write!(f, "m[fp + {offset_target}] = m[m[fp + {offset_src}]]")
+            }
+            Self::Panic { message } => match message {
+                Some(msg) => write!(f, "panic: \"{msg}\""),
+                None => write!(f, "panic"),
+            },
         }
     }
 }
@@ -375,6 +371,7 @@ impl Display for Boolean {
             Self::Equal => write!(f, "=="),
             Self::Different => write!(f, "!="),
             Self::LessThan => write!(f, "<"),
+            Self::LessOrEqual => write!(f, "<="),
         }
     }
 }

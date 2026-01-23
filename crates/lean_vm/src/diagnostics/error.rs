@@ -31,8 +31,11 @@ pub enum RunnerError {
     #[error("Program counter out of bounds")]
     PCOutOfBounds,
 
-    #[error("DebugAssert failed: {0} at line {1}")]
+    #[error("DebugAssert failed: {0} at {1}")]
     DebugAssertFailed(String, SourceLocation),
+
+    #[error("Invalid dot product")]
+    InvalidDotProduct,
 }
 
 pub type VMResult<T> = Result<T, RunnerError>;

@@ -1,3 +1,6 @@
+use lean_vm::F;
+use utils::ToUsize;
+
 use crate::lang::FileId;
 use crate::parser::{
     error::{ParseResult, SemanticError},
@@ -16,7 +19,7 @@ pub mod statement;
 /// Supports arbitrary nesting: `[[1, 2], [3, 4, 5], []]`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstArrayValue {
-    Scalar(usize),
+    Scalar(F),
     Array(Vec<ConstArrayValue>),
 }
 
@@ -48,17 +51,17 @@ impl ConstArrayValue {
         }
     }
 
-    pub fn as_scalar(&self) -> Option<usize> {
+    pub fn as_scalar(&self) -> Option<F> {
         match self {
             Self::Scalar(v) => Some(*v),
             Self::Array(_) => None,
         }
     }
 
-    pub fn navigate(&self, indices: &[usize]) -> Option<&Self> {
+    pub fn navigate(&self, indices: &[F]) -> Option<&Self> {
         let mut current = self;
         for &idx in indices {
-            current = current.get(idx)?;
+            current = current.get(idx.to_usize())?;
         }
         Some(current)
     }
@@ -67,7 +70,7 @@ impl ConstArrayValue {
 /// Represents a parsed constant value (scalar or array).
 #[derive(Debug, Clone)]
 pub enum ParsedConstant {
-    Scalar(usize),
+    Scalar(F),
     Array(ConstArrayValue),
 }
 
@@ -75,7 +78,7 @@ pub enum ParsedConstant {
 #[derive(Debug)]
 pub struct ParseContext {
     /// Compile-time scalar constants defined in the program
-    pub constants: BTreeMap<String, usize>,
+    pub constants: BTreeMap<String, F>,
     /// Compile-time array constants defined in the program (supports nested arrays)
     pub const_arrays: BTreeMap<String, ConstArrayValue>,
     /// Counter for generating unique trash variable names
@@ -88,6 +91,10 @@ pub struct ParseContext {
     pub current_file_id: FileId,
     /// Absolute filepaths imported so far (also includes the root filepath)
     pub imported_filepaths: BTreeSet<String>,
+    /// Stack of files currently being imported (for circular import detection)
+    pub import_stack: Vec<String>,
+    /// Root directory for resolving imports (directory of the entry point file)
+    pub import_root: String,
     /// Next unused file ID
     pub next_file_id: usize,
     /// Compilation flags
@@ -101,6 +108,11 @@ impl ParseContext {
             ProgramSource::Raw(_) => ("<raw_input>".to_string(), BTreeSet::new()),
             ProgramSource::Filepath(fp) => (fp.clone(), [fp.clone()].into_iter().collect()),
         };
+        let import_stack = vec![current_filepath.clone()];
+        let import_root = std::path::Path::new(&current_filepath)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
         Ok(Self {
             constants: BTreeMap::new(),
             const_arrays: BTreeMap::new(),
@@ -108,6 +120,8 @@ impl ParseContext {
             current_filepath,
             current_file_id: 0,
             imported_filepaths,
+            import_stack,
+            import_root,
             current_source_code,
             next_file_id: 1,
             flags,
@@ -115,7 +129,7 @@ impl ParseContext {
     }
 
     /// Adds a scalar constant to the context.
-    pub fn add_constant(&mut self, name: String, value: usize) -> Result<(), SemanticError> {
+    pub fn add_constant(&mut self, name: String, value: F) -> Result<(), SemanticError> {
         if self.constants.contains_key(&name) || self.const_arrays.contains_key(&name) {
             Err(SemanticError::with_context(
                 format!("Defined multiple times: {name}"),
@@ -141,7 +155,7 @@ impl ParseContext {
     }
 
     /// Looks up a scalar constant value.
-    pub fn get_constant(&self, name: &str) -> Option<usize> {
+    pub fn get_constant(&self, name: &str) -> Option<F> {
         self.constants.get(name).copied()
     }
 

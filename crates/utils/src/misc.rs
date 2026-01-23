@@ -53,6 +53,12 @@ pub fn to_little_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
     res
 }
 
+pub fn to_little_endian_in_field<F: Field>(value: usize, bit_count: usize) -> Vec<F> {
+    let mut res = to_big_endian_in_field::<F>(value, bit_count);
+    res.reverse();
+    res
+}
+
 #[macro_export]
 macro_rules! assert_eq_many {
     ($first:expr, $($rest:expr),+ $(,)?) => {
@@ -125,4 +131,23 @@ pub fn encapsulate_vec<T>(v: Vec<T>) -> Vec<Vec<T>> {
 
 pub fn collect_refs<T>(vecs: &[Vec<T>]) -> Vec<&[T]> {
     vecs.iter().map(Vec::as_slice).collect()
+}
+
+pub fn collect_inner_refs<T>(vecs: &[Vec<Vec<T>>]) -> Vec<Vec<&[T]>> {
+    vecs.iter().map(|v| collect_refs(v)).collect()
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Counter(usize);
+
+impl Counter {
+    pub fn get_next(&mut self) -> usize {
+        let val = self.0;
+        self.0 += 1;
+        val
+    }
+
+    pub fn new() -> Self {
+        Self(0)
+    }
 }

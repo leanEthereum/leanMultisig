@@ -9,6 +9,9 @@ pub enum ParseError {
 
     /// High-level semantic validation error
     SemanticError(SemanticError),
+
+    /// IO error (e.g., file not found)
+    IoError(std::io::Error),
 }
 
 /// Semantic errors that occur during AST construction and validation.
@@ -56,6 +59,12 @@ impl From<String> for ParseError {
     }
 }
 
+impl From<std::io::Error> for ParseError {
+    fn from(error: std::io::Error) -> Self {
+        Self::IoError(error)
+    }
+}
+
 impl Display for SemanticError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)?;
@@ -71,6 +80,7 @@ impl Display for ParseError {
         match self {
             Self::SyntaxError(e) => write!(f, "Syntax error: {e}"),
             Self::SemanticError(e) => write!(f, "Semantic error: {e}"),
+            Self::IoError(e) => write!(f, "IO error: {e}"),
         }
     }
 }

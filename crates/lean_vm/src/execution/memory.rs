@@ -1,10 +1,7 @@
 //! Memory management for the VM
-use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE, VECTOR_LEN};
+use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE};
 use crate::diagnostics::RunnerError;
 use multilinear_toolkit::prelude::*;
-
-pub const MIN_LOG_MEMORY_SIZE: usize = 16;
-pub const MAX_LOG_MEMORY_SIZE: usize = 29;
 
 /// VM memory implementation with sparse allocation
 #[derive(Debug, Clone, Default)]
@@ -30,6 +27,17 @@ impl Memory {
             .copied()
             .flatten()
             .ok_or(RunnerError::UndefinedMemory(index))
+    }
+
+    /// Reads a single value from a memory address, returning ZERO if undefined or out of bounds.
+    /// Used for range check hint resolution where undefined memory is acceptable.
+    pub fn get_or_zero(&self, index: usize) -> F {
+        self.0.get(index).copied().flatten().unwrap_or(F::ZERO)
+    }
+
+    /// Returns true if a memory address is defined
+    pub fn is_defined(&self, index: usize) -> bool {
+        self.0.get(index).copied().flatten().is_some()
     }
 
     /// Sets a value at a memory address
@@ -62,11 +70,6 @@ impl Memory {
         self.0.len()
     }
 
-    /// Get a vector from vectorized memory
-    pub fn get_vector(&self, index: usize) -> Result<[F; VECTOR_LEN], RunnerError> {
-        Ok(self.get_vectorized_slice(index, 1)?.try_into().unwrap())
-    }
-
     /// Get an extension field element from memory
     pub fn get_ef_element(&self, index: usize) -> Result<EF, RunnerError> {
         // index: non vectorized pointer
@@ -75,12 +78,6 @@ impl Memory {
             *coeff = self.get(index + offset)?;
         }
         Ok(EF::from_basis_coefficients_slice(&coeffs).unwrap())
-    }
-
-    pub fn get_vectorized_slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        let start = index * VECTOR_LEN;
-        let total_len = len * VECTOR_LEN;
-        (0..total_len).map(|i| self.get(start + i)).collect()
     }
 
     /// Get a continuous slice of extension field elements
@@ -100,16 +97,14 @@ impl Memory {
         Ok(())
     }
 
-    /// Set a vector in vectorized memory
-    pub fn set_vector(&mut self, index: usize, value: [F; VECTOR_LEN]) -> Result<(), RunnerError> {
-        for (i, v) in value.iter().enumerate() {
-            let idx = VECTOR_LEN * index + i;
-            self.set(idx, *v)?;
-        }
-        Ok(())
+    pub fn get_slice(&self, start: usize, len: usize) -> Result<Vec<F>, RunnerError> {
+        (0..len).map(|i| self.get(start + i)).collect()
     }
 
-    pub fn slice(&self, start: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        (0..len).map(|i| self.get(start + i)).collect()
+    pub fn set_slice(&mut self, start: usize, values: &[F]) -> Result<(), RunnerError> {
+        for (i, v) in values.iter().enumerate() {
+            self.set(start + i, *v)?;
+        }
+        Ok(())
     }
 }

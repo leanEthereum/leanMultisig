@@ -1,0 +1,20 @@
+from snark_lib import *
+
+
+def main():
+    x: Mut = 0
+
+    x = x + 5
+    if x == 5:
+        x = x + 10
+    else:
+        x = x + 100
+    assert x == 15
+
+    if x == 15:
+        x = x + 1
+    else:
+        x = x + 1000
+    assert x == 16
+
+    return

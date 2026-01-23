@@ -1,8 +1,0 @@
- import "bar.snark";
-import "foo.snark";
-
-const FOO = 5;
-
-fn main() {
-    return;
-}

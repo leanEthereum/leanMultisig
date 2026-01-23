@@ -1,12 +1,13 @@
 use lean_vm::{Boolean, BooleanExpr};
+use utils::ToUsize;
 
-use super::expression::ExpressionParser;
+use super::expression::{ExpressionParser, VecElementParser, VecLiteralParser};
 use super::function::{AssignmentParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{Condition, Expression, Line, SourceLocation},
+    lang::{Condition, Expression, Line, SourceLocation, VecLiteral},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -18,32 +19,31 @@ pub struct StatementParser;
 
 impl Parse<Line> for StatementParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
-        let inner = next_inner_pair(&mut pair.into_inner(), "statement body")?;
+        let mut inner_iter = pair.into_inner();
+        let inner = next_inner_pair(&mut inner_iter, "statement body")?;
 
         match inner.as_rule() {
-            Rule::forward_declaration => ForwardDeclarationParser.parse(inner, ctx),
-            Rule::assignment => AssignmentParser.parse(inner, ctx),
+            // Compound statements (have their own block structure)
             Rule::if_statement => IfStatementParser.parse(inner, ctx),
             Rule::for_statement => ForStatementParser.parse(inner, ctx),
             Rule::match_statement => MatchStatementParser.parse(inner, ctx),
-            Rule::return_statement => ReturnStatementParser.parse(inner, ctx),
-            Rule::assert_statement => AssertParser::<false>.parse(inner, ctx),
-            Rule::debug_assert_statement => AssertParser::<true>.parse(inner, ctx),
-            Rule::break_statement => Ok(Line::Break),
-            Rule::continue_statement => Err(SemanticError::new("Continue statement not implemented yet").into()),
+            // Simple statements (wrapped in simple_statement rule)
+            Rule::simple_statement => {
+                let simple_inner = next_inner_pair(&mut inner.into_inner(), "simple statement body")?;
+                match simple_inner.as_rule() {
+                    Rule::forward_declaration => ForwardDeclarationParser.parse(simple_inner, ctx),
+                    Rule::assignment => AssignmentParser.parse(simple_inner, ctx),
+                    Rule::return_statement => ReturnStatementParser.parse(simple_inner, ctx),
+                    Rule::assert_statement => AssertParser::<false>.parse(simple_inner, ctx),
+                    Rule::debug_assert_statement => AssertParser::<true>.parse(simple_inner, ctx),
+                    Rule::vec_declaration => VecDeclarationParser.parse(simple_inner, ctx),
+                    Rule::push_statement => PushStatementParser.parse(simple_inner, ctx),
+                    Rule::pop_statement => PopStatementParser.parse(simple_inner, ctx),
+                    _ => Err(SemanticError::new("Unknown simple statement").into()),
+                }
+            }
             _ => Err(SemanticError::new("Unknown statement").into()),
         }
-    }
-}
-
-/// Parser for forward declarations of variables.
-pub struct ForwardDeclarationParser;
-
-impl Parse<Line> for ForwardDeclarationParser {
-    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
-        let mut inner = pair.into_inner();
-        let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
-        Ok(Line::ForwardDeclaration { var })
     }
 }
 
@@ -72,7 +72,9 @@ impl Parse<Line> for IfStatementParser {
                         ConditionParser.parse(next_inner_pair(&mut inner, "else if condition")?, ctx)?;
                     let mut else_if_branch = Vec::new();
                     for else_if_item in inner {
-                        Self::add_statement_with_location(&mut else_if_branch, else_if_item, ctx)?;
+                        if else_if_item.as_rule() == Rule::statement {
+                            Self::add_statement_with_location(&mut else_if_branch, else_if_item, ctx)?;
+                        }
                     }
                     else_if_branches.push((else_if_condition, else_if_branch, line_number));
                 }
@@ -95,7 +97,10 @@ impl Parse<Line> for IfStatementParser {
                 condition: else_if_condition,
                 then_branch: else_if_branch,
                 else_branch: Vec::new(),
-                line_number,
+                location: SourceLocation {
+                    file_id: ctx.current_file_id,
+                    line_number,
+                },
             });
             inner_else_branch = match &mut inner_else_branch[0] {
                 Line::IfCondition { else_branch, .. } => else_branch,
@@ -109,7 +114,10 @@ impl Parse<Line> for IfStatementParser {
             condition,
             then_branch,
             else_branch: outer_else_branch,
-            line_number,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
     }
 }
@@ -168,6 +176,7 @@ impl ComparisonParser {
             "==" => Boolean::Equal,
             "!=" => Boolean::Different,
             "<" => Boolean::LessThan,
+            "<=" => Boolean::LessOrEqual,
             _ => unreachable!(),
         };
 
@@ -184,30 +193,18 @@ impl Parse<Line> for ForStatementParser {
         let mut inner = pair.into_inner();
         let iterator = next_inner_pair(&mut inner, "loop iterator")?.as_str().to_string();
 
-        // Check for optional reverse clause
-        let mut rev = false;
-        if let Some(next_peek) = inner.clone().next()
-            && next_peek.as_rule() == Rule::rev_clause
-        {
-            rev = true;
-            inner.next(); // Consume the rev clause
-        }
+        // Next is either range or unroll_range
+        let range_pair = next_inner_pair(&mut inner, "range expression")?;
+        let unroll = matches!(range_pair.as_rule(), Rule::unroll_range);
 
-        let start = ExpressionParser.parse(next_inner_pair(&mut inner, "loop start")?, ctx)?;
-        let end = ExpressionParser.parse(next_inner_pair(&mut inner, "loop end")?, ctx)?;
+        let mut range_inner = range_pair.into_inner();
+        let start = ExpressionParser.parse(next_inner_pair(&mut range_inner, "loop start")?, ctx)?;
+        let end = ExpressionParser.parse(next_inner_pair(&mut range_inner, "loop end")?, ctx)?;
 
-        let mut unroll = false;
         let mut body = Vec::new();
-
         for item in inner {
-            match item.as_rule() {
-                Rule::unroll_clause => {
-                    unroll = true;
-                }
-                Rule::statement => {
-                    Self::add_statement_with_location(&mut body, item, ctx)?;
-                }
-                _ => {}
+            if item.as_rule() == Rule::statement {
+                Self::add_statement_with_location(&mut body, item, ctx)?;
             }
         }
 
@@ -216,9 +213,11 @@ impl Parse<Line> for ForStatementParser {
             start,
             end,
             body,
-            rev,
             unroll,
-            line_number,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
     }
 }
@@ -249,6 +248,7 @@ pub struct MatchStatementParser;
 
 impl Parse<Line> for MatchStatementParser {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
         let mut inner = pair.into_inner();
         let value = ExpressionParser.parse(next_inner_pair(&mut inner, "match value")?, ctx)?;
 
@@ -258,7 +258,7 @@ impl Parse<Line> for MatchStatementParser {
             if arm_pair.as_rule() == Rule::match_arm {
                 let mut arm_inner = arm_pair.into_inner();
                 let const_expr = next_inner_pair(&mut arm_inner, "match pattern")?;
-                let pattern = ConstExprParser.parse(const_expr, ctx)?;
+                let pattern = ConstExprParser.parse(const_expr, ctx)?.to_usize();
 
                 let mut statements = Vec::new();
                 for stmt in arm_inner {
@@ -270,8 +270,11 @@ impl Parse<Line> for MatchStatementParser {
                 arms.push((pattern, statements));
             }
         }
-
-        Ok(Line::Match { value, arms })
+        let location = SourceLocation {
+            file_id: ctx.current_file_id,
+            line_number,
+        };
+        Ok(Line::Match { value, arms, location })
     }
 }
 
@@ -319,13 +322,157 @@ pub struct AssertParser<const DEBUG: bool>;
 impl<const DEBUG: bool> Parse<Line> for AssertParser<DEBUG> {
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
         let line_number = pair.line_col().0;
-        let comparison = next_inner_pair(&mut pair.into_inner(), "comparison")?;
-        let boolean = ComparisonParser::parse(comparison, ctx)?;
+        let mut inner = pair.into_inner();
+        // Skip the assert_keyword / debug_assert_keyword
+        let _ = next_inner_pair(&mut inner, "assert keyword")?;
+        let next = next_inner_pair(&mut inner, "comparison or assert_false")?;
 
-        Ok(Line::Assert {
-            debug: DEBUG,
-            boolean,
-            line_number,
+        match next.as_rule() {
+            Rule::assert_false => {
+                // assert False or assert False, "message"
+                let mut false_inner = next.into_inner();
+                let message = false_inner.next().map(|s| {
+                    let text = s.as_str();
+                    // Strip the quotes from the string literal
+                    text[1..text.len() - 1].to_string()
+                });
+                Ok(Line::Panic { message })
+            }
+            Rule::comparison => {
+                let boolean = ComparisonParser::parse(next, ctx)?;
+                Ok(Line::Assert {
+                    debug: DEBUG,
+                    boolean,
+                    location: SourceLocation {
+                        file_id: ctx.current_file_id,
+                        line_number,
+                    },
+                })
+            }
+            _ => Err(SemanticError::new("Expected comparison or False in assert statement").into()),
+        }
+    }
+}
+
+/// Parser for vector declarations: `var = vec![...]` (vectors are implicitly mutable for push)
+pub struct VecDeclarationParser;
+
+impl Parse<Line> for VecDeclarationParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
+        let mut inner = pair.into_inner();
+
+        // Parse variable name
+        let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
+
+        // Parse the vec_literal
+        let vec_literal_pair = next_inner_pair(&mut inner, "vec literal")?;
+        let vec_literal = VecLiteralParser.parse(vec_literal_pair, ctx)?;
+
+        // Extract elements from the VecLiteral::Vec
+        let elements = match vec_literal {
+            VecLiteral::Vec(elems) => elems,
+            VecLiteral::Expr(_) => {
+                return Err(SemanticError::new("Expected vec literal, got expression").into());
+            }
+        };
+
+        Ok(Line::VecDeclaration {
+            var,
+            elements,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
         })
+    }
+}
+
+/// Parser for push statements: `vec_var.push(element);` or `vec_var[i][j].push(element);`
+pub struct PushStatementParser;
+
+impl Parse<Line> for PushStatementParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
+        let mut inner = pair.into_inner();
+
+        // Parse the push_target (identifier with optional indices)
+        let push_target = next_inner_pair(&mut inner, "push target")?;
+        let mut target_inner = push_target.into_inner();
+
+        // First element is the vector variable name
+        let vector = next_inner_pair(&mut target_inner, "vector variable")?
+            .as_str()
+            .to_string();
+
+        // Remaining elements are index expressions
+        let indices: Vec<Expression> = target_inner
+            .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Parse the element to push (vec_element can be vec_literal or expression)
+        let element_pair = next_inner_pair(&mut inner, "push element")?;
+        let element = VecElementParser.parse(element_pair, ctx)?;
+
+        Ok(Line::Push {
+            vector,
+            indices,
+            element,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
+        })
+    }
+}
+
+/// Parser for pop statements: `vec_var.pop();` or `vec_var[i][j].pop();`
+pub struct PopStatementParser;
+
+impl Parse<Line> for PopStatementParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Line> {
+        let line_number = pair.line_col().0;
+        let mut inner = pair.into_inner();
+
+        // Parse the pop_target (identifier with optional indices)
+        let pop_target = next_inner_pair(&mut inner, "pop target")?;
+        let mut target_inner = pop_target.into_inner();
+
+        // First element is the vector variable name
+        let vector = next_inner_pair(&mut target_inner, "vector variable")?
+            .as_str()
+            .to_string();
+
+        // Remaining elements are index expressions
+        let indices: Vec<Expression> = target_inner
+            .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Line::Pop {
+            vector,
+            indices,
+            location: SourceLocation {
+                file_id: ctx.current_file_id,
+                line_number,
+            },
+        })
+    }
+}
+
+/// Parser for forward declarations: `x: Imu` or `x: Mut`
+pub struct ForwardDeclarationParser;
+
+impl Parse<Line> for ForwardDeclarationParser {
+    fn parse(&self, pair: ParsePair<'_>, _ctx: &mut ParseContext) -> ParseResult<Line> {
+        let mut inner = pair.into_inner();
+
+        // Parse variable name
+        let var = next_inner_pair(&mut inner, "variable name")?.as_str().to_string();
+
+        // Check for : Mut or : Imu annotation
+        let annotation = next_inner_pair(&mut inner, "type annotation")?;
+        let is_mutable = annotation.as_rule() == Rule::mut_annotation;
+
+        Ok(Line::ForwardDeclaration { var, is_mutable })
     }
 }

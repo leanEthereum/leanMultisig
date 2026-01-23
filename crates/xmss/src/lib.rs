@@ -1,8 +1,12 @@
+/*
+Toy (unsecure) XMSS, intended for benchmark only.
+Production-grade XMSS SOON.
+*/
+
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 use p3_koala_bear::KoalaBear;
-
 mod wots;
-use utils::{poseidon16_permute, poseidon24_permute};
+use utils::poseidon16_permute;
 pub use wots::*;
 mod xmss;
 pub use xmss::*;
@@ -22,7 +26,6 @@ pub const XMSS_MIN_LOG_LIFETIME: usize = 2;
 pub const XMSS_MAX_LOG_LIFETIME: usize = 30;
 
 pub type Poseidon16History = Vec<([F; 16], [F; 16])>;
-pub type Poseidon24History = Vec<([F; 24], [F; 8])>;
 
 fn poseidon16_compress(a: &Digest, b: &Digest) -> Digest {
     poseidon16_permute([*a, *b].concat().try_into().unwrap())[0..8]
@@ -35,22 +38,4 @@ fn poseidon16_compress_with_trace(a: &Digest, b: &Digest, poseidon_16_trace: &mu
     let output = poseidon16_permute(input);
     poseidon_16_trace.push((input, output));
     output[0..8].try_into().unwrap()
-}
-
-fn poseidon24_compress(a: &Digest, b: &Digest, c: &Digest) -> Digest {
-    poseidon24_permute([*a, *b, *c].concat().try_into().unwrap())[16..24]
-        .try_into()
-        .unwrap()
-}
-
-fn poseidon24_compress_with_trace(
-    a: &Digest,
-    b: &Digest,
-    c: &Digest,
-    poseidon_24_trace: &mut Vec<([F; 24], [F; 8])>,
-) -> Digest {
-    let input: [F; 24] = [*a, *b, *c].concat().try_into().unwrap();
-    let output = poseidon24_permute(input)[16..24].try_into().unwrap();
-    poseidon_24_trace.push((input, output));
-    output
 }

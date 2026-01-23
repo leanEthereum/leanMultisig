@@ -1,4 +1,4 @@
-use crate::core::SourceLineNumber;
+use crate::SourceLocation;
 
 /// Structured label for bytecode locations
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -12,16 +12,14 @@ pub enum Label {
     If {
         id: usize,
         kind: IfKind,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     /// Match statement end: @match_end_{id}
     MatchEnd(usize),
     /// Return from function call: @return_from_call_{id}
-    ReturnFromCall(usize, SourceLineNumber),
+    ReturnFromCall(usize, SourceLocation),
     /// Loop definition: @loop_{id}_line_{line_number}
-    Loop(usize, SourceLineNumber),
-    /// Built-in memory symbols
-    BuiltinSymbol(BuiltinSymbol),
+    Loop(usize, SourceLocation),
     /// Auxiliary variables during compilation
     AuxVar { kind: AuxKind, id: usize },
     /// Custom/raw label for backwards compatibility or special cases
@@ -40,11 +38,11 @@ pub enum IfKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BuiltinSymbol {
-    /// @public_input_start
+    /// @NONRESERVED_PROGRAM_INPUT_START
     PublicInputStart,
-    /// @pointer_to_zero_vector
+    /// @ZERO_VEC_PTR
     PointerToZeroVector,
-    /// @pointer_to_one_vector
+    /// @ONE_VEC_PTR
     PointerToOneVector,
 }
 
@@ -71,17 +69,16 @@ impl std::fmt::Display for Label {
         match self {
             Self::Function(name) => write!(f, "@function_{name}"),
             Self::EndProgram => write!(f, "@end_program"),
-            Self::If { id, kind, line_number } => match kind {
-                IfKind::If => write!(f, "@if_{id}_line_{line_number}"),
-                IfKind::Else => write!(f, "@else_{id}_line_{line_number}"),
-                IfKind::End => write!(f, "@if_else_end_{id}_line_{line_number}"),
+            Self::If { id, kind, location } => match kind {
+                IfKind::If => write!(f, "@if_{id}_line_{}", location.line_number),
+                IfKind::Else => write!(f, "@else_{id}_line_{}", location.line_number),
+                IfKind::End => write!(f, "@if_else_end_{id}_line_{}", location.line_number),
             },
             Self::MatchEnd(id) => write!(f, "@match_end_{id}"),
             Self::ReturnFromCall(id, line_number) => {
                 write!(f, "@return_from_call_{id}_line_{line_number}")
             }
             Self::Loop(id, line_number) => write!(f, "@loop_{id}_line_{line_number}"),
-            Self::BuiltinSymbol(symbol) => write!(f, "{symbol}"),
             Self::AuxVar { kind, id } => match kind {
                 AuxKind::AuxVar => write!(f, "@aux_var_{id}"),
                 AuxKind::ArrayAux => write!(f, "@arr_aux_{id}"),
@@ -98,42 +95,32 @@ impl std::fmt::Display for Label {
     }
 }
 
-impl std::fmt::Display for BuiltinSymbol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PublicInputStart => write!(f, "@public_input_start"),
-            Self::PointerToZeroVector => write!(f, "@pointer_to_zero_vector"),
-            Self::PointerToOneVector => write!(f, "@pointer_to_one_vector"),
-        }
-    }
-}
-
 impl Label {
     pub fn function(name: impl Into<String>) -> Self {
         Self::Function(name.into())
     }
 
-    pub fn if_label(id: usize, line_number: SourceLineNumber) -> Self {
+    pub fn if_label(id: usize, location: SourceLocation) -> Self {
         Self::If {
             id,
             kind: IfKind::If,
-            line_number,
+            location,
         }
     }
 
-    pub fn else_label(id: usize, line_number: SourceLineNumber) -> Self {
+    pub fn else_label(id: usize, location: SourceLocation) -> Self {
         Self::If {
             id,
             kind: IfKind::Else,
-            line_number,
+            location,
         }
     }
 
-    pub fn if_else_end(id: usize, line_number: SourceLineNumber) -> Self {
+    pub fn if_else_end(id: usize, location: SourceLocation) -> Self {
         Self::If {
             id,
             kind: IfKind::End,
-            line_number,
+            location,
         }
     }
 
@@ -141,12 +128,12 @@ impl Label {
         Self::MatchEnd(id)
     }
 
-    pub fn return_from_call(id: usize, line_number: SourceLineNumber) -> Self {
-        Self::ReturnFromCall(id, line_number)
+    pub fn return_from_call(id: usize, location: SourceLocation) -> Self {
+        Self::ReturnFromCall(id, location)
     }
 
-    pub fn loop_label(id: usize, line_number: SourceLineNumber) -> Self {
-        Self::Loop(id, line_number)
+    pub fn loop_label(id: usize, location: SourceLocation) -> Self {
+        Self::Loop(id, location)
     }
 
     pub fn aux_var(id: usize) -> Self {

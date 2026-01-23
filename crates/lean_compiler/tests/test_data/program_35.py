@@ -1,0 +1,22 @@
+from snark_lib import *
+
+DEEP = [[[1, 2], [3]], [[4, 5, 6]]]
+ONE = 1
+
+
+def main():
+    assert len(DEEP) == 2
+    assert len(DEEP[0]) == 2
+    assert len(DEEP[0][0]) == 2
+    assert len(DEEP[0][1]) == 1
+    one = 1
+    assert len(DEEP[ONE]) == one
+    assert len(DEEP[1][0]) == 3
+
+    assert DEEP[0][0][0] == 1
+    assert DEEP[0][0][1] == 2
+    assert DEEP[0][1][0] == 3
+    assert DEEP[1][0][0] == 4
+    assert DEEP[1][0][2] == 6
+
+    return
