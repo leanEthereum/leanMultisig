@@ -1,0 +1,294 @@
+from snark_lib import *
+# Comprehensive stress test for mutable variables in non-unrolled loops
+# Tests: nested loops, conditionals, match, multiple mutable vars, edge cases
+
+def main():
+    # =========================================================================
+    # TEST 1: Triple nested loops with multiple interacting mutable variables
+    # =========================================================================
+    a: Mut = 0
+    b: Mut = 1
+    c: Mut = 100
+    for i in range(0, 3):
+        for j in range(0, 4):
+            for k in range(0, 2):
+                a += 1
+                b += a
+                c -= 1
+    # a = 3*4*2 = 24 increments = 24
+    # b = 1 + 1 + 3 + 6 + 10 + 15 + 21 + 28 + 36 + 45 + 55 + 66 + 78 + 91 + 105 + 120 + 136 + 153 + 171 + 190 + 210 + 231 + 253 + 276 + 300 = 301
+    # c = 100 - 24 = 76
+    assert a == 24
+    assert b == 301
+    assert c == 76
+
+    # =========================================================================
+    # TEST 2: Mutable variable modified differently in if/else branches
+    # =========================================================================
+    x: Mut = 0
+    y: Mut = 0
+    for i in range(0, 8):
+        if i == 0:
+            x += 100
+            y += 1
+        else if i == 1:
+            x += 50
+            y += 2
+        else if i == 2:
+            x += 25
+            y += 4
+        else if i == 3:
+            x -= 10
+            y += 8
+        else:
+            x += i
+            y *= 2
+    # i=0: x=100, y=1
+    # i=1: x=150, y=3
+    # i=2: x=175, y=7
+    # i=3: x=165, y=15
+    # i=4: x=169, y=30
+    # i=5: x=174, y=60
+    # i=6: x=180, y=120
+    # i=7: x=187, y=240
+    assert x == 187
+    assert y == 240
+
+    # =========================================================================
+    # TEST 3: Match statements with mutable variables in nested loop
+    # =========================================================================
+    score: Mut = 0
+    multiplier: Mut = 1
+    for round in range(0, 3):
+        for action in range(0, 4):
+            match action:
+                case 0:
+                    score += 10 * multiplier
+                case 1:
+                    score += 5 * multiplier
+                    multiplier += 1
+                case 2:
+                    score -= 2 * multiplier
+                case 3:
+                    multiplier *= 2
+                    score += multiplier
+    # Round 0: action 0: score=10, mult=1
+    #          action 1: score=15, mult=2
+    #          action 2: score=11, mult=2
+    #          action 3: mult=4, score=15
+    # Round 1: action 0: score=55, mult=4
+    #          action 1: score=75, mult=5
+    #          action 2: score=65, mult=5
+    #          action 3: mult=10, score=75
+    # Round 2: action 0: score=175, mult=10
+    #          action 1: score=225, mult=11
+    #          action 2: score=203, mult=11
+    #          action 3: mult=22, score=225
+    assert score == 225
+    assert multiplier == 22
+
+    # =========================================================================
+    # TEST 4: Loop with non-zero start index
+    # =========================================================================
+    sum_from_5: Mut = 0
+    for i in range(5, 10):
+        sum_from_5 += i
+    # 5 + 6 + 7 + 8 + 9 = 35
+    assert sum_from_5 == 35
+
+    # =========================================================================
+    # TEST 5: Single iteration loop (edge case)
+    # =========================================================================
+    single: Mut = 42
+    for i in range(7, 8):
+        single += i
+    assert single == 49
+
+    # =========================================================================
+    # TEST 6: Mutable variable reassigned multiple times per iteration
+    # =========================================================================
+    multi: Mut = 0
+    for i in range(1, 5):
+        multi += i
+        multi *= 2
+        multi -= 1
+        multi += i
+    # i=1: multi = 0+1=1, *2=2, -1=1, +1=2
+    # i=2: multi = 2+2=4, *2=8, -1=7, +2=9
+    # i=3: multi = 9+3=12, *2=24, -1=23, +3=26
+    # i=4: multi = 26+4=30, *2=60, -1=59, +4=63
+    assert multi == 63
+
+    # =========================================================================
+    # TEST 7: Mutable variables with array operations
+    # =========================================================================
+    arr = Array(6)
+    arr[0] = 1
+    arr[1] = 2
+    arr[2] = 4
+    arr[3] = 8
+    arr[4] = 16
+    arr[5] = 32
+
+    arr_sum: Mut = 0
+    arr_prod: Mut = 1
+    last_val: Mut = 0
+    for idx in range(0, 6):
+        val = arr[idx]
+        arr_sum += val
+        arr_prod *= val + 1
+        last_val = val
+    # sum = 1+2+4+8+16+32 = 63
+    # prod = 2*3*5*9*17*33 = 151470
+    # last_val = 32
+    assert arr_sum == 63
+    assert arr_prod == 151470
+    assert last_val == 32
+
+    # =========================================================================
+    # TEST 8: Nested conditionals inside nested loops
+    # =========================================================================
+    complex: Mut = 0
+    for i in range(0, 3):
+        for j in range(0, 3):
+            if i == j:
+                if i == 0:
+                    complex += 100
+                else if i == 1:
+                    complex += 200
+                else:
+                    complex += 300
+            else:
+                if i == 0:
+                    complex += 1
+                else:
+                    complex += 2
+    # i=0,j=0: i==j, i==0: +100 -> 100
+    # i=0,j=1: i!=j, i==0: +1 -> 101
+    # i=0,j=2: i!=j, i==0: +1 -> 102
+    # i=1,j=0: i!=j, i!=0: +2 -> 104
+    # i=1,j=1: i==j, i==1: +200 -> 304
+    # i=1,j=2: i!=j, i!=0: +2 -> 306
+    # i=2,j=0: i!=j, i!=0: +2 -> 308
+    # i=2,j=1: i!=j, i!=0: +2 -> 310
+    # i=2,j=2: i==j, i==2: +300 -> 610
+    assert complex == 610
+
+    # =========================================================================
+    # TEST 9: Function calls with mutable variables
+    # =========================================================================
+    func_result: Mut = 0
+    for i in range(1, 6):
+        increment = compute_increment(i)
+        func_result += increment
+    # compute_increment(1) = 1
+    # compute_increment(2) = 4
+    # compute_increment(3) = 9
+    # compute_increment(4) = 16
+    # compute_increment(5) = 25
+    # sum = 1 + 4 + 9 + 16 + 25 = 55
+    assert func_result == 55
+
+    # =========================================================================
+    # TEST 10: Outer mutable modified by inner loop result
+    # =========================================================================
+    outer_acc: Mut = 0
+    for i in range(1, 4):
+        inner_acc: Mut = 0
+        for j in range(0, i):
+            inner_acc += j + 1
+        outer_acc += inner_acc * i
+    # i=1: inner_acc = 1, outer_acc = 1*1 = 1
+    # i=2: inner_acc = 1+2 = 3, outer_acc = 1 + 3*2 = 7
+    # i=3: inner_acc = 1+2+3 = 6, outer_acc = 7 + 6*3 = 25
+    assert outer_acc == 25
+
+    # =========================================================================
+    # TEST 11: Large number of iterations
+    # =========================================================================
+    big_sum: Mut = 0
+    for i in range(0, 100):
+        big_sum += 1
+    assert big_sum == 100
+
+    # =========================================================================
+    # TEST 12: Mutable with division and subtraction
+    # =========================================================================
+    countdown: Mut = 1000
+    steps: Mut = 0
+    for i in range(1, 11):
+        countdown -= i * 10
+        steps += 1
+    # countdown = 1000 - 10 - 20 - 30 - 40 - 50 - 60 - 70 - 80 - 90 - 100
+    #           = 1000 - 550 = 450
+    assert countdown == 450
+    assert steps == 10
+
+    # =========================================================================
+    # TEST 13: Mix of unrolled inner and non-unrolled outer
+    # =========================================================================
+    mixed: Mut = 0
+    for i in range(0, 4):
+        for j in unroll(0, 3):
+            mixed += i * 3 + j
+    # i=0: 0+1+2 = 3
+    # i=1: 3+4+5 = 12
+    # i=2: 6+7+8 = 21
+    # i=3: 9+10+11 = 30
+    # total = 3+12+21+30 = 66
+    assert mixed == 66
+
+    # =========================================================================
+    # TEST 14: Multiple mutable variables, some modified some not per iteration
+    # =========================================================================
+    always: Mut = 0
+    sometimes: Mut = 100
+    rarely: Mut = 1000
+    for i in range(0, 10):
+        always += 1
+        if i == 3:
+            sometimes += 50
+        if i == 7:
+            sometimes -= 25
+            rarely += 500
+        if i == 9:
+            rarely *= 2
+    assert always == 10
+    assert sometimes == 125
+    assert rarely == 3000
+
+    # =========================================================================
+    # TEST 15: Chained mutable dependencies in same iteration
+    # =========================================================================
+    chain_a: Mut = 1
+    chain_b: Mut = 0
+    chain_c: Mut = 0
+    for i in range(0, 5):
+        chain_a *= 2
+        chain_b = chain_a + i
+        chain_c += chain_b
+    # i=0: a=2, b=2+0=2, c=0+2=2
+    # i=1: a=4, b=4+1=5, c=2+5=7
+    # i=2: a=8, b=8+2=10, c=7+10=17
+    # i=3: a=16, b=16+3=19, c=17+19=36
+    # i=4: a=32, b=32+4=36, c=36+36=72
+    assert chain_a == 32
+    assert chain_b == 36
+    assert chain_c == 72
+
+    # =========================================================================
+    # TEST 16: Zero-iteration loop (edge case - empty range)
+    # No iterations should occur for 5..5
+    # =========================================================================
+    zero_iter: Mut = 999
+    for i in range(5, 5):
+        zero_iter = 0
+    assert zero_iter == 999
+
+    # =========================================================================
+    # All tests passed!
+    # =========================================================================
+    return
+
+def compute_increment(n):
+    return n * n

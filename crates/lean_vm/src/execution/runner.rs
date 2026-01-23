@@ -1,20 +1,20 @@
 //! VM execution runner
 
 use crate::core::{
-    DIMENSION, F, FileId, NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR,
-    POSEIDON_24_NULL_HASH_PTR, VECTOR_LEN, ZERO_VEC_PTR,
+    DIGEST_LEN, DIMENSION, F, FileId, NONRESERVED_PROGRAM_INPUT_START, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
 };
 use crate::diagnostics::{ExecutionResult, MemoryProfile, RunnerError, memory_profiling_report};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, N_TABLES, STARTING_PC, SourceLocation, Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES, PRIVATE_INPUT_START_PTR,
+    STARTING_PC, SourceLocation, Table, TableTrace,
 };
 use multilinear_toolkit::prelude::*;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use utils::{poseidon16_permute, poseidon24_permute, pretty_integer};
-use xmss::{Poseidon16History, Poseidon24History};
+use std::collections::{BTreeMap, BTreeSet};
+use utils::{ToUsize, poseidon16_permute, pretty_integer};
+use xmss::Poseidon16History;
 
 /// Number of instructions to show in stack trace
 const STACK_TRACE_INSTRUCTIONS: usize = 5000;
@@ -27,37 +27,33 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     public_memory[NONRESERVED_PROGRAM_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
 
     // "zero" vector
-    let zero_start = ZERO_VEC_PTR * VECTOR_LEN;
-    for slot in public_memory.iter_mut().skip(zero_start).take(2 * VECTOR_LEN) {
+    let zero_start = ZERO_VEC_PTR;
+    for slot in public_memory.iter_mut().skip(zero_start).take(2 * DIGEST_LEN) {
         *slot = F::ZERO;
     }
 
-    // "one" vector
-    public_memory[ONE_VEC_PTR * VECTOR_LEN] = F::ONE;
-    let one_start = ONE_VEC_PTR * VECTOR_LEN + 1;
-    for slot in public_memory.iter_mut().skip(one_start).take(VECTOR_LEN - 1) {
-        *slot = F::ZERO;
+    // extension basis
+    for i in 0..DIMENSION {
+        let mut vec = F::zero_vec(DIMENSION);
+        vec[i] = F::ONE;
+        public_memory[EXTENSION_BASIS_PTR + i * DIMENSION..][..DIMENSION].copy_from_slice(&vec);
     }
 
-    public_memory[POSEIDON_16_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_16_NULL_HASH_PTR + 2) * VECTOR_LEN]
-        .copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
-    public_memory[POSEIDON_24_NULL_HASH_PTR * VECTOR_LEN..(POSEIDON_24_NULL_HASH_PTR + 1) * VECTOR_LEN]
-        .copy_from_slice(&poseidon24_permute([F::ZERO; 24])[16..]);
+    public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * DIGEST_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
+    public_memory[PRIVATE_INPUT_START_PTR] = F::from_usize(public_memory_len);
     public_memory
 }
 
-/// Execute bytecode with the given inputs and execution context
+/// Execute bytecode with the given inputs and execution context, returning a Result
 ///
 /// This is the main VM execution entry point that processes bytecode instructions
 /// and generates execution traces with witness data.
-pub fn execute_bytecode(
+pub fn try_execute_bytecode(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
-    no_vec_runtime_memory: usize, // size of the "non-vectorized" runtime memory
     profiling: bool,
-    (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
-    merkle_path_hints: VecDeque<Vec<[F; 8]>>,
-) -> ExecutionResult {
+    poseidons_16_precomputed: &Poseidon16History,
+) -> Result<ExecutionResult, RunnerError> {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
     let result = execute_bytecode_helper(
@@ -65,15 +61,13 @@ pub fn execute_bytecode(
         (public_input, private_input),
         &mut std_out,
         &mut instruction_history,
-        no_vec_runtime_memory,
         profiling,
-        (poseidons_16_precomputed, poseidons_24_precomputed),
-        merkle_path_hints,
+        poseidons_16_precomputed,
     )
-    .unwrap_or_else(|(last_pc, err)| {
+    .map_err(|(last_pc, err)| {
         let lines_history = &instruction_history.lines;
         let latest_instructions = &lines_history[lines_history.len().saturating_sub(STACK_TRACE_INSTRUCTIONS)..];
-        println!(
+        eprintln!(
             "\n{}",
             crate::diagnostics::pretty_stack_trace(
                 &bytecode.source_code,
@@ -84,13 +78,13 @@ pub fn execute_bytecode(
             )
         );
         if !std_out.is_empty() {
-            println!("╔══════════════════════════════════════════════════════════════╗");
-            println!("║                         STD-OUT                              ║");
-            println!("╚══════════════════════════════════════════════════════════════╝\n");
-            print!("{std_out}");
+            eprintln!("╔══════════════════════════════════════════════════════════════╗");
+            eprintln!("║                         STD-OUT                              ║");
+            eprintln!("╚══════════════════════════════════════════════════════════════╝\n");
+            eprint!("{std_out}");
         }
-        panic!("Error during bytecode execution: {err}");
-    });
+        err
+    })?;
     if profiling {
         print_line_cycle_counts(instruction_history, &bytecode.filepaths);
         print_instruction_cycle_counts(bytecode, result.pcs.clone());
@@ -98,7 +92,25 @@ pub fn execute_bytecode(
             print!("{}", memory_profiling_report(mem_profile));
         }
     }
-    result
+    Ok(result)
+}
+
+/// Execute bytecode with the given inputs and execution context
+///
+/// Panics on execution errors. Use `try_execute_bytecode` for error handling.
+pub fn execute_bytecode(
+    bytecode: &Bytecode,
+    (public_input, private_input): (&[F], &[F]),
+    profiling: bool,
+    poseidons_16_precomputed: &Poseidon16History,
+) -> ExecutionResult {
+    try_execute_bytecode(
+        bytecode,
+        (public_input, private_input),
+        profiling,
+        poseidons_16_precomputed,
+    )
+    .unwrap_or_else(|err| panic!("Error during bytecode execution: {err}"))
 }
 
 fn print_line_cycle_counts(history: ExecutionHistory, filepaths: &BTreeMap<FileId, String>) {
@@ -139,6 +151,45 @@ fn print_instruction_cycle_counts(bytecode: &Bytecode, pcs: Vec<CodeAddress>) {
     println!();
 }
 
+/// Resolve pending deref hints in correct order
+///
+/// Each constraint has form: memory[target_addr] = memory[memory[src_addr]]
+/// Order matters because some src addresses might point to targets of other hints.
+/// We iteratively resolve constraints until no more progress, then fill remaining with 0.
+fn resolve_deref_hints(memory: &mut Memory, pending: &[(usize, usize)]) {
+    let mut resolved: BTreeSet<usize> = BTreeSet::new();
+
+    loop {
+        let mut made_progress = false;
+
+        for &(target_addr, src_addr) in pending {
+            if resolved.contains(&target_addr) {
+                continue;
+            }
+            let Some(addr) = memory.0.get(src_addr).copied().flatten() else {
+                continue;
+            };
+            let Some(value) = memory.0.get(addr.to_usize()).copied().flatten() else {
+                continue;
+            };
+            memory.set(target_addr, value).unwrap();
+            resolved.insert(target_addr);
+            made_progress = true;
+        }
+
+        if !made_progress {
+            break;
+        }
+    }
+
+    // Fill any remaining unresolved targets with 0
+    for &(target_addr, _src_addr) in pending {
+        if !resolved.contains(&target_addr) {
+            let _ = memory.set(target_addr, F::ZERO);
+        }
+    }
+}
+
 /// Helper function that performs the actual bytecode execution
 #[allow(clippy::too_many_arguments)] // TODO
 fn execute_bytecode_helper(
@@ -146,10 +197,8 @@ fn execute_bytecode_helper(
     (public_input, private_input): (&[F], &[F]),
     std_out: &mut String,
     instruction_history: &mut ExecutionHistory,
-    no_vec_runtime_memory: usize,
     profiling: bool,
-    (poseidons_16_precomputed, poseidons_24_precomputed): (&Poseidon16History, &Poseidon24History),
-    mut merkle_path_hints: VecDeque<Vec<[F; 8]>>,
+    poseidons_16_precomputed: &Poseidon16History,
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
@@ -172,23 +221,19 @@ fn execute_bytecode_helper(
     fp = fp.next_multiple_of(DIMENSION);
 
     let initial_ap = fp + bytecode.starting_frame_memory;
-    let initial_ap_vec = (initial_ap + no_vec_runtime_memory).next_multiple_of(VECTOR_LEN) / VECTOR_LEN;
 
     let mut pc = STARTING_PC;
     let mut ap = initial_ap;
-    let mut ap_vec = initial_ap_vec;
 
     let mut cpu_cycles = 0;
 
     let mut last_checkpoint_cpu_cycles = 0;
     let mut checkpoint_ap = initial_ap;
-    let mut checkpoint_ap_vec = ap_vec;
 
     let mut pcs = Vec::new();
     let mut fps = Vec::new();
 
     let mut n_poseidon16_precomputed_used = 0;
-    let mut n_poseidon24_precomputed_used = 0;
 
     let mut traces = BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i], TableTrace::new(&ALL_TABLES[i]))));
 
@@ -199,6 +244,9 @@ fn execute_bytecode_helper(
 
     let mut counter_hint = 0;
     let mut cpu_cycles_before_new_line = 0;
+
+    // Pending deref hints: (target_addr, src_addr) constraints to resolve at end
+    let mut pending_deref_hints: Vec<(usize, usize)> = Vec::new();
 
     while pc != ENDING_PC {
         if pc >= bytecode.instructions.len() {
@@ -214,10 +262,8 @@ fn execute_bytecode_helper(
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             let mut hint_ctx = HintExecutionContext {
                 memory: &mut memory,
-                private_input_start: public_memory_size,
                 fp,
                 ap: &mut ap,
-                ap_vec: &mut ap_vec,
                 counter_hint: &mut counter_hint,
                 std_out,
                 instruction_history,
@@ -225,9 +271,9 @@ fn execute_bytecode_helper(
                 cpu_cycles,
                 last_checkpoint_cpu_cycles: &mut last_checkpoint_cpu_cycles,
                 checkpoint_ap: &mut checkpoint_ap,
-                checkpoint_ap_vec: &mut checkpoint_ap_vec,
                 profiling,
                 memory_profile: &mut mem_profile,
+                pending_deref_hints: &mut pending_deref_hints,
             };
             hint.execute_hint(&mut hint_ctx).map_err(|e| (pc, e))?;
         }
@@ -244,25 +290,22 @@ fn execute_bytecode_helper(
             deref_counts: &mut deref_counts,
             jump_counts: &mut jump_counts,
             poseidon16_precomputed: poseidons_16_precomputed,
-            poseidon24_precomputed: poseidons_24_precomputed,
-            merkle_path_hints: &mut merkle_path_hints,
             n_poseidon16_precomputed_used: &mut n_poseidon16_precomputed_used,
-            n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
         instruction
             .execute_instruction(&mut instruction_ctx)
             .map_err(|e| (pc, e))?;
     }
 
+    // Resolve pending deref hints in correct order
+    // Constraint: memory[target_addr] = memory[memory[src_addr]]
+    // Order matters because some src addresses might point to targets of other hints
+    resolve_deref_hints(&mut memory, &pending_deref_hints);
+
     assert_eq!(
         n_poseidon16_precomputed_used,
         poseidons_16_precomputed.len(),
         "Warning: not all precomputed Poseidon16 were used"
-    );
-    assert_eq!(
-        n_poseidon24_precomputed_used,
-        poseidons_24_precomputed.len(),
-        "Warning: not all precomputed Poseidon24 were used"
     );
 
     assert_eq!(pc, ENDING_PC);
@@ -304,12 +347,7 @@ fn execute_bytecode_helper(
         "Private input size: {}\n",
         pretty_integer(private_input.len())
     ));
-    summary.push_str(&format!(
-        "Runtime memory: {} ({:.2}% vec) (no vec mem: {})\n",
-        pretty_integer(runtime_memory_size),
-        (VECTOR_LEN * (ap_vec - initial_ap_vec)) as f64 / runtime_memory_size as f64 * 100.0,
-        no_vec_runtime_memory
-    ));
+    summary.push_str(&format!("Runtime memory: {}\n", pretty_integer(runtime_memory_size),));
     let used_memory_cells = memory
         .0
         .iter()
@@ -327,21 +365,14 @@ fn execute_bytecode_helper(
         pretty_integer(n_poseidon16_precomputed_used),
         pretty_integer(poseidons_16_precomputed.len())
     ));
-    summary.push_str(&format!(
-        "Poseidon2_24 precomputed used: {}/{}\n",
-        pretty_integer(n_poseidon24_precomputed_used),
-        pretty_integer(poseidons_24_precomputed.len())
-    ));
 
     summary.push('\n');
 
-    if traces[&Table::poseidon16_core()].base[0].len() + traces[&Table::poseidon24_core()].base[0].len() > 0 {
+    if !traces[&Table::poseidon16()].base[0].is_empty() {
         summary.push_str(&format!(
-            "Poseidon2_16 calls: {}, Poseidon2_24 calls: {}, (1 poseidon per {} instructions)\n",
-            pretty_integer(traces[&Table::poseidon16_core()].base[0].len()),
-            pretty_integer(traces[&Table::poseidon24_core()].base[0].len()),
-            cpu_cycles
-                / (traces[&Table::poseidon16_core()].base[0].len() + traces[&Table::poseidon24_core()].base[0].len())
+            "Poseidon2_16 calls: {} (1 poseidon per {} instructions)\n",
+            pretty_integer(traces[&Table::poseidon16()].base[0].len()),
+            cpu_cycles / traces[&Table::poseidon16()].base[0].len()
         ));
     }
     // if !dot_products.is_empty() {

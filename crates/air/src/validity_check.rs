@@ -1,5 +1,4 @@
-use multilinear_toolkit::prelude::{ExtensionField, PF};
-use p3_air::Air;
+use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 use utils::ConstraintChecker;
 
@@ -68,8 +67,8 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
     let up_ef = (0..air.n_columns_ef_air())
         .map(|j| columns_ef[j][n_rows - 1])
         .collect::<Vec<_>>();
-    assert_eq!(last_row_f.len(), air.down_column_indexes_f().len());
-    assert_eq!(last_row_ef.len(), air.down_column_indexes_ef().len());
+    assert_eq!(last_row_f.len(), air.n_down_columns_f());
+    assert_eq!(last_row_ef.len(), air.n_down_columns_ef());
     let mut constraints_checker = ConstraintChecker {
         up_f,
         up_ef,

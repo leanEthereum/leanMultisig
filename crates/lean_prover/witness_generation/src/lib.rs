@@ -5,6 +5,3 @@ mod instruction_encoder;
 
 pub use execution_trace::*;
 pub use instruction_encoder::*;
-
-mod poseidon_tables;
-pub use poseidon_tables::*;

@@ -1,4 +1,4 @@
-use crate::{F, NONRESERVED_PROGRAM_INPUT_START, ZERO_VEC_PTR, ir::*, lang::*};
+use crate::{F, ir::*, lang::*};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
@@ -10,10 +10,11 @@ impl IntermediateInstruction {
             Self::RequestMemory { .. }
             | Self::Print { .. }
             | Self::CustomHint { .. }
-            | Self::PrivateInputStart { .. }
             | Self::Inverse { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert { .. } => true,
+            | Self::DebugAssert { .. }
+            | Self::DerefHint { .. }
+            | Self::PanicHint { .. } => true,
             Self::Computation { .. }
             | Self::Panic
             | Self::Deref { .. }
@@ -48,7 +49,7 @@ pub fn compile_to_low_level_bytecode(
     let starting_frame_memory = *intermediate_bytecode
         .memory_size_per_function
         .get("main")
-        .expect("Missing main function");
+        .ok_or("Missing main function")?;
 
     let mut hints = BTreeMap::new();
     let mut label_to_pc = BTreeMap::new();
@@ -218,36 +219,34 @@ fn compile_block(
             IntermediateInstruction::Computation {
                 operation,
                 mut arg_a,
-                mut arg_c,
+                mut arg_b,
                 res,
             } => {
                 if let Some(arg_a_cst) = try_as_constant(&arg_a, compiler)
-                    && let Some(arg_b_cst) = try_as_constant(&arg_c, compiler)
+                    && let Some(arg_b_cst) = try_as_constant(&arg_b, compiler)
                 {
                     // res = constant +/x constant
 
                     let op_res = operation.compute(arg_a_cst, arg_b_cst);
 
-                    let res: MemOrFp = res.try_into_mem_or_fp(compiler).unwrap();
-
                     low_level_bytecode.push(Instruction::Computation {
                         operation: Operation::Add,
                         arg_a: MemOrConstant::zero(),
-                        arg_c: res,
+                        arg_c: res.try_into_mem_or_fp(compiler).unwrap(),
                         res: MemOrConstant::Constant(op_res),
                     });
                     pc += 1;
                     continue;
                 }
 
-                if arg_c.is_constant() {
-                    std::mem::swap(&mut arg_a, &mut arg_c);
+                if arg_b.is_constant() {
+                    std::mem::swap(&mut arg_a, &mut arg_b);
                 }
 
                 low_level_bytecode.push(Instruction::Computation {
                     operation,
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
-                    arg_c: try_as_mem_or_fp(&arg_c).unwrap(),
+                    arg_c: try_as_mem_or_fp(&arg_b).unwrap(),
                     res: try_as_mem_or_constant(&res).unwrap(),
                 });
             }
@@ -281,7 +280,7 @@ fn compile_block(
                 updated_fp,
             } => codegen_jump(hints, low_level_bytecode, condition, dest, updated_fp),
             IntermediateInstruction::Jump { dest, updated_fp } => {
-                let one = IntermediateValue::Constant(ConstExpression::Value(ConstantValue::Scalar(1)));
+                let one = ConstExpression::one().into();
                 codegen_jump(hints, low_level_bytecode, one, dest, updated_fp)
             }
             IntermediateInstruction::Precompile {
@@ -289,19 +288,16 @@ fn compile_block(
                 arg_a,
                 arg_b,
                 arg_c,
-                aux,
+                aux_1,
+                aux_2,
             } => {
                 low_level_bytecode.push(Instruction::Precompile {
                     table,
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
                     arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
                     arg_c: try_as_mem_or_fp(&arg_c).unwrap(),
-                    aux: eval_const_expression_usize(&aux, compiler),
-                });
-            }
-            IntermediateInstruction::PrivateInputStart { res_offset } => {
-                hints.entry(pc).or_default().push(Hint::PrivateInputStart {
-                    res_offset: eval_const_expression_usize(&res_offset, compiler),
+                    aux_1: eval_const_expression_usize(&aux_1, compiler),
+                    aux_2: eval_const_expression_usize(&aux_2, compiler),
                 });
             }
             IntermediateInstruction::CustomHint(hint, args) => {
@@ -320,20 +316,12 @@ fn compile_block(
                 };
                 hints.entry(pc).or_default().push(hint);
             }
-            IntermediateInstruction::RequestMemory {
-                offset,
-                size,
-                vectorized,
-                vectorized_len,
-            } => {
+            IntermediateInstruction::RequestMemory { offset, size } => {
                 let size = try_as_mem_or_constant(&size).unwrap();
-                let vectorized_len = try_as_constant(&vectorized_len, compiler).unwrap().to_usize();
                 let hint = Hint::RequestMemory {
                     function_name: function_name.clone(),
                     offset: eval_const_expression_usize(&offset, compiler),
-                    vectorized,
                     size,
-                    vectorized_len,
                 };
                 hints.entry(pc).or_default().push(hint);
             }
@@ -362,6 +350,20 @@ fn compile_block(
                 );
                 hints.entry(pc).or_default().push(hint);
             }
+            IntermediateInstruction::DerefHint {
+                offset_src,
+                offset_target,
+            } => {
+                let hint = Hint::DerefHint {
+                    offset_src: eval_const_expression_usize(&offset_src, compiler),
+                    offset_target: eval_const_expression_usize(&offset_target, compiler),
+                };
+                hints.entry(pc).or_default().push(hint);
+            }
+            IntermediateInstruction::PanicHint { message } => {
+                let hint = Hint::Panic { message };
+                hints.entry(pc).or_default().push(hint);
+            }
         }
 
         if !instruction.is_hint() {
@@ -376,10 +378,7 @@ fn count_real_instructions(instrs: &[IntermediateInstruction]) -> usize {
 
 fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
     match constant {
-        ConstantValue::Scalar(scalar) => *scalar,
-        ConstantValue::PublicInputStart => NONRESERVED_PROGRAM_INPUT_START,
-        ConstantValue::PointerToZeroVector => ZERO_VEC_PTR,
-        ConstantValue::PointerToOneVector => ONE_VEC_PTR,
+        ConstantValue::Scalar(scalar) => scalar.to_usize(),
         ConstantValue::FunctionSize { function_name } => {
             let func_name_str = match function_name {
                 Label::Function(name) => name,

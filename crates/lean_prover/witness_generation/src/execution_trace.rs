@@ -12,19 +12,8 @@ pub struct ExecutionTrace {
     pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
-pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionResult) -> ExecutionTrace {
+pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResult) -> ExecutionTrace {
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
-
-    // padding to make proof work even on small programs (TODO make this more elegant)
-    let min_cycles = 32 << MIN_LOG_N_ROWS_PER_TABLE;
-    if execution_result.pcs.len() < min_cycles {
-        execution_result
-            .pcs
-            .resize(min_cycles, *execution_result.pcs.last().unwrap());
-        execution_result
-            .fps
-            .resize(min_cycles, *execution_result.fps.last().unwrap());
-    }
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
@@ -44,64 +33,72 @@ pub fn get_execution_trace(bytecode: &Bytecode, mut execution_result: ExecutionR
             let field_repr = field_representation(instruction);
 
             let mut addr_a = F::ZERO;
-            if field_repr[COL_INDEX_FLAG_A].is_zero() {
+            if field_repr[instr_idx(COL_FLAG_A)].is_zero() {
                 // flag_a == 0
-                addr_a = F::from_usize(fp) + field_repr[0]; // fp + operand_a
+                addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)]; // fp + operand_a
             }
             let value_a = memory.0[addr_a.to_usize()].unwrap();
             let mut addr_b = F::ZERO;
-            if field_repr[COL_INDEX_FLAG_B].is_zero() {
+            if field_repr[instr_idx(COL_FLAG_B)].is_zero() {
                 // flag_b == 0
-                addr_b = F::from_usize(fp) + field_repr[1]; // fp + operand_b
+                addr_b = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_B)]; // fp + operand_b
             }
             let value_b = memory.0[addr_b.to_usize()].unwrap();
 
             let mut addr_c = F::ZERO;
-            if field_repr[COL_INDEX_FLAG_C].is_zero() {
+            if field_repr[instr_idx(COL_FLAG_C)].is_zero() {
                 // flag_c == 0
-                addr_c = F::from_usize(fp) + field_repr[2]; // fp + operand_c
+                addr_c = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)]; // fp + operand_c
             } else if let Instruction::Deref { shift_1, .. } = instruction {
                 let operand_c = F::from_usize(*shift_1);
-                assert_eq!(field_repr[2], operand_c); // debug purpose
+                assert_eq!(field_repr[instr_idx(COL_OPERAND_C)], operand_c); // debug purpose
                 addr_c = value_a + operand_c;
             }
             let value_c = memory.0[addr_c.to_usize()].unwrap();
 
             for (j, field) in field_repr.iter().enumerate() {
-                *trace_row[j] = *field;
+                *trace_row[j + N_COMMITTED_EXEC_COLUMNS] = *field;
             }
 
-            let nu_a = field_repr[COL_INDEX_FLAG_A] * field_repr[COL_INDEX_OPERAND_A]
-                + (F::ONE - field_repr[COL_INDEX_FLAG_A]) * value_a;
-            let nu_b = field_repr[COL_INDEX_FLAG_B] * field_repr[COL_INDEX_OPERAND_B]
-                + (F::ONE - field_repr[COL_INDEX_FLAG_B]) * value_b;
-            let nu_c =
-                field_repr[COL_INDEX_FLAG_C] * F::from_usize(fp) + (F::ONE - field_repr[COL_INDEX_FLAG_C]) * value_c;
-            *trace_row[COL_INDEX_EXEC_NU_A] = nu_a;
-            *trace_row[COL_INDEX_EXEC_NU_B] = nu_b;
-            *trace_row[COL_INDEX_EXEC_NU_C] = nu_c;
+            let nu_a = field_repr[instr_idx(COL_FLAG_A)] * field_repr[instr_idx(COL_OPERAND_A)]
+                + (F::ONE - field_repr[instr_idx(COL_FLAG_A)]) * value_a;
+            let nu_b = field_repr[instr_idx(COL_FLAG_B)] * field_repr[instr_idx(COL_OPERAND_B)]
+                + (F::ONE - field_repr[instr_idx(COL_FLAG_B)]) * value_b;
+            let nu_c = field_repr[instr_idx(COL_FLAG_C)] * F::from_usize(fp)
+                + (F::ONE - field_repr[instr_idx(COL_FLAG_C)]) * value_c;
+            *trace_row[COL_EXEC_NU_A] = nu_a;
+            *trace_row[COL_EXEC_NU_B] = nu_b;
+            *trace_row[COL_EXEC_NU_C] = nu_c;
 
-            *trace_row[COL_INDEX_MEM_VALUE_A] = value_a;
-            *trace_row[COL_INDEX_MEM_VALUE_B] = value_b;
-            *trace_row[COL_INDEX_MEM_VALUE_C] = value_c;
-            *trace_row[COL_INDEX_PC] = F::from_usize(pc);
-            *trace_row[COL_INDEX_FP] = F::from_usize(fp);
-            *trace_row[COL_INDEX_MEM_ADDRESS_A] = addr_a;
-            *trace_row[COL_INDEX_MEM_ADDRESS_B] = addr_b;
-            *trace_row[COL_INDEX_MEM_ADDRESS_C] = addr_c;
+            *trace_row[COL_MEM_VALUE_A] = value_a;
+            *trace_row[COL_MEM_VALUE_B] = value_b;
+            *trace_row[COL_MEM_VALUE_C] = value_c;
+            *trace_row[COL_PC] = F::from_usize(pc);
+            *trace_row[COL_FP] = F::from_usize(fp);
+            *trace_row[COL_MEM_ADDRESS_A] = addr_a;
+            *trace_row[COL_MEM_ADDRESS_B] = addr_b;
+            *trace_row[COL_MEM_ADDRESS_C] = addr_c;
         });
 
     let mut memory_padded = memory.0.par_iter().map(|&v| v.unwrap_or(F::ZERO)).collect::<Vec<F>>();
-    memory_padded.resize(memory.0.len().next_power_of_two(), F::ZERO);
+    // IMPRTANT: memory size should always be >= number of VM cycles
+    let padded_memory_len = (memory.0.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
+    memory_padded.resize(padded_memory_len, F::ZERO);
 
     let ExecutionResult { mut traces, .. } = execution_result;
+
+    let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
+    fill_trace_poseidon_16(&mut poseidon_trace.base);
+
+    let dot_product_trace = traces.get_mut(&Table::dot_product()).unwrap();
+    fill_trace_dot_product(dot_product_trace, &memory_padded);
 
     traces.insert(
         Table::execution(),
         TableTrace {
             base: Vec::from(main_trace),
             ext: vec![],
-            height: Default::default(),
+            log_n_rows: log2_ceil_usize(n_cycles),
         },
     );
     for table in traces.keys().copied().collect::<Vec<_>>() {
@@ -125,8 +122,8 @@ fn padd_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
         .enumerate()
         .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, table.name()));
 
-    trace.height = TableHeight(h);
-    let padding_len = trace.height.padding_len();
+    trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
+    let padding_len = (1 << trace.log_n_rows) - h;
     let padding_row_f = table.padding_row_f();
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
         col.extend(repeat_n(padding_row_f[i], padding_len));

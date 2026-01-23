@@ -8,7 +8,7 @@ use crate::execution::Memory;
 use crate::tables::TableT;
 use crate::{Table, TableTrace};
 use multilinear_toolkit::prelude::*;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
@@ -54,7 +54,8 @@ pub enum Instruction {
         arg_a: MemOrConstant,
         arg_b: MemOrConstant,
         arg_c: MemOrFp,
-        aux: usize,
+        aux_1: usize,
+        aux_2: usize,
     },
 }
 
@@ -71,10 +72,7 @@ pub struct InstructionContext<'a> {
     pub deref_counts: &'a mut usize,
     pub jump_counts: &'a mut usize,
     pub poseidon16_precomputed: &'a [([F; 16], [F; 16])],
-    pub poseidon24_precomputed: &'a [([F; 24], [F; 8])],
-    pub merkle_path_hints: &'a mut VecDeque<Vec<[F; 8]>>,
     pub n_poseidon16_precomputed_used: &'a mut usize,
-    pub n_poseidon24_precomputed_used: &'a mut usize,
 }
 
 impl Instruction {
@@ -132,10 +130,13 @@ impl Instruction {
                 if res.is_value_unknown(ctx.memory, *ctx.fp) {
                     let memory_address_res = res.memory_address(*ctx.fp)?;
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
-                    let value = ctx.memory.get(ptr.to_usize() + shift_1)?;
-                    ctx.memory.set(memory_address_res, value)?;
+                    if let Ok(value) = ctx.memory.get(ptr.to_usize() + shift_1) {
+                        ctx.memory.set(memory_address_res, value)?;
+                    } else {
+                        // Do nothing, we are probably in a range check, will be resolved later
+                    }
                 } else {
-                    let value = res.read_value(ctx.memory, *ctx.fp)?;
+                    let value = res.read_value(ctx.memory, *ctx.fp).unwrap();
                     let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
                     ctx.memory.set(ptr.to_usize() + shift_1, value)?;
                 }
@@ -168,13 +169,15 @@ impl Instruction {
                 arg_a,
                 arg_b,
                 arg_c,
-                aux: size,
+                aux_1,
+                aux_2,
             } => {
                 table.execute(
                     arg_a.read_value(ctx.memory, *ctx.fp)?,
                     arg_b.read_value(ctx.memory, *ctx.fp)?,
                     arg_c.read_value(ctx.memory, *ctx.fp)?,
-                    *size,
+                    *aux_1,
+                    *aux_2,
                     ctx,
                 )?;
 
@@ -215,9 +218,10 @@ impl Display for Instruction {
                 arg_a,
                 arg_b,
                 arg_c,
-                aux,
+                aux_1,
+                aux_2,
             } => {
-                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux})", table.name())
+                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux_1}, {aux_2})", table.name())
             }
         }
     }

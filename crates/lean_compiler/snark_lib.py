@@ -1,0 +1,98 @@
+# Import this in zkDSL .py files to make them executable as normal Python
+
+import math
+from typing import Any
+
+# Type annotations
+Mut = Any
+Const = Any
+Imu = Any
+
+
+# @inline decorator (does nothing in Python execution)
+def inline(fn):
+    return fn
+
+
+# unroll(a, b) returns range(a, b) for Python execution
+def unroll(a: int, b: int):
+    return range(a, b)
+
+
+# Array - simulates write-once memory with pointer arithmetic
+class Array:
+    def __init__(self, size: int):
+        # TODO
+        return
+
+    def __getitem__(self, idx):
+        # TODO
+        return
+
+    def __setitem__(self, idx, value):
+        # TODO
+        return
+
+    def __add__(self, offset: int):
+        # TODO
+        return
+
+    def __len__(self):
+        # TODO
+        return
+
+
+# DynArray - dynamic array with push/pop (compile-time construct)
+class DynArray:
+    def __init__(self, initial: list):
+        self._data = list(initial)
+
+    def __getitem__(self, idx):
+        return self._data[idx]
+
+    def __len__(self):
+        return len(self._data)
+
+    def push(self, value):
+        self._data.append(value)
+
+    def pop(self):
+        self._data.pop()
+
+
+# Built-in constants
+ZERO_VEC_PTR = 0
+ONE_VEC_PTR = 16
+NONRESERVED_PROGRAM_INPUT_START = 58
+
+
+def poseidon16(left, right, output, mode):
+    _ = left, right, output, mode
+
+
+def dot_product(a, b, result, length, mode):
+    _ = a, b, result, length, mode
+
+
+def hint_decompose_bits(value, bits, n_bits, endian):
+    _ = value, bits, n_bits, endian
+
+
+def log2_ceil(x: int) -> int:
+    assert x > 0
+    return math.ceil(math.log2(x))
+
+
+def next_multiple_of(x: int, n: int) -> int:
+    return x + (n - x % n) % n
+
+
+def saturating_sub(a: int, b: int) -> int:
+    return max(0, a - b)
+
+
+def debug_assert(cond, msg=None):
+    if not cond:
+        if msg:
+            raise AssertionError(msg)
+        raise AssertionError()

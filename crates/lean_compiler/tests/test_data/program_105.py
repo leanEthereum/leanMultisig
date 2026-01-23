@@ -1,0 +1,21 @@
+from snark_lib import *
+
+
+def main():
+    x: Mut = 0
+    x = x + 1  # 1
+    x = x + 1  # 2
+    x = x + 1  # 3
+    x = x + 1  # 4
+    x = x + 1  # 5
+    x = x + 1  # 6
+    x = x + 1  # 7
+    x = x + 1  # 8
+    x = x + 1  # 9
+    x = x + 1  # 10
+    x = x * 2  # 20
+    x = x + 1  # 21
+    x = x + 1  # 22
+    x = x + 1  # 23
+    assert x == 23
+    return

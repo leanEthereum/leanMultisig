@@ -1,45 +1,44 @@
 use multilinear_toolkit::prelude::*;
-use p3_air::{Air, AirBuilder};
 
 use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 
-pub const N_INSTRUCTION_COLUMNS: usize = 13;
-pub const N_COMMITTED_EXEC_COLUMNS: usize = 5;
-pub const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with logup*)
-pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
+pub const N_COMMITTED_EXEC_COLUMNS: usize = 8;
+pub const N_INSTRUCTION_COLUMNS: usize = 14;
+pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS;
 
-// Instruction columns
-pub const COL_INDEX_OPERAND_A: usize = 0;
-pub const COL_INDEX_OPERAND_B: usize = 1;
-pub const COL_INDEX_OPERAND_C: usize = 2;
-pub const COL_INDEX_FLAG_A: usize = 3;
-pub const COL_INDEX_FLAG_B: usize = 4;
-pub const COL_INDEX_FLAG_C: usize = 5;
-pub const COL_INDEX_ADD: usize = 6;
-pub const COL_INDEX_MUL: usize = 7;
-pub const COL_INDEX_DEREF: usize = 8;
-pub const COL_INDEX_JUMP: usize = 9;
-pub const COL_INDEX_AUX: usize = 10;
-pub const COL_INDEX_IS_PRECOMPILE: usize = 11;
-pub const COL_INDEX_PRECOMPILE_INDEX: usize = 12;
+// Committed columns (IMPORTANT: they must be the first columns)
+pub const COL_PC: usize = 0;
+pub const COL_FP: usize = 1;
+pub const COL_MEM_ADDRESS_A: usize = 2;
+pub const COL_MEM_ADDRESS_B: usize = 3;
+pub const COL_MEM_ADDRESS_C: usize = 4;
+pub const COL_MEM_VALUE_A: usize = 5;
+pub const COL_MEM_VALUE_B: usize = 6;
+pub const COL_MEM_VALUE_C: usize = 7;
 
-// Execution columns
-pub const COL_INDEX_MEM_VALUE_A: usize = 13; // virtual with logup*
-pub const COL_INDEX_MEM_VALUE_B: usize = 14; // virtual with logup*
-pub const COL_INDEX_MEM_VALUE_C: usize = 15; // virtual with logup*
-pub const COL_INDEX_PC: usize = 16;
-pub const COL_INDEX_FP: usize = 17;
-pub const COL_INDEX_MEM_ADDRESS_A: usize = 18;
-pub const COL_INDEX_MEM_ADDRESS_B: usize = 19;
-pub const COL_INDEX_MEM_ADDRESS_C: usize = 20;
+// Decoded instruction columns (lookup into bytecode with logup*)
+pub const COL_OPERAND_A: usize = 8;
+pub const COL_OPERAND_B: usize = 9;
+pub const COL_OPERAND_C: usize = 10;
+pub const COL_FLAG_A: usize = 11;
+pub const COL_FLAG_B: usize = 12;
+pub const COL_FLAG_C: usize = 13;
+pub const COL_ADD: usize = 14;
+pub const COL_MUL: usize = 15;
+pub const COL_DEREF: usize = 16;
+pub const COL_JUMP: usize = 17;
+pub const COL_AUX_1: usize = 18;
+pub const COL_AUX_2: usize = 19;
+pub const COL_IS_PRECOMPILE: usize = 20;
+pub const COL_PRECOMPILE_INDEX: usize = 21;
 
 // Temporary columns (stored to avoid duplicate computations)
 pub const N_TEMPORARY_EXEC_COLUMNS: usize = 3;
-pub const COL_INDEX_EXEC_NU_A: usize = 21;
-pub const COL_INDEX_EXEC_NU_B: usize = 22;
-pub const COL_INDEX_EXEC_NU_C: usize = 23;
+pub const COL_EXEC_NU_A: usize = 22;
+pub const COL_EXEC_NU_B: usize = 23;
+pub const COL_EXEC_NU_C: usize = 24;
 
-impl Air for ExecutionTable {
+impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f_air(&self) -> usize {
@@ -48,11 +47,11 @@ impl Air for ExecutionTable {
     fn n_columns_ef_air(&self) -> usize {
         0
     }
-    fn degree(&self) -> usize {
+    fn degree_air(&self) -> usize {
         5
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
-        vec![COL_INDEX_PC, COL_INDEX_FP]
+        vec![COL_PC, COL_FP]
     }
     fn down_column_indexes_ef(&self) -> Vec<usize> {
         vec![]
@@ -70,34 +69,31 @@ impl Air for ExecutionTable {
         let next_fp = down[1].clone();
 
         let (operand_a, operand_b, operand_c) = (
-            up[COL_INDEX_OPERAND_A].clone(),
-            up[COL_INDEX_OPERAND_B].clone(),
-            up[COL_INDEX_OPERAND_C].clone(),
+            up[COL_OPERAND_A].clone(),
+            up[COL_OPERAND_B].clone(),
+            up[COL_OPERAND_C].clone(),
         );
-        let (flag_a, flag_b, flag_c) = (
-            up[COL_INDEX_FLAG_A].clone(),
-            up[COL_INDEX_FLAG_B].clone(),
-            up[COL_INDEX_FLAG_C].clone(),
-        );
-        let add = up[COL_INDEX_ADD].clone();
-        let mul = up[COL_INDEX_MUL].clone();
-        let deref = up[COL_INDEX_DEREF].clone();
-        let jump = up[COL_INDEX_JUMP].clone();
-        let aux = up[COL_INDEX_AUX].clone();
-        let is_precompile = up[COL_INDEX_IS_PRECOMPILE].clone();
-        let precompile_index = up[COL_INDEX_PRECOMPILE_INDEX].clone();
+        let (flag_a, flag_b, flag_c) = (up[COL_FLAG_A].clone(), up[COL_FLAG_B].clone(), up[COL_FLAG_C].clone());
+        let add = up[COL_ADD].clone();
+        let mul = up[COL_MUL].clone();
+        let deref = up[COL_DEREF].clone();
+        let jump = up[COL_JUMP].clone();
+        let aux_1 = up[COL_AUX_1].clone();
+        let aux_2 = up[COL_AUX_2].clone();
+        let is_precompile = up[COL_IS_PRECOMPILE].clone();
+        let precompile_index = up[COL_PRECOMPILE_INDEX].clone();
 
         let (value_a, value_b, value_c) = (
-            up[COL_INDEX_MEM_VALUE_A].clone(),
-            up[COL_INDEX_MEM_VALUE_B].clone(),
-            up[COL_INDEX_MEM_VALUE_C].clone(),
+            up[COL_MEM_VALUE_A].clone(),
+            up[COL_MEM_VALUE_B].clone(),
+            up[COL_MEM_VALUE_C].clone(),
         );
-        let pc = up[COL_INDEX_PC].clone();
-        let fp = up[COL_INDEX_FP].clone();
+        let pc = up[COL_PC].clone();
+        let fp = up[COL_FP].clone();
         let (addr_a, addr_b, addr_c) = (
-            up[COL_INDEX_MEM_ADDRESS_A].clone(),
-            up[COL_INDEX_MEM_ADDRESS_B].clone(),
-            up[COL_INDEX_MEM_ADDRESS_C].clone(),
+            up[COL_MEM_ADDRESS_A].clone(),
+            up[COL_MEM_ADDRESS_B].clone(),
+            up[COL_MEM_ADDRESS_C].clone(),
         );
 
         let flag_a_minus_one = flag_a.clone() - AB::F::ONE;
@@ -114,12 +110,16 @@ impl Air for ExecutionTable {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
-            extra_data,
-            precompile_index.clone(),
-            is_precompile.clone(),
-            &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()],
-        ));
+        if BUS {
+            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+                extra_data,
+                precompile_index.clone(),
+                is_precompile.clone(),
+                &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()],
+            ));
+        } else {
+            builder.declare_values(&[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()]);
+        }
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
         builder.assert_zero(flag_b_minus_one * (addr_b.clone() - fp_plus_operand_b));
@@ -129,8 +129,8 @@ impl Air for ExecutionTable {
         builder.assert_zero(mul * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
 
         builder.assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
-        builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
-        builder.assert_zero(deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
+        builder.assert_zero(deref.clone() * aux_1.clone() * (value_c.clone() - nu_b.clone()));
+        builder.assert_zero(deref.clone() * (aux_1.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
 
         builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
         builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
@@ -141,4 +141,8 @@ impl Air for ExecutionTable {
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_pc.clone() - pc_plus_one.clone()));
         builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
     }
+}
+
+pub const fn instr_idx(col_index_in_air: usize) -> usize {
+    col_index_in_air - N_COMMITTED_EXEC_COLUMNS
 }

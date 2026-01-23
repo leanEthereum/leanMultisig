@@ -1,0 +1,21 @@
+from snark_lib import *
+
+TWO = 2
+ARR = [[1 + 1, TWO * 2], [3 + TWO]]
+INCR_ARR = [[0, 1, 2], [1, 2, 3], [2, 3, 4], [3, 4, 5]]
+
+
+def main():
+    assert len(ARR) == 2
+    assert ARR[0][0] == 2
+    assert ARR[0][1] == 4
+    assert ARR[1][0] == 5
+    five = ARR[1][0]
+    assert five == 5
+    x = 2 + 3 * (ARR[0][0] + ARR[1][0] + 3) ** 2
+    assert x == 302
+    for i in unroll(0, 4):
+        for j in unroll(0, 3):
+            y = INCR_ARR[i][j]
+            assert INCR_ARR[i][j] == i + j - INCR_ARR[i][j] + y
+    return

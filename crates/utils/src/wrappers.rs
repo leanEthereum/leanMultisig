@@ -1,27 +1,23 @@
 use multilinear_toolkit::prelude::*;
-use p3_challenger::DuplexChallenger;
-use p3_koala_bear::KoalaBear;
+use p3_koala_bear::QuinticExtensionFieldKB;
 
 use crate::Poseidon16;
 use crate::get_poseidon16;
 
-pub type FSProver<EF, Challenger> = ProverState<PF<EF>, EF, Challenger>;
-pub type FSVerifier<EF, Challenger> = VerifierState<PF<EF>, EF, Challenger>;
+pub type VarCount = usize;
 
-pub type MyChallenger = DuplexChallenger<KoalaBear, Poseidon16, 16, 8>;
-
-pub fn build_challenger() -> MyChallenger {
-    MyChallenger::new(get_poseidon16().clone())
+pub fn build_prover_state() -> ProverState<QuinticExtensionFieldKB, Poseidon16> {
+    let mut prover_state = ProverState::new(get_poseidon16().clone());
+    prover_state.duplexing();
+    prover_state
 }
 
-pub fn build_prover_state<EF: ExtensionField<KoalaBear>>(padding: bool) -> ProverState<KoalaBear, EF, MyChallenger> {
-    ProverState::new(build_challenger(), padding)
-}
-
-pub fn build_verifier_state<EF: ExtensionField<KoalaBear>>(
-    prover_state: ProverState<KoalaBear, EF, MyChallenger>,
-) -> VerifierState<KoalaBear, EF, MyChallenger> {
-    VerifierState::new(prover_state.into_proof(), build_challenger())
+pub fn build_verifier_state(
+    prover_state: ProverState<QuinticExtensionFieldKB, Poseidon16>,
+) -> VerifierState<QuinticExtensionFieldKB, Poseidon16> {
+    let mut verifier_state = VerifierState::new(prover_state.into_proof(), get_poseidon16().clone());
+    verifier_state.duplexing();
+    verifier_state
 }
 
 pub trait ToUsize {

@@ -1,0 +1,11 @@
+from snark_lib import *
+
+
+def main():
+    x: Mut = 3
+    x = x * x + x  # 3*3 + 3 = 12
+    assert x == 12
+
+    x = (x + 1) * (x + 2)  # 13 * 14 = 182
+    assert x == 182
+    return

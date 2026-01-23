@@ -15,6 +15,8 @@ pub fn matrix_next_mle_folded<F: ExtensionField<PF<F>>>(outer_challenges: &[F]) 
             res[i] += *v;
         }
     }
+    res[(1 << n) - 1] += outer_challenges.iter().copied().product::<F>();
+
     res
 }
 
@@ -35,9 +37,13 @@ mod tests {
             let matrix = matrix_next_mle_folded(&x_bools);
             for y in 0..1 << n_vars {
                 let y_bools = to_big_endian_in_field::<F>(y, n_vars);
-                let expected = F::from_bool(x + 1 == y);
+                let expected = F::from_bool(if (x, y) == ((1 << n_vars) - 1, (1 << n_vars) - 1) {
+                    true
+                } else {
+                    x + 1 == y
+                });
                 assert_eq!(matrix.evaluate(&MultilinearPoint(y_bools.clone())), expected);
-                assert_eq!(next_mle(&[x_bools.clone(), y_bools].concat()), expected);
+                assert_eq!(next_mle(&x_bools, &y_bools), expected);
             }
         }
     }

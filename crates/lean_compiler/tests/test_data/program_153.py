@@ -1,0 +1,28 @@
+from snark_lib import *
+
+
+# Test pushing nested vectors in unrolled loop
+def main():
+    v = DynArray([])
+    for i in unroll(0, 3):
+        v.push(DynArray([i, i + 1, i + 2]))
+    assert len(v) == 3
+    assert len(v[0]) == 3
+    assert len(v[1]) == 3
+    assert len(v[2]) == 3
+
+    # v[0] = [0, 1, 2]
+    assert v[0][0] == 0
+    assert v[0][1] == 1
+    assert v[0][2] == 2
+
+    # v[1] = [1, 2, 3]
+    assert v[1][0] == 1
+    assert v[1][1] == 2
+    assert v[1][2] == 3
+
+    # v[2] = [2, 3, 4]
+    assert v[2][0] == 2
+    assert v[2][1] == 3
+    assert v[2][2] == 4
+    return

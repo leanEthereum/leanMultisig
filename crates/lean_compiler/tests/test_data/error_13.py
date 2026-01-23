@@ -1,0 +1,14 @@
+from snark_lib import *
+
+
+def main():
+    a: Imu
+    a = 0
+    a = a + 1
+    if a == 1:
+        a = a + 10
+    else:
+        a = a + 100
+        a = a + 1000
+    assert a == 11
+    return

@@ -48,19 +48,16 @@ utils = { path = "crates/utils" }
 lean_vm = { path = "crates/lean_vm" }
 xmss = { path = "crates/xmss" }
 sub_protocols = { path = "crates/sub_protocols" }
-lookup = { path = "crates/lookup" }
 lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
 witness_generation = { path = "crates/lean_prover/witness_generation" }
-poseidon_circuit = { path = "crates/poseidon_circuit" }
 
 # External
 thiserror = "2.0"
 clap = { version = "4.5.52", features = ["derive"] }
 rand = "0.9.2"
 sha3 = "0.10.8"
-derive_more = { version = "2.0.1", features = ["full"] }
 pest = "2.7"
 pest_derive = "2.7"
 itertools = "0.14.0"
@@ -77,47 +74,24 @@ p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-baby-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 
 whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "lean-multisig" }
 multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
-
 [dependencies]
 clap.workspace = true
 rec_aggregation.workspace = true
 xmss.workspace = true
-poseidon_circuit.workspace = true
+air.workspace = true
+rand.workspace = true
+sub_protocols.workspace = true
+utils.workspace = true
 p3-koala-bear.workspace = true
+lean_vm.workspace = true
 multilinear-toolkit.workspace = true
 whir-p3.workspace = true
-
-# [patch."https://github.com/TomWambsgans/Plonky3.git"]
-# p3-koala-bear = { path = "../Plonky3/koala-bear" }
-# p3-field = { path = "../Plonky3/field" }
-# p3-poseidon2 = { path = "../Plonky3/poseidon2" }
-# p3-symmetric = { path = "../Plonky3/symmetric" }
-# p3-air = { path = "../Plonky3/air" }
-# p3-merkle-tree = { path = "../Plonky3/merkle-tree" }
-# p3-commit = { path = "../Plonky3/commit" }
-# p3-matrix = { path = "../Plonky3/matrix" }
-# p3-dft = { path = "../Plonky3/dft" }
-# p3-challenger = { path = "../Plonky3/challenger" }
-# p3-monty-31 = { path = "../Plonky3/monty-31" }
-# p3-maybe-rayon = { path = "../Plonky3/maybe-rayon" }
-# p3-util = { path = "../Plonky3/util" }
-
-# [patch."https://github.com/TomWambsgans/whir-p3.git"]
-# whir-p3 = { path = "../whir-p3" }
-
-# [patch."https://github.com/leanEthereum/multilinear-toolkit.git"]
-# multilinear-toolkit = { path = "../multilinear-toolkit" }
-
-# [profile.release]
-# opt-level = 1
 
 [profile.release]
 lto = "thin"

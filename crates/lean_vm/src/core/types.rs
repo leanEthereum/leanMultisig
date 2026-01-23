@@ -1,6 +1,8 @@
-use derive_more::Display;
 use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
-use std::cmp::Ordering;
+use std::{
+    cmp::Ordering,
+    fmt::{Display, Formatter},
+};
 
 /// Base field type for VM operations
 pub type F = KoalaBear;
@@ -24,11 +26,16 @@ pub type FunctionName = String;
 pub type FileId = usize;
 
 /// Location in source code
-#[derive(Display, Hash, PartialEq, Eq, Debug, Clone, Copy)]
-#[display("{}:{}", file_id, line_number)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct SourceLocation {
     pub file_id: FileId,
     pub line_number: SourceLineNumber,
+}
+
+impl Display for SourceLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "file_id: {}, line: {}", self.file_id, self.line_number)
+    }
 }
 
 fn cmp_source_location(a: &SourceLocation, b: &SourceLocation) -> Ordering {

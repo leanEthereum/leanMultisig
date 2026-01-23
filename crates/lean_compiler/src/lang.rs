@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
 
-use crate::a_simplify_lang::VarOrConstMallocAccess;
+use crate::a_simplify_lang::{VarOrConstMallocAccess, VectorLenTracker};
 use crate::{F, parser::ConstArrayValue};
 pub use lean_vm::{FileId, FunctionName, SourceLocation};
 
@@ -18,20 +18,65 @@ pub struct Program {
     pub filepaths: BTreeMap<FileId, String>,
 }
 
-#[derive(Debug, Clone)]
+impl Program {
+    pub fn inlined_function_names(&self) -> BTreeSet<FunctionName> {
+        self.functions
+            .iter()
+            .filter(|(_, func)| func.inlined)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    pub fn non_constant_functions_mut(&mut self) -> BTreeSet<&mut Function> {
+        self.functions
+            .iter_mut()
+            .filter(|(_, func)| !func.has_const_arguments())
+            .map(|(_, func)| func)
+            .collect()
+    }
+}
+
+/// A function argument with its modifiers
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FunctionArg {
+    pub name: Var,
+    pub is_const: bool,
+    pub is_mutable: bool,
+}
+
+impl FunctionArg {
+    pub fn new(name: Var, is_const: bool, is_mutable: bool) -> Self {
+        Self {
+            name,
+            is_const,
+            is_mutable,
+        }
+    }
+
+    pub fn simple(name: Var) -> Self {
+        Self {
+            name,
+            is_const: false,
+            is_mutable: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Function {
     pub name: String,
-    pub file_id: FileId,
-    pub arguments: Vec<(Var, bool)>, // (name, is_const)
+    pub arguments: Vec<FunctionArg>,
     pub inlined: bool,
     pub n_returned_vars: usize,
     pub body: Vec<Line>,
-    pub assume_always_returns: bool,
 }
 
 impl Function {
     pub fn has_const_arguments(&self) -> bool {
-        self.arguments.iter().any(|(_, is_const)| *is_const)
+        self.arguments.iter().any(|arg| arg.is_const)
+    }
+    pub fn has_mutable_arguments(&self) -> bool {
+        self.arguments.iter().any(|arg| arg.is_mutable)
     }
 }
 
@@ -46,14 +91,14 @@ pub enum SimpleExpr {
 
 impl SimpleExpr {
     pub fn zero() -> Self {
-        Self::scalar(0)
+        Self::scalar(F::ZERO)
     }
 
     pub fn one() -> Self {
-        Self::scalar(1)
+        Self::scalar(F::ONE)
     }
 
-    pub fn scalar(scalar: usize) -> Self {
+    pub fn scalar(scalar: F) -> Self {
         Self::Constant(ConstantValue::Scalar(scalar).into())
     }
 
@@ -103,10 +148,7 @@ impl SimpleExpr {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstantValue {
-    Scalar(usize),
-    PublicInputStart,
-    PointerToZeroVector, // In the memory of chunks of 8 field elements
-    PointerToOneVector,  // In the memory of chunks of 8 field elements
+    Scalar(F),
     FunctionSize { function_name: Label },
     Label(Label),
     MatchBlockSize { match_index: usize },
@@ -121,7 +163,7 @@ pub enum ConstExpression {
 
 impl From<usize> for ConstExpression {
     fn from(value: usize) -> Self {
-        Self::Value(ConstantValue::Scalar(value))
+        Self::Value(ConstantValue::Scalar(F::from_usize(value)))
     }
 }
 
@@ -148,19 +190,23 @@ impl TryFrom<Expression> for ConstExpression {
 
 impl ConstExpression {
     pub const fn zero() -> Self {
-        Self::scalar(0)
+        Self::scalar(F::ZERO)
     }
 
     pub const fn one() -> Self {
-        Self::scalar(1)
+        Self::scalar(F::ONE)
     }
 
     pub const fn label(label: Label) -> Self {
         Self::Value(ConstantValue::Label(label))
     }
 
-    pub const fn scalar(scalar: usize) -> Self {
+    pub const fn scalar(scalar: F) -> Self {
         Self::Value(ConstantValue::Scalar(scalar))
+    }
+
+    pub fn from_usize(value: usize) -> Self {
+        Self::Value(ConstantValue::Scalar(F::from_usize(value)))
     }
 
     pub const fn function_size(function_name: Label) -> Self {
@@ -184,7 +230,7 @@ impl ConstExpression {
 
     pub fn naive_eval(&self) -> Option<F> {
         self.eval_with(&|value| match value {
-            ConstantValue::Scalar(scalar) => Some(F::from_usize(*scalar)),
+            ConstantValue::Scalar(scalar) => Some(*scalar),
             _ => None,
         })
     }
@@ -211,6 +257,34 @@ impl Display for Condition {
     }
 }
 
+impl Condition {
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match self {
+            Self::AssumeBoolean(expr) => vec![expr],
+            Self::Comparison(cmp) => vec![&mut cmp.left, &mut cmp.right],
+        }
+    }
+
+    pub fn eval_with(&self, eval_expr: &impl Fn(&Expression) -> Option<F>) -> Option<bool> {
+        match self {
+            Self::AssumeBoolean(expr) => {
+                let val = eval_expr(expr)?;
+                Some(val != F::ZERO)
+            }
+            Self::Comparison(cmp) => {
+                let left = eval_expr(&cmp.left)?;
+                let right = eval_expr(&cmp.right)?;
+                Some(match cmp.kind {
+                    Boolean::Equal => left == right,
+                    Boolean::Different => left != right,
+                    Boolean::LessThan => left < right,
+                    Boolean::LessOrEqual => left <= right,
+                })
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {
     Value(SimpleExpr),
@@ -222,6 +296,7 @@ pub enum Expression {
     FunctionCall {
         function_name: String,
         args: Vec<Self>,
+        location: SourceLocation,
     },
     Len {
         array: String,
@@ -281,6 +356,9 @@ impl Display for MathOperation {
 }
 
 impl MathOperation {
+    pub fn is_unary(&self) -> bool {
+        self.num_args() == 1
+    }
     pub fn num_args(&self) -> usize {
         match self {
             Self::Log2Ceil => 1,
@@ -323,32 +401,34 @@ impl From<SimpleExpr> for Expression {
     }
 }
 
-impl From<Var> for Expression {
-    fn from(var: Var) -> Self {
-        Self::Value(var.into())
-    }
-}
-
 impl Expression {
-    pub fn naive_eval(&self, const_arrays: &BTreeMap<String, ConstArrayValue>) -> Option<F> {
+    pub fn compile_time_eval(
+        &self,
+        const_arrays: &BTreeMap<String, ConstArrayValue>,
+        vector_len: &VectorLenTracker,
+    ) -> Option<F> {
         // Handle Len specially since it needs const_arrays
         if let Self::Len { array, indices } = self {
-            let idx: Option<Vec<_>> = indices
+            let idx = indices
                 .iter()
-                .map(|e| e.naive_eval(const_arrays).map(|f| f.to_usize()))
-                .collect();
-            let idx = idx?;
-            let arr = const_arrays.get(array)?;
-            let target = arr.navigate(&idx)?;
-            return Some(F::from_usize(target.len()));
+                .map(|e| e.compile_time_eval(const_arrays, vector_len))
+                .collect::<Option<Vec<F>>>()?;
+            if let Some(arr) = const_arrays.get(array) {
+                let target = arr.navigate(&idx)?;
+                return Some(F::from_usize(target.len()));
+            }
+            if let Some(arr) = vector_len.get(array) {
+                let target = arr.navigate(&idx)?;
+                return Some(F::from_usize(target.len()));
+            }
+            return None;
         }
         self.eval_with(
             &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
             &|arr, indexes| {
                 let array = const_arrays.get(arr)?;
                 assert_eq!(indexes.len(), array.depth());
-                let idx = indexes.iter().map(|e| e.to_usize()).collect::<Vec<_>>();
-                array.navigate(&idx)?.as_scalar().map(F::from_usize)
+                array.navigate(&indexes)?.as_scalar()
             },
         )
     }
@@ -379,27 +459,108 @@ impl Expression {
         }
     }
 
-    pub fn scalar(scalar: usize) -> Self {
+    pub fn inner_exprs_mut(&mut self) -> Vec<&mut Self> {
+        match self {
+            Self::Value(_) => vec![],
+            Self::ArrayAccess { index, .. } => index.iter_mut().collect(),
+            Self::MathExpr(_, args) => args.iter_mut().collect(),
+            Self::FunctionCall { args, .. } => args.iter_mut().collect(),
+            Self::Len { indices, .. } => indices.iter_mut().collect(),
+        }
+    }
+
+    pub fn inner_exprs(&self) -> Vec<&Self> {
+        match self {
+            Self::Value(_) => vec![],
+            Self::ArrayAccess { index, .. } => index.iter().collect(),
+            Self::MathExpr(_, args) => args.iter().collect(),
+            Self::FunctionCall { args, .. } => args.iter().collect(),
+            Self::Len { indices, .. } => indices.iter().collect(),
+        }
+    }
+
+    pub fn var(var: Var) -> Self {
+        SimpleExpr::from(var).into()
+    }
+
+    pub fn scalar(scalar: F) -> Self {
         SimpleExpr::scalar(scalar).into()
     }
 
+    pub fn as_scalar(&self) -> Option<F> {
+        match self {
+            Self::Value(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(start_val)))) => {
+                Some(*start_val)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        self.as_scalar().is_some()
+    }
+
     pub fn zero() -> Self {
-        Self::scalar(0)
+        Self::scalar(F::ZERO)
+    }
+
+    pub fn one() -> Self {
+        Self::scalar(F::ONE)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssignmentTarget {
-    Var(Var),
-    ArrayAccess { array: Var, index: Box<Expression> },
+    Var { var: Var, is_mutable: bool },
+    ArrayAccess { array: Var, index: Box<Expression> }, // always immutable
 }
 
 impl Display for AssignmentTarget {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Var(var) => write!(f, "{var}"),
+            Self::Var { var, is_mutable } => {
+                if *is_mutable {
+                    write!(f, "{var}: Mut")
+                } else {
+                    write!(f, "{var}")
+                }
+            }
             Self::ArrayAccess { array, index } => write!(f, "{array}[{index}]"),
         }
+    }
+}
+
+impl AssignmentTarget {
+    pub fn index_expression_mut(&mut self) -> Option<&mut Expression> {
+        match self {
+            Self::Var { .. } => None,
+            Self::ArrayAccess { index, .. } => Some(index),
+        }
+    }
+}
+
+/// A compile-time dynamic array literal: DynArray(elem1, elem2, ...)
+/// Elements can be expressions or nested DynArray literals.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VecLiteral {
+    /// A scalar expression element
+    Expr(Expression),
+    /// A nested vector literal
+    Vec(Vec<VecLiteral>),
+}
+
+impl VecLiteral {
+    pub fn all_exprs_mut_in_slice(arr: &mut [Self]) -> Vec<&mut Expression> {
+        let mut exprs = Vec::new();
+        for elem in arr {
+            match elem {
+                Self::Expr(expr) => exprs.push(expr),
+                Self::Vec(nested) => {
+                    exprs.extend(Self::all_exprs_mut_in_slice(nested));
+                }
+            }
+        }
+        exprs
     }
 }
 
@@ -408,63 +569,65 @@ pub enum Line {
     Match {
         value: Expression,
         arms: Vec<(usize, Vec<Self>)>,
+        location: SourceLocation,
     },
     ForwardDeclaration {
         var: Var,
+        is_mutable: bool,
     },
     Statement {
         targets: Vec<AssignmentTarget>, // LHS - can be empty for standalone calls
         value: Expression,              // RHS - any expression
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     Assert {
         debug: bool,
         boolean: BooleanExpr<Expression>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     IfCondition {
         condition: Condition,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     ForLoop {
         iterator: Var,
         start: Expression,
         end: Expression,
         body: Vec<Self>,
-        rev: bool,
         unroll: bool,
-        line_number: SourceLineNumber,
+        location: SourceLocation,
     },
     FunctionRet {
         return_data: Vec<Expression>,
     },
-    Precompile {
-        table: Table,
-        args: Vec<Expression>,
-    },
-    Break,
-    Panic,
-    // Hints:
-    Print {
-        line_info: String,
-        content: Vec<Expression>,
-    },
-    MAlloc {
-        var: Var,
-        size: Expression,
-        vectorized: bool,
-        vectorized_len: Expression,
-    },
-    PrivateInputStart {
-        result: Var,
+    Panic {
+        message: Option<String>,
     },
     // noop, debug purpose only
     LocationReport {
         location: SourceLocation,
     },
-    CustomHint(CustomHint, Vec<Expression>),
+    /// Compile-time dynamic array declaration: var = DynArray(...)
+    VecDeclaration {
+        var: Var,
+        elements: Vec<VecLiteral>,
+        location: SourceLocation,
+    },
+    /// Compile-time vector push: push(vec_var, element) or push(vec_var[i][j], element)
+    Push {
+        vector: Var,
+        indices: Vec<Expression>,
+        element: VecLiteral,
+        location: SourceLocation,
+    },
+    /// Compile-time vector pop: vec_var.pop() or vec_var[i][j].pop()
+    Pop {
+        vector: Var,
+        indices: Vec<Expression>,
+        location: SourceLocation,
+    },
 }
 
 /// A context specifying which variables are in scope.
@@ -523,7 +686,9 @@ impl Display for Expression {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{math_expr}({args_str})")
             }
-            Self::FunctionCall { function_name, args } => {
+            Self::FunctionCall {
+                function_name, args, ..
+            } => {
                 let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
                 write!(f, "{function_name}({args_str})")
             }
@@ -543,7 +708,7 @@ impl Line {
                 // print nothing
                 Default::default()
             }
-            Self::Match { value, arms } => {
+            Self::Match { value, arms, .. } => {
                 let arms_str = arms
                     .iter()
                     .map(|(const_expr, body)| {
@@ -552,14 +717,18 @@ impl Line {
                             .map(|line| line.to_string_with_indent(indent + 1))
                             .collect::<Vec<_>>()
                             .join("\n");
-                        format!("{const_expr} => {{\n{body_str}\n{spaces}}}")
+                        format!("case {const_expr}: {{\n{body_str}\n{spaces}}}")
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                format!("match {value} {{\n{arms_str}\n{spaces}}}")
+                format!("match {value}: {{\n{arms_str}\n{spaces}}}")
             }
-            Self::ForwardDeclaration { var } => {
-                format!("var {var}")
+            Self::ForwardDeclaration { var, is_mutable } => {
+                if *is_mutable {
+                    format!("{var}: Mut")
+                } else {
+                    format!("{var}: Imu")
+                }
             }
             Self::Statement { targets, value, .. } => {
                 if targets.is_empty() {
@@ -573,19 +742,16 @@ impl Line {
                     format!("{targets_str} = {value}")
                 }
             }
-            Self::PrivateInputStart { result } => {
-                format!("{result} = private_input_start()")
-            }
             Self::Assert {
                 debug,
                 boolean,
-                line_number: _,
+                location: _,
             } => format!("{}assert {}", if *debug { "debug_" } else { "" }, boolean),
             Self::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
-                line_number: _,
+                location: _,
             } => {
                 let then_str = then_branch
                     .iter()
@@ -610,24 +776,18 @@ impl Line {
                 start,
                 end,
                 body,
-                rev,
                 unroll,
-                line_number: _,
+                location: _,
             } => {
                 let body_str = body
                     .iter()
                     .map(|line| line.to_string_with_indent(indent + 1))
                     .collect::<Vec<_>>()
                     .join("\n");
+                let range_fn = if *unroll { "unroll" } else { "range" };
                 format!(
-                    "for {} in {}{}..{} {}{{\n{}\n{}}}",
-                    iterator,
-                    start,
-                    if *rev { "rev " } else { "" },
-                    end,
-                    if *unroll { "unroll " } else { "" },
-                    body_str,
-                    spaces
+                    "for {} in {}({}, {}) {{\n{}\n{}}}",
+                    iterator, range_fn, start, end, body_str, spaces
                 )
             }
             Self::FunctionRet { return_data } => {
@@ -638,40 +798,110 @@ impl Line {
                     .join(", ");
                 format!("return {return_data_str}")
             }
-            Self::Precompile {
-                table: precompile,
-                args,
+            Self::Panic { message } => match message {
+                Some(msg) => format!("assert False, \"{msg}\""),
+                None => "assert False".to_string(),
+            },
+            Self::VecDeclaration { var, elements, .. } => {
+                format!("{var} = DynArray({})", elements.len())
+            }
+            Self::Push {
+                vector,
+                indices,
+                element,
+                ..
             } => {
                 format!(
-                    "{}({})",
-                    precompile.name(),
-                    args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ")
+                    "{}[{}].push({})",
+                    vector,
+                    indices.iter().map(|i| format!("{i}")).collect::<Vec<_>>().join("]["),
+                    element
                 )
             }
-            Self::Print { line_info: _, content } => {
-                let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
-                format!("print({content_str})")
-            }
-            Self::MAlloc {
-                var,
-                size,
-                vectorized,
-                vectorized_len,
-            } => {
-                if *vectorized {
-                    format!("{var} = malloc_vec({size}, {vectorized_len})")
+            Self::Pop { vector, indices, .. } => {
+                if indices.is_empty() {
+                    format!("{}.pop()", vector)
                 } else {
-                    format!("{var} = malloc({size})")
+                    format!(
+                        "{}[{}].pop()",
+                        vector,
+                        indices.iter().map(|i| format!("{i}")).collect::<Vec<_>>().join("][")
+                    )
                 }
             }
-            Self::CustomHint(hint, args) => {
-                let args_str = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ");
-                format!("{}({args_str})", hint.name())
-            }
-            Self::Break => "break".to_string(),
-            Self::Panic => "panic".to_string(),
         };
         format!("{spaces}{line_str}")
+    }
+
+    pub fn nested_blocks(&self) -> Vec<&Vec<Line>> {
+        match self {
+            Self::Match { arms, .. } => arms.iter().map(|(_, body)| body).collect(),
+            Self::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => vec![then_branch, else_branch],
+            Self::ForLoop { body, .. } => vec![body],
+            Self::ForwardDeclaration { .. }
+            | Self::Statement { .. }
+            | Self::Assert { .. }
+            | Self::FunctionRet { .. }
+            | Self::Panic { .. }
+            | Self::LocationReport { .. }
+            | Self::VecDeclaration { .. }
+            | Self::Push { .. }
+            | Self::Pop { .. } => vec![],
+        }
+    }
+
+    pub fn nested_blocks_mut(&mut self) -> Vec<&mut Vec<Line>> {
+        match self {
+            Self::Match { arms, .. } => arms.iter_mut().map(|(_, body)| body).collect(),
+            Self::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => vec![then_branch, else_branch],
+            Self::ForLoop { body, .. } => vec![body],
+            Self::ForwardDeclaration { .. }
+            | Self::Statement { .. }
+            | Self::Assert { .. }
+            | Self::FunctionRet { .. }
+            | Self::Panic { .. }
+            | Self::LocationReport { .. }
+            | Self::VecDeclaration { .. }
+            | Self::Push { .. }
+            | Self::Pop { .. } => vec![],
+        }
+    }
+
+    /// Returns mutable references to all expressions contained in this line.
+    /// Does NOT include expressions inside nested blocks (use nested_blocks_mut for those).
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match self {
+            Self::Match { value, .. } => vec![value],
+            Self::Statement { targets, value, .. } => {
+                let mut exprs = vec![value];
+                for target in targets {
+                    if let Some(idx) = target.index_expression_mut() {
+                        exprs.push(idx);
+                    }
+                }
+                exprs
+            }
+            Self::Assert { boolean, .. } => vec![&mut boolean.left, &mut boolean.right],
+            Self::IfCondition { condition, .. } => condition.expressions_mut(),
+            Self::ForLoop { start, end, .. } => vec![start, end],
+            Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
+            Self::Push { indices, element, .. } => {
+                let mut exprs = indices.iter_mut().collect::<Vec<_>>();
+                exprs.extend(VecLiteral::all_exprs_mut_in_slice(std::slice::from_mut(element)));
+                exprs
+            }
+            Self::Pop { indices, .. } => indices.iter_mut().collect(),
+            Self::VecDeclaration { elements, .. } => VecLiteral::all_exprs_mut_in_slice(elements),
+            Self::ForwardDeclaration { .. } | Self::Panic { .. } | Self::LocationReport { .. } => vec![],
+        }
     }
 }
 
@@ -679,9 +909,6 @@ impl Display for ConstantValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Scalar(scalar) => write!(f, "{scalar}"),
-            Self::PublicInputStart => write!(f, "@public_input_start"),
-            Self::PointerToZeroVector => write!(f, "@pointer_to_zero_vector"),
-            Self::PointerToOneVector => write!(f, "@pointer_to_one_vector"),
             Self::FunctionSize { function_name } => {
                 write!(f, "@function_size_{function_name}")
             }
@@ -691,6 +918,22 @@ impl Display for ConstantValue {
             }
             Self::MatchBlockSize { match_index } => {
                 write!(f, "@match_block_size_{match_index}")
+            }
+        }
+    }
+}
+
+impl Display for VecLiteral {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Expr(expr) => write!(f, "{expr}"),
+            Self::Vec(elements) => {
+                let elements_str = elements
+                    .iter()
+                    .map(|elem| format!("{elem}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "DynArray([{elements_str}])")
             }
         }
     }
@@ -765,9 +1008,14 @@ impl Display for Function {
         let args_str = self
             .arguments
             .iter()
-            .map(|arg| match arg {
-                (name, true) => format!("const {name}"),
-                (name, false) => name.to_string(),
+            .map(|arg| {
+                if arg.is_const {
+                    format!("const {}", arg.name)
+                } else if arg.is_mutable {
+                    format!("mut {}", arg.name)
+                } else {
+                    arg.name.to_string()
+                }
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -780,11 +1028,11 @@ impl Display for Function {
             .join("\n");
 
         if self.body.is_empty() {
-            write!(f, "fn {}({}) -> {} {{}}", self.name, args_str, self.n_returned_vars)
+            write!(f, "def {}({}) -> {} {{}}", self.name, args_str, self.n_returned_vars)
         } else {
             write!(
                 f,
-                "fn {}({}) -> {} {{\n{}\n}}",
+                "def {}({}) -> {} {{\n{}\n}}",
                 self.name, args_str, self.n_returned_vars, instructions_str
             )
         }

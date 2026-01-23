@@ -1,0 +1,13 @@
+from snark_lib import *
+
+
+def main():
+    x: Mut = 1
+    cond = 1
+    if cond == 1:
+        x = x + 10
+    else:
+        x = x + 100
+    x = x + 1000  # Should work on unified version
+    assert x == 1011
+    return
