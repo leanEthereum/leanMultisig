@@ -175,6 +175,8 @@ impl ComparisonParser {
         let kind = match op.as_str() {
             "==" => Boolean::Equal,
             "!=" => Boolean::Different,
+            "<" => Boolean::LessThan,
+            "<=" => Boolean::LessOrEqual,
             _ => unreachable!(),
         };
 

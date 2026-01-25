@@ -66,17 +66,9 @@ pub(crate) fn profiling_report(
     report.push_str("──────────────────────────────────────────────────────────────────────────\n");
 
     for (func_name, stats) in &function_data {
-        let avg_exclusive = if stats.call_count > 0 {
-            stats.exclusive_cycles / stats.call_count
-        } else {
-            0
-        };
+        let avg_exclusive = stats.exclusive_cycles.checked_div(stats.call_count).unwrap_or(0);
 
-        let avg_inclusive = if stats.call_count > 0 {
-            stats.inclusive_cycles / stats.call_count
-        } else {
-            0
-        };
+        let avg_inclusive = stats.inclusive_cycles.checked_div(stats.call_count).unwrap_or(0);
 
         report.push_str(&format!(
             "{:>5} │ {:>8} ┊ {:>8} │ {:>8} ┊ {:>8} │ {}\n",

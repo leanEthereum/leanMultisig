@@ -13,6 +13,7 @@ impl IntermediateInstruction {
             | Self::Inverse { .. }
             | Self::LocationReport { .. }
             | Self::DebugAssert { .. }
+            | Self::DerefHint { .. }
             | Self::PanicHint { .. } => true,
             Self::Computation { .. }
             | Self::Panic
@@ -347,6 +348,16 @@ fn compile_block(
                     },
                     line_number,
                 );
+                hints.entry(pc).or_default().push(hint);
+            }
+            IntermediateInstruction::DerefHint {
+                offset_src,
+                offset_target,
+            } => {
+                let hint = Hint::DerefHint {
+                    offset_src: eval_const_expression_usize(&offset_src, compiler),
+                    offset_target: eval_const_expression_usize(&offset_target, compiler),
+                };
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::PanicHint { message } => {
