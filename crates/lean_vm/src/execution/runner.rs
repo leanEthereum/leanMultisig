@@ -13,7 +13,7 @@ use crate::{
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
-use utils::{ToUsize, poseidon16_permute, pretty_integer};
+use utils::{poseidon16_permute, pretty_integer};
 use xmss::Poseidon16History;
 
 /// Number of instructions to show in stack trace
@@ -151,45 +151,6 @@ fn print_instruction_cycle_counts(bytecode: &Bytecode, pcs: Vec<CodeAddress>) {
     println!();
 }
 
-/// Resolve pending deref hints in correct order
-///
-/// Each constraint has form: memory[target_addr] = memory[memory[src_addr]]
-/// Order matters because some src addresses might point to targets of other hints.
-/// We iteratively resolve constraints until no more progress, then fill remaining with 0.
-fn resolve_deref_hints(memory: &mut Memory, pending: &[(usize, usize)]) {
-    let mut resolved: BTreeSet<usize> = BTreeSet::new();
-
-    loop {
-        let mut made_progress = false;
-
-        for &(target_addr, src_addr) in pending {
-            if resolved.contains(&target_addr) {
-                continue;
-            }
-            let Some(addr) = memory.0.get(src_addr).copied().flatten() else {
-                continue;
-            };
-            let Some(value) = memory.0.get(addr.to_usize()).copied().flatten() else {
-                continue;
-            };
-            memory.set(target_addr, value).unwrap();
-            resolved.insert(target_addr);
-            made_progress = true;
-        }
-
-        if !made_progress {
-            break;
-        }
-    }
-
-    // Fill any remaining unresolved targets with 0
-    for &(target_addr, _src_addr) in pending {
-        if !resolved.contains(&target_addr) {
-            let _ = memory.set(target_addr, F::ZERO);
-        }
-    }
-}
-
 /// Helper function that performs the actual bytecode execution
 #[allow(clippy::too_many_arguments)] // TODO
 fn execute_bytecode_helper(
@@ -245,9 +206,6 @@ fn execute_bytecode_helper(
     let mut counter_hint = 0;
     let mut cpu_cycles_before_new_line = 0;
 
-    // Pending deref hints: (target_addr, src_addr) constraints to resolve at end
-    let mut pending_deref_hints: Vec<(usize, usize)> = Vec::new();
-
     while pc != ENDING_PC {
         if pc >= bytecode.instructions.len() {
             return Err((pc, RunnerError::PCOutOfBounds));
@@ -273,7 +231,6 @@ fn execute_bytecode_helper(
                 checkpoint_ap: &mut checkpoint_ap,
                 profiling,
                 memory_profile: &mut mem_profile,
-                pending_deref_hints: &mut pending_deref_hints,
             };
             hint.execute_hint(&mut hint_ctx).map_err(|e| (pc, e))?;
         }
@@ -296,11 +253,6 @@ fn execute_bytecode_helper(
             .execute_instruction(&mut instruction_ctx)
             .map_err(|e| (pc, e))?;
     }
-
-    // Resolve pending deref hints in correct order
-    // Constraint: memory[target_addr] = memory[memory[src_addr]]
-    // Order matters because some src addresses might point to targets of other hints
-    resolve_deref_hints(&mut memory, &pending_deref_hints);
 
     assert_eq!(
         n_poseidon16_precomputed_used,

@@ -277,8 +277,6 @@ impl Condition {
                 Some(match cmp.kind {
                     Boolean::Equal => left == right,
                     Boolean::Different => left != right,
-                    Boolean::LessThan => left < right,
-                    Boolean::LessOrEqual => left <= right,
                 })
             }
         }

@@ -123,11 +123,6 @@ pub enum SimpleLine {
         location: SourceLocation,
     },
     DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
-    /// Range check: assert val <= bound
-    RangeCheck {
-        val: SimpleExpr,
-        bound: SimpleExpr,
-    },
 }
 
 impl SimpleLine {
@@ -162,8 +157,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
-            | Self::RangeCheck { .. } => vec![],
+            | Self::DebugAssert(..) => vec![],
         }
     }
 
@@ -188,8 +182,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
-            | Self::RangeCheck { .. } => vec![],
+            | Self::DebugAssert(..) => vec![],
         }
     }
 }
@@ -2264,49 +2257,6 @@ fn simplify_lines(
                             };
                             res.push(SimpleLine::equality(var, other));
                         }
-                        Boolean::LessThan => {
-                            // assert left < right is equivalent to assert left <= right - 1
-                            let bound_minus_one = state.counters.aux_var();
-                            res.push(SimpleLine::Assignment {
-                                var: bound_minus_one.clone().into(),
-                                operation: MathOperation::Sub,
-                                arg0: right,
-                                arg1: SimpleExpr::one(),
-                            });
-
-                            // We add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
-                                    kind: Boolean::LessOrEqual,
-                                    left: left.clone(),
-                                    right: bound_minus_one.clone().into(),
-                                },
-                                *location,
-                            ));
-
-                            res.push(SimpleLine::RangeCheck {
-                                val: left,
-                                bound: bound_minus_one.into(),
-                            });
-                        }
-                        Boolean::LessOrEqual => {
-                            // Range check: assert left <= right
-
-                            // we add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
-                                    kind: Boolean::LessOrEqual,
-                                    left: left.clone(),
-                                    right: right.clone(),
-                                },
-                                *location,
-                            ));
-
-                            res.push(SimpleLine::RangeCheck {
-                                val: left,
-                                bound: right,
-                            });
-                        }
                     }
                 }
             }
@@ -2323,7 +2273,6 @@ fn simplify_lines(
                         let (left, right, then_branch, else_branch) = match condition.kind {
                             Boolean::Equal => (&condition.left, &condition.right, else_branch, then_branch), // switched
                             Boolean::Different => (&condition.left, &condition.right, then_branch, else_branch),
-                            Boolean::LessThan | Boolean::LessOrEqual => unreachable!(),
                         };
 
                         let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;
@@ -3614,9 +3563,6 @@ impl SimpleLine {
             Self::LocationReport { .. } => Default::default(),
             Self::DebugAssert(bool, _) => {
                 format!("debug_assert({bool})")
-            }
-            Self::RangeCheck { val, bound } => {
-                format!("range_check({val} <= {bound})")
             }
         };
         format!("{spaces}{line_str}")

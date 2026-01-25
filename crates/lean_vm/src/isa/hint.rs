@@ -54,13 +54,6 @@ pub enum Hint {
     /// Assert a boolean expression for debugging purposes
     DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
     Custom(CustomHint, Vec<MemOrConstant>),
-    /// Deref hint for range checks - records a constraint to be resolved at end of execution
-    /// Constraint: memory[fp + offset_target] = memory[memory[fp + offset_src]]
-    /// The runner resolves all these constraints at the end, in the correct order.
-    DerefHint {
-        offset_src: usize,
-        offset_target: usize,
-    },
     /// Panic hint with optional error message (for debugging)
     Panic {
         message: Option<String>,
@@ -145,8 +138,6 @@ impl CustomHint {
 pub enum Boolean {
     Equal,
     Different,
-    LessThan,
-    LessOrEqual,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -171,10 +162,6 @@ pub struct HintExecutionContext<'a> {
     pub checkpoint_ap: &'a mut usize,
     pub profiling: bool,
     pub memory_profile: &'a mut MemoryProfile,
-    /// Pending deref hints: (target_addr, src_addr)
-    /// Constraint: memory[target_addr] = memory[memory[src_addr]]
-    /// Resolved at end of execution in correct order.
-    pub pending_deref_hints: &'a mut Vec<(usize, usize)>,
 }
 
 impl Hint {
@@ -265,8 +252,6 @@ impl Hint {
                 let condition_holds = match bool_expr.kind {
                     Boolean::Equal => left == right,
                     Boolean::Different => left != right,
-                    Boolean::LessThan => left < right,
-                    Boolean::LessOrEqual => left <= right,
                 };
                 if !condition_holds {
                     return Err(RunnerError::DebugAssertFailed(
@@ -274,15 +259,6 @@ impl Hint {
                         *location,
                     ));
                 }
-            }
-            Self::DerefHint {
-                offset_src,
-                offset_target,
-            } => {
-                // Record a deref constraint: memory[target_addr] = memory[memory[src_addr]]
-                let src_addr = ctx.fp + offset_src;
-                let target_addr = ctx.fp + offset_target;
-                ctx.pending_deref_hints.push((target_addr, src_addr));
             }
             Self::Panic { message } => {
                 if let Some(msg) = message {
@@ -345,12 +321,6 @@ impl Display for Hint {
             Self::DebugAssert(bool_expr, location) => {
                 write!(f, "debug_assert {bool_expr} at {location:?}")
             }
-            Self::DerefHint {
-                offset_src,
-                offset_target,
-            } => {
-                write!(f, "m[fp + {offset_target}] = m[m[fp + {offset_src}]]")
-            }
             Self::Panic { message } => match message {
                 Some(msg) => write!(f, "panic: \"{msg}\""),
                 None => write!(f, "panic"),
@@ -370,8 +340,6 @@ impl Display for Boolean {
         match self {
             Self::Equal => write!(f, "=="),
             Self::Different => write!(f, "!="),
-            Self::LessThan => write!(f, "<"),
-            Self::LessOrEqual => write!(f, "<="),
         }
     }
 }
