@@ -156,7 +156,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         0
     }
     fn degree_air(&self) -> usize {
-        10
+        if BUS { 10 } else { 9 }
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
