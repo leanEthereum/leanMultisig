@@ -71,17 +71,17 @@ hex = "0.4.3"
 num_enum = "0.7.5"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }
-p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-vm-simple" }
-p3-baby-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-vm-simple" }
-p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-vm-simple" }
-p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-vm-simple" }
-p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-vm-simple" }
-p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-vm-simple" }
-p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-vm-simple" }
-p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-vm-simple" }
+p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "devnet2" }
+p3-baby-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "devnet2" }
+p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "devnet2" }
+p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "devnet2" }
+p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "devnet2" }
+p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "devnet2" }
+p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "devnet2" }
+p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "devnet2" }
 
-whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "lean-vm-simple" }
-multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "lean-vm-simple" }
+whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "devnet2" }
+multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "devnet2" }
 leansig = { git = "https://github.com/leanEthereum/leansig.git", rev = "73bedc26ed961b110df7ac2e234dc11361a4bf25" }
 
 [dependencies]
