@@ -13,7 +13,6 @@ use multilinear_toolkit::prelude::symbolic::{
 };
 use multilinear_toolkit::prelude::*;
 use utils::{Counter, MEMORY_TABLE_INDEX};
-use whir_p3::{WhirConfig, precompute_dft_twiddles};
 
 pub fn run_recursion_benchmark(count: usize, tracing: bool) {
     if tracing {
@@ -341,7 +340,7 @@ def main():
     );
     println!("{}", recursion_proof.exec_summary);
     println!(
-        "{}->1 recursion proving time: {} ms (1->1: {} ms), proof size: {} KiB (not optimized)",
+        "{}->1 recursion proving time: {} ms (1->1: {} ms), proof size: {} KiB",
         count,
         proving_time.as_millis(),
         proving_time.as_millis() / count as u128,

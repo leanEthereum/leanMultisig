@@ -1,6 +1,5 @@
 use crate::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 
 pub(crate) fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
     let encoded_bytecode = padd_with_zero_to_next_power_of_two(

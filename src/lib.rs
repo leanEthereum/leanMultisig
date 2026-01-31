@@ -1,3 +1,4 @@
+use multilinear_toolkit::prelude::*;
 pub use multilinear_toolkit::prelude::{
     PrimeCharacteristicRing, // to allow `F::from_usize`
     ProofError,
@@ -17,7 +18,7 @@ pub use xmss::{
 
 pub fn xmss_aggregation_setup_prover() {
     rec_aggregation::xmss_aggregate::xmss_setup_aggregation_program();
-    whir_p3::precompute_dft_twiddles::<F>(1 << 24);
+    precompute_dft_twiddles::<F>(1 << 24);
 }
 
 pub fn xmss_aggregation_setup_verifier() {

@@ -9,7 +9,6 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     build_prover_state, build_verifier_state, collect_refs, init_tracing, padd_with_zero_to_next_power_of_two,
 };
-use whir_p3::{FoldingFactor, SecurityAssumption, SparseStatement, WhirConfig, WhirConfigBuilder};
 
 const WIDTH: usize = 16;
 const UNIVARIATE_SKIPS: usize = 3;

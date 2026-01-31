@@ -9,7 +9,6 @@ workspace = true
 [dependencies]
 tracing.workspace = true
 utils.workspace = true
-whir-p3.workspace = true
 p3-util.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true
