@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "air"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
 dependencies = [
  "p3-field",
 ]
@@ -99,7 +99,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
 dependencies = [
  "itertools",
  "p3-field",
@@ -190,7 +190,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -266,7 +266,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
 dependencies = [
  "p3-field",
  "p3-koala-bear",
@@ -468,7 +468,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1049,7 +1049,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1277,7 +1277,7 @@ dependencies = [
 [[package]]
 name = "whir"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
 dependencies = [
  "backend",
  "fiat-shamir",

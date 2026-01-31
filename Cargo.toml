@@ -78,7 +78,7 @@ p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 
-multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "merkle-pruning" }
+multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
 
 [dependencies]
 clap.workspace = true
