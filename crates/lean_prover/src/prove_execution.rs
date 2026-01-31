@@ -4,13 +4,11 @@ use crate::common::*;
 use crate::*;
 use air::prove_air;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 
 use p3_util::log2_ceil_usize;
 use sub_protocols::*;
 use tracing::info_span;
 use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
-use whir_p3::{SparseStatement, SparseValue, WhirConfig};
 use xmss::Poseidon16History;
 
 #[derive(Debug)]
@@ -219,9 +217,9 @@ pub fn prove_execution(
         bytecode_pushforward_commitment,
         &bytecode_pushforward.by_ref(),
     );
-    let proof_size_fe = prover_state.proof_size_fe();
+    let proof_size_fe = prover_state.pruned_proof().proof_size_fe();
     ExecutionProof {
-        proof: prover_state.into_proof(),
+        proof: prover_state.raw_proof(),
         proof_size_fe,
         exec_summary,
         first_whir_n_vars,

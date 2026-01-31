@@ -8,7 +8,6 @@ use std::sync::OnceLock;
 use std::time::Instant;
 use tracing::{info_span, instrument};
 use utils::to_little_endian_in_field;
-use whir_p3::precompute_dft_twiddles;
 use xmss::{
     Poseidon16History, V, XMSS_MAX_LOG_LIFETIME, XmssPublicKey, XmssSignature, xmss_generate_phony_signatures,
     xmss_verify_with_poseidon_trace,
@@ -97,7 +96,7 @@ pub fn run_xmss_benchmark(log_lifetimes: &[usize], tracing: bool) {
 
     println!("{summary}");
     println!(
-        "XMSS aggregation, proving time: {:.3} s ({:.1} XMSS/s), proof size: {} KiB (not optimized)",
+        "XMSS aggregation, proving time: {:.3} s ({:.1} XMSS/s), proof size: {} KiB",
         proving_time.as_secs_f64(),
         log_lifetimes.len() as f64 / proving_time.as_secs_f64(),
         n_field_elements_in_proof * F::bits() / (8 * 1024)

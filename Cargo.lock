@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "air"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#eeb6404188e4b4c9207b9e8e8a2120156602d92e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
 dependencies = [
  "p3-field",
 ]
@@ -99,7 +99,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#eeb6404188e4b4c9207b9e8e8a2120156602d92e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
 dependencies = [
  "itertools",
  "p3-field",
@@ -134,9 +134,9 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "clap"
-version = "4.5.54"
+version = "4.5.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6e6ff9dcd79cff5cd969a17a545d79e84ab086e444102a591e288a8aa3ce394"
+checksum = "a75ca66430e33a14957acc24c5077b503e7d374151b2b4b3a10c83b4ceb4be0e"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -144,9 +144,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.54"
+version = "4.5.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa42cf4d2b7a41bc8f663a7cab4031ebafa1bf3875705bfaf8466dc60ab52c00"
+checksum = "793207c7fa6300a0608d1080b858e5fdbe713cdc1c8db9fb17777d8a13e63df0"
 dependencies = [
  "anstream",
  "anstyle",
@@ -156,9 +156,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.49"
+version = "4.5.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a0b5487afeab2deb2ff4e03a807ad1a03ac532ff5a2cee5d86884440c7f7671"
+checksum = "a92793da1a46a5f2a02a6f4c46c6496b28c43638adea8306fcb0caa1634f24e5"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -190,7 +190,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#eeb6404188e4b4c9207b9e8e8a2120156602d92e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -265,10 +265,12 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "fiat-shamir"
-version = "0.1.0"
-source = "git+https://github.com/leanEthereum/fiat-shamir.git#493be07bdd8669a816d28c3befc08bc3e68e590a"
+version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
 dependencies = [
  "p3-field",
+ "p3-koala-bear",
+ "p3-poseidon2",
  "p3-symmetric",
  "rayon",
  "serde",
@@ -367,7 +369,6 @@ dependencies = [
  "rec_aggregation",
  "sub_protocols",
  "utils",
- "whir-p3",
  "xmss",
 ]
 
@@ -388,7 +389,6 @@ dependencies = [
  "sub_protocols",
  "tracing",
  "utils",
- "whir-p3",
  "xmss",
 ]
 
@@ -411,7 +411,6 @@ dependencies = [
  "sub_protocols",
  "tracing",
  "utils",
- "whir-p3",
  "witness_generation",
  "xmss",
 ]
@@ -436,7 +435,6 @@ dependencies = [
  "thiserror",
  "tracing",
  "utils",
- "whir-p3",
  "xmss",
 ]
 
@@ -470,17 +468,19 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#eeb6404188e4b4c9207b9e8e8a2120156602d92e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
 dependencies = [
  "air 0.3.0",
  "backend",
  "constraints-folder",
  "fiat-shamir",
  "p3-field",
+ "p3-maybe-rayon",
  "p3-util",
  "rayon",
  "sumcheck",
  "tracing",
+ "whir",
 ]
 
 [[package]]
@@ -555,19 +555,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "p3-baby-bear"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
-dependencies = [
- "p3-field",
- "p3-mds",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
- "rand",
-]
-
-[[package]]
 name = "p3-challenger"
 version = "0.3.0"
 source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
@@ -619,17 +606,6 @@ dependencies = [
  "rand",
  "serde",
  "tracing",
-]
-
-[[package]]
-name = "p3-interpolation"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
-dependencies = [
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-util",
 ]
 
 [[package]]
@@ -919,7 +895,6 @@ dependencies = [
  "sub_protocols",
  "tracing",
  "utils",
- "whir-p3",
  "xmss",
 ]
 
@@ -1069,13 +1044,12 @@ dependencies = [
  "rand",
  "tracing",
  "utils",
- "whir-p3",
 ]
 
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#eeb6404188e4b4c9207b9e8e8a2120156602d92e"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1301,28 +1275,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "whir-p3"
-version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=lean-multisig#bc7bf99c224d63582945f065f555b9824d843d3c"
+name = "whir"
+version = "0.3.0"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=merkle-pruning#700866ce894cd49b61ca5bc3d0a9f464493af3a4"
 dependencies = [
+ "backend",
+ "fiat-shamir",
  "itertools",
- "multilinear-toolkit",
- "p3-baby-bear",
  "p3-commit",
  "p3-dft",
  "p3-field",
- "p3-interpolation",
  "p3-koala-bear",
  "p3-matrix",
- "p3-maybe-rayon",
  "p3-merkle-tree",
  "p3-symmetric",
  "p3-util",
  "rand",
  "rayon",
+ "sumcheck",
  "tracing",
- "tracing-forest",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1396,7 +1367,6 @@ dependencies = [
  "sub_protocols",
  "tracing",
  "utils",
- "whir-p3",
  "xmss",
 ]
 
@@ -1414,18 +1384,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.34"
+version = "0.8.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71ddd76bcebeed25db614f82bf31a9f4222d3fbba300e6fb6c00afa26cbd4d9d"
+checksum = "7456cf00f0685ad319c5b1693f291a650eaf345e941d082fc4e03df8a03996ac"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.34"
+version = "0.8.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8187381b52e32220d50b255276aa16a084ec0a9017a0ca2152a1f55c539758d"
+checksum = "1328722bbf2115db7e19d69ebcc15e795719e2d66b60827c6a69a117365e37a0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1434,6 +1404,6 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "1.0.17"
+version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02aae0f83f69aafc94776e879363e9771d7ecbffe2c7fbb6c14c5e00dfe88439"
+checksum = "1966f8ac2c1f76987d69a74d0e0f929241c10e78136434e3be70ff7f58f64214"

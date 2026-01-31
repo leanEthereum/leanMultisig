@@ -78,8 +78,8 @@ p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
 
-whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "lean-multisig" }
-multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
+multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "merkle-pruning" }
+
 [dependencies]
 clap.workspace = true
 rec_aggregation.workspace = true
@@ -91,7 +91,6 @@ utils.workspace = true
 p3-koala-bear.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true
-whir-p3.workspace = true
 
 [profile.release]
 lto = "thin"

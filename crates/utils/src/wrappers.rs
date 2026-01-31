@@ -15,7 +15,7 @@ pub fn build_prover_state() -> ProverState<QuinticExtensionFieldKB, Poseidon16> 
 pub fn build_verifier_state(
     prover_state: ProverState<QuinticExtensionFieldKB, Poseidon16>,
 ) -> VerifierState<QuinticExtensionFieldKB, Poseidon16> {
-    let mut verifier_state = VerifierState::new(prover_state.into_proof(), get_poseidon16().clone());
+    let mut verifier_state = VerifierState::new(prover_state.raw_proof(), get_poseidon16().clone());
     verifier_state.duplexing();
     verifier_state
 }

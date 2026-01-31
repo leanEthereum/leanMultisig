@@ -1,10 +1,10 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
 use lean_vm::{EF, F};
+use multilinear_toolkit::prelude::*;
 use utils::*;
 
 use lean_vm::execute_bytecode;
-use whir_p3::{FoldingFactor, SecurityAssumption, WhirConfigBuilder};
 use witness_generation::*;
 
 mod common;

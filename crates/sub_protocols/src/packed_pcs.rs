@@ -5,7 +5,6 @@ use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use tracing::instrument;
 use utils::{VarCount, transpose_slice_to_basis_coefficients};
-use whir_p3::*;
 
 #[derive(Debug)]
 pub struct MultiCommitmentWitness {

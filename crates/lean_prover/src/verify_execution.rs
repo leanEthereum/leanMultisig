@@ -4,12 +4,10 @@ use crate::*;
 use crate::{SnarkParams, common::*};
 use air::verify_air;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use sub_protocols::verify_logup_star;
 use sub_protocols::*;
 use utils::ToUsize;
-use whir_p3::{SparseStatement, SparseValue, WhirConfig};
 
 #[derive(Debug, Clone)]
 pub struct ProofVerificationDetails {

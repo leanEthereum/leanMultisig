@@ -43,7 +43,7 @@ To reproduce:
 
 ### Proof size
 
-WHIR intial rate = 1/4. Proof size ≈ 380 KiB. TODO: Merkle pruning + WHIR batch opening -> 256 KiB. (To go below 256 KiB -> rate 1/8 or 1/16 in the final recursion).
+WHIR intial rate = 1/4. Proof size ≈ 325 KiB. TODO: WHIR batch opening + [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1  -> close to 256 KiB. (To go below 256 KiB -> rate 1/8 or 1/16 in the final recursion).
 
 ## Credits
 
