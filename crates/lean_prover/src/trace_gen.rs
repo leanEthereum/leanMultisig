@@ -29,7 +29,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         .zip(execution_result.fps.par_iter())
         .for_each(|((trace_row, &pc), &fp)| {
             let instruction = &bytecode.instructions[pc];
-            let field_repr = bytecode.encoded_instructions[pc];
+            let field_repr = bytecode.instructions_encoded[pc];
 
             let mut addr_a = F::ZERO;
             if field_repr[instr_idx(COL_FLAG_A)].is_zero() {

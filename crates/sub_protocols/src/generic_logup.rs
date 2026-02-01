@@ -331,16 +331,17 @@ pub fn prove_generic_logup(
 pub fn verify_generic_logup(
     verifier_state: &mut impl FSVerifier<EF>,
     c: EF,
+    alphas: &[EF],
     alphas_eq_poly: &[EF],
     log_memory: usize,
-    bytecode: &[[F; N_INSTRUCTION_COLUMNS]],
+    bytecode_multilinear: &[F],
     table_log_n_rows: &BTreeMap<Table, VarCount>,
 ) -> ProofResult<GenericLogupStatements> {
     let tables_heights_sorted = sort_tables_by_height(table_log_n_rows);
-
+    let log_bytecode = log2_strict_usize(bytecode_multilinear.len() / N_INSTRUCTION_COLUMNS.next_power_of_two());
     let total_n_vars = compute_total_n_vars(
         log_memory,
-        log2_strict_usize(bytecode.len()),
+        log_bytecode,
         &tables_heights_sorted.iter().cloned().collect(),
     );
 
@@ -373,8 +374,7 @@ pub fn verify_generic_logup(
     let mut offset = 1 << log_memory;
 
     // Bytecode
-    let log_bytecode = log2_strict_usize(bytecode.len());
-    let log_bytecode_padded = log2_strict_usize(bytecode.len()).max(tables_heights_sorted[0].1);
+    let log_bytecode_padded = log_bytecode.max(tables_heights_sorted[0].1);
     let bytecode_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_bytecode).to_vec());
     let bits = to_big_endian_in_field::<EF>(offset >> log_bytecode, total_n_vars - log_bytecode);
     let pref =
@@ -388,25 +388,22 @@ pub fn verify_generic_logup(
     retrieved_numerators_value -= pref * value_bytecode_acc;
 
     // Bytecode denominator - computed directly by verifier
-    let bytecode_index = mle_of_01234567_etc(&bytecode_and_acc_point);
-    let bytecode_value: Vec<EF> = (0..N_INSTRUCTION_COLUMNS)
-        .map(|col| {
-            bytecode
-                .iter()
-                .map(|row| row[col])
-                .collect::<Vec<_>>()
-                .evaluate(&bytecode_and_acc_point)
-        })
-        .collect();
+    let bytecode_index_value = mle_of_01234567_etc(&bytecode_and_acc_point);
+
+    let mut bytecode_evaluation_point = bytecode_and_acc_point.0.clone();
+    bytecode_evaluation_point.extend(from_end(alphas, log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
+    let mut bytecode_value = bytecode_multilinear.evaluate(&MultilinearPoint(bytecode_evaluation_point));
+    bytecode_value *= alphas[..alphas.len() - log2_ceil_usize(N_INSTRUCTION_COLUMNS)]
+        .iter()
+        .map(|x| EF::ONE - *x)
+        .product::<EF>();
     retrieved_denominators_value += pref
-        * (c - finger_print(
-            F::from_usize(BYTECODE_TABLE_INDEX),
-            &[bytecode_value, vec![bytecode_index]].concat(),
-            alphas_eq_poly,
-        ));
+        * (c - (bytecode_value
+            + bytecode_index_value * alphas_eq_poly[N_INSTRUCTION_COLUMNS]
+            + *alphas_eq_poly.last().unwrap() * F::from_usize(BYTECODE_TABLE_INDEX)));
     // Padding for bytecode
     retrieved_denominators_value +=
-        pref_padded * mle_of_zeros_then_ones(bytecode.len(), &from_end(&point_gkr, log_bytecode_padded));
+        pref_padded * mle_of_zeros_then_ones(1 << log_bytecode, &from_end(&point_gkr, log_bytecode_padded));
     offset += 1 << log_bytecode_padded;
 
     // ... Rest of the tables:

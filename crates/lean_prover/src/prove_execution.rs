@@ -112,7 +112,7 @@ pub fn prove_execution(
         &logup_alphas_eq_poly,
         &memory,
         &memory_acc,
-        &bytecode.encoded_instructions,
+        &bytecode.instructions_encoded,
         &bytecode_acc,
         &traces,
     );

@@ -73,9 +73,10 @@ pub fn verify_execution(
     let logup_statements = verify_generic_logup(
         &mut verifier_state,
         logup_c,
+        &logup_alphas,
         &logup_alphas_eq_poly,
         log_memory,
-        &bytecode.encoded_instructions,
+        &bytecode.instructions_multilinear,
         &table_n_vars,
     )?;
     let mut committed_statements: CommittedStatements = Default::default();
