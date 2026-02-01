@@ -76,6 +76,7 @@ pub enum CustomHint {
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeBitsXMSS,
     DecomposeBits,
+    LessThan,
 }
 
 impl CustomHint {
@@ -83,6 +84,7 @@ impl CustomHint {
         match self {
             Self::DecomposeBitsXMSS => "hint_decompose_bits_xmss",
             Self::DecomposeBits => "hint_decompose_bits",
+            Self::LessThan => "hint_less_than",
         }
     }
 
@@ -90,6 +92,7 @@ impl CustomHint {
         match self {
             Self::DecomposeBitsXMSS => 3..usize::MAX,
             Self::DecomposeBits => 4..5,
+            Self::LessThan => 3..4,
         }
     }
 
@@ -131,6 +134,13 @@ impl CustomHint {
                     ctx.memory
                         .set_slice(memory_index, &to_little_endian_in_field::<F>(to_decompose, num_bits))?
                 }
+            }
+            Self::LessThan => {
+                let a = args[0].read_value(ctx.memory, ctx.fp)?;
+                let b = args[1].read_value(ctx.memory, ctx.fp)?;
+                let result_addr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let result = if a.to_usize() < b.to_usize() { F::ONE } else { F::ZERO };
+                ctx.memory.set(result_addr, result)?;
             }
         }
         Ok(())

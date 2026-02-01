@@ -361,21 +361,13 @@ def dot_product_ee_dynamic(a, b, res, n):
         dot_product(a, b, res, 2, EE)
         return
 
-    for i in unroll(0, N_ROUNDS_BASE + 1):
-        if n == NUM_QUERIES_BASE[i]:
-            dot_product(a, b, res, NUM_QUERIES_BASE[i], EE)
+    for i in unroll(0, WHIR_N_ROUNDS + 1):
+        if n == WHIR_NUM_QUERIES[i]:
+            dot_product(a, b, res, WHIR_NUM_QUERIES[i], EE)
             return
-        if n == NUM_QUERIES_BASE[i] + 1:
-            dot_product(a, b, res, NUM_QUERIES_BASE[i] + 1, EE)
+        if n == WHIR_NUM_QUERIES[i] + 1:
+            dot_product(a, b, res, WHIR_NUM_QUERIES[i] + 1, EE)
             return
-    for i in unroll(0, N_ROUNDS_EXT + 1):
-        if n == NUM_QUERIES_EXT[i]:
-            dot_product(a, b, res, NUM_QUERIES_EXT[i], EE)
-            return
-        if n == NUM_QUERIES_EXT[i] + 1:
-            dot_product(a, b, res, NUM_QUERIES_EXT[i] + 1, EE)
-            return
-
     assert False, "dot_product_ee_dynamic called with unsupported n"
 
 
@@ -391,6 +383,25 @@ def mle_of_01234567_etc(point, n):
         d = mul_extension_ret(point, c)
         res = add_extension_ret(b, d)
         return res
+    
+def checked_less_than(a, b):
+    res = Array(1)
+    hint_less_than(a, b, res)
+    assert res * (1 - res) == 0
+    if res == 1:
+        assert a < b
+    else:
+        assert b <= a
+    return res
+
+def maximum(a, b):
+    is_a_less_than_b = checked_less_than(a, b)
+    res: Imu
+    if is_a_less_than_b == 1:
+        res = b
+    else:
+        res = a
+    return res
 
 
 def powers_of_two(n):

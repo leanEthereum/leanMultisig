@@ -535,7 +535,7 @@ A detailled soundness analysis can be found in \href{https://github.com/openvm-o
 \vspace{3mm}
 
 % One of the advantage of multilinear polynomials versus univariate polynomials is the ability to efficienty commit to multiple polynomials at once.
-In order to commit to multiple univariate polynomials with FRI, each polynomial must be FFT-ed + Merkle-commited.
+In order to commit to multiple univariate polynomials with FRI, each polynomial must be FFT-ed + Merkle-committed.
 Even if it's possible to have some batching at the Merkle tree level (see 'MMCS' in \href{https://github.com/Plonky3/Plonky3}{Plonky3}), the proof size for multiple, complex AIR tables quickly reach the megabyte scale.
 
 With a multilinear PCS (such as WHIR), we can "concatenate" multiple multilinear polynomials into a single one, and commit to it once (offering significant proof size savings).

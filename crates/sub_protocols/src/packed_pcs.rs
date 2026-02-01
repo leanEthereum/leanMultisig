@@ -56,7 +56,7 @@ pub fn packed_pcs_global_statements(
                     .collect(),
             ));
         }
-        offset += table.n_commited_columns() << n_vars;
+        offset += table.n_committed_columns() << n_vars;
     }
     global_statements
 }
@@ -135,7 +135,7 @@ fn compute_total_n_vars(log_memory: usize, log_bytecode: usize, tables_heights: 
         + (1 << log_bytecode.max(max_table_log_n_rows))
         + tables_heights
             .iter()
-            .map(|(table, log_n_rows)| table.n_commited_columns() << log_n_rows)
+            .map(|(table, log_n_rows)| table.n_committed_columns() << log_n_rows)
             .sum::<usize>();
     log2_ceil_usize(total_len)
 }

@@ -106,7 +106,7 @@ def main():
 
     // VM recursion parameters (different from WHIR)
     replacements.insert(
-        "N_VARS_FIRST_GKR_PLACEHOLDER".to_string(),
+        "N_VARS_LOGUP_GKR_PLACEHOLDER".to_string(),
         verif_details.first_quotient_gkr_n_vars.to_string(),
     );
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
@@ -241,7 +241,7 @@ def main():
         format!("[{}]", num_cols_ef_air.join(", ")),
     );
     replacements.insert(
-        "NUM_COLS_F_COMMITED_PLACEHOLDER".to_string(),
+        "NUM_COLS_F_COMMITTED_PLACEHOLDER".to_string(),
         format!("[{}]", num_cols_f_committed.join(", ")),
     );
     replacements.insert(
@@ -369,34 +369,34 @@ pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<E
     let end = "_PLACEHOLDER";
     let mut replacements = BTreeMap::new();
     replacements.insert(
-        format!("MERKLE_HEIGHTS{}", end),
+        format!("WHIR_MERKLE_HEIGHTS{}", end),
         format!("[{}]", merkle_heights.join(", ")),
     );
-    replacements.insert(format!("NUM_QUERIES{}", end), format!("[{}]", num_queries.join(", ")));
+    replacements.insert(format!("WHIR_NUM_QUERIES{}", end), format!("[{}]", num_queries.join(", ")));
     replacements.insert(
-        format!("NUM_OOD_COMMIT{}", end),
+        format!("WHIR_NUM_OOD_COMMIT{}", end),
         whir_config.committment_ood_samples.to_string(),
     );
-    replacements.insert(format!("NUM_OODS{}", end), format!("[{}]", ood_samples.join(", ")));
+    replacements.insert(format!("WHIR_NUM_OODS{}", end), format!("[{}]", ood_samples.join(", ")));
     replacements.insert(
-        format!("GRINDING_BITS{}", end),
+        format!("WHIR_GRINDING_BITS{}", end),
         format!("[{}]", grinding_bits.join(", ")),
     );
     replacements.insert(
-        format!("FOLDING_FACTORS{}", end),
+        format!("WHIR_FOLDING_FACTORS{}", end),
         format!("[{}]", folding_factors.join(", ")),
     );
-    replacements.insert(format!("N_VARS{}", end), whir_config.num_variables.to_string());
+    replacements.insert(format!("WHIR_N_VARS{}", end), whir_config.num_variables.to_string());
     replacements.insert(
-        format!("LOG_INV_RATE{}", end),
+        format!("WHIR_LOG_INV_RATE{}", end),
         whir_config.starting_log_inv_rate.to_string(),
     );
     replacements.insert(
-        format!("FINAL_VARS{}", end),
+        format!("WHIR_FINAL_VARS{}", end),
         whir_config.n_vars_of_final_polynomial().to_string(),
     );
     replacements.insert(
-        format!("FIRST_RS_REDUCTION_FACTOR{}", end),
+        format!("WHIR_FIRST_RS_REDUCTION_FACTOR{}", end),
         whir_config.rs_domain_initial_reduction_factor.to_string(),
     );
     replacements

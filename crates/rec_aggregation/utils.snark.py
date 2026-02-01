@@ -360,19 +360,12 @@ def dot_product_ee_dynamic(a, b, res, n):
         dot_product(a, b, res, 2, EE)
         return
 
-    for i in unroll(0, N_ROUNDS_BASE + 1):
-        if n == NUM_QUERIES_BASE[i]:
-            dot_product(a, b, res, NUM_QUERIES_BASE[i], EE)
+    for i in unroll(0, WHIR_N_ROUNDS + 1):
+        if n == WHIR_NUM_QUERIES[i]:
+            dot_product(a, b, res, WHIR_NUM_QUERIES[i], EE)
             return
-        if n == NUM_QUERIES_BASE[i] + 1:
-            dot_product(a, b, res, NUM_QUERIES_BASE[i] + 1, EE)
-            return
-    for i in unroll(0, N_ROUNDS_EXT + 1):
-        if n == NUM_QUERIES_EXT[i]:
-            dot_product(a, b, res, NUM_QUERIES_EXT[i], EE)
-            return
-        if n == NUM_QUERIES_EXT[i] + 1:
-            dot_product(a, b, res, NUM_QUERIES_EXT[i] + 1, EE)
+        if n == WHIR_NUM_QUERIES[i] + 1:
+            dot_product(a, b, res, WHIR_NUM_QUERIES[i] + 1, EE)
             return
 
     assert False, "dot_product_ee_dynamic called with unsupported n"

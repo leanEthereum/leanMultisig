@@ -6,12 +6,9 @@ PERMUTATION = 0
 DIM = 5  # extension degree
 VECTOR_LEN = 8
 
-MERKLE_HEIGHTS_BASE = MERKLE_HEIGHTS_BASE_PLACEHOLDER
-MERKLE_HEIGHTS_EXT = MERKLE_HEIGHTS_EXT_PLACEHOLDER
-NUM_QUERIES_BASE = NUM_QUERIES_BASE_PLACEHOLDER
-NUM_QUERIES_EXT = NUM_QUERIES_EXT_PLACEHOLDER
-N_ROUNDS_BASE = len(NUM_QUERIES_BASE) - 1
-N_ROUNDS_EXT = len(NUM_QUERIES_EXT) - 1
+WHIR_MERKLE_HEIGHTS = WHIR_MERKLE_HEIGHTS_PLACEHOLDER
+WHIR_NUM_QUERIES = WHIR_NUM_QUERIES_PLACEHOLDER
+WHIR_N_ROUNDS = len(WHIR_NUM_QUERIES) - 1
 
 
 def batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len):
@@ -47,26 +44,15 @@ def slice_hash(seed, data, len: Const):
 
 
 def merkle_verif_batch(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries):
-    for i in unroll(0, N_ROUNDS_BASE + 1):
-        if height + num_queries * 1000 == MERKLE_HEIGHTS_BASE[i] + NUM_QUERIES_BASE[i] * 1000:
+    for i in unroll(0, WHIR_N_ROUNDS + 1):
+        if height + num_queries * 1000 == WHIR_MERKLE_HEIGHTS[i] + WHIR_NUM_QUERIES[i] * 1000:
             merkle_verif_batch_const(
-                NUM_QUERIES_BASE[i],
+                WHIR_NUM_QUERIES[i],
                 merkle_paths,
                 leaves_digests,
                 leave_positions,
                 root,
-                MERKLE_HEIGHTS_BASE[i],
-            )
-            return
-    for i in unroll(0, N_ROUNDS_EXT + 1):
-        if height + num_queries * 1000 == MERKLE_HEIGHTS_EXT[i] + NUM_QUERIES_EXT[i] * 1000:
-            merkle_verif_batch_const(
-                NUM_QUERIES_EXT[i],
-                merkle_paths,
-                leaves_digests,
-                leave_positions,
-                root,
-                MERKLE_HEIGHTS_EXT[i],
+                WHIR_MERKLE_HEIGHTS[i],
             )
             return
     print(12345555)

@@ -144,7 +144,7 @@ pub trait TableT: Air {
         false
     }
 
-    fn n_commited_columns(&self) -> usize {
+    fn n_committed_columns(&self) -> usize {
         self.n_columns_ef_air() * DIMENSION + self.n_columns_f_air()
     }
 
