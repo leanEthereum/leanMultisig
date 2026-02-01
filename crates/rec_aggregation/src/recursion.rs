@@ -290,7 +290,7 @@ def main():
     );
     replacements.insert(
         "N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER".to_string(),
-        N_COMMITTED_EXEC_COLUMNS.to_string(),
+        N_RUNTIME_COLUMNS.to_string(),
     );
     replacements.insert(
         "TOTAL_WHIR_STATEMENTS_BASE_PLACEHOLDER".to_string(),

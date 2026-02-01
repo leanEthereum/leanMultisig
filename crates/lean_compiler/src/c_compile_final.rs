@@ -1,4 +1,4 @@
-use crate::{F, ir::*, lang::*};
+use crate::{F, instruction_encoder::field_representation, ir::*, lang::*};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
@@ -144,9 +144,15 @@ pub fn compile_to_low_level_bytecode(
             &mut hints,
         );
     }
-
+    let mut encoded_instructions = instructions
+        .par_iter()
+        .map(|instr| field_representation(instr))
+        .collect::<Vec<_>>();
+    encoded_instructions.resize(instructions.len().next_power_of_two(), [F::ZERO; N_INSTRUCTION_COLUMNS]);
+    
     Ok(Bytecode {
         instructions,
+        encoded_instructions,
         hints,
         starting_frame_memory,
         function_locations,

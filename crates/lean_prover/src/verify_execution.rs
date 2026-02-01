@@ -75,6 +75,7 @@ pub fn verify_execution(
         logup_c,
         &logup_alphas_eq_poly,
         log_memory,
+        &bytecode.encoded_instructions,
         &table_n_vars,
     )?;
     let mut committed_statements: CommittedStatements = Default::default();

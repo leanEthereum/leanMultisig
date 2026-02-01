@@ -1,4 +1,3 @@
-use crate::instruction_encoder::field_representation;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::{array, collections::BTreeMap, iter::repeat_n};
@@ -17,7 +16,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
-    let mut main_trace: [Vec<F>; N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS] =
+    let mut main_trace: [Vec<F>; N_TOTAL_EXECUTION_COLUMNS + N_TEMPORARY_EXEC_COLUMNS] =
         array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
     for col in &mut main_trace {
         unsafe {
@@ -30,7 +29,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         .zip(execution_result.fps.par_iter())
         .for_each(|((trace_row, &pc), &fp)| {
             let instruction = &bytecode.instructions[pc];
-            let field_repr = field_representation(instruction);
+            let field_repr = bytecode.encoded_instructions[pc];
 
             let mut addr_a = F::ZERO;
             if field_repr[instr_idx(COL_FLAG_A)].is_zero() {
@@ -57,7 +56,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             let value_c = memory.0[addr_c.to_usize()].unwrap();
 
             for (j, field) in field_repr.iter().enumerate() {
-                *trace_row[j + N_COMMITTED_EXEC_COLUMNS] = *field;
+                *trace_row[j + N_RUNTIME_COLUMNS] = *field;
             }
 
             let nu_a = field_repr[instr_idx(COL_FLAG_A)] * field_repr[instr_idx(COL_OPERAND_A)]

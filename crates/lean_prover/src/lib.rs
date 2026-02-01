@@ -4,16 +4,15 @@ use lean_vm::{EF, F};
 use multilinear_toolkit::prelude::*;
 use utils::*;
 
-use lean_vm::execute_bytecode;
-use witness_generation::*;
+mod trace_gen;
 
-mod common;
 pub mod prove_execution;
-#[cfg(test)]
-mod test_zkvm;
 pub mod verify_execution;
 
-pub use witness_generation::bytecode_to_multilinear_polynomial;
+#[cfg(test)]
+mod test_zkvm;
+
+use trace_gen::*;
 
 // Right now, hash digests = 8 koala-bear (p = 2^31 - 2^24 + 1, i.e. ≈ 30.98 bits per field element)
 // so ≈ 123.92 bits of security against collisions

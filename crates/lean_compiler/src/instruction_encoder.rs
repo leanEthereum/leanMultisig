@@ -1,6 +1,5 @@
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
-use utils::padd_with_zero_to_next_power_of_two;
 
 pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
     let mut fields = [F::ZERO; N_INSTRUCTION_COLUMNS];
@@ -114,12 +113,4 @@ fn set_nu_c(fields: &mut [F; N_INSTRUCTION_COLUMNS], c: &MemOrFp) {
             fields[instr_idx(COL_OPERAND_C)] = F::from_usize(*offset);
         }
     }
-}
-
-pub fn bytecode_to_multilinear_polynomial(instructions: &[Instruction]) -> Vec<F> {
-    let res = instructions
-        .par_iter()
-        .flat_map(|instr| padd_with_zero_to_next_power_of_two(&field_representation(instr)))
-        .collect::<Vec<F>>();
-    padd_with_zero_to_next_power_of_two(&res)
 }

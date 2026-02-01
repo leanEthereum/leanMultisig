@@ -21,7 +21,7 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
     }
 
     fn n_columns_f_total(&self) -> usize {
-        N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS
+        N_TOTAL_EXECUTION_COLUMNS + N_TEMPORARY_EXEC_COLUMNS
     }
 
     fn lookups_f(&self) -> Vec<LookupIntoMemory> {
@@ -55,7 +55,7 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
     }
 
     fn padding_row_f(&self) -> Vec<F> {
-        let mut padding_row = vec![F::ZERO; N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS];
+        let mut padding_row = vec![F::ZERO; N_TOTAL_EXECUTION_COLUMNS + N_TEMPORARY_EXEC_COLUMNS];
         padding_row[COL_PC] = F::from_usize(ENDING_PC);
         padding_row[COL_JUMP] = F::ONE;
         padding_row[COL_FLAG_A] = F::ONE;

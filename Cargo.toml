@@ -8,10 +8,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [
-    "crates/*",
-    "crates/lean_prover/witness_generation",
-]
+members = ["crates/*"]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -51,7 +48,6 @@ sub_protocols = { path = "crates/sub_protocols" }
 lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
-witness_generation = { path = "crates/lean_prover/witness_generation" }
 
 # External
 thiserror = "2.0"

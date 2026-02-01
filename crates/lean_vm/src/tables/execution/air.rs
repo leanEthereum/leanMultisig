@@ -2,9 +2,9 @@ use multilinear_toolkit::prelude::*;
 
 use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 
-pub const N_COMMITTED_EXEC_COLUMNS: usize = 8;
+pub const N_RUNTIME_COLUMNS: usize = 8;
 pub const N_INSTRUCTION_COLUMNS: usize = 14;
-pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS;
+pub const N_TOTAL_EXECUTION_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_RUNTIME_COLUMNS;
 
 // Committed columns (IMPORTANT: they must be the first columns)
 pub const COL_PC: usize = 0;
@@ -42,7 +42,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f_air(&self) -> usize {
-        N_EXEC_AIR_COLUMNS
+        N_TOTAL_EXECUTION_COLUMNS
     }
     fn n_columns_ef_air(&self) -> usize {
         0
@@ -144,5 +144,5 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
 }
 
 pub const fn instr_idx(col_index_in_air: usize) -> usize {
-    col_index_in_air - N_COMMITTED_EXEC_COLUMNS
+    col_index_in_air - N_RUNTIME_COLUMNS
 }

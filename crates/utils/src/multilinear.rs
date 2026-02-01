@@ -116,16 +116,20 @@ pub fn mle_of_01234567_etc<F: Field>(point: &[F]) -> F {
     }
 }
 
-/// table = 0 is reversed for memory
+/// table = 0 is reversed for memory lookup
 pub const MEMORY_TABLE_INDEX: usize = 0;
+/// table = 1 is reversed for bytecode lookup
+pub const BYTECODE_TABLE_INDEX: usize = 1;
+/// All the remaining tables come after memory and bytecode (special cases)
+pub const FIRST_NORMAL_TABLE_INDEX: usize = 2;
 
 pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF> + ExtensionField<F>>(
     table: F,
     data: &[IF],
-    alpha_powers: &[EF],
+    alphas_eq_poly: &[EF],
 ) -> EF {
-    assert!(alpha_powers.len() > data.len());
-    dot_product::<EF, _, _>(alpha_powers[1..].iter().copied(), data.iter().copied()) + table
+    assert!(alphas_eq_poly.len() > data.len());
+    dot_product::<EF, _, _>(alphas_eq_poly[1..].iter().copied(), data.iter().copied()) + table
 }
 
 #[cfg(test)]

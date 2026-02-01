@@ -1,16 +1,20 @@
 use crate::{prove_gkr_quotient, verify_gkr_quotient};
 use lean_vm::BusDirection;
 use lean_vm::BusTable;
+use lean_vm::COL_PC;
 use lean_vm::ColIndex;
 use lean_vm::DIMENSION;
 use lean_vm::EF;
 use lean_vm::F;
+use lean_vm::N_INSTRUCTION_COLUMNS;
+use lean_vm::N_RUNTIME_COLUMNS;
 use lean_vm::Table;
 use lean_vm::TableT;
 use lean_vm::TableTrace;
 use lean_vm::sort_tables_by_height;
 use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
+use utils::BYTECODE_TABLE_INDEX;
 use utils::MEMORY_TABLE_INDEX;
 use utils::VarCount;
 use utils::VecOrSlice;
@@ -39,12 +43,14 @@ pub fn prove_generic_logup(
     c: EF,
     alphas_eq_poly: &[EF],
     memory: &[F],
-    acc: &[F],
+    memory_acc: &[F],
+    bytecode: &[[F; N_INSTRUCTION_COLUMNS]],
+    bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
 ) -> GenericLogupStatements {
     assert!(memory[0].is_zero());
     assert!(memory.len().is_power_of_two());
-    assert_eq!(memory.len(), acc.len());
+    assert_eq!(memory.len(), memory_acc.len());
     assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());
 
     let tables_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
@@ -52,17 +58,21 @@ pub fn prove_generic_logup(
 
     let total_n_vars = compute_total_n_vars(
         log2_strict_usize(memory.len()),
+        log2_strict_usize(bytecode.len()),
         &tables_heights_sorted.iter().cloned().collect(),
     );
     let mut numerators = EF::zero_vec(1 << total_n_vars);
     let mut denominators = EF::zero_vec(1 << total_n_vars);
 
+    let mut offset = 0;
+
     // Memory: ...
-    numerators[..memory.len()]
+    assert_eq!(memory.len(), memory_acc.len());
+    numerators[offset..][..memory.len()]
         .par_iter_mut()
-        .zip(acc) // TODO embedding overhead
+        .zip(memory_acc) // TODO embedding overhead
         .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here 
-    denominators[..memory.len()]
+    denominators[offset..][..memory.len()]
         .par_iter_mut()
         .zip(memory.par_iter().enumerate())
         .for_each(|(denom, (i, &mem_value))| {
@@ -72,15 +82,61 @@ pub fn prove_generic_logup(
                 alphas_eq_poly,
             )
         });
+    offset += memory.len();
+
+    // Bytecode
+    assert_eq!(bytecode.len(), bytecode_acc.len());
+    numerators[offset..][..bytecode_acc.len()]
+        .par_iter_mut()
+        .zip(bytecode_acc) // TODO embedding overhead
+        .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here
+    denominators[offset..][..bytecode.len()]
+        .par_iter_mut()
+        .zip(bytecode.par_iter().enumerate())
+        .for_each(|(denom, (i, &instr))| {
+            *denom = c - finger_print(
+                F::from_usize(BYTECODE_TABLE_INDEX),
+                &[vec![F::from_usize(i)], instr.to_vec()].concat(),
+                alphas_eq_poly,
+            )
+        });
+    let max_table_height = 1 << tables_heights_sorted[0].1;
+    if bytecode.len() < max_table_height {
+        // padding
+        denominators[offset + bytecode.len()..offset + max_table_height]
+            .par_iter_mut()
+            .for_each(|d| *d = EF::ONE);
+    }
+    offset += max_table_height.max(bytecode.len());
 
     // ... Rest of the tables:
-    let mut offset = memory.len();
     for (table, _) in &tables_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
-        // I] Bus (data flow between tables)
+        if *table == Table::execution() {
+            // 0] bytecode lookup
+            let pc_column = &trace.base[COL_PC];
+            let bytecode_columns = trace.base[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS]
+                .iter()
+                .collect::<Vec<_>>();
+            numerators[offset..][..1 << log_n_rows].par_iter_mut().for_each(|num| {
+                *num = EF::ONE;
+            }); // TODO embedding overhead
+            denominators[offset..][..1 << log_n_rows]
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(i, denom)| {
+                    let mut data = vec![pc_column[i]];
+                    for col in &bytecode_columns {
+                        data.push(col[i]);
+                    }
+                    *denom = c - finger_print(F::from_usize(BYTECODE_TABLE_INDEX), &data, alphas_eq_poly)
+                });
+            offset += 1 << log_n_rows;
+        }
 
+        // I] Bus (data flow between tables)
         let bus = table.bus();
         numerators[offset..][..1 << log_n_rows]
             .par_iter_mut()
@@ -114,7 +170,6 @@ pub fn prove_generic_logup(
         offset += 1 << log_n_rows;
 
         // II] Lookup into memory
-
         let mut value_columns_f = Vec::<Vec<_>>::new();
         for cols_f in table.lookup_f_value_columns(trace) {
             value_columns_f.push(cols_f.iter().map(|s| VecOrSlice::Slice(s)).collect());
@@ -174,27 +229,56 @@ pub fn prove_generic_logup(
 
     // Memory: ...
     let memory_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
-    let value_acc = acc.evaluate(&memory_acc_point);
+    let value_acc = memory_acc.evaluate(&memory_acc_point);
     prover_state.add_extension_scalar(value_acc);
 
     let value_memory = memory.evaluate(&memory_acc_point);
     prover_state.add_extension_scalar(value_memory);
+
+    let bytecode_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(bytecode.len())).to_vec());
+    let value_bytecode_acc = bytecode_acc.evaluate(&bytecode_acc_point);
+    prover_state.add_extension_scalar(value_bytecode_acc);
+
+    // evaluation on bytecode itself can be done directly by the verifier
 
     // ... Rest of the tables:
     let mut points = BTreeMap::new();
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
-    let mut offset = memory.len();
+    let mut offset = memory.len() + max_table_height.max(bytecode.len());
     for (table, _) in &tables_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
         points.insert(*table, inner_point.clone());
+        let mut table_values = BTreeMap::<ColIndex, EF>::new();
+
+        if table == &Table::execution() {
+            // 0] bytecode lookup
+            let pc_column = &trace.base[COL_PC];
+            let bytecode_columns = trace.base[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS]
+                .iter()
+                .collect::<Vec<_>>();
+
+            let eval_on_pc = pc_column.evaluate(&inner_point);
+            prover_state.add_extension_scalar(eval_on_pc);
+            assert!(!table_values.contains_key(&COL_PC));
+            table_values.insert(COL_PC, eval_on_pc);
+
+            for (i, col) in bytecode_columns.iter().enumerate() {
+                let eval_on_instr_col = col.evaluate(&inner_point);
+                prover_state.add_extension_scalar(eval_on_instr_col);
+                let global_index = N_RUNTIME_COLUMNS + i;
+                assert!(!table_values.contains_key(&global_index));
+                table_values.insert(global_index, eval_on_instr_col);
+            }
+
+            offset += 1 << log_n_rows;
+        }
 
         // I] Bus (data flow between tables)
-
         let eval_on_selector =
             trace.base[table.bus().selector].evaluate(&inner_point) * table.bus().direction.to_field_flag();
         prover_state.add_extension_scalar(eval_on_selector);
@@ -206,8 +290,6 @@ pub fn prove_generic_logup(
         bus_denominators_values.insert(*table, eval_on_data);
 
         // II] Lookup into memory
-
-        let mut table_values = BTreeMap::<ColIndex, EF>::new();
         for lookup_f in table.lookups_f() {
             let index_eval = trace.base[lookup_f.index].evaluate(&inner_point);
             prover_state.add_extension_scalar(index_eval);
@@ -265,11 +347,16 @@ pub fn verify_generic_logup(
     c: EF,
     alphas_eq_poly: &[EF],
     log_memory: usize,
+    bytecode: &[[F; N_INSTRUCTION_COLUMNS]],
     table_log_n_rows: &BTreeMap<Table, VarCount>,
 ) -> ProofResult<GenericLogupStatements> {
     let tables_heights_sorted = sort_tables_by_height(table_log_n_rows);
 
-    let total_n_vars = compute_total_n_vars(log_memory, &tables_heights_sorted.iter().cloned().collect());
+    let total_n_vars = compute_total_n_vars(
+        log_memory,
+        log2_strict_usize(bytecode.len()),
+        &tables_heights_sorted.iter().cloned().collect(),
+    );
 
     let (sum, point_gkr, numerators_value, denominators_value) = verify_gkr_quotient(verifier_state, total_n_vars)?;
 
@@ -297,22 +384,87 @@ pub fn verify_generic_logup(
             &[value_index, value_memory],
             alphas_eq_poly,
         ));
+    let mut offset = 1 << log_memory;
+
+    // Bytecode
+    let log_bytecode = log2_strict_usize(bytecode.len());
+    let log_bytecode_padded = log2_strict_usize(bytecode.len()).max(tables_heights_sorted[0].1);
+    let bytecode_acc_point = MultilinearPoint(from_end(&point_gkr, log_bytecode).to_vec());
+    let bits = to_big_endian_in_field::<EF>(offset >> log_bytecode, total_n_vars - log_bytecode);
+    let pref = MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(
+        point_gkr[..total_n_vars - log_bytecode].to_vec(),
+    ));
+    let bits_padded = to_big_endian_in_field::<EF>(offset >> log_bytecode_padded, total_n_vars - log_bytecode_padded);
+    let pref_padded = MultilinearPoint(bits_padded).eq_poly_outside(&MultilinearPoint(
+        point_gkr[..total_n_vars - log_bytecode_padded].to_vec(),
+    ));
+
+    let value_bytecode_acc = verifier_state.next_extension_scalar()?;
+    retrieved_numerators_value -= pref * value_bytecode_acc;
+
+    // Bytecode denominator - computed directly by verifier
+    let bytecode_index = mle_of_01234567_etc(&bytecode_acc_point);
+    let bytecode_value: Vec<EF> = (0..N_INSTRUCTION_COLUMNS)
+        .map(|col| {
+            bytecode
+                .iter()
+                .map(|row| row[col])
+                .collect::<Vec<_>>()
+                .evaluate(&bytecode_acc_point)
+        })
+        .collect();
+    retrieved_denominators_value += pref
+        * (c - finger_print(
+            F::from_usize(BYTECODE_TABLE_INDEX),
+            &[vec![bytecode_index], bytecode_value].concat(),
+            alphas_eq_poly,
+        ));
+    // Padding for bytecode
+    retrieved_denominators_value +=
+        pref_padded * mle_of_zeros_then_ones(bytecode.len(), &from_end(&point_gkr, log_bytecode_padded));
+    offset += 1 << log_bytecode_padded;
 
     // ... Rest of the tables:
     let mut points = BTreeMap::new();
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
-    let mut offset = 1 << log_memory;
+
     for &(table, log_n_rows) in &tables_heights_sorted {
         let n_missing_vars = total_n_vars - log_n_rows;
         let inner_point = MultilinearPoint(from_end(&point_gkr, log_n_rows).to_vec());
         let missing_point = MultilinearPoint(point_gkr[..n_missing_vars].to_vec());
 
         points.insert(table, inner_point.clone());
+        let mut table_values = BTreeMap::<ColIndex, EF>::new();
+
+        if table == Table::execution() {
+            // 0] bytecode lookup
+            let eval_on_pc = verifier_state.next_extension_scalar()?;
+            table_values.insert(COL_PC, eval_on_pc);
+
+            let mut instr_evals = Vec::with_capacity(N_INSTRUCTION_COLUMNS);
+            for i in 0..N_INSTRUCTION_COLUMNS {
+                let eval_on_instr_col = verifier_state.next_extension_scalar()?;
+                let global_index = N_RUNTIME_COLUMNS + i;
+                table_values.insert(global_index, eval_on_instr_col);
+                instr_evals.push(eval_on_instr_col);
+            }
+
+            let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
+            let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+            retrieved_numerators_value += pref; // numerator is 1
+            retrieved_denominators_value += pref
+                * (c - finger_print(
+                    F::from_usize(BYTECODE_TABLE_INDEX),
+                    &[vec![eval_on_pc], instr_evals].concat(),
+                    alphas_eq_poly,
+                ));
+
+            offset += 1 << log_n_rows;
+        }
 
         // I] Bus (data flow between tables)
-
         let eval_on_selector = verifier_state.next_extension_scalar()?;
 
         let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
@@ -328,8 +480,6 @@ pub fn verify_generic_logup(
         offset += 1 << log_n_rows;
 
         // II] Lookup into memory
-
-        let mut table_values = BTreeMap::<ColIndex, EF>::new();
         for lookup_f in table.lookups_f() {
             let index_eval = verifier_state.next_extension_scalar()?;
             assert!(!table_values.contains_key(&lookup_f.index));
@@ -342,7 +492,7 @@ pub fn verify_generic_logup(
 
                 let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
                 let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
-                retrieved_numerators_value += pref;
+                retrieved_numerators_value += pref; // numerator is 1
                 retrieved_denominators_value += pref
                     * (c - finger_print(
                         F::from_usize(MEMORY_TABLE_INDEX),
@@ -381,10 +531,10 @@ pub fn verify_generic_logup(
 
     retrieved_denominators_value += mle_of_zeros_then_ones(offset, &point_gkr); // to compensate for the final padding: XYZ111111...1
     if retrieved_numerators_value != numerators_value {
-        return Err(ProofError::InvalidProof);
+        panic!()
     }
     if retrieved_denominators_value != denominators_value {
-        return Err(ProofError::InvalidProof);
+        panic!()
     }
 
     Ok(GenericLogupStatements {
@@ -405,8 +555,10 @@ fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {
     num_cols << log_n_rows
 }
 
-fn compute_total_n_vars(log_memory: usize, tables_heights: &BTreeMap<Table, VarCount>) -> usize {
+fn compute_total_n_vars(log_memory: usize, log_bytecode: usize, tables_heights: &BTreeMap<Table, VarCount>) -> usize {
+    let max_table_height = 1 << tables_heights.values().copied().max().unwrap();
     let total_len = (1 << log_memory)
+        + (1 << log_bytecode).max(max_table_height) + (1 << tables_heights[&Table::execution()]) // bytecode
         + tables_heights
             .iter()
             .map(|(table, log_n_rows)| offset_for_table(table, *log_n_rows))

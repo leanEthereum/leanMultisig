@@ -112,6 +112,8 @@ pub fn prove_execution(
         &logup_alphas_eq_poly,
         &memory,
         &memory_acc,
+        &bytecode.encoded_instructions,
+        &bytecode_acc,
         &traces,
     );
     let mut committed_statements: CommittedStatements = Default::default();
