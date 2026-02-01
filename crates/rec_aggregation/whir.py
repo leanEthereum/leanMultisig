@@ -11,7 +11,6 @@ WHIR_NUM_OODS = WHIR_NUM_OODS_PLACEHOLDER
 WHIR_GRINDING_BITS = WHIR_GRINDING_BITS_PLACEHOLDER
 
 
-
 def whir_open(
     fs: Mut,
     root: Mut,
@@ -152,6 +151,7 @@ def whir_open(
     fs = duplexing(fs)
 
     return fs, folding_randomness_global, s, final_value, end_sum
+
 
 def sumcheck_verify(fs: Mut, n_steps, claimed_sum, degree: Const):
     challenges = Array(n_steps * DIM)

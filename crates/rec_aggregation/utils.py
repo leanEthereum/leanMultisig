@@ -383,7 +383,8 @@ def mle_of_01234567_etc(point, n):
         d = mul_extension_ret(point, c)
         res = add_extension_ret(b, d)
         return res
-    
+
+
 def checked_less_than(a, b):
     res = Array(1)
     hint_less_than(a, b, res)
@@ -393,6 +394,7 @@ def checked_less_than(a, b):
     else:
         assert b <= a
     return res
+
 
 def maximum(a, b):
     is_a_less_than_b = checked_less_than(a, b)

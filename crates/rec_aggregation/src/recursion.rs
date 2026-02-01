@@ -285,7 +285,7 @@ def main():
         all_air_evals_in_zk_dsl(),
     );
     replacements.insert(
-        "NUM_BYTECODE_INSTRUCTIONS_PLACEHOLDER".to_string(),
+        "N_INSTRUCTION_COLUMNS_PLACEHOLDER".to_string(),
         N_INSTRUCTION_COLUMNS.to_string(),
     );
     replacements.insert(
