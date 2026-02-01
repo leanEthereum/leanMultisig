@@ -1,28 +1,8 @@
 use crate::{prove_gkr_quotient, verify_gkr_quotient};
-use lean_vm::BusDirection;
-use lean_vm::BusTable;
-use lean_vm::COL_PC;
-use lean_vm::ColIndex;
-use lean_vm::DIMENSION;
-use lean_vm::EF;
-use lean_vm::F;
-use lean_vm::N_INSTRUCTION_COLUMNS;
-use lean_vm::N_RUNTIME_COLUMNS;
-use lean_vm::Table;
-use lean_vm::TableT;
-use lean_vm::TableTrace;
-use lean_vm::sort_tables_by_height;
+use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
-use utils::BYTECODE_TABLE_INDEX;
-use utils::MEMORY_TABLE_INDEX;
-use utils::VarCount;
-use utils::VecOrSlice;
-use utils::finger_print;
-use utils::from_end;
-use utils::mle_of_01234567_etc;
-use utils::to_big_endian_in_field;
-use utils::transpose_slice_to_basis_coefficients;
+use utils::*;
 
 #[derive(Debug, PartialEq, Hash, Clone)]
 pub struct GenericLogupStatements {
@@ -80,7 +60,7 @@ pub fn prove_generic_logup(
         .for_each(|(denom, (i, &mem_value))| {
             *denom = c - finger_print(
                 F::from_usize(MEMORY_TABLE_INDEX),
-                &[F::from_usize(i), mem_value],
+                &[mem_value, F::from_usize(i)],
                 alphas_eq_poly,
             )
         });
@@ -98,7 +78,7 @@ pub fn prove_generic_logup(
         .for_each(|(denom, (i, &instr))| {
             *denom = c - finger_print(
                 F::from_usize(BYTECODE_TABLE_INDEX),
-                &[vec![F::from_usize(i)], instr.to_vec()].concat(),
+                &[instr.to_vec(), vec![F::from_usize(i)]].concat(),
                 alphas_eq_poly,
             )
         });
@@ -129,10 +109,11 @@ pub fn prove_generic_logup(
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(i, denom)| {
-                    let mut data = vec![pc_column[i]];
+                    let mut data = vec![];
                     for col in &bytecode_columns {
                         data.push(col[i]);
                     }
+                    data.push(pc_column[i]);
                     *denom = c - finger_print(F::from_usize(BYTECODE_TABLE_INDEX), &data, alphas_eq_poly)
                 });
             offset += 1 << log_n_rows;
@@ -204,7 +185,7 @@ pub fn prove_generic_logup(
                             let index = col_index[j] + i_field;
                             let mem_value = col_values[i].as_slice()[j];
                             *denom =
-                                c - finger_print(F::from_usize(MEMORY_TABLE_INDEX), &[index, mem_value], alphas_eq_poly)
+                                c - finger_print(F::from_usize(MEMORY_TABLE_INDEX), &[mem_value, index], alphas_eq_poly)
                         });
                     });
                 offset += col_values.len() << log_n_rows;
@@ -386,7 +367,7 @@ pub fn verify_generic_logup(
     retrieved_denominators_value += pref
         * (c - finger_print(
             F::from_usize(MEMORY_TABLE_INDEX),
-            &[value_index, value_memory],
+            &[value_memory, value_index],
             alphas_eq_poly,
         ));
     let mut offset = 1 << log_memory;
@@ -420,7 +401,7 @@ pub fn verify_generic_logup(
     retrieved_denominators_value += pref
         * (c - finger_print(
             F::from_usize(BYTECODE_TABLE_INDEX),
-            &[vec![bytecode_index], bytecode_value].concat(),
+            &[bytecode_value, vec![bytecode_index]].concat(),
             alphas_eq_poly,
         ));
     // Padding for bytecode
@@ -461,7 +442,7 @@ pub fn verify_generic_logup(
             retrieved_denominators_value += pref
                 * (c - finger_print(
                     F::from_usize(BYTECODE_TABLE_INDEX),
-                    &[vec![eval_on_pc], instr_evals].concat(),
+                    &[instr_evals, vec![eval_on_pc]].concat(),
                     alphas_eq_poly,
                 ));
 
@@ -500,7 +481,7 @@ pub fn verify_generic_logup(
                 retrieved_denominators_value += pref
                     * (c - finger_print(
                         F::from_usize(MEMORY_TABLE_INDEX),
-                        &[index_eval + F::from_usize(i), value_eval],
+                        &[value_eval, index_eval + F::from_usize(i)],
                         alphas_eq_poly,
                     ));
                 offset += 1 << log_n_rows;
@@ -521,7 +502,7 @@ pub fn verify_generic_logup(
                 retrieved_denominators_value += pref
                     * (c - finger_print(
                         F::from_usize(MEMORY_TABLE_INDEX),
-                        &[index_eval + F::from_usize(i), value_eval],
+                        &[value_eval, index_eval + F::from_usize(i)],
                         alphas_eq_poly,
                     ));
                 let global_index = table.n_columns_f_air() + lookup_ef.values * DIMENSION + i;
