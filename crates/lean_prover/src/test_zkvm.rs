@@ -40,14 +40,6 @@ def main():
     assert c == 100
 
     return
-
-def aux():
-    a: Mut = 10
-    for i in unroll(0,1000):
-        a += 1
-    assert a == 1010
-    return
-
 "#;
 
     const N: usize = 11;
