@@ -18,7 +18,7 @@ Documentation: [PDF](minimal_zkVM.pdf)
 The VM design is inspired by the famous [Cairo paper](https://eprint.iacr.org/2021/1063.pdf).
 
 
-### Security
+## Security
 
 123 bits of security. Johnson bound + degree 5 extension of koala-bear -> **no proximity gaps conjecture**. (TODO 128 bits, which requires hash digests bigger than 8 koala-bears).
 
@@ -41,7 +41,7 @@ To reproduce:
 
 (Small detail remaining in recursion: final (multilinear) evaluation of the guest program bytecode, there are multiple ways of handling it... TBD soon)
 
-### Proof size
+## Proof size
 
 WHIR intial rate = 1/4. Proof size ≈ 325 KiB. TODO: WHIR batch opening + [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1  -> close to 256 KiB. (To go below 256 KiB -> rate 1/8 or 1/16 in the final recursion).
 
