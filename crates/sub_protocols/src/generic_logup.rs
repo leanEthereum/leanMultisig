@@ -255,12 +255,15 @@ pub fn prove_generic_logup(
             assert!(!table_values.contains_key(&COL_PC));
             table_values.insert(COL_PC, eval_on_pc);
 
-            for (i, col) in bytecode_columns.iter().enumerate() {
-                let eval_on_instr_col = col.evaluate(&inner_point);
-                prover_state.add_extension_scalar(eval_on_instr_col);
+            let instr_evals = bytecode_columns
+                .iter()
+                .map(|col| col.evaluate(&inner_point))
+                .collect::<Vec<_>>();
+            prover_state.add_extension_scalars(&instr_evals);
+            for (i, eval_on_instr_col) in instr_evals.iter().enumerate() {
                 let global_index = N_RUNTIME_COLUMNS + i;
                 assert!(!table_values.contains_key(&global_index));
-                table_values.insert(global_index, eval_on_instr_col);
+                table_values.insert(global_index, *eval_on_instr_col);
             }
 
             offset += 1 << log_n_rows;
@@ -433,12 +436,10 @@ pub fn verify_generic_logup(
             let eval_on_pc = verifier_state.next_extension_scalar()?;
             table_values.insert(COL_PC, eval_on_pc);
 
-            let mut instr_evals = Vec::with_capacity(N_INSTRUCTION_COLUMNS);
-            for i in 0..N_INSTRUCTION_COLUMNS {
-                let eval_on_instr_col = verifier_state.next_extension_scalar()?;
+            let instr_evals = verifier_state.next_extension_scalars_vec(N_INSTRUCTION_COLUMNS)?;
+            for (i, eval_on_instr_col) in instr_evals.iter().enumerate() {
                 let global_index = N_RUNTIME_COLUMNS + i;
-                table_values.insert(global_index, eval_on_instr_col);
-                instr_evals.push(eval_on_instr_col);
+                table_values.insert(global_index, *eval_on_instr_col);
             }
 
             let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
