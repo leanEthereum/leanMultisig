@@ -1,14 +1,12 @@
 use std::collections::BTreeMap;
 
-use crate::common::*;
 use crate::*;
 use air::prove_air;
 use lean_vm::*;
 
-use p3_util::log2_ceil_usize;
 use sub_protocols::*;
 use tracing::info_span;
-use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
+use utils::build_prover_state;
 use xmss::Poseidon16History;
 
 #[derive(Debug)]
@@ -23,7 +21,7 @@ pub fn prove_execution(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
     poseidons_16_precomputed: &Poseidon16History,
-    params: &SnarkParams,
+    whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> ExecutionProof {
     let mut exec_summary = String::new();
@@ -83,7 +81,7 @@ pub fn prove_execution(
     });
 
     // 1st Commitment
-    let packed_pcs_witness_base = packed_pcs_commit(&mut prover_state, &params.first_whir, &memory, &acc, &traces);
+    let packed_pcs_witness_base = packed_pcs_commit(&mut prover_state, &whir_config, &memory, &acc, &traces);
     let first_whir_n_vars = packed_pcs_witness_base.packed_polynomial.by_ref().n_vars();
 
     // logup (GKR)
@@ -125,48 +123,6 @@ pub fn prove_execution(
         committed_statements.get_mut(table).unwrap().extend(this_air_claims);
     }
 
-    let bytecode_compression_challenges =
-        MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
-
-    let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
-
-    let bytecode_air_entry = &mut committed_statements.get_mut(&Table::execution()).unwrap()[2];
-    let bytecode_air_point = bytecode_air_entry.0.clone();
-    let mut bytecode_air_values = vec![];
-    for bytecode_col_index in N_COMMITTED_EXEC_COLUMNS..N_COMMITTED_EXEC_COLUMNS + N_INSTRUCTION_COLUMNS {
-        bytecode_air_values.push(bytecode_air_entry.1.remove(&bytecode_col_index).unwrap());
-    }
-
-    let bytecode_lookup_claim = Evaluation::new(
-        bytecode_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(&bytecode_air_values).evaluate(&bytecode_compression_challenges),
-    );
-    let bytecode_poly_eq_point = eval_eq(&bytecode_lookup_claim.point);
-    let bytecode_pushforward = MleOwned::Extension(compute_pushforward(
-        &traces[&Table::execution()].base[COL_PC],
-        folded_bytecode.len(),
-        &bytecode_poly_eq_point,
-    ));
-
-    let bytecode_pushforward_commitment =
-        WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len()))
-            .commit(&mut prover_state, &bytecode_pushforward);
-
-    let bytecode_logup_star_statements = prove_logup_star(
-        &mut prover_state,
-        &MleRef::Extension(&folded_bytecode),
-        &traces[&Table::execution()].base[COL_PC],
-        bytecode_lookup_claim.value,
-        &bytecode_poly_eq_point,
-        &bytecode_pushforward.by_ref(),
-        Some(bytecode.instructions.len()),
-    );
-
-    committed_statements.get_mut(&Table::execution()).unwrap().push((
-        bytecode_logup_star_statements.on_indexes.point.clone(),
-        BTreeMap::from_iter([(COL_PC, bytecode_logup_star_statements.on_indexes.value)]),
-    ));
-
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
     prover_state.duplexing();
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
@@ -197,7 +153,7 @@ pub fn prove_execution(
     );
 
     WhirConfig::new(
-        &params.first_whir,
+        &whir_config,
         packed_pcs_witness_base.packed_polynomial.by_ref().n_vars(),
     )
     .prove(
@@ -207,16 +163,6 @@ pub fn prove_execution(
         &packed_pcs_witness_base.packed_polynomial.by_ref(),
     );
 
-    WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len())).prove(
-        &mut prover_state,
-        bytecode_logup_star_statements
-            .on_pushforward
-            .into_iter()
-            .map(|smt| SparseStatement::dense(smt.point, smt.value))
-            .collect::<Vec<_>>(),
-        bytecode_pushforward_commitment,
-        &bytecode_pushforward.by_ref(),
-    );
     let proof_size_fe = prover_state.pruned_proof().proof_size_fe();
     ExecutionProof {
         proof: prover_state.raw_proof(),

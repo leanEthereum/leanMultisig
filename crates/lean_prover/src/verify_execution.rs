@@ -1,11 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::*;
-use crate::{SnarkParams, common::*};
 use air::verify_air;
 use lean_vm::*;
-use p3_util::{log2_ceil_usize, log2_strict_usize};
-use sub_protocols::verify_logup_star;
+use p3_util::log2_strict_usize;
 use sub_protocols::*;
 use utils::ToUsize;
 
@@ -18,10 +16,10 @@ pub struct ProofVerificationDetails {
 }
 
 pub fn verify_execution(
-    bytecode: &Bytecode,
+    _bytecode: &Bytecode,
     public_input: &[F],
     proof: Vec<F>,
-    params: &SnarkParams,
+    whir_config: &WhirConfigBuilder,
 ) -> Result<ProofVerificationDetails, ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
     verifier_state.duplexing();
@@ -59,7 +57,7 @@ pub fn verify_execution(
     }
 
     let parsed_commitment_base =
-        packed_pcs_parse_commitment(&params.first_whir, &mut verifier_state, log_memory, &table_n_vars)?;
+        packed_pcs_parse_commitment(&whir_config, &mut verifier_state, log_memory, &table_n_vars)?;
 
     let logup_c = verifier_state.sample();
     verifier_state.duplexing();
@@ -99,43 +97,6 @@ pub fn verify_execution(
         committed_statements.get_mut(table).unwrap().extend(this_air_claims);
     }
 
-    let bytecode_compression_challenges =
-        MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
-
-    let bytecode_air_entry = &mut committed_statements.get_mut(&Table::execution()).unwrap()[2];
-    let bytecode_air_point = bytecode_air_entry.0.clone();
-    let mut bytecode_air_values = vec![];
-    for bytecode_col_index in N_COMMITTED_EXEC_COLUMNS..N_COMMITTED_EXEC_COLUMNS + N_INSTRUCTION_COLUMNS {
-        bytecode_air_values.push(bytecode_air_entry.1.remove(&bytecode_col_index).unwrap());
-    }
-
-    let bytecode_lookup_claim = Evaluation::new(
-        bytecode_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(&bytecode_air_values).evaluate(&bytecode_compression_challenges),
-    );
-
-    let bytecode_pushforward_parsed_commitment =
-        WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len()))
-            .parse_commitment::<EF>(&mut verifier_state)?;
-
-    let bytecode_logup_star_statements = verify_logup_star(
-        &mut verifier_state,
-        log2_ceil_usize(bytecode.instructions.len()),
-        table_n_vars[&Table::execution()],
-        bytecode_lookup_claim,
-    )?;
-    let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
-    if folded_bytecode.evaluate(&bytecode_logup_star_statements.on_table.point)
-        != bytecode_logup_star_statements.on_table.value
-    {
-        return Err(ProofError::InvalidProof);
-    }
-
-    committed_statements.get_mut(&Table::execution()).unwrap().push((
-        bytecode_logup_star_statements.on_indexes.point.clone(),
-        BTreeMap::from_iter([(COL_PC, bytecode_logup_star_statements.on_indexes.value)]),
-    ));
-
     let public_memory_random_point =
         MultilinearPoint(verifier_state.sample_vec(log2_strict_usize(public_memory.len())));
     verifier_state.duplexing();
@@ -165,20 +126,10 @@ pub fn verify_execution(
         &committed_statements,
     );
     let total_whir_statements_base = global_statements_base.iter().map(|s| s.values.len()).sum();
-    WhirConfig::new(&params.first_whir, parsed_commitment_base.num_variables).verify(
+    WhirConfig::new(&whir_config, parsed_commitment_base.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment_base,
         global_statements_base,
-    )?;
-
-    WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len())).verify(
-        &mut verifier_state,
-        &bytecode_pushforward_parsed_commitment,
-        bytecode_logup_star_statements
-            .on_pushforward
-            .into_iter()
-            .map(|smt| SparseStatement::dense(smt.point, smt.value))
-            .collect::<Vec<_>>(),
     )?;
 
     Ok(ProofVerificationDetails {

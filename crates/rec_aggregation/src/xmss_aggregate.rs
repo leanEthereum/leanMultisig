@@ -1,5 +1,5 @@
 use lean_compiler::*;
-use lean_prover::{SnarkParams, prove_execution::prove_execution, verify_execution::verify_execution};
+use lean_prover::{default_whir_config, prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -140,7 +140,7 @@ fn xmss_aggregate_signatures_helper(
         program,
         (&public_input, &private_input),
         &poseidons_16_precomputed,
-        &SnarkParams::default(),
+        &default_whir_config(),
         false,
     );
 
@@ -164,7 +164,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
 
-    verify_execution(program, &public_input, proof, &SnarkParams::default()).map(|_| ())
+    verify_execution(program, &public_input, proof, &default_whir_config()).map(|_| ())
 }
 
 #[instrument(skip_all)]

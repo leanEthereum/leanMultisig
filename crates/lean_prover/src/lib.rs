@@ -26,35 +26,14 @@ pub const GRINDING_BITS: usize = 16;
 
 pub const STARTING_LOG_INV_RATE_BASE: usize = 2;
 
-pub const STARTING_LOG_INV_RATE_EXTENSION: usize = 3;
-
-#[derive(Debug)]
-pub struct SnarkParams {
-    pub first_whir: WhirConfigBuilder,
-    pub second_whir: WhirConfigBuilder,
-}
-
-impl Default for SnarkParams {
-    fn default() -> Self {
-        Self {
-            first_whir: whir_config_builder(STARTING_LOG_INV_RATE_BASE, 7, 5),
-            second_whir: whir_config_builder(STARTING_LOG_INV_RATE_EXTENSION, 4, 1),
-        }
-    }
-}
-
-pub fn whir_config_builder(
-    starting_log_inv_rate: usize,
-    first_folding_factor: usize,
-    rs_domain_initial_reduction_factor: usize,
-) -> WhirConfigBuilder {
+pub fn default_whir_config() -> WhirConfigBuilder {
     WhirConfigBuilder {
-        folding_factor: FoldingFactor::new(first_folding_factor, 4),
+        folding_factor: FoldingFactor::new(7, 4),
         soundness_type: SECURITY_REGIME,
         pow_bits: GRINDING_BITS,
         max_num_variables_to_send_coeffs: 6,
-        rs_domain_initial_reduction_factor,
+        rs_domain_initial_reduction_factor: 5,
         security_level: SECURITY_BITS,
-        starting_log_inv_rate,
+        starting_log_inv_rate: STARTING_LOG_INV_RATE_BASE,
     }
 }

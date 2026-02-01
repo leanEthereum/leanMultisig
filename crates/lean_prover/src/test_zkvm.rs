@@ -1,4 +1,4 @@
-use crate::{prove_execution::prove_execution, verify_execution::verify_execution};
+use crate::{default_whir_config, prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_compiler::*;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
@@ -158,11 +158,11 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
         &bytecode,
         (public_input, private_input),
         &vec![],
-        &Default::default(),
+        &default_whir_config(),
         false,
     );
     let proof_time = time.elapsed();
-    verify_execution(&bytecode, public_input, proof.proof.clone(), &Default::default()).unwrap();
+    verify_execution(&bytecode, public_input, proof.proof.clone(), &default_whir_config()).unwrap();
     println!("{}", proof.exec_summary);
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 
@@ -177,7 +177,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
             }
             let mut fuzzed_proof = proof.proof.clone();
             fuzzed_proof[i] += F::ONE;
-            let verify_result = verify_execution(&bytecode, public_input, fuzzed_proof, &Default::default());
+            let verify_result = verify_execution(&bytecode, public_input, fuzzed_proof, &default_whir_config());
             assert!(verify_result.is_err(), "Fuzzing failed at index {}", i);
         }
     }

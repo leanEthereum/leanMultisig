@@ -239,7 +239,7 @@ pub fn prove_generic_logup(
             {
                 let value_eval = col.evaluate(&inner_point);
                 prover_state.add_extension_scalar(value_eval);
-                let global_index = table.n_commited_columns_f() + lookup_ef.values * DIMENSION + i;
+                let global_index = table.n_columns_f_air() + lookup_ef.values * DIMENSION + i;
                 assert!(!table_values.contains_key(&global_index));
                 table_values.insert(global_index, value_eval);
             }
@@ -375,7 +375,7 @@ pub fn verify_generic_logup(
                         &[index_eval + F::from_usize(i), value_eval],
                         &alpha_powers,
                     ));
-                let global_index = table.n_commited_columns_f() + lookup_ef.values * DIMENSION + i;
+                let global_index = table.n_columns_f_air() + lookup_ef.values * DIMENSION + i;
                 assert!(!table_values.contains_key(&global_index));
                 table_values.insert(global_index, value_eval);
                 offset += 1 << log_n_rows;
