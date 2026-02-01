@@ -17,15 +17,13 @@ pub struct GenericLogupStatements {
     pub columns_values: BTreeMap<Table, BTreeMap<ColIndex, EF>>,
     // Used in recursion
     pub total_gkr_n_vars: usize,
-    pub bytecode_point: MultilinearPoint<EF>,
-    pub bytecode_value: EF,
+    pub bytecode_evaluation: Option<Evaluation<EF>>,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove_generic_logup(
     prover_state: &mut impl FSProver<EF>,
     c: EF,
-    alphas: &[EF],
     alphas_eq_poly: &[EF],
     memory: &[F],
     memory_acc: &[F],
@@ -225,8 +223,7 @@ pub fn prove_generic_logup(
     let value_memory = memory.evaluate(&memory_and_acc_point);
     prover_state.add_extension_scalar(value_memory);
 
-    let bytecode_and_acc_point =
-        MultilinearPoint(from_end(&claim_point_gkr, log_bytecode).to_vec());
+    let bytecode_and_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log_bytecode).to_vec());
     let value_bytecode_acc = bytecode_acc.evaluate(&bytecode_and_acc_point);
     prover_state.add_extension_scalar(value_bytecode_acc);
 
@@ -320,12 +317,6 @@ pub fn prove_generic_logup(
         offset += offset_for_table(table, log_n_rows);
     }
 
-    // recursion purpose
-    let mut bytecode_point = bytecode_and_acc_point.0.clone();
-    bytecode_point.extend(from_end(alphas, log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
-    let bytecode_point = MultilinearPoint(bytecode_point);
-    let bytecode_value = bytecode_multilinear.evaluate(&bytecode_point);
-
     GenericLogupStatements {
         memory_and_acc_point,
         value_memory,
@@ -337,8 +328,7 @@ pub fn prove_generic_logup(
         points,
         columns_values,
         total_gkr_n_vars,
-        bytecode_point,
-        bytecode_value,
+        bytecode_evaluation: None,
     }
 }
 
@@ -548,8 +538,7 @@ pub fn verify_generic_logup(
         points,
         columns_values,
         total_gkr_n_vars,
-        bytecode_point,
-        bytecode_value,
+        bytecode_evaluation: Some(Evaluation::new(bytecode_point, bytecode_value)),
     })
 }
 

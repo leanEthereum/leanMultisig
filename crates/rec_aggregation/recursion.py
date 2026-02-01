@@ -110,6 +110,8 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     log_bytecode_padded = maximum(log_bytecode, log_n_cycles)
     bytecode_multilinear_location_prefix = multilinear_location_prefix(offset / log_bytecode, N_VARS_LOGUP_GKR - log_bytecode, point_gkr)
     bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(offset / log_bytecode_padded, N_VARS_LOGUP_GKR - log_bytecode_padded, point_gkr)
+    NONRESERVED_PROGRAM_INPUT_START_ = NONRESERVED_PROGRAM_INPUT_START
+
 
     bus_numerators_values = DynArray([])
     bus_denominators_values = DynArray([])

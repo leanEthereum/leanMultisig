@@ -299,7 +299,16 @@ def main():
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
 
-    let inner_public_input = vec![];
+    let mut inner_public_input = vec![F::from_usize(verif_details.bytecode_evaluation.point.num_variables())];
+    inner_public_input.extend(
+        verif_details
+            .bytecode_evaluation
+            .point
+            .0
+            .iter()
+            .flat_map(|c| c.as_basis_coefficients_slice()),
+    );
+    inner_public_input.extend(verif_details.bytecode_evaluation.value.as_basis_coefficients_slice());
     let outer_public_memory = build_public_memory(&outer_public_input);
     let mut inner_private_input = vec![
         F::from_usize(proof_to_prove.proof.len()),
@@ -372,7 +381,10 @@ pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<E
         format!("WHIR_MERKLE_HEIGHTS{}", end),
         format!("[{}]", merkle_heights.join(", ")),
     );
-    replacements.insert(format!("WHIR_NUM_QUERIES{}", end), format!("[{}]", num_queries.join(", ")));
+    replacements.insert(
+        format!("WHIR_NUM_QUERIES{}", end),
+        format!("[{}]", num_queries.join(", ")),
+    );
     replacements.insert(
         format!("WHIR_NUM_OOD_COMMIT{}", end),
         whir_config.committment_ood_samples.to_string(),

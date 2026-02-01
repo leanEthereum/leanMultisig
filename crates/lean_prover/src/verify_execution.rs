@@ -13,6 +13,7 @@ pub struct ProofVerificationDetails {
     pub table_n_vars: BTreeMap<Table, VarCount>,
     pub first_quotient_gkr_n_vars: usize,
     pub total_whir_statements_base: usize,
+    pub bytecode_evaluation: Evaluation<EF>,
 }
 
 pub fn verify_execution(
@@ -160,6 +161,7 @@ pub fn verify_execution(
         table_n_vars,
         first_quotient_gkr_n_vars: logup_statements.total_gkr_n_vars,
         total_whir_statements_base,
+        bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
     })
 }
 
