@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use utils::FIRST_NORMAL_TABLE_INDEX;
 
 use crate::*;
 
@@ -48,7 +47,7 @@ impl Table {
         PF::from_usize(self.index())
     }
     pub const fn index(&self) -> usize {
-        unsafe { *(self as *const Self as *const usize) + FIRST_NORMAL_TABLE_INDEX }
+        unsafe { *(self as *const Self as *const usize) }
     }
 }
 
@@ -139,9 +138,9 @@ mod tests {
     #[test]
     fn test_table_indices() {
         for (i, table) in ALL_TABLES.iter().enumerate() {
+            assert_eq!(table.index(), i);
             assert_ne!(table.index(), MEMORY_TABLE_INDEX);
             assert_ne!(table.index(), BYTECODE_TABLE_INDEX);
-            assert_eq!(table.index(), i + FIRST_NORMAL_TABLE_INDEX);
         }
     }
 }
