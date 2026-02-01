@@ -9,7 +9,10 @@ MAX_LOG_MEMORY_SIZE = MAX_LOG_MEMORY_SIZE_PLACEHOLDER
 N_VARS_LOGUP_GKR = N_VARS_LOGUP_GKR_PLACEHOLDER
 MAX_BUS_WIDTH = MAX_BUS_WIDTH_PLACEHOLDER
 MAX_NUM_AIR_CONSTRAINTS = MAX_NUM_AIR_CONSTRAINTS_PLACEHOLDER
+
 MEMORY_TABLE_INDEX = MEMORY_TABLE_INDEX_PLACEHOLDER
+BYTECODE_TABLE_INDEX = BYTECODE_TABLE_INDEX_PLACEHOLDER
+EXECUTION_TABLE_INDEX = EXECUTION_TABLE_INDEX_PLACEHOLDER
 
 LOOKUPS_F_INDEXES = LOOKUPS_F_INDEXES_PLACEHOLDER  # [[_; ?]; N_TABLES]
 LOOKUPS_F_VALUES = LOOKUPS_F_VALUES_PLACEHOLDER  # [[[_; ?]; ?]; N_TABLES]
@@ -22,7 +25,6 @@ NUM_COLS_EF_AIR = NUM_COLS_EF_AIR_PLACEHOLDER
 
 NUM_COLS_F_COMMITTED = NUM_COLS_F_COMMITTED_PLACEHOLDER
 
-EXECUTION_TABLE_INDEX = EXECUTION_TABLE_INDEX_PLACEHOLDER
 AIR_DEGREES = AIR_DEGREES_PLACEHOLDER  # [_; N_TABLES]
 N_AIR_COLUMNS_F = N_AIR_COLUMNS_F_PLACEHOLDER  # [_; N_TABLES]
 N_AIR_COLUMNS_EF = N_AIR_COLUMNS_EF_PLACEHOLDER  # [_; N_TABLES]
@@ -106,7 +108,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     offset: Mut = powers_of_two(log_memory)
 
     log_bytecode = log2_ceil(GUEST_BYTECODE_LEN)
-    log_n_cycles = table_dims[EXECUTION_TABLE_INDEX - 1]
+    log_n_cycles = table_dims[EXECUTION_TABLE_INDEX]
     log_bytecode_padded = maximum(log_bytecode, log_n_cycles)
     bytecode_and_acc_point = point_gkr + (N_VARS_LOGUP_GKR - log_bytecode) * DIM
     bytecode_multilinear_location_prefix = multilinear_location_prefix(
@@ -296,7 +298,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
         total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index]
 
         bus_final_value: Mut = bus_numerator_value
-        if table_index != EXECUTION_TABLE_INDEX - 1:  # -1 because shift due to memory
+        if table_index != EXECUTION_TABLE_INDEX:
             bus_final_value = opposite_extension_ret(bus_final_value)
         bus_final_value = add_extension_ret(
             bus_final_value,
@@ -416,14 +418,14 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     for i in unroll(0, N_INSTRUCTION_COLUMNS):
         col = N_COMMITTED_EXEC_COLUMNS + i
         copy_5(
-            pcs_values[EXECUTION_TABLE_INDEX - 1][2][col][0],
+            pcs_values[EXECUTION_TABLE_INDEX][2][col][0],
             bytecode_air_values + i * DIM,
         )
-        pcs_values[EXECUTION_TABLE_INDEX - 1][2][col].pop()
+        pcs_values[EXECUTION_TABLE_INDEX][2][col].pop()
     for i in unroll(N_INSTRUCTION_COLUMNS, 2**log_num_instrs):
         set_to_5_zeros(bytecode_air_values + i * DIM)
 
-    bytecode_air_point = pcs_points[EXECUTION_TABLE_INDEX - 1][2]
+    bytecode_air_point = pcs_points[EXECUTION_TABLE_INDEX][2]
     bytecode_lookup_claim = dot_product_ret(
         bytecode_air_values,
         poly_eq_extension(bytecode_compression_challenges, log_num_instrs),
@@ -471,13 +473,13 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
 
     # TODO evaluate the folded bytecode
 
-    pcs_points[EXECUTION_TABLE_INDEX - 1].push(ls_on_indexes_point)
-    pcs_values[EXECUTION_TABLE_INDEX - 1].push(DynArray([]))
-    last_len = len(pcs_values[EXECUTION_TABLE_INDEX - 1]) - 1
-    total_exec_cols = NUM_COLS_F_AIR[EXECUTION_TABLE_INDEX - 1] + DIM * NUM_COLS_EF_AIR[EXECUTION_TABLE_INDEX - 1]
+    pcs_points[EXECUTION_TABLE_INDEX].push(ls_on_indexes_point)
+    pcs_values[EXECUTION_TABLE_INDEX].push(DynArray([]))
+    last_len = len(pcs_values[EXECUTION_TABLE_INDEX]) - 1
+    total_exec_cols = NUM_COLS_F_AIR[EXECUTION_TABLE_INDEX] + DIM * NUM_COLS_EF_AIR[EXECUTION_TABLE_INDEX]
     for _ in unroll(0, total_exec_cols):
-        pcs_values[EXECUTION_TABLE_INDEX - 1][last_len].push(DynArray([]))
-    pcs_values[EXECUTION_TABLE_INDEX - 1][last_len][COL_PC].push(ls_on_indexes_eval)
+        pcs_values[EXECUTION_TABLE_INDEX][last_len].push(DynArray([]))
+    pcs_values[EXECUTION_TABLE_INDEX][last_len][COL_PC].push(ls_on_indexes_eval)
 
     # verify the outer public memory is well constructed (with the conventions)
     for i in unroll(0, next_multiple_of(NONRESERVED_PROGRAM_INPUT_START, DIM) / DIM):
@@ -617,7 +619,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
                     )
                     curr_randomness += DIM
         num_committed_cols: Imu
-        if table_index == EXECUTION_TABLE_INDEX - 1:
+        if table_index == EXECUTION_TABLE_INDEX:
             num_committed_cols = N_COMMITTED_EXEC_COLUMNS
         else:
             num_committed_cols = total_num_cols

@@ -12,7 +12,7 @@ use multilinear_toolkit::prelude::symbolic::{
     SymbolicExpression, SymbolicOperation, get_symbolic_constraints_and_bus_data_values,
 };
 use multilinear_toolkit::prelude::*;
-use utils::{Counter, MEMORY_TABLE_INDEX};
+use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 
 pub fn run_recursion_benchmark(count: usize, tracing: bool) {
     if tracing {
@@ -141,6 +141,10 @@ def main():
     replacements.insert(
         "MEMORY_TABLE_INDEX_PLACEHOLDER".to_string(),
         MEMORY_TABLE_INDEX.to_string(),
+    );
+    replacements.insert(
+        "BYTECODE_TABLE_INDEX_PLACEHOLDER".to_string(),
+        BYTECODE_TABLE_INDEX.to_string(),
     );
     replacements.insert(
         "GUEST_BYTECODE_LEN_PLACEHOLDER".to_string(),
