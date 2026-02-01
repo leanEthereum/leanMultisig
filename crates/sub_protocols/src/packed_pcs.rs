@@ -18,7 +18,7 @@ pub fn packed_pcs_global_statements(
     packed_n_vars: usize,
     memory_n_vars: usize,
     bytecode_n_vars: usize,
-    memory_acc_statements: Vec<SparseStatement<EF>>,
+    previous_statements: Vec<SparseStatement<EF>>,
     tables_heights: &BTreeMap<Table, VarCount>,
     committed_statements: &CommittedStatements,
 ) -> Vec<SparseStatement<EF>> {
@@ -26,7 +26,7 @@ pub fn packed_pcs_global_statements(
 
     let tables_heights_sorted = sort_tables_by_height(tables_heights);
 
-    let mut global_statements = memory_acc_statements;
+    let mut global_statements = previous_statements;
     let mut offset = 2 << memory_n_vars; // memory + memory_acc
 
     let max_table_n_vars = tables_heights_sorted[0].1;
@@ -82,10 +82,10 @@ pub fn packed_pcs_commit(
     let mut packed_polynomial = F::zero_vec(1 << packed_n_vars); // TODO avoid cloning all witness data
     packed_polynomial[..memory.len()].copy_from_slice(memory);
     let mut offset = memory.len();
-    packed_polynomial[offset..offset + memory_acc.len()].copy_from_slice(memory_acc);
+    packed_polynomial[offset..][..memory_acc.len()].copy_from_slice(memory_acc);
     offset += memory_acc.len();
 
-    packed_polynomial[offset..offset + bytecode_acc.len()].copy_from_slice(bytecode_acc);
+    packed_polynomial[offset..][..bytecode_acc.len()].copy_from_slice(bytecode_acc);
     let largest_table_height = 1 << tables_heights_sorted[0].1;
     offset += largest_table_height.max(bytecode_acc.len()); // we may pad bytecode_acc to match largest table height
 
@@ -93,14 +93,14 @@ pub fn packed_pcs_commit(
         let n_rows = 1 << *log_n_rows;
         for col_index_f in 0..table.n_columns_f_air() {
             let col = &traces[table].base[col_index_f];
-            packed_polynomial[offset..offset + n_rows].copy_from_slice(&col[..n_rows]);
+            packed_polynomial[offset..][..n_rows].copy_from_slice(&col[..n_rows]);
             offset += n_rows;
         }
         for col_index_ef in 0..table.n_columns_ef_air() {
             let col = &traces[table].ext[col_index_ef];
             let transposed = transpose_slice_to_basis_coefficients(col);
             for basis_col in transposed {
-                packed_polynomial[offset..offset + n_rows].copy_from_slice(&basis_col);
+                packed_polynomial[offset..][..n_rows].copy_from_slice(&basis_col);
                 offset += n_rows;
             }
         }

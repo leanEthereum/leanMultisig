@@ -149,7 +149,7 @@ pub fn compile_to_low_level_bytecode(
         .map(|instr| field_representation(instr))
         .collect::<Vec<_>>();
     encoded_instructions.resize(instructions.len().next_power_of_two(), [F::ZERO; N_INSTRUCTION_COLUMNS]);
-    
+
     Ok(Bytecode {
         instructions,
         encoded_instructions,

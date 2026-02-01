@@ -37,6 +37,7 @@ But we can get the bost of both worlds (suggested by Lev, TODO implement):
 - Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed checked (Lev)
 - Double Check AIR constraints, logup overflows etc
 - Formal Verification
+- Padd with noop cycles to always ensure memory size >= bytecode size (liveness), and ensure this condition is checked by the verifier (soundness)
 
 # Ideas
 

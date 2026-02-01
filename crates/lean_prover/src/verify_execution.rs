@@ -46,7 +46,7 @@ pub fn verify_execution(
         }
     }
     // check memory is bigger than any other table
-    if log_memory < *table_n_vars.values().max().unwrap() {
+    if log_memory < (*table_n_vars.values().max().unwrap()).max(bytecode.log_size()) {
         return Err(ProofError::InvalidProof);
     }
 
@@ -56,7 +56,7 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let parsed_commitment_base = packed_pcs_parse_commitment(
+    let parsed_commitment = packed_pcs_parse_commitment(
         &whir_config,
         &mut verifier_state,
         log_memory,
@@ -115,34 +115,42 @@ pub fn verify_execution(
     verifier_state.duplexing();
     let public_memory_eval = public_memory.evaluate(&public_memory_random_point);
 
-    let memory_acc_statements = vec![
+    let previous_statements = vec![
         SparseStatement::new(
-            parsed_commitment_base.num_variables,
-            logup_statements.memory_acc_point,
+            parsed_commitment.num_variables,
+            logup_statements.memory_and_acc_point,
             vec![
                 SparseValue::new(0, logup_statements.value_memory),
-                SparseValue::new(1, logup_statements.value_acc),
+                SparseValue::new(1, logup_statements.value_memory_acc),
             ],
         ),
         SparseStatement::new(
-            parsed_commitment_base.num_variables,
+            parsed_commitment.num_variables,
             public_memory_random_point,
             vec![SparseValue::new(0, public_memory_eval)],
+        ),
+        SparseStatement::new(
+            parsed_commitment.num_variables,
+            logup_statements.bytecode_and_acc_point,
+            vec![SparseValue::new(
+                (2 << log_memory) >> bytecode.log_size(),
+                logup_statements.value_bytecode_acc,
+            )],
         ),
     ];
 
     let global_statements_base = packed_pcs_global_statements(
-        parsed_commitment_base.num_variables,
+        parsed_commitment.num_variables,
         log_memory,
         bytecode.log_size(),
-        memory_acc_statements,
+        previous_statements,
         &table_n_vars,
         &committed_statements,
     );
     let total_whir_statements_base = global_statements_base.iter().map(|s| s.values.len()).sum();
-    WhirConfig::new(&whir_config, parsed_commitment_base.num_variables).verify(
+    WhirConfig::new(&whir_config, parsed_commitment.num_variables).verify(
         &mut verifier_state,
-        &parsed_commitment_base,
+        &parsed_commitment,
         global_statements_base,
     )?;
 

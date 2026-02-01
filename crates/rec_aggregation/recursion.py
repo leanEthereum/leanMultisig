@@ -215,7 +215,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     copy_5(retrieved_numerators_value, numerators_value)
     copy_5(retrieved_denominators_value, denominators_value)
 
-    memory_acc_point = point_gkr + (N_VARS_FIRST_GKR - log_memory) * DIM
+    memory_and_acc_point = point_gkr + (N_VARS_FIRST_GKR - log_memory) * DIM
 
     # END OF GENERIC LOGUP
 
@@ -481,22 +481,22 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
 
     curr_randomness = combination_randomness_powers + NUM_OOD_COMMIT_BASE * DIM
 
-    eq_memory_acc_point = eq_mle_extension(
+    eq_memory_and_acc_point = eq_mle_extension(
         folding_randomness_global + (N_VARS_BASE - log_memory) * DIM,
-        memory_acc_point,
+        memory_and_acc_point,
         log_memory,
     )
     prefix_mem = multilinear_location_prefix(0, N_VARS_BASE - log_memory, folding_randomness_global)
     s = add_extension_ret(
         s,
-        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_mem), eq_memory_acc_point),
+        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_mem), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 
     prefix_acc = multilinear_location_prefix(1, N_VARS_BASE - log_memory, folding_randomness_global)
     s = add_extension_ret(
         s,
-        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc), eq_memory_acc_point),
+        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 

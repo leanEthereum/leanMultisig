@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter};
 pub struct Bytecode {
     pub instructions: Vec<Instruction>,
     pub encoded_instructions: Vec<[F; N_INSTRUCTION_COLUMNS]>, // padded to power of two length (with zero rows)
-    pub hints: BTreeMap<CodeAddress, Vec<Hint>>, // pc -> hints
+    pub hints: BTreeMap<CodeAddress, Vec<Hint>>,               // pc -> hints
     pub starting_frame_memory: usize,
     // debug
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,

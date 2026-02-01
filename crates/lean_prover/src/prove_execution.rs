@@ -89,7 +89,7 @@ pub fn prove_execution(
     });
 
     // 1st Commitment
-    let packed_pcs_witness_base = packed_pcs_commit(
+    let packed_pcs_witness = packed_pcs_commit(
         &mut prover_state,
         &whir_config,
         &memory,
@@ -97,7 +97,7 @@ pub fn prove_execution(
         &bytecode_acc,
         &traces,
     );
-    let first_whir_n_vars = packed_pcs_witness_base.packed_polynomial.by_ref().n_vars();
+    let first_whir_n_vars = packed_pcs_witness.packed_polynomial.by_ref().n_vars();
 
     // logup (GKR)
     let logup_c = prover_state.sample();
@@ -152,41 +152,45 @@ pub fn prove_execution(
     prover_state.duplexing();
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
 
-    let memory_acc_statements = vec![
+    let previous_statements = vec![
         SparseStatement::new(
-            packed_pcs_witness_base.packed_n_vars,
-            logup_statements.memory_acc_point,
+            packed_pcs_witness.packed_n_vars,
+            logup_statements.memory_and_acc_point,
             vec![
                 SparseValue::new(0, logup_statements.value_memory),
-                SparseValue::new(1, logup_statements.value_acc),
+                SparseValue::new(1, logup_statements.value_memory_acc),
             ],
         ),
         SparseStatement::new(
-            packed_pcs_witness_base.packed_n_vars,
+            packed_pcs_witness.packed_n_vars,
             public_memory_random_point,
             vec![SparseValue::new(0, public_memory_eval)],
+        ),
+        SparseStatement::new(
+            packed_pcs_witness.packed_n_vars,
+            logup_statements.bytecode_and_acc_point,
+            vec![SparseValue::new(
+                (2 * memory.len()) >> bytecode.log_size(),
+                logup_statements.value_bytecode_acc,
+            )],
         ),
     ];
 
     let table_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let global_statements_base = packed_pcs_global_statements(
-        packed_pcs_witness_base.packed_n_vars,
+        packed_pcs_witness.packed_n_vars,
         log2_strict_usize(memory.len()),
         bytecode.log_size(),
-        memory_acc_statements,
+        previous_statements,
         &table_heights,
         &committed_statements,
     );
 
-    WhirConfig::new(
-        &whir_config,
-        packed_pcs_witness_base.packed_polynomial.by_ref().n_vars(),
-    )
-    .prove(
+    WhirConfig::new(&whir_config, packed_pcs_witness.packed_polynomial.by_ref().n_vars()).prove(
         &mut prover_state,
         global_statements_base,
-        packed_pcs_witness_base.inner_witness,
-        &packed_pcs_witness_base.packed_polynomial.by_ref(),
+        packed_pcs_witness.inner_witness,
+        &packed_pcs_witness.packed_polynomial.by_ref(),
     );
 
     let proof_size_fe = prover_state.pruned_proof().proof_size_fe();

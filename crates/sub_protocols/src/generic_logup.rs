@@ -26,9 +26,11 @@ use utils::transpose_slice_to_basis_coefficients;
 
 #[derive(Debug, PartialEq, Hash, Clone)]
 pub struct GenericLogupStatements {
-    pub memory_acc_point: MultilinearPoint<EF>,
+    pub memory_and_acc_point: MultilinearPoint<EF>,
     pub value_memory: EF,
-    pub value_acc: EF,
+    pub value_memory_acc: EF,
+    pub bytecode_and_acc_point: MultilinearPoint<EF>,
+    pub value_bytecode_acc: EF,
     pub bus_numerators_values: BTreeMap<Table, EF>,
     pub bus_denominators_values: BTreeMap<Table, EF>,
     pub points: BTreeMap<Table, MultilinearPoint<EF>>,
@@ -228,15 +230,16 @@ pub fn prove_generic_logup(
     assert_eq!(sum, EF::ZERO);
 
     // Memory: ...
-    let memory_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
-    let value_acc = memory_acc.evaluate(&memory_acc_point);
-    prover_state.add_extension_scalar(value_acc);
+    let memory_and_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
+    let value_memory_acc = memory_acc.evaluate(&memory_and_acc_point);
+    prover_state.add_extension_scalar(value_memory_acc);
 
-    let value_memory = memory.evaluate(&memory_acc_point);
+    let value_memory = memory.evaluate(&memory_and_acc_point);
     prover_state.add_extension_scalar(value_memory);
 
-    let bytecode_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(bytecode.len())).to_vec());
-    let value_bytecode_acc = bytecode_acc.evaluate(&bytecode_acc_point);
+    let bytecode_and_acc_point =
+        MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(bytecode.len())).to_vec());
+    let value_bytecode_acc = bytecode_acc.evaluate(&bytecode_and_acc_point);
     prover_state.add_extension_scalar(value_bytecode_acc);
 
     // evaluation on bytecode itself can be done directly by the verifier
@@ -330,9 +333,11 @@ pub fn prove_generic_logup(
     }
 
     GenericLogupStatements {
-        memory_acc_point,
+        memory_and_acc_point,
         value_memory,
-        value_acc,
+        value_memory_acc,
+        bytecode_and_acc_point,
+        value_bytecode_acc,
         bus_numerators_values,
         bus_denominators_values,
         points,
@@ -368,16 +373,16 @@ pub fn verify_generic_logup(
     let mut retrieved_denominators_value = EF::ZERO;
 
     // Memory ...
-    let memory_acc_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
+    let memory_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
     let bits = to_big_endian_in_field::<EF>(0, total_n_vars - log_memory);
     let pref =
         MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..total_n_vars - log_memory].to_vec()));
 
-    let value_acc = verifier_state.next_extension_scalar()?;
-    retrieved_numerators_value -= pref * value_acc;
+    let value_memory_acc = verifier_state.next_extension_scalar()?;
+    retrieved_numerators_value -= pref * value_memory_acc;
 
     let value_memory = verifier_state.next_extension_scalar()?;
-    let value_index = mle_of_01234567_etc(&memory_acc_point);
+    let value_index = mle_of_01234567_etc(&memory_and_acc_point);
     retrieved_denominators_value += pref
         * (c - finger_print(
             F::from_usize(MEMORY_TABLE_INDEX),
@@ -389,11 +394,10 @@ pub fn verify_generic_logup(
     // Bytecode
     let log_bytecode = log2_strict_usize(bytecode.len());
     let log_bytecode_padded = log2_strict_usize(bytecode.len()).max(tables_heights_sorted[0].1);
-    let bytecode_acc_point = MultilinearPoint(from_end(&point_gkr, log_bytecode).to_vec());
+    let bytecode_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_bytecode).to_vec());
     let bits = to_big_endian_in_field::<EF>(offset >> log_bytecode, total_n_vars - log_bytecode);
-    let pref = MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(
-        point_gkr[..total_n_vars - log_bytecode].to_vec(),
-    ));
+    let pref =
+        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..total_n_vars - log_bytecode].to_vec()));
     let bits_padded = to_big_endian_in_field::<EF>(offset >> log_bytecode_padded, total_n_vars - log_bytecode_padded);
     let pref_padded = MultilinearPoint(bits_padded).eq_poly_outside(&MultilinearPoint(
         point_gkr[..total_n_vars - log_bytecode_padded].to_vec(),
@@ -403,14 +407,14 @@ pub fn verify_generic_logup(
     retrieved_numerators_value -= pref * value_bytecode_acc;
 
     // Bytecode denominator - computed directly by verifier
-    let bytecode_index = mle_of_01234567_etc(&bytecode_acc_point);
+    let bytecode_index = mle_of_01234567_etc(&bytecode_and_acc_point);
     let bytecode_value: Vec<EF> = (0..N_INSTRUCTION_COLUMNS)
         .map(|col| {
             bytecode
                 .iter()
                 .map(|row| row[col])
                 .collect::<Vec<_>>()
-                .evaluate(&bytecode_acc_point)
+                .evaluate(&bytecode_and_acc_point)
         })
         .collect();
     retrieved_denominators_value += pref
@@ -538,9 +542,11 @@ pub fn verify_generic_logup(
     }
 
     Ok(GenericLogupStatements {
-        memory_acc_point,
+        memory_and_acc_point,
         value_memory,
-        value_acc,
+        value_memory_acc,
+        bytecode_and_acc_point,
+        value_bytecode_acc,
         bus_numerators_values,
         bus_denominators_values,
         points,
