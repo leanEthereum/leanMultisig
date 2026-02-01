@@ -1,5 +1,7 @@
 //! Bytecode representation and management
 
+use p3_util::log2_ceil_usize;
+
 use crate::{CodeAddress, FileId, FunctionName, Hint, SourceLocation};
 
 use super::Instruction;
@@ -16,6 +18,20 @@ pub struct Bytecode {
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,
     pub filepaths: BTreeMap<FileId, String>,
     pub source_code: BTreeMap<FileId, String>,
+}
+
+impl Bytecode {
+    pub fn size(&self) -> usize {
+        self.instructions.len()
+    }
+
+    pub fn padded_size(&self) -> usize {
+        self.size().next_power_of_two()
+    }
+
+    pub fn log_size(&self) -> usize {
+        log2_ceil_usize(self.size())
+    }
 }
 
 impl Display for Bytecode {

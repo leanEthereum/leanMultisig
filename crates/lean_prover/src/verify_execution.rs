@@ -16,7 +16,7 @@ pub struct ProofVerificationDetails {
 }
 
 pub fn verify_execution(
-    _bytecode: &Bytecode,
+    bytecode: &Bytecode,
     public_input: &[F],
     proof: Vec<F>,
     whir_config: &WhirConfigBuilder,
@@ -56,8 +56,13 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let parsed_commitment_base =
-        packed_pcs_parse_commitment(&whir_config, &mut verifier_state, log_memory, &table_n_vars)?;
+    let parsed_commitment_base = packed_pcs_parse_commitment(
+        &whir_config,
+        &mut verifier_state,
+        log_memory,
+        bytecode.log_size(),
+        &table_n_vars,
+    )?;
 
     let logup_c = verifier_state.sample();
     verifier_state.duplexing();
@@ -121,6 +126,7 @@ pub fn verify_execution(
     let global_statements_base = packed_pcs_global_statements(
         parsed_commitment_base.num_variables,
         log_memory,
+        bytecode.log_size(),
         memory_acc_statements,
         &table_n_vars,
         &committed_statements,

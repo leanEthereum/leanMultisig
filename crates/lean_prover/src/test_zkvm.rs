@@ -3,7 +3,7 @@ use lean_compiler::*;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::poseidon16_permute;
+use utils::{init_tracing, poseidon16_permute};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
@@ -114,6 +114,9 @@ def main():
 
 #[test]
 fn test_prove_fibonacci() {
+    if std::env::var("FIB_TRACING") == Ok("true".to_string()) {
+        init_tracing();
+    }
     let n = std::env::var("FIB_N")
         .unwrap_or("10000".to_string())
         .parse::<usize>()

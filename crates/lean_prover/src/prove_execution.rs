@@ -60,28 +60,43 @@ pub fn prove_execution(
     );
 
     // TODO parrallelize
-    let mut acc = F::zero_vec(memory.len());
+    let mut memory_acc = F::zero_vec(memory.len());
     info_span!("Building memory access count").in_scope(|| {
         for (table, trace) in &traces {
             for lookup in table.lookups_f() {
                 for i in &trace.base[lookup.index] {
                     for j in 0..lookup.values.len() {
-                        acc[i.to_usize() + j] += F::ONE;
+                        memory_acc[i.to_usize() + j] += F::ONE;
                     }
                 }
             }
             for lookup in table.lookups_ef() {
                 for i in &trace.base[lookup.index] {
                     for j in 0..DIMENSION {
-                        acc[i.to_usize() + j] += F::ONE;
+                        memory_acc[i.to_usize() + j] += F::ONE;
                     }
                 }
             }
         }
     });
 
+    // // TODO parrallelize
+    let mut bytecode_acc = F::zero_vec(bytecode.padded_size());
+    info_span!("Building bytecode access count").in_scope(|| {
+        for pc in traces[&Table::execution()].base[COL_PC].iter() {
+            bytecode_acc[pc.to_usize()] += F::ONE;
+        }
+    });
+
     // 1st Commitment
-    let packed_pcs_witness_base = packed_pcs_commit(&mut prover_state, &whir_config, &memory, &acc, &traces);
+    let packed_pcs_witness_base = packed_pcs_commit(
+        &mut prover_state,
+        &whir_config,
+        &memory,
+        &memory_acc,
+        &bytecode_acc,
+        &traces,
+    );
     let first_whir_n_vars = packed_pcs_witness_base.packed_polynomial.by_ref().n_vars();
 
     // logup (GKR)
@@ -90,7 +105,7 @@ pub fn prove_execution(
     let logup_alpha = prover_state.sample();
     prover_state.duplexing();
 
-    let logup_statements = prove_generic_logup(&mut prover_state, logup_c, logup_alpha, &memory, &acc, &traces);
+    let logup_statements = prove_generic_logup(&mut prover_state, logup_c, logup_alpha, &memory, &memory_acc, &traces);
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
         committed_statements.insert(
@@ -147,6 +162,7 @@ pub fn prove_execution(
     let global_statements_base = packed_pcs_global_statements(
         packed_pcs_witness_base.packed_n_vars,
         log2_strict_usize(memory.len()),
+        bytecode.log_size(),
         memory_acc_statements,
         &table_heights,
         &committed_statements,
