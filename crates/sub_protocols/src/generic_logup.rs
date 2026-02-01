@@ -8,7 +8,6 @@ use lean_vm::F;
 use lean_vm::Table;
 use lean_vm::TableT;
 use lean_vm::TableTrace;
-use lean_vm::max_bus_width;
 use lean_vm::sort_tables_by_height;
 use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
@@ -38,7 +37,7 @@ pub struct GenericLogupStatements {
 pub fn prove_generic_logup(
     prover_state: &mut impl FSProver<EF>,
     c: EF,
-    alpha: EF,
+    alphas_eq_poly: &[EF],
     memory: &[F],
     acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
@@ -58,8 +57,6 @@ pub fn prove_generic_logup(
     let mut numerators = EF::zero_vec(1 << total_n_vars);
     let mut denominators = EF::zero_vec(1 << total_n_vars);
 
-    let alpha_powers = alpha.powers().collect_n(max_bus_width());
-
     // Memory: ...
     numerators[..memory.len()]
         .par_iter_mut()
@@ -72,7 +69,7 @@ pub fn prove_generic_logup(
             *denom = c - finger_print(
                 F::from_usize(MEMORY_TABLE_INDEX),
                 &[F::from_usize(i), mem_value],
-                &alpha_powers,
+                alphas_eq_poly,
             )
         });
 
@@ -109,7 +106,7 @@ pub fn prove_generic_logup(
                             .map(|col| trace.base[*col][i])
                             .collect::<Vec<_>>()
                             .as_slice(),
-                        &alpha_powers,
+                        alphas_eq_poly,
                     )
                 }
             });
@@ -150,7 +147,7 @@ pub fn prove_generic_logup(
                             let index = col_index[j] + i_field;
                             let mem_value = col_values[i].as_slice()[j];
                             *denom =
-                                c - finger_print(F::from_usize(MEMORY_TABLE_INDEX), &[index, mem_value], &alpha_powers)
+                                c - finger_print(F::from_usize(MEMORY_TABLE_INDEX), &[index, mem_value], alphas_eq_poly)
                         });
                     });
                 offset += col_values.len() << log_n_rows;
@@ -266,7 +263,7 @@ pub fn prove_generic_logup(
 pub fn verify_generic_logup(
     verifier_state: &mut impl FSVerifier<EF>,
     c: EF,
-    alpha: EF,
+    alphas_eq_poly: &[EF],
     log_memory: usize,
     table_log_n_rows: &BTreeMap<Table, VarCount>,
 ) -> ProofResult<GenericLogupStatements> {
@@ -279,8 +276,6 @@ pub fn verify_generic_logup(
     if sum != EF::ZERO {
         return Err(ProofError::InvalidProof);
     }
-
-    let alpha_powers = alpha.powers().collect_n(max_bus_width());
 
     let mut retrieved_numerators_value = EF::ZERO;
     let mut retrieved_denominators_value = EF::ZERO;
@@ -300,7 +295,7 @@ pub fn verify_generic_logup(
         * (c - finger_print(
             F::from_usize(MEMORY_TABLE_INDEX),
             &[value_index, value_memory],
-            &alpha_powers,
+            alphas_eq_poly,
         ));
 
     // ... Rest of the tables:
@@ -352,7 +347,7 @@ pub fn verify_generic_logup(
                     * (c - finger_print(
                         F::from_usize(MEMORY_TABLE_INDEX),
                         &[index_eval + F::from_usize(i), value_eval],
-                        &alpha_powers,
+                        alphas_eq_poly,
                     ));
                 offset += 1 << log_n_rows;
             }
@@ -373,7 +368,7 @@ pub fn verify_generic_logup(
                     * (c - finger_print(
                         F::from_usize(MEMORY_TABLE_INDEX),
                         &[index_eval + F::from_usize(i), value_eval],
-                        &alpha_powers,
+                        alphas_eq_poly,
                     ));
                 let global_index = table.n_columns_f_air() + lookup_ef.values * DIMENSION + i;
                 assert!(!table_values.contains_key(&global_index));

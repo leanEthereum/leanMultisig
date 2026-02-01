@@ -76,8 +76,8 @@ pub fn sort_tables_by_height(table_heights: &BTreeMap<Table, usize>) -> Vec<(Tab
 #[derive(Debug, Default)]
 pub struct ExtraDataForBuses<EF: ExtensionField<PF<EF>>> {
     // GKR quotient challenges
-    pub logup_alpha_powers: Vec<EF>,
-    pub logup_alpha_powers_packed: Vec<EFPacking<EF>>,
+    pub logup_alphas_eq_poly: Vec<EF>,
+    pub logup_alphas_eq_poly_packed: Vec<EFPacking<EF>>,
     pub bus_beta: EF,
     pub bus_beta_packed: EFPacking<EF>,
     pub alpha_powers: Vec<EF>,
@@ -98,12 +98,12 @@ impl AlphaPowers<EF> for ExtraDataForBuses<EF> {
 impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
     pub fn transmute_bus_data<NewEF: 'static>(&self) -> (&Vec<NewEF>, &NewEF) {
         if TypeId::of::<NewEF>() == TypeId::of::<EF>() {
-            unsafe { transmute::<(&Vec<EF>, &EF), (&Vec<NewEF>, &NewEF)>((&self.logup_alpha_powers, &self.bus_beta)) }
+            unsafe { transmute::<(&Vec<EF>, &EF), (&Vec<NewEF>, &NewEF)>((&self.logup_alphas_eq_poly, &self.bus_beta)) }
         } else {
             assert_eq!(TypeId::of::<NewEF>(), TypeId::of::<EFPacking<EF>>());
             unsafe {
                 transmute::<(&Vec<EFPacking<EF>>, &EFPacking<EF>), (&Vec<NewEF>, &NewEF)>((
-                    &self.logup_alpha_powers_packed,
+                    &self.logup_alphas_eq_poly_packed,
                     &self.bus_beta_packed,
                 ))
             }

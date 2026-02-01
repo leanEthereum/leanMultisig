@@ -102,10 +102,18 @@ pub fn prove_execution(
     // logup (GKR)
     let logup_c = prover_state.sample();
     prover_state.duplexing();
-    let logup_alpha = prover_state.sample();
+    let logup_alphas = prover_state.sample_vec(log2_ceil_usize(max_bus_width()));
     prover_state.duplexing();
+    let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
-    let logup_statements = prove_generic_logup(&mut prover_state, logup_c, logup_alpha, &memory, &memory_acc, &traces);
+    let logup_statements = prove_generic_logup(
+        &mut prover_state,
+        logup_c,
+        &logup_alphas_eq_poly,
+        &memory,
+        &memory_acc,
+        &traces,
+    );
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
         committed_statements.insert(
@@ -128,7 +136,7 @@ pub fn prove_execution(
             table,
             trace,
             logup_c,
-            logup_alpha,
+            &logup_alphas_eq_poly,
             bus_beta,
             air_alpha_powers.clone(),
             &logup_statements.points[table],
@@ -195,7 +203,7 @@ fn prove_bus_and_air(
     table: &Table,
     trace: &TableTrace,
     logup_c: EF,
-    logup_alpha: EF,
+    logup_alphas_eq_poly: &[EF],
     bus_beta: EF,
     air_alpha_powers: Vec<EF>,
     bus_point: &MultilinearPoint<EF>,
@@ -212,8 +220,8 @@ fn prove_bus_and_air(
     let bus_virtual_statement = Evaluation::new(bus_point.clone(), bus_final_value);
 
     let extra_data = ExtraDataForBuses {
-        logup_alpha_powers: logup_alpha.powers().collect_n(max_bus_width()),
-        logup_alpha_powers_packed: EFPacking::<EF>::from(logup_alpha).powers().collect_n(max_bus_width()),
+        logup_alphas_eq_poly: logup_alphas_eq_poly.to_vec(),
+        logup_alphas_eq_poly_packed: logup_alphas_eq_poly.iter().map(|a| EFPacking::<EF>::from(*a)).collect(),
         bus_beta,
         bus_beta_packed: EFPacking::<EF>::from(bus_beta),
         alpha_powers: air_alpha_powers,

@@ -79,15 +79,16 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
 
     logup_c = fs_sample_ef(fs)
     fs = duplexing(fs)
-    logup_alpha = fs_sample_ef(fs)
-    fs = duplexing(fs)
 
+    logup_alphas = Array(DIM * log2_ceil(MAX_BUS_WIDTH))
+    for i in unroll(0, log2_ceil(MAX_BUS_WIDTH)):
+        copy_5(fs_sample_ef(fs), logup_alphas + i * DIM)  # TODO avoid duplication
+        fs = duplexing(fs)
+    logup_alphas_eq_poly = poly_eq_extension(logup_alphas, log2_ceil(MAX_BUS_WIDTH))
     # GENRIC LOGUP
 
     fs, quotient_gkr, point_gkr, numerators_value, denominators_value = verify_gkr_quotient(fs, N_VARS_FIRST_GKR)
     set_to_5_zeros(quotient_gkr)
-
-    logup_alpha_powers = powers(logup_alpha, MAX_BUS_WIDTH)
 
     memory_and_acc_prefix = multilinear_location_prefix(0, N_VARS_FIRST_GKR - log_memory, point_gkr)
 
@@ -97,7 +98,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     retrieved_numerators_value: Mut = opposite_extension_ret(mul_extension_ret(memory_and_acc_prefix, value_acc))
 
     value_index = mle_of_01234567_etc(point_gkr + (N_VARS_FIRST_GKR - log_memory) * DIM, log_memory)
-    fingerprint_memory = fingerprint_2(MEMORY_TABLE_INDEX, value_index, value_memory, logup_alpha_powers)
+    fingerprint_memory = fingerprint_2(MEMORY_TABLE_INDEX, value_index, value_memory, logup_alphas_eq_poly)
     retrieved_denominators_value: Mut = mul_extension_ret(
         memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory)
     )
@@ -163,7 +164,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
                     MEMORY_TABLE_INDEX,
                     add_base_extension_ret(i, index_eval),
                     value_eval,
-                    logup_alpha_powers,
+                    logup_alphas_eq_poly,
                 )
                 retrieved_denominators_value = add_extension_ret(
                     retrieved_denominators_value,
@@ -191,7 +192,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
                     MEMORY_TABLE_INDEX,
                     add_base_extension_ret(i, index_eval),
                     value_eval,
-                    logup_alpha_powers,
+                    logup_alphas_eq_poly,
                 )
                 retrieved_denominators_value = add_extension_ret(
                     retrieved_denominators_value,
@@ -253,7 +254,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
         fs, inner_evals = fs_receive_ef(fs, n_up_columns + n_down_columns)
 
         air_constraints_eval = evaluate_air_constraints(
-            table_index, inner_evals, air_alpha_powers, bus_beta, logup_alpha_powers
+            table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly
         )
         expected_outer_eval = mul_extension_ret(
             air_constraints_eval,
