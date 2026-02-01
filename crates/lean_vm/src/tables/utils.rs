@@ -11,12 +11,12 @@ pub(crate) fn eval_virtual_bus_column<AB: AirBuilder, EF: ExtensionField<PF<EF>>
     let (logup_alphas_eq_poly, bus_beta) = extra_data.transmute_bus_data::<AB::EF>();
 
     assert!(data.len() < logup_alphas_eq_poly.len());
-    (logup_alphas_eq_poly[1..]
-        .iter()
-        .zip(data)
-        .map(|(c, d)| c.clone() * d.clone())
-        .sum::<AB::EF>()
-        + bus_index)
+    (logup_alphas_eq_poly[0].clone() * bus_index
+        + logup_alphas_eq_poly[1..]
+            .iter()
+            .zip(data)
+            .map(|(c, d)| c.clone() * d.clone())
+            .sum::<AB::EF>())
         * bus_beta.clone()
         + flag
 }

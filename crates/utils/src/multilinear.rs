@@ -129,7 +129,7 @@ pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>
     alphas_eq_poly: &[EF],
 ) -> EF {
     assert!(alphas_eq_poly.len() > data.len());
-    dot_product::<EF, _, _>(alphas_eq_poly[1..].iter().copied(), data.iter().copied()) + table
+    alphas_eq_poly[0] * table + dot_product::<EF, _, _>(alphas_eq_poly[1..].iter().copied(), data.iter().copied())
 }
 
 #[cfg(test)]
