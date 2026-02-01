@@ -109,10 +109,11 @@ pub fn prove_execution(
     let logup_statements = prove_generic_logup(
         &mut prover_state,
         logup_c,
+        &logup_alphas,
         &logup_alphas_eq_poly,
         &memory,
         &memory_acc,
-        &bytecode.instructions_encoded,
+        &bytecode.instructions_multilinear,
         &bytecode_acc,
         &traces,
     );

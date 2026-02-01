@@ -16,17 +16,20 @@ pub struct GenericLogupStatements {
     pub points: BTreeMap<Table, MultilinearPoint<EF>>,
     pub columns_values: BTreeMap<Table, BTreeMap<ColIndex, EF>>,
     // Used in recursion
-    pub total_n_vars: usize,
+    pub total_gkr_n_vars: usize,
+    pub bytecode_point: MultilinearPoint<EF>,
+    pub bytecode_value: EF,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove_generic_logup(
     prover_state: &mut impl FSProver<EF>,
     c: EF,
+    alphas: &[EF],
     alphas_eq_poly: &[EF],
     memory: &[F],
     memory_acc: &[F],
-    bytecode: &[[F; N_INSTRUCTION_COLUMNS]],
+    bytecode_multilinear: &[F],
     bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
 ) -> GenericLogupStatements {
@@ -35,16 +38,17 @@ pub fn prove_generic_logup(
     assert_eq!(memory.len(), memory_acc.len());
     assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());
 
+    let log_bytecode = log2_strict_usize(bytecode_multilinear.len() / N_INSTRUCTION_COLUMNS.next_power_of_two());
     let tables_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_heights_sorted = sort_tables_by_height(&tables_heights);
 
-    let total_n_vars = compute_total_n_vars(
+    let total_gkr_n_vars = compute_total_gkr_n_vars(
         log2_strict_usize(memory.len()),
-        log2_strict_usize(bytecode.len()),
+        log_bytecode,
         &tables_heights_sorted.iter().cloned().collect(),
     );
-    let mut numerators = EF::zero_vec(1 << total_n_vars);
-    let mut denominators = EF::zero_vec(1 << total_n_vars);
+    let mut numerators = EF::zero_vec(1 << total_gkr_n_vars);
+    let mut denominators = EF::zero_vec(1 << total_gkr_n_vars);
 
     let mut offset = 0;
 
@@ -67,30 +71,33 @@ pub fn prove_generic_logup(
     offset += memory.len();
 
     // Bytecode
-    assert_eq!(bytecode.len(), bytecode_acc.len());
+    assert_eq!(1 << log_bytecode, bytecode_acc.len());
     numerators[offset..][..bytecode_acc.len()]
         .par_iter_mut()
         .zip(bytecode_acc) // TODO embedding overhead
         .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here
-    denominators[offset..][..bytecode.len()]
+    denominators[offset..][..1 << log_bytecode]
         .par_iter_mut()
-        .zip(bytecode.par_iter().enumerate())
-        .for_each(|(denom, (i, &instr))| {
+        .zip(
+            bytecode_multilinear
+                .par_chunks_exact(N_INSTRUCTION_COLUMNS.next_power_of_two())
+                .enumerate(),
+        )
+        .for_each(|(denom, (i, instr))| {
             *denom = c - finger_print(
                 F::from_usize(BYTECODE_TABLE_INDEX),
-                &[instr.to_vec(), vec![F::from_usize(i)]].concat(),
+                &[instr[..N_INSTRUCTION_COLUMNS].to_vec(), vec![F::from_usize(i)]].concat(),
                 alphas_eq_poly,
             )
         });
     let max_table_height = 1 << tables_heights_sorted[0].1;
-    if bytecode.len() < max_table_height {
+    if 1 << log_bytecode < max_table_height {
         // padding
-        denominators[offset + bytecode.len()..offset + max_table_height]
+        denominators[offset + (1 << log_bytecode)..offset + max_table_height]
             .par_iter_mut()
             .for_each(|d| *d = EF::ONE);
     }
-    offset += max_table_height.max(bytecode.len());
-
+    offset += max_table_height.max(1 << log_bytecode);
     // ... Rest of the tables:
     for (table, _) in &tables_heights_sorted {
         let trace = &traces[table];
@@ -193,7 +200,7 @@ pub fn prove_generic_logup(
         }
     }
 
-    assert_eq!(log2_ceil_usize(offset), total_n_vars);
+    assert_eq!(log2_ceil_usize(offset), total_gkr_n_vars);
     tracing::info!("Logup data: {} = 2^{:.2}", offset, (offset as f64).log2());
 
     denominators[offset..].par_iter_mut().for_each(|d| *d = EF::ONE); // padding
@@ -219,7 +226,7 @@ pub fn prove_generic_logup(
     prover_state.add_extension_scalar(value_memory);
 
     let bytecode_and_acc_point =
-        MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(bytecode.len())).to_vec());
+        MultilinearPoint(from_end(&claim_point_gkr, log_bytecode).to_vec());
     let value_bytecode_acc = bytecode_acc.evaluate(&bytecode_and_acc_point);
     prover_state.add_extension_scalar(value_bytecode_acc);
 
@@ -230,7 +237,7 @@ pub fn prove_generic_logup(
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
-    let mut offset = memory.len() + max_table_height.max(bytecode.len());
+    let mut offset = memory.len() + max_table_height.max(1 << log_bytecode);
     for (table, _) in &tables_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
@@ -313,6 +320,12 @@ pub fn prove_generic_logup(
         offset += offset_for_table(table, log_n_rows);
     }
 
+    // recursion purpose
+    let mut bytecode_point = bytecode_and_acc_point.0.clone();
+    bytecode_point.extend(from_end(alphas, log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
+    let bytecode_point = MultilinearPoint(bytecode_point);
+    let bytecode_value = bytecode_multilinear.evaluate(&bytecode_point);
+
     GenericLogupStatements {
         memory_and_acc_point,
         value_memory,
@@ -323,7 +336,9 @@ pub fn prove_generic_logup(
         bus_denominators_values,
         points,
         columns_values,
-        total_n_vars,
+        total_gkr_n_vars,
+        bytecode_point,
+        bytecode_value,
     }
 }
 
@@ -339,13 +354,13 @@ pub fn verify_generic_logup(
 ) -> ProofResult<GenericLogupStatements> {
     let tables_heights_sorted = sort_tables_by_height(table_log_n_rows);
     let log_bytecode = log2_strict_usize(bytecode_multilinear.len() / N_INSTRUCTION_COLUMNS.next_power_of_two());
-    let total_n_vars = compute_total_n_vars(
+    let total_gkr_n_vars = compute_total_gkr_n_vars(
         log_memory,
         log_bytecode,
         &tables_heights_sorted.iter().cloned().collect(),
     );
 
-    let (sum, point_gkr, numerators_value, denominators_value) = verify_gkr_quotient(verifier_state, total_n_vars)?;
+    let (sum, point_gkr, numerators_value, denominators_value) = verify_gkr_quotient(verifier_state, total_gkr_n_vars)?;
 
     if sum != EF::ZERO {
         return Err(ProofError::InvalidProof);
@@ -356,9 +371,9 @@ pub fn verify_generic_logup(
 
     // Memory ...
     let memory_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
-    let bits = to_big_endian_in_field::<EF>(0, total_n_vars - log_memory);
+    let bits = to_big_endian_in_field::<EF>(0, total_gkr_n_vars - log_memory);
     let pref =
-        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..total_n_vars - log_memory].to_vec()));
+        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..total_gkr_n_vars - log_memory].to_vec()));
 
     let value_memory_acc = verifier_state.next_extension_scalar()?;
     retrieved_numerators_value -= pref * value_memory_acc;
@@ -376,12 +391,13 @@ pub fn verify_generic_logup(
     // Bytecode
     let log_bytecode_padded = log_bytecode.max(tables_heights_sorted[0].1);
     let bytecode_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_bytecode).to_vec());
-    let bits = to_big_endian_in_field::<EF>(offset >> log_bytecode, total_n_vars - log_bytecode);
-    let pref =
-        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..total_n_vars - log_bytecode].to_vec()));
-    let bits_padded = to_big_endian_in_field::<EF>(offset >> log_bytecode_padded, total_n_vars - log_bytecode_padded);
+    let bits = to_big_endian_in_field::<EF>(offset >> log_bytecode, total_gkr_n_vars - log_bytecode);
+    let pref = MultilinearPoint(bits)
+        .eq_poly_outside(&MultilinearPoint(point_gkr[..total_gkr_n_vars - log_bytecode].to_vec()));
+    let bits_padded =
+        to_big_endian_in_field::<EF>(offset >> log_bytecode_padded, total_gkr_n_vars - log_bytecode_padded);
     let pref_padded = MultilinearPoint(bits_padded).eq_poly_outside(&MultilinearPoint(
-        point_gkr[..total_n_vars - log_bytecode_padded].to_vec(),
+        point_gkr[..total_gkr_n_vars - log_bytecode_padded].to_vec(),
     ));
 
     let value_bytecode_acc = verifier_state.next_extension_scalar()?;
@@ -390,15 +406,17 @@ pub fn verify_generic_logup(
     // Bytecode denominator - computed directly by verifier
     let bytecode_index_value = mle_of_01234567_etc(&bytecode_and_acc_point);
 
-    let mut bytecode_evaluation_point = bytecode_and_acc_point.0.clone();
-    bytecode_evaluation_point.extend(from_end(alphas, log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
-    let mut bytecode_value = bytecode_multilinear.evaluate(&MultilinearPoint(bytecode_evaluation_point));
-    bytecode_value *= alphas[..alphas.len() - log2_ceil_usize(N_INSTRUCTION_COLUMNS)]
-        .iter()
-        .map(|x| EF::ONE - *x)
-        .product::<EF>();
+    let mut bytecode_point = bytecode_and_acc_point.0.clone();
+    bytecode_point.extend(from_end(alphas, log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
+    let bytecode_point = MultilinearPoint(bytecode_point);
+    let bytecode_value = bytecode_multilinear.evaluate(&bytecode_point);
+    let bytecode_value_corrected = bytecode_value
+        * alphas[..alphas.len() - log2_ceil_usize(N_INSTRUCTION_COLUMNS)]
+            .iter()
+            .map(|x| EF::ONE - *x)
+            .product::<EF>();
     retrieved_denominators_value += pref
-        * (c - (bytecode_value
+        * (c - (bytecode_value_corrected
             + bytecode_index_value * alphas_eq_poly[N_INSTRUCTION_COLUMNS]
             + *alphas_eq_poly.last().unwrap() * F::from_usize(BYTECODE_TABLE_INDEX)));
     // Padding for bytecode
@@ -413,7 +431,7 @@ pub fn verify_generic_logup(
     let mut columns_values = BTreeMap::new();
 
     for &(table, log_n_rows) in &tables_heights_sorted {
-        let n_missing_vars = total_n_vars - log_n_rows;
+        let n_missing_vars = total_gkr_n_vars - log_n_rows;
         let inner_point = MultilinearPoint(from_end(&point_gkr, log_n_rows).to_vec());
         let missing_point = MultilinearPoint(point_gkr[..n_missing_vars].to_vec());
 
@@ -529,7 +547,9 @@ pub fn verify_generic_logup(
         bus_denominators_values,
         points,
         columns_values,
-        total_n_vars,
+        total_gkr_n_vars,
+        bytecode_point,
+        bytecode_value,
     })
 }
 
@@ -539,7 +559,11 @@ fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {
     num_cols << log_n_rows
 }
 
-fn compute_total_n_vars(log_memory: usize, log_bytecode: usize, tables_heights: &BTreeMap<Table, VarCount>) -> usize {
+fn compute_total_gkr_n_vars(
+    log_memory: usize,
+    log_bytecode: usize,
+    tables_heights: &BTreeMap<Table, VarCount>,
+) -> usize {
     let max_table_height = 1 << tables_heights.values().copied().max().unwrap();
     let total_len = (1 << log_memory)
         + (1 << log_bytecode).max(max_table_height) + (1 << tables_heights[&Table::execution()]) // bytecode

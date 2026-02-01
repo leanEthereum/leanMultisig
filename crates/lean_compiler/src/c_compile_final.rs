@@ -144,11 +144,10 @@ pub fn compile_to_low_level_bytecode(
             &mut hints,
         );
     }
-    let mut instructions_encoded = instructions
+    let instructions_encoded = instructions
         .par_iter()
         .map(|instr| field_representation(instr))
         .collect::<Vec<_>>();
-    instructions_encoded.resize(instructions.len().next_power_of_two(), [F::ZERO; N_INSTRUCTION_COLUMNS]);
 
     let mut instructions_multilinear = vec![];
     for instr in &instructions_encoded {
@@ -156,10 +155,10 @@ pub fn compile_to_low_level_bytecode(
         let padding = N_INSTRUCTION_COLUMNS.next_power_of_two() - N_INSTRUCTION_COLUMNS;
         instructions_multilinear.extend(vec![F::ZERO; padding]);
     }
+    instructions_multilinear.resize(instructions_multilinear.len().next_power_of_two(), F::ZERO);
 
     Ok(Bytecode {
         instructions,
-        instructions_encoded,
         instructions_multilinear,
         hints,
         starting_frame_memory,

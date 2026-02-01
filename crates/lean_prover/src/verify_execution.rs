@@ -158,7 +158,7 @@ pub fn verify_execution(
     Ok(ProofVerificationDetails {
         log_memory,
         table_n_vars,
-        first_quotient_gkr_n_vars: logup_statements.total_n_vars,
+        first_quotient_gkr_n_vars: logup_statements.total_gkr_n_vars,
         total_whir_statements_base,
     })
 }

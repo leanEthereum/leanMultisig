@@ -2,7 +2,7 @@
 
 use p3_util::log2_ceil_usize;
 
-use crate::{CodeAddress, F, FileId, FunctionName, Hint, N_INSTRUCTION_COLUMNS, SourceLocation};
+use crate::{CodeAddress, F, FileId, FunctionName, Hint, SourceLocation};
 
 use super::Instruction;
 use std::collections::BTreeMap;
@@ -12,9 +12,8 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bytecode {
     pub instructions: Vec<Instruction>,
-    pub instructions_encoded: Vec<[F; N_INSTRUCTION_COLUMNS]>, // padded to power of two length (with zero rows)
     pub instructions_multilinear: Vec<F>,
-    pub hints: BTreeMap<CodeAddress, Vec<Hint>>,               // pc -> hints
+    pub hints: BTreeMap<CodeAddress, Vec<Hint>>, // pc -> hints
     pub starting_frame_memory: usize,
     // debug
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,
