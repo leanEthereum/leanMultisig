@@ -2,6 +2,7 @@ use crate::{prove_gkr_quotient, verify_gkr_quotient};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
+use tracing::instrument;
 use utils::*;
 
 #[derive(Debug, PartialEq, Hash, Clone)]
@@ -21,6 +22,7 @@ pub struct GenericLogupStatements {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[instrument(skip_all)]
 pub fn prove_generic_logup(
     prover_state: &mut impl FSProver<EF>,
     c: EF,
