@@ -1,4 +1,4 @@
-WHITESPACE = _{ " " | "\t" }
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
 // Comments are stripped by preprocessing (remove_comments function)
 // Newlines are significant and represented as <NL> tokens
 

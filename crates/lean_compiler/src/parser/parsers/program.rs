@@ -159,20 +159,28 @@ pub fn remove_comments(input: &str) -> String {
 
 /// Removes the snark_lib import if it's on the first line.
 /// This import is only used for Python execution compatibility and is not relevant to the zkDSL.
+/// Preserves line numbers by keeping blank lines.
 pub fn remove_snark_lib_import(input: &str) -> String {
-    let first_line = input.lines().next().unwrap_or("");
-    let trimmed = first_line.trim();
-    let is_snark_lib_import =
-        (trimmed.starts_with("import ") || trimmed.starts_with("from ")) && trimmed.contains("snark_lib");
-    if is_snark_lib_import {
-        input
-            .strip_prefix(first_line)
-            .unwrap_or(input)
-            .trim_start_matches('\n')
-            .to_string()
-    } else {
-        input.to_string()
+    let mut lines: Vec<&str> = input.lines().collect();
+    let mut modified = false;
+
+    // Remove snark_lib imports from the beginning, preserving blank lines to maintain line numbers
+    for line in lines.iter_mut() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue; // keep blank lines
+        }
+        let is_snark_lib_import =
+            (trimmed.starts_with("import ") || trimmed.starts_with("from ")) && trimmed.contains("snark_lib");
+        if is_snark_lib_import {
+            *line = ""; // Replace with empty string to preserve line number
+            modified = true;
+        } else {
+            break; // Stop at first non-import, non-blank line
+        }
     }
+
+    if modified { lines.join("\n") } else { input.to_string() }
 }
 
 /// Preprocesses Python-like indentation syntax into explicit block markers.
@@ -224,7 +232,8 @@ pub fn preprocess_indentation(input: &str) -> Result<String, ParseError> {
         logical_lines.push((logical_line_start, current_logical_line));
     }
 
-    // Process each logical line
+    // Process each logical line, preserving original line numbers
+    let mut current_output_line = 1;
     for (line_number, line) in logical_lines {
         let indent = line
             .chars()
@@ -250,6 +259,7 @@ pub fn preprocess_indentation(input: &str) -> Result<String, ParseError> {
             while indent_stack.len() > 1 && indent < *indent_stack.last().unwrap() {
                 indent_stack.pop();
                 result.push_str("<END><NL>");
+                // Don't increment current_output_line - <NL> is a token, not an actual newline
             }
             if indent != *indent_stack.last().unwrap() {
                 return Err(ParseError::from(format!(
@@ -258,8 +268,15 @@ pub fn preprocess_indentation(input: &str) -> Result<String, ParseError> {
             }
         }
 
+        // Pad with actual newlines to preserve original line number for pest
+        while current_output_line < line_number {
+            result.push('\n');
+            current_output_line += 1;
+        }
+
         result.push_str(trimmed);
         result.push_str("<NL>");
+        // <NL> is a token, not an actual newline, so don't increment line counter
 
         // Handle indent (open block after colon)
         if trimmed.ends_with(':') && !trimmed.starts_with("import") {

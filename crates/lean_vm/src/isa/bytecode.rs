@@ -19,6 +19,8 @@ pub struct Bytecode {
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,
     pub filepaths: BTreeMap<FileId, String>,
     pub source_code: BTreeMap<FileId, String>,
+    /// Maps each pc to its source location (for error reporting)
+    pub pc_to_location: Vec<SourceLocation>,
 }
 
 impl Bytecode {
