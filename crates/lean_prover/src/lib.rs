@@ -16,14 +16,14 @@ use trace_gen::*;
 
 // Right now, hash digests = 8 koala-bear (p = 2^31 - 2^24 + 1, i.e. ≈ 30.98 bits per field element)
 // so ≈ 123.92 bits of security against collisions
-pub const SECURITY_BITS: usize = 123; // TODO 128 bits security (with Poseidon over 20 field elements)
+pub const SECURITY_BITS: usize = 123; // TODO 128 bits security? (with Poseidon over 20 field elements or with a more subtle soundness analysis (cf. https://eprint.iacr.org/2021/188.pdf))
 
 // Provable security (no proximity gaps conjectures)
 pub const SECURITY_REGIME: SecurityAssumption = SecurityAssumption::JohnsonBound;
 
 pub const GRINDING_BITS: usize = 16;
 
-pub const STARTING_LOG_INV_RATE_BASE: usize = 2;
+pub const STARTING_LOG_INV_RATE: usize = 2;
 
 pub fn default_whir_config() -> WhirConfigBuilder {
     WhirConfigBuilder {
@@ -33,6 +33,6 @@ pub fn default_whir_config() -> WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         rs_domain_initial_reduction_factor: 5,
         security_level: SECURITY_BITS,
-        starting_log_inv_rate: STARTING_LOG_INV_RATE_BASE,
+        starting_log_inv_rate: STARTING_LOG_INV_RATE,
     }
 }
