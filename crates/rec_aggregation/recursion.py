@@ -162,11 +162,12 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
             bytecode_padded_multilinear_location_prefix,
             mle_of_zeros_then_ones(
                 point_gkr + (N_VARS_LOGUP_GKR - log_bytecode_padded) * DIM,
-                log2_ceil(GUEST_BYTECODE_LEN),
+                2**log2_ceil(GUEST_BYTECODE_LEN),
                 log_bytecode_padded,
             ),
         ),
     )
+    offset += powers_of_two(log_bytecode_padded)
 
     bus_numerators_values = DynArray([])
     bus_denominators_values = DynArray([])
@@ -189,23 +190,26 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
         inner_point = point_gkr + (N_VARS_LOGUP_GKR - log_n_rows) * DIM
         pcs_points[table_index].push(inner_point)
 
-        prefix = multilinear_location_prefix(offset / n_rows, N_VARS_LOGUP_GKR - log_n_rows, point_gkr)
 
         if table_index == EXECUTION_TABLE_INDEX:
             # 0] Bytecode lookup
+            bytecode_prefix = multilinear_location_prefix(offset / n_rows, N_VARS_LOGUP_GKR - log_n_rows, point_gkr)
+
             fs, eval_on_pc = fs_receive_ef(fs, 1)
             pcs_values[EXECUTION_TABLE_INDEX][0][COL_PC].push(eval_on_pc)
             fs, instr_evals = fs_receive_ef(fs, N_INSTRUCTION_COLUMNS)
             for i in unroll(0, N_INSTRUCTION_COLUMNS):
                 global_index = N_COMMITTED_EXEC_COLUMNS + i
                 pcs_values[EXECUTION_TABLE_INDEX][0][global_index].push(instr_evals + i * DIM)
-            retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, prefix)
+            retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, bytecode_prefix)
             fingerp = fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly)
             retrieved_denominators_value = add_extension_ret(
                     retrieved_denominators_value,
-                    mul_extension_ret(prefix, sub_extension_ret(logup_c, fingerp)),
+                    mul_extension_ret(bytecode_prefix, sub_extension_ret(logup_c, fingerp)),
                 )
             offset += n_rows
+
+        prefix = multilinear_location_prefix(offset / n_rows, N_VARS_LOGUP_GKR - log_n_rows, point_gkr)
 
         fs, eval_on_selector = fs_receive_ef(fs, 1)
         retrieved_numerators_value = add_extension_ret(
