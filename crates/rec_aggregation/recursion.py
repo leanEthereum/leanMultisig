@@ -112,10 +112,10 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     log_bytecode_padded = maximum(log_bytecode, log_n_cycles)
     bytecode_and_acc_point = point_gkr + (N_VARS_LOGUP_GKR - log_bytecode) * DIM
     bytecode_multilinear_location_prefix = multilinear_location_prefix(
-        offset / log_bytecode, N_VARS_LOGUP_GKR - log_bytecode, point_gkr
+        offset / 2**log2_ceil(GUEST_BYTECODE_LEN), N_VARS_LOGUP_GKR - log_bytecode, point_gkr
     )
     bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(
-        offset / log_bytecode_padded, N_VARS_LOGUP_GKR - log_bytecode_padded, point_gkr
+        offset / powers_of_two(log_bytecode_padded), N_VARS_LOGUP_GKR - log_bytecode_padded, point_gkr
     )
     NONRESERVED_PROGRAM_INPUT_START_ = NONRESERVED_PROGRAM_INPUT_START
     assert NONRESERVED_PROGRAM_INPUT_START_[0] == log_bytecode + log2_ceil(N_INSTRUCTION_COLUMNS)
@@ -536,7 +536,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_bytecode_acc), eq_bytecode_acc),
     )
     curr_randomness += DIM
-    offset += next_multiple_of(GUEST_BYTECODE_LEN, 2)
+    offset += 2**log2_ceil(GUEST_BYTECODE_LEN)
 
     prefix_pc_start = multilinear_location_prefix(
         offset + COL_PC * powers_of_two(log_n_cycles),
