@@ -454,6 +454,8 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     curr_randomness += DIM
     whir_sum = add_extension_ret(mul_extension_ret(public_memory_eval, curr_randomness), whir_sum)
     curr_randomness += DIM
+    whir_sum = add_extension_ret(mul_extension_ret(value_bytecode_acc, curr_randomness), whir_sum)
+    curr_randomness += DIM
 
     whir_sum = add_extension_ret(mul_extension_ret(embed_in_ef(STARTING_PC), curr_randomness), whir_sum)
     curr_randomness += DIM
@@ -491,17 +493,17 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
         memory_and_acc_point,
         log_memory,
     )
-    prefix_mem = multilinear_location_prefix(0, WHIR_N_VARS - log_memory, folding_randomness_global)
+    prefix_memory = multilinear_location_prefix(0, WHIR_N_VARS - log_memory, folding_randomness_global)
     s = add_extension_ret(
         s,
-        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_mem), eq_memory_and_acc_point),
+        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_memory), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 
-    prefix_acc = multilinear_location_prefix(1, WHIR_N_VARS - log_memory, folding_randomness_global)
+    prefix_acc_memory = multilinear_location_prefix(1, WHIR_N_VARS - log_memory, folding_randomness_global)
     s = add_extension_ret(
         s,
-        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc), eq_memory_and_acc_point),
+        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc_memory), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 
@@ -519,9 +521,22 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     )
     curr_randomness += DIM
 
-    offset = powers_of_two(log_memory) * 2  # memory and acc
+    offset = powers_of_two(log_memory) * 2  # memory and acc_memory
 
-    
+    eq_bytecode_acc = eq_mle_extension(
+        folding_randomness_global + (WHIR_N_VARS - log2_ceil(GUEST_BYTECODE_LEN)) * DIM,
+        bytecode_and_acc_point,
+        log2_ceil(GUEST_BYTECODE_LEN),
+    )
+    prefix_bytecode_acc = multilinear_location_prefix(
+        0, WHIR_N_VARS - log2_ceil(GUEST_BYTECODE_LEN), folding_randomness_global
+    )
+    s = add_extension_ret(
+        s,
+        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_bytecode_acc), eq_bytecode_acc),
+    )
+    curr_randomness += DIM
+    offset += next_multiple_of(GUEST_BYTECODE_LEN, 2)
 
     prefix_pc_start = multilinear_location_prefix(
         offset + COL_PC * powers_of_two(log_n_cycles),
