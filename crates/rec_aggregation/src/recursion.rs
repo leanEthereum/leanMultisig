@@ -60,18 +60,18 @@ def main():
     .replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
     let bytecode_to_prove = compile_program(&ProgramSource::Raw(program_to_prove.to_string()));
     precompute_dft_twiddles::<F>(1 << 24);
-    let outer_public_input = vec![];
-    let outer_private_input = vec![];
+    let inner_public_input = vec![];
+    let inner_private_input = vec![];
     let proof_to_prove = prove_execution(
         &bytecode_to_prove,
-        (&outer_public_input, &outer_private_input),
+        (&inner_public_input, &inner_private_input),
         &vec![],
         &inner_whir_config,
         false,
     );
     let verif_details = verify_execution(
         &bytecode_to_prove,
-        &[],
+        &inner_public_input,
         proof_to_prove.proof.clone(),
         &inner_whir_config,
     )
@@ -303,8 +303,8 @@ def main():
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
 
-    let mut inner_public_input = vec![F::from_usize(verif_details.bytecode_evaluation.point.num_variables())];
-    inner_public_input.extend(
+    let mut outer_public_input = vec![F::from_usize(verif_details.bytecode_evaluation.point.num_variables())];
+    outer_public_input.extend(
         verif_details
             .bytecode_evaluation
             .point
@@ -312,16 +312,16 @@ def main():
             .iter()
             .flat_map(|c| c.as_basis_coefficients_slice()),
     );
-    inner_public_input.extend(verif_details.bytecode_evaluation.value.as_basis_coefficients_slice());
+    outer_public_input.extend(dbg!(verif_details.bytecode_evaluation.value.as_basis_coefficients_slice()));
     let outer_public_memory = build_public_memory(&outer_public_input);
-    let mut inner_private_input = vec![
+    let mut outer_private_input = vec![
         F::from_usize(proof_to_prove.proof.len()),
         F::from_usize(log2_strict_usize(outer_public_memory.len())),
         F::from_usize(count),
     ];
-    inner_private_input.extend(outer_public_memory);
+    outer_private_input.extend(outer_public_memory);
     for _ in 0..count {
-        inner_private_input.extend(proof_to_prove.proof.to_vec());
+        outer_private_input.extend(proof_to_prove.proof.to_vec());
     }
 
     let recursion_bytecode =
@@ -331,7 +331,7 @@ def main():
 
     let recursion_proof = prove_execution(
         &recursion_bytecode,
-        (&inner_public_input, &inner_private_input),
+        (&outer_public_input, &outer_private_input),
         &vec![], // TODO precompute poseidons
         &default_whir_config(),
         false,
@@ -339,7 +339,7 @@ def main():
     let proving_time = time.elapsed();
     verify_execution(
         &recursion_bytecode,
-        &inner_public_input,
+        &outer_public_input,
         recursion_proof.proof,
         &default_whir_config(),
     )

@@ -422,7 +422,6 @@ pub fn verify_generic_logup(
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
-
     for &(table, log_n_rows) in &tables_heights_sorted {
         let n_missing_vars = total_gkr_n_vars - log_n_rows;
         let inner_point = MultilinearPoint(from_end(&point_gkr, log_n_rows).to_vec());
