@@ -581,12 +581,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
                         mul_extension_ret(mul_extension_ret(curr_randomness, prefix), eq_factor),
                     )
                     curr_randomness += DIM
-        num_committed_cols: Imu
-        if table_index == EXECUTION_TABLE_INDEX:
-            num_committed_cols = N_COMMITTED_EXEC_COLUMNS
-        else:
-            num_committed_cols = total_num_cols
-        offset += n_rows * num_committed_cols
+        offset += n_rows * total_num_cols
 
     copy_5(mul_extension_ret(s, final_value), end_sum)
 
