@@ -63,7 +63,7 @@ class DynArray:
 # Built-in constants
 ZERO_VEC_PTR = 0
 ONE_VEC_PTR = 16
-NONRESERVED_PROGRAM_INPUT_START = 58
+NONRESERVED_PROGRAM_INPUT_START = 60
 
 
 def poseidon16(left, right, output, mode):

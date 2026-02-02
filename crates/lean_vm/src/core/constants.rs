@@ -49,11 +49,8 @@ pub const EXTENSION_BASIS_PTR: usize = 2 * DIGEST_LEN;
 /// Convention: pointing to the 16 elements of poseidon_16(0)
 pub const POSEIDON_16_NULL_HASH_PTR: usize = EXTENSION_BASIS_PTR + DIMENSION.pow(2);
 
-/// Pointer to start of private input
-pub const PRIVATE_INPUT_START_PTR: usize = POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN * 2;
-
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = PRIVATE_INPUT_START_PTR + 1;
+pub const NONRESERVED_PROGRAM_INPUT_START: usize = (POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN * 2).next_multiple_of(DIMENSION);
 
 /// The first element of basis corresponds to one
 pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;

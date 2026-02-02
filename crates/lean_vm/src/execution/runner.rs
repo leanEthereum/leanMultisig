@@ -8,7 +8,7 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES, PRIVATE_INPUT_START_PTR,
+    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES, 
     STARTING_PC, SourceLocation, Table, TableTrace,
 };
 use multilinear_toolkit::prelude::*;
@@ -37,7 +37,6 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     }
 
     public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * DIGEST_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
-    public_memory[PRIVATE_INPUT_START_PTR] = F::from_usize(public_memory_len);
     public_memory
 }
 

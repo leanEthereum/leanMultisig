@@ -1,4 +1,4 @@
-use lean_vm::{NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, PRIVATE_INPUT_START_PTR, ZERO_VEC_PTR};
+use lean_vm::{NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, ZERO_VEC_PTR};
 use multilinear_toolkit::prelude::*;
 
 use super::expression::ExpressionParser;
@@ -131,7 +131,6 @@ impl VarOrConstantParser {
             "NONRESERVED_PROGRAM_INPUT_START" => Ok(SimpleExpr::Constant(ConstExpression::from(
                 NONRESERVED_PROGRAM_INPUT_START,
             ))),
-            "PRIVATE_INPUT_START_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(PRIVATE_INPUT_START_PTR))),
             "ZERO_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ZERO_VEC_PTR))),
             "ONE_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ONE_VEC_PTR))),
             _ => {

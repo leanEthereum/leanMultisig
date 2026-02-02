@@ -43,21 +43,21 @@ NONRESERVED_PROGRAM_INPUT_START = NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER
 
 
 def main():
-    mem = 0
-    priv_start = mem[PRIVATE_INPUT_START_PTR]
+    pub_mem = NONRESERVED_PROGRAM_INPUT_START
+    priv_start = pub_mem[0]
     proof_size = priv_start[0]
-    outer_public_memory_log_size = priv_start[1]
-    outer_public_memory_size = powers_of_two(outer_public_memory_log_size)
+    inner_public_memory_log_size = priv_start[1]
+    inner_public_memory_size = powers_of_two(inner_public_memory_log_size)
     n_recursions = priv_start[2]
-    outer_public_memory = priv_start + 3
-    proofs_start = outer_public_memory + outer_public_memory_size
+    inner_public_memory = priv_start + 3
+    proofs_start = inner_public_memory + inner_public_memory_size
     for i in range(0, n_recursions):
         proof_transcript = proofs_start + i * proof_size
-        recursion(outer_public_memory_log_size, outer_public_memory, proof_transcript)
+        recursion(inner_public_memory_log_size, inner_public_memory, proof_transcript)
     return
 
 
-def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcript):
+def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcript):
     fs: Mut = fs_new(proof_transcript)
 
     # table dims
@@ -117,15 +117,15 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(
         offset / powers_of_two(log_bytecode_padded), N_VARS_LOGUP_GKR - log_bytecode_padded, point_gkr
     )
-    NONRESERVED_PROGRAM_INPUT_START_ = NONRESERVED_PROGRAM_INPUT_START
-    assert NONRESERVED_PROGRAM_INPUT_START_[0] == log_bytecode + log2_ceil(N_INSTRUCTION_COLUMNS)
-    copy_many_ef(bytecode_and_acc_point, NONRESERVED_PROGRAM_INPUT_START + 1, log_bytecode)
+    pub_mem = NONRESERVED_PROGRAM_INPUT_START
+    assert pub_mem[1] == log_bytecode + log2_ceil(N_INSTRUCTION_COLUMNS)
+    copy_many_ef(bytecode_and_acc_point, pub_mem + 2, log_bytecode)
     copy_many_ef(
         logup_alphas + (log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM,
-        NONRESERVED_PROGRAM_INPUT_START + 1 + log_bytecode * DIM,
+        pub_mem + 2 + log_bytecode * DIM,
         log2_ceil(N_INSTRUCTION_COLUMNS),
     )
-    bytecode_value = NONRESERVED_PROGRAM_INPUT_START + 1 + (log_bytecode + log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM
+    bytecode_value = pub_mem + 2 + (log_bytecode + log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM
     bytecode_value_corrected: Mut = bytecode_value
     for i in unroll(0, log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)):
         bytecode_value_corrected = mul_extension_ret(
@@ -427,21 +427,21 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
                 virtual_col_index = n_up_columns_f + i * DIM + j
                 pcs_values[table_index][last_index_2][virtual_col_index].push(transposed + j * DIM)
 
-    # verify the outer public memory is well constructed (with the conventions)
-    for i in unroll(0, next_multiple_of(NONRESERVED_PROGRAM_INPUT_START, DIM) / DIM):
-        copy_5(i * DIM, outer_public_memory + i * DIM)
+    # verify the inner public memory is well constructed (with the conventions) (NONRESERVED_PROGRAM_INPUT_START is a multiple of DIM)
+    for i in unroll(0, NONRESERVED_PROGRAM_INPUT_START / DIM):
+        copy_5(i * DIM, inner_public_memory + i * DIM)
 
-    public_memory_random_point = Array(outer_public_memory_log_size * DIM)
-    for i in range(0, outer_public_memory_log_size):
+    public_memory_random_point = Array(inner_public_memory_log_size * DIM)
+    for i in range(0, inner_public_memory_log_size):
         copy_5(fs_sample_ef(fs), public_memory_random_point + i * DIM)
         fs = duplexing(fs)
-    poly_eq_public_mem = poly_eq_extension_dynamic(public_memory_random_point, outer_public_memory_log_size)
+    poly_eq_public_mem = poly_eq_extension_dynamic(public_memory_random_point, inner_public_memory_log_size)
     public_memory_eval = Array(DIM)
     dot_product_be_dynamic(
-        outer_public_memory,
+        inner_public_memory,
         poly_eq_public_mem,
         public_memory_eval,
-        powers_of_two(outer_public_memory_log_size),
+        powers_of_two(inner_public_memory_log_size),
     )
 
     # WHIR BASE
@@ -512,12 +512,12 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     curr_randomness += DIM
 
     eq_pub_mem = eq_mle_extension(
-        folding_randomness_global + (WHIR_N_VARS - outer_public_memory_log_size) * DIM,
+        folding_randomness_global + (WHIR_N_VARS - inner_public_memory_log_size) * DIM,
         public_memory_random_point,
-        outer_public_memory_log_size,
+        inner_public_memory_log_size,
     )
     prefix_pub_mem = multilinear_location_prefix(
-        0, WHIR_N_VARS - outer_public_memory_log_size, folding_randomness_global
+        0, WHIR_N_VARS - inner_public_memory_log_size, folding_randomness_global
     )
     s = add_extension_ret(
         s,
@@ -681,16 +681,16 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     return fs, postponed_point, new_claim_num, new_claim_den
 
 
-def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, bus_alpha_powers):
+def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly):
     res: Imu
     debug_assert(table_index < 3)
     match table_index:
         case 0:
-            res = evaluate_air_constraints_table_0(inner_evals, air_alpha_powers, bus_beta, bus_alpha_powers)
+            res = evaluate_air_constraints_table_0(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
         case 1:
-            res = evaluate_air_constraints_table_1(inner_evals, air_alpha_powers, bus_beta, bus_alpha_powers)
+            res = evaluate_air_constraints_table_1(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
         case 2:
-            res = evaluate_air_constraints_table_2(inner_evals, air_alpha_powers, bus_beta, bus_alpha_powers)
+            res = evaluate_air_constraints_table_2(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
     return res
 
 

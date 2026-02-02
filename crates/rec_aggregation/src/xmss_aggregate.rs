@@ -40,6 +40,8 @@ fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message_hash: [F; 8], slo
         public_input.push(acc);
         acc += F::from_usize((1 + V + pk.log_lifetime) * DIGEST_LEN); // size of the signature
     }
+    let private_input_start = (NONRESERVED_PROGRAM_INPUT_START + 1 + public_input.len()).next_power_of_two();
+    public_input.insert(0, F::from_usize(private_input_start));
     public_input
 }
 
