@@ -298,7 +298,7 @@ def main():
     );
     replacements.insert(
         "TOTAL_WHIR_STATEMENTS_PLACEHOLDER".to_string(),
-        verif_details.total_whir_statements_base.to_string(),
+        verif_details.total_whir_statements.to_string(),
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
