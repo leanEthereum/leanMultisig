@@ -127,7 +127,7 @@ def recursion(outer_public_memory_log_size, outer_public_memory, proof_transcrip
     )
     bytecode_value = NONRESERVED_PROGRAM_INPUT_START_ + 1 + log_bytecode * DIM
     bytecode_value_corrected: Mut = bytecode_value
-    for i in log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS):
+    for i in unroll(0, log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)):
         bytecode_value_corrected = mul_extension_ret(
             bytecode_value_corrected, one_minus_self_extension_ret(logup_alphas + i * DIM)
         )

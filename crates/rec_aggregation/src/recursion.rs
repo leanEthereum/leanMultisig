@@ -297,7 +297,7 @@ def main():
         N_RUNTIME_COLUMNS.to_string(),
     );
     replacements.insert(
-        "TOTAL_WHIR_STATEMENTS_BASE_PLACEHOLDER".to_string(),
+        "TOTAL_WHIR_STATEMENTS_PLACEHOLDER".to_string(),
         verif_details.total_whir_statements_base.to_string(),
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
@@ -438,7 +438,7 @@ where
 
     let mut res = format!(
         "def evaluate_air_constraints_table_{}({}, air_alpha_powers, bus_beta, bus_alpha_powers):\n",
-        table.table().index() - 1,
+        table.table().index(),
         AIR_INNER_VALUES_VAR
     );
 

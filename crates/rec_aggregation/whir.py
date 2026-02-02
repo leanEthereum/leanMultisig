@@ -44,7 +44,7 @@ def whir_open(
             WHIR_FOLDING_FACTORS[r],
             2 ** WHIR_FOLDING_FACTORS[r],
             is_first_round,
-            NUM_QUERIES[r],
+            WHIR_NUM_QUERIES[r],
             domain_sz,
             claimed_sum,
             WHIR_GRINDING_BITS[r],
@@ -63,7 +63,7 @@ def whir_open(
 
     fs, all_circle_values[WHIR_N_ROUNDS], final_folds = sample_stir_indexes_and_fold(
         fs,
-        NUM_QUERIES[WHIR_N_ROUNDS],
+        WHIR_NUM_QUERIES[WHIR_N_ROUNDS],
         0,
         WHIR_FOLDING_FACTORS[WHIR_N_ROUNDS],
         2 ** WHIR_FOLDING_FACTORS[WHIR_N_ROUNDS],
@@ -74,7 +74,7 @@ def whir_open(
     )
 
     final_circle_values = all_circle_values[WHIR_N_ROUNDS]
-    for i in range(0, NUM_QUERIES[WHIR_N_ROUNDS]):
+    for i in range(0, WHIR_NUM_QUERIES[WHIR_N_ROUNDS]):
         powers_of_2_rev = expand_from_univariate_base_const(final_circle_values[i], WHIR_FINAL_VARS)
         poly_eq = poly_eq_base(powers_of_2_rev, WHIR_FINAL_VARS)
         final_pol_evaluated_on_circle = Array(DIM)
@@ -130,16 +130,16 @@ def whir_open(
             WHIR_NUM_OODS[i],
         )
 
-        s6s = Array((NUM_QUERIES[i]) * DIM)
+        s6s = Array((WHIR_NUM_QUERIES[i]) * DIM)
         circle_value_i = all_circle_values[i]
-        for j in range(0, NUM_QUERIES[i]):  # unroll ?
+        for j in range(0, WHIR_NUM_QUERIES[i]):  # unroll ?
             expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars)
             temp = eq_mle_base_extension(expanded_from_univariate, my_folding_randomness, n_vars)
             copy_5(temp, s6s + j * DIM)
         s7 = dot_product_ret(
             s6s,
             combination_randomness_powers + WHIR_NUM_OODS[i] * DIM,
-            NUM_QUERIES[i],
+            WHIR_NUM_QUERIES[i],
             EE,
         )
         s = add_extension_ret(s, s7)
