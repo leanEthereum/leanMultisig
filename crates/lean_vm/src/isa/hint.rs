@@ -138,9 +138,9 @@ impl CustomHint {
             Self::LessThan => {
                 let a = args[0].read_value(ctx.memory, ctx.fp)?;
                 let b = args[1].read_value(ctx.memory, ctx.fp)?;
-                let result_addr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let res_ptr = args[2].memory_address(ctx.fp)?;
                 let result = if a.to_usize() < b.to_usize() { F::ONE } else { F::ZERO };
-                ctx.memory.set(result_addr, result)?;
+                ctx.memory.set(res_ptr, result)?;
             }
         }
         Ok(())

@@ -386,7 +386,7 @@ def mle_of_01234567_etc(point, n):
 
 
 def checked_less_than(a, b):
-    res = Array(1)
+    res: Imu
     hint_less_than(a, b, res)
     assert res * (1 - res) == 0
     if res == 1:
