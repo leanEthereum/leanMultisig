@@ -15,9 +15,6 @@ use multilinear_toolkit::prelude::*;
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 
 pub fn run_recursion_benchmark(count: usize, tracing: bool) {
-    if tracing {
-        utils::init_tracing();
-    }
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("recursion.py")
         .to_str()
@@ -330,6 +327,9 @@ def main():
     let recursion_bytecode =
         compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements });
 
+    if tracing {
+        utils::init_tracing();
+    }
     let time = Instant::now();
 
     let recursion_proof = prove_execution(
