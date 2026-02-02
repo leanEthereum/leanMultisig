@@ -540,7 +540,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_bytecode_acc), eq_bytecode_acc),
     )
     curr_randomness += DIM
-    offset += 2**log2_ceil(GUEST_BYTECODE_LEN)
+    offset += powers_of_two(log_bytecode_padded)
 
     prefix_pc_start = multilinear_location_prefix(
         offset + COL_PC * powers_of_two(log_n_cycles),
