@@ -112,7 +112,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     log_bytecode_padded = maximum(log_bytecode, log_n_cycles)
     bytecode_and_acc_point = point_gkr + (N_VARS_LOGUP_GKR - log_bytecode) * DIM
     bytecode_multilinear_location_prefix = multilinear_location_prefix(
-        offset / 2**log2_ceil(GUEST_BYTECODE_LEN), N_VARS_LOGUP_GKR - log_bytecode, point_gkr
+        offset / 2 ** log2_ceil(GUEST_BYTECODE_LEN), N_VARS_LOGUP_GKR - log_bytecode, point_gkr
     )
     bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(
         offset / powers_of_two(log_bytecode_padded), N_VARS_LOGUP_GKR - log_bytecode_padded, point_gkr
@@ -162,7 +162,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
             bytecode_padded_multilinear_location_prefix,
             mle_of_zeros_then_ones(
                 point_gkr + (N_VARS_LOGUP_GKR - log_bytecode_padded) * DIM,
-                2**log2_ceil(GUEST_BYTECODE_LEN),
+                2 ** log2_ceil(GUEST_BYTECODE_LEN),
                 log_bytecode_padded,
             ),
         ),
@@ -190,7 +190,6 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         inner_point = point_gkr + (N_VARS_LOGUP_GKR - log_n_rows) * DIM
         pcs_points[table_index].push(inner_point)
 
-
         if table_index == EXECUTION_TABLE_INDEX:
             # 0] Bytecode lookup
             bytecode_prefix = multilinear_location_prefix(offset / n_rows, N_VARS_LOGUP_GKR - log_n_rows, point_gkr)
@@ -204,9 +203,9 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
             retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, bytecode_prefix)
             fingerp = fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly)
             retrieved_denominators_value = add_extension_ret(
-                    retrieved_denominators_value,
-                    mul_extension_ret(bytecode_prefix, sub_extension_ret(logup_c, fingerp)),
-                )
+                retrieved_denominators_value,
+                mul_extension_ret(bytecode_prefix, sub_extension_ret(logup_c, fingerp)),
+            )
             offset += n_rows
 
         prefix = multilinear_location_prefix(offset / n_rows, N_VARS_LOGUP_GKR - log_n_rows, point_gkr)
@@ -533,7 +532,9 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         log2_ceil(GUEST_BYTECODE_LEN),
     )
     prefix_bytecode_acc = multilinear_location_prefix(
-        offset / 2**log2_ceil(GUEST_BYTECODE_LEN), WHIR_N_VARS - log2_ceil(GUEST_BYTECODE_LEN), folding_randomness_global
+        offset / 2 ** log2_ceil(GUEST_BYTECODE_LEN),
+        WHIR_N_VARS - log2_ceil(GUEST_BYTECODE_LEN),
+        folding_randomness_global,
     )
     s = add_extension_ret(
         s,
@@ -601,15 +602,20 @@ def fingerprint_2(table_index, data_1, data_2, logup_alphas_eq_poly):
     copy_5(data_1, buff)
     copy_5(data_2, buff + DIM)
     res: Mut = dot_product_ret(buff, logup_alphas_eq_poly, 2, EE)
-    res = add_extension_ret(res, mul_base_extension_ret(table_index, logup_alphas_eq_poly + (2**log2_ceil(MAX_BUS_WIDTH) - 1) * DIM))
+    res = add_extension_ret(
+        res, mul_base_extension_ret(table_index, logup_alphas_eq_poly + (2 ** log2_ceil(MAX_BUS_WIDTH) - 1) * DIM)
+    )
     return res
+
 
 def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
     res: Mut = dot_product_ret(instr_evals, logup_alphas_eq_poly, N_INSTRUCTION_COLUMNS, EE)
     res = add_extension_ret(res, mul_extension_ret(eval_on_pc, logup_alphas_eq_poly + N_INSTRUCTION_COLUMNS * DIM))
-    res = add_extension_ret(res, mul_base_extension_ret(BYTECODE_TABLE_INDEX, logup_alphas_eq_poly + (2**log2_ceil(MAX_BUS_WIDTH) - 1) * DIM))
+    res = add_extension_ret(
+        res,
+        mul_base_extension_ret(BYTECODE_TABLE_INDEX, logup_alphas_eq_poly + (2 ** log2_ceil(MAX_BUS_WIDTH) - 1) * DIM),
+    )
     return res
-
 
 
 def verify_gkr_quotient(fs: Mut, n_vars):

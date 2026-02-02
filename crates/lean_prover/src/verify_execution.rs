@@ -58,7 +58,7 @@ pub fn verify_execution(
     }
 
     let parsed_commitment = packed_pcs_parse_commitment(
-        &whir_config,
+        whir_config,
         &mut verifier_state,
         log_memory,
         bytecode.log_size(),
@@ -150,7 +150,7 @@ pub fn verify_execution(
         &committed_statements,
     );
     let total_whir_statements = global_statements_base.iter().map(|s| s.values.len()).sum();
-    WhirConfig::new(&whir_config, parsed_commitment.num_variables).verify(
+    WhirConfig::new(whir_config, parsed_commitment.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment,
         global_statements_base,

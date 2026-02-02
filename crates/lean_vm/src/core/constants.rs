@@ -50,7 +50,8 @@ pub const EXTENSION_BASIS_PTR: usize = 2 * DIGEST_LEN;
 pub const POSEIDON_16_NULL_HASH_PTR: usize = EXTENSION_BASIS_PTR + DIMENSION.pow(2);
 
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = (POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN * 2).next_multiple_of(DIMENSION);
+pub const NONRESERVED_PROGRAM_INPUT_START: usize =
+    (POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN * 2).next_multiple_of(DIMENSION);
 
 /// The first element of basis corresponds to one
 pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;

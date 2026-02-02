@@ -91,7 +91,7 @@ pub fn prove_execution(
     // 1st Commitment
     let packed_pcs_witness = packed_pcs_commit(
         &mut prover_state,
-        &whir_config,
+        whir_config,
         &memory,
         &memory_acc,
         &bytecode_acc,
@@ -186,7 +186,7 @@ pub fn prove_execution(
         &committed_statements,
     );
 
-    WhirConfig::new(&whir_config, packed_pcs_witness.packed_polynomial.by_ref().n_vars()).prove(
+    WhirConfig::new(whir_config, packed_pcs_witness.packed_polynomial.by_ref().n_vars()).prove(
         &mut prover_state,
         global_statements_base,
         packed_pcs_witness.inner_witness,

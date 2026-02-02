@@ -8,8 +8,8 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES, 
-    STARTING_PC, SourceLocation, Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES, STARTING_PC,
+    SourceLocation, Table, TableTrace,
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};

@@ -144,10 +144,7 @@ pub fn compile_to_low_level_bytecode(
             &mut hints,
         );
     }
-    let instructions_encoded = instructions
-        .par_iter()
-        .map(|instr| field_representation(instr))
-        .collect::<Vec<_>>();
+    let instructions_encoded = instructions.par_iter().map(field_representation).collect::<Vec<_>>();
 
     let mut instructions_multilinear = vec![];
     for instr in &instructions_encoded {

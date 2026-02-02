@@ -313,7 +313,8 @@ def main():
             .flat_map(|c| c.as_basis_coefficients_slice()),
     );
     outer_public_input.extend(verif_details.bytecode_evaluation.value.as_basis_coefficients_slice());
-    let outer_private_input_start = (NONRESERVED_PROGRAM_INPUT_START + 1 + outer_public_input.len()).next_power_of_two();
+    let outer_private_input_start =
+        (NONRESERVED_PROGRAM_INPUT_START + 1 + outer_public_input.len()).next_power_of_two();
     outer_public_input.insert(0, F::from_usize(outer_private_input_start));
     let inner_public_memory = build_public_memory(&inner_public_input);
     let mut outer_private_input = vec![
@@ -469,7 +470,11 @@ where
         "\n    bus_res: Mut = dot_product_ret(buff, logup_alphas_eq_poly, {}, EE)",
         bus_data.len()
     );
-    res += &format!("\n    bus_res = add_extension_ret(mul_extension_ret({}, logup_alphas_eq_poly + {} * DIM), bus_res)", table_index, max_bus_width().next_power_of_two() - 1);
+    res += &format!(
+        "\n    bus_res = add_extension_ret(mul_extension_ret({}, logup_alphas_eq_poly + {} * DIM), bus_res)",
+        table_index,
+        max_bus_width().next_power_of_two() - 1
+    );
     res += "\n    bus_res = mul_extension_ret(bus_res, bus_beta)";
     res += &format!("\n    sum: Mut = add_extension_ret(bus_res, {})", flag);
 

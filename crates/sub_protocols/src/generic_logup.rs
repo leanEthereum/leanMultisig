@@ -414,7 +414,7 @@ pub fn verify_generic_logup(
             + *alphas_eq_poly.last().unwrap() * F::from_usize(BYTECODE_TABLE_INDEX)));
     // Padding for bytecode
     retrieved_denominators_value +=
-        pref_padded * mle_of_zeros_then_ones(1 << log_bytecode, &from_end(&point_gkr, log_bytecode_padded));
+        pref_padded * mle_of_zeros_then_ones(1 << log_bytecode, from_end(&point_gkr, log_bytecode_padded));
     offset += 1 << log_bytecode_padded;
 
     // ... Rest of the tables:

@@ -27,7 +27,6 @@ def main():
     all_merkle_indexes = all_log_lifetimes + n_signatures
     sig_sizes = all_merkle_indexes + n_signatures * MAX_LOG_LIFETIME
 
-
     for i in range(0, n_signatures):
         xmss_public_key = all_public_keys + i * VECTOR_LEN
         signature = signatures_start + sig_sizes[i]
