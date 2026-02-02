@@ -145,6 +145,23 @@ pub fn compile_to_low_level_bytecode(
         );
     }
 
+    // Build pc_to_location mapping from LocationReport hints
+    let mut pc_to_location = Vec::with_capacity(instructions.len());
+    let mut current_location = SourceLocation {
+        file_id: 0,
+        line_number: 0,
+    };
+    for pc in 0..instructions.len() {
+        if let Some(hints_at_pc) = hints.get(&pc) {
+            for hint in hints_at_pc {
+                if let Hint::LocationReport { location } = hint {
+                    current_location = *location;
+                }
+            }
+        }
+        pc_to_location.push(current_location);
+    }
+
     Ok(Bytecode {
         instructions,
         hints,
@@ -152,6 +169,7 @@ pub fn compile_to_low_level_bytecode(
         function_locations,
         source_code,
         filepaths,
+        pc_to_location,
     })
 }
 

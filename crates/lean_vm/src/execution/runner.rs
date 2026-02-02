@@ -16,9 +16,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use utils::{ToUsize, poseidon16_permute, pretty_integer};
 use xmss::Poseidon16History;
 
-/// Number of instructions to show in stack trace
-const STACK_TRACE_INSTRUCTIONS: usize = 5000;
-
 /// Build public memory with standard initialization
 pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     // padded to a power of two
@@ -65,17 +62,9 @@ pub fn try_execute_bytecode(
         poseidons_16_precomputed,
     )
     .map_err(|(last_pc, err)| {
-        let lines_history = &instruction_history.lines;
-        let latest_instructions = &lines_history[lines_history.len().saturating_sub(STACK_TRACE_INSTRUCTIONS)..];
         eprintln!(
             "\n{}",
-            crate::diagnostics::pretty_stack_trace(
-                &bytecode.source_code,
-                latest_instructions,
-                &bytecode.function_locations,
-                &bytecode.filepaths,
-                last_pc
-            )
+            crate::diagnostics::pretty_stack_trace(bytecode, last_pc, &instruction_history.lines)
         );
         if !std_out.is_empty() {
             eprintln!("╔══════════════════════════════════════════════════════════════╗");
