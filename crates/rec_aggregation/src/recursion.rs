@@ -473,8 +473,6 @@ where
     res += "\n    bus_res = mul_extension_ret(bus_res, bus_beta)";
     res += &format!("\n    sum: Mut = add_extension_ret(bus_res, {})", flag);
 
-    println!("AIR constraints for table {}: {}", table.table().index(), res);
-
     for (index, constraint_eval) in constraints_evals.iter().enumerate() {
         res += format!(
             "\n    sum = add_extension_ret(sum, mul_extension_ret(air_alpha_powers + {} * DIM, {}))",
