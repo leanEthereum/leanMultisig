@@ -533,7 +533,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         log2_ceil(GUEST_BYTECODE_LEN),
     )
     prefix_bytecode_acc = multilinear_location_prefix(
-        0, WHIR_N_VARS - log2_ceil(GUEST_BYTECODE_LEN), folding_randomness_global
+        offset / 2**log2_ceil(GUEST_BYTECODE_LEN), WHIR_N_VARS - log2_ceil(GUEST_BYTECODE_LEN), folding_randomness_global
     )
     s = add_extension_ret(
         s,
