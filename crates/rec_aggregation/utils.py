@@ -107,7 +107,7 @@ def eq_mle_extension(a, b, n):
 
     return current_prod
 
-
+@inline
 def eq_mle_base_extension(a, b, n):
     debug_assert(n < 26)
     debug_assert(0 < n)
@@ -210,7 +210,7 @@ def mle_of_01234567_etc(point, n):
         res = add_extension_ret(b, d)
         return res
 
-
+@inline
 def checked_less_than(a, b):
     res: Imu
     hint_less_than(a, b, res)
@@ -221,7 +221,7 @@ def checked_less_than(a, b):
         assert b <= a
     return res
 
-
+@inline
 def maximum(a, b):
     is_a_less_than_b = checked_less_than(a, b)
     res: Imu
@@ -231,7 +231,7 @@ def maximum(a, b):
         res = a
     return res
 
-
+@inline
 def powers_of_two(n):
     debug_assert(n < 32)
     res = match_range(n, range(0, 32), lambda i: 2**i)
@@ -308,6 +308,7 @@ def mul_base_extension_ret(a, b):
     return res
 
 
+@inline
 def div_extension_ret(n, d):
     quotient = Array(DIM)
     dot_product(d, quotient, n, 1, EE)
@@ -402,9 +403,9 @@ def copy_16(a, b):
     a[15] = b[15]
     return
 
-
+@inline
 def copy_many_ef(a, b, n):
-    for i in range(0, n):
+    for i in unroll(0, n):
         dot_product(a + i * DIM, ONE_VEC_PTR, b + i * DIM, 1, EE)
     return
 
