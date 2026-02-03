@@ -1565,7 +1565,7 @@ impl MutableVarTracker {
             Ok(())
         } else {
             Err(format!(
-                "Cannot reassign immutable variable '{var}'. Use 'mut {var}' for mutable variables, or 'assert {var} == <value>;' to check equality"
+                "Cannot reassign immutable variable '{var}'. Use '{var}: Mut' for mutable variables, or 'assert {var} == <value>;' to check equality"
             ))
         }
     }
@@ -1582,26 +1582,48 @@ impl MutableVarTracker {
 
         let branch_exits_early: Vec<bool> = branches.iter().map(|b| ends_with_early_exit(b)).collect();
 
+        // Collect variables that were newly introduced in branches (not in snapshot)
+        let mut branch_local_vars = Vec::new();
+
         for var in self.versions.clone().keys() {
+            let was_in_snapshot = snapshot_versions.contains_key(var);
             let snapshot_v = snapshot_versions.get(var).copied().unwrap_or(0);
+
+            // Check which continuing branches have this variable
+            let branch_has_var: Vec<bool> = branch_versions.iter().map(|v| v.contains_key(var)).collect();
             let versions: Vec<usize> = branch_versions
                 .iter()
                 .map(|v| v.get(var).copied().unwrap_or(0))
                 .collect();
 
             // Only consider versions from branches that don't exit early for unification
-            let continuing_versions: Vec<usize> = versions
+            let continuing_branches: Vec<(usize, bool, usize)> = versions
                 .iter()
                 .zip(branch_exits_early.iter())
-                .filter(|&(_, exits)| !exits)
-                .map(|(&v, _)| v)
+                .zip(branch_has_var.iter())
+                .enumerate()
+                .filter(|(_, ((_, exits), _))| !*exits)
+                .map(|(idx, ((v, _), has))| (idx, *has, *v))
                 .collect();
 
             // If all branches exit early, no unification needed - just keep the snapshot version
-            if continuing_versions.is_empty() {
+            if continuing_branches.is_empty() {
                 self.versions.insert(var.clone(), snapshot_v);
                 continue;
             }
+
+            // If variable wasn't in snapshot, check if it exists in all continuing branches
+            if !was_in_snapshot {
+                let exists_in_all = continuing_branches.iter().all(|(_, has, _)| *has);
+                if !exists_in_all {
+                    // Variable was introduced in some branches but not all - it's branch-local
+                    // Don't unify; remove from tracker after processing
+                    branch_local_vars.push(var.clone());
+                    continue;
+                }
+            }
+
+            let continuing_versions: Vec<usize> = continuing_branches.iter().map(|(_, _, v)| *v).collect();
 
             // Check if all continuing branches have the same version
             if continuing_versions.iter().all(|&v| v == continuing_versions[0]) {
@@ -1641,6 +1663,11 @@ impl MutableVarTracker {
 
                 self.versions.insert(var.clone(), unified_version);
             }
+        }
+
+        // Remove branch-local variables from tracker - they're out of scope
+        for var in branch_local_vars {
+            self.versions.remove(&var);
         }
 
         forward_decls
