@@ -54,9 +54,7 @@ def unit_root_pow_const(domain_size: Const, index_bits):
 
 def poly_eq_extension_dynamic(point, n):
     debug_assert(n < 8)
-    res = match_range(n,
-        range(0, 1), lambda i: ONE_VEC_PTR,
-        range(1, 8), lambda i: poly_eq_extension(point, i))
+    res = match_range(n, range(0, 1), lambda i: ONE_VEC_PTR, range(1, 8), lambda i: poly_eq_extension(point, i))
     return res
 
 
@@ -148,6 +146,7 @@ def eq_mle_extension_base_const(a, b, n: Const):
     for i in unroll(0, n - 1):
         mul_extension(prods + i * DIM, buff + (i + 1) * DIM, prods + (i + 1) * DIM)
     return prods + (n - 1) * DIM
+
 
 @inline
 def expand_from_univariate_base(alpha, n):
@@ -516,74 +515,18 @@ def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     assert to_decompose == sum
     return bits
 
+
 @inline
 def checked_decompose_bits_small_value(to_decompose, n_bits):
-    res : Imu
     debug_assert(n_bits < 30)
     debug_assert(0 < n_bits)
-    match n_bits:
-        case 0:
-            _ = 0  # unreachable
-        case 1:
-            res = checked_decompose_bits_small_value_const(to_decompose, 1)
-        case 2:
-            res = checked_decompose_bits_small_value_const(to_decompose, 2)
-        case 3:
-            res = checked_decompose_bits_small_value_const(to_decompose, 3)
-        case 4:
-            res = checked_decompose_bits_small_value_const(to_decompose, 4)
-        case 5:
-            res = checked_decompose_bits_small_value_const(to_decompose, 5)
-        case 6:
-            res = checked_decompose_bits_small_value_const(to_decompose, 6)
-        case 7:
-            res = checked_decompose_bits_small_value_const(to_decompose, 7)
-        case 8:
-            res = checked_decompose_bits_small_value_const(to_decompose, 8)
-        case 9:
-            res = checked_decompose_bits_small_value_const(to_decompose, 9)
-        case 10:
-            res = checked_decompose_bits_small_value_const(to_decompose, 10)
-        case 11:
-            res = checked_decompose_bits_small_value_const(to_decompose, 11)
-        case 12:
-            res = checked_decompose_bits_small_value_const(to_decompose, 12)
-        case 13:
-            res = checked_decompose_bits_small_value_const(to_decompose, 13)
-        case 14:
-            res = checked_decompose_bits_small_value_const(to_decompose, 14)
-        case 15:
-            res = checked_decompose_bits_small_value_const(to_decompose, 15)
-        case 16:
-            res = checked_decompose_bits_small_value_const(to_decompose, 16)
-        case 17:
-            res = checked_decompose_bits_small_value_const(to_decompose, 17)
-        case 18:
-            res = checked_decompose_bits_small_value_const(to_decompose, 18)
-        case 19:
-            res = checked_decompose_bits_small_value_const(to_decompose, 19)
-        case 20:
-            res = checked_decompose_bits_small_value_const(to_decompose, 20)
-        case 21:
-            res = checked_decompose_bits_small_value_const(to_decompose, 21)
-        case 22:
-            res = checked_decompose_bits_small_value_const(to_decompose, 22)
-        case 23:
-            res = checked_decompose_bits_small_value_const(to_decompose, 23)
-        case 24:
-            res = checked_decompose_bits_small_value_const(to_decompose, 24)
-        case 25:
-            res = checked_decompose_bits_small_value_const(to_decompose, 25)
-        case 26:
-            res = checked_decompose_bits_small_value_const(to_decompose, 26)
-        case 27:
-            res = checked_decompose_bits_small_value_const(to_decompose, 27)
-        case 28:
-            res = checked_decompose_bits_small_value_const(to_decompose, 28)
-        case 29:
-            res = checked_decompose_bits_small_value_const(to_decompose, 29)
-    return res
-
+    return match_range(
+        n_bits,
+        range(0, 1),
+        lambda _: 0,
+        range(1, 30),
+        lambda i: checked_decompose_bits_small_value_const(to_decompose, i),
+    )
 
 
 @inline

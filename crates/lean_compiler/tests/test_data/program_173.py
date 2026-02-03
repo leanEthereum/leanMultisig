@@ -2,6 +2,7 @@ from snark_lib import *
 
 # Test match_range with non-zero starting indices
 
+
 def main():
     # Test 1: Range starting at 1
     x1 = 2
@@ -30,30 +31,26 @@ def main():
 
     # Test 6: Multiple ranges, first starting at non-zero
     x6 = 2
-    r6 = match_range(x6,
-        range(1, 3), lambda i: i * 10,
-        range(3, 6), lambda i: i * 100)
+    r6 = match_range(x6, range(1, 3), lambda i: i * 10, range(3, 6), lambda i: i * 100)
     assert r6 == 20  # 2 * 10
 
     # Test 7: Multiple ranges, selecting from second range
     x7 = 4
-    r7 = match_range(x7,
-        range(1, 3), lambda i: i * 10,
-        range(3, 6), lambda i: i * 100)
+    r7 = match_range(x7, range(1, 3), lambda i: i * 10, range(3, 6), lambda i: i * 100)
     assert r7 == 400  # 4 * 100
 
     # Test 8: Non-zero start with multiple return values
     x8 = 3
     a8, b8 = match_range(x8, range(1, 5), lambda i: two_vals(i))
-    assert a8 == 30   # 3 * 10
+    assert a8 == 30  # 3 * 10
     assert b8 == 300  # 3 * 100
 
     # Test 9: Non-zero start with three return values
     x9 = 2
     p9, q9, r9 = match_range(x9, range(1, 4), lambda i: three_vals(i))
-    assert p9 == 2     # i
-    assert q9 == 20    # i * 10
-    assert r9 == 200   # i * 100
+    assert p9 == 2  # i
+    assert q9 == 20  # i * 10
+    assert r9 == 200  # i * 100
 
     # Test 10: Non-zero start with expression as match value
     a10 = 7
@@ -73,19 +70,15 @@ def main():
 
     # Test 13: Multiple return values with multiple non-zero ranges
     x13 = 5
-    a13, b13 = match_range(x13,
-        range(2, 4), lambda i: pair_small(i),
-        range(4, 7), lambda i: pair_large(i))
-    assert a13 == 500   # 5 * 100
+    a13, b13 = match_range(x13, range(2, 4), lambda i: pair_small(i), range(4, 7), lambda i: pair_large(i))
+    assert a13 == 500  # 5 * 100
     assert b13 == 5000  # 5 * 1000
 
     # Test 14: First range selected in multiple non-zero ranges
     x14 = 3
-    a14, b14 = match_range(x14,
-        range(2, 4), lambda i: pair_small(i),
-        range(4, 7), lambda i: pair_large(i))
-    assert a14 == 3    # 3 * 1
-    assert b14 == 30   # 3 * 10
+    a14, b14 = match_range(x14, range(2, 4), lambda i: pair_small(i), range(4, 7), lambda i: pair_large(i))
+    assert a14 == 3  # 3 * 1
+    assert b14 == 30  # 3 * 10
 
     return
 
