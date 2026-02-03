@@ -42,7 +42,7 @@ def fs_grinding(fs, bits):
 
     return fs_duplexed
 
-
+@inline
 def fs_sample_ef(fs):
     return fs
 

@@ -18,11 +18,9 @@ LITTLE_ENDIAN = 1
 def powers(alpha, n):
     # alpha: EF
     # n: F
-
-    res = Array(n * DIM)
-    set_to_one(res)
-    for i in range(0, n - 1):
-        mul_extension(res + i * DIM, alpha, res + (i + 1) * DIM)
+    assert n < 128
+    assert 0 < n
+    res = match_range(n, range(1, 128), lambda i: powers_const(alpha, i))
     return res
 
 
@@ -87,15 +85,6 @@ def poly_eq_base(point, n: Const):
             res[2 ** (s + 1) - 1 + 2**s + i] = p * res[2**s - 1 + i]
             res[2 ** (s + 1) - 1 + i] = res[2**s - 1 + i] - res[2 ** (s + 1) - 1 + 2**s + i]
     return res + (2**n - 1)
-
-
-def pow(a, b):
-    if b == 0:
-        return 1  # a^0 = 1
-    else:
-        p = pow(a, b - 1)
-        return a * p
-
 
 def eq_mle_extension(a, b, n):
     buff = Array(n * DIM)
@@ -398,9 +387,7 @@ def set_to_16_zeros(a):
 @inline
 def copy_8(a, b):
     dot_product(a, ONE_VEC_PTR, b, 1, EE)
-    assert a[5] == b[5]
-    assert a[6] == b[6]
-    assert a[7] == b[7]
+    dot_product(a + (8 - DIM), ONE_VEC_PTR, b + (8 - DIM), 1, EE)
     return
 
 
@@ -421,9 +408,7 @@ def copy_many_ef(a, b, n):
 
 @inline
 def set_to_one(a):
-    a[0] = 1
-    for i in unroll(1, DIM):
-        a[i] = 0
+    dot_product(ONE_VEC_PTR, ONE_VEC_PTR, a, 1, EE)
     return
 
 
@@ -439,16 +424,6 @@ def print_vec(a):
     return
 
 
-def print_many(a, n):
-    for i in range(0, n):
-        print(a[i])
-    return
-
-
-def next_multiple_of_8(a: Const):
-    return a + (8 - (a % 8)) % 8
-
-
 @inline
 def read_memory(ptr):
     mem = 0
@@ -456,12 +431,12 @@ def read_memory(ptr):
 
 
 def univariate_polynomial_eval(coeffs, point, degree: Const):
-    powers = powers(point, degree + 1)  # TODO use a parameter: Const version
+    powers = powers_const(point, degree + 1)
     res = Array(DIM)
     dot_product(coeffs, powers, res, degree + 1, EE)
     return res
 
-
+@inline
 def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
     common_den = mul_extension_ret(a_den, b_den)
     a_num_mul_b_den = mul_extension_ret(a_num, b_den)
