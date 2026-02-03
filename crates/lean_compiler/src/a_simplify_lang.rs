@@ -3290,7 +3290,10 @@ fn transform_vars_in_expr(expr: &mut Expression, transform: &impl Fn(&Var) -> Va
         Expression::ArrayAccess { array, .. } | Expression::Len { array, .. } => {
             transform(array).apply_to_var(array);
         }
-        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } | Expression::Lambda { .. } => {}
+        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => {}
+        Expression::Lambda { param, .. } => {
+            transform(param).apply_to_var(param);
+        }
     }
     for inner_expr in expr.inner_exprs_mut() {
         transform_vars_in_expr(inner_expr, transform);
