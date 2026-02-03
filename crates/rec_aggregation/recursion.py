@@ -586,8 +586,6 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     copy_5(mul_extension_ret(s, final_value), end_sum)
 
-    # Last TODO = Opening on the guest bytecode, but there are multiple ways to handle this
-
     return
 
 

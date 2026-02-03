@@ -735,16 +735,85 @@ def checked_decompose_bits(a, k):
     return bits, partial_sum
 
 
-def checked_decompose_bits_small_value(to_decompose, n_bits):
+def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
     hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)
     sum: Mut = bits[n_bits - 1]
     power_of_2: Mut = 1
-    for i in range(1, n_bits):
+    for i in unroll(1, n_bits):
         power_of_2 *= 2
         sum += bits[n_bits - 1 - i] * power_of_2
     assert to_decompose == sum
     return bits
+
+@inline
+def checked_decompose_bits_small_value(to_decompose, n_bits):
+    res : Imu
+    debug_assert(n_bits < 30)
+    debug_assert(0 < n_bits)
+    match n_bits:
+        case 0:
+            _ = 0  # unreachable
+        case 1:
+            res = checked_decompose_bits_small_value_const(to_decompose, 1)
+        case 2:
+            res = checked_decompose_bits_small_value_const(to_decompose, 2)
+        case 3:
+            res = checked_decompose_bits_small_value_const(to_decompose, 3)
+        case 4:
+            res = checked_decompose_bits_small_value_const(to_decompose, 4)
+        case 5:
+            res = checked_decompose_bits_small_value_const(to_decompose, 5)
+        case 6:
+            res = checked_decompose_bits_small_value_const(to_decompose, 6)
+        case 7:
+            res = checked_decompose_bits_small_value_const(to_decompose, 7)
+        case 8:
+            res = checked_decompose_bits_small_value_const(to_decompose, 8)
+        case 9:
+            res = checked_decompose_bits_small_value_const(to_decompose, 9)
+        case 10:
+            res = checked_decompose_bits_small_value_const(to_decompose, 10)
+        case 11:
+            res = checked_decompose_bits_small_value_const(to_decompose, 11)
+        case 12:
+            res = checked_decompose_bits_small_value_const(to_decompose, 12)
+        case 13:
+            res = checked_decompose_bits_small_value_const(to_decompose, 13)
+        case 14:
+            res = checked_decompose_bits_small_value_const(to_decompose, 14)
+        case 15:
+            res = checked_decompose_bits_small_value_const(to_decompose, 15)
+        case 16:
+            res = checked_decompose_bits_small_value_const(to_decompose, 16)
+        case 17:
+            res = checked_decompose_bits_small_value_const(to_decompose, 17)
+        case 18:
+            res = checked_decompose_bits_small_value_const(to_decompose, 18)
+        case 19:
+            res = checked_decompose_bits_small_value_const(to_decompose, 19)
+        case 20:
+            res = checked_decompose_bits_small_value_const(to_decompose, 20)
+        case 21:
+            res = checked_decompose_bits_small_value_const(to_decompose, 21)
+        case 22:
+            res = checked_decompose_bits_small_value_const(to_decompose, 22)
+        case 23:
+            res = checked_decompose_bits_small_value_const(to_decompose, 23)
+        case 24:
+            res = checked_decompose_bits_small_value_const(to_decompose, 24)
+        case 25:
+            res = checked_decompose_bits_small_value_const(to_decompose, 25)
+        case 26:
+            res = checked_decompose_bits_small_value_const(to_decompose, 26)
+        case 27:
+            res = checked_decompose_bits_small_value_const(to_decompose, 27)
+        case 28:
+            res = checked_decompose_bits_small_value_const(to_decompose, 28)
+        case 29:
+            res = checked_decompose_bits_small_value_const(to_decompose, 29)
+    return res
+
 
 
 @inline
