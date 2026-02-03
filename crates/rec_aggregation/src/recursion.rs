@@ -21,9 +21,7 @@ pub fn run_recursion_benchmark(count: usize, tracing: bool) {
         .unwrap()
         .to_string();
 
-    let mut inner_whir_config = default_whir_config();
-    inner_whir_config.folding_factor = FoldingFactor::new(3, 4);
-    inner_whir_config.rs_domain_initial_reduction_factor = 1;
+    let inner_whir_config = default_whir_config();
     let program_to_prove = r#"
 DIM = 5
 COMPRESSION = 1

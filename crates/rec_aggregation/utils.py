@@ -174,6 +174,9 @@ def dot_product_be_dynamic(a, b, res, n):
 
 
 def dot_product_ee_dynamic(a, b, res, n):
+    if n == 32:
+        dot_product(a, b, res, 32, EE)
+        return
     if n == 16:
         dot_product(a, b, res, 16, EE)
         return

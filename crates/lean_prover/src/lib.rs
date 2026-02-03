@@ -21,7 +21,7 @@ pub const SECURITY_BITS: usize = 123; // TODO 128 bits security? (with Poseidon 
 // Provable security (no proximity gaps conjectures)
 pub const SECURITY_REGIME: SecurityAssumption = SecurityAssumption::JohnsonBound;
 
-pub const GRINDING_BITS: usize = 16;
+pub const GRINDING_BITS: usize = 18;
 
 pub const STARTING_LOG_INV_RATE: usize = 2;
 

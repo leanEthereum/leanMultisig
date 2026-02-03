@@ -18,9 +18,19 @@ def batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len):
     if len == 16:
         batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 16)
         return
+    if len == 8:
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 8)
+        return
+    if len == 20:
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 20)
+        return
     if len == 1:
         batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 1)
         return
+    if len == 4:
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 4)
+        return
+    print(len)
     assert False, "batch_hash_slice called with unsupported len"
 
 
