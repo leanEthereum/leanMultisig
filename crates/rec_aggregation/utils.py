@@ -268,7 +268,7 @@ def eq_mle_extension_base_const(a, b, n: Const):
         mul_extension(prods + i * DIM, buff + (i + 1) * DIM, prods + (i + 1) * DIM)
     return prods + (n - 1) * DIM
 
-
+@inline
 def expand_from_univariate_base(alpha, n):
     res: Imu
     debug_assert(n < 23)
