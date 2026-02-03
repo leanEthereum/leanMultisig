@@ -206,7 +206,7 @@ fn compile_lines(
                 ));
             }
 
-            SimpleLine::Match { value, arms } => {
+            SimpleLine::Match { value, arms, offset } => {
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
 
                 let label_id = compiler.match_counter;
@@ -245,6 +245,21 @@ fn compile_lines(
                     res: value_scaled_offset.clone(),
                 });
 
+                // MatchFirstBlockStart - offset * MatchBlockSize
+                let base_address = ConstExpression::MathExpr(
+                    MathOperation::Sub,
+                    vec![
+                        ConstExpression::Value(ConstantValue::MatchFirstBlockStart { match_index }),
+                        ConstExpression::MathExpr(
+                            MathOperation::Mul,
+                            vec![
+                                ConstExpression::from(*offset),
+                                ConstExpression::Value(ConstantValue::MatchBlockSize { match_index }),
+                            ],
+                        ),
+                    ],
+                );
+
                 let jump_dest_offset = IntermediateValue::MemoryAfterFp {
                     offset: compiler.stack_pos.into(),
                 };
@@ -252,7 +267,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Add,
                     arg_a: value_scaled_offset,
-                    arg_b: ConstExpression::Value(ConstantValue::MatchFirstBlockStart { match_index }).into(),
+                    arg_b: base_address.into(),
                     res: jump_dest_offset.clone(),
                 });
                 instructions.push(IntermediateInstruction::Jump {

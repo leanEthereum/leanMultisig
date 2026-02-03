@@ -261,15 +261,65 @@ else:
 Comparison operators: `==`, `!=`
 
 ### Match
-Patterns must be consecutive integers starting from 0:
+Patterns must be consecutive integers:
 ```
 match value:
-    case 0:
-        result = 100
-    case 1:
-        result = 200
-    case 2:
-        result = 300
+    case 5:
+        result = 500
+    case 6:
+        result = 600
+    case 7:
+        result = 700
+```
+
+### match_range
+
+Compile-time construct that expands into a match statement, useful for dispatching to functions with const parameters based on runtime values. Results are always immutable.
+
+```
+result = match_range(n, range(1, 5), lambda i: compute(i))
+```
+Expands to:
+```
+result: Imu  # auto-generated forward declaration (always immutable)
+match n:
+    case 1: result = compute(1)
+    case 2: result = compute(2)
+    case 3: result = compute(3)
+    case 4: result = compute(4)
+```
+
+**Multiple continuous ranges** with different lambdas:
+```
+result = match_range(n,
+    range(0, 1), lambda i: special_case(),
+    range(1, 8), lambda i: normal_case(i))
+```
+Expands to a match where case 0 uses `special_case()` and cases 1-7 use `normal_case(i)`.
+
+Ranges must be continuous (end of one equals start of next).
+
+**Multiple return values:**
+```
+a, b = match_range(n, range(0, 4), lambda i: two_values(i))
+```
+
+**Common use case:** Dispatching runtime values to const-parameter functions:
+```
+def helper_const(n: Const):
+    # function that requires compile-time n
+    return n * n
+
+def compute(value):
+    result = match_range(value, range(0, 10), lambda i: helper_const(i))
+    return result
+```
+
+**IMPORTANT:** For both `match` and `match_range`, the programmer must ensure the value is within the specified range. Out-of-range values cause undefined behavior. Use `debug_assert` to validate:
+```
+debug_assert(n < 10)
+debug_assert(0 < n)
+result = match_range(n, range(1, 10), lambda i: compute(i))
 ```
 
 ### For Loops
@@ -470,7 +520,7 @@ The `\` and following newline are replaced with a single space. Any whitespace a
 2. Use `const` parameters when loop bounds depend on arguments
 3. Use `mut` sparingly - immutable is easier to verify
 4. Use `x: Imu` or `x: Mut` for forward-declaring variables that will be assigned in branches
-5. Match patterns must be consecutive from 0 and exhaustive
+5. Match patterns must be consecutive integers (can start from any value)
 
 ## Example: From high level syntactic sugar to minimal ISA, with read-only memory
 

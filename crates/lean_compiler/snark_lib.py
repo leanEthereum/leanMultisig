@@ -96,3 +96,18 @@ def debug_assert(cond, msg=None):
         if msg:
             raise AssertionError(msg)
         raise AssertionError()
+
+
+def match_range(value: int, *args):
+    """Match a value against multiple continuous ranges with different lambdas.
+
+    Usage: match_range(value, range(a,b), lambda1, range(b,c), lambda2, ...)
+    In zkDSL, this expands to a match statement.
+    In Python execution, it finds the matching range and calls the corresponding lambda.
+    """
+    for i in range(0, len(args), 2):
+        rng = args[i]
+        fn = args[i + 1]
+        if value in rng:
+            return fn(value)
+    raise AssertionError(f"Value {value} not in any range")

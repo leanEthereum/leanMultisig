@@ -184,6 +184,7 @@ impl TryFrom<Expression> for ConstExpression {
             }
             Expression::FunctionCall { .. } => Err(()),
             Expression::Len { .. } => Err(()),
+            Expression::Lambda { .. } => Err(()),
         }
     }
 }
@@ -301,6 +302,11 @@ pub enum Expression {
     Len {
         array: String,
         indices: Vec<Self>,
+    },
+    /// Lambda expression: `lambda param: body`
+    Lambda {
+        param: Var,
+        body: Box<Self>,
     },
 }
 
@@ -455,7 +461,8 @@ impl Expression {
                 Some(math_expr.eval(&eval_args))
             }
             Self::FunctionCall { .. } => None,
-            Self::Len { .. } => None, // Handled directly in naive_eval
+            Self::Len { .. } => None,
+            Self::Lambda { .. } => None, // Lambdas are only used in match_range, not evaluated directly
         }
     }
 
@@ -466,6 +473,7 @@ impl Expression {
             Self::MathExpr(_, args) => args.iter_mut().collect(),
             Self::FunctionCall { args, .. } => args.iter_mut().collect(),
             Self::Len { indices, .. } => indices.iter_mut().collect(),
+            Self::Lambda { body, .. } => vec![body.as_mut()],
         }
     }
 
@@ -475,6 +483,7 @@ impl Expression {
             Self::ArrayAccess { index, .. } => index.iter().collect(),
             Self::MathExpr(_, args) => args.iter().collect(),
             Self::FunctionCall { args, .. } => args.iter().collect(),
+            Self::Lambda { body, .. } => vec![body.as_ref()],
             Self::Len { indices, .. } => indices.iter().collect(),
         }
     }
@@ -669,7 +678,7 @@ impl Context {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Scope {
     /// A set of declared variables.
     pub vars: BTreeSet<Var>,
@@ -695,6 +704,9 @@ impl Display for Expression {
             Self::Len { array, indices } => {
                 let indices_str = indices.iter().map(|i| format!("[{i}]")).collect::<Vec<_>>().join("");
                 write!(f, "len({array}{indices_str})")
+            }
+            Self::Lambda { param, body } => {
+                write!(f, "lambda {param}: {body}")
             }
         }
     }

@@ -34,6 +34,7 @@ impl Parse<Expression> for ExpressionParser {
             Rule::array_access_expr => ArrayAccessParser.parse(pair, ctx),
             Rule::len_expr => LenParser.parse(pair, ctx),
             Rule::function_call_expr => FunctionCallExprParser.parse(pair, ctx),
+            Rule::lambda_expr => LambdaParser.parse(pair, ctx),
             Rule::primary => {
                 let inner = next_inner_pair(&mut pair.into_inner(), "primary expression")?;
                 Self.parse(inner, ctx)
@@ -85,6 +86,22 @@ impl Parse<Expression> for FunctionCallExprParser {
                 file_id: ctx.current_file_id,
                 line_number,
             },
+        })
+    }
+}
+
+/// Parser for lambda expressions: `lambda param: body`
+pub struct LambdaParser;
+
+impl Parse<Expression> for LambdaParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+        let mut inner = pair.into_inner();
+        let param = next_inner_pair(&mut inner, "lambda parameter")?.as_str().to_string();
+        let body = ExpressionParser.parse(next_inner_pair(&mut inner, "lambda body")?, ctx)?;
+
+        Ok(Expression::Lambda {
+            param,
+            body: Box::new(body),
         })
     }
 }
