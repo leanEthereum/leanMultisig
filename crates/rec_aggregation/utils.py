@@ -39,61 +39,9 @@ def powers_const(alpha, n: Const):
 
 def unit_root_pow_dynamic(domain_size, index_bits):
     # index_bits is a pointer to domain_size bits
-    res: Imu
     debug_assert(domain_size < 26)
-    match domain_size:
-        case 0:
-            _ = 0  # unreachable
-        case 1:
-            res = unit_root_pow_const(1, index_bits)
-        case 2:
-            res = unit_root_pow_const(2, index_bits)
-        case 3:
-            res = unit_root_pow_const(3, index_bits)
-        case 4:
-            res = unit_root_pow_const(4, index_bits)
-        case 5:
-            res = unit_root_pow_const(5, index_bits)
-        case 6:
-            res = unit_root_pow_const(6, index_bits)
-        case 7:
-            res = unit_root_pow_const(7, index_bits)
-        case 8:
-            res = unit_root_pow_const(8, index_bits)
-        case 9:
-            res = unit_root_pow_const(9, index_bits)
-        case 10:
-            res = unit_root_pow_const(10, index_bits)
-        case 11:
-            res = unit_root_pow_const(11, index_bits)
-        case 12:
-            res = unit_root_pow_const(12, index_bits)
-        case 13:
-            res = unit_root_pow_const(13, index_bits)
-        case 14:
-            res = unit_root_pow_const(14, index_bits)
-        case 15:
-            res = unit_root_pow_const(15, index_bits)
-        case 16:
-            res = unit_root_pow_const(16, index_bits)
-        case 17:
-            res = unit_root_pow_const(17, index_bits)
-        case 18:
-            res = unit_root_pow_const(18, index_bits)
-        case 19:
-            res = unit_root_pow_const(19, index_bits)
-        case 20:
-            res = unit_root_pow_const(20, index_bits)
-        case 21:
-            res = unit_root_pow_const(21, index_bits)
-        case 22:
-            res = unit_root_pow_const(22, index_bits)
-        case 23:
-            res = unit_root_pow_const(23, index_bits)
-        case 24:
-            res = unit_root_pow_const(24, index_bits)
-        case 25:
-            res = unit_root_pow_const(25, index_bits)
+    debug_assert(0 < domain_size)
+    res = match_range(domain_size, range(1, 26), lambda i: unit_root_pow_const(i, index_bits))
     return res
 
 
@@ -106,24 +54,9 @@ def unit_root_pow_const(domain_size: Const, index_bits):
 
 def poly_eq_extension_dynamic(point, n):
     debug_assert(n < 8)
-    res: Imu
-    match n:
-        case 0:
-            res = ONE_VEC_PTR
-        case 1:
-            res = poly_eq_extension(point, 1)
-        case 2:
-            res = poly_eq_extension(point, 2)
-        case 3:
-            res = poly_eq_extension(point, 3)
-        case 4:
-            res = poly_eq_extension(point, 4)
-        case 5:
-            res = poly_eq_extension(point, 5)
-        case 6:
-            res = poly_eq_extension(point, 6)
-        case 7:
-            res = poly_eq_extension(point, 7)
+    res = match_range(n,
+        range(0, 1), lambda i: ONE_VEC_PTR,
+        range(1, 8), lambda i: poly_eq_extension(point, i))
     return res
 
 
@@ -189,61 +122,9 @@ def eq_mle_extension(a, b, n):
 
 
 def eq_mle_base_extension(a, b, n):
-    res: Imu
     debug_assert(n < 26)
-    match n:
-        case 0:
-            _ = 0  # unreachable
-        case 1:
-            res = eq_mle_extension_base_const(a, b, 1)
-        case 2:
-            res = eq_mle_extension_base_const(a, b, 2)
-        case 3:
-            res = eq_mle_extension_base_const(a, b, 3)
-        case 4:
-            res = eq_mle_extension_base_const(a, b, 4)
-        case 5:
-            res = eq_mle_extension_base_const(a, b, 5)
-        case 6:
-            res = eq_mle_extension_base_const(a, b, 6)
-        case 7:
-            res = eq_mle_extension_base_const(a, b, 7)
-        case 8:
-            res = eq_mle_extension_base_const(a, b, 8)
-        case 9:
-            res = eq_mle_extension_base_const(a, b, 9)
-        case 10:
-            res = eq_mle_extension_base_const(a, b, 10)
-        case 11:
-            res = eq_mle_extension_base_const(a, b, 11)
-        case 12:
-            res = eq_mle_extension_base_const(a, b, 12)
-        case 13:
-            res = eq_mle_extension_base_const(a, b, 13)
-        case 14:
-            res = eq_mle_extension_base_const(a, b, 14)
-        case 15:
-            res = eq_mle_extension_base_const(a, b, 15)
-        case 16:
-            res = eq_mle_extension_base_const(a, b, 16)
-        case 17:
-            res = eq_mle_extension_base_const(a, b, 17)
-        case 18:
-            res = eq_mle_extension_base_const(a, b, 18)
-        case 19:
-            res = eq_mle_extension_base_const(a, b, 19)
-        case 20:
-            res = eq_mle_extension_base_const(a, b, 20)
-        case 21:
-            res = eq_mle_extension_base_const(a, b, 21)
-        case 22:
-            res = eq_mle_extension_base_const(a, b, 22)
-        case 23:
-            res = eq_mle_extension_base_const(a, b, 23)
-        case 24:
-            res = eq_mle_extension_base_const(a, b, 24)
-        case 25:
-            res = eq_mle_extension_base_const(a, b, 25)
+    debug_assert(0 < n)
+    res = match_range(n, range(1, 26), lambda i: eq_mle_extension_base_const(a, b, i))
     return res
 
 
@@ -270,55 +151,9 @@ def eq_mle_extension_base_const(a, b, n: Const):
 
 @inline
 def expand_from_univariate_base(alpha, n):
-    res: Imu
     debug_assert(n < 23)
-    match n:
-        case 0:
-            _ = 0  # unreachable
-        case 1:
-            res = expand_from_univariate_base_const(alpha, 1)
-        case 2:
-            res = expand_from_univariate_base_const(alpha, 2)
-        case 3:
-            res = expand_from_univariate_base_const(alpha, 3)
-        case 4:
-            res = expand_from_univariate_base_const(alpha, 4)
-        case 5:
-            res = expand_from_univariate_base_const(alpha, 5)
-        case 6:
-            res = expand_from_univariate_base_const(alpha, 6)
-        case 7:
-            res = expand_from_univariate_base_const(alpha, 7)
-        case 8:
-            res = expand_from_univariate_base_const(alpha, 8)
-        case 9:
-            res = expand_from_univariate_base_const(alpha, 9)
-        case 10:
-            res = expand_from_univariate_base_const(alpha, 10)
-        case 11:
-            res = expand_from_univariate_base_const(alpha, 11)
-        case 12:
-            res = expand_from_univariate_base_const(alpha, 12)
-        case 13:
-            res = expand_from_univariate_base_const(alpha, 13)
-        case 14:
-            res = expand_from_univariate_base_const(alpha, 14)
-        case 15:
-            res = expand_from_univariate_base_const(alpha, 15)
-        case 16:
-            res = expand_from_univariate_base_const(alpha, 16)
-        case 17:
-            res = expand_from_univariate_base_const(alpha, 17)
-        case 18:
-            res = expand_from_univariate_base_const(alpha, 18)
-        case 19:
-            res = expand_from_univariate_base_const(alpha, 19)
-        case 20:
-            res = expand_from_univariate_base_const(alpha, 20)
-        case 21:
-            res = expand_from_univariate_base_const(alpha, 21)
-        case 22:
-            res = expand_from_univariate_base_const(alpha, 22)
+    debug_assert(0 < n)
+    res = match_range(n, range(1, 23), lambda i: expand_from_univariate_base_const(alpha, i))
     return res
 
 
@@ -408,72 +243,7 @@ def maximum(a, b):
 
 def powers_of_two(n):
     debug_assert(n < 32)
-    res: Imu
-    match n:
-        case 0:
-            res = 0 + 2**0
-        case 1:
-            res = 0 + 2**1
-        case 2:
-            res = 0 + 2**2
-        case 3:
-            res = 0 + 2**3
-        case 4:
-            res = 0 + 2**4
-        case 5:
-            res = 0 + 2**5
-        case 6:
-            res = 0 + 2**6
-        case 7:
-            res = 0 + 2**7
-        case 8:
-            res = 0 + 2**8
-        case 9:
-            res = 0 + 2**9
-        case 10:
-            res = 0 + 2**10
-        case 11:
-            res = 0 + 2**11
-        case 12:
-            res = 0 + 2**12
-        case 13:
-            res = 0 + 2**13
-        case 14:
-            res = 0 + 2**14
-        case 15:
-            res = 0 + 2**15
-        case 16:
-            res = 0 + 2**16
-        case 17:
-            res = 0 + 2**17
-        case 18:
-            res = 0 + 2**18
-        case 19:
-            res = 0 + 2**19
-        case 20:
-            res = 0 + 2**20
-        case 21:
-            res = 0 + 2**21
-        case 22:
-            res = 0 + 2**22
-        case 23:
-            res = 0 + 2**23
-        case 24:
-            res = 0 + 2**24
-        case 25:
-            res = 0 + 2**25
-        case 26:
-            res = 0 + 2**26
-        case 27:
-            res = 0 + 2**27
-        case 28:
-            res = 0 + 2**28
-        case 29:
-            res = 0 + 2**29
-        case 30:
-            res = 0 + 2**30
-        case 31:
-            res = 0 + 2**31
+    res = match_range(n, range(0, 32), lambda i: 2**i)
     return res
 
 

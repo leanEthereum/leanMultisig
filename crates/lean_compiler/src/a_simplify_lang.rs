@@ -1,5 +1,6 @@
 use crate::{F, lang::*, parser::ConstArrayValue};
 use lean_vm::{ALL_TABLES, Boolean, BooleanExpr, CustomHint, FunctionName, SourceLocation, Table, TableT};
+use multilinear_toolkit::prelude::PrimeCharacteristicRing;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -55,7 +56,8 @@ impl From<Var> for VarOrConstMallocAccess {
 pub enum SimpleLine {
     Match {
         value: SimpleExpr,
-        arms: Vec<Vec<Self>>, // patterns = 0, 1, ...
+        arms: Vec<Vec<Self>>,
+        offset: usize, // first pattern value (arms are for offset, offset+1, ...)
     },
     ForwardDeclaration {
         var: Var,
@@ -464,6 +466,19 @@ fn compile_time_transform_in_lines(
     while i < lines.len() {
         let line = &mut lines[i];
 
+        // Handle match_range expansion FIRST, before any expression transformations
+        // This is necessary because lambda bodies contain bound variables that don't exist in scope
+        if let Line::Statement {
+            targets,
+            value,
+            location,
+        } = line
+            && let Some(expanded) = try_expand_match_range(value, targets, *location)?
+        {
+            lines.splice(i..=i, expanded);
+            continue;
+        }
+
         for expr in line.expressions_mut() {
             substitute_const_vars_in_expr(expr, &const_var_exprs);
             compile_time_transform_in_expr(expr, const_arrays, &vector_len_tracker);
@@ -655,6 +670,131 @@ fn compile_time_transform_in_lines(
         i += 1;
     }
     Ok(())
+}
+
+/// Expand match_range(value, range(a,b), lambda, ...) into forward declarations + Line::Match
+///
+/// match_range(value, range(a, b), lambda i: expr1, range(b, c), lambda i: expr2, ...)
+fn try_expand_match_range(
+    value: &Expression,
+    targets: &[AssignmentTarget],
+    location: SourceLocation,
+) -> Result<Option<Vec<Line>>, String> {
+    let Expression::FunctionCall {
+        function_name, args, ..
+    } = value
+    else {
+        return Ok(None);
+    };
+    if function_name != "match_range" {
+        return Ok(None);
+    }
+    if args.len() < 3 || (args.len() - 1) % 2 != 0 {
+        return Err("match_range expects: value, range, lambda, range, lambda, ...".to_string());
+    }
+
+    // Check that user didn't explicitly request mutable results
+    for t in targets {
+        if let AssignmentTarget::Var { var, is_mutable: true } = t {
+            return Err(format!(
+                "match_range results are always immutable, cannot use ': Mut' for '{var}'"
+            ));
+        }
+    }
+
+    // Generate forward declarations for variable targets (always immutable)
+    let mut result = vec![];
+    let arm_targets: Vec<_> = targets
+        .iter()
+        .map(|t| match t {
+            AssignmentTarget::Var { var, .. } => {
+                result.push(Line::ForwardDeclaration {
+                    var: var.clone(),
+                    is_mutable: false,
+                });
+                AssignmentTarget::Var {
+                    var: var.clone(),
+                    is_mutable: false,
+                }
+            }
+            other => other.clone(),
+        })
+        .collect();
+
+    // Parse range/lambda pairs and build match arms
+    let mut arms = vec![];
+    let mut expected_start: Option<usize> = None;
+
+    for (range_arg, lambda_arg) in args[1..].chunks(2).map(|c| (&c[0], &c[1])) {
+        // Parse range(start, end)
+        let Expression::FunctionCall {
+            function_name: rf,
+            args: ra,
+            ..
+        } = range_arg
+        else {
+            return Err("match_range: expected range(start, end)".into());
+        };
+        if rf != "range" || ra.len() != 2 {
+            return Err("match_range: expected range(start, end)".into());
+        }
+        let start = ra[0]
+            .as_scalar()
+            .ok_or("match_range: range start must be constant")?
+            .to_usize();
+        let end = ra[1]
+            .as_scalar()
+            .ok_or("match_range: range end must be constant")?
+            .to_usize();
+
+        // Parse lambda
+        let Expression::Lambda { param, body } = lambda_arg else {
+            return Err("match_range: expected lambda".into());
+        };
+
+        // Check ranges are continuous
+        if let Some(exp) = expected_start
+            && start != exp
+        {
+            return Err(format!(
+                "match_range: ranges must be continuous, expected start {exp} but got {start}"
+            ));
+        }
+        expected_start = Some(end);
+
+        for case_val in start..end {
+            let mut expr = body.as_ref().clone();
+            substitute_lambda_param(&mut expr, param, case_val);
+            arms.push((
+                case_val,
+                vec![Line::Statement {
+                    targets: arm_targets.clone(),
+                    value: expr,
+                    location,
+                }],
+            ));
+        }
+    }
+
+    result.push(Line::Match {
+        value: args[0].clone(),
+        arms,
+        location,
+    });
+    Ok(Some(result))
+}
+
+/// Substitute lambda parameter with a constant value
+fn substitute_lambda_param(expr: &mut Expression, param: &str, value: usize) {
+    if let Expression::Value(SimpleExpr::Memory(VarOrConstMallocAccess::Var(v))) = expr
+        && v == param
+    {
+        *expr = Expression::scalar(F::from_usize(value));
+        return;
+    }
+    for inner in expr.inner_exprs_mut() {
+        substitute_lambda_param(inner, param, value);
+    }
 }
 
 /// Try to inline a function call. Returns Some(inlined_lines) if successful.
@@ -1459,11 +1599,23 @@ fn check_vec_literal_element_scoping(elem: &VecLiteral, ctx: &Context) {
 }
 
 fn check_expr_scoping(expr: &Expression, ctx: &Context) {
-    if let Expression::Value(simple_expr) = expr {
-        check_simple_expr_scoping(simple_expr, ctx);
-    }
-    for inner_expr in expr.inner_exprs() {
-        check_expr_scoping(inner_expr, ctx);
+    match expr {
+        Expression::Value(simple_expr) => {
+            check_simple_expr_scoping(simple_expr, ctx);
+        }
+        Expression::Lambda { param, body } => {
+            // Lambda parameters are in scope within the body
+            let mut lambda_ctx = Context::new();
+            lambda_ctx.scopes = ctx.scopes.clone();
+            lambda_ctx.const_arrays = ctx.const_arrays.clone();
+            lambda_ctx.add_var(param);
+            check_expr_scoping(body, &lambda_ctx);
+        }
+        _ => {
+            for inner_expr in expr.inner_exprs() {
+                check_expr_scoping(inner_expr, ctx);
+            }
+        }
     }
 }
 
@@ -1840,6 +1992,18 @@ fn simplify_lines(
                 res.push(SimpleLine::ForwardDeclaration { var: versioned_var });
             }
             Line::Match { value, arms, .. } => {
+                // Validate patterns are consecutive
+                let first_pattern = arms.first().map(|(p, _)| *p).unwrap_or(0);
+                for (i, (pattern, _)) in arms.iter().enumerate() {
+                    if *pattern != first_pattern + i {
+                        return Err(format!(
+                            "match patterns must be consecutive, expected {} but got {}",
+                            first_pattern + i,
+                            pattern
+                        ));
+                    }
+                }
+
                 let simple_value = simplify_expr(ctx, state, const_malloc, value, &mut res)?;
 
                 // Snapshot state before processing arms
@@ -1849,9 +2013,7 @@ fn simplify_lines(
                 let mut simple_arms = vec![];
                 let mut arm_versions = vec![];
 
-                for (i, (pattern, statements)) in arms.iter().enumerate() {
-                    assert_eq!(*pattern, i, "match patterns should be consecutive, starting from 0");
-
+                for (_, statements) in arms.iter() {
                     // Restore snapshot for each arm
                     *state.mut_tracker = mut_tracker_snapshot.clone();
                     *state.array_manager = array_manager_snapshot.clone();
@@ -1883,6 +2045,7 @@ fn simplify_lines(
                 res.push(SimpleLine::Match {
                     value: simple_value,
                     arms: simple_arms,
+                    offset: first_pattern,
                 });
             }
             Line::Statement {
@@ -2180,6 +2343,9 @@ fn simplify_lines(
                                     Expression::Len { .. } => unreachable!(),
                                     Expression::FunctionCall { .. } => {
                                         unreachable!("FunctionCall should be handled above")
+                                    }
+                                    Expression::Lambda { .. } => {
+                                        unreachable!("Lambda should be expanded by match_range")
                                     }
                                 }
                             }
@@ -2883,6 +3049,7 @@ fn simplify_expr(
             // Fall through to const array handling (should be unreachable for vectors)
             unreachable!("len() should have been resolved at parse time for const arrays")
         }
+        Expression::Lambda { .. } => Err("Lambda expressions can only be used as arguments to match_range".to_string()),
     }
 }
 
@@ -3123,7 +3290,7 @@ fn transform_vars_in_expr(expr: &mut Expression, transform: &impl Fn(&Var) -> Va
         Expression::ArrayAccess { array, .. } | Expression::Len { array, .. } => {
             transform(array).apply_to_var(array);
         }
-        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => {}
+        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } | Expression::Lambda { .. } => {}
     }
     for inner_expr in expr.inner_exprs_mut() {
         transform_vars_in_expr(inner_expr, transform);
@@ -3423,6 +3590,9 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
                 replace_vars_by_const_in_expr(idx, map);
             }
         }
+        Expression::Lambda { body, .. } => {
+            replace_vars_by_const_in_expr(body, map);
+        }
     }
 }
 
@@ -3517,7 +3687,7 @@ impl SimpleLine {
             Self::ForwardDeclaration { var } => {
                 format!("var {var}")
             }
-            Self::Match { value, arms } => {
+            Self::Match { value, arms, offset } => {
                 let arms_str = arms
                     .iter()
                     .enumerate()
@@ -3531,7 +3701,7 @@ impl SimpleLine {
                         format!(
                             "{}{} => {{{}\n{}}}",
                             "    ".repeat(indent + 1),
-                            index,
+                            index + offset,
                             body,
                             "    ".repeat(indent + 1),
                         )

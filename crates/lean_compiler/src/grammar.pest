@@ -115,6 +115,7 @@ div_expr = { exp_expr ~ ("/" ~ exp_expr)* }
 exp_expr = { primary ~ ("**" ~ primary)* }
 primary = {
     "(" ~ expression ~ ")" |
+    lambda_expr |
     log2_ceil_expr |
     next_multiple_of_expr |
     saturating_sub_expr |
@@ -123,6 +124,9 @@ primary = {
     function_call_expr |
     var_or_constant
 }
+
+// Lambda expression: lambda param: body
+lambda_expr = { "lambda" ~ identifier ~ ":" ~ expression }
 
 // DynArray literal: DynArray([elem1, elem2, ...]) - compile-time dynamic arrays
 vec_literal = { "DynArray" ~ "(" ~ "[" ~ (vec_element ~ ("," ~ vec_element)* ~ ","?)? ~ "]" ~ ")" }
