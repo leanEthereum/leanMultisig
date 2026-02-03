@@ -27,12 +27,12 @@ def batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len):
 def batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, len: Const):
     for i in range(0, num_queries):
         data = all_data_to_hash[i]
-        res = slice_hash(ZERO_VEC_PTR, data, len)
+        res = slice_hash(data, len)
         all_resulting_hashes[i] = res
     return
 
-
-def slice_hash(seed, data, len: Const):
+@inline
+def slice_hash(data, len):
     states = Array(len * VECTOR_LEN)
     poseidon16(ZERO_VEC_PTR, data, states, COMPRESSION)
     state_indexes = Array(len)

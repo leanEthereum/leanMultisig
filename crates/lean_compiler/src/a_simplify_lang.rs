@@ -409,7 +409,7 @@ fn compile_time_transform_in_program(
             return Err("Inlined functions with mutable arguments are not supported yet".to_string());
         }
         if func.has_const_arguments() {
-            return Err("Inlined functions with constant arguments are not supported yet".to_string());
+            return Err("Inlined function should not have \"Const\" arguments".to_string());
         }
     }
 

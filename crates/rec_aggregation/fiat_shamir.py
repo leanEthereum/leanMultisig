@@ -47,6 +47,7 @@ def fs_sample_ef(fs):
     return fs
 
 
+@inline
 def fs_hint(fs, n):
     # return the updated fiat-shamir, and a pointer to n field elements from the transcript
 
@@ -73,8 +74,8 @@ def fs_receive_chunks(fs, n_chunks: Const):
         )
     return new_fs + 16 * (n_chunks - 1), transcript_ptr
 
-
-def fs_receive_ef(fs, n: Const):
+@inline
+def fs_receive_ef(fs, n):
     new_fs, ef_ptr = fs_receive_chunks(fs, next_multiple_of(n * DIM, 8) / 8)
     for i in unroll(n * DIM, next_multiple_of(n * DIM, 8)):
         assert ef_ptr[i] == 0
