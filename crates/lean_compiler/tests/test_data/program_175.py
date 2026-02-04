@@ -27,9 +27,7 @@ def inlined_with_match_range_two_args(a, x):
 
 @inline
 def inlined_with_match_range_multi_range(x):
-    res = match_range(x,
-        range(0, 3), lambda i: i * 10,
-        range(3, 6), lambda i: helper_const(i))
+    res = match_range(x, range(0, 3), lambda i: i * 10, range(3, 6), lambda i: helper_const(i))
     return res
 
 
@@ -66,9 +64,9 @@ def main():
     a = inlined_with_match_range(1)
     b = inlined_with_match_range(2)
     c = inlined_with_match_range(3)
-    assert a == 1   # 1*1
-    assert b == 4   # 2*2
-    assert c == 9   # 3*3
+    assert a == 1  # 1*1
+    assert b == 4  # 2*2
+    assert c == 9  # 3*3
 
     # Test 5: Inlined function with two match_ranges
     r5 = inlined_nested_match_range(2, 3)
@@ -77,7 +75,7 @@ def main():
     # Test 6: Edge cases - first and last values
     first = inlined_with_match_range(1)
     last = inlined_with_match_range(4)
-    assert first == 1   # 1*1
-    assert last == 16   # 4*4
+    assert first == 1  # 1*1
+    assert last == 16  # 4*4
 
     return

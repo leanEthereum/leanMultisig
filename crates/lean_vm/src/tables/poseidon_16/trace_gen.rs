@@ -2,7 +2,7 @@ use p3_poseidon2::GenericPoseidon2LinearLayers;
 use tracing::instrument;
 
 use crate::{
-    DIGEST_LEN, F, POSEIDON_16_DEFAULT_COMPRESSION, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
+    F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
     tables::{Poseidon2Cols, WIDTH, num_cols_poseidon_16},
 };
 use multilinear_toolkit::prelude::*;
@@ -56,18 +56,14 @@ pub fn default_poseidon_row() -> Vec<F> {
     *perm.index_a = F::from_usize(ZERO_VEC_PTR);
     *perm.index_b = F::from_usize(ZERO_VEC_PTR);
     *perm.index_res = F::from_usize(POSEIDON_16_NULL_HASH_PTR);
-    *perm.index_res_bis = if POSEIDON_16_DEFAULT_COMPRESSION {
-        F::from_usize(ZERO_VEC_PTR)
-    } else {
-        F::from_usize(POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN)
-    };
-    *perm.compress = F::from_bool(POSEIDON_16_DEFAULT_COMPRESSION);
 
     generate_trace_rows_for_perm(perm);
     row
 }
+
 fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon2Cols<&mut F>) {
-    let mut state: [F; WIDTH] = std::array::from_fn(|i| *perm.inputs[i]);
+    let inputs: [F; WIDTH] = std::array::from_fn(|i| *perm.inputs[i]);
+    let mut state = inputs;
 
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut state);
 
@@ -76,30 +72,34 @@ fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseido
         .iter_mut()
         .zip(KOALABEAR_RC16_EXTERNAL_INITIAL.chunks_exact(2))
     {
-        generate_full_round(&mut state, full_round, &constants[0], &constants[1]);
+        generate_2_full_round(&mut state, full_round, &constants[0], &constants[1]);
     }
 
     for (partial_round, constant) in perm.partial_rounds.iter_mut().zip(&KOALABEAR_RC16_INTERNAL) {
         generate_partial_round(&mut state, partial_round, *constant);
     }
 
+    let n_ending_full_rounds = perm.ending_full_rounds.len();
     for (full_round, constants) in perm
         .ending_full_rounds
         .iter_mut()
         .zip(KOALABEAR_RC16_EXTERNAL_FINAL.chunks_exact(2))
     {
-        generate_full_round(&mut state, full_round, &constants[0], &constants[1]);
+        generate_2_full_round(&mut state, full_round, &constants[0], &constants[1]);
     }
 
-    perm.ending_full_rounds.last_mut().unwrap()[8..16]
-        .iter_mut()
-        .for_each(|x| {
-            **x = (F::ONE - *perm.compress) * **x;
-        });
+    // Last 2 full rounds with compression (add inputs to outputs)
+    generate_last_2_full_rounds(
+        &mut state,
+        &inputs,
+        &mut perm.outputs,
+        &KOALABEAR_RC16_EXTERNAL_FINAL[2 * n_ending_full_rounds],
+        &KOALABEAR_RC16_EXTERNAL_FINAL[2 * n_ending_full_rounds + 1],
+    );
 }
 
 #[inline]
-fn generate_full_round<F: Algebra<KoalaBear> + Copy>(
+fn generate_2_full_round<F: Algebra<KoalaBear> + Copy>(
     state: &mut [F; WIDTH],
     post_full_round: &mut [&mut F; WIDTH],
     round_constants_1: &[KoalaBear; WIDTH],
@@ -121,6 +121,32 @@ fn generate_full_round<F: Algebra<KoalaBear> + Copy>(
     post_full_round.iter_mut().zip(*state).for_each(|(post, x)| {
         **post = x;
     });
+}
+
+#[inline]
+fn generate_last_2_full_rounds<F: Algebra<KoalaBear> + Copy>(
+    state: &mut [F; WIDTH],
+    inputs: &[F; WIDTH],
+    outputs: &mut [&mut F; WIDTH / 2],
+    round_constants_1: &[KoalaBear; WIDTH],
+    round_constants_2: &[KoalaBear; WIDTH],
+) {
+    for (state_i, const_i) in state.iter_mut().zip(round_constants_1) {
+        *state_i += *const_i;
+        *state_i = state_i.cube();
+    }
+    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+
+    for (state_i, const_i) in state.iter_mut().zip(round_constants_2.iter()) {
+        *state_i += *const_i;
+        *state_i = state_i.cube();
+    }
+    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+
+    // Add inputs to outputs (compression)
+    for ((output, state_i), &input_i) in outputs.iter_mut().zip(state).zip(inputs) {
+        **output = *state_i + input_i;
+    }
 }
 
 #[inline]

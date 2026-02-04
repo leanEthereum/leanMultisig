@@ -1,8 +1,5 @@
 from snark_lib import *
 
-COMPRESSION = 1
-PERMUTATION = 0
-
 DIM = 5  # extension degree
 VECTOR_LEN = 8
 
@@ -37,12 +34,12 @@ def batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 
 
 def slice_hash(seed, data, len: Const):
     states = Array(len * VECTOR_LEN)
-    poseidon16(ZERO_VEC_PTR, data, states, COMPRESSION)
+    poseidon16(ZERO_VEC_PTR, data, states)
     state_indexes = Array(len)
     state_indexes[0] = states
     for j in unroll(1, len):
         state_indexes[j] = state_indexes[j - 1] + VECTOR_LEN
-        poseidon16(state_indexes[j - 1], data + j * VECTOR_LEN, state_indexes[j], COMPRESSION)
+        poseidon16(state_indexes[j - 1], data + j * VECTOR_LEN, state_indexes[j])
     return state_indexes[len - 1]
 
 
@@ -99,9 +96,9 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, height: Co
     # First merkle round
     match leaf_position_bits[0]:
         case 0:
-            poseidon16(leaf_digest, merkle_path, states, COMPRESSION)
+            poseidon16(leaf_digest, merkle_path, states)
         case 1:
-            poseidon16(merkle_path, leaf_digest, states, COMPRESSION)
+            poseidon16(merkle_path, leaf_digest, states)
 
     # Remaining merkle rounds
     state_indexes = Array(height)
@@ -115,14 +112,12 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, height: Co
                     state_indexes[j - 1],
                     merkle_path + j * VECTOR_LEN,
                     state_indexes[j],
-                    COMPRESSION,
                 )
             case 1:
                 poseidon16(
                     merkle_path + j * VECTOR_LEN,
                     state_indexes[j - 1],
                     state_indexes[j],
-                    COMPRESSION,
                 )
     copy_8(state_indexes[height - 1], root)
     return

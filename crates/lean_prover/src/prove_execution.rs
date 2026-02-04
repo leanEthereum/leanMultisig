@@ -88,9 +88,7 @@ pub fn prove_execution(
 
     // logup (GKR)
     let logup_c = prover_state.sample();
-    prover_state.duplexing();
     let logup_alphas = prover_state.sample_vec(log2_ceil_usize(max_bus_width()));
-    prover_state.duplexing();
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
     let logup_statements = prove_generic_logup(
@@ -113,7 +111,6 @@ pub fn prove_execution(
     }
 
     let bus_beta = prover_state.sample();
-    prover_state.duplexing();
     let air_alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
 
@@ -176,7 +173,6 @@ pub fn prove_execution(
     ));
 
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
-    prover_state.duplexing();
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
 
     let memory_acc_statements = vec![

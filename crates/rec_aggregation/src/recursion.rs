@@ -30,8 +30,6 @@ pub fn run_recursion_benchmark(count: usize, tracing: bool) {
     };
     let program_to_prove = r#"
 DIM = 5
-COMPRESSION = 1
-PERMUTATION = 0
 POSEIDON_OF_ZERO = POSEIDON_OF_ZERO_PLACEHOLDER
 # Dot product precompile:
 BE = 1  # base-extension
@@ -41,8 +39,7 @@ def main():
     for i in range(0, 1000):
         null_ptr = ZERO_VEC_PTR  # pointer to zero vector
         poseidon_of_zero = POSEIDON_OF_ZERO
-        poseidon16(null_ptr, null_ptr, poseidon_of_zero, PERMUTATION)
-        poseidon16(null_ptr, null_ptr, poseidon_of_zero, COMPRESSION)
+        poseidon16(null_ptr, null_ptr, poseidon_of_zero)
         dot_product(null_ptr, null_ptr, null_ptr, 2, BE)
         dot_product(null_ptr, null_ptr, null_ptr, 2, EE)
         x: Mut = 0

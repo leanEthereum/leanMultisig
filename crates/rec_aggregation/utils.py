@@ -15,6 +15,12 @@ BIG_ENDIAN = 0
 LITTLE_ENDIAN = 1
 
 
+def div_ceil_dynamic(a, b: Const):
+    debug_assert(a <= 150)
+    res = match_range(a, range(0, 151), lambda i: div_ceil(i, b))
+    return res
+
+
 def powers(alpha, n):
     # alpha: EF
     # n: F
@@ -54,9 +60,7 @@ def unit_root_pow_const(domain_size: Const, index_bits):
 
 def poly_eq_extension_dynamic(point, n):
     debug_assert(n < 8)
-    res = match_range(n,
-        range(0, 1), lambda i: ONE_VEC_PTR,
-        range(1, 8), lambda i: poly_eq_extension(point, i))
+    res = match_range(n, range(0, 1), lambda i: ONE_VEC_PTR, range(1, 8), lambda i: poly_eq_extension(point, i))
     return res
 
 
@@ -374,12 +378,12 @@ def set_to_7_zeros(a):
 
 
 @inline
-def set_to_16_zeros(a):
+def set_to_8_zeros(a):
     zero_ptr = ZERO_VEC_PTR
     dot_product(a, ONE_VEC_PTR, zero_ptr, 1, EE)
-    dot_product(a + 5, ONE_VEC_PTR, zero_ptr, 1, EE)
-    dot_product(a + 10, ONE_VEC_PTR, zero_ptr, 1, EE)
-    a[15] = 0
+    a[5] = 0
+    a[6] = 0
+    a[7] = 0
     return
 
 
