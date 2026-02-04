@@ -159,3 +159,17 @@ def main():
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
 }
+
+#[test]
+fn bug() {
+    let program = r#"
+def main():
+    three = double(1) + 1
+    assert three == 3
+    return
+
+def double(a: Const):
+    return a + a
+   "#;
+    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+}
