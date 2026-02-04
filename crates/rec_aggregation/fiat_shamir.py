@@ -33,9 +33,9 @@ def fs_grinding(fs, bits):
 def fs_sample_chunks(fs, n_chunks: Const):
     # return the updated fiat-shamir, and a pointer to n_chunks chunks of 8 field elements
 
-    sampled = Array((n_chunks + 1) * 8)
+    sampled = Array((n_chunks + 1) * 8 + 1)
     for i in unroll(0, (n_chunks + 1)):
-        domain_sep = Array(1)
+        domain_sep = Array(8)
         domain_sep[0] = i
         set_to_7_zeros(domain_sep + 1)
         poseidon16(
@@ -44,6 +44,7 @@ def fs_sample_chunks(fs, n_chunks: Const):
             sampled + i * 8,
             COMPRESSION,
         )
+    sampled[(n_chunks + 1) * 8] = fs[8]  # same transcript pointer
     new_fs = sampled + n_chunks * 8
     return new_fs, sampled
 
@@ -59,7 +60,7 @@ def fs_sample_ef(fs):
 
 def fs_sample_many_ef(fs, n):
     # return the updated fiat-shamir, and a pointer to n (continuous) extension field elements
-    n_chunks = div_ceil_dynamic(n * DIM, 8) + 1
+    n_chunks = div_ceil_dynamic(n * DIM, 8)
     debug_assert(n_chunks <= 31)
     debug_assert(1 <= n_chunks)
     new_fs, sampled = match_range(n_chunks, range(1, 32), lambda nc: fs_sample_chunks(fs, nc))
@@ -93,7 +94,7 @@ def fs_receive_chunks(fs, n_chunks: Const):
 
 
 def fs_receive_ef(fs, n: Const):
-    new_fs, ef_ptr = fs_receive_chunks(fs, next_multiple_of(n * DIM, 8) / 8)
+    new_fs, ef_ptr = fs_receive_chunks(fs, div_ceil(n * DIM, 8))
     for i in unroll(n * DIM, next_multiple_of(n * DIM, 8)):
         assert ef_ptr[i] == 0
     return new_fs, ef_ptr
