@@ -15,6 +15,7 @@ BIG_ENDIAN = 0
 LITTLE_ENDIAN = 1
 
 
+@inline
 def powers(alpha, n):
     # alpha: EF
     # n: F
@@ -35,6 +36,7 @@ def powers_const(alpha, n: Const):
     return res
 
 
+@inline
 def unit_root_pow_dynamic(domain_size, index_bits):
     # index_bits is a pointer to domain_size bits
     debug_assert(domain_size < 26)
@@ -74,7 +76,8 @@ def poly_eq_extension(point, n: Const):
     return res + (2**n - 1) * DIM
 
 
-def poly_eq_base(point, n: Const):
+@inline
+def poly_eq_base(point, n):
     # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
     res = Array((2 ** (n + 1) - 1))
@@ -86,10 +89,17 @@ def poly_eq_base(point, n: Const):
             res[2 ** (s + 1) - 1 + i] = res[2**s - 1 + i] - res[2 ** (s + 1) - 1 + 2**s + i]
     return res + (2**n - 1)
 
+
 def eq_mle_extension(a, b, n):
+    debug_assert(n < 30)
+    debug_assert(0 < n)
+    res = match_range(n, range(1, 30), lambda i: eq_mle_extension_const(a, b, i))
+    return res
+
+def eq_mle_extension_const(a, b, n: Const):
     buff = Array(n * DIM)
 
-    for i in range(0, n):
+    for i in unroll(0, n):
         shift = i * DIM
         ai = a + shift
         bi = b + shift
@@ -100,12 +110,13 @@ def eq_mle_extension(a, b, n):
             buffi[j] = 2 * ab[j] - ai[j] - bi[j]
 
     current_prod: Mut = buff
-    for i in range(0, n - 1):
+    for i in unroll(0, n - 1):
         next_prod = Array(DIM)
         mul_extension(current_prod, buff + (i + 1) * DIM, next_prod)
         current_prod = next_prod
 
     return current_prod
+
 
 @inline
 def eq_mle_base_extension(a, b, n):

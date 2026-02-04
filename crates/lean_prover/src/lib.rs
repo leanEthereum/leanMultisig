@@ -27,10 +27,10 @@ pub const STARTING_LOG_INV_RATE: usize = 2;
 
 pub fn default_whir_config() -> WhirConfigBuilder {
     WhirConfigBuilder {
-        folding_factor: FoldingFactor::new(7, 4),
+        folding_factor: FoldingFactor::new(7, 5),
         soundness_type: SECURITY_REGIME,
         pow_bits: GRINDING_BITS,
-        max_num_variables_to_send_coeffs: 6,
+        max_num_variables_to_send_coeffs: 9,
         rs_domain_initial_reduction_factor: 5,
         security_level: SECURITY_BITS,
         starting_log_inv_rate: STARTING_LOG_INV_RATE,
