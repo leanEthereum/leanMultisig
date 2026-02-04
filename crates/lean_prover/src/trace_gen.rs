@@ -37,13 +37,13 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
                 // flag_a == 0
                 addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)]; // fp + operand_a
             }
-            let value_a = memory.0[addr_a.to_usize()].unwrap();
+            let value_a = memory.0[addr_a.to_usize()].unwrap_or_default();
             let mut addr_b = F::ZERO;
             if field_repr[instr_idx(COL_FLAG_B)].is_zero() {
                 // flag_b == 0
                 addr_b = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_B)]; // fp + operand_b
             }
-            let value_b = memory.0[addr_b.to_usize()].unwrap();
+            let value_b = memory.0[addr_b.to_usize()].unwrap_or_default();
 
             let mut addr_c = F::ZERO;
             if field_repr[instr_idx(COL_FLAG_C)].is_zero() {
@@ -54,7 +54,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
                 assert_eq!(field_repr[instr_idx(COL_OPERAND_C)], operand_c); // debug purpose
                 addr_c = value_a + operand_c;
             }
-            let value_c = memory.0[addr_c.to_usize()].unwrap();
+            let value_c = memory.0[addr_c.to_usize()].unwrap_or_default();
 
             for (j, field) in field_repr.iter().enumerate() {
                 *trace_row[j + N_RUNTIME_COLUMNS] = *field;

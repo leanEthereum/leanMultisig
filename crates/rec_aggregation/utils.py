@@ -434,7 +434,8 @@ def read_memory(ptr):
     return mem[ptr]
 
 
-def univariate_polynomial_eval(coeffs, point, degree: Const):
+@inline
+def univariate_polynomial_eval(coeffs, point, degree):
     powers = powers_const(point, degree + 1)
     res = Array(DIM)
     dot_product(coeffs, powers, res, degree + 1, EE)
