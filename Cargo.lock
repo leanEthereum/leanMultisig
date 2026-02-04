@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "air"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=compression-everywhere#00057a82146e2f9f88b44b512b954cc5c01b08d3"
 dependencies = [
  "p3-field",
 ]
@@ -99,7 +99,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=compression-everywhere#00057a82146e2f9f88b44b512b954cc5c01b08d3"
 dependencies = [
  "itertools",
  "p3-field",
@@ -188,9 +188,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "compression-everywhere"
+version = "0.1.0"
+dependencies = [
+ "air 0.1.0",
+ "clap",
+ "lean_vm",
+ "multilinear-toolkit",
+ "p3-koala-bear",
+ "rand",
+ "rec_aggregation",
+ "sub_protocols",
+ "utils",
+ "xmss",
+]
+
+[[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=compression-everywhere#00057a82146e2f9f88b44b512b954cc5c01b08d3"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -266,7 +282,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=compression-everywhere#00057a82146e2f9f88b44b512b954cc5c01b08d3"
 dependencies = [
  "p3-field",
  "p3-koala-bear",
@@ -355,22 +371,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-
-[[package]]
-name = "lean-multisig"
-version = "0.1.0"
-dependencies = [
- "air 0.1.0",
- "clap",
- "lean_vm",
- "multilinear-toolkit",
- "p3-koala-bear",
- "rand",
- "rec_aggregation",
- "sub_protocols",
- "utils",
- "xmss",
-]
 
 [[package]]
 name = "lean_compiler"
@@ -468,7 +468,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=compression-everywhere#00057a82146e2f9f88b44b512b954cc5c01b08d3"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -557,7 +557,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "p3-challenger"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "p3-field",
  "p3-maybe-rayon",
@@ -569,7 +569,7 @@ dependencies = [
 [[package]]
 name = "p3-commit"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "itertools",
  "p3-challenger",
@@ -583,7 +583,7 @@ dependencies = [
 [[package]]
 name = "p3-dft"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "itertools",
  "p3-field",
@@ -596,7 +596,7 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -611,7 +611,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -627,7 +627,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "itertools",
  "p3-field",
@@ -642,7 +642,7 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "rayon",
 ]
@@ -650,7 +650,7 @@ dependencies = [
 [[package]]
 name = "p3-mds"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "p3-dft",
  "p3-field",
@@ -662,7 +662,7 @@ dependencies = [
 [[package]]
 name = "p3-merkle-tree"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "itertools",
  "p3-commit",
@@ -679,7 +679,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -701,7 +701,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -713,7 +713,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "itertools",
  "p3-field",
@@ -723,7 +723,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#1f5aca1d6845caec76fa25b00fae3ea4f07ef930"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=compression-everywhere#fb11df7dbbed4d117fa0ae650127223f6e4cf3e4"
 dependencies = [
  "rayon",
  "serde",
@@ -1049,7 +1049,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=compression-everywhere#00057a82146e2f9f88b44b512b954cc5c01b08d3"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1277,7 +1277,7 @@ dependencies = [
 [[package]]
 name = "whir"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#bd8a91199f45fcb3c21af056468340e2f9de2d1d"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git?branch=compression-everywhere#00057a82146e2f9f88b44b512b954cc5c01b08d3"
 dependencies = [
  "backend",
  "fiat-shamir",
@@ -1287,6 +1287,7 @@ dependencies = [
  "p3-field",
  "p3-koala-bear",
  "p3-matrix",
+ "p3-maybe-rayon",
  "p3-merkle-tree",
  "p3-symmetric",
  "p3-util",

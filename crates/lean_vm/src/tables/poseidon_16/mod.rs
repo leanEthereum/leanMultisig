@@ -226,7 +226,7 @@ pub(super) struct Poseidon2Cols<T> {
 }
 
 fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
-    let mut state: [_; WIDTH] = local.inputs.clone().map(|x| x);
+    let mut state: [_; WIDTH] = local.inputs.clone();
 
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut state);
 
@@ -255,6 +255,7 @@ fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
     }
 
     eval_last_2_full_rounds(
+        &local.inputs,
         &mut state,
         &local.ending_full_rounds[HALF_FINAL_FULL_ROUNDS - 1],
         &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
@@ -294,6 +295,7 @@ fn eval_2_full_rounds<AB: AirBuilder>(
 
 #[inline]
 fn eval_last_2_full_rounds<AB: AirBuilder>(
+    initial_state: &[AB::F; WIDTH],
     state: &mut [AB::F; WIDTH],
     post_full_round: &[AB::F; WIDTH],
     round_constants_1: &[F; WIDTH],
@@ -311,6 +313,10 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
         *s = s.cube();
     }
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    // add inputs to outputs (for compression)
+    for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
+        *state_i += init_state_i.clone();
+    }
     for (state_i, post_i) in state.iter_mut().zip(post_full_round).take(WIDTH / 2) {
         builder.assert_eq(state_i.clone(), post_i.clone());
         *state_i = post_i.clone();

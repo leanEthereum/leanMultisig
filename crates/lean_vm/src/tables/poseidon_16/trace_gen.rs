@@ -66,6 +66,7 @@ pub fn default_poseidon_row() -> Vec<F> {
     generate_trace_rows_for_perm(perm);
     row
 }
+
 fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon2Cols<&mut F>) {
     let mut state: [F; WIDTH] = std::array::from_fn(|i| *perm.inputs[i]);
 
@@ -90,6 +91,16 @@ fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseido
     {
         generate_full_round(&mut state, full_round, &constants[0], &constants[1]);
     }
+
+    // add inputs to outputs (for compression)
+    perm.ending_full_rounds
+        .last_mut()
+        .unwrap()
+        .iter_mut()
+        .zip(perm.inputs.iter())
+        .for_each(|(s, inp)| {
+            **s += **inp;
+        });
 
     perm.ending_full_rounds.last_mut().unwrap()[8..16]
         .iter_mut()
