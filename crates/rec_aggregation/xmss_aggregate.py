@@ -1,8 +1,5 @@
 from snark_lib import *
 
-COMPRESSION = 1
-PERMUTATION = 0
-
 V = 66
 W = 4
 TARGET_SUM = 118
@@ -47,7 +44,7 @@ def xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index):
     # 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
     compressed = Array(VECTOR_LEN)
-    poseidon16(message_hash, randomness, compressed, COMPRESSION)
+    poseidon16(message_hash, randomness, compressed)
     compressed_vals = Array(6)
     dot_product(compressed, ONE_VEC_PTR, compressed_vals, 1, EE)
     compressed_vals[5] = compressed[5]
@@ -97,19 +94,19 @@ def xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index):
                 var_2 = public_key + i * VECTOR_LEN
                 var_3 = Array(vector_len)
                 var_4 = Array(vector_len)
-                poseidon16(var_1, ZERO_VEC_PTR, var_3, COMPRESSION)
-                poseidon16(var_3, ZERO_VEC_PTR, var_4, COMPRESSION)
-                poseidon16(var_4, ZERO_VEC_PTR, var_2, COMPRESSION)
+                poseidon16(var_1, ZERO_VEC_PTR, var_3)
+                poseidon16(var_3, ZERO_VEC_PTR, var_4)
+                poseidon16(var_4, ZERO_VEC_PTR, var_2)
             case 1:
                 var_3 = Array(vector_len)
                 var_1 = chain_tips + i * VECTOR_LEN
                 var_2 = public_key + i * VECTOR_LEN
-                poseidon16(var_1, ZERO_VEC_PTR, var_3, COMPRESSION)
-                poseidon16(var_3, ZERO_VEC_PTR, var_2, COMPRESSION)
+                poseidon16(var_1, ZERO_VEC_PTR, var_3)
+                poseidon16(var_3, ZERO_VEC_PTR, var_2)
             case 2:
                 var_1 = chain_tips + i * VECTOR_LEN
                 var_2 = public_key + i * VECTOR_LEN
-                poseidon16(var_1, ZERO_VEC_PTR, var_2, COMPRESSION)
+                poseidon16(var_1, ZERO_VEC_PTR, var_2)
             case 3:
                 var_1 = chain_tips + (i * VECTOR_LEN)
                 var_2 = public_key + (i * VECTOR_LEN)
@@ -200,9 +197,9 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height: Const):
     # First merkle round
     match leaf_position_bits[0]:
         case 0:
-            poseidon16(leaf_digest, merkle_path, states, COMPRESSION)
+            poseidon16(leaf_digest, merkle_path, states)
         case 1:
-            poseidon16(merkle_path, leaf_digest, states, COMPRESSION)
+            poseidon16(merkle_path, leaf_digest, states)
 
     # Remaining merkle rounds
     state_indexes = Array(height)
@@ -216,26 +213,24 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height: Const):
                     state_indexes[j - 1],
                     merkle_path + j * VECTOR_LEN,
                     state_indexes[j],
-                    COMPRESSION,
                 )
             case 1:
                 poseidon16(
                     merkle_path + j * VECTOR_LEN,
                     state_indexes[j - 1],
                     state_indexes[j],
-                    COMPRESSION,
                 )
     return state_indexes[height - 1]
 
 
 def slice_hash(seed, data, half_len: Const):
     states = Array(half_len * 2 * VECTOR_LEN)
-    poseidon16(ZERO_VEC_PTR, data, states, COMPRESSION)
+    poseidon16(ZERO_VEC_PTR, data, states)
     state_indexes = Array(half_len * 2)
     state_indexes[0] = states
     for j in unroll(1, (half_len * 2)):
         state_indexes[j] = state_indexes[j - 1] + VECTOR_LEN
-        poseidon16(state_indexes[j - 1], data + j * VECTOR_LEN, state_indexes[j], COMPRESSION)
+        poseidon16(state_indexes[j - 1], data + j * VECTOR_LEN, state_indexes[j])
     return state_indexes[half_len * 2 - 1]
 
 

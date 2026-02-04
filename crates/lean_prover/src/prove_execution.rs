@@ -61,7 +61,11 @@ pub fn prove_execution(
 
     let mut table_log = String::new();
     for (table, trace) in &traces {
-        table_log.push_str(&format!("{}: 2^{:.2} rows |", table.name(), f64::log2(trace.non_padded_n_rows as f64)));
+        table_log.push_str(&format!(
+            "{}: 2^{:.2} rows |",
+            table.name(),
+            f64::log2(trace.non_padded_n_rows as f64)
+        ));
     }
     table_log.pop(); // remove last '|'
     info_span!("Trace tables sizes: {}", table_log).in_scope(|| {});
@@ -108,9 +112,7 @@ pub fn prove_execution(
 
     // logup (GKR)
     let logup_c = prover_state.sample();
-    prover_state.duplexing();
     let logup_alphas = prover_state.sample_vec(log2_ceil_usize(max_bus_width()));
-    prover_state.duplexing();
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
     let logup_statements = prove_generic_logup(
@@ -135,7 +137,6 @@ pub fn prove_execution(
     }
 
     let bus_beta = prover_state.sample();
-    prover_state.duplexing();
     let air_alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
 
@@ -156,7 +157,6 @@ pub fn prove_execution(
     }
 
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
-    prover_state.duplexing();
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
 
     let previous_statements = vec![

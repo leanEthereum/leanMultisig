@@ -8,8 +8,8 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES, STARTING_PC,
-    SourceLocation, Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES,
+    SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC, SourceLocation, Table, TableTrace,
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,6 +29,9 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
         *slot = F::ZERO;
     }
 
+    // sampling domain separator
+    public_memory[SAMPLING_DOMAIN_SEPARATOR_PTR] = F::ONE;
+
     // extension basis
     for i in 0..DIMENSION {
         let mut vec = F::zero_vec(DIMENSION);
@@ -36,7 +39,8 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
         public_memory[EXTENSION_BASIS_PTR + i * DIMENSION..][..DIMENSION].copy_from_slice(&vec);
     }
 
-    public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * DIGEST_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
+    public_memory[POSEIDON_16_NULL_HASH_PTR..][..DIGEST_LEN]
+        .copy_from_slice(&poseidon16_permute([F::ZERO; DIGEST_LEN * 2])[..DIGEST_LEN]);
     public_memory
 }
 

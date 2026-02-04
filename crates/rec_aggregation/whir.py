@@ -148,8 +148,6 @@ def whir_open(
     final_value = dot_product_ret(poly_eq_final, final_coeffcients, 2**WHIR_FINAL_VARS, EE)
     # copy_5(mul_extension_ret(s, final_value), end_sum);
 
-    fs = duplexing(fs)
-
     return fs, folding_randomness_global, s, final_value, end_sum
 
 
@@ -164,7 +162,7 @@ def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, ch
         fs, poly = fs_receive_ef(fs, degree + 1)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
         copy_5(sum_over_boolean_hypercube, claimed_sum)
-        rand = fs_sample_ef(fs)
+        fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + sc_round * DIM)
 
@@ -266,7 +264,7 @@ def whir_round(
         grinding_bits,
     )
 
-    combination_randomness_gen = fs_sample_ef(fs)
+    fs, combination_randomness_gen = fs_sample_ef(fs)
 
     combination_randomness_powers = powers(combination_randomness_gen, num_queries + num_ood)
 
@@ -323,10 +321,6 @@ def parse_commitment(fs: Mut, num_ood):
 
 def parse_whir_commitment_const(fs: Mut, num_ood: Const):
     fs, root = fs_receive_chunks(fs, 1)
-    ood_points = Array(num_ood * DIM)
-    for i in unroll(0, num_ood):
-        ood_point = fs_sample_ef(fs)
-        copy_5(ood_point, ood_points + i * DIM)
-        fs = duplexing(fs)
+    fs, ood_points = fs_sample_many_ef(fs, num_ood)
     fs, ood_evals = fs_receive_ef(fs, num_ood)
     return fs, root, ood_points, ood_evals

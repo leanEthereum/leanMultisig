@@ -61,7 +61,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     fs: Mut = fs_new(proof_transcript)
 
     # table dims
-    debug_assert(N_TABLES + 1 < VECTOR_LEN)  # (because duplex only once bellow)
+    debug_assert(N_TABLES + 1 < VECTOR_LEN) 
     fs, mem_and_table_dims = fs_receive_chunks(fs, 1)
     for i in unroll(N_TABLES + 1, 8):
         assert mem_and_table_dims[i] == 0
@@ -79,13 +79,10 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, WHIR_NUM_OOD_COMMIT)
 
-    logup_c = fs_sample_ef(fs)
-    fs = duplexing(fs)
-
-    logup_alphas = Array(DIM * log2_ceil(MAX_BUS_WIDTH))
-    for i in unroll(0, log2_ceil(MAX_BUS_WIDTH)):
-        copy_5(fs_sample_ef(fs), logup_alphas + i * DIM)  # TODO avoid duplication
-        fs = duplexing(fs)
+    fs, logup_c = fs_sample_ef(fs)
+    
+    fs, logup_alphas = fs_sample_many_ef(fs, log2_ceil(MAX_BUS_WIDTH))
+        
     logup_alphas_eq_poly = poly_eq_extension(logup_alphas, log2_ceil(MAX_BUS_WIDTH))
     # GENRIC LOGUP
 
@@ -304,10 +301,8 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     # VERIFY BUS AND AIR
 
-    bus_beta = fs_sample_ef(fs)
-    fs = duplexing(fs)
-
-    air_alpha = fs_sample_ef(fs)
+    fs, bus_beta = fs_sample_ef(fs)
+    fs, air_alpha = fs_sample_ef(fs)
     air_alpha_powers = powers_const(air_alpha, MAX_NUM_AIR_CONSTRAINTS + 1)
 
     for table_index in unroll(0, N_TABLES):
@@ -346,7 +341,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         copy_5(expected_outer_eval, outer_eval)
 
         if len(AIR_DOWN_COLUMNS_F[table_index]) != 0:
-            batching_scalar = fs_sample_ef(fs)
+            fs, batching_scalar = fs_sample_ef(fs)
             batching_scalar_powers = powers_const(batching_scalar, n_down_columns)
             evals_down_f = inner_evals + n_up_columns_f * DIM
             evals_down_ef = inner_evals + (n_up_columns_f + n_down_columns_f + n_up_columns_ef) * DIM
@@ -430,10 +425,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     for i in unroll(0, NONRESERVED_PROGRAM_INPUT_START / DIM):
         copy_5(i * DIM, inner_public_memory + i * DIM)
 
-    public_memory_random_point = Array(inner_public_memory_log_size * DIM)
-    for i in range(0, inner_public_memory_log_size):
-        copy_5(fs_sample_ef(fs), public_memory_random_point + i * DIM)
-        fs = duplexing(fs)
+    fs, public_memory_random_point = fs_sample_many_ef(fs, inner_public_memory_log_size)
     poly_eq_public_mem = poly_eq_extension_dynamic(public_memory_random_point, inner_public_memory_log_size)
     public_memory_eval = Array(DIM)
     dot_product_be_dynamic(
@@ -444,7 +436,8 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     )
 
     # WHIR BASE
-    combination_randomness_gen: Mut = fs_sample_ef(fs)
+    combination_randomness_gen: Mut
+    fs, combination_randomness_gen = fs_sample_ef(fs)
     combination_randomness_powers: Mut = powers_const(
         combination_randomness_gen, WHIR_NUM_OOD_COMMIT + TOTAL_WHIR_STATEMENTS
     )
@@ -628,9 +621,8 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     claims_num = Array(n_vars)
     claims_den = Array(n_vars)
 
-    points[0] = fs_sample_ef(fs)
-    fs = duplexing(fs)
-
+    fs, points[0] = fs_sample_ef(fs)
+    
     point_poly_eq = poly_eq_extension(points[0], 1)
 
     first_claim_num = dot_product_ret(nums, point_poly_eq, 2, EE)
@@ -653,7 +645,7 @@ def verify_gkr_quotient(fs: Mut, n_vars):
 
 
 def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
-    alpha = fs_sample_ef(fs)
+    fs, alpha = fs_sample_ef(fs)
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den)
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)
     postponed_point = Array((n_vars + 1) * DIM)
@@ -669,8 +661,8 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     eq_factor = eq_mle_extension(point, postponed_point + DIM, n_vars)
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value)
 
-    beta = fs_sample_ef(fs)
-    fs = duplexing(fs)
+    fs, beta = fs_sample_ef(fs)
+    
     point_poly_eq = poly_eq_extension(beta, 1)
     new_claim_num = dot_product_ret(inner_evals, point_poly_eq, 2, EE)
     new_claim_den = dot_product_ret(inner_evals + 2 * DIM, point_poly_eq, 2, EE)

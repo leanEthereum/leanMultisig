@@ -62,8 +62,9 @@ class DynArray:
 
 # Built-in constants
 ZERO_VEC_PTR = 0
-ONE_VEC_PTR = 16
-NONRESERVED_PROGRAM_INPUT_START = 60
+SAMPLING_DOMAIN_SEPARATOR_PTR = 16
+ONE_VEC_PTR = 24
+NONRESERVED_PROGRAM_INPUT_START = 66
 
 
 def poseidon16(left, right, output, mode):
@@ -85,6 +86,10 @@ def hint_less_than(a, b, result_ptr):
 def log2_ceil(x: int) -> int:
     assert x > 0
     return math.ceil(math.log2(x))
+
+
+def div_ceil(a: int, b: int) -> int:
+    return (a + b - 1) // b
 
 
 def next_multiple_of(x: int, n: int) -> int:

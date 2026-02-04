@@ -42,7 +42,6 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     let quotient = last_numerators[0] / last_denominators[0] + last_numerators[1] / last_denominators[1];
 
     let mut point = MultilinearPoint(vec![prover_state.sample()]);
-    prover_state.duplexing();
     let mut claims = vec![last_numerators.evaluate(&point), last_denominators.evaluate(&point)];
 
     for (nums, denoms) in layers.iter().rev() {
@@ -90,7 +89,6 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
 
     prover_state.add_extension_scalars(&inner_evals);
     let beta = prover_state.sample();
-    prover_state.duplexing();
 
     let next_claims = inner_evals
         .chunks_exact(2)
@@ -112,7 +110,6 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     let quotient = last_nums[0] / last_dens[0] + last_nums[1] / last_dens[1];
 
     let mut point = MultilinearPoint(vec![verifier_state.sample()]);
-    verifier_state.duplexing();
     let mut claims_num = last_nums.evaluate(&point);
     let mut claims_den = last_dens.evaluate(&point);
     for i in 1..n_vars {
@@ -152,7 +149,6 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     }
 
     let beta = verifier_state.sample();
-    verifier_state.duplexing();
 
     let next_claims_numerators = (&inner_evals[..2]).evaluate(&MultilinearPoint(vec![beta]));
     let next_claims_denominators = (&inner_evals[2..]).evaluate(&MultilinearPoint(vec![beta]));
