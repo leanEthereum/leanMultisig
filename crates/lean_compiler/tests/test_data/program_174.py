@@ -2,6 +2,7 @@ from snark_lib import *
 
 # Test classical match statement with cases starting after 0
 
+
 def main():
     # Test 1: Basic match starting at 1
     r1 = match_start_at_1(2)

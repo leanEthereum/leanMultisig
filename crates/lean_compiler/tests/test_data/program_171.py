@@ -7,6 +7,7 @@ from snark_lib import *
 # Simple inline functions with mutable variables
 # ============================================================================
 
+
 @inline
 def count_up(n):
     """Count from 0 to n-1, return the sum"""
@@ -15,6 +16,7 @@ def count_up(n):
         acc = acc + 1
     return acc
 
+
 @inline
 def sum_range(start, end):
     """Sum integers from start to end-1"""
@@ -22,6 +24,7 @@ def sum_range(start, end):
     for i in range(start, end):
         total = total + i
     return total
+
 
 @inline
 def double_count(n):
@@ -33,9 +36,11 @@ def double_count(n):
         b = b - 1
     return a + b
 
+
 # ============================================================================
 # Nested inline functions (inline calling inline)
 # ============================================================================
+
 
 @inline
 def inner_loop(k):
@@ -45,6 +50,7 @@ def inner_loop(k):
         x = x + j
     return x
 
+
 @inline
 def outer_with_inner(n):
     """Outer inline that calls inner inline"""
@@ -53,6 +59,7 @@ def outer_with_inner(n):
         result = result + inner_loop(i)
     return result
 
+
 @inline
 def deep_nested(a):
     """Deeply nested: calls outer_with_inner which calls inner_loop"""
@@ -60,9 +67,11 @@ def deep_nested(a):
     base = base + outer_with_inner(a)
     return base
 
+
 # ============================================================================
 # Inline functions with multiple mutable variables and complex flow
 # ============================================================================
+
 
 @inline
 def complex_muts(n):
@@ -77,6 +86,7 @@ def complex_muts(n):
         z = temp + z
     return x + y + z
 
+
 @inline
 def with_immutable(n):
     """Mix of mutable and immutable inside inline"""
@@ -87,9 +97,11 @@ def with_immutable(n):
     final_imm = m + 1000
     return final_imm
 
+
 # ============================================================================
 # Inline functions with internal branching
 # ============================================================================
+
 
 @inline
 def inline_with_if(x):
@@ -101,6 +113,7 @@ def inline_with_if(x):
         result = 200
     result = result + x
     return result
+
 
 @inline
 def inline_with_match(selector):
@@ -114,6 +127,7 @@ def inline_with_match(selector):
         case 2:
             out = 3000
     return out
+
 
 @inline
 def inline_with_nested_branch(a, b):
@@ -132,9 +146,11 @@ def inline_with_nested_branch(a, b):
                 res = 40
     return res
 
+
 # ============================================================================
 # Inline functions returning multiple values
 # ============================================================================
+
 
 @inline
 def multi_return_inline(n):
@@ -145,6 +161,7 @@ def multi_return_inline(n):
         a = a + 1
         b = b + 2
     return a, b
+
 
 @inline
 def triple_return(x):
@@ -158,9 +175,11 @@ def triple_return(x):
         m3 = m3 + 3
     return m1, m2, m3
 
+
 # ============================================================================
 # Deeper nesting of inline functions
 # ============================================================================
+
 
 @inline
 def level_d(x):
@@ -169,6 +188,7 @@ def level_d(x):
     for i in range(0, 2):
         acc = acc + 1
     return acc
+
 
 @inline
 def level_c(x):
@@ -179,6 +199,7 @@ def level_c(x):
         acc = acc + 10
     return acc
 
+
 @inline
 def level_b(x):
     """Calls level_c"""
@@ -187,6 +208,7 @@ def level_b(x):
     for i in range(0, 2):
         acc = acc + 100
     return acc
+
 
 @inline
 def level_a(x):
@@ -197,9 +219,11 @@ def level_a(x):
         acc = acc + 1000
     return acc
 
+
 # ============================================================================
 # Inline with Array operations
 # ============================================================================
+
 
 @inline
 def inline_with_array(n):
@@ -214,6 +238,7 @@ def inline_with_array(n):
         total = total + arr[i]
     return total
 
+
 @inline
 def inline_modify_array(base):
     """Inline that creates array and does complex operations"""
@@ -224,9 +249,11 @@ def inline_modify_array(base):
         acc = acc * 2
     return buf[0] + buf[1] + buf[2]
 
+
 # ============================================================================
 # Chained inline calls
 # ============================================================================
+
 
 @inline
 def chain_a(x):
@@ -235,12 +262,14 @@ def chain_a(x):
         m = m + 1
     return m
 
+
 @inline
 def chain_b(x):
     m: Mut = x
     for i in range(0, 2):
         m = m * 2
     return m
+
 
 @inline
 def chain_c(x):
@@ -249,9 +278,11 @@ def chain_c(x):
         m = m + 10
     return m
 
+
 # ============================================================================
 # Stress test inline with many variables
 # ============================================================================
+
 
 @inline
 def many_vars(seed):
@@ -279,9 +310,11 @@ def many_vars(seed):
         v9 = v9 + 1
     return v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 + v9
 
+
 # ============================================================================
 # Main test function
 # ============================================================================
+
 
 def main():
     # -------------------------------------------------------------------

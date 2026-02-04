@@ -24,7 +24,6 @@ pub fn verify_execution(
     params: &SnarkParams,
 ) -> Result<ProofVerificationDetails, ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
-    verifier_state.duplexing();
 
     let dims = verifier_state
         .next_base_scalars_vec(1 + N_TABLES)?
@@ -62,9 +61,7 @@ pub fn verify_execution(
         packed_pcs_parse_commitment(&params.first_whir, &mut verifier_state, log_memory, &table_n_vars)?;
 
     let logup_c = verifier_state.sample();
-    verifier_state.duplexing();
     let logup_alphas = verifier_state.sample_vec(log2_ceil_usize(max_bus_width()));
-    verifier_state.duplexing();
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
     let logup_statements = verify_generic_logup(
@@ -86,7 +83,6 @@ pub fn verify_execution(
     }
 
     let bus_beta = verifier_state.sample();
-    verifier_state.duplexing();
     let air_alpha = verifier_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
 
@@ -145,7 +141,6 @@ pub fn verify_execution(
 
     let public_memory_random_point =
         MultilinearPoint(verifier_state.sample_vec(log2_strict_usize(public_memory.len())));
-    verifier_state.duplexing();
     let public_memory_eval = public_memory.evaluate(&public_memory_random_point);
 
     let memory_acc_statements = vec![

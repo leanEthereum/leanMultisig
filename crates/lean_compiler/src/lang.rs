@@ -331,6 +331,8 @@ pub enum MathOperation {
     NextMultipleOf,
     /// saturating subtraction
     SaturatingSub,
+    /// Integer division with ceiling
+    DivCeil,
 }
 
 impl TryFrom<MathOperation> for Operation {
@@ -357,6 +359,7 @@ impl Display for MathOperation {
             Self::Log2Ceil => write!(f, "log2_ceil"),
             Self::NextMultipleOf => write!(f, "next_multiple_of"),
             Self::SaturatingSub => write!(f, "saturating_sub"),
+            Self::DivCeil => write!(f, "div_ceil"),
         }
     }
 }
@@ -375,7 +378,8 @@ impl MathOperation {
             | Self::Exp
             | Self::Mod
             | Self::NextMultipleOf
-            | Self::SaturatingSub => 2,
+            | Self::SaturatingSub
+            | Self::DivCeil => 2,
         }
     }
     pub fn eval(&self, args: &[F]) -> F {
@@ -397,6 +401,7 @@ impl MathOperation {
                 F::from_usize(res)
             }
             Self::SaturatingSub => F::from_usize(args[0].to_usize().saturating_sub(args[1].to_usize())),
+            Self::DivCeil => F::from_usize(args[0].to_usize().div_ceil(args[1].to_usize())),
         }
     }
 }

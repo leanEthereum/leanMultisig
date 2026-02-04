@@ -99,11 +99,7 @@ impl IntermediateInstruction {
                 arg_b,
                 res: arg_a,
             },
-            MathOperation::Exp
-            | MathOperation::Mod
-            | MathOperation::NextMultipleOf
-            | MathOperation::SaturatingSub
-            | MathOperation::Log2Ceil => {
+            _ => {
                 unreachable!()
             }
         }

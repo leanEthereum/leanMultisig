@@ -1,4 +1,4 @@
-use lean_vm::{NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, PRIVATE_INPUT_START_PTR, ZERO_VEC_PTR};
+use lean_vm::{NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, PRIVATE_INPUT_START_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, ZERO_VEC_PTR};
 use multilinear_toolkit::prelude::*;
 
 use super::expression::ExpressionParser;
@@ -134,6 +134,7 @@ impl VarOrConstantParser {
             "PRIVATE_INPUT_START_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(PRIVATE_INPUT_START_PTR))),
             "ZERO_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ZERO_VEC_PTR))),
             "ONE_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ONE_VEC_PTR))),
+            "SAMPLING_DOMAIN_SEPARATOR_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(SAMPLING_DOMAIN_SEPARATOR_PTR))),
             _ => {
                 // Check if it's a const array (error case - can't use array as value)
                 if ctx.get_const_array(text).is_some() {

@@ -38,13 +38,16 @@ pub const ENDING_PC: usize = 0;
 /// reserved_area: reserved for special constants (size = 48 field elements)
 /// program_input: the input of the program we want to prove
 ///
-/// [reserved_area] = [00000000] [00000000] [10000] [01000] [00100] [00010] [00001] [poseidon_16(0) (16 field elements)] [private input start pointer]
+/// [reserved_area] = [00000000] [00000000] [10000000] [10000] [01000] [00100] [00010] [00001] [poseidon_16(0) (16 field elements)] [private input start pointer]
 ///
 /// Convention: pointing to 16 zeros
 pub const ZERO_VEC_PTR: usize = 0;
 
+/// Convention: pointing to [10000000]
+pub const SAMPLING_DOMAIN_SEPARATOR_PTR: usize = ZERO_VEC_PTR + 2 * DIGEST_LEN;
+
 /// Convention: pointing to [10000] [01000] [00100] [00010] [00001]
-pub const EXTENSION_BASIS_PTR: usize = 2 * DIGEST_LEN;
+pub const EXTENSION_BASIS_PTR: usize = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN;
 
 /// Convention: pointing to the 16 elements of poseidon_16(0)
 pub const POSEIDON_16_NULL_HASH_PTR: usize = EXTENSION_BASIS_PTR + DIMENSION.pow(2);

@@ -77,7 +77,6 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         let witness = whir_config.commit(&mut prover_state, &committed_pol);
 
         let alpha = prover_state.sample();
-        prover_state.duplexing();
         let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
         let extra_data = ExtraDataForBuses {
             alpha_powers: air_alpha_powers,
@@ -98,7 +97,6 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         assert_eq!(air_claims.evals_f.len(), air.n_columns_air());
 
         let betas = prover_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
-        prover_state.duplexing();
         let packed_point = MultilinearPoint([betas.clone(), air_claims.point.0].concat());
         let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals_f).evaluate(&MultilinearPoint(betas));
 
@@ -121,7 +119,6 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         let parsed_commitment = whir_config.parse_commitment::<F>(&mut verifier_state).unwrap();
 
         let alpha = verifier_state.sample();
-        verifier_state.duplexing();
         let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
         let extra_data = ExtraDataForBuses {
             alpha_powers: air_alpha_powers,
@@ -138,7 +135,6 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         .unwrap();
 
         let betas = verifier_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
-        verifier_state.duplexing();
         let packed_point = MultilinearPoint([betas.clone(), air_claims.point.0].concat());
         let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals_f).evaluate(&MultilinearPoint(betas));
 

@@ -29,6 +29,7 @@ impl Parse<Expression> for ExpressionParser {
             Rule::exp_expr => MathOperation::Exp.parse(pair, ctx),
             Rule::log2_ceil_expr => MathOperation::Log2Ceil.parse(pair, ctx),
             Rule::next_multiple_of_expr => MathOperation::NextMultipleOf.parse(pair, ctx),
+            Rule::div_ceil_expr => MathOperation::DivCeil.parse(pair, ctx),
             Rule::saturating_sub_expr => MathOperation::SaturatingSub.parse(pair, ctx),
             Rule::var_or_constant => Ok(Expression::Value(VarOrConstantParser.parse(pair, ctx)?)),
             Rule::array_access_expr => ArrayAccessParser.parse(pair, ctx),

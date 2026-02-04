@@ -1,5 +1,6 @@
 from snark_lib import *
 
+
 # Error: match_range results are always immutable, cannot use Mut
 def main():
     x = 1

@@ -2,8 +2,10 @@ from snark_lib import *
 
 # Test match_range feature
 
+
 def helper_const(n: Const):
     return n * 10
+
 
 def main():
     # Test 1: Basic match_range - no forward declaration needed (auto-generated as Imu)
@@ -34,29 +36,21 @@ def main():
 
     # Test 6: match_range with multiple continuous ranges
     d = 0
-    r6a = match_range(d,
-        range(0, 2), lambda i: 100 + i,
-        range(2, 5), lambda i: 200 + i)
+    r6a = match_range(d, range(0, 2), lambda i: 100 + i, range(2, 5), lambda i: 200 + i)
     assert r6a == 100  # d=0 -> 100+0=100
 
     e = 3
-    r6b = match_range(e,
-        range(0, 2), lambda i: 100 + i,
-        range(2, 5), lambda i: 200 + i)
+    r6b = match_range(e, range(0, 2), lambda i: 100 + i, range(2, 5), lambda i: 200 + i)
     assert r6b == 203  # e=3 -> 200+3=203
 
     # Test 7: match_range with different lambdas calling functions
     f = 1
-    r7 = match_range(f,
-        range(0, 1), lambda i: 999,
-        range(1, 4), lambda i: helper_const(i))
+    r7 = match_range(f, range(0, 1), lambda i: 999, range(1, 4), lambda i: helper_const(i))
     assert r7 == 10  # f=1 -> helper_const(1)=10
 
     # Test 8: match_range first range (special case)
     g = 0
-    r8 = match_range(g,
-        range(0, 1), lambda i: 42,
-        range(1, 3), lambda i: i * 7)
+    r8 = match_range(g, range(0, 1), lambda i: 42, range(1, 3), lambda i: i * 7)
     assert r8 == 42  # g=0 -> 42
 
     # Test 9: Results are always immutable
@@ -70,36 +64,32 @@ def main():
     # Test 10: Basic multiple return values (2 values)
     v10 = 1
     a10, b10 = match_range(v10, range(0, 3), lambda i: two_values_const(i))
-    assert a10 == 10   # 1 * 10
+    assert a10 == 10  # 1 * 10
     assert b10 == 101  # 1 + 100
 
     # Test 11: Multiple return values with different case
     v11 = 2
     a11, b11 = match_range(v11, range(0, 3), lambda i: two_values_const(i))
-    assert a11 == 20   # 2 * 10
+    assert a11 == 20  # 2 * 10
     assert b11 == 102  # 2 + 100
 
     # Test 12: Three return values
     v12 = 1
     x12, y12, z12 = match_range(v12, range(0, 3), lambda i: three_values_const(i))
-    assert x12 == 1      # i
-    assert y12 == 10     # i * 10
-    assert z12 == 1001   # i + 1000
+    assert x12 == 1  # i
+    assert y12 == 10  # i * 10
+    assert z12 == 1001  # i + 1000
 
     # Test 13: Multiple return values with multiple ranges
     v13 = 3
-    a13, b13 = match_range(v13,
-        range(0, 2), lambda i: pair_small(i),
-        range(2, 5), lambda i: pair_large(i))
-    assert a13 == 300   # 3 * 100 (pair_large)
+    a13, b13 = match_range(v13, range(0, 2), lambda i: pair_small(i), range(2, 5), lambda i: pair_large(i))
+    assert a13 == 300  # 3 * 100 (pair_large)
     assert b13 == 3000  # 3 * 1000
 
     # Test 14: Multiple return values with multiple ranges - different range
     v14 = 1
-    a14, b14 = match_range(v14,
-        range(0, 2), lambda i: pair_small(i),
-        range(2, 5), lambda i: pair_large(i))
-    assert a14 == 1   # 1 * 1 (pair_small)
+    a14, b14 = match_range(v14, range(0, 2), lambda i: pair_small(i), range(2, 5), lambda i: pair_large(i))
+    assert a14 == 1  # 1 * 1 (pair_small)
     assert b14 == 10  # 1 * 10
 
     # Test 15: Multiple return values - edge case first element
@@ -137,11 +127,11 @@ def main():
 
     # Test 20: Three values with multiple ranges
     v20 = 4
-    x20, y20, z20 = match_range(v20,
-        range(0, 3), lambda i: three_values_const(i),
-        range(3, 6), lambda i: three_values_offset(i))
-    assert x20 == 104    # 4 + 100
-    assert y20 == 1004   # 4 + 1000
+    x20, y20, z20 = match_range(
+        v20, range(0, 3), lambda i: three_values_const(i), range(3, 6), lambda i: three_values_offset(i)
+    )
+    assert x20 == 104  # 4 + 100
+    assert y20 == 1004  # 4 + 1000
     assert z20 == 10004  # 4 + 10000
 
     # ========== INLINED FUNCTION TESTS ==========
@@ -154,29 +144,25 @@ def main():
     # Test 22: Inlined function - two return values
     v22 = 3
     a22, b22 = match_range(v22, range(0, 5), lambda i: inlined_pair(i))
-    assert a22 == 30   # 3 * 10
+    assert a22 == 30  # 3 * 10
     assert b22 == 300  # 3 * 100
 
     # Test 23: Inlined function with multiple ranges
     v23 = 4
-    r23 = match_range(v23,
-        range(0, 3), lambda i: inlined_small(i),
-        range(3, 6), lambda i: inlined_large(i))
+    r23 = match_range(v23, range(0, 3), lambda i: inlined_small(i), range(3, 6), lambda i: inlined_large(i))
     assert r23 == 4000  # 4 * 1000 (inlined_large)
 
     # Test 24: Inlined function - first range
     v24 = 1
-    r24 = match_range(v24,
-        range(0, 3), lambda i: inlined_small(i),
-        range(3, 6), lambda i: inlined_large(i))
+    r24 = match_range(v24, range(0, 3), lambda i: inlined_small(i), range(3, 6), lambda i: inlined_large(i))
     assert r24 == 10  # 1 * 10 (inlined_small)
 
     # Test 25: Inlined function with three return values
     v25 = 2
     x25, y25, z25 = match_range(v25, range(0, 4), lambda i: inlined_triple(i))
-    assert x25 == 2     # i
-    assert y25 == 20    # i * 10
-    assert z25 == 200   # i * 100
+    assert x25 == 2  # i
+    assert y25 == 20  # i * 10
+    assert z25 == 200  # i * 100
 
     # Test 26: Inlined function with complex body
     v26 = 3
@@ -185,10 +171,8 @@ def main():
 
     # Test 27: Mix of inlined and const functions in multiple ranges
     v27 = 2
-    a27, b27 = match_range(v27,
-        range(0, 2), lambda i: inlined_pair(i),
-        range(2, 5), lambda i: two_values_const(i))
-    assert a27 == 20   # 2 * 10 (two_values_const)
+    a27, b27 = match_range(v27, range(0, 2), lambda i: inlined_pair(i), range(2, 5), lambda i: two_values_const(i))
+    assert a27 == 20  # 2 * 10 (two_values_const)
     assert b27 == 102  # 2 + 100
 
     # Test 28: Inlined with expression as match value
