@@ -414,18 +414,15 @@ ONE_VEC_PTR     # [1, 0, 0, ...]
 ## Precompiles
 
 ### poseidon16
+Always in "compression" mode
 ```
-COMPRESSION = 1   # (output: 8 elements) (For now this is not a real permutation in the cryptographic sense, see Plonky3 PseudoCompression trait, but it will change in the future)
-PERMUTATION = 0   # full permutation (output: 16 elements)
-
 poseidon16(left, right, output, mode)
 ```
 - `left`, `right`: pointers to 8 field elements each
-- `output`: pointer to result (8 or 16 elements depending on mode)
-- Used for Merkle tree hashing and Fiat-Shamir:
+- `output`: pointer to result (8 elements)
 ```
-poseidon16(leaf_a, leaf_b, parent_hash, COMPRESSION)
-poseidon16(state, data, new_state, PERMUTATION)
+poseidon16(leaf_a, leaf_b, parent_hash)
+poseidon16(state, data, new_state)
 ```
 
 ### dot_product

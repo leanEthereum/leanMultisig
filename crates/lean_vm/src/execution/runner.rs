@@ -39,7 +39,8 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
         public_memory[EXTENSION_BASIS_PTR + i * DIMENSION..][..DIMENSION].copy_from_slice(&vec);
     }
 
-    public_memory[POSEIDON_16_NULL_HASH_PTR..][..2 * DIGEST_LEN].copy_from_slice(&poseidon16_permute([F::ZERO; 16]));
+    public_memory[POSEIDON_16_NULL_HASH_PTR..][..DIGEST_LEN]
+        .copy_from_slice(&poseidon16_permute([F::ZERO; DIGEST_LEN * 2])[..DIGEST_LEN]);
     public_memory[PRIVATE_INPUT_START_PTR] = F::from_usize(public_memory_len);
     public_memory
 }

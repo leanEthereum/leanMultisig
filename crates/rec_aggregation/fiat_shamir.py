@@ -20,7 +20,7 @@ def fs_grinding(fs, bits):
     set_to_7_zeros(transcript_ptr + 1)
 
     new_fs = Array(9)
-    poseidon16(fs, transcript_ptr, new_fs, COMPRESSION)
+    poseidon16(fs, transcript_ptr, new_fs)
     new_fs[8] = transcript_ptr + 8
 
     sampled = new_fs[0]
@@ -42,7 +42,6 @@ def fs_sample_chunks(fs, n_chunks: Const):
             fs,
             domain_sep,
             sampled + i * 8,
-            COMPRESSION,
         )
     sampled[(n_chunks + 1) * 8] = fs[8]  # same transcript pointer
     new_fs = sampled + n_chunks * 8
@@ -51,9 +50,9 @@ def fs_sample_chunks(fs, n_chunks: Const):
 
 def fs_sample_ef(fs):
     sampled = Array(8)
-    poseidon16(fs, ZERO_VEC_PTR, sampled, COMPRESSION)
+    poseidon16(fs, ZERO_VEC_PTR, sampled)
     new_fs = Array(9)
-    poseidon16(fs, SAMPLING_DOMAIN_SEPARATOR_PTR, new_fs, COMPRESSION)
+    poseidon16(fs, SAMPLING_DOMAIN_SEPARATOR_PTR, new_fs)
     new_fs[8] = fs[8]  # same transcript pointer
     return new_fs, sampled
 
@@ -82,13 +81,12 @@ def fs_receive_chunks(fs, n_chunks: Const):
     transcript_ptr = fs[8]
     new_fs[8 * n_chunks] = transcript_ptr + 8 * n_chunks  # advance transcript pointer
 
-    poseidon16(fs, transcript_ptr, new_fs, COMPRESSION)
+    poseidon16(fs, transcript_ptr, new_fs)
     for i in unroll(1, n_chunks):
         poseidon16(
             new_fs + ((i - 1) * 8),
             transcript_ptr + i * 8,
             new_fs + i * 8,
-            COMPRESSION,
         )
     return new_fs + 8 * (n_chunks - 1), transcript_ptr
 

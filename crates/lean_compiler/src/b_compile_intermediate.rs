@@ -470,7 +470,7 @@ fn compile_lines(
             SimpleLine::Precompile { table, args, .. } => {
                 match table {
                     Table::DotProduct(_) => assert_eq!(args.len(), 5),
-                    Table::Poseidon16(_) => assert_eq!(args.len(), 4),
+                    Table::Poseidon16(_) => assert_eq!(args.len(), 3),
                     Table::Execution(_) => unreachable!(),
                 }
                 // if arg_c is constant, create a variable (in memory) to hold it

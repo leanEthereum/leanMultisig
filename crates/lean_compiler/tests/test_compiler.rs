@@ -10,15 +10,12 @@ fn test_poseidon() {
 def main():
     a = NONRESERVED_PROGRAM_INPUT_START
     b = a + 8
-    c = Array(2*8)
-    poseidon16(a, b, c, 0)
+    c = Array(8)
+    poseidon16(a, b, c)
 
     for i in range(0, 8):
         cc = c[i]
         print(cc)
-    for i in range(0, 8):
-        dd = c[i+8]
-        print(dd)
     return
    "#;
     let public_input: [F; 16] = (0..16).map(F::new).collect::<Vec<F>>().try_into().unwrap();

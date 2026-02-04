@@ -12,8 +12,6 @@ use utils::{ToUsize, poseidon16_permute};
 mod trace_gen;
 pub use trace_gen::fill_trace_poseidon_16;
 
-pub const POSEIDON_16_DEFAULT_COMPRESSION: bool = true;
-
 pub(super) const WIDTH: usize = 16;
 const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 2;
 const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
@@ -22,11 +20,9 @@ const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_A: ColIndex = 1;
 pub const POSEIDON_16_COL_B: ColIndex = 2;
-pub const POSEIDON_16_COL_COMPRESSION: ColIndex = 3;
-pub const POSEIDON_16_COL_RES: ColIndex = 4;
-pub const POSEIDON_16_COL_RES_BIS: ColIndex = 5; // = if compressed { 0 } else { POSEIDON_16_COL_RES + 1 }
-pub const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
-const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 16;
+pub const POSEIDON_16_COL_RES: ColIndex = 3;
+pub const POSEIDON_16_COL_INPUT_START: ColIndex = 4;
+const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile<const BUS: bool>;
@@ -55,11 +51,6 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
                 index: POSEIDON_16_COL_RES,
                 values: (POSEIDON_16_COL_OUTPUT_START..POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN).collect(),
             },
-            LookupIntoMemory {
-                index: POSEIDON_16_COL_RES_BIS,
-                values: (POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN..POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN * 2)
-                    .collect(),
-            },
         ]
     }
 
@@ -72,12 +63,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
-            data: vec![
-                POSEIDON_16_COL_A,
-                POSEIDON_16_COL_B,
-                POSEIDON_16_COL_RES,
-                POSEIDON_16_COL_COMPRESSION,
-            ],
+            data: vec![POSEIDON_16_COL_A, POSEIDON_16_COL_B, POSEIDON_16_COL_RES],
         }
     }
 
@@ -95,12 +81,10 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         arg_a: F,
         arg_b: F,
         index_res_a: F,
-        is_compression: usize,
+        _: usize,
         _: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
-        assert!(is_compression == 0 || is_compression == 1);
-        let is_compression = is_compression == 1;
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg0 = ctx.memory.get_slice(arg_a.to_usize(), DIGEST_LEN)?;
@@ -119,24 +103,13 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         };
 
         let res_a: [F; DIGEST_LEN] = output[..DIGEST_LEN].try_into().unwrap();
-        let (index_res_b, res_b): (F, [F; DIGEST_LEN]) = if is_compression {
-            (F::from_usize(ZERO_VEC_PTR), [F::ZERO; DIGEST_LEN])
-        } else {
-            (
-                index_res_a + F::from_usize(DIGEST_LEN),
-                output[DIGEST_LEN..].try_into().unwrap(),
-            )
-        };
 
         ctx.memory.set_slice(index_res_a.to_usize(), &res_a)?;
-        ctx.memory.set_slice(index_res_b.to_usize(), &res_b)?;
 
         trace.base[POSEIDON_16_COL_FLAG].push(F::ONE);
         trace.base[POSEIDON_16_COL_A].push(arg_a);
         trace.base[POSEIDON_16_COL_B].push(arg_b);
         trace.base[POSEIDON_16_COL_RES].push(index_res_a);
-        trace.base[POSEIDON_16_COL_RES_BIS].push(index_res_b);
-        trace.base[POSEIDON_16_COL_COMPRESSION].push(F::from_bool(is_compression));
         for (i, value) in input.iter().enumerate() {
             trace.base[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
@@ -156,7 +129,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         0
     }
     fn degree_air(&self) -> usize {
-        if BUS { 10 } else { 9 }
+        9
     }
     fn down_column_indexes_f(&self) -> Vec<usize> {
         vec![]
@@ -165,7 +138,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 87
+        BUS as usize + 76
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon2Cols<AB::F> = {
@@ -182,28 +155,13 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 extra_data,
                 AB::F::from_usize(self.table().index()),
                 cols.flag.clone(),
-                &[
-                    cols.index_a.clone(),
-                    cols.index_b.clone(),
-                    cols.index_res.clone(),
-                    cols.compress.clone(),
-                ],
+                &[cols.index_a.clone(), cols.index_b.clone(), cols.index_res.clone()],
             ));
         } else {
-            builder.declare_values(&[
-                cols.index_a.clone(),
-                cols.index_b.clone(),
-                cols.index_res.clone(),
-                cols.compress.clone(),
-            ]);
+            builder.declare_values(&[cols.index_a.clone(), cols.index_b.clone(), cols.index_res.clone()]);
         }
 
         builder.assert_bool(cols.flag.clone());
-        builder.assert_bool(cols.compress.clone());
-        builder.assert_eq(
-            cols.index_res_bis.clone(),
-            (cols.index_res.clone() + AB::F::from_usize(DIGEST_LEN)) * (AB::F::ONE - cols.compress.clone()),
-        );
 
         eval(builder, &cols)
     }
@@ -215,14 +173,13 @@ pub(super) struct Poseidon2Cols<T> {
     pub flag: T,
     pub index_a: T,
     pub index_b: T,
-    pub compress: T,
     pub index_res: T,
-    pub index_res_bis: T,
 
     pub inputs: [T; WIDTH],
     pub beginning_full_rounds: [[T; WIDTH]; HALF_INITIAL_FULL_ROUNDS],
     pub partial_rounds: [T; PARTIAL_ROUNDS],
-    pub ending_full_rounds: [[T; WIDTH]; HALF_FINAL_FULL_ROUNDS],
+    pub ending_full_rounds: [[T; WIDTH]; HALF_FINAL_FULL_ROUNDS - 1],
+    pub outputs: [T; WIDTH / 2],
 }
 
 fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
@@ -257,10 +214,9 @@ fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
     eval_last_2_full_rounds(
         &local.inputs,
         &mut state,
-        &local.ending_full_rounds[HALF_FINAL_FULL_ROUNDS - 1],
+        &local.outputs,
         &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
         &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1) + 1],
-        local.compress.clone(),
         builder,
     );
 }
@@ -297,10 +253,9 @@ fn eval_2_full_rounds<AB: AirBuilder>(
 fn eval_last_2_full_rounds<AB: AirBuilder>(
     initial_state: &[AB::F; WIDTH],
     state: &mut [AB::F; WIDTH],
-    post_full_round: &[AB::F; WIDTH],
+    outputs: &[AB::F; WIDTH / 2],
     round_constants_1: &[F; WIDTH],
     round_constants_2: &[F; WIDTH],
-    compress: AB::F,
     builder: &mut AB,
 ) {
     for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
@@ -317,13 +272,9 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
     for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
         *state_i += init_state_i.clone();
     }
-    for (state_i, post_i) in state.iter_mut().zip(post_full_round).take(WIDTH / 2) {
-        builder.assert_eq(state_i.clone(), post_i.clone());
-        *state_i = post_i.clone();
-    }
-    for (state_i, post_i) in state.iter_mut().zip(post_full_round).skip(WIDTH / 2) {
-        builder.assert_eq(state_i.clone() * -(compress.clone() - AB::F::ONE), post_i.clone());
-        *state_i = post_i.clone();
+    for (state_i, output_i) in state.iter_mut().zip(outputs) {
+        builder.assert_eq(state_i.clone(), output_i.clone());
+        *state_i = output_i.clone();
     }
 }
 

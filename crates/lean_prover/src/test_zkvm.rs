@@ -19,8 +19,6 @@ fn test_zk_vm_fuzzing() {
 fn test_zk_vm_all_precompiles_helper(fuzzing: bool) {
     let program_str = r#"
 DIM = 5
-COMPRESSION = 1
-PERMUTATION = 0
 N = 11
 VECTOR_LEN = 8
 
@@ -30,8 +28,7 @@ EE = 0  # extension-extension
 
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
-    poseidon16(pub_start, pub_start + VECTOR_LEN, pub_start + 2 * VECTOR_LEN, PERMUTATION)
-    poseidon16(pub_start + 4 * VECTOR_LEN, pub_start + 5 * VECTOR_LEN, pub_start + 6 * VECTOR_LEN, COMPRESSION)
+    poseidon16(pub_start + 4 * VECTOR_LEN, pub_start + 5 * VECTOR_LEN, pub_start + 6 * VECTOR_LEN)
     dot_product(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N, BE)
     dot_product(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N, EE)
     c: Mut = 0
@@ -47,10 +44,6 @@ def main():
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut public_input = F::zero_vec(1 << 13);
-
-    let poseidon_16_perm_input: [F; 16] = rng.random();
-    public_input[..16].copy_from_slice(&poseidon_16_perm_input);
-    public_input[16..32].copy_from_slice(&poseidon16_permute(poseidon_16_perm_input));
 
     let poseidon_16_compress_input: [F; 16] = rng.random();
     public_input[32..48].copy_from_slice(&poseidon_16_compress_input);
