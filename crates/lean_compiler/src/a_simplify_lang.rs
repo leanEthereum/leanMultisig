@@ -484,8 +484,11 @@ fn compile_time_transform_in_lines(
             compile_time_transform_in_expr(expr, const_arrays, &vector_len_tracker);
         }
 
-        // Extract nested inlined calls from expressions (e.g., `x = a + inlined_func(b)`)
-        if let Some(new_lines) = extract_inlined_calls(line, inlined_functions, inline_counter)? {
+        // Extract nested calls to functions requiring preprocessing (inlined or const-arg)
+        // e.g., `x = a + inlined_func(b)` -> `tmp = inlined_func(b); x = a + tmp`
+        if let Some(new_lines) =
+            extract_preprocessed_calls(line, inlined_functions, existing_functions, inline_counter)?
+        {
             lines.splice(i..=i, new_lines);
             continue;
         }
@@ -497,6 +500,7 @@ fn compile_time_transform_in_lines(
                     lines.splice(i..=i, inlined);
                     continue;
                 }
+                // Handle direct const-arg function calls: specialize them (e.g., double(1) -> double_a=1())
                 if let Expression::FunctionCall {
                     function_name, args, ..
                 } = value
@@ -867,35 +871,45 @@ fn try_inline_call(
     Some(body)
 }
 
-/// Extract nested inlined function calls from expressions, replacing them with temp vars.
-fn extract_inlined_calls(
+/// Extract nested calls to functions that need preprocessing (inlined or const-arg).
+/// Replaces them with temp vars so they become direct calls that can be processed.
+fn extract_preprocessed_calls(
     line: &mut Line,
     inlined_functions: &BTreeMap<String, Function>,
+    all_functions: &BTreeMap<String, Function>,
     counter: &mut Counter,
 ) -> Result<Option<Vec<Line>>, String> {
+    fn needs_preprocessing(name: &str, inlined: &BTreeMap<String, Function>, all: &BTreeMap<String, Function>) -> bool {
+        inlined.contains_key(name) || all.get(name).is_some_and(|f| f.has_const_arguments())
+    }
+
     fn extract(
         expr: &mut Expression,
-        funcs: &BTreeMap<String, Function>,
+        inlined: &BTreeMap<String, Function>,
+        all: &BTreeMap<String, Function>,
         counter: &mut Counter,
         out: &mut Vec<Line>,
     ) -> Result<(), String> {
         for inner in expr.inner_exprs_mut() {
-            extract(inner, funcs, counter, out)?;
+            extract(inner, inlined, all, counter, out)?;
         }
         if let Expression::FunctionCall {
             function_name,
             args,
             location,
         } = expr
-            && let Some(func) = funcs.get(function_name)
+            && needs_preprocessing(function_name, inlined, all)
         {
-            if func.n_returned_vars != 1 {
+            let func = inlined.get(function_name).or_else(|| all.get(function_name));
+            if let Some(f) = func
+                && f.n_returned_vars != 1
+            {
                 return Err(format!(
-                    "Inlined function '{}' with {} return values cannot appear in expression",
-                    function_name, func.n_returned_vars
+                    "Function '{}' with {} return values cannot appear in expression",
+                    function_name, f.n_returned_vars
                 ));
             }
-            let tmp = format!("@inline_tmp_{}", counter.get_next());
+            let tmp = format!("@extract_tmp_{}", counter.get_next());
             out.push(Line::ForwardDeclaration {
                 var: tmp.clone(),
                 is_mutable: false,
@@ -918,21 +932,21 @@ fn extract_inlined_calls(
     }
 
     let mut extractions = vec![];
-    // For direct inlined calls, only extract from arguments; otherwise extract from all expressions
+    // For direct preprocessed calls, only extract from arguments; otherwise extract from all expressions
     match line {
         Line::Statement {
             value: Expression::FunctionCall {
                 function_name, args, ..
             },
             ..
-        } if inlined_functions.contains_key(function_name) => {
+        } if needs_preprocessing(function_name, inlined_functions, all_functions) => {
             for arg in args.iter_mut() {
-                extract(arg, inlined_functions, counter, &mut extractions)?;
+                extract(arg, inlined_functions, all_functions, counter, &mut extractions)?;
             }
         }
         _ => {
             for expr in line.expressions_mut() {
-                extract(expr, inlined_functions, counter, &mut extractions)?;
+                extract(expr, inlined_functions, all_functions, counter, &mut extractions)?;
             }
         }
     }
