@@ -59,6 +59,13 @@ pub fn prove_execution(
         .collect::<Vec<_>>(),
     );
 
+    let mut table_log = String::new();
+    for (table, trace) in &traces {
+        table_log.push_str(&format!("{}: 2^{:.2} rows |", table.name(), f64::log2(trace.non_padded_n_rows as f64)));
+    }
+    table_log.pop(); // remove last '|'
+    info_span!("Trace tables sizes: {}", table_log).in_scope(|| {});
+
     // TODO parrallelize
     let mut memory_acc = F::zero_vec(memory.len());
     info_span!("Building memory access count").in_scope(|| {

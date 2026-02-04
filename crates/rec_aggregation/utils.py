@@ -205,6 +205,9 @@ def dot_product_ee_dynamic(a, b, res, n):
         if n == WHIR_NUM_QUERIES[i] + 1:
             dot_product(a, b, res, WHIR_NUM_QUERIES[i] + 1, EE)
             return
+    if n == 8:
+        dot_product(a, b, res, 8, EE)
+        return
     assert False, "dot_product_ee_dynamic called with unsupported n"
 
 

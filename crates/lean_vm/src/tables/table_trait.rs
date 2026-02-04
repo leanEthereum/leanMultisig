@@ -54,6 +54,7 @@ pub enum BusTable {
 pub struct TableTrace {
     pub base: Vec<Vec<F>>,
     pub ext: Vec<Vec<EF>>,
+    pub non_padded_n_rows: usize,
     pub log_n_rows: VarCount,
 }
 
@@ -62,7 +63,8 @@ impl TableTrace {
         Self {
             base: vec![Vec::new(); air.n_columns_f_total()],
             ext: vec![Vec::new(); air.n_columns_ef_total()],
-            log_n_rows: 0, // filled later
+            non_padded_n_rows: 0, // filled later
+            log_n_rows: 0,        // filled later
         }
     }
 }

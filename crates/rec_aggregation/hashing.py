@@ -30,6 +30,9 @@ def batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len):
     if len == 4:
         batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 4)
         return
+    if len == 5:
+        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 5)
+        return
     print(len)
     assert False, "batch_hash_slice called with unsupported len"
 
