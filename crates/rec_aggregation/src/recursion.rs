@@ -416,7 +416,7 @@ fn air_eval_in_zk_dsl<T: TableT>(table: T) -> String
 where
     T::ExtraData: Default,
 {
-    let (constraints, bus_data) = get_symbolic_constraints_and_bus_data_values::<F, _>(&table);
+    let (constraints, bus_flag, bus_data) = get_symbolic_constraints_and_bus_data_values::<F, _>(&table);
     let mut vars_counter = Counter::new();
     let mut cache: HashMap<*const (), String> = HashMap::new();
 
@@ -441,7 +441,7 @@ where
         BusTable::Constant(c) => format!("embed_in_ef({})", c.index()),
         BusTable::Variable(col) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, col),
     };
-    let flag = format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, table.bus().selector);
+    let flag = write_down_air_constraint_eval(&bus_flag, &mut cache, &mut res, &mut vars_counter);
     res += &format!("\n    buff = Array(DIM * {})", bus_data.len());
     for (i, data) in bus_data.iter().enumerate() {
         let data_str = write_down_air_constraint_eval(data, &mut cache, &mut res, &mut vars_counter);

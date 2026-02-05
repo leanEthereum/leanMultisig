@@ -1,9 +1,8 @@
+use crate::{ALL_TABLES, EF, ExecutionTable, ExtraDataForBuses, F, eval_virtual_bus_column};
 use multilinear_toolkit::prelude::*;
 
-use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
-
 pub const N_COMMITTED_EXEC_COLUMNS: usize = 8;
-pub const N_INSTRUCTION_COLUMNS: usize = 14;
+pub const N_INSTRUCTION_COLUMNS: usize = 13;
 pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS;
 
 // Committed columns (IMPORTANT: they must be the first columns)
@@ -29,14 +28,33 @@ pub const COL_DEREF: usize = 16;
 pub const COL_JUMP: usize = 17;
 pub const COL_AUX_1: usize = 18;
 pub const COL_AUX_2: usize = 19;
-pub const COL_IS_PRECOMPILE: usize = 20;
-pub const COL_PRECOMPILE_INDEX: usize = 21;
+pub const COL_PRECOMPILE_INDEX: usize = 20;
 
 // Temporary columns (stored to avoid duplicate computations)
-pub const N_TEMPORARY_EXEC_COLUMNS: usize = 3;
+pub const N_TEMPORARY_EXEC_COLUMNS: usize = 4;
+pub const COL_IS_PRECOMPILE: usize = 21;
 pub const COL_EXEC_NU_A: usize = 22;
 pub const COL_EXEC_NU_B: usize = 23;
 pub const COL_EXEC_NU_C: usize = 24;
+
+const PRECOMPILE_A_INDEX: F = F::new(ALL_TABLES[1].index() as u32);
+const PRECOMPILE_B_INDEX: F = F::new(ALL_TABLES[2].index() as u32);
+const MINUS_ONE_OVER_AB_PRECOMPILES: usize = 1775588694;
+const MINUS_A_MINUS_B_PRECOMPILES: usize = 2130706428;
+
+#[test]
+fn test_precompile_indices() {
+    const _: () = assert!(crate::N_TABLES - 1 == 2); // ONLY 2 PRECOMPILES
+    assert!(crate::TableT::is_execution_table(&ALL_TABLES[0])); // First table must be execution table
+    assert_eq!(
+        -(PRECOMPILE_A_INDEX * PRECOMPILE_B_INDEX).inverse(),
+        F::from_usize(MINUS_ONE_OVER_AB_PRECOMPILES)
+    );
+    assert_eq!(
+        -PRECOMPILE_A_INDEX - PRECOMPILE_B_INDEX,
+        F::from_usize(MINUS_A_MINUS_B_PRECOMPILES)
+    );
+}
 
 impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
@@ -80,7 +98,6 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let jump = up[COL_JUMP].clone();
         let aux_1 = up[COL_AUX_1].clone();
         let aux_2 = up[COL_AUX_2].clone();
-        let is_precompile = up[COL_IS_PRECOMPILE].clone();
         let precompile_index = up[COL_PRECOMPILE_INDEX].clone();
 
         let (value_a, value_b, value_c) = (
@@ -110,6 +127,16 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
+        /*
+        A = index_of_precompile_A
+        B = index_of_precompile_B
+        X = precompile_index (0 by default, set to A or B when calling precompile)
+        is_precompile = X * (-1/(A*B)) * (X + (-A - B)) (= 1 if X == A or X == B, 0 if X == 0)
+        */
+        let is_precompile = precompile_index.clone()
+            * AB::F::from_usize(MINUS_ONE_OVER_AB_PRECOMPILES)
+            * (precompile_index.clone() + AB::F::from_usize(MINUS_A_MINUS_B_PRECOMPILES));
+
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
@@ -118,6 +145,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
                 &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()],
             ));
         } else {
+            builder.declare_values(&[is_precompile]);
             builder.declare_values(&[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()]);
         }
 
