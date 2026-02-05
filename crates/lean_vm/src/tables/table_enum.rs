@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use utils::MEMORY_TABLE_INDEX;
 
 use crate::*;
 
@@ -48,7 +47,7 @@ impl Table {
         PF::from_usize(self.index())
     }
     pub const fn index(&self) -> usize {
-        unsafe { *(self as *const Self as *const usize) + MEMORY_TABLE_INDEX + 1 }
+        unsafe { *(self as *const Self as *const usize) }
     }
 }
 
@@ -122,7 +121,8 @@ impl Air for Table {
 }
 
 pub fn max_bus_width() -> usize {
-    1 + ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap()
+    let max_bus_in_table = ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
+    1 + max_bus_in_table.max(N_INSTRUCTION_COLUMNS)
 }
 
 pub fn max_air_constraints() -> usize {
@@ -131,12 +131,16 @@ pub fn max_air_constraints() -> usize {
 
 #[cfg(test)]
 mod tests {
+    use utils::{BYTECODE_TABLE_INDEX, MEMORY_TABLE_INDEX};
+
     use super::*;
 
     #[test]
     fn test_table_indices() {
         for (i, table) in ALL_TABLES.iter().enumerate() {
-            assert_eq!(table.index(), i + MEMORY_TABLE_INDEX + 1);
+            assert_eq!(table.index(), i);
+            assert_ne!(table.index(), MEMORY_TABLE_INDEX);
+            assert_ne!(table.index(), BYTECODE_TABLE_INDEX);
         }
     }
 }

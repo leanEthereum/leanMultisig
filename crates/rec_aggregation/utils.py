@@ -21,14 +21,13 @@ def div_ceil_dynamic(a, b: Const):
     return res
 
 
+@inline
 def powers(alpha, n):
     # alpha: EF
     # n: F
-
-    res = Array(n * DIM)
-    set_to_one(res)
-    for i in range(0, n - 1):
-        mul_extension(res + i * DIM, alpha, res + (i + 1) * DIM)
+    assert n < 128
+    assert 0 < n
+    res = match_range(n, range(1, 128), lambda i: powers_const(alpha, i))
     return res
 
 
@@ -43,6 +42,7 @@ def powers_const(alpha, n: Const):
     return res
 
 
+@inline
 def unit_root_pow_dynamic(domain_size, index_bits):
     # index_bits is a pointer to domain_size bits
     debug_assert(domain_size < 26)
@@ -82,7 +82,8 @@ def poly_eq_extension(point, n: Const):
     return res + (2**n - 1) * DIM
 
 
-def poly_eq_base(point, n: Const):
+@inline
+def poly_eq_base(point, n):
     # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
     res = Array((2 ** (n + 1) - 1))
@@ -95,18 +96,16 @@ def poly_eq_base(point, n: Const):
     return res + (2**n - 1)
 
 
-def pow(a, b):
-    if b == 0:
-        return 1  # a^0 = 1
-    else:
-        p = pow(a, b - 1)
-        return a * p
-
-
 def eq_mle_extension(a, b, n):
+    debug_assert(n < 30)
+    debug_assert(0 < n)
+    res = match_range(n, range(1, 30), lambda i: eq_mle_extension_const(a, b, i))
+    return res
+
+def eq_mle_extension_const(a, b, n: Const):
     buff = Array(n * DIM)
 
-    for i in range(0, n):
+    for i in unroll(0, n):
         shift = i * DIM
         ai = a + shift
         bi = b + shift
@@ -117,7 +116,7 @@ def eq_mle_extension(a, b, n):
             buffi[j] = 2 * ab[j] - ai[j] - bi[j]
 
     current_prod: Mut = buff
-    for i in range(0, n - 1):
+    for i in unroll(0, n - 1):
         next_prod = Array(DIM)
         mul_extension(current_prod, buff + (i + 1) * DIM, next_prod)
         current_prod = next_prod
@@ -125,6 +124,7 @@ def eq_mle_extension(a, b, n):
     return current_prod
 
 
+@inline
 def eq_mle_base_extension(a, b, n):
     debug_assert(n < 26)
     debug_assert(0 < n)
@@ -154,6 +154,7 @@ def eq_mle_extension_base_const(a, b, n: Const):
     return prods + (n - 1) * DIM
 
 
+@inline
 def expand_from_univariate_base(alpha, n):
     debug_assert(n < 23)
     debug_assert(0 < n)
@@ -190,6 +191,9 @@ def dot_product_be_dynamic(a, b, res, n):
 
 
 def dot_product_ee_dynamic(a, b, res, n):
+    if n == 32:
+        dot_product(a, b, res, 32, EE)
+        return
     if n == 16:
         dot_product(a, b, res, 16, EE)
         return
@@ -200,21 +204,16 @@ def dot_product_ee_dynamic(a, b, res, n):
         dot_product(a, b, res, 2, EE)
         return
 
-    for i in unroll(0, N_ROUNDS_BASE + 1):
-        if n == NUM_QUERIES_BASE[i]:
-            dot_product(a, b, res, NUM_QUERIES_BASE[i], EE)
+    for i in unroll(0, WHIR_N_ROUNDS + 1):
+        if n == WHIR_NUM_QUERIES[i]:
+            dot_product(a, b, res, WHIR_NUM_QUERIES[i], EE)
             return
-        if n == NUM_QUERIES_BASE[i] + 1:
-            dot_product(a, b, res, NUM_QUERIES_BASE[i] + 1, EE)
+        if n == WHIR_NUM_QUERIES[i] + 1:
+            dot_product(a, b, res, WHIR_NUM_QUERIES[i] + 1, EE)
             return
-    for i in unroll(0, N_ROUNDS_EXT + 1):
-        if n == NUM_QUERIES_EXT[i]:
-            dot_product(a, b, res, NUM_QUERIES_EXT[i], EE)
-            return
-        if n == NUM_QUERIES_EXT[i] + 1:
-            dot_product(a, b, res, NUM_QUERIES_EXT[i] + 1, EE)
-            return
-
+    if n == 8:
+        dot_product(a, b, res, 8, EE)
+        return
     assert False, "dot_product_ee_dynamic called with unsupported n"
 
 
@@ -231,7 +230,28 @@ def mle_of_01234567_etc(point, n):
         res = add_extension_ret(b, d)
         return res
 
+@inline
+def checked_less_than(a, b):
+    res: Imu
+    hint_less_than(a, b, res)
+    assert res * (1 - res) == 0
+    if res == 1:
+        assert a < b
+    else:
+        assert b <= a
+    return res
 
+@inline
+def maximum(a, b):
+    is_a_less_than_b = checked_less_than(a, b)
+    res: Imu
+    if is_a_less_than_b == 1:
+        res = b
+    else:
+        res = a
+    return res
+
+@inline
 def powers_of_two(n):
     debug_assert(n < 32)
     res = match_range(n, range(0, 32), lambda i: 2**i)
@@ -308,6 +328,7 @@ def mul_base_extension_ret(a, b):
     return res
 
 
+@inline
 def div_extension_ret(n, d):
     quotient = Array(DIM)
     dot_product(d, quotient, n, 1, EE)
@@ -390,9 +411,7 @@ def set_to_8_zeros(a):
 @inline
 def copy_8(a, b):
     dot_product(a, ONE_VEC_PTR, b, 1, EE)
-    assert a[5] == b[5]
-    assert a[6] == b[6]
-    assert a[7] == b[7]
+    dot_product(a + (8 - DIM), ONE_VEC_PTR, b + (8 - DIM), 1, EE)
     return
 
 
@@ -404,18 +423,16 @@ def copy_16(a, b):
     a[15] = b[15]
     return
 
-
+@inline
 def copy_many_ef(a, b, n):
-    for i in range(0, n):
+    for i in unroll(0, n):
         dot_product(a + i * DIM, ONE_VEC_PTR, b + i * DIM, 1, EE)
     return
 
 
 @inline
 def set_to_one(a):
-    a[0] = 1
-    for i in unroll(1, DIM):
-        a[i] = 0
+    dot_product(ONE_VEC_PTR, ONE_VEC_PTR, a, 1, EE)
     return
 
 
@@ -431,29 +448,20 @@ def print_vec(a):
     return
 
 
-def print_many(a, n):
-    for i in range(0, n):
-        print(a[i])
-    return
-
-
-def next_multiple_of_8(a: Const):
-    return a + (8 - (a % 8)) % 8
-
-
 @inline
 def read_memory(ptr):
     mem = 0
     return mem[ptr]
 
 
-def univariate_polynomial_eval(coeffs, point, degree: Const):
-    powers = powers(point, degree + 1)  # TODO use a parameter: Const version
+@inline
+def univariate_polynomial_eval(coeffs, point, degree):
+    powers = powers_const(point, degree + 1)
     res = Array(DIM)
     dot_product(coeffs, powers, res, degree + 1, EE)
     return res
 
-
+@inline
 def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
     common_den = mul_extension_ret(a_den, b_den)
     a_num_mul_b_den = mul_extension_ret(a_num, b_den)
@@ -496,16 +504,29 @@ def checked_decompose_bits(a, k):
     return bits, partial_sum
 
 
-def checked_decompose_bits_small_value(to_decompose, n_bits):
+def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
     hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)
     sum: Mut = bits[n_bits - 1]
     power_of_2: Mut = 1
-    for i in range(1, n_bits):
+    for i in unroll(1, n_bits):
         power_of_2 *= 2
         sum += bits[n_bits - 1 - i] * power_of_2
     assert to_decompose == sum
     return bits
+
+
+@inline
+def checked_decompose_bits_small_value(to_decompose, n_bits):
+    debug_assert(n_bits < 30)
+    debug_assert(0 < n_bits)
+    return match_range(
+        n_bits,
+        range(0, 1),
+        lambda _: 0,
+        range(1, 30),
+        lambda i: checked_decompose_bits_small_value_const(to_decompose, i),
+    )
 
 
 @inline

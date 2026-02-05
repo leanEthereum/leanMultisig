@@ -8,8 +8,6 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
     extra_data: &A::ExtraData,
     columns_f: &[&[PF<EF>]],
     columns_ef: &[&[EF]],
-    last_row_f: &[PF<EF>],
-    last_row_ef: &[EF],
 ) -> Result<(), String> {
     let n_rows = columns_f[0].len();
     assert!(columns_f.iter().all(|col| col.len() == n_rows));
@@ -67,13 +65,19 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
     let up_ef = (0..air.n_columns_ef_air())
         .map(|j| columns_ef[j][n_rows - 1])
         .collect::<Vec<_>>();
-    assert_eq!(last_row_f.len(), air.n_down_columns_f());
-    assert_eq!(last_row_ef.len(), air.n_down_columns_ef());
     let mut constraints_checker = ConstraintChecker {
         up_f,
         up_ef,
-        down_f: last_row_f.to_vec(),
-        down_ef: last_row_ef.to_vec(),
+        down_f: air
+            .down_column_indexes_f()
+            .iter()
+            .map(|j| columns_f[*j][n_rows - 1])
+            .collect::<Vec<_>>(),
+        down_ef: air
+            .down_column_indexes_ef()
+            .iter()
+            .map(|j| columns_ef[*j][n_rows - 1])
+            .collect::<Vec<_>>(),
         constraint_index: 0,
         errors: Vec::new(),
     };

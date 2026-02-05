@@ -1,4 +1,3 @@
-use crate::instruction_encoder::field_representation;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::{array, collections::BTreeMap, iter::repeat_n};
@@ -17,7 +16,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
-    let mut main_trace: [Vec<F>; N_EXEC_AIR_COLUMNS + N_TEMPORARY_EXEC_COLUMNS] =
+    let mut main_trace: [Vec<F>; N_TOTAL_EXECUTION_COLUMNS + N_TEMPORARY_EXEC_COLUMNS] =
         array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
     for col in &mut main_trace {
         unsafe {
@@ -30,20 +29,21 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         .zip(execution_result.fps.par_iter())
         .for_each(|((trace_row, &pc), &fp)| {
             let instruction = &bytecode.instructions[pc];
-            let field_repr = field_representation(instruction);
+            let field_repr = &bytecode.instructions_multilinear[pc * N_INSTRUCTION_COLUMNS.next_power_of_two()..]
+                [..N_INSTRUCTION_COLUMNS];
 
             let mut addr_a = F::ZERO;
             if field_repr[instr_idx(COL_FLAG_A)].is_zero() {
                 // flag_a == 0
                 addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)]; // fp + operand_a
             }
-            let value_a = memory.0[addr_a.to_usize()].unwrap();
+            let value_a = memory.0[addr_a.to_usize()].unwrap_or_default();
             let mut addr_b = F::ZERO;
             if field_repr[instr_idx(COL_FLAG_B)].is_zero() {
                 // flag_b == 0
                 addr_b = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_B)]; // fp + operand_b
             }
-            let value_b = memory.0[addr_b.to_usize()].unwrap();
+            let value_b = memory.0[addr_b.to_usize()].unwrap_or_default();
 
             let mut addr_c = F::ZERO;
             if field_repr[instr_idx(COL_FLAG_C)].is_zero() {
@@ -54,10 +54,10 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
                 assert_eq!(field_repr[instr_idx(COL_OPERAND_C)], operand_c); // debug purpose
                 addr_c = value_a + operand_c;
             }
-            let value_c = memory.0[addr_c.to_usize()].unwrap();
+            let value_c = memory.0[addr_c.to_usize()].unwrap_or_default();
 
             for (j, field) in field_repr.iter().enumerate() {
-                *trace_row[j + N_COMMITTED_EXEC_COLUMNS] = *field;
+                *trace_row[j + N_RUNTIME_COLUMNS] = *field;
             }
 
             let nu_a = field_repr[instr_idx(COL_FLAG_A)] * field_repr[instr_idx(COL_OPERAND_A)]
@@ -101,6 +101,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         TableTrace {
             base: Vec::from(main_trace),
             ext: vec![],
+            non_padded_n_rows: n_cycles,
             log_n_rows: log2_ceil_usize(n_cycles),
         },
     );
@@ -125,6 +126,7 @@ fn padd_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
         .enumerate()
         .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, table.name()));
 
+    trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
     let padding_len = (1 << trace.log_n_rows) - h;
     let padding_row_f = table.padding_row_f();

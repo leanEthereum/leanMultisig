@@ -51,7 +51,7 @@ impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
             table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
             selector: DOT_COL_FLAG,
-            data: vec![DOT_COL_A, DOT_COL_B, DOT_COL_RES, DOT_COL_LEN, DOT_COL_IS_BE],
+            data: vec![DOT_COL_A, DOT_COL_B, DOT_COL_RES, DOT_COL_AUX],
         }
     }
 
@@ -62,8 +62,9 @@ impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
                 F::ZERO, // Flag
                 F::ONE,  // Start
                 F::ONE,  // Len
+                F::TWO,  // Aux (0 + 2*1)
             ],
-            vec![F::ZERO; self.n_columns_f_air() - 4],
+            vec![F::ZERO; self.n_columns_f_air() - 5],
         ]
         .concat()
     }

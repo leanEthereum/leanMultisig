@@ -4,30 +4,26 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program, compile_program_with_flags};
+use lean_prover::default_whir_config;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
-use lean_prover::{STARTING_LOG_INV_RATE_BASE, STARTING_LOG_INV_RATE_EXTENSION, SnarkParams, whir_config_builder};
 use lean_vm::*;
 use multilinear_toolkit::prelude::symbolic::{
     SymbolicExpression, SymbolicOperation, get_symbolic_constraints_and_bus_data_values,
 };
 use multilinear_toolkit::prelude::*;
-use utils::{Counter, MEMORY_TABLE_INDEX};
+use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
+
+const LOG_INV_RATE: usize = 2;
 
 pub fn run_recursion_benchmark(count: usize, tracing: bool) {
-    if tracing {
-        utils::init_tracing();
-    }
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("recursion.py")
         .to_str()
         .unwrap()
         .to_string();
 
-    let snark_params = SnarkParams {
-        first_whir: whir_config_builder(STARTING_LOG_INV_RATE_BASE, 3, 1),
-        second_whir: whir_config_builder(STARTING_LOG_INV_RATE_EXTENSION, 4, 1),
-    };
+    let inner_whir_config = default_whir_config(LOG_INV_RATE);
     let program_to_prove = r#"
 DIM = 5
 POSEIDON_OF_ZERO = POSEIDON_OF_ZERO_PLACEHOLDER
@@ -58,22 +54,24 @@ def main():
     .replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
     let bytecode_to_prove = compile_program(&ProgramSource::Raw(program_to_prove.to_string()));
     precompute_dft_twiddles::<F>(1 << 24);
-    let outer_public_input = vec![];
-    let outer_private_input = vec![];
+    let inner_public_input = vec![];
+    let inner_private_input = vec![];
     let proof_to_prove = prove_execution(
         &bytecode_to_prove,
-        (&outer_public_input, &outer_private_input),
+        (&inner_public_input, &inner_private_input),
         &vec![],
-        &snark_params,
+        &inner_whir_config,
         false,
     );
-    let verif_details = verify_execution(&bytecode_to_prove, &[], proof_to_prove.proof.clone(), &snark_params).unwrap();
+    let verif_details = verify_execution(
+        &bytecode_to_prove,
+        &inner_public_input,
+        proof_to_prove.proof.clone(),
+        &inner_whir_config,
+    )
+    .unwrap();
 
-    let base_whir = WhirConfig::<EF>::new(&snark_params.first_whir, proof_to_prove.first_whir_n_vars);
-    let ext_whir = WhirConfig::<EF>::new(
-        &snark_params.second_whir,
-        log2_ceil_usize(bytecode_to_prove.instructions.len()),
-    );
+    let outer_whir_config = WhirConfig::<EF>::new(&inner_whir_config, proof_to_prove.first_whir_n_vars);
 
     // let guest_program_commitment = {
     //     let mut prover_state = build_prover_state();
@@ -83,8 +81,7 @@ def main():
     //     assert_eq!(commitment_transcript.len(), ext_whir.committment_ood_samples * DIMENSION + VECTOR_LEN);
     // };
 
-    let mut replacements = whir_recursion_placeholder_replacements(&base_whir, true);
-    replacements.extend(whir_recursion_placeholder_replacements(&ext_whir, false));
+    let mut replacements = whir_recursion_placeholder_replacements(&outer_whir_config);
 
     assert!(
         verif_details.log_memory >= verif_details.table_n_vars[&Table::execution()]
@@ -103,7 +100,7 @@ def main():
 
     // VM recursion parameters (different from WHIR)
     replacements.insert(
-        "N_VARS_FIRST_GKR_PLACEHOLDER".to_string(),
+        "N_VARS_LOGUP_GKR_PLACEHOLDER".to_string(),
         verif_details.first_quotient_gkr_n_vars.to_string(),
     );
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
@@ -138,6 +135,10 @@ def main():
     replacements.insert(
         "MEMORY_TABLE_INDEX_PLACEHOLDER".to_string(),
         MEMORY_TABLE_INDEX.to_string(),
+    );
+    replacements.insert(
+        "BYTECODE_TABLE_INDEX_PLACEHOLDER".to_string(),
+        BYTECODE_TABLE_INDEX.to_string(),
     );
     replacements.insert(
         "GUEST_BYTECODE_LEN_PLACEHOLDER".to_string(),
@@ -176,7 +177,7 @@ def main():
         lookup_ef_indexes_str.push(format!("[{}]", this_look_ef_indexes_str.join(", ")));
         num_cols_f_air.push(table.n_columns_f_air().to_string());
         num_cols_ef_air.push(table.n_columns_ef_air().to_string());
-        num_cols_f_committed.push(table.n_commited_columns_f().to_string());
+        num_cols_f_committed.push(table.n_columns_f_air().to_string());
         let this_lookup_f_values_str = table
             .lookups_f()
             .iter()
@@ -238,7 +239,7 @@ def main():
         format!("[{}]", num_cols_ef_air.join(", ")),
     );
     replacements.insert(
-        "NUM_COLS_F_COMMITED_PLACEHOLDER".to_string(),
+        "NUM_COLS_F_COMMITTED_PLACEHOLDER".to_string(),
         format!("[{}]", num_cols_f_committed.join(", ")),
     );
     replacements.insert(
@@ -282,50 +283,65 @@ def main():
         all_air_evals_in_zk_dsl(),
     );
     replacements.insert(
-        "NUM_BYTECODE_INSTRUCTIONS_PLACEHOLDER".to_string(),
+        "N_INSTRUCTION_COLUMNS_PLACEHOLDER".to_string(),
         N_INSTRUCTION_COLUMNS.to_string(),
     );
     replacements.insert(
         "N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER".to_string(),
-        N_COMMITTED_EXEC_COLUMNS.to_string(),
+        N_RUNTIME_COLUMNS.to_string(),
     );
     replacements.insert(
-        "TOTAL_WHIR_STATEMENTS_BASE_PLACEHOLDER".to_string(),
-        verif_details.total_whir_statements_base.to_string(),
+        "TOTAL_WHIR_STATEMENTS_PLACEHOLDER".to_string(),
+        verif_details.total_whir_statements.to_string(),
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
 
-    let inner_public_input = vec![];
-    let outer_public_memory = build_public_memory(&outer_public_input);
-    let mut inner_private_input = vec![
+    let mut outer_public_input = vec![F::from_usize(verif_details.bytecode_evaluation.point.num_variables())];
+    outer_public_input.extend(
+        verif_details
+            .bytecode_evaluation
+            .point
+            .0
+            .iter()
+            .flat_map(|c| c.as_basis_coefficients_slice()),
+    );
+    outer_public_input.extend(verif_details.bytecode_evaluation.value.as_basis_coefficients_slice());
+    let outer_private_input_start =
+        (NONRESERVED_PROGRAM_INPUT_START + 1 + outer_public_input.len()).next_power_of_two();
+    outer_public_input.insert(0, F::from_usize(outer_private_input_start));
+    let inner_public_memory = build_public_memory(&inner_public_input);
+    let mut outer_private_input = vec![
         F::from_usize(proof_to_prove.proof.len()),
-        F::from_usize(log2_strict_usize(outer_public_memory.len())),
+        F::from_usize(log2_strict_usize(inner_public_memory.len())),
         F::from_usize(count),
     ];
-    inner_private_input.extend(outer_public_memory);
+    outer_private_input.extend(inner_public_memory);
     for _ in 0..count {
-        inner_private_input.extend(proof_to_prove.proof.to_vec());
+        outer_private_input.extend(proof_to_prove.proof.to_vec());
     }
 
     let recursion_bytecode =
         compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements });
 
+    if tracing {
+        utils::init_tracing();
+    }
     let time = Instant::now();
 
     let recursion_proof = prove_execution(
         &recursion_bytecode,
-        (&inner_public_input, &inner_private_input),
+        (&outer_public_input, &outer_private_input),
         &vec![], // TODO precompute poseidons
-        &Default::default(),
+        &default_whir_config(LOG_INV_RATE),
         false,
     );
     let proving_time = time.elapsed();
     verify_execution(
         &recursion_bytecode,
-        &inner_public_input,
+        &outer_public_input,
         recursion_proof.proof,
-        &Default::default(),
+        &default_whir_config(LOG_INV_RATE),
     )
     .unwrap();
     println!(
@@ -345,10 +361,7 @@ def main():
     );
 }
 
-pub(crate) fn whir_recursion_placeholder_replacements(
-    whir_config: &WhirConfig<EF>,
-    base: bool,
-) -> BTreeMap<String, String> {
+pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<EF>) -> BTreeMap<String, String> {
     let mut num_queries = vec![];
     let mut ood_samples = vec![];
     let mut grinding_bits = vec![];
@@ -366,37 +379,40 @@ pub(crate) fn whir_recursion_placeholder_replacements(
     grinding_bits.push(whir_config.final_pow_bits.to_string());
     num_queries.push(whir_config.final_queries.to_string());
 
-    let end = if base { "_BASE_PLACEHOLDER" } else { "_EXT_PLACEHOLDER" };
+    let end = "_PLACEHOLDER";
     let mut replacements = BTreeMap::new();
     replacements.insert(
-        format!("MERKLE_HEIGHTS{}", end),
+        format!("WHIR_MERKLE_HEIGHTS{}", end),
         format!("[{}]", merkle_heights.join(", ")),
     );
-    replacements.insert(format!("NUM_QUERIES{}", end), format!("[{}]", num_queries.join(", ")));
     replacements.insert(
-        format!("NUM_OOD_COMMIT{}", end),
+        format!("WHIR_NUM_QUERIES{}", end),
+        format!("[{}]", num_queries.join(", ")),
+    );
+    replacements.insert(
+        format!("WHIR_NUM_OOD_COMMIT{}", end),
         whir_config.committment_ood_samples.to_string(),
     );
-    replacements.insert(format!("NUM_OODS{}", end), format!("[{}]", ood_samples.join(", ")));
+    replacements.insert(format!("WHIR_NUM_OODS{}", end), format!("[{}]", ood_samples.join(", ")));
     replacements.insert(
-        format!("GRINDING_BITS{}", end),
+        format!("WHIR_GRINDING_BITS{}", end),
         format!("[{}]", grinding_bits.join(", ")),
     );
     replacements.insert(
-        format!("FOLDING_FACTORS{}", end),
+        format!("WHIR_FOLDING_FACTORS{}", end),
         format!("[{}]", folding_factors.join(", ")),
     );
-    replacements.insert(format!("N_VARS{}", end), whir_config.num_variables.to_string());
+    replacements.insert(format!("WHIR_N_VARS{}", end), whir_config.num_variables.to_string());
     replacements.insert(
-        format!("LOG_INV_RATE{}", end),
+        format!("WHIR_LOG_INV_RATE{}", end),
         whir_config.starting_log_inv_rate.to_string(),
     );
     replacements.insert(
-        format!("FINAL_VARS{}", end),
+        format!("WHIR_FINAL_VARS{}", end),
         whir_config.n_vars_of_final_polynomial().to_string(),
     );
     replacements.insert(
-        format!("FIRST_RS_REDUCTION_FACTOR{}", end),
+        format!("WHIR_FIRST_RS_REDUCTION_FACTOR{}", end),
         whir_config.rs_domain_initial_reduction_factor.to_string(),
     );
     replacements
@@ -421,8 +437,8 @@ where
     let mut cache: HashMap<*const (), String> = HashMap::new();
 
     let mut res = format!(
-        "def evaluate_air_constraints_table_{}({}, air_alpha_powers, bus_beta, bus_alpha_powers):\n",
-        table.table().index() - 1,
+        "def evaluate_air_constraints_table_{}({}, air_alpha_powers, bus_beta, logup_alphas_eq_poly):\n",
+        table.table().index(),
         AIR_INNER_VALUES_VAR
     );
 
@@ -448,10 +464,14 @@ where
         res += &format!("\n    copy_5({}, buff + DIM * {})", data_str, i);
     }
     res += &format!(
-        "\n    bus_res: Mut = dot_product_ret(buff, bus_alpha_powers + DIM, {}, EE)",
+        "\n    bus_res: Mut = dot_product_ret(buff, logup_alphas_eq_poly, {}, EE)",
         bus_data.len()
     );
-    res += &format!("\n    bus_res = add_extension_ret({}, bus_res)", table_index);
+    res += &format!(
+        "\n    bus_res = add_extension_ret(mul_extension_ret({}, logup_alphas_eq_poly + {} * DIM), bus_res)",
+        table_index,
+        max_bus_width().next_power_of_two() - 1
+    );
     res += "\n    bus_res = mul_extension_ret(bus_res, bus_beta)";
     res += &format!("\n    sum: Mut = add_extension_ret(bus_res, {})", flag);
 

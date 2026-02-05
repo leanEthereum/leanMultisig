@@ -5,7 +5,7 @@
 - 128 bits security
 - Merkle pruning
 - the interpreter of leanISA (+ witness generation) can be partially parallelized when there are some independent loops
-- Make everything "padding aware" (including WHIR, logup*, AIR, etc)
+- Make everything "padding aware" (including WHIR, logup, AIR, etc)
 - Opti WHIR: in sumcheck we know more than f(0) + f(1), we know f(0) and f(1)
 - Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306 ?
 - Avoid the embedding overhead in logup, when denominators = "c - index"
@@ -37,6 +37,7 @@ But we can get the bost of both worlds (suggested by Lev, TODO implement):
 - Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed checked (Lev)
 - Double Check AIR constraints, logup overflows etc
 - Formal Verification
+- Padd with noop cycles to always ensure memory size >= bytecode size (liveness), and ensure this condition is checked by the verifier (soundness)
 
 # Ideas
 

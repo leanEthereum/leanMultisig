@@ -79,6 +79,10 @@ def hint_decompose_bits(value, bits, n_bits, endian):
     _ = value, bits, n_bits, endian
 
 
+def hint_less_than(a, b, result_ptr):
+    _ = a, b, result_ptr
+
+
 def log2_ceil(x: int) -> int:
     assert x > 0
     return math.ceil(math.log2(x))

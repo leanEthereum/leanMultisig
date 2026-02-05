@@ -45,7 +45,7 @@
 
 \newtheorem{lemma}{Lemma}
 
-\title{Minimal zkVM for Lean Ethereum (draft 0.5.0)}
+\title{Minimal zkVM for Lean Ethereum (draft 0.6.0)}
 \date{}
 \begin{document}
 
@@ -335,15 +335,10 @@ Example: During XMSS verification, for each of the $v$ chains, we need to hash a
 
 \subsection{Execution table}
 
-\subsubsection{Reduced commitment via logup*}
-
-In Cairo each instruction is encoded with 15 boolean flags, and 3 offsets. In the execution trace, this leads to committing to 18 field elements at each instruction.
-
-We can significantly reduce the commitments cost using logup*\cite{logup_star}. In the the execution table, we only need to commit to the pc column, and all the flags / offsets describing the current instruction can be fetched by an indexed lookup argument (for which logup* drastically reduces commitment costs).
 
 \subsubsection{Commitment}
 
-\fbox{At each cycle, we commit to 8 (base) field elements:}
+\fbox{At each cycle, we commit to 20 (base) field elements:}
 
 \begin{itemize}
     \item pc (program counter)
@@ -351,18 +346,19 @@ We can significantly reduce the commitments cost using logup*\cite{logup_star}. 
     % \item jump (non zero when a jump occurs)
     \item $\text{addr}_A$, $\text{addr}_B$, $\text{addr}_C$
     \item $\text{value}_A = \textbf{m}[\text{addr}_A]$, $\text{value}_B = \textbf{m}[\text{addr}_B]$, $\text{value}_C = \textbf{m}[\text{addr}_C]$
+    \item 12 field elements describing the instruction being executed (see below)
 \end{itemize}
 
 
 \subsubsection{Instruction Encoding}
 
-Each instruction is described by 14 field elements:
+Each instruction is described by 12 field elements:
 
 \begin{itemize}
     \item 3 operands ($\in \Fp$): $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
     \item 3 associated flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$
-    \item 6 opcode flags ($\in \{0, 1\}$): ADD, MUL, DEREF, JUMP, IS\_PRECOMPILE, PRECOMPILE\_INDEX
-    \item 2 multi-purpose operands: AUX\_1, AUX\_2
+    \item 5 opcode flags ($\in \{0, 1\}$): ADD, MUL, DEREF, JUMP, PRECOMPILE\_INDEX
+    \item 1 multi-purpose operand: AUX
 \end{itemize}
 
 
@@ -525,7 +521,7 @@ As with the indexed lookup into memory, this sum can be computed efficiently via
 
 A detailled soundness analysis can be found in \href{https://github.com/openvm-org/stark-backend/blob/main/docs/Soundness_of_Interactions_via_LogUp.pdf}{Soundness of Interactions via LogUp}.
 
-\section{Annex: simple packing of multilinear polynomials}
+\section{Annex: simple stacking of multilinear polynomials}
 
 \textit{Note 1}: It's always possible to reduce $n$ claims about a multilinear polynomial to a single one, using sumcheck. But this trick is not necessary with WHIR, which natively supports an arbitrary number of claims about the committed polynomial.
 \vspace{3mm}
@@ -535,7 +531,7 @@ A detailled soundness analysis can be found in \href{https://github.com/openvm-o
 \vspace{3mm}
 
 % One of the advantage of multilinear polynomials versus univariate polynomials is the ability to efficienty commit to multiple polynomials at once.
-In order to commit to multiple univariate polynomials with FRI, each polynomial must be FFT-ed + Merkle-commited.
+In order to commit to multiple univariate polynomials with FRI, each polynomial must be FFT-ed + Merkle-committed.
 Even if it's possible to have some batching at the Merkle tree level (see 'MMCS' in \href{https://github.com/Plonky3/Plonky3}{Plonky3}), the proof size for multiple, complex AIR tables quickly reach the megabyte scale.
 
 With a multilinear PCS (such as WHIR), we can "concatenate" multiple multilinear polynomials into a single one, and commit to it once (offering significant proof size savings).
@@ -590,8 +586,8 @@ The concatenated polynomial $P$, that we commit, has $5 = \lceil \log_2(2^4 + 2^
     \node[above] at (20,1.6) {$P({\mathbf{1}}, {\mathbf{0}}, x_1, x_2, x_3)$};
     \node[above] at (26,1.6) {$P({\mathbf{1}}, {\mathbf{1}}, {\mathbf{0}}, x_1, x_2)$};
 \end{tikzpicture}
-\caption{Simple packing of $P_1, P_2, P_3$ into a single polynomial $P$}
-\label{fig:packing}
+\caption{Simple stacking of $P_1, P_2, P_3$ into a single polynomial $P$}
+\label{fig:stacking}
 \end{figure}
 
 Advantage of this approach: simplicity.
@@ -600,7 +596,7 @@ Drawback: padding overhead, i.e. it does not take advantage of the potential rep
 
 \vspace{5mm}
 
-There are alterntive ways to handle the packing of multiple multilinear polynomials:
+There are alterntive ways to handle the stacking of multiple multilinear polynomials:
 
 \begin{itemize}
     \item \textbf{Jagged PCS} \cite{jagged_pcs}: No padding overhead, at the cost of an additional sumcheck.

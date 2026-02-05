@@ -1,4 +1,4 @@
-use crate::{F, ir::*, lang::*};
+use crate::{F, instruction_encoder::field_representation, ir::*, lang::*};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
@@ -144,6 +144,15 @@ pub fn compile_to_low_level_bytecode(
             &mut hints,
         );
     }
+    let instructions_encoded = instructions.par_iter().map(field_representation).collect::<Vec<_>>();
+
+    let mut instructions_multilinear = vec![];
+    for instr in &instructions_encoded {
+        instructions_multilinear.extend_from_slice(instr);
+        let padding = N_INSTRUCTION_COLUMNS.next_power_of_two() - N_INSTRUCTION_COLUMNS;
+        instructions_multilinear.extend(vec![F::ZERO; padding]);
+    }
+    instructions_multilinear.resize(instructions_multilinear.len().next_power_of_two(), F::ZERO);
 
     // Build pc_to_location mapping from LocationReport hints
     let mut pc_to_location = Vec::with_capacity(instructions.len());
@@ -164,6 +173,7 @@ pub fn compile_to_low_level_bytecode(
 
     Ok(Bytecode {
         instructions,
+        instructions_multilinear,
         hints,
         starting_frame_memory,
         function_locations,

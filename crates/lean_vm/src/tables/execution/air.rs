@@ -1,9 +1,9 @@
 use crate::{ALL_TABLES, EF, ExecutionTable, ExtraDataForBuses, F, eval_virtual_bus_column};
 use multilinear_toolkit::prelude::*;
 
-pub const N_COMMITTED_EXEC_COLUMNS: usize = 8;
-pub const N_INSTRUCTION_COLUMNS: usize = 13;
-pub const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_COMMITTED_EXEC_COLUMNS;
+pub const N_RUNTIME_COLUMNS: usize = 8;
+pub const N_INSTRUCTION_COLUMNS: usize = 12;
+pub const N_TOTAL_EXECUTION_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_RUNTIME_COLUMNS;
 
 // Committed columns (IMPORTANT: they must be the first columns)
 pub const COL_PC: usize = 0;
@@ -15,7 +15,7 @@ pub const COL_MEM_VALUE_A: usize = 5;
 pub const COL_MEM_VALUE_B: usize = 6;
 pub const COL_MEM_VALUE_C: usize = 7;
 
-// Decoded instruction columns (lookup into bytecode with logup*)
+// Decoded instruction columns
 pub const COL_OPERAND_A: usize = 8;
 pub const COL_OPERAND_B: usize = 9;
 pub const COL_OPERAND_C: usize = 10;
@@ -26,21 +26,20 @@ pub const COL_ADD: usize = 14;
 pub const COL_MUL: usize = 15;
 pub const COL_DEREF: usize = 16;
 pub const COL_JUMP: usize = 17;
-pub const COL_AUX_1: usize = 18;
-pub const COL_AUX_2: usize = 19;
-pub const COL_PRECOMPILE_INDEX: usize = 20;
+pub const COL_AUX: usize = 18;
+pub const COL_PRECOMPILE_INDEX: usize = 19;
 
 // Temporary columns (stored to avoid duplicate computations)
 pub const N_TEMPORARY_EXEC_COLUMNS: usize = 4;
-pub const COL_IS_PRECOMPILE: usize = 21;
-pub const COL_EXEC_NU_A: usize = 22;
-pub const COL_EXEC_NU_B: usize = 23;
-pub const COL_EXEC_NU_C: usize = 24;
+pub const COL_IS_PRECOMPILE: usize = 20;
+pub const COL_EXEC_NU_A: usize = 21;
+pub const COL_EXEC_NU_B: usize = 22;
+pub const COL_EXEC_NU_C: usize = 23;
 
 const PRECOMPILE_A_INDEX: F = F::new(ALL_TABLES[1].index() as u32);
 const PRECOMPILE_B_INDEX: F = F::new(ALL_TABLES[2].index() as u32);
-const MINUS_ONE_OVER_AB_PRECOMPILES: usize = 1775588694;
-const MINUS_A_MINUS_B_PRECOMPILES: usize = 2130706428;
+const MINUS_ONE_OVER_AB_PRECOMPILES: usize = 1065353216;
+const MINUS_A_MINUS_B_PRECOMPILES: usize = 2130706430;
 
 #[test]
 fn test_precompile_indices() {
@@ -60,7 +59,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f_air(&self) -> usize {
-        N_EXEC_AIR_COLUMNS
+        N_TOTAL_EXECUTION_COLUMNS
     }
     fn n_columns_ef_air(&self) -> usize {
         0
@@ -96,8 +95,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let mul = up[COL_MUL].clone();
         let deref = up[COL_DEREF].clone();
         let jump = up[COL_JUMP].clone();
-        let aux_1 = up[COL_AUX_1].clone();
-        let aux_2 = up[COL_AUX_2].clone();
+        let aux = up[COL_AUX].clone();
         let precompile_index = up[COL_PRECOMPILE_INDEX].clone();
 
         let (value_a, value_b, value_c) = (
@@ -142,11 +140,11 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
                 extra_data,
                 precompile_index.clone(),
                 is_precompile.clone(),
-                &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()],
+                &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()],
             ));
         } else {
             builder.declare_values(&[is_precompile]);
-            builder.declare_values(&[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux_1.clone(), aux_2.clone()]);
+            builder.declare_values(&[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()]);
         }
 
         builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
@@ -157,8 +155,8 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         builder.assert_zero(mul * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
 
         builder.assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
-        builder.assert_zero(deref.clone() * aux_1.clone() * (value_c.clone() - nu_b.clone()));
-        builder.assert_zero(deref.clone() * (aux_1.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
+        builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
+        builder.assert_zero(deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
 
         builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
         builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
@@ -172,5 +170,5 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
 }
 
 pub const fn instr_idx(col_index_in_air: usize) -> usize {
-    col_index_in_air - N_COMMITTED_EXEC_COLUMNS
+    col_index_in_air - N_RUNTIME_COLUMNS
 }

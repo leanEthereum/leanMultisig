@@ -1,6 +1,8 @@
 //! Bytecode representation and management
 
-use crate::{CodeAddress, FileId, FunctionName, Hint, SourceLocation};
+use p3_util::log2_ceil_usize;
+
+use crate::{CodeAddress, F, FileId, FunctionName, Hint, SourceLocation};
 
 use super::Instruction;
 use std::collections::BTreeMap;
@@ -10,6 +12,7 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bytecode {
     pub instructions: Vec<Instruction>,
+    pub instructions_multilinear: Vec<F>,
     pub hints: BTreeMap<CodeAddress, Vec<Hint>>, // pc -> hints
     pub starting_frame_memory: usize,
     // debug
@@ -18,6 +21,20 @@ pub struct Bytecode {
     pub source_code: BTreeMap<FileId, String>,
     /// Maps each pc to its source location (for error reporting)
     pub pc_to_location: Vec<SourceLocation>,
+}
+
+impl Bytecode {
+    pub fn size(&self) -> usize {
+        self.instructions.len()
+    }
+
+    pub fn padded_size(&self) -> usize {
+        self.size().next_power_of_two()
+    }
+
+    pub fn log_size(&self) -> usize {
+        log2_ceil_usize(self.size())
+    }
 }
 
 impl Display for Bytecode {

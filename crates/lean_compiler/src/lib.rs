@@ -11,6 +11,7 @@ use crate::{
 mod a_simplify_lang;
 mod b_compile_intermediate;
 mod c_compile_final;
+mod instruction_encoder;
 pub mod ir;
 mod lang;
 mod parser;

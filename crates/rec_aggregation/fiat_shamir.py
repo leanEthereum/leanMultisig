@@ -47,7 +47,7 @@ def fs_sample_chunks(fs, n_chunks: Const):
     new_fs = sampled + n_chunks * 8
     return new_fs, sampled
 
-
+@inline
 def fs_sample_ef(fs):
     sampled = Array(8)
     poseidon16(fs, ZERO_VEC_PTR, sampled)
@@ -66,6 +66,7 @@ def fs_sample_many_ef(fs, n):
     return new_fs, sampled
 
 
+@inline
 def fs_hint(fs, n):
     # return the updated fiat-shamir, and a pointer to n field elements from the transcript
     transcript_ptr = fs[8]
@@ -90,8 +91,8 @@ def fs_receive_chunks(fs, n_chunks: Const):
         )
     return new_fs + 8 * (n_chunks - 1), transcript_ptr
 
-
-def fs_receive_ef(fs, n: Const):
+@inline
+def fs_receive_ef(fs, n):
     new_fs, ef_ptr = fs_receive_chunks(fs, div_ceil(n * DIM, 8))
     for i in unroll(n * DIM, next_multiple_of(n * DIM, 8)):
         assert ef_ptr[i] == 0
@@ -118,12 +119,8 @@ def sample_bits_const(fs, n_samples: Const, K):
 def sample_bits_dynamic(fs_state, n_samples, K):
     new_fs_state: Imu
     sampled_bits: Imu
-    for r in unroll(0, N_ROUNDS_BASE + 1):
-        if n_samples == NUM_QUERIES_BASE[r]:
-            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_BASE[r], K)
-            return new_fs_state, sampled_bits
-    for r in unroll(0, N_ROUNDS_EXT + 1):
-        if n_samples == NUM_QUERIES_EXT[r]:
-            new_fs_state, sampled_bits = sample_bits_const(fs_state, NUM_QUERIES_EXT[r], K)
+    for r in unroll(0, WHIR_N_ROUNDS + 1):
+        if n_samples == WHIR_NUM_QUERIES[r]:
+            new_fs_state, sampled_bits = sample_bits_const(fs_state, WHIR_NUM_QUERIES[r], K)
             return new_fs_state, sampled_bits
     assert False, "sample_bits_dynamic called with unsupported n_samples"

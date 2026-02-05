@@ -1,4 +1,4 @@
-use crate::{DIMENSION, EF, F, InstructionContext, N_COMMITTED_EXEC_COLUMNS, RunnerError, Table};
+use crate::{DIMENSION, EF, F, InstructionContext, RunnerError, Table};
 use multilinear_toolkit::prelude::*;
 
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
@@ -54,6 +54,7 @@ pub enum BusTable {
 pub struct TableTrace {
     pub base: Vec<Vec<F>>,
     pub ext: Vec<Vec<EF>>,
+    pub non_padded_n_rows: usize,
     pub log_n_rows: VarCount,
 }
 
@@ -62,7 +63,8 @@ impl TableTrace {
         Self {
             base: vec![Vec::new(); air.n_columns_f_total()],
             ext: vec![Vec::new(); air.n_columns_ef_total()],
-            log_n_rows: 0, // filled later
+            non_padded_n_rows: 0, // filled later
+            log_n_rows: 0,        // filled later
         }
     }
 }
@@ -144,31 +146,8 @@ pub trait TableT: Air {
         false
     }
 
-    fn n_commited_columns_f(&self) -> usize {
-        if self.is_execution_table() {
-            N_COMMITTED_EXEC_COLUMNS
-        } else {
-            self.n_columns_f_air()
-        }
-    }
-
-    fn n_commited_columns_ef(&self) -> usize {
-        self.n_columns_ef_air()
-    }
-
-    fn n_commited_columns(&self) -> usize {
-        self.n_commited_columns_ef() * DIMENSION + self.n_commited_columns_f()
-    }
-
-    fn commited_air_values(&self, air_evals: &[EF]) -> BTreeMap<ColIndex, EF> {
-        // the intermidiate columns are not commited
-        // (they correspond to decoded instructions, in execution table, obtained via logup* into the bytecode)
-        air_evals
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(|(i, _)| *i < self.n_commited_columns_f() || *i >= self.n_columns_f_air())
-            .collect::<BTreeMap<ColIndex, EF>>()
+    fn n_committed_columns(&self) -> usize {
+        self.n_columns_ef_air() * DIMENSION + self.n_columns_f_air()
     }
 
     fn lookup_index_columns_f<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {

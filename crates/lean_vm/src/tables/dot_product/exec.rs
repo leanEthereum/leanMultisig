@@ -40,6 +40,7 @@ pub(super) fn exec_dot_product_be(
         trace.base[DOT_COL_START].push(F::ONE);
         trace.base[DOT_COL_START].extend(F::zero_vec(size - 1));
         trace.base[DOT_COL_LEN].extend(((1..=size).rev()).map(F::from_usize));
+        trace.base[DOT_COL_AUX].extend(((1..=size).rev()).map(|x| F::from_bool(true) + F::from_usize(2 * x)));
         trace.base[DOT_COL_A].extend((0..size).map(|i| F::from_usize(ptr_arg_0.to_usize() + i)));
         trace.base[DOT_COL_B].extend((0..size).map(|i| F::from_usize(ptr_arg_1.to_usize() + i * DIMENSION)));
         trace.base[DOT_COL_RES].extend(vec![F::from_usize(ptr_res.to_usize()); size]);
@@ -126,6 +127,7 @@ pub(super) fn exec_dot_product_ee(
         trace.base[DOT_COL_START].push(F::ONE);
         trace.base[DOT_COL_START].extend(F::zero_vec(size - 1));
         trace.base[DOT_COL_LEN].extend(((1..=size).rev()).map(F::from_usize));
+        trace.base[DOT_COL_AUX].extend(((1..=size).rev()).map(|x| F::from_bool(false) + F::from_usize(2 * x)));
         trace.base[DOT_COL_A].extend((0..size).map(|i| F::from_usize(ptr_arg_0.to_usize() + i * DIMENSION)));
         trace.base[DOT_COL_B].extend((0..size).map(|i| F::from_usize(ptr_arg_1.to_usize() + i * DIMENSION)));
         trace.base[DOT_COL_RES].extend(vec![F::from_usize(ptr_res.to_usize()); size]);

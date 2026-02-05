@@ -1,14 +1,12 @@
 use std::collections::BTreeMap;
 
-use crate::common::*;
 use crate::*;
 use air::prove_air;
 use lean_vm::*;
 
-use p3_util::log2_ceil_usize;
 use sub_protocols::*;
 use tracing::info_span;
-use utils::{build_prover_state, padd_with_zero_to_next_power_of_two};
+use utils::build_prover_state;
 use xmss::Poseidon16History;
 
 #[derive(Debug)]
@@ -23,7 +21,7 @@ pub fn prove_execution(
     bytecode: &Bytecode,
     (public_input, private_input): (&[F], &[F]),
     poseidons_16_precomputed: &Poseidon16History,
-    params: &SnarkParams,
+    whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> ExecutionProof {
     let mut exec_summary = String::new();
@@ -61,30 +59,56 @@ pub fn prove_execution(
         .collect::<Vec<_>>(),
     );
 
+    let mut table_log = String::new();
+    for (table, trace) in &traces {
+        table_log.push_str(&format!(
+            "{}: 2^{:.2} rows |",
+            table.name(),
+            f64::log2(trace.non_padded_n_rows as f64)
+        ));
+    }
+    table_log.pop(); // remove last '|'
+    info_span!("Trace tables sizes: {}", table_log).in_scope(|| {});
+
     // TODO parrallelize
-    let mut acc = F::zero_vec(memory.len());
+    let mut memory_acc = F::zero_vec(memory.len());
     info_span!("Building memory access count").in_scope(|| {
         for (table, trace) in &traces {
             for lookup in table.lookups_f() {
                 for i in &trace.base[lookup.index] {
                     for j in 0..lookup.values.len() {
-                        acc[i.to_usize() + j] += F::ONE;
+                        memory_acc[i.to_usize() + j] += F::ONE;
                     }
                 }
             }
             for lookup in table.lookups_ef() {
                 for i in &trace.base[lookup.index] {
                     for j in 0..DIMENSION {
-                        acc[i.to_usize() + j] += F::ONE;
+                        memory_acc[i.to_usize() + j] += F::ONE;
                     }
                 }
             }
         }
     });
 
+    // // TODO parrallelize
+    let mut bytecode_acc = F::zero_vec(bytecode.padded_size());
+    info_span!("Building bytecode access count").in_scope(|| {
+        for pc in traces[&Table::execution()].base[COL_PC].iter() {
+            bytecode_acc[pc.to_usize()] += F::ONE;
+        }
+    });
+
     // 1st Commitment
-    let packed_pcs_witness_base = packed_pcs_commit(&mut prover_state, &params.first_whir, &memory, &acc, &traces);
-    let first_whir_n_vars = packed_pcs_witness_base.packed_polynomial.by_ref().n_vars();
+    let packed_pcs_witness = packed_pcs_commit(
+        &mut prover_state,
+        whir_config,
+        &memory,
+        &memory_acc,
+        &bytecode_acc,
+        &traces,
+    );
+    let first_whir_n_vars = packed_pcs_witness.packed_polynomial.by_ref().n_vars();
 
     // logup (GKR)
     let logup_c = prover_state.sample();
@@ -96,7 +120,9 @@ pub fn prove_execution(
         logup_c,
         &logup_alphas_eq_poly,
         &memory,
-        &acc,
+        &memory_acc,
+        &bytecode.instructions_multilinear,
+        &bytecode_acc,
         &traces,
     );
     let mut committed_statements: CommittedStatements = Default::default();
@@ -130,97 +156,50 @@ pub fn prove_execution(
         committed_statements.get_mut(table).unwrap().extend(this_air_claims);
     }
 
-    let bytecode_compression_challenges =
-        MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
-
-    let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
-
-    let bytecode_air_entry = &mut committed_statements.get_mut(&Table::execution()).unwrap()[2];
-    let bytecode_air_point = bytecode_air_entry.0.clone();
-    let mut bytecode_air_values = vec![];
-    for bytecode_col_index in N_COMMITTED_EXEC_COLUMNS..N_COMMITTED_EXEC_COLUMNS + N_INSTRUCTION_COLUMNS {
-        bytecode_air_values.push(bytecode_air_entry.1.remove(&bytecode_col_index).unwrap());
-    }
-
-    let bytecode_lookup_claim = Evaluation::new(
-        bytecode_air_point.clone(),
-        padd_with_zero_to_next_power_of_two(&bytecode_air_values).evaluate(&bytecode_compression_challenges),
-    );
-    let bytecode_poly_eq_point = eval_eq(&bytecode_lookup_claim.point);
-    let bytecode_pushforward = MleOwned::Extension(compute_pushforward(
-        &traces[&Table::execution()].base[COL_PC],
-        folded_bytecode.len(),
-        &bytecode_poly_eq_point,
-    ));
-
-    let bytecode_pushforward_commitment =
-        WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len()))
-            .commit(&mut prover_state, &bytecode_pushforward);
-
-    let bytecode_logup_star_statements = prove_logup_star(
-        &mut prover_state,
-        &MleRef::Extension(&folded_bytecode),
-        &traces[&Table::execution()].base[COL_PC],
-        bytecode_lookup_claim.value,
-        &bytecode_poly_eq_point,
-        &bytecode_pushforward.by_ref(),
-        Some(bytecode.instructions.len()),
-    );
-
-    committed_statements.get_mut(&Table::execution()).unwrap().push((
-        bytecode_logup_star_statements.on_indexes.point.clone(),
-        BTreeMap::from_iter([(COL_PC, bytecode_logup_star_statements.on_indexes.value)]),
-    ));
-
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
 
-    let memory_acc_statements = vec![
+    let previous_statements = vec![
         SparseStatement::new(
-            packed_pcs_witness_base.packed_n_vars,
-            logup_statements.memory_acc_point,
+            packed_pcs_witness.packed_n_vars,
+            logup_statements.memory_and_acc_point,
             vec![
                 SparseValue::new(0, logup_statements.value_memory),
-                SparseValue::new(1, logup_statements.value_acc),
+                SparseValue::new(1, logup_statements.value_memory_acc),
             ],
         ),
         SparseStatement::new(
-            packed_pcs_witness_base.packed_n_vars,
+            packed_pcs_witness.packed_n_vars,
             public_memory_random_point,
             vec![SparseValue::new(0, public_memory_eval)],
+        ),
+        SparseStatement::new(
+            packed_pcs_witness.packed_n_vars,
+            logup_statements.bytecode_and_acc_point,
+            vec![SparseValue::new(
+                (2 * memory.len()) >> bytecode.log_size(),
+                logup_statements.value_bytecode_acc,
+            )],
         ),
     ];
 
     let table_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let global_statements_base = packed_pcs_global_statements(
-        packed_pcs_witness_base.packed_n_vars,
+        packed_pcs_witness.packed_n_vars,
         log2_strict_usize(memory.len()),
-        memory_acc_statements,
+        bytecode.log_size(),
+        previous_statements,
         &table_heights,
         &committed_statements,
     );
 
-    WhirConfig::new(
-        &params.first_whir,
-        packed_pcs_witness_base.packed_polynomial.by_ref().n_vars(),
-    )
-    .prove(
+    WhirConfig::new(whir_config, packed_pcs_witness.packed_polynomial.by_ref().n_vars()).prove(
         &mut prover_state,
         global_statements_base,
-        packed_pcs_witness_base.inner_witness,
-        &packed_pcs_witness_base.packed_polynomial.by_ref(),
+        packed_pcs_witness.inner_witness,
+        &packed_pcs_witness.packed_polynomial.by_ref(),
     );
 
-    WhirConfig::new(&params.second_whir, log2_ceil_usize(bytecode.instructions.len())).prove(
-        &mut prover_state,
-        bytecode_logup_star_statements
-            .on_pushforward
-            .into_iter()
-            .map(|smt| SparseStatement::dense(smt.point, smt.value))
-            .collect::<Vec<_>>(),
-        bytecode_pushforward_commitment,
-        &bytecode_pushforward.by_ref(),
-    );
     let proof_size_fe = prover_state.pruned_proof().proof_size_fe();
     ExecutionProof {
         proof: prover_state.raw_proof(),

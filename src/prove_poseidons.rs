@@ -52,8 +52,6 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         &ExtraDataForBuses::default(),
         &collect_refs(&trace),
         &[] as &[&[EF]],
-        &[],
-        &[],
     )
     .unwrap();
 

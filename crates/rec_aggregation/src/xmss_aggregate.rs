@@ -1,5 +1,5 @@
 use lean_compiler::*;
-use lean_prover::{SnarkParams, prove_execution::prove_execution, verify_execution::verify_execution};
+use lean_prover::{default_whir_config, prove_execution::prove_execution, verify_execution::verify_execution};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -14,6 +14,7 @@ use xmss::{
 };
 
 static XMSS_AGGREGATION_PROGRAM: OnceLock<Bytecode> = OnceLock::new();
+const LOG_INV_RATE: usize = 1;
 
 fn get_xmss_aggregation_program() -> &'static Bytecode {
     XMSS_AGGREGATION_PROGRAM.get_or_init(compile_xmss_aggregation_program)
@@ -40,6 +41,8 @@ fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message_hash: [F; 8], slo
         public_input.push(acc);
         acc += F::from_usize((1 + V + pk.log_lifetime) * DIGEST_LEN); // size of the signature
     }
+    let private_input_start = (NONRESERVED_PROGRAM_INPUT_START + 1 + public_input.len()).next_power_of_two();
+    public_input.insert(0, F::from_usize(private_input_start));
     public_input
 }
 
@@ -140,7 +143,7 @@ fn xmss_aggregate_signatures_helper(
         program,
         (&public_input, &private_input),
         &poseidons_16_precomputed,
-        &SnarkParams::default(),
+        &default_whir_config(LOG_INV_RATE),
         false,
     );
 
@@ -164,7 +167,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
 
-    verify_execution(program, &public_input, proof, &SnarkParams::default()).map(|_| ())
+    verify_execution(program, &public_input, proof, &default_whir_config(LOG_INV_RATE)).map(|_| ())
 }
 
 #[instrument(skip_all)]

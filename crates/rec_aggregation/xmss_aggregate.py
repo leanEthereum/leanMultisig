@@ -15,16 +15,14 @@ EE = 0  # extension-extension
 
 
 def main():
-    NONRESERVED_PROGRAM_INPUT_START_ = NONRESERVED_PROGRAM_INPUT_START
-    n_signatures = NONRESERVED_PROGRAM_INPUT_START_[0]
-    message_hash = NONRESERVED_PROGRAM_INPUT_START + 1
+    pub_mem = NONRESERVED_PROGRAM_INPUT_START
+    signatures_start = pub_mem[0]
+    n_signatures = pub_mem[1]
+    message_hash = pub_mem + 2
     all_public_keys = message_hash + VECTOR_LEN
     all_log_lifetimes = all_public_keys + n_signatures * VECTOR_LEN
     all_merkle_indexes = all_log_lifetimes + n_signatures
     sig_sizes = all_merkle_indexes + n_signatures * MAX_LOG_LIFETIME
-
-    mem = 0
-    signatures_start = mem[PRIVATE_INPUT_START_PTR]
 
     for i in range(0, n_signatures):
         xmss_public_key = all_public_keys + i * VECTOR_LEN
