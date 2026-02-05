@@ -68,7 +68,7 @@ pub fn xmss_key_gen(
                 .last()
                 .unwrap()
                 .par_chunks(2)
-                .map(|chunk| poseidon16_compress(&chunk[0], &chunk[1]))
+                .map(|chunk| poseidon16_compress([chunk[0], chunk[1]].concat().try_into().unwrap()))
                 .collect(),
         );
     }

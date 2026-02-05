@@ -54,7 +54,7 @@ impl WotsSignature {
         &self,
         message_hash: &Digest,
         signature: &Self,
-        poseidon_16_trace: &mut Vec<([F; 16], [F; 16])>,
+        poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
     ) -> Option<WotsPublicKey> {
         let encoding = wots_encode_with_poseidon_trace(message_hash, &signature.randomness, poseidon_16_trace)?;
         Some(WotsPublicKey(std::array::from_fn(|i| {
@@ -76,13 +76,15 @@ impl WotsPublicKey {
 }
 
 pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
-    (0..n).fold(*a, |acc, _| poseidon16_compress(&acc, &Default::default()))
+    (0..n).fold(*a, |acc, _| {
+        poseidon16_compress([acc, Default::default()].concat().try_into().unwrap())
+    })
 }
 
 pub fn iterate_hash_with_poseidon_trace(
     a: &Digest,
     n: usize,
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 16])>,
+    poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
 ) -> Digest {
     (0..n).fold(*a, |acc, _| {
         poseidon16_compress_with_trace(&acc, &Default::default(), poseidon_16_trace)
@@ -105,7 +107,7 @@ pub fn wots_encode(message: &Digest, randomness: &Digest) -> Option<[u8; V]> {
 pub fn wots_encode_with_poseidon_trace(
     message: &Digest,
     randomness: &Digest,
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 16])>,
+    poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
 ) -> Option<[u8; V]> {
     let compressed = poseidon16_compress_with_trace(message, randomness, poseidon_16_trace);
     if compressed.iter().any(|&kb| kb == -F::ONE) {

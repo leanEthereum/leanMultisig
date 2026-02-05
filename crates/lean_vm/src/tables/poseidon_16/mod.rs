@@ -7,7 +7,7 @@ use p3_koala_bear::{
     GenericPoseidon2LinearLayersKoalaBear, KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL,
     KOALABEAR_RC16_INTERNAL, KoalaBear,
 };
-use utils::{ToUsize, poseidon16_permute};
+use utils::{ToUsize, poseidon16_compress};
 
 mod trace_gen;
 pub use trace_gen::fill_trace_poseidon_16;
@@ -99,7 +99,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
                 *ctx.n_poseidon16_precomputed_used += 1;
                 precomputed.1
             }
-            _ => poseidon16_permute(input),
+            _ => poseidon16_compress(input),
         };
 
         let res_a: [F; DIGEST_LEN] = output[..DIGEST_LEN].try_into().unwrap();

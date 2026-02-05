@@ -16,7 +16,7 @@ pub const HALF_FULL_ROUNDS_16: usize = 4;
 pub const PARTIAL_ROUNDS_16: usize = 20;
 
 static POSEIDON_16_INSTANCE: OnceLock<Poseidon16> = OnceLock::new();
-static POSEIDON_16_OF_ZERO: OnceLock<[KoalaBear; 16]> = OnceLock::new();
+static POSEIDON_16_OF_ZERO: OnceLock<[KoalaBear; 8]> = OnceLock::new();
 
 #[inline(always)]
 pub fn get_poseidon16() -> &'static Poseidon16 {
@@ -30,16 +30,12 @@ pub fn get_poseidon16() -> &'static Poseidon16 {
 }
 
 #[inline(always)]
-pub fn get_poseidon_16_of_zero() -> &'static [KoalaBear; 16] {
-    POSEIDON_16_OF_ZERO.get_or_init(|| poseidon16_permute([KoalaBear::default(); 16]))
+pub fn get_poseidon_16_of_zero() -> &'static [KoalaBear; 8] {
+    POSEIDON_16_OF_ZERO.get_or_init(|| poseidon16_compress([KoalaBear::default(); 16]))
 }
 
 #[inline(always)]
-pub fn poseidon16_permute(input: [KoalaBear; 16]) -> [KoalaBear; 16] {
-    get_poseidon16().permute(input)
-}
-
-#[inline(always)]
-pub fn poseidon16_permute_mut(input: &mut [KoalaBear; 16]) {
-    get_poseidon16().permute_mut(input);
+pub fn poseidon16_compress(input: [KoalaBear; 16]) -> [KoalaBear; 8] {
+    // Bad naming: it's actually a compression, not a permutation (i.e. output = poseidon16(input)[0..8] + input[0..8])
+    get_poseidon16().permute(input)[0..8].try_into().unwrap()
 }

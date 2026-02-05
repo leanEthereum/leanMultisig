@@ -2,7 +2,7 @@ use lean_compiler::*;
 use lean_vm::*;
 use multilinear_toolkit::prelude::BasedVectorSpace;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::poseidon16_permute;
+use utils::poseidon16_compress;
 
 #[test]
 fn test_poseidon() {
@@ -21,7 +21,7 @@ def main():
     let public_input: [F; 16] = (0..16).map(F::new).collect::<Vec<F>>().try_into().unwrap();
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&public_input, &[]), false);
 
-    let _ = dbg!(poseidon16_permute(public_input));
+    let _ = dbg!(poseidon16_compress(public_input));
 }
 
 #[test]

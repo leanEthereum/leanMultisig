@@ -13,7 +13,7 @@ use crate::{
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
-use utils::{ToUsize, poseidon16_permute, pretty_integer};
+use utils::{ToUsize, get_poseidon_16_of_zero, pretty_integer};
 use xmss::Poseidon16History;
 
 /// Build public memory with standard initialization
@@ -39,8 +39,7 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
         public_memory[EXTENSION_BASIS_PTR + i * DIMENSION..][..DIMENSION].copy_from_slice(&vec);
     }
 
-    public_memory[POSEIDON_16_NULL_HASH_PTR..][..DIGEST_LEN]
-        .copy_from_slice(&poseidon16_permute([F::ZERO; DIGEST_LEN * 2])[..DIGEST_LEN]);
+    public_memory[POSEIDON_16_NULL_HASH_PTR..][..DIGEST_LEN].copy_from_slice(get_poseidon_16_of_zero());
     public_memory
 }
 

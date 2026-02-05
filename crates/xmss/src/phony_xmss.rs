@@ -28,9 +28,9 @@ impl PhonyXmssSecretKey {
             let phony_neighbour: Digest = rng.random();
             let is_left = (wots_index >> i).is_multiple_of(2);
             if is_left {
-                hash = poseidon16_compress(&hash, &phony_neighbour);
+                hash = poseidon16_compress([hash, phony_neighbour].concat().try_into().unwrap());
             } else {
-                hash = poseidon16_compress(&phony_neighbour, &hash);
+                hash = poseidon16_compress([phony_neighbour, hash].concat().try_into().unwrap());
             };
             merkle_path.push(phony_neighbour);
         }
