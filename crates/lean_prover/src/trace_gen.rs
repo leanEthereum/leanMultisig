@@ -66,6 +66,9 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
                 + (F::ONE - field_repr[instr_idx(COL_FLAG_B)]) * value_b;
             let nu_c = field_repr[instr_idx(COL_FLAG_C)] * F::from_usize(fp)
                 + (F::ONE - field_repr[instr_idx(COL_FLAG_C)]) * value_c;
+            if let Instruction::Precompile { .. } = instruction {
+                *trace_row[COL_IS_PRECOMPILE] = F::ONE;
+            }
             *trace_row[COL_EXEC_NU_A] = nu_a;
             *trace_row[COL_EXEC_NU_B] = nu_b;
             *trace_row[COL_EXEC_NU_C] = nu_c;

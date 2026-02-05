@@ -158,6 +158,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 &[cols.index_a.clone(), cols.index_b.clone(), cols.index_res.clone()],
             ));
         } else {
+            builder.declare_values(std::slice::from_ref(&cols.flag));
             builder.declare_values(&[cols.index_a.clone(), cols.index_b.clone(), cols.index_res.clone()]);
         }
 

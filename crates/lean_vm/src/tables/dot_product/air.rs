@@ -99,6 +99,7 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
                 ],
             ));
         } else {
+            builder.declare_values(std::slice::from_ref(&flag));
             builder.declare_values(&[
                 index_a.clone(),
                 index_b.clone(),
