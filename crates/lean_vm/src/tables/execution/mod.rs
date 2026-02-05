@@ -50,7 +50,7 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
             table: BusTable::Variable(COL_PRECOMPILE_INDEX),
             direction: BusDirection::Push,
             selector: COL_IS_PRECOMPILE,
-            data: vec![COL_EXEC_NU_A, COL_EXEC_NU_B, COL_EXEC_NU_C, COL_AUX_1, COL_AUX_2],
+            data: vec![COL_EXEC_NU_A, COL_EXEC_NU_B, COL_EXEC_NU_C, COL_AUX],
         }
     }
 

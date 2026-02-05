@@ -31,17 +31,17 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             fields[instr_idx(COL_OPERAND_C)] = F::from_usize(*shift_1);
             match res {
                 MemOrFpOrConstant::Constant(cst) => {
-                    fields[instr_idx(COL_AUX_1)] = F::ONE;
+                    fields[instr_idx(COL_AUX)] = F::ONE;
                     fields[instr_idx(COL_FLAG_B)] = F::ONE;
                     fields[instr_idx(COL_OPERAND_B)] = *cst;
                 }
                 MemOrFpOrConstant::MemoryAfterFp { offset } => {
-                    fields[instr_idx(COL_AUX_1)] = F::ONE;
+                    fields[instr_idx(COL_AUX)] = F::ONE;
                     fields[instr_idx(COL_FLAG_B)] = F::ZERO;
                     fields[instr_idx(COL_OPERAND_B)] = F::from_usize(*offset);
                 }
                 MemOrFpOrConstant::Fp => {
-                    fields[instr_idx(COL_AUX_1)] = F::ZERO;
+                    fields[instr_idx(COL_AUX)] = F::ZERO;
                     fields[instr_idx(COL_FLAG_B)] = F::ONE;
                 }
             }
@@ -69,8 +69,8 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             set_nu_a(&mut fields, arg_a);
             set_nu_b(&mut fields, arg_b);
             set_nu_c(&mut fields, arg_c);
-            fields[instr_idx(COL_AUX_1)] = F::from_usize(*aux_1);
-            fields[instr_idx(COL_AUX_2)] = F::from_usize(*aux_2);
+            assert!(*aux_2 == 0 || *aux_2 == 1);
+            fields[instr_idx(COL_AUX)] = F::from_usize(2 * *aux_1 + *aux_2);
         }
     }
     fields
