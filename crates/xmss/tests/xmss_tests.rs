@@ -1,5 +1,6 @@
-use multilinear_toolkit::prelude::PrimeCharacteristicRing;
+use multilinear_toolkit::prelude::*;
 use p3_koala_bear::KoalaBear;
+use rand::{SeedableRng, rngs::StdRng};
 use xmss::*;
 
 type F = KoalaBear;
@@ -15,4 +16,24 @@ fn keygen_sign_verify() {
         let sig = xmss_sign(randomness_seed, &sk, &message, slot).unwrap();
         xmss_verify(&pk, &message, &sig).unwrap();
     }
+}
+
+#[test]
+#[ignore]
+fn encoding_grinding_bits() {
+    let n = 1000;
+    let total_iters = (0..10_000)
+        .into_par_iter()
+        .map(|i| {
+            let message: [F; 8] = Default::default();
+            let epoch = i as u32;
+            let truncated_merkle_root: [F; 6] = Default::default();
+            let mut rng = StdRng::seed_from_u64(i as u64);
+            let (_randomness, _encoding, num_iters) =
+                find_randomness_for_wots_encoding(&message, epoch, &truncated_merkle_root, &mut rng);
+            num_iters
+        })
+        .sum::<usize>();
+    let grinding = ((total_iters as f64) / (n as f64)).log2();
+    println!("Average grinding bits: {:.1}", grinding);
 }

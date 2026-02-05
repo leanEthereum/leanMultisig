@@ -20,8 +20,9 @@ type Digest = [F; DIGEST_SIZE];
 pub const V: usize = 66;
 pub const W: usize = 4;
 pub const CHAIN_LENGTH: usize = 1 << W;
-pub const D: usize = 80;
-pub const TARGET_SUM: usize = V * (W - 1) - D;
+pub const NUM_CHAIN_HASHES: usize = 80;
+pub const TARGET_SUM: usize = V * (W - 1) - NUM_CHAIN_HASHES;
+pub const V_GRINDING: usize = 1;
 pub const LOG_LIFETIME: usize = 32;
 
 pub type Poseidon16History = Vec<([F; 16], [F; 8])>;

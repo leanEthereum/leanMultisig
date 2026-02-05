@@ -43,7 +43,8 @@ impl WotsSecretKey {
         truncated_merkle_root: &[F; 6],
         rng: &mut impl Rng,
     ) -> WotsSignature {
-        let (randomness, encoding) = find_randomness_for_wots_encoding(message_hash, epoch, truncated_merkle_root, rng);
+        let (randomness, encoding, _) =
+            find_randomness_for_wots_encoding(message_hash, epoch, truncated_merkle_root, rng);
         WotsSignature {
             chain_tips: std::array::from_fn(|i| iterate_hash(&self.pre_images[i], encoding[i] as usize)),
             randomness,
@@ -102,7 +103,9 @@ impl WotsPublicKey {
 }
 
 pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
-    (0..n).fold(*a, |acc, _| poseidon16_compress([acc, Default::default()].concat().try_into().unwrap()))
+    (0..n).fold(*a, |acc, _| {
+        poseidon16_compress([acc, Default::default()].concat().try_into().unwrap())
+    })
 }
 
 pub fn iterate_hash_with_poseidon_trace(
@@ -120,11 +123,13 @@ pub fn find_randomness_for_wots_encoding(
     epoch: u32,
     truncated_merkle_root: &[F; 6],
     rng: &mut impl Rng,
-) -> (Digest, [u8; V]) {
+) -> (Digest, [u8; V], usize) {
+    let mut num_iters = 0;
     loop {
+        num_iters += 1;
         let randomness = rng.random();
         if let Some(encoding) = wots_encode(message, epoch, truncated_merkle_root, &randomness) {
-            return (randomness, encoding);
+            return (randomness, encoding, num_iters);
         }
     }
 }
@@ -162,12 +167,12 @@ pub fn wots_encode_with_poseidon_trace(
     if compressed.iter().any(|&kb| kb == -F::ONE) {
         return None;
     }
-    let encoding: Vec<_> = compressed
+    let all_indices: Vec<_> = compressed
         .iter()
         .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
         .collect::<Vec<_>>()
         .chunks_exact(log2_strict_usize(W))
-        .take(V)
+        .take(V + V_GRINDING)
         .map(|chunk| {
             chunk
                 .iter()
@@ -175,11 +180,24 @@ pub fn wots_encode_with_poseidon_trace(
                 .fold(0u8, |acc, (i, &bit)| acc | (u8::from(bit) << i))
         })
         .collect();
-    is_valid_encoding(&encoding).then(|| encoding.try_into().unwrap())
+    is_valid_encoding(&all_indices).then(|| all_indices[..V].try_into().unwrap())
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {
-    encoding.len() == V
-        && encoding.iter().all(|&x| (x as usize) < W)
-        && encoding.iter().map(|&x| x as usize).sum::<usize>() == TARGET_SUM
+    if encoding.len() != V + V_GRINDING {
+        return false;
+    }
+    // All indices must be < W
+    if !encoding.iter().all(|&x| (x as usize) < W) {
+        return false;
+    }
+    // First V indices must sum to TARGET_SUM
+    if encoding[..V].iter().map(|&x| x as usize).sum::<usize>() != TARGET_SUM {
+        return false;
+    }
+    // Last V_GRINDING indices must all be W-1 (grinding constraint)
+    if !encoding[V..].iter().all(|&x| x as usize == W - 1) {
+        return false;
+    }
+    true
 }
