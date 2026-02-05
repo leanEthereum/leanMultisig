@@ -15,10 +15,10 @@ pub const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
 /// Minimum and maximum number of rows per table (as powers of two), both inclusive
 pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to each at least, if this minimum is not reached, (ensuring AIR / GKR work fine, with SIMD, without too much edge cases). Long term, we should find a more elegant solution.
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
-    (Table::execution(), 29),   // 3 lookups
-    (Table::dot_product(), 25), // 4 lookups
-    (Table::poseidon16(), 25),  // 4 lookups
-]; // No overflow in logup: (TODO triple check) 3.2^29 + 4.2^25 + 4.2^25 < p = 2^31 - 2^24 + 1
+    (Table::execution(), 29),
+    (Table::dot_product(), 24),
+    (Table::poseidon16(), 23),
+];
 
 /// Starting program counter
 pub const STARTING_PC: usize = 1;
@@ -57,3 +57,38 @@ pub const NONRESERVED_PROGRAM_INPUT_START: usize = (POSEIDON_16_NULL_HASH_PTR + 
 
 /// The first element of basis corresponds to one
 pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;
+
+#[cfg(test)]
+mod tests {
+    use multilinear_toolkit::prelude::PrimeField64;
+    use p3_util::log2_ceil_usize;
+
+    use crate::{DIMENSION, F, MAX_LOG_N_ROWS_PER_TABLE, Table, TableT};
+
+    /// CRITICAL FOUR SOUNDNESS: TODO tripple check
+    #[test]
+    fn ensure_no_overflow_in_logup() {
+        fn memory_lookups_count<T: TableT>(t: &T) -> usize {
+            t.lookups_f().iter().map(|l| l.values.len()).sum::<usize>() + t.lookups_ef().len() * DIMENSION
+        }
+        // memory lookup
+        let mut max_memory_logup_sum: u64 = 0;
+        for (table, max_log_n_rows) in MAX_LOG_N_ROWS_PER_TABLE {
+            let n_rows = 1 << max_log_n_rows;
+            let num_lookups = memory_lookups_count(&table);
+            max_memory_logup_sum += (num_lookups * n_rows) as u64;
+            println!("Table {} has {} memory lookups", table.name(), num_lookups * n_rows);
+        }
+        assert!(max_memory_logup_sum < F::ORDER_U64);
+
+        // bytecode lookup
+        assert!(
+            MAX_LOG_N_ROWS_PER_TABLE
+                .iter()
+                .find(|(table, _)| *table == Table::execution())
+                .unwrap()
+                .1
+                < log2_ceil_usize(F::ORDER_U64 as usize)
+        );
+    }
+}
