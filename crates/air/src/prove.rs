@@ -37,15 +37,7 @@ where
         "TODO handle the case UNIVARIATE_SKIPS >= log_length"
     );
 
-    // crate::check_air_validity(
-    //     air,
-    //     &extra_data,
-    //     &columns_f,
-    //     &columns_ef,
-    //     last_row_shifted_f,
-    //     last_row_shifted_ef,
-    // )
-    // .unwrap();
+    // crate::check_air_validity(air, &extra_data, &columns_f, &columns_ef).unwrap();
 
     assert!(extra_data.alpha_powers().len() >= air.n_constraints() + virtual_column_statement.is_some() as usize);
 
