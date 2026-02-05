@@ -15,7 +15,7 @@ pub const COL_MEM_VALUE_A: usize = 5;
 pub const COL_MEM_VALUE_B: usize = 6;
 pub const COL_MEM_VALUE_C: usize = 7;
 
-// Decoded instruction columns (lookup into bytecode with logup*)
+// Decoded instruction columns
 pub const COL_OPERAND_A: usize = 8;
 pub const COL_OPERAND_B: usize = 9;
 pub const COL_OPERAND_C: usize = 10;

@@ -23,9 +23,7 @@ pub const SECURITY_REGIME: SecurityAssumption = SecurityAssumption::JohnsonBound
 
 pub const GRINDING_BITS: usize = 18;
 
-pub const STARTING_LOG_INV_RATE: usize = 2;
-
-pub fn default_whir_config() -> WhirConfigBuilder {
+pub fn default_whir_config(starting_log_inv_rate: usize) -> WhirConfigBuilder {
     WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 5),
         soundness_type: SECURITY_REGIME,
@@ -33,6 +31,6 @@ pub fn default_whir_config() -> WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 9,
         rs_domain_initial_reduction_factor: 5,
         security_level: SECURITY_BITS,
-        starting_log_inv_rate: STARTING_LOG_INV_RATE,
+        starting_log_inv_rate,
     }
 }

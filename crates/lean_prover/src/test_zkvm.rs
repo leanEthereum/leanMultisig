@@ -149,15 +149,22 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
     }
     let bytecode = compile_program(&ProgramSource::Raw(program_str.to_string()));
     let time = std::time::Instant::now();
+    let starting_log_inv_rate = 1;
     let proof = prove_execution(
         &bytecode,
         (public_input, private_input),
         &vec![],
-        &default_whir_config(),
+        &default_whir_config(starting_log_inv_rate),
         false,
     );
     let proof_time = time.elapsed();
-    verify_execution(&bytecode, public_input, proof.proof.clone(), &default_whir_config()).unwrap();
+    verify_execution(
+        &bytecode,
+        public_input,
+        proof.proof.clone(),
+        &default_whir_config(starting_log_inv_rate),
+    )
+    .unwrap();
     println!("{}", proof.exec_summary);
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 
@@ -172,7 +179,12 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
             }
             let mut fuzzed_proof = proof.proof.clone();
             fuzzed_proof[i] += F::ONE;
-            let verify_result = verify_execution(&bytecode, public_input, fuzzed_proof, &default_whir_config());
+            let verify_result = verify_execution(
+                &bytecode,
+                public_input,
+                fuzzed_proof,
+                &default_whir_config(starting_log_inv_rate),
+            );
             assert!(verify_result.is_err(), "Fuzzing failed at index {}", i);
         }
     }

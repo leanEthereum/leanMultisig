@@ -14,6 +14,7 @@ use xmss::{
 };
 
 static XMSS_AGGREGATION_PROGRAM: OnceLock<Bytecode> = OnceLock::new();
+const LOG_INV_RATE: usize = 1;
 
 fn get_xmss_aggregation_program() -> &'static Bytecode {
     XMSS_AGGREGATION_PROGRAM.get_or_init(compile_xmss_aggregation_program)
@@ -142,7 +143,7 @@ fn xmss_aggregate_signatures_helper(
         program,
         (&public_input, &private_input),
         &poseidons_16_precomputed,
-        &default_whir_config(),
+        &default_whir_config(LOG_INV_RATE),
         false,
     );
 
@@ -166,7 +167,7 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message_hash, slot);
 
-    verify_execution(program, &public_input, proof, &default_whir_config()).map(|_| ())
+    verify_execution(program, &public_input, proof, &default_whir_config(LOG_INV_RATE)).map(|_| ())
 }
 
 #[instrument(skip_all)]
