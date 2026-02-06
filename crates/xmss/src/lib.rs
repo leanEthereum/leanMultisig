@@ -36,5 +36,5 @@ fn poseidon16_compress_with_trace(a: &Digest, b: &Digest, poseidon_16_trace: &mu
     let input: [F; 16] = [*a, *b].concat().try_into().unwrap();
     let output = poseidon16_compress(input);
     poseidon_16_trace.push((input, output));
-    output[0..DIGEST_SIZE].try_into().unwrap()
+    output
 }

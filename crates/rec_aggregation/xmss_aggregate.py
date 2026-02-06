@@ -121,9 +121,10 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
     # First merkle round
     match leaf_position_bits[0]:
         case 0:
-            poseidon16(leaf_digest, merkle_path, states)
-        case 1:
             poseidon16(merkle_path, leaf_digest, states)
+        case 1:
+            poseidon16(leaf_digest, merkle_path, states)
+
 
     # Remaining merkle rounds
     state_indexes = Array(height)
@@ -134,14 +135,14 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
         match leaf_position_bits[j]:
             case 0:
                 poseidon16(
-                    state_indexes[j - 1],
                     merkle_path + j * DIGEST_LEN,
+                    state_indexes[j - 1],
                     state_indexes[j],
                 )
             case 1:
                 poseidon16(
-                    merkle_path + j * DIGEST_LEN,
                     state_indexes[j - 1],
+                    merkle_path + j * DIGEST_LEN,
                     state_indexes[j],
                 )
     return state_indexes[height - 1]

@@ -8,7 +8,8 @@ use std::time::Instant;
 use std::{collections::BTreeMap, path::Path};
 use tracing::{info_span, instrument};
 use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, RANDOMNESS_LEN_FE, SIG_SIZE_FE, TARGET_SUM, V, V_GRINDING, W, XmssPublicKey, XmssSignature, slot_to_field_elements, xmss_verify_with_poseidon_trace
+    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, RANDOMNESS_LEN_FE, SIG_SIZE_FE, TARGET_SUM, V, V_GRINDING, W,
+    XmssPublicKey, XmssSignature, slot_to_field_elements, xmss_verify_with_poseidon_trace,
 };
 
 static XMSS_AGGREGATION_PROGRAM: OnceLock<Bytecode> = OnceLock::new();
@@ -102,6 +103,7 @@ pub fn run_xmss_benchmark(n_signatures: usize, tracing: bool) {
             let end = slot + rng.random_range(1..5);
             let (sk, pk) = xmss::xmss_key_gen(rng.random(), start, end).unwrap();
             let sig = xmss::xmss_sign(&mut rng, &sk, &message, slot).unwrap();
+            xmss::xmss_verify(&pk, &message, &sig).unwrap(); // sanity check
             (pk, sig)
         })
         .collect::<Vec<_>>();
@@ -203,5 +205,5 @@ fn precompute_poseidons(
 
 #[test]
 fn test_xmss_aggregate() {
-    run_xmss_benchmark(1, false);
+    run_xmss_benchmark(5, false);
 }
