@@ -5,7 +5,7 @@
 - 128 bits security
 - Merkle pruning
 - the interpreter of leanISA (+ witness generation) can be partially parallelized when there are some independent loops
-- Make everything "padding aware" (including WHIR, logup, AIR, etc)
+- Make everything "padding aware" (including WHIR, logup, AIR, etc) -> It's hard to remove padding overhead in WHIR at Merkleization, because the FFT "scrambles" the padding, but maybe we can use the fact it's an interleaved RS code ?? TODO explore 
 - Opti WHIR: in sumcheck we know more than f(0) + f(1), we know f(0) and f(1)
 - Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306 ?
 - Avoid the embedding overhead in logup, when denominators = "c - index"
