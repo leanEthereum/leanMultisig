@@ -8,8 +8,7 @@ use std::time::Instant;
 use std::{collections::BTreeMap, path::Path};
 use tracing::{info_span, instrument};
 use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, TARGET_SUM, V, W, XmssPublicKey, XmssSignature,
-    slot_to_field_elements, xmss_verify_with_poseidon_trace,
+    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, TARGET_SUM, V, V_GRINDING, W, XmssPublicKey, XmssSignature, slot_to_field_elements, xmss_verify_with_poseidon_trace
 };
 
 static XMSS_AGGREGATION_PROGRAM: OnceLock<Bytecode> = OnceLock::new();
@@ -72,9 +71,11 @@ fn compile_xmss_aggregation_program() -> Bytecode {
         .to_string();
     let mut replacements = BTreeMap::new();
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
+    replacements.insert("V_GRINDING_PLACEHOLDER".to_string(), V_GRINDING.to_string());
     replacements.insert("W_PLACEHOLDER".to_string(), W.to_string());
     replacements.insert("TARGET_SUM_PLACEHOLDER".to_string(), TARGET_SUM.to_string());
     replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());
+    replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MESSAGE_LEN_FE.to_string());
     compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
 }
 
@@ -85,7 +86,11 @@ pub fn run_xmss_benchmark(n_signatures: usize, tracing: bool) {
     xmss_setup_aggregation_program();
     precompute_dft_twiddles::<F>(1 << 24);
 
-    let message: [F; MESSAGE_LEN_FE] = (0..9).map(|i| F::from_usize(i)).collect::<Vec<_>>().try_into().unwrap();
+    let message = (0..MESSAGE_LEN_FE)
+        .map(|i| F::from_usize(i))
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
     let slot = 1111;
 
     let pub_keys_and_sigs = (0..n_signatures)

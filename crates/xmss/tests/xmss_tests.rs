@@ -26,7 +26,7 @@ fn encoding_grinding_bits() {
         .map(|i| {
             let message: [F; MESSAGE_LEN_FE] = Default::default();
             let slot = i as u32;
-            let truncated_merkle_root: [F; 5] = Default::default();
+            let truncated_merkle_root: [F; TRUNCATED_MERKLE_ROOT_LEN_FE] = Default::default();
             let mut rng = StdRng::seed_from_u64(i as u64);
             let (_randomness, _encoding, num_iters) =
                 find_randomness_for_wots_encoding(&message, slot, &truncated_merkle_root, &mut rng);

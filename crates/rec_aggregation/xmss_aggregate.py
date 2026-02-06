@@ -1,14 +1,19 @@
 from snark_lib import *
 
 V = V_PLACEHOLDER
+V_GRINDING = V_GRINDING_PLACEHOLDER
 W = W_PLACEHOLDER
+CHAIN_LENGTH = 2 ** W
 TARGET_SUM = TARGET_SUM_PLACEHOLDER
 LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
+MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
 DIGEST_LEN = 8
 RANDOMNESS_LEN = 8
 SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIGEST_LEN
+NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W)) # 24 should be divisible by W (works for W=2,3,4)
 
 # Dot product precompile:
+DIM = 5
 BE = 1  # base-extension (unused for XMSS)
 EE = 0  # extension-extension
 
@@ -17,62 +22,62 @@ def main():
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     signatures_start = pub_mem[0]
     n_signatures = pub_mem[1]
-    message_hash = pub_mem + 2
-    all_public_keys = message_hash + DIGEST_LEN
-    all_log_lifetimes = all_public_keys + n_signatures * DIGEST_LEN
-    all_merkle_indexes = all_log_lifetimes + n_signatures
-    sig_sizes = all_merkle_indexes + n_signatures * MAX_LOG_LIFETIME
+    message = pub_mem + 2
+    slot_ptr = message + MESSAGE_LEN
+    slot_lo = slot_ptr[0]
+    slot_hi = slot_ptr[1]
+    merkle_indexes = slot_ptr + 2 # is left ?
+    all_public_keys = merkle_indexes + LOG_LIFETIME
 
     for i in range(0, n_signatures):
-        xmss_public_key = all_public_keys + i * DIGEST_LEN
-        signature = signatures_start + sig_sizes[i]
-        log_lifetime = all_log_lifetimes[i]
-        merkle_index = all_merkle_indexes + i * MAX_LOG_LIFETIME
-        xmss_public_key_recovered = xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index)
-        assert_eq_vec(xmss_public_key, xmss_public_key_recovered)
+        merkle_root = all_public_keys + i * DIGEST_LEN
+        signature = signatures_start + SIG_SIZE * i
+        xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexes)
     return
 
 
-def xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index):
-    # signature: randomness | chain_tips
+def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexes):
+    # signature: randomness | chain_tips | merkle_path
     # return the hashed xmss public key
     randomness = signature
-    chain_tips = signature + DIGEST_LEN
+    chain_tips = signature + RANDOMNESS_LEN
     merkle_path = chain_tips + V * DIGEST_LEN
 
-    # 1) We encode message_hash + randomness into the d-th layer of the hypercube
+    # 1) We encode message_hash + randomness into the layer of the hypercube with target sum = TARGET_SUM
 
-    compressed = Array(DIGEST_LEN)
-    poseidon16(message_hash, randomness, compressed)
-    compressed_vals = Array(6)
-    dot_product(compressed, ONE_VEC_PTR, compressed_vals, 1, EE)
-    compressed_vals[5] = compressed[5]
+    a_input_right = Array(DIGEST_LEN)
+    b_input = Array(DIGEST_LEN * 2)
+    a_input_right[0] = message[8]
+    copy_7(randomness, a_input_right + 1)
+    poseidon16(message, a_input_right, b_input)
+    b_input[8] = slot_lo
+    b_input[9] = slot_hi
+    copy_6(merkle_root, b_input + 10)
+    encoding_fe = Array(DIGEST_LEN)
+    poseidon16(b_input, b_input + DIGEST_LEN, encoding_fe)
 
-    encoding = Array(12 * 6)
-    remaining = Array(6)
+    encoding = Array(NUM_ENCODING_FE * 24 / W)
+    remaining = Array(NUM_ENCODING_FE)
 
     hint_decompose_bits_xmss(
         encoding,
         remaining,
-        compressed_vals[0],
-        compressed_vals[1],
-        compressed_vals[2],
-        compressed_vals[3],
-        compressed_vals[4],
-        compressed_vals[5],
+        encoding_fe,
+        NUM_ENCODING_FE,
+        W
     )
 
     # check that the decomposition is correct
-    for i in unroll(0, 6):
-        for j in unroll(0, 12):
-            assert encoding[i * 12 + j] <= 3
+    for i in unroll(0, NUM_ENCODING_FE):
+        for j in unroll(0, 24 / W):
+            assert encoding[i * (24 / W) + j] < CHAIN_LENGTH
 
-        assert remaining[i] <= 2**7 - 2
+        assert remaining[i] < 2**7 - 1
 
         partial_sum: Mut = remaining[i] * 2**24
-        for j in unroll(1, 13):
-            partial_sum += encoding[i * 12 + (j - 1)] * 4 ** (j - 1)
-        assert partial_sum == compressed_vals[i]
+        for j in unroll(0, 24/W):
+            partial_sum += encoding[i * (24 / W) + j] * CHAIN_LENGTH ** j
+        assert partial_sum == encoding_fe[i]
 
     # we need to check the target sum
     target_sum: Mut = encoding[0]
@@ -80,117 +85,36 @@ def xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index):
         target_sum += encoding[i]
     assert target_sum == TARGET_SUM
 
-    public_key = Array(V * DIGEST_LEN)
+    # grinding
+    for i in unroll(V, V + V_GRINDING):
+        assert encoding[i] == CHAIN_LENGTH - 1
 
-    # This is a trick to avoid the compiler to allocate memory "on stack".
-    # (Heap allocation is better here, to keep the memmory use of the different "match arms" balanced)
-    digest_len = DIGEST_LEN
+    wots_public_key = Array(V * DIGEST_LEN)
 
     for i in unroll(0, V):
-        match encoding[i]:
-            case 0:
-                var_1 = chain_tips + i * DIGEST_LEN
-                var_2 = public_key + i * DIGEST_LEN
-                var_3 = Array(digest_len)
-                var_4 = Array(digest_len)
-                poseidon16(var_1, ZERO_VEC_PTR, var_3)
-                poseidon16(var_3, ZERO_VEC_PTR, var_4)
-                poseidon16(var_4, ZERO_VEC_PTR, var_2)
-            case 1:
-                var_3 = Array(digest_len)
-                var_1 = chain_tips + i * DIGEST_LEN
-                var_2 = public_key + i * DIGEST_LEN
-                poseidon16(var_1, ZERO_VEC_PTR, var_3)
-                poseidon16(var_3, ZERO_VEC_PTR, var_2)
-            case 2:
-                var_1 = chain_tips + i * DIGEST_LEN
-                var_2 = public_key + i * DIGEST_LEN
-                poseidon16(var_1, ZERO_VEC_PTR, var_2)
-            case 3:
-                var_1 = chain_tips + (i * digest_len)
-                var_2 = public_key + (i * digest_len)
-                var_3 = var_1 + 3
-                var_4 = var_2 + 3
-                dot_product(var_1, ONE_VEC_PTR, var_2, 1, EE)
-                dot_product(var_3, ONE_VEC_PTR, var_4, 1, EE)
-
-    wots_pubkey_hashed = slice_hash(public_key, V)
-
-    debug_assert(log_lifetime < MAX_LOG_LIFETIME + 1)
-
-    merkle_root: Imu
-    match log_lifetime:
-        case 0:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 0)
-        case 1:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 1)
-        case 2:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 2)
-        case 3:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 3)
-        case 4:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 4)
-        case 5:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 5)
-        case 6:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 6)
-        case 7:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 7)
-        case 8:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 8)
-        case 9:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 9)
-        case 10:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 10)
-        case 11:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 11)
-        case 12:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 12)
-        case 13:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 13)
-        case 14:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 14)
-        case 15:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 15)
-        case 16:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 16)
-        case 17:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 17)
-        case 18:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 18)
-        case 19:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 19)
-        case 20:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 20)
-        case 21:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 21)
-        case 22:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 22)
-        case 23:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 23)
-        case 24:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 24)
-        case 25:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 25)
-        case 26:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 26)
-        case 27:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 27)
-        case 28:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 28)
-        case 29:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 29)
-        case 30:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 30)
-        case 31:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 31)
-        case 32:
-            merkle_root = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_index, 32)
-
-    return merkle_root
+        num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
+        match_range(num_hashes,
+                    range(0, 1), lambda _: copy_8(chain_tips + i * DIGEST_LEN, wots_public_key + i * DIGEST_LEN),
+                    range(1, 2), lambda _: poseidon16(chain_tips + i * DIGEST_LEN, ZERO_VEC_PTR, wots_public_key + i * DIGEST_LEN),
+                    range(0, CHAIN_LENGTH), lambda i: chain_hash(chain_tips + i * DIGEST_LEN, i, wots_public_key + i * DIGEST_LEN))
+        
+    wots_pubkey_hashed = slice_hash(wots_public_key, V)
+    merkle_root_recovered = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_indexes, LOG_LIFETIME)
+    copy_8(merkle_root, merkle_root_recovered)
 
 
-def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height: Const):
+def chain_hash(input, n: Const, output):
+    debug_assert(2 < n)
+    states = Array((n-1) * DIGEST_LEN)
+    poseidon16(input, ZERO_VEC_PTR, states)
+    for i in unroll(1, n-1):
+        poseidon16(states + (i - 1) * DIGEST_LEN, ZERO_VEC_PTR, states + i * DIGEST_LEN)
+    poseidon16(states + (n - 2) * DIGEST_LEN, ZERO_VEC_PTR, output)
+    return
+
+
+@inline
+def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
     states = Array(height * DIGEST_LEN)
 
     # First merkle round
@@ -223,18 +147,30 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height: Const):
 
 
 def slice_hash(data, len: Const):
-    states = Array(len * DIGEST_LEN)
-    poseidon16(ZERO_VEC_PTR, data, states)
-    state_indexes = Array(len)
-    state_indexes[0] = states
-    for j in unroll(1, (len)):
-        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
-        poseidon16(state_indexes[j - 1], data + j * DIGEST_LEN, state_indexes[j])
-    return state_indexes[len - 1]
+    states = Array((len-1) * DIGEST_LEN)
+    poseidon16(data, data + DIGEST_LEN, states)
+    for i in unroll(1, len-1):
+        poseidon16(states + (i - 1) * DIGEST_LEN, data + DIGEST_LEN * (i + 1), states + i * DIGEST_LEN)
+    return data
 
 
 @inline
-def assert_eq_vec(x, y):
+def copy_8(x, y):
     dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    dot_product(x + 3, ONE_VEC_PTR, y + 3, 1, EE)
+    dot_product(x + (8 - DIM), ONE_VEC_PTR, y + (8 - DIM), 1, EE)
+    return
+
+
+@inline
+def copy_7(x, y):
+    dot_product(x, ONE_VEC_PTR, y, 1, EE)
+    x[5] = y[5]
+    y[6] = x[6]
+    return
+
+
+@inline
+def copy_6(x, y):
+    dot_product(x, ONE_VEC_PTR, y, 1, EE)
+    x[5] = y[5]
     return

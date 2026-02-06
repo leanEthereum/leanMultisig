@@ -123,7 +123,7 @@ pub fn xmss_sign<R: Rng>(
     }
     let wots_secret_key = gen_wots_secret_key(&secret_key.seed, slot as u64);
     let merkle_root = secret_key.public_key().merkle_root;
-    let truncated_merkle_root: [F; 5] = merkle_root[0..5].try_into().unwrap();
+    let truncated_merkle_root: [F; TRUNCATED_MERKLE_ROOT_LEN_FE] = merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
     let wots_signature = wots_secret_key.sign(message_hash, slot, &truncated_merkle_root, rng);
     let merkle_proof = (0..LOG_LIFETIME)
         .map(|level| {
@@ -172,7 +172,7 @@ pub fn xmss_verify_with_poseidon_trace(
     signature: &XmssSignature,
 ) -> Result<Poseidon16History, XmssVerifyError> {
     let mut poseidon_16_trace = Vec::new();
-    let truncated_merkle_root: [F; 5] = pub_key.merkle_root[0..5].try_into().unwrap();
+    let truncated_merkle_root: [F; TRUNCATED_MERKLE_ROOT_LEN_FE] = pub_key.merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
     let wots_public_key = signature
         .wots_signature
         .recover_public_key_with_poseidon_trace(

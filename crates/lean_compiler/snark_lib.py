@@ -120,3 +120,6 @@ def match_range(value: int, *args):
         if value in rng:
             return fn(value)
     raise AssertionError(f"Value {value} not in any range")
+
+def hint_decompose_bits_xmss(*args):
+    _ = args
