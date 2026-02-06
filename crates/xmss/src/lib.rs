@@ -17,12 +17,12 @@ type F = KoalaBear;
 type Digest = [F; DIGEST_SIZE];
 
 // WOTS
-pub const V: usize = 65;
-pub const W: usize = 2;
+pub const V: usize = 40;
+pub const W: usize = 3;
 pub const CHAIN_LENGTH: usize = 1 << W;
-pub const NUM_CHAIN_HASHES: usize = 80;
+pub const NUM_CHAIN_HASHES: usize = 120;
 pub const TARGET_SUM: usize = V * (CHAIN_LENGTH - 1) - NUM_CHAIN_HASHES;
-pub const V_GRINDING: usize = 4;
+pub const V_GRINDING: usize = 3;
 pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 7;
 pub const MESSAGE_LEN_FE: usize = 9;

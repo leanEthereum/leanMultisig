@@ -14,14 +14,14 @@ pub struct XmssSecretKey {
     pub(crate) merkle_tree: Vec<Vec<Digest>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct XmssSignature {
     pub wots_signature: WotsSignature,
     pub slot: u32,
     pub merkle_proof: Vec<Digest>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct XmssPublicKey {
     pub merkle_root: Digest,
 }

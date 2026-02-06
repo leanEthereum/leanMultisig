@@ -95,7 +95,8 @@ pub fn run_xmss_benchmark(n_signatures: usize, tracing: bool) {
         .unwrap();
     let slot = 1111;
 
-    let pub_keys_and_sigs = (0..n_signatures)
+    let n_reps = 10;
+    let  pub_keys_and_sigs = (0..n_signatures / n_reps)
         .into_par_iter()
         .map(|i| {
             let mut rng = StdRng::seed_from_u64(i as u64);
@@ -107,7 +108,13 @@ pub fn run_xmss_benchmark(n_signatures: usize, tracing: bool) {
             (pk, sig)
         })
         .collect::<Vec<_>>();
-    let (xmss_pub_keys, all_signatures): (Vec<_>, Vec<_>) = pub_keys_and_sigs.into_iter().unzip();
+    
+    let (mut xmss_pub_keys, mut all_signatures) = (vec![], vec![]);
+    for i in 0..n_signatures {
+        let (pk, sig) = &pub_keys_and_sigs[i % (n_signatures / n_reps)];
+        xmss_pub_keys.push(pk.clone());
+        all_signatures.push(sig.clone());
+    }
     let time = Instant::now();
     let (proof_data, n_field_elements_in_proof, summary) =
         xmss_aggregate_signatures_helper(&xmss_pub_keys, &all_signatures, message, slot).unwrap();

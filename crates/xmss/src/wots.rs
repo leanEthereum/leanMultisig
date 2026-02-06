@@ -13,7 +13,7 @@ pub struct WotsSecretKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WotsPublicKey(pub [Digest; V]);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WotsSignature {
     pub chain_tips: [Digest; V],
     pub randomness: [F; RANDOMNESS_LEN_FE],
