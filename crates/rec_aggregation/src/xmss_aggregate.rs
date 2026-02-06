@@ -99,8 +99,8 @@ pub fn run_xmss_benchmark(n_signatures: usize, tracing: bool) {
         .into_par_iter()
         .map(|i| {
             let mut rng = StdRng::seed_from_u64(i as u64);
-            let start = slot - rng.random_range(0..5);
-            let end = slot + rng.random_range(1..5);
+            let start = slot - rng.random_range(0..3);
+            let end = slot + rng.random_range(1..3);
             let (sk, pk) = xmss::xmss_key_gen(rng.random(), start, end).unwrap();
             let sig = xmss::xmss_sign(&mut rng, &sk, &message, slot).unwrap();
             xmss::xmss_verify(&pk, &message, &sig).unwrap(); // sanity check
