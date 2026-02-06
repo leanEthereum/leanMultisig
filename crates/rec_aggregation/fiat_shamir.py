@@ -47,6 +47,7 @@ def fs_sample_chunks(fs, n_chunks: Const):
     new_fs = sampled + n_chunks * 8
     return new_fs, sampled
 
+
 @inline
 def fs_sample_ef(fs):
     sampled = Array(8)
@@ -90,6 +91,7 @@ def fs_receive_chunks(fs, n_chunks: Const):
             new_fs + i * 8,
         )
     return new_fs + 8 * (n_chunks - 1), transcript_ptr
+
 
 @inline
 def fs_receive_ef(fs, n):
