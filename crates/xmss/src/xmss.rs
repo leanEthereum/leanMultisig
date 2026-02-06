@@ -115,7 +115,7 @@ pub enum XmssSignatureError {
 pub fn xmss_sign(
     randomness_seed: [u8; 32],
     secret_key: &XmssSecretKey,
-    message_hash: &[F; 8],
+    message_hash: &[F; 9],
     slot: u32,
 ) -> Result<XmssSignature, XmssSignatureError> {
     if slot < secret_key.start || slot > secret_key.end {
@@ -123,7 +123,7 @@ pub fn xmss_sign(
     }
     let wots_secret_key = gen_wots_secret_key(&secret_key.seed, slot as u64);
     let merkle_root = secret_key.public_key().merkle_root;
-    let truncated_merkle_root: [F; 6] = merkle_root[0..6].try_into().unwrap();
+    let truncated_merkle_root: [F; 5] = merkle_root[0..5].try_into().unwrap();
     let mut rng = StdRng::from_seed(randomness_seed);
     let wots_signature = wots_secret_key.sign(message_hash, slot, &truncated_merkle_root, &mut rng);
     let merkle_proof = (0..LOG_LIFETIME)
@@ -161,23 +161,23 @@ pub enum XmssVerifyError {
 
 pub fn xmss_verify(
     pub_key: &XmssPublicKey,
-    message_hash: &Digest,
+    message: &[F; 9],
     signature: &XmssSignature,
 ) -> Result<(), XmssVerifyError> {
-    xmss_verify_with_poseidon_trace(pub_key, message_hash, signature).map(|_| ())
+    xmss_verify_with_poseidon_trace(pub_key, message, signature).map(|_| ())
 }
 
 pub fn xmss_verify_with_poseidon_trace(
     pub_key: &XmssPublicKey,
-    message_hash: &Digest,
+    message: &[F; 9],
     signature: &XmssSignature,
 ) -> Result<Poseidon16History, XmssVerifyError> {
     let mut poseidon_16_trace = Vec::new();
-    let truncated_merkle_root: [F; 6] = pub_key.merkle_root[0..6].try_into().unwrap();
+    let truncated_merkle_root: [F; 5] = pub_key.merkle_root[0..5].try_into().unwrap();
     let wots_public_key = signature
         .wots_signature
         .recover_public_key_with_poseidon_trace(
-            message_hash,
+            message,
             signature.slot,
             &truncated_merkle_root,
             &signature.wots_signature,
