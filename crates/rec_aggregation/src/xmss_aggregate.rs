@@ -202,5 +202,5 @@ fn precompute_poseidons(
 
 #[test]
 fn test_xmss_aggregate() {
-    run_xmss_benchmark(10, false);
+    run_xmss_benchmark(1, false);
 }

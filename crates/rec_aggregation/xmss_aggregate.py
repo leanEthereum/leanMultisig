@@ -96,11 +96,12 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
         match_range(num_hashes,
                     range(0, 1), lambda _: copy_8(chain_tips + i * DIGEST_LEN, wots_public_key + i * DIGEST_LEN),
                     range(1, 2), lambda _: poseidon16(chain_tips + i * DIGEST_LEN, ZERO_VEC_PTR, wots_public_key + i * DIGEST_LEN),
-                    range(0, CHAIN_LENGTH), lambda i: chain_hash(chain_tips + i * DIGEST_LEN, i, wots_public_key + i * DIGEST_LEN))
+                    range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_tips + i * DIGEST_LEN, num_hashes_const, wots_public_key + i * DIGEST_LEN))
         
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
     merkle_root_recovered = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_indexes, LOG_LIFETIME)
     copy_8(merkle_root, merkle_root_recovered)
+    return
 
 
 def chain_hash(input, n: Const, output):
