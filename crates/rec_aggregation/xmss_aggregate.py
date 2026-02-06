@@ -40,8 +40,8 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
     # signature: randomness | chain_tips | merkle_path
     # return the hashed xmss public key
     randomness = signature
-    chain_tips = signature + RANDOMNESS_LEN
-    merkle_path = chain_tips + V * DIGEST_LEN
+    chain_starts = signature + RANDOMNESS_LEN
+    merkle_path = chain_starts + V * DIGEST_LEN
 
     # 1) We encode message_hash + randomness into the layer of the hypercube with target sum = TARGET_SUM
 
@@ -93,10 +93,12 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
 
     for i in unroll(0, V):
         num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
+        chain_start = chain_starts + i * DIGEST_LEN
+        chain_end = wots_public_key + i * DIGEST_LEN
         match_range(num_hashes,
-                    range(0, 1), lambda _: copy_8(chain_tips + i * DIGEST_LEN, wots_public_key + i * DIGEST_LEN),
-                    range(1, 2), lambda _: poseidon16(chain_tips + i * DIGEST_LEN, ZERO_VEC_PTR, wots_public_key + i * DIGEST_LEN),
-                    range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_tips + i * DIGEST_LEN, num_hashes_const, wots_public_key + i * DIGEST_LEN))
+                    range(0, 1), lambda _: copy_8(chain_start, chain_end),
+                    range(1, 2), lambda _: poseidon16(chain_start, ZERO_VEC_PTR, chain_end),
+                    range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_start, num_hashes_const, chain_end))
         
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
     merkle_root_recovered = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_indexes, LOG_LIFETIME)
