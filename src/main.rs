@@ -1,7 +1,6 @@
 use clap::Parser;
 mod prove_poseidons;
 use rec_aggregation::{recursion::run_recursion_benchmark, xmss_aggregate::run_xmss_benchmark};
-use xmss::XMSS_MAX_LOG_LIFETIME;
 
 use crate::prove_poseidons::benchmark_prove_poseidon_16;
 
@@ -35,8 +34,7 @@ fn main() {
 
     match cli {
         Cli::Xmss { n_signatures, tracing } => {
-            let log_lifetimes = (0..n_signatures).map(|_| XMSS_MAX_LOG_LIFETIME).collect::<Vec<_>>();
-            run_xmss_benchmark(&log_lifetimes, tracing);
+            run_xmss_benchmark(n_signatures, tracing);
         }
         Cli::Recursion { n, tracing } => {
             run_recursion_benchmark(n, tracing);
