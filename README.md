@@ -20,30 +20,40 @@ The VM design is inspired by the famous [Cairo paper](https://eprint.iacr.org/20
 
 ## Security
 
-123 bits of security. Johnson bound + degree 5 extension of koala-bear -> **no proximity gaps conjecture**. (TODO 128 bits? this would require hash digests bigger than 8 koala-bears).
+123 bits of provable security, given by Johnson bound + degree 5 extension of koala-bear. (128 bits would require hash digests of more than 8 field elements, todo?). In the benchmarks, we also display performance with conjectured security, even though leanVM targets the proven regime by default.
 
-## Benchmarks (Slightly outdated, new benchmarks incoming)
+## Benchmarks
 
 Machine: M4 Max 48GB (CPU only)
 
-| Benchmark                  | Current              | Target          |
-| -------------------------- | -------------------- | --------------- |
-| Poseidon2 (16 koala-bears) | `560K Poseidon2 / s` | n/a             |
-| 2 -> 1 Recursion           | `1.15 s`             | `0.25 s `       |
-| XMSS aggregation           | `554 XMSS / s`       | `1000 XMSS / s` |
-
 *Expect incoming perf improvements.*
 
-To reproduce:
-- `cargo run --release -- poseidon --log-n-perms 20`
-- `cargo run --release -- recursion --n 2`
-- `cargo run --release -- xmss --n-signatures 1350`
+### XMSS aggregation
 
-## Proof size
+```
+cargo run --release -- xmss --n-signatures 1350
+```
 
-WHIR intial rate = 1/4 -> proof size ≈ 225 KiB. (150 KiB with rate 1/16, and < 100 KiB is possible with poximity gaps conjecture + rate 1/16).
+| WHIR rate \ regime | Proven               | Conjectured          |
+| ------------------ | -------------------- | -------------------- |
+| 1/2                | 530 XMSS/s - 383 KiB | 530 XMSS/s - 209 KiB |
+| 1/4                | 420 XMSS/s - 252 KiB | 420 XMSS/s - 148 KiB |
 
-(TODO: remaining optimization = [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1)
+(Proving throughput - proof size)
+
+### Recursion
+
+```
+cargo run --release -- recursion --n 2
+```
+
+2 to 1 recursion (WHIR rate = 1/4):
+
+| Proven          | Conjectured     |
+| --------------- | --------------- |
+| 1.10s - 223 KiB | 1.05s - 134 KiB |
+
+(Note about proof size: remaining optimization = [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1)
 
 ## Credits
 

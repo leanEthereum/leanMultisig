@@ -10,6 +10,11 @@ enum Cli {
     Xmss {
         #[arg(long)]
         n_signatures: usize,
+        #[arg(long, help = "log(1/rate) in WHIR", default_value = "1", short = 'r')]
+        log_inv_rate: usize,
+        // TODO use the latest results (i.e. update the conjecture)
+        #[arg(long, help = "Uses Conjecture 4.12 from WHIR (up to capacity)")]
+        prox_gaps_conjecture: bool,
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
@@ -17,6 +22,11 @@ enum Cli {
     Recursion {
         #[arg(long, default_value = "1", help = "Number of recursive proofs to aggregate")]
         n: usize,
+        #[arg(long, help = "log(1/rate) in WHIR", default_value = "2", short = 'r')]
+        log_inv_rate: usize,
+        // TODO use the latest results (i.e. update the conjecture)
+        #[arg(long, help = "Uses Conjecture 4.12 from WHIR (up to capacity)")]
+        prox_gaps_conjecture: bool,
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
@@ -33,11 +43,21 @@ fn main() {
     let cli = Cli::parse();
 
     match cli {
-        Cli::Xmss { n_signatures, tracing } => {
-            run_xmss_benchmark(n_signatures, tracing);
+        Cli::Xmss {
+            n_signatures,
+            log_inv_rate,
+            prox_gaps_conjecture,
+            tracing,
+        } => {
+            run_xmss_benchmark(n_signatures, log_inv_rate, prox_gaps_conjecture, tracing);
         }
-        Cli::Recursion { n, tracing } => {
-            run_recursion_benchmark(n, tracing);
+        Cli::Recursion {
+            n,
+            log_inv_rate,
+            prox_gaps_conjecture,
+            tracing,
+        } => {
+            run_recursion_benchmark(n, log_inv_rate, prox_gaps_conjecture, tracing);
         }
         Cli::Poseidon {
             log_n_perms: log_count,

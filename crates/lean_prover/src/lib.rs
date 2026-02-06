@@ -18,15 +18,16 @@ use trace_gen::*;
 // so ≈ 123.92 bits of security against collisions
 pub const SECURITY_BITS: usize = 123; // TODO 128 bits security? (with Poseidon over 20 field elements or with a more subtle soundness analysis (cf. https://eprint.iacr.org/2021/188.pdf))
 
-// Provable security (no proximity gaps conjectures)
-pub const SECURITY_REGIME: SecurityAssumption = SecurityAssumption::JohnsonBound;
-
 pub const GRINDING_BITS: usize = 18;
 
-pub fn default_whir_config(starting_log_inv_rate: usize) -> WhirConfigBuilder {
+pub fn default_whir_config(starting_log_inv_rate: usize, prox_gaps_conjecture: bool) -> WhirConfigBuilder {
     WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 5),
-        soundness_type: SECURITY_REGIME,
+        soundness_type: if prox_gaps_conjecture {
+            SecurityAssumption::CapacityBound // TODO update formula with State of Art Conjecture
+        } else {
+            SecurityAssumption::JohnsonBound
+        },
         pow_bits: GRINDING_BITS,
         max_num_variables_to_send_coeffs: 9,
         rs_domain_initial_reduction_factor: 5,

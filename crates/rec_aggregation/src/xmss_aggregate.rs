@@ -13,7 +13,6 @@ use xmss::{
 };
 
 static XMSS_AGGREGATION_PROGRAM: OnceLock<Bytecode> = OnceLock::new();
-const LOG_INV_RATE: usize = 1;
 
 fn get_xmss_aggregation_program() -> &'static Bytecode {
     XMSS_AGGREGATION_PROGRAM.get_or_init(compile_xmss_aggregation_program)
@@ -81,7 +80,7 @@ fn compile_xmss_aggregation_program() -> Bytecode {
     compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
 }
 
-pub fn run_xmss_benchmark(n_signatures: usize, tracing: bool) {
+pub fn run_xmss_benchmark(n_signatures: usize, log_inv_rate: usize, prox_gaps_conjecture: bool, tracing: bool) {
     if tracing {
         utils::init_tracing();
     }
@@ -116,11 +115,26 @@ pub fn run_xmss_benchmark(n_signatures: usize, tracing: bool) {
         all_signatures.push(sig.clone());
     }
     let time = Instant::now();
-    let (proof_data, n_field_elements_in_proof, summary) =
-        xmss_aggregate_signatures_helper(&xmss_pub_keys, &all_signatures, message, slot).unwrap();
+    let (proof_data, n_field_elements_in_proof, summary) = xmss_aggregate_signatures_helper(
+        &xmss_pub_keys,
+        &all_signatures,
+        message,
+        slot,
+        log_inv_rate,
+        prox_gaps_conjecture,
+    )
+    .unwrap();
     let proving_time = time.elapsed();
 
-    xmss_verify_aggregated_signatures(&xmss_pub_keys, message, &proof_data, slot).unwrap();
+    xmss_verify_aggregated_signatures(
+        &xmss_pub_keys,
+        message,
+        &proof_data,
+        slot,
+        log_inv_rate,
+        prox_gaps_conjecture,
+    )
+    .unwrap();
 
     println!("{summary}");
     println!(
@@ -142,8 +156,18 @@ pub fn xmss_aggregate_signatures(
     all_signatures: &[XmssSignature],
     message: [F; MESSAGE_LEN_FE],
     slot: u32,
+    log_inv_rate: usize,
+    prox_gaps_conjecture: bool,
 ) -> Result<Vec<u8>, XmssAggregateError> {
-    Ok(xmss_aggregate_signatures_helper(xmss_pub_keys, all_signatures, message, slot)?.0)
+    Ok(xmss_aggregate_signatures_helper(
+        xmss_pub_keys,
+        all_signatures,
+        message,
+        slot,
+        log_inv_rate,
+        prox_gaps_conjecture,
+    )?
+    .0)
 }
 
 fn xmss_aggregate_signatures_helper(
@@ -151,6 +175,8 @@ fn xmss_aggregate_signatures_helper(
     all_signatures: &[XmssSignature],
     message: [F; MESSAGE_LEN_FE],
     slot: u32,
+    log_inv_rate: usize,
+    prox_gaps_conjecture: bool,
 ) -> Result<(Vec<u8>, usize, String), XmssAggregateError> {
     if xmss_pub_keys.len() != all_signatures.len() {
         return Err(XmssAggregateError::WrongSignatureCount);
@@ -168,7 +194,7 @@ fn xmss_aggregate_signatures_helper(
         program,
         (&public_input, &private_input),
         &poseidons_16_precomputed,
-        &default_whir_config(LOG_INV_RATE),
+        &default_whir_config(log_inv_rate, prox_gaps_conjecture),
         false,
     );
 
@@ -182,6 +208,8 @@ pub fn xmss_verify_aggregated_signatures(
     message: [F; MESSAGE_LEN_FE],
     proof_bytes: &[u8],
     slot: u32,
+    log_inv_rate: usize,
+    prox_gaps_conjecture: bool,
 ) -> Result<(), ProofError> {
     let program = get_xmss_aggregation_program();
 
@@ -191,7 +219,13 @@ pub fn xmss_verify_aggregated_signatures(
 
     let public_input = build_public_input(xmss_pub_keys, message, slot);
 
-    verify_execution(program, &public_input, proof, &default_whir_config(LOG_INV_RATE)).map(|_| ())
+    verify_execution(
+        program,
+        &public_input,
+        proof,
+        &default_whir_config(log_inv_rate, prox_gaps_conjecture),
+    )
+    .map(|_| ())
 }
 
 #[instrument(skip_all)]
@@ -212,5 +246,5 @@ fn precompute_poseidons(
 
 #[test]
 fn test_xmss_aggregate() {
-    run_xmss_benchmark(5, false);
+    run_xmss_benchmark(5, 1, false, false);
 }

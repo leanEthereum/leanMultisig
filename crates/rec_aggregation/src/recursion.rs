@@ -14,16 +14,14 @@ use multilinear_toolkit::prelude::symbolic::{
 use multilinear_toolkit::prelude::*;
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 
-const LOG_INV_RATE: usize = 2;
-
-pub fn run_recursion_benchmark(count: usize, tracing: bool) {
+pub fn run_recursion_benchmark(count: usize, log_inv_rate: usize, prox_gaps_conjecture: bool, tracing: bool) {
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("recursion.py")
         .to_str()
         .unwrap()
         .to_string();
 
-    let inner_whir_config = default_whir_config(LOG_INV_RATE);
+    let inner_whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
     let program_to_prove = r#"
 DIM = 5
 POSEIDON_OF_ZERO = POSEIDON_OF_ZERO_PLACEHOLDER
@@ -333,7 +331,7 @@ def main():
         &recursion_bytecode,
         (&outer_public_input, &outer_private_input),
         &vec![], // TODO precompute poseidons
-        &default_whir_config(LOG_INV_RATE),
+        &default_whir_config(log_inv_rate, prox_gaps_conjecture),
         false,
     );
     let proving_time = time.elapsed();
@@ -341,7 +339,7 @@ def main():
         &recursion_bytecode,
         &outer_public_input,
         recursion_proof.proof,
-        &default_whir_config(LOG_INV_RATE),
+        &default_whir_config(log_inv_rate, prox_gaps_conjecture),
     )
     .unwrap();
     println!(
@@ -589,5 +587,5 @@ fn display_all_air_evals_in_zk_dsl() {
 
 #[test]
 fn test_end2end_recursion() {
-    run_recursion_benchmark(1, false);
+    run_recursion_benchmark(1, 2, false, false);
 }

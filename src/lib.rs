@@ -68,7 +68,25 @@ mod tests {
             .collect();
         let (xmss_pub_keys, all_signatures): (Vec<_>, Vec<_>) = pub_keys_and_sigs.into_iter().unzip();
 
-        let proof = xmss_aggregate_signatures(&xmss_pub_keys, &all_signatures, message_hash, slot).unwrap();
-        xmss_verify_aggregated_signatures(&xmss_pub_keys, message_hash, &proof, slot).unwrap();
+        let log_inv_rate = 1;
+        let prox_gaps_conjecture = false;
+        let proof = xmss_aggregate_signatures(
+            &xmss_pub_keys,
+            &all_signatures,
+            message_hash,
+            slot,
+            log_inv_rate,
+            prox_gaps_conjecture,
+        )
+        .unwrap();
+        xmss_verify_aggregated_signatures(
+            &xmss_pub_keys,
+            message_hash,
+            &proof,
+            slot,
+            log_inv_rate,
+            prox_gaps_conjecture,
+        )
+        .unwrap();
     }
 }
