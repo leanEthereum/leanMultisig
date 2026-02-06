@@ -152,7 +152,7 @@ def slice_hash(data, len: Const):
     poseidon16(data, data + DIGEST_LEN, states)
     for i in unroll(1, len-1):
         poseidon16(states + (i - 1) * DIGEST_LEN, data + DIGEST_LEN * (i + 1), states + i * DIGEST_LEN)
-    return data
+    return states + (len - 2) * DIGEST_LEN
 
 
 @inline
