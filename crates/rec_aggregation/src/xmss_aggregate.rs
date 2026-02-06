@@ -88,7 +88,7 @@ pub fn run_xmss_benchmark(n_signatures: usize, log_inv_rate: usize, prox_gaps_co
     precompute_dft_twiddles::<F>(1 << 24);
 
     let message = (0..MESSAGE_LEN_FE)
-        .map(|i| F::from_usize(i))
+        .map(F::from_usize)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
