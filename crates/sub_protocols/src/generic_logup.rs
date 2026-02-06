@@ -1,6 +1,7 @@
 use crate::{prove_gkr_quotient, verify_gkr_quotient};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
+use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use tracing::instrument;
 use utils::*;
@@ -201,7 +202,16 @@ pub fn prove_generic_logup(
     }
 
     assert_eq!(log2_ceil_usize(offset), total_gkr_n_vars);
-    tracing::info!("Logup data: {} = 2^{:.2}", offset, (offset as f64).log2());
+    tracing::info!(
+        "{}",
+        format!(
+            "Logup data: {} = 2^{} * (1 + {:.2})",
+            offset,
+            total_gkr_n_vars - 1,
+            (offset as f64) / (1 << (total_gkr_n_vars - 1)) as f64 - 1.0
+        )
+        .blue()
+    );
 
     denominators[offset..].par_iter_mut().for_each(|d| *d = EF::ONE); // padding
 

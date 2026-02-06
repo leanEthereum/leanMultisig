@@ -1,6 +1,7 @@
 use lean_vm::{COL_PC, CommittedStatements, ENDING_PC, STARTING_PC, sort_tables_by_height};
 use lean_vm::{EF, F, Table, TableT, TableTrace};
 use multilinear_toolkit::prelude::*;
+use owo_colors::OwoColorize;
 use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use tracing::instrument;
@@ -106,7 +107,16 @@ pub fn packed_pcs_commit(
         }
     }
     assert_eq!(log2_ceil_usize(offset), packed_n_vars);
-    tracing::info!("packed PCS data: {} = 2^{:.2}", offset, (offset as f64).log2());
+    tracing::info!(
+        "{}",
+        format!(
+            "packed PCS data: {} = 2^{} * (1 + {:.2})",
+            offset,
+            packed_n_vars - 1,
+            (offset as f64) / (1 << (packed_n_vars - 1)) as f64 - 1.0
+        )
+        .green()
+    );
 
     let packed_polynomial = MleOwned::Base(packed_polynomial);
 
