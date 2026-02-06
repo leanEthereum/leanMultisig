@@ -16,7 +16,7 @@ pub struct WotsPublicKey(pub [Digest; V]);
 #[derive(Debug)]
 pub struct WotsSignature {
     pub chain_tips: [Digest; V],
-    pub randomness: Digest,
+    pub randomness: [F; RANDOMNESS_LEN_FE],
 }
 
 impl WotsSecretKey {
@@ -37,12 +37,12 @@ impl WotsSecretKey {
 
     pub fn sign(
         &self,
-        message: &[F; 9],
-        epoch: u32,
+        message: &[F; MESSAGE_LEN_FE],
+        slot: u32,
         truncated_merkle_root: &[F; 5],
         rng: &mut impl Rng,
     ) -> WotsSignature {
-        let (randomness, encoding, _) = find_randomness_for_wots_encoding(message, epoch, truncated_merkle_root, rng);
+        let (randomness, encoding, _) = find_randomness_for_wots_encoding(message, slot, truncated_merkle_root, rng);
         WotsSignature {
             chain_tips: std::array::from_fn(|i| iterate_hash(&self.pre_images[i], encoding[i] as usize)),
             randomness,
@@ -53,31 +53,25 @@ impl WotsSecretKey {
 impl WotsSignature {
     pub fn recover_public_key(
         &self,
-        message: &[F; 9],
-        epoch: u32,
+        message: &[F; MESSAGE_LEN_FE],
+        slot: u32,
         truncated_merkle_root: &[F; 5],
         signature: &Self,
     ) -> Option<WotsPublicKey> {
-        self.recover_public_key_with_poseidon_trace(
-            message,
-            epoch,
-            truncated_merkle_root,
-            signature,
-            &mut Vec::new(),
-        )
+        self.recover_public_key_with_poseidon_trace(message, slot, truncated_merkle_root, signature, &mut Vec::new())
     }
 
     pub fn recover_public_key_with_poseidon_trace(
         &self,
-        message: &[F; 9],
-        epoch: u32,
+        message: &[F; MESSAGE_LEN_FE],
+        slot: u32,
         truncated_merkle_root: &[F; 5],
         signature: &Self,
         poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
     ) -> Option<WotsPublicKey> {
         let encoding = wots_encode_with_poseidon_trace(
             message,
-            epoch,
+            slot,
             truncated_merkle_root,
             &signature.randomness,
             poseidon_16_trace,
@@ -121,46 +115,45 @@ pub fn iterate_hash_with_poseidon_trace(
 }
 
 pub fn find_randomness_for_wots_encoding(
-    message: &[F; 9],
-    epoch: u32,
+    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
     truncated_merkle_root: &[F; 5],
     rng: &mut impl Rng,
-) -> (Digest, [u8; V], usize) {
+) -> ([F; RANDOMNESS_LEN_FE], [u8; V], usize) {
     let mut num_iters = 0;
     loop {
         num_iters += 1;
         let randomness = rng.random();
-        if let Some(encoding) = wots_encode(message, epoch, truncated_merkle_root, &randomness) {
+        if let Some(encoding) = wots_encode(message, slot, truncated_merkle_root, &randomness) {
             return (randomness, encoding, num_iters);
         }
     }
 }
 
 pub fn wots_encode(
-    message: &[F; 9],
-    epoch: u32,
+    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
     truncated_merkle_root: &[F; 5],
-    randomness: &Digest,
+    randomness: &[F; RANDOMNESS_LEN_FE],
 ) -> Option<[u8; V]> {
-    wots_encode_with_poseidon_trace(message, epoch, truncated_merkle_root, randomness, &mut Vec::new())
+    wots_encode_with_poseidon_trace(message, slot, truncated_merkle_root, randomness, &mut Vec::new())
 }
 
 pub fn wots_encode_with_poseidon_trace(
-    message: &[F; 9],
-    epoch: u32,
+    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
     truncated_merkle_root: &[F; 5],
-    randomness: &Digest,
+    randomness: &[F; RANDOMNESS_LEN_FE],
     poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
 ) -> Option<[u8; V]> {
-    // Encode epoch as 2 field elements (16 bits each)
-    let epoch_lo = F::from_usize((epoch & 0xFFFF) as usize);
-    let epoch_hi = F::from_usize(((epoch >> 16) & 0xFFFF) as usize);
+    // Encode slot as 2 field elements (16 bits each)
+    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
 
-    // A = poseidon(message (9 fe), epoch (2 fe), truncated_merkle_root (5 fe))
+    // A = poseidon(message (9 fe), slot (2 fe), truncated_merkle_root (5 fe))
     let mut a_input_right = [F::default(); 8];
     a_input_right[0] = message[8];
-    a_input_right[1] = epoch_lo;
-    a_input_right[2] = epoch_hi;
+    a_input_right[1] = slot_lo;
+    a_input_right[2] = slot_hi;
     a_input_right[3..8].copy_from_slice(truncated_merkle_root);
     let a = poseidon16_compress_with_trace(message[..8].try_into().unwrap(), &a_input_right, poseidon_16_trace);
 
@@ -203,4 +196,11 @@ fn is_valid_encoding(encoding: &[u8]) -> bool {
         return false;
     }
     true
+}
+
+pub fn slot_to_field_elements(slot: u32) -> [F; 2] {
+    [
+        F::from_usize((slot & 0xFFFF) as usize),
+        F::from_usize(((slot >> 16) & 0xFFFF) as usize),
+    ]
 }

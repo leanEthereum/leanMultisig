@@ -112,10 +112,10 @@ pub enum XmssSignatureError {
     SlotOutOfRange,
 }
 
-pub fn xmss_sign(
-    randomness_seed: [u8; 32],
+pub fn xmss_sign<R: Rng>(
+    rng: &mut R,
     secret_key: &XmssSecretKey,
-    message_hash: &[F; 9],
+    message_hash: &[F; MESSAGE_LEN_FE],
     slot: u32,
 ) -> Result<XmssSignature, XmssSignatureError> {
     if slot < secret_key.start || slot > secret_key.end {
@@ -124,8 +124,7 @@ pub fn xmss_sign(
     let wots_secret_key = gen_wots_secret_key(&secret_key.seed, slot as u64);
     let merkle_root = secret_key.public_key().merkle_root;
     let truncated_merkle_root: [F; 5] = merkle_root[0..5].try_into().unwrap();
-    let mut rng = StdRng::from_seed(randomness_seed);
-    let wots_signature = wots_secret_key.sign(message_hash, slot, &truncated_merkle_root, &mut rng);
+    let wots_signature = wots_secret_key.sign(message_hash, slot, &truncated_merkle_root, rng);
     let merkle_proof = (0..LOG_LIFETIME)
         .map(|level| {
             let neighbour_index = ((slot as u64) >> level) ^ 1;
@@ -161,7 +160,7 @@ pub enum XmssVerifyError {
 
 pub fn xmss_verify(
     pub_key: &XmssPublicKey,
-    message: &[F; 9],
+    message: &[F; MESSAGE_LEN_FE],
     signature: &XmssSignature,
 ) -> Result<(), XmssVerifyError> {
     xmss_verify_with_poseidon_trace(pub_key, message, signature).map(|_| ())
@@ -169,7 +168,7 @@ pub fn xmss_verify(
 
 pub fn xmss_verify_with_poseidon_trace(
     pub_key: &XmssPublicKey,
-    message: &[F; 9],
+    message: &[F; MESSAGE_LEN_FE],
     signature: &XmssSignature,
 ) -> Result<Poseidon16History, XmssVerifyError> {
     let mut poseidon_16_trace = Vec::new();
@@ -188,9 +187,8 @@ pub fn xmss_verify_with_poseidon_trace(
     if signature.merkle_proof.len() != LOG_LIFETIME {
         return Err(XmssVerifyError::InvalidMerklePath);
     }
-    let wots_index = signature.slot as u64;
     for (level, neighbour) in signature.merkle_proof.iter().enumerate() {
-        let is_left = ((wots_index >> level) & 1) == 0;
+        let is_left = (((signature.slot as u64) >> level) & 1) == 0;
         if is_left {
             current_hash = poseidon16_compress_with_trace(&current_hash, neighbour, &mut poseidon_16_trace);
         } else {

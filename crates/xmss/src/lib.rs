@@ -24,6 +24,10 @@ pub const NUM_CHAIN_HASHES: usize = 80;
 pub const TARGET_SUM: usize = V * (CHAIN_LENGTH - 1) - NUM_CHAIN_HASHES;
 pub const V_GRINDING: usize = 1;
 pub const LOG_LIFETIME: usize = 32;
+pub const RANDOMNESS_LEN_FE: usize = 8;
+pub const MESSAGE_LEN_FE: usize = 9;
+
+pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_SIZE;
 
 pub type Poseidon16History = Vec<([F; 16], [F; 8])>;
 

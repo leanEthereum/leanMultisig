@@ -1,13 +1,15 @@
 from snark_lib import *
 
-V = 66
-W = 4
-TARGET_SUM = 118
-MAX_LOG_LIFETIME = 30
-VECTOR_LEN = 8
+V = V_PLACEHOLDER
+W = W_PLACEHOLDER
+TARGET_SUM = TARGET_SUM_PLACEHOLDER
+LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
+DIGEST_LEN = 8
+RANDOMNESS_LEN = 8
+SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIGEST_LEN
 
 # Dot product precompile:
-BE = 1  # base-extension
+BE = 1  # base-extension (unused for XMSS)
 EE = 0  # extension-extension
 
 
@@ -16,13 +18,13 @@ def main():
     signatures_start = pub_mem[0]
     n_signatures = pub_mem[1]
     message_hash = pub_mem + 2
-    all_public_keys = message_hash + VECTOR_LEN
-    all_log_lifetimes = all_public_keys + n_signatures * VECTOR_LEN
+    all_public_keys = message_hash + DIGEST_LEN
+    all_log_lifetimes = all_public_keys + n_signatures * DIGEST_LEN
     all_merkle_indexes = all_log_lifetimes + n_signatures
     sig_sizes = all_merkle_indexes + n_signatures * MAX_LOG_LIFETIME
 
     for i in range(0, n_signatures):
-        xmss_public_key = all_public_keys + i * VECTOR_LEN
+        xmss_public_key = all_public_keys + i * DIGEST_LEN
         signature = signatures_start + sig_sizes[i]
         log_lifetime = all_log_lifetimes[i]
         merkle_index = all_merkle_indexes + i * MAX_LOG_LIFETIME
@@ -35,12 +37,12 @@ def xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index):
     # signature: randomness | chain_tips
     # return the hashed xmss public key
     randomness = signature
-    chain_tips = signature + VECTOR_LEN
-    merkle_path = chain_tips + V * VECTOR_LEN
+    chain_tips = signature + DIGEST_LEN
+    merkle_path = chain_tips + V * DIGEST_LEN
 
     # 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
-    compressed = Array(VECTOR_LEN)
+    compressed = Array(DIGEST_LEN)
     poseidon16(message_hash, randomness, compressed)
     compressed_vals = Array(6)
     dot_product(compressed, ONE_VEC_PTR, compressed_vals, 1, EE)
@@ -78,35 +80,35 @@ def xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index):
         target_sum += encoding[i]
     assert target_sum == TARGET_SUM
 
-    public_key = Array(V * VECTOR_LEN)
+    public_key = Array(V * DIGEST_LEN)
 
     # This is a trick to avoid the compiler to allocate memory "on stack".
     # (Heap allocation is better here, to keep the memmory use of the different "match arms" balanced)
-    vector_len = VECTOR_LEN
+    digest_len = DIGEST_LEN
 
     for i in unroll(0, V):
         match encoding[i]:
             case 0:
-                var_1 = chain_tips + i * VECTOR_LEN
-                var_2 = public_key + i * VECTOR_LEN
-                var_3 = Array(vector_len)
-                var_4 = Array(vector_len)
+                var_1 = chain_tips + i * DIGEST_LEN
+                var_2 = public_key + i * DIGEST_LEN
+                var_3 = Array(digest_len)
+                var_4 = Array(digest_len)
                 poseidon16(var_1, ZERO_VEC_PTR, var_3)
                 poseidon16(var_3, ZERO_VEC_PTR, var_4)
                 poseidon16(var_4, ZERO_VEC_PTR, var_2)
             case 1:
-                var_3 = Array(vector_len)
-                var_1 = chain_tips + i * VECTOR_LEN
-                var_2 = public_key + i * VECTOR_LEN
+                var_3 = Array(digest_len)
+                var_1 = chain_tips + i * DIGEST_LEN
+                var_2 = public_key + i * DIGEST_LEN
                 poseidon16(var_1, ZERO_VEC_PTR, var_3)
                 poseidon16(var_3, ZERO_VEC_PTR, var_2)
             case 2:
-                var_1 = chain_tips + i * VECTOR_LEN
-                var_2 = public_key + i * VECTOR_LEN
+                var_1 = chain_tips + i * DIGEST_LEN
+                var_2 = public_key + i * DIGEST_LEN
                 poseidon16(var_1, ZERO_VEC_PTR, var_2)
             case 3:
-                var_1 = chain_tips + (i * VECTOR_LEN)
-                var_2 = public_key + (i * VECTOR_LEN)
+                var_1 = chain_tips + (i * digest_len)
+                var_2 = public_key + (i * digest_len)
                 var_3 = var_1 + 3
                 var_4 = var_2 + 3
                 dot_product(var_1, ONE_VEC_PTR, var_2, 1, EE)
@@ -189,7 +191,7 @@ def xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index):
 
 
 def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height: Const):
-    states = Array(height * VECTOR_LEN)
+    states = Array(height * DIGEST_LEN)
 
     # First merkle round
     match leaf_position_bits[0]:
@@ -202,18 +204,18 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height: Const):
     state_indexes = Array(height)
     state_indexes[0] = states
     for j in unroll(1, height):
-        state_indexes[j] = state_indexes[j - 1] + VECTOR_LEN
+        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
         # Warning: this works only if leaf_position_bits[i] is known to be boolean:
         match leaf_position_bits[j]:
             case 0:
                 poseidon16(
                     state_indexes[j - 1],
-                    merkle_path + j * VECTOR_LEN,
+                    merkle_path + j * DIGEST_LEN,
                     state_indexes[j],
                 )
             case 1:
                 poseidon16(
-                    merkle_path + j * VECTOR_LEN,
+                    merkle_path + j * DIGEST_LEN,
                     state_indexes[j - 1],
                     state_indexes[j],
                 )
@@ -221,13 +223,13 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height: Const):
 
 
 def slice_hash(data, len: Const):
-    states = Array(len * VECTOR_LEN)
+    states = Array(len * DIGEST_LEN)
     poseidon16(ZERO_VEC_PTR, data, states)
     state_indexes = Array(len)
     state_indexes[0] = states
     for j in unroll(1, (len)):
-        state_indexes[j] = state_indexes[j - 1] + VECTOR_LEN
-        poseidon16(state_indexes[j - 1], data + j * VECTOR_LEN, state_indexes[j])
+        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
+        poseidon16(state_indexes[j - 1], data + j * DIGEST_LEN, state_indexes[j])
     return state_indexes[len - 1]
 
 
