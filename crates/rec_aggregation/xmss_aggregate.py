@@ -4,9 +4,6 @@ V = 66
 W = 4
 TARGET_SUM = 118
 MAX_LOG_LIFETIME = 30
-
-V_HALF = V / 2  # V should be even
-
 VECTOR_LEN = 8
 
 # Dot product precompile:
@@ -115,7 +112,7 @@ def xmss_recover_pub_key(message_hash, signature, log_lifetime, merkle_index):
                 dot_product(var_1, ONE_VEC_PTR, var_2, 1, EE)
                 dot_product(var_3, ONE_VEC_PTR, var_4, 1, EE)
 
-    wots_pubkey_hashed = slice_hash(ZERO_VEC_PTR, public_key, V_HALF)
+    wots_pubkey_hashed = slice_hash(public_key, V)
 
     debug_assert(log_lifetime < MAX_LOG_LIFETIME + 1)
 
@@ -223,15 +220,15 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height: Const):
     return state_indexes[height - 1]
 
 
-def slice_hash(seed, data, half_len: Const):
-    states = Array(half_len * 2 * VECTOR_LEN)
+def slice_hash(data, len: Const):
+    states = Array(len * VECTOR_LEN)
     poseidon16(ZERO_VEC_PTR, data, states)
-    state_indexes = Array(half_len * 2)
+    state_indexes = Array(len)
     state_indexes[0] = states
-    for j in unroll(1, (half_len * 2)):
+    for j in unroll(1, (len)):
         state_indexes[j] = state_indexes[j - 1] + VECTOR_LEN
         poseidon16(state_indexes[j - 1], data + j * VECTOR_LEN, state_indexes[j])
-    return state_indexes[half_len * 2 - 1]
+    return state_indexes[len - 1]
 
 
 @inline

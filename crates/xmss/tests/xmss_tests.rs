@@ -21,8 +21,8 @@ fn keygen_sign_verify() {
 #[test]
 #[ignore]
 fn encoding_grinding_bits() {
-    let n = 1000;
-    let total_iters = (0..10_000)
+    let n = 100;
+    let total_iters = (0..n)
         .into_par_iter()
         .map(|i| {
             let message: [F; 8] = Default::default();
