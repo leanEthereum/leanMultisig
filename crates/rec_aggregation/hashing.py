@@ -41,19 +41,20 @@ def batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 
         all_resulting_hashes[i] = res
     return
 
+
 @inline
 def slice_hash(data, len):
-    states = Array(len * VECTOR_LEN)
-    poseidon16(ZERO_VEC_PTR, data, states)
+    states = Array((len - 1) * VECTOR_LEN)
+    poseidon16(data, data + VECTOR_LEN, states)
     state_indexes = Array(len)
     state_indexes[0] = states
-    for j in unroll(1, len):
+    for j in unroll(1, len - 1):
         state_indexes[j] = state_indexes[j - 1] + VECTOR_LEN
-        poseidon16(state_indexes[j - 1], data + j * VECTOR_LEN, state_indexes[j])
-    return state_indexes[len - 1]
+        poseidon16(state_indexes[j - 1], data + (j + 1) * VECTOR_LEN, state_indexes[j])
+    return state_indexes[len - 2]
 
 
-def merkle_verif_batch(n_paths, merkle_paths, leaves_digests, leave_positions, root, height, num_queries):
+def merkle_verif_batch(merkle_paths, leaves_digests, leave_positions, root, height, num_queries):
     for i in unroll(0, WHIR_N_ROUNDS + 1):
         if height + num_queries * 1000 == WHIR_MERKLE_HEIGHTS[i] + WHIR_NUM_QUERIES[i] * 1000:
             merkle_verif_batch_const(

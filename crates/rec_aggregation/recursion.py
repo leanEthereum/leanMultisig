@@ -61,7 +61,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     fs: Mut = fs_new(proof_transcript)
 
     # table dims
-    debug_assert(N_TABLES + 1 < VECTOR_LEN) 
+    debug_assert(N_TABLES + 1 < VECTOR_LEN)
     fs, mem_and_table_dims = fs_receive_chunks(fs, 1)
     for i in unroll(N_TABLES + 1, 8):
         assert mem_and_table_dims[i] == 0
@@ -80,9 +80,9 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, WHIR_NUM_OOD_COMMIT)
 
     fs, logup_c = fs_sample_ef(fs)
-    
+
     fs, logup_alphas = fs_sample_many_ef(fs, log2_ceil(MAX_BUS_WIDTH))
-        
+
     logup_alphas_eq_poly = poly_eq_extension(logup_alphas, log2_ceil(MAX_BUS_WIDTH))
     # GENRIC LOGUP
 
@@ -622,7 +622,7 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     claims_den = Array(n_vars)
 
     fs, points[0] = fs_sample_ef(fs)
-    
+
     point_poly_eq = poly_eq_extension(points[0], 1)
 
     first_claim_num = dot_product_ret(nums, point_poly_eq, 2, EE)
@@ -662,7 +662,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value)
 
     fs, beta = fs_sample_ef(fs)
-    
+
     point_poly_eq = poly_eq_extension(beta, 1)
     new_claim_num = dot_product_ret(inner_evals, point_poly_eq, 2, EE)
     new_claim_den = dot_product_ret(inner_evals + 2 * DIM, point_poly_eq, 2, EE)

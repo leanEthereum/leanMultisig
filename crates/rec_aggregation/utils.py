@@ -102,6 +102,7 @@ def eq_mle_extension(a, b, n):
     res = match_range(n, range(1, 30), lambda i: eq_mle_extension_const(a, b, i))
     return res
 
+
 def eq_mle_extension_const(a, b, n: Const):
     buff = Array(n * DIM)
 
@@ -230,6 +231,7 @@ def mle_of_01234567_etc(point, n):
         res = add_extension_ret(b, d)
         return res
 
+
 @inline
 def checked_less_than(a, b):
     res: Imu
@@ -241,6 +243,7 @@ def checked_less_than(a, b):
         assert b <= a
     return res
 
+
 @inline
 def maximum(a, b):
     is_a_less_than_b = checked_less_than(a, b)
@@ -250,6 +253,7 @@ def maximum(a, b):
     else:
         res = a
     return res
+
 
 @inline
 def powers_of_two(n):
@@ -423,6 +427,7 @@ def copy_16(a, b):
     a[15] = b[15]
     return
 
+
 @inline
 def copy_many_ef(a, b, n):
     for i in unroll(0, n):
@@ -460,6 +465,7 @@ def univariate_polynomial_eval(coeffs, point, degree):
     res = Array(DIM)
     dot_product(coeffs, powers, res, degree + 1, EE)
     return res
+
 
 @inline
 def sum_2_ef_fractions(a_num, a_den, b_num, b_den):

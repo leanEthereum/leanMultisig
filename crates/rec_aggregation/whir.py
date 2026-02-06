@@ -207,7 +207,6 @@ def sample_stir_indexes_and_fold(
 
     # Merkle verification
     merkle_verif_batch(
-        num_queries,
         merkle_paths,
         leaf_hashes,
         stir_challenges_indexes,
