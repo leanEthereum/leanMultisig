@@ -101,8 +101,7 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
                     range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_start, num_hashes_const, chain_end))
         
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
-    merkle_root_recovered = merkle_verify(wots_pubkey_hashed, merkle_path, merkle_indexes, LOG_LIFETIME)
-    copy_8(merkle_root, merkle_root_recovered)
+    merkle_verify(wots_pubkey_hashed, merkle_path, merkle_indexes, LOG_LIFETIME, merkle_root)
     return
 
 
@@ -120,8 +119,8 @@ def chain_hash(input, n: Const, output):
 
 
 @inline
-def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
-    states = Array(height * DIGEST_LEN)
+def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height, expected_root):
+    states = Array((height - 1) * DIGEST_LEN)
 
     # First merkle round
     match leaf_position_bits[0]:
@@ -130,11 +129,10 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
         case 1:
             poseidon16(leaf_digest, merkle_path, states)
 
-
-    # Remaining merkle rounds
-    state_indexes = Array(height)
+    # Middle merkle rounds
+    state_indexes = Array(height - 1)
     state_indexes[0] = states
-    for j in unroll(1, height):
+    for j in unroll(1, height - 1):
         state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
         # Warning: this works only if leaf_position_bits[j] is known to be boolean:
         match leaf_position_bits[j]:
@@ -150,7 +148,22 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
                     merkle_path + j * DIGEST_LEN,
                     state_indexes[j],
                 )
-    return state_indexes[height - 1]
+
+    # Final merkle round
+    match leaf_position_bits[height - 1]:
+        case 0:
+            poseidon16(
+                merkle_path + (height - 1) * DIGEST_LEN,
+                state_indexes[height - 2],
+                expected_root,
+            )
+        case 1:
+            poseidon16(
+                state_indexes[height - 2],
+                merkle_path + (height - 1) * DIGEST_LEN,
+                expected_root,
+            )
+    return
 
 
 @inline
