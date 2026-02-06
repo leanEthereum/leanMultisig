@@ -110,7 +110,7 @@ impl CustomHint {
                 for i in 0..num_to_decompose {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
                     for i in 0..24 / w {
-                        let value = F::from_usize((value >> (w * i)) & 0b11);
+                        let value = F::from_usize((value >> (w * i)) & ((1 << w) - 1));
                         ctx.memory.set(memory_index_decomposed, value)?;
                         memory_index_decomposed += 1;
                     }
