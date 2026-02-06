@@ -92,7 +92,8 @@ impl WotsPublicKey {
     }
 
     pub fn hash_with_poseidon_trace(&self, poseidon_16_trace: &mut Poseidon16History) -> Digest {
-        self.0.iter().fold(Digest::default(), |digest, chunk| {
+        let init = poseidon16_compress_with_trace(&self.0[0], &self.0[1], poseidon_16_trace);
+        self.0[2..].iter().fold(init, |digest, chunk| {
             poseidon16_compress_with_trace(&digest, chunk, poseidon_16_trace)
         })
     }
