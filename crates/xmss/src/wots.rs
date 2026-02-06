@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_util::log2_strict_usize;
 use rand::{Rng, RngCore};
 use utils::{ToUsize, to_little_endian_bits};
 
@@ -28,7 +27,7 @@ impl WotsSecretKey {
     pub fn new(pre_images: [Digest; V]) -> Self {
         Self {
             pre_images,
-            public_key: WotsPublicKey(std::array::from_fn(|i| iterate_hash(&pre_images[i], W - 1))),
+            public_key: WotsPublicKey(std::array::from_fn(|i| iterate_hash(&pre_images[i], CHAIN_LENGTH - 1))),
         }
     }
 
@@ -85,7 +84,11 @@ impl WotsSignature {
             poseidon_16_trace,
         )?;
         Some(WotsPublicKey(std::array::from_fn(|i| {
-            iterate_hash_with_poseidon_trace(&self.chain_tips[i], W - 1 - encoding[i] as usize, poseidon_16_trace)
+            iterate_hash_with_poseidon_trace(
+                &self.chain_tips[i],
+                CHAIN_LENGTH - 1 - encoding[i] as usize,
+                poseidon_16_trace,
+            )
         })))
     }
 }
@@ -171,7 +174,7 @@ pub fn wots_encode_with_poseidon_trace(
         .iter()
         .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
         .collect::<Vec<_>>()
-        .chunks_exact(log2_strict_usize(W))
+        .chunks_exact(W)
         .take(V + V_GRINDING)
         .map(|chunk| {
             chunk
@@ -187,16 +190,16 @@ fn is_valid_encoding(encoding: &[u8]) -> bool {
     if encoding.len() != V + V_GRINDING {
         return false;
     }
-    // All indices must be < W
-    if !encoding.iter().all(|&x| (x as usize) < W) {
+    // All indices must be < CHAIN_LENGTH
+    if !encoding.iter().all(|&x| (x as usize) < CHAIN_LENGTH) {
         return false;
     }
     // First V indices must sum to TARGET_SUM
     if encoding[..V].iter().map(|&x| x as usize).sum::<usize>() != TARGET_SUM {
         return false;
     }
-    // Last V_GRINDING indices must all be W-1 (grinding constraint)
-    if !encoding[V..].iter().all(|&x| x as usize == W - 1) {
+    // Last V_GRINDING indices must all be CHAIN_LENGTH-1 (grinding constraint)
+    if !encoding[V..].iter().all(|&x| x as usize == CHAIN_LENGTH - 1) {
         return false;
     }
     true

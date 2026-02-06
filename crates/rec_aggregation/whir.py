@@ -201,9 +201,9 @@ def sample_stir_indexes_and_fold(
         answers[i] = answer
 
     leaf_hashes = Array(num_queries)  # a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
-    batch_hash_slice(num_queries, answers, leaf_hashes, n_chunks_per_answer / VECTOR_LEN)
+    batch_hash_slice(num_queries, answers, leaf_hashes, n_chunks_per_answer / DIGEST_LEN)
 
-    fs, merkle_paths = fs_hint(fs, folded_domain_size * num_queries * VECTOR_LEN)
+    fs, merkle_paths = fs_hint(fs, folded_domain_size * num_queries * DIGEST_LEN)
 
     # Merkle verification
     merkle_verif_batch(

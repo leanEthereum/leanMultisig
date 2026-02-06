@@ -1354,7 +1354,6 @@ version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
  "p3-koala-bear",
- "p3-util",
  "rand",
  "sha3",
  "utils",

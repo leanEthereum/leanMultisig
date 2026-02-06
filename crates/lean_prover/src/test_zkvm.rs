@@ -20,7 +20,7 @@ fn test_zk_vm_all_precompiles_helper(fuzzing: bool) {
     let program_str = r#"
 DIM = 5
 N = 11
-VECTOR_LEN = 8
+DIGEST_LEN = 8
 
 # Dot product precompile:
 BE = 1  # base-extension
@@ -28,7 +28,7 @@ EE = 0  # extension-extension
 
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
-    poseidon16(pub_start + 4 * VECTOR_LEN, pub_start + 5 * VECTOR_LEN, pub_start + 6 * VECTOR_LEN)
+    poseidon16(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
     dot_product(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N, BE)
     dot_product(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N, EE)
     c: Mut = 0

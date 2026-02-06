@@ -1,7 +1,7 @@
 from snark_lib import *
 
 DIM = 5  # extension degree
-VECTOR_LEN = 8
+DIGEST_LEN = 8
 
 WHIR_MERKLE_HEIGHTS = WHIR_MERKLE_HEIGHTS_PLACEHOLDER
 WHIR_NUM_QUERIES = WHIR_NUM_QUERIES_PLACEHOLDER
@@ -44,13 +44,13 @@ def batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 
 
 @inline
 def slice_hash(data, len):
-    states = Array((len - 1) * VECTOR_LEN)
-    poseidon16(data, data + VECTOR_LEN, states)
+    states = Array((len - 1) * DIGEST_LEN)
+    poseidon16(data, data + DIGEST_LEN, states)
     state_indexes = Array(len)
     state_indexes[0] = states
     for j in unroll(1, len - 1):
-        state_indexes[j] = state_indexes[j - 1] + VECTOR_LEN
-        poseidon16(state_indexes[j - 1], data + (j + 1) * VECTOR_LEN, state_indexes[j])
+        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
+        poseidon16(state_indexes[j - 1], data + (j + 1) * DIGEST_LEN, state_indexes[j])
     return state_indexes[len - 2]
 
 
@@ -81,7 +81,7 @@ def merkle_verif_batch_const(n_paths: Const, merkle_paths, leaves_digests, leave
     for i in unroll(0, n_paths):
         merkle_verify(
             leaves_digests[i],
-            merkle_paths + (i * height) * VECTOR_LEN,
+            merkle_paths + (i * height) * DIGEST_LEN,
             leave_positions[i],
             root,
             height,
@@ -91,7 +91,7 @@ def merkle_verif_batch_const(n_paths: Const, merkle_paths, leaves_digests, leave
 
 
 def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, height: Const):
-    states = Array(height * VECTOR_LEN)
+    states = Array(height * DIGEST_LEN)
 
     # First merkle round
     match leaf_position_bits[0]:
@@ -104,18 +104,18 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, height: Co
     state_indexes = Array(height)
     state_indexes[0] = states
     for j in unroll(1, height):
-        state_indexes[j] = state_indexes[j - 1] + VECTOR_LEN
+        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
         # Warning: this works only if leaf_position_bits[i] is known to be boolean:
         match leaf_position_bits[j]:
             case 0:
                 poseidon16(
                     state_indexes[j - 1],
-                    merkle_path + j * VECTOR_LEN,
+                    merkle_path + j * DIGEST_LEN,
                     state_indexes[j],
                 )
             case 1:
                 poseidon16(
-                    merkle_path + j * VECTOR_LEN,
+                    merkle_path + j * DIGEST_LEN,
                     state_indexes[j - 1],
                     state_indexes[j],
                 )
