@@ -108,9 +108,12 @@ def chain_hash(input, n: Const, output):
     debug_assert(2 <= n)
     states = Array((n-1) * DIGEST_LEN)
     poseidon16(input, ZERO_VEC_PTR, states)
+    state_indexes = Array(n - 1)
+    state_indexes[0] = states
     for i in unroll(1, n-1):
-        poseidon16(states + (i - 1) * DIGEST_LEN, ZERO_VEC_PTR, states + i * DIGEST_LEN)
-    poseidon16(states + (n - 2) * DIGEST_LEN, ZERO_VEC_PTR, output)
+        state_indexes[i] = state_indexes[i - 1] + DIGEST_LEN
+        poseidon16(state_indexes[i - 1], ZERO_VEC_PTR, state_indexes[i])
+    poseidon16(state_indexes[n - 2], ZERO_VEC_PTR, output)
     return
 
 
@@ -131,7 +134,7 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
     state_indexes[0] = states
     for j in unroll(1, height):
         state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
-        # Warning: this works only if leaf_position_bits[i] is known to be boolean:
+        # Warning: this works only if leaf_position_bits[j] is known to be boolean:
         match leaf_position_bits[j]:
             case 0:
                 poseidon16(
@@ -152,9 +155,12 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
 def slice_hash(data, len):
     states = Array((len-1) * DIGEST_LEN)
     poseidon16(data, data + DIGEST_LEN, states)
+    state_indexes = Array(len - 1)
+    state_indexes[0] = states
     for i in unroll(1, len-1):
-        poseidon16(states + (i - 1) * DIGEST_LEN, data + DIGEST_LEN * (i + 1), states + i * DIGEST_LEN)
-    return states + (len - 2) * DIGEST_LEN
+        state_indexes[i] = state_indexes[i - 1] + DIGEST_LEN
+        poseidon16(state_indexes[i - 1], data + DIGEST_LEN * (i + 1), state_indexes[i])
+    return state_indexes[len - 2]
 
 
 @inline
