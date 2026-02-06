@@ -148,7 +148,8 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height):
     return state_indexes[height - 1]
 
 
-def slice_hash(data, len: Const):
+@inline
+def slice_hash(data, len):
     states = Array((len-1) * DIGEST_LEN)
     poseidon16(data, data + DIGEST_LEN, states)
     for i in unroll(1, len-1):
@@ -166,8 +167,7 @@ def copy_8(x, y):
 @inline
 def copy_7(x, y):
     dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    y[5] = x[5]
-    y[6] = x[6]
+    dot_product(x + (7-DIM), ONE_VEC_PTR, y + (7-DIM), 1, EE)
     return
 
 
