@@ -1,5 +1,5 @@
 use multilinear_toolkit::prelude::*;
-use rand::{Rng, RngCore};
+use rand::{CryptoRng, Rng};
 use utils::{ToUsize, to_little_endian_bits};
 
 use crate::*;
@@ -20,7 +20,7 @@ pub struct WotsSignature {
 }
 
 impl WotsSecretKey {
-    pub fn random(rng: &mut impl RngCore) -> Self {
+    pub fn random(rng: &mut impl CryptoRng) -> Self {
         Self::new(rng.random())
     }
 
@@ -40,7 +40,7 @@ impl WotsSecretKey {
         message: &[F; MESSAGE_LEN_FE],
         slot: u32,
         truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
-        rng: &mut impl Rng,
+        rng: &mut impl CryptoRng,
     ) -> WotsSignature {
         let (randomness, encoding, _) = find_randomness_for_wots_encoding(message, slot, truncated_merkle_root, rng);
         WotsSignature {
@@ -119,7 +119,7 @@ pub fn find_randomness_for_wots_encoding(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
-    rng: &mut impl Rng,
+    rng: &mut impl CryptoRng,
 ) -> ([F; RANDOMNESS_LEN_FE], [u8; V], usize) {
     let mut num_iters = 0;
     loop {

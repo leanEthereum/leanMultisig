@@ -1,5 +1,5 @@
 use multilinear_toolkit::prelude::*;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{CryptoRng, Rng, SeedableRng, rngs::StdRng};
 use sha3::{Digest as Sha3Digest, Keccak256};
 
 use crate::*;
@@ -112,7 +112,7 @@ pub enum XmssSignatureError {
     SlotOutOfRange,
 }
 
-pub fn xmss_sign<R: Rng>(
+pub fn xmss_sign<R: CryptoRng>(
     rng: &mut R,
     secret_key: &XmssSecretKey,
     message_hash: &[F; MESSAGE_LEN_FE],
