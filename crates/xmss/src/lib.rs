@@ -1,8 +1,3 @@
-/*
-Toy (unsecure) XMSS, intended for benchmark only.
-Production-grade XMSS SOON.
-*/
-
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 use p3_koala_bear::KoalaBear;
 mod wots;

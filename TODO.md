@@ -11,7 +11,6 @@
 - Avoid the embedding overhead in logup, when denominators = "c - index"
 - Proof size: replace all equality checks in the verifier algo by value deduction
 - Poseidon in 'Compression' mode everywhere (except in 'Sponge' mode? cf. eprint 2014/223)
-- XMSS: move from toy implem (usefull for benchmark) to a secure implem
 - Recursion: Remove the few hardcoded constants that depend on the guest execution (cycles etc)
 - About the ordering of the variables in sumchecks, currently we do as follows:
 - [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1

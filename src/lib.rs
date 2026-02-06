@@ -17,10 +17,6 @@ pub fn xmss_aggregation_setup_verifier() {
 
 pub type F = p3_koala_bear::KoalaBear;
 
-/*
-WARNING: Toy XMSS, do not consider this secure (for now)!
-*/
-
 #[cfg(test)]
 mod tests {
     use super::*;
