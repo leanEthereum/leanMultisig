@@ -105,7 +105,7 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
 
 
 def chain_hash(input, n: Const, output):
-    debug_assert(2 < n)
+    debug_assert(2 <= n)
     states = Array((n-1) * DIGEST_LEN)
     poseidon16(input, ZERO_VEC_PTR, states)
     for i in unroll(1, n-1):
@@ -165,7 +165,7 @@ def copy_8(x, y):
 @inline
 def copy_7(x, y):
     dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    x[5] = y[5]
+    y[5] = x[5]
     y[6] = x[6]
     return
 
@@ -173,5 +173,11 @@ def copy_7(x, y):
 @inline
 def copy_6(x, y):
     dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    x[5] = y[5]
+    y[5] = x[5]
+    return
+
+
+def print_digest(digest):
+    for i in unroll(0, DIGEST_LEN):
+        print(digest[i])
     return
