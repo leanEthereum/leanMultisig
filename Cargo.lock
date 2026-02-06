@@ -401,6 +401,7 @@ dependencies = [
  "lean_compiler",
  "lean_vm",
  "multilinear-toolkit",
+ "owo-colors",
  "p3-koala-bear",
  "p3-poseidon2",
  "p3-symmetric",
@@ -552,6 +553,12 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "owo-colors"
+version = "4.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
 
 [[package]]
 name = "p3-challenger"
@@ -1038,6 +1045,7 @@ version = "0.1.0"
 dependencies = [
  "lean_vm",
  "multilinear-toolkit",
+ "owo-colors",
  "p3-koala-bear",
  "p3-util",
  "rand",
@@ -1354,7 +1362,6 @@ version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
  "p3-koala-bear",
- "p3-util",
  "rand",
  "sha3",
  "utils",

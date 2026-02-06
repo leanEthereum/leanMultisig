@@ -4,6 +4,7 @@ use crate::*;
 use air::prove_air;
 use lean_vm::*;
 
+use owo_colors::OwoColorize;
 use sub_protocols::*;
 use tracing::info_span;
 use utils::build_prover_state;
@@ -62,13 +63,14 @@ pub fn prove_execution(
     let mut table_log = String::new();
     for (table, trace) in &traces {
         table_log.push_str(&format!(
-            "{}: 2^{:.2} rows |",
+            "{}: 2^{} * (1 + {:.2}) rows | ",
             table.name(),
-            f64::log2(trace.non_padded_n_rows as f64)
+            trace.log_n_rows - 1,
+            (trace.non_padded_n_rows as f64) / (1 << (trace.log_n_rows - 1)) as f64 - 1.0
         ));
     }
-    table_log.pop(); // remove last '|'
-    info_span!("Trace tables sizes: {}", table_log).in_scope(|| {});
+    table_log = table_log.trim_end_matches(" | ").to_string();
+    tracing::info!("Trace tables sizes: {}", table_log.magenta());
 
     // TODO parrallelize
     let mut memory_acc = F::zero_vec(memory.len());

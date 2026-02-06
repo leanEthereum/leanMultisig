@@ -448,7 +448,7 @@ def print_ef(a):
 
 
 def print_vec(a):
-    for i in unroll(0, VECTOR_LEN):
+    for i in unroll(0, DIGEST_LEN):
         print(a[i])
     return
 

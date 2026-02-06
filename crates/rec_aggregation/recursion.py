@@ -61,7 +61,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     fs: Mut = fs_new(proof_transcript)
 
     # table dims
-    debug_assert(N_TABLES + 1 < VECTOR_LEN)
+    debug_assert(N_TABLES + 1 < DIGEST_LEN)
     fs, mem_and_table_dims = fs_receive_chunks(fs, 1)
     for i in unroll(N_TABLES + 1, 8):
         assert mem_and_table_dims[i] == 0

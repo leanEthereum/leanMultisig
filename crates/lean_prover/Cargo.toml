@@ -17,6 +17,7 @@ p3-koala-bear.workspace = true
 p3-symmetric.workspace = true
 p3-util.workspace = true
 tracing.workspace = true
+owo-colors.workspace = true
 air.workspace = true
 sub_protocols.workspace = true
 lean_vm.workspace = true

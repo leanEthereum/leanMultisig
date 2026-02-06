@@ -90,7 +90,7 @@ impl CustomHint {
 
     pub fn n_args_range(&self) -> Range<usize> {
         match self {
-            Self::DecomposeBitsXMSS => 3..usize::MAX,
+            Self::DecomposeBitsXMSS => 5..6,
             Self::DecomposeBits => 4..5,
             Self::LessThan => 3..4,
         }
@@ -99,15 +99,18 @@ impl CustomHint {
     pub fn execute(&self, args: &[MemOrConstant], ctx: &mut HintExecutionContext<'_>) -> Result<(), RunnerError> {
         match self {
             Self::DecomposeBitsXMSS => {
-                let decomposed = &args[0];
-                let remaining = &args[1];
-                let to_decompose = &args[2..];
-                let mut memory_index_decomposed = decomposed.read_value(ctx.memory, ctx.fp)?.to_usize();
-                let mut memory_index_remaining = remaining.read_value(ctx.memory, ctx.fp)?.to_usize();
-                for value_source in to_decompose {
-                    let value = value_source.read_value(ctx.memory, ctx.fp)?.to_usize();
-                    for i in 0..12 {
-                        let value = F::from_usize((value >> (2 * i)) & 0b11);
+                let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let remaining_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let to_decompose_ptr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let num_to_decompose = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let w = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(w == 2 || w == 3 || w == 4);
+                let mut memory_index_decomposed = decomposed_ptr;
+                let mut memory_index_remaining = remaining_ptr;
+                for i in 0..num_to_decompose {
+                    let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
+                    for i in 0..24 / w {
+                        let value = F::from_usize((value >> (w * i)) & ((1 << w) - 1));
                         ctx.memory.set(memory_index_decomposed, value)?;
                         memory_index_decomposed += 1;
                     }
