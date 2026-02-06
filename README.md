@@ -53,8 +53,6 @@ cargo run --release -- recursion --n 2
 | --------------- | --------------- |
 | 1.10s - 223 KiB | 1.05s - 134 KiB |
 
-(Note about proof size: remaining optimization = [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1)
-
 ## Credits
 
 - [Plonky3](https://github.com/Plonky3/Plonky3) for its various performant crates

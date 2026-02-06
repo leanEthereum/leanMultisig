@@ -14,6 +14,7 @@
 - XMSS: move from toy implem (usefull for benchmark) to a secure implem
 - Recursion: Remove the few hardcoded constants that depend on the guest execution (cycles etc)
 - About the ordering of the variables in sumchecks, currently we do as follows:
+- [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1
 
 [a, b, c, d, e, f, g, h]                                        (1st round of sumcheck)
 [(a-r).a + r.e, (1-r).b + r.f, (1-r).c + r.g, (1-r).d + r.h]    (2nd round of sumcheck)
