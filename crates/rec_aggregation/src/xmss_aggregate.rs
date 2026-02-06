@@ -8,7 +8,7 @@ use std::time::Instant;
 use std::{collections::BTreeMap, path::Path};
 use tracing::{info_span, instrument};
 use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, TARGET_SUM, V, V_GRINDING, W, XmssPublicKey, XmssSignature, slot_to_field_elements, xmss_verify_with_poseidon_trace
+    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, RANDOMNESS_LEN_FE, SIG_SIZE_FE, TARGET_SUM, V, V_GRINDING, W, XmssPublicKey, XmssSignature, slot_to_field_elements, xmss_verify_with_poseidon_trace
 };
 
 static XMSS_AGGREGATION_PROGRAM: OnceLock<Bytecode> = OnceLock::new();
@@ -76,6 +76,7 @@ fn compile_xmss_aggregation_program() -> Bytecode {
     replacements.insert("TARGET_SUM_PLACEHOLDER".to_string(), TARGET_SUM.to_string());
     replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());
     replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MESSAGE_LEN_FE.to_string());
+    replacements.insert("RANDOMNESS_LEN_PLACEHOLDER".to_string(), RANDOMNESS_LEN_FE.to_string());
     compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
 }
 
