@@ -37,7 +37,7 @@ Machine: M4 Max 48GB (CPU only)
 To reproduce:
 - `cargo run --release -- poseidon --log-n-perms 20`
 - `cargo run --release -- recursion --n 2`
-- `cargo run --release -- xmss --n-signatures 1350`
+- `cargo run --release -- xmss --n-signatures 1300`
 
 ## Proof size
 
