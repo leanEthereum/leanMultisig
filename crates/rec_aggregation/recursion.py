@@ -66,11 +66,14 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     for i in unroll(N_TABLES + 1, 8):
         assert mem_and_table_dims[i] == 0
     log_memory = mem_and_table_dims[0]
+
     table_dims = mem_and_table_dims + 1
+    log_cycles = table_dims[EXECUTION_TABLE_INDEX]
+    assert log_cycles <= log_memory
 
     for i in unroll(0, N_TABLES):
         n_vars_for_table = table_dims[i]
-        assert n_vars_for_table <= log_memory
+        assert n_vars_for_table <= log_cycles
         assert MIN_LOG_N_ROWS_PER_TABLE <= n_vars_for_table
         assert n_vars_for_table <= MAX_LOG_N_ROWS_PER_TABLE[i]
     assert MIN_LOG_MEMORY_SIZE <= log_memory

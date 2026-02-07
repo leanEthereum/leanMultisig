@@ -56,7 +56,7 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let parsed_commitment = packed_pcs_parse_commitment(
+    let parsed_commitment = stacked_pcs_parse_commitment(
         whir_config,
         &mut verifier_state,
         log_memory,
@@ -136,7 +136,7 @@ pub fn verify_execution(
         ),
     ];
 
-    let global_statements_base = packed_pcs_global_statements(
+    let global_statements_base = stacked_pcs_global_statements(
         parsed_commitment.num_variables,
         log_memory,
         bytecode.log_size(),

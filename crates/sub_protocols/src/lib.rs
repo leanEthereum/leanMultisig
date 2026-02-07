@@ -1,8 +1,8 @@
-mod generic_logup;
-pub use generic_logup::*;
+mod logup;
+pub use logup::*;
 
-mod packed_pcs;
-pub use packed_pcs::*;
+mod stacked_pcs;
+pub use stacked_pcs::*;
 
 mod quotient_gkr;
 pub use quotient_gkr::*;
