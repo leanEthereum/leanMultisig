@@ -1,23 +1,18 @@
 name: Rust
-
 on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: rust-ci-${{ github.ref }}
   cancel-in-progress: true
-
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-
 jobs:
   build-test-matrix:
     name: Build & Test (${{ matrix.name }})
@@ -30,25 +25,48 @@ jobs:
             os: ubuntu-latest
             rustflags: -C target-cpu=haswell
             run_tests: true
+            require_avx512: false
+
+          - name: x64-avx512
+            os: ubuntu-latest
+            rustflags: -C target-cpu=skylake-avx512
+            run_tests: true
+            require_avx512: true
 
           # TODO make arm64-neon work
-
           # - name: arm64-neon
           #   os: ubuntu-24.04-arm64
           #   rustflags: -C target-feature=+neon
           #   run_tests: true
+          #   require_avx512: false
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check AVX-512 support
+        if: ${{ matrix.require_avx512 }}
+        run: |
+          if grep -q avx512f /proc/cpuinfo; then
+            echo "✅ AVX-512 available"
+            grep -o 'avx512[a-z_]*' /proc/cpuinfo | sort -u
+          else
+            echo "::error::❌ AVX-512 not available on this runner"
+            exit 1
+          fi
+
       - name: Install nightly toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
+
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
+
       - name: Build
         run: cargo build --release --all --verbose
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
+
       - name: Test
         if: ${{ matrix.run_tests == true }}
         run: cargo test --release --all --verbose
