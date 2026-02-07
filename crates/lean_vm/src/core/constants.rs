@@ -15,9 +15,9 @@ pub const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
 /// Minimum and maximum number of rows per table (as powers of two), both inclusive
 pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to each at least, if this minimum is not reached, (ensuring AIR / GKR work fine, with SIMD, without too much edge cases). Long term, we should find a more elegant solution.
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
-    (Table::execution(), 29),
-    (Table::dot_product(), 24),
-    (Table::poseidon16(), 23),
+    (Table::execution(), 25),
+    (Table::dot_product(), 22),
+    (Table::poseidon16(), 21),
 ];
 
 /// Starting program counter
@@ -61,7 +61,7 @@ pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;
 #[cfg(test)]
 mod tests {
     use multilinear_toolkit::prelude::PrimeField64;
-    use p3_util::log2_ceil_usize;
+    use p3_util::log2_ceil_u64;
 
     use crate::{DIMENSION, F, MAX_LOG_N_ROWS_PER_TABLE, Table, TableT};
 
@@ -88,7 +88,16 @@ mod tests {
                 .find(|(table, _)| *table == Table::execution())
                 .unwrap()
                 .1
-                < log2_ceil_usize(F::ORDER_U64 as usize)
+                < log2_ceil_u64(F::ORDER_U64) as usize
         );
+    }
+
+    #[test]
+    fn ensure_not_too_big_commitment_surface() {
+        let mut max_surface: u64 = 0;
+        for (table, max_log_n_rows) in MAX_LOG_N_ROWS_PER_TABLE {
+            max_surface += (table.n_committed_columns() as u64) << (max_log_n_rows as u64);
+        }
+        assert!(max_surface < F::ORDER_U64.next_power_of_two() / 2);
     }
 }

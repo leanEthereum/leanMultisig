@@ -179,7 +179,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         pcs_values.push(DynArray([]))
         pcs_values[i].push(DynArray([]))
         total_num_cols = NUM_COLS_F_AIR[i] + DIM * NUM_COLS_EF_AIR[i]
-        for col in unroll(0, total_num_cols):
+        for _ in unroll(0, total_num_cols):
             pcs_values[i][0].push(DynArray([]))
 
     for table_index in unroll(0, N_TABLES):
