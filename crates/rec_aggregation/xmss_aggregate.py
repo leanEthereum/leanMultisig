@@ -13,7 +13,7 @@ SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIGEST_LEN
 NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W)) # 24 should be divisible by W (works for W=2,3,4)
 
 # Dot product precompile:
-DIM = 5
+DIM = 6
 BE = 1  # base-extension (unused for XMSS)
 EE = 0  # extension-extension
 
@@ -195,7 +195,6 @@ def copy_7(x, y):
 @inline
 def copy_6(x, y):
     dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    y[5] = x[5]
     return
 
 

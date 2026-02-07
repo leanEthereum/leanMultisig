@@ -1,18 +1,18 @@
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::QuinticExtensionFieldKB;
+use p3_koala_bear::SexticExtensionFieldKB;
 
 use crate::Poseidon16;
 use crate::get_poseidon16;
 
 pub type VarCount = usize;
 
-pub fn build_prover_state() -> ProverState<QuinticExtensionFieldKB, Poseidon16> {
+pub fn build_prover_state() -> ProverState<SexticExtensionFieldKB, Poseidon16> {
     ProverState::new(get_poseidon16().clone())
 }
 
 pub fn build_verifier_state(
-    prover_state: ProverState<QuinticExtensionFieldKB, Poseidon16>,
-) -> VerifierState<QuinticExtensionFieldKB, Poseidon16> {
+    prover_state: ProverState<SexticExtensionFieldKB, Poseidon16>,
+) -> VerifierState<SexticExtensionFieldKB, Poseidon16> {
     VerifierState::new(prover_state.raw_proof(), get_poseidon16().clone())
 }
 

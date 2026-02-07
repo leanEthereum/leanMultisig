@@ -1,4 +1,4 @@
-use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB};
+use p3_koala_bear::{KoalaBear, QuinticExtensionFieldKB, SexticExtensionFieldKB};
 use std::{
     cmp::Ordering,
     fmt::{Display, Formatter},
@@ -8,7 +8,7 @@ use std::{
 pub type F = KoalaBear;
 
 /// Extension field type for VM operations
-pub type EF = QuinticExtensionFieldKB;
+pub type EF = SexticExtensionFieldKB;
 
 /// Line number in source code for debugging
 pub type SourceLineNumber = usize;

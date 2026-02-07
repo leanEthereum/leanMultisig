@@ -1,5 +1,5 @@
 [package]
-name = "lean-multisig"
+name = "koala-bear-6"
 version.workspace = true
 edition.workspace = true
 
@@ -67,15 +67,15 @@ num_enum = "0.7.5"
 owo-colors = "4.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }
-p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-baby-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
-p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "lean-multisig" }
+p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-6" }
+p3-baby-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-6" }
+p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-6" }
+p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-6" }
+p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-6" }
+p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-6" }
+p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-6" }
 
-multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
+multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git", branch = "koala-bear-6" }
 
 [dependencies]
 clap.workspace = true

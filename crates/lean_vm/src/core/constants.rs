@@ -1,7 +1,7 @@
 use crate::Table;
 
 /// Large field = extension field of degree DIMENSION over koala-bear
-pub const DIMENSION: usize = 5;
+pub const DIMENSION: usize = 6;
 
 pub const DIGEST_LEN: usize = 8;
 
