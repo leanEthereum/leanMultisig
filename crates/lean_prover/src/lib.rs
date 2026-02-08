@@ -24,7 +24,7 @@ pub fn default_whir_config(starting_log_inv_rate: usize, prox_gaps_conjecture: b
     WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 5),
         soundness_type: if prox_gaps_conjecture {
-            SecurityAssumption::CapacityBound // TODO update formula with State of Art Conjecture
+            SecurityAssumption::CapacityBound // TODO update formula with State of the Art Conjecture
         } else {
             SecurityAssumption::JohnsonBound
         },

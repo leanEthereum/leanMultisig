@@ -40,13 +40,13 @@ pub fn prove_generic_logup(
     assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());
 
     let log_bytecode = log2_strict_usize(bytecode_multilinear.len() / N_INSTRUCTION_COLUMNS.next_power_of_two());
-    let tables_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
-    let tables_heights_sorted = sort_tables_by_height(&tables_heights);
+    let tables_log_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
+    let tables_log_heights_sorted = sort_tables_by_height(&tables_log_heights);
 
     let total_gkr_n_vars = compute_total_gkr_n_vars(
         log2_strict_usize(memory.len()),
         log_bytecode,
-        &tables_heights_sorted.iter().cloned().collect(),
+        &tables_log_heights_sorted.iter().cloned().collect(),
     );
     let mut numerators = EF::zero_vec(1 << total_gkr_n_vars);
     let mut denominators = EF::zero_vec(1 << total_gkr_n_vars);
@@ -91,7 +91,7 @@ pub fn prove_generic_logup(
                 alphas_eq_poly,
             )
         });
-    let max_table_height = 1 << tables_heights_sorted[0].1;
+    let max_table_height = 1 << tables_log_heights_sorted[0].1;
     if 1 << log_bytecode < max_table_height {
         // padding
         denominators[offset + (1 << log_bytecode)..offset + max_table_height]
@@ -100,7 +100,7 @@ pub fn prove_generic_logup(
     }
     offset += max_table_height.max(1 << log_bytecode);
     // ... Rest of the tables:
-    for (table, _) in &tables_heights_sorted {
+    for (table, _) in &tables_log_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
@@ -247,7 +247,7 @@ pub fn prove_generic_logup(
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
     let mut offset = memory.len() + max_table_height.max(1 << log_bytecode);
-    for (table, _) in &tables_heights_sorted {
+    for (table, _) in &tables_log_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
@@ -563,12 +563,12 @@ fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {
 fn compute_total_gkr_n_vars(
     log_memory: usize,
     log_bytecode: usize,
-    tables_heights: &BTreeMap<Table, VarCount>,
+    tables_log_heights: &BTreeMap<Table, VarCount>,
 ) -> usize {
-    let max_table_height = 1 << tables_heights.values().copied().max().unwrap();
+    let max_table_height = 1 << tables_log_heights.values().copied().max().unwrap();
     let total_len = (1 << log_memory)
-        + (1 << log_bytecode).max(max_table_height) + (1 << tables_heights[&Table::execution()]) // bytecode
-        + tables_heights
+        + (1 << log_bytecode).max(max_table_height) + (1 << tables_log_heights[&Table::execution()]) // bytecode
+        + tables_log_heights
             .iter()
             .map(|(table, log_n_rows)| offset_for_table(table, *log_n_rows))
             .sum::<usize>();

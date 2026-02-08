@@ -185,13 +185,13 @@ pub fn prove_execution(
         ),
     ];
 
-    let table_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
+    let tables_log_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let global_statements_base = stacked_pcs_global_statements(
         stacked_pcs_witness.stacked_n_vars,
         log2_strict_usize(memory.len()),
         bytecode.log_size(),
         previous_statements,
-        &table_heights,
+        &tables_log_heights,
         &committed_statements,
     );
 

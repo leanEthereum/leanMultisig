@@ -69,8 +69,8 @@ impl TableTrace {
     }
 }
 
-pub fn sort_tables_by_height(table_heights: &BTreeMap<Table, usize>) -> Vec<(Table, usize)> {
-    let mut tables_heights_sorted = table_heights.clone().into_iter().collect::<Vec<_>>();
+pub fn sort_tables_by_height(tables_log_heights: &BTreeMap<Table, usize>) -> Vec<(Table, usize)> {
+    let mut tables_heights_sorted = tables_log_heights.clone().into_iter().collect::<Vec<_>>();
     tables_heights_sorted.sort_by_key(|&(_, h)| Reverse(h));
     tables_heights_sorted
 }

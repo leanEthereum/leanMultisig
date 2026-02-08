@@ -97,10 +97,6 @@ def main():
     );
 
     // VM recursion parameters (different from WHIR)
-    replacements.insert(
-        "N_VARS_LOGUP_GKR_PLACEHOLDER".to_string(),
-        verif_details.first_quotient_gkr_n_vars.to_string(),
-    );
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
     replacements.insert(
         "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
