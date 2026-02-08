@@ -3,7 +3,6 @@ from snark_lib import *
 DIM = 5  # extension degree
 DIGEST_LEN = 8
 
-WHIR_MERKLE_HEIGHTS = WHIR_MERKLE_HEIGHTS_PLACEHOLDER
 WHIR_NUM_QUERIES = WHIR_NUM_QUERIES_PLACEHOLDER
 WHIR_N_ROUNDS = len(WHIR_NUM_QUERIES) - 1
 
@@ -55,30 +54,25 @@ def slice_hash(data, len):
 
 
 def merkle_verif_batch(merkle_paths, leaves_digests, leave_positions, root, height, num_queries):
-    for i in unroll(0, WHIR_N_ROUNDS + 1):
-        if height + num_queries * 1000 == WHIR_MERKLE_HEIGHTS[i] + WHIR_NUM_QUERIES[i] * 1000:
-            merkle_verif_batch_const(
-                WHIR_NUM_QUERIES[i],
-                merkle_paths,
-                leaves_digests,
-                leave_positions,
-                root,
-                WHIR_MERKLE_HEIGHTS[i],
-            )
-            return
-    print(12345555)
-    print(height)
-    assert False
+    match_range(height, range(10, 26), lambda h: merkle_verif_batch_const(
+        num_queries,
+        merkle_paths,
+        leaves_digests,
+        leave_positions,
+        root,
+        h,
+    ))
+    return
 
 
-def merkle_verif_batch_const(n_paths: Const, merkle_paths, leaves_digests, leave_positions, root, height: Const):
+def merkle_verif_batch_const(n_paths, merkle_paths, leaves_digests, leave_positions, root, height: Const):
     # n_paths: F
     # leaves_digests: pointer to a slice of n_paths vectorized pointers, each pointing to 1 chunk of 8 field elements
     # leave_positions: pointer to a slice of n_paths field elements (each < 2^height)
     # root: vectorized pointer to 1 chunk of 8 field elements
     # height: F
 
-    for i in unroll(0, n_paths):
+    for i in range(0, n_paths):
         merkle_verify(
             leaves_digests[i],
             merkle_paths + (i * height) * DIGEST_LEN,

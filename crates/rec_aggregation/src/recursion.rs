@@ -359,9 +359,6 @@ pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<E
     let mut num_queries = vec![];
     let mut ood_samples = vec![];
     let mut grinding_bits = vec![];
-    let merkle_heights = (0..=whir_config.n_rounds())
-        .map(|r| whir_config.merkle_tree_height(r).to_string())
-        .collect::<Vec<_>>();
     let mut folding_factors = vec![];
     for round in &whir_config.round_parameters {
         num_queries.push(round.num_queries.to_string());
@@ -375,10 +372,6 @@ pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<E
 
     let end = "_PLACEHOLDER";
     let mut replacements = BTreeMap::new();
-    replacements.insert(
-        format!("WHIR_MERKLE_HEIGHTS{}", end),
-        format!("[{}]", merkle_heights.join(", ")),
-    );
     replacements.insert(
         format!("WHIR_NUM_QUERIES{}", end),
         format!("[{}]", num_queries.join(", ")),
