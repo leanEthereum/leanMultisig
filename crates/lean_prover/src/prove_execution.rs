@@ -142,7 +142,11 @@ pub fn prove_execution(
     let air_alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
 
-    for (table, trace) in traces.iter() {
+    let tables_log_heights: BTreeMap<Table, VarCount> =
+        traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
+    let tables_sorted = sort_tables_by_height(&tables_log_heights);
+    for (table, _) in &tables_sorted {
+        let trace = &traces[table];
         let this_air_claims = prove_bus_and_air(
             &mut prover_state,
             table,
@@ -185,7 +189,6 @@ pub fn prove_execution(
         ),
     ];
 
-    let tables_log_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let global_statements_base = stacked_pcs_global_statements(
         stacked_pcs_witness.stacked_n_vars,
         log2_strict_usize(memory.len()),

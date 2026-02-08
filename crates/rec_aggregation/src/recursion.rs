@@ -18,13 +18,6 @@ use sub_protocols::min_stacked_n_vars;
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 
 pub fn run_recursion_benchmark(count: usize, log_inv_rate: usize, prox_gaps_conjecture: bool, tracing: bool) {
-    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("recursion.py")
-        .to_str()
-        .unwrap()
-        .to_string();
-
-    let inner_whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
     let program_to_prove = r#"
 DIM = 5
 POSEIDON_OF_ZERO = POSEIDON_OF_ZERO_PLACEHOLDER
@@ -53,6 +46,45 @@ def main():
     return
 "#
     .replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
+    run_recursion_benchmark_with_program(count, log_inv_rate, prox_gaps_conjecture, tracing, &program_to_prove);
+}
+
+#[test]
+fn test_end2end_recursion_poseidon_heavy() {
+    // Poseidon table larger than dot_product table (reversed ordering)
+    let program_to_prove = r#"
+DIM = 5
+POSEIDON_OF_ZERO = POSEIDON_OF_ZERO_PLACEHOLDER
+BE = 1
+
+def main():
+    for i in range(0, 1000):
+        null_ptr = ZERO_VEC_PTR
+        poseidon_of_zero = POSEIDON_OF_ZERO
+        poseidon16(null_ptr, null_ptr, poseidon_of_zero)
+        poseidon16(null_ptr, null_ptr, poseidon_of_zero)
+        poseidon16(null_ptr, null_ptr, poseidon_of_zero)
+    dot_product(ZERO_VEC_PTR, ZERO_VEC_PTR, ZERO_VEC_PTR, 2, BE)
+    return
+"#
+    .replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
+    run_recursion_benchmark_with_program(1, 2, false, false, &program_to_prove);
+}
+
+fn run_recursion_benchmark_with_program(
+    count: usize,
+    log_inv_rate: usize,
+    prox_gaps_conjecture: bool,
+    tracing: bool,
+    program_to_prove: &str,
+) {
+    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("recursion.py")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let inner_whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
     let bytecode_to_prove = compile_program(&ProgramSource::Raw(program_to_prove.to_string()));
     precompute_dft_twiddles::<F>(1 << 24);
     let inner_public_input = vec![];
@@ -75,21 +107,6 @@ def main():
     let outer_whir_config = WhirConfig::<EF>::new(&inner_whir_config, proof_to_prove.whir_n_vars);
 
     let mut replacements = whir_recursion_placeholder_replacements(&outer_whir_config);
-
-    assert!(
-        verif_details.log_memory >= verif_details.table_n_vars[&Table::execution()]
-            && verif_details
-                .table_n_vars
-                .values()
-                .collect::<Vec<_>>()
-                .windows(2)
-                .all(|w| w[0] >= w[1]),
-        "TODO a more general recursion program",
-    );
-    assert_eq!(
-        verif_details.table_n_vars.keys().copied().collect::<Vec<_>>(),
-        vec![Table::execution(), Table::dot_product(), Table::poseidon16()]
-    );
 
     let log_bytecode = log2_ceil_usize(bytecode_to_prove.instructions.len());
     let min_stacked = min_stacked_n_vars(log_bytecode);

@@ -643,10 +643,13 @@ fn compile_time_transform_in_lines(
                 end,
                 body,
                 unroll: true,
-                location
+                location,
             } => {
                 let (Some(start), Some(end)) = (start.as_scalar(), end.as_scalar()) else {
-                    return Err(format!("line {}: Cannot unroll loop with non-constant bounds", location));
+                    return Err(format!(
+                        "line {}: Cannot unroll loop with non-constant bounds",
+                        location
+                    ));
                 };
                 let unroll_index = unroll_counter.get_next();
                 let (internal_vars, _) = find_variable_usage(body, const_arrays);

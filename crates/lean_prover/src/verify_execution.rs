@@ -97,7 +97,8 @@ pub fn verify_execution(
     let air_alpha = verifier_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
 
-    for (table, log_n_rows) in &table_n_vars {
+    let tables_sorted = sort_tables_by_height(&table_n_vars);
+    for (table, log_n_rows) in &tables_sorted {
         let this_air_claims = verify_bus_and_air(
             &mut verifier_state,
             table,

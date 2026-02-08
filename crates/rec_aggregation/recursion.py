@@ -183,6 +183,17 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     )
     offset += powers_of_two(log_bytecode_padded)
 
+    # Dispatch based on table height ordering (sorted by descending height)
+    if maximum(table_log_heights[1], table_log_heights[2]) == table_log_heights[1]:
+        continue_recursion_ordered(1, 2, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, inner_public_memory_log_size, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc)
+    else:
+        continue_recursion_ordered(2, 1, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, inner_public_memory_log_size, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc)
+
+    return
+
+
+@inline
+def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, inner_public_memory_log_size, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc):
     bus_numerators_values = DynArray([])
     bus_denominators_values = DynArray([])
     pcs_points = DynArray([])  # [[_; N]; N_TABLES]
@@ -196,7 +207,14 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         for _ in unroll(0, total_num_cols):
             pcs_values[i][0].push(DynArray([]))
 
-    for table_index in unroll(0, N_TABLES):
+    for sorted_pos in unroll(0, N_TABLES):
+        table_index: Imu
+        if sorted_pos == 0:
+            table_index = EXECUTION_TABLE_INDEX
+        if sorted_pos == 1:
+            table_index = second_table
+        if sorted_pos == 2:
+            table_index = third_table
         # I] Bus (data flow between tables)
 
         log_n_rows = table_log_heights[table_index]
@@ -322,10 +340,17 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     fs, air_alpha = fs_sample_ef(fs)
     air_alpha_powers = powers_const(air_alpha, MAX_NUM_AIR_CONSTRAINTS + 1)
 
-    for table_index in unroll(0, N_TABLES):
+    for sorted_pos in unroll(0, N_TABLES):
+        table_index: Imu
+        if sorted_pos == 0:
+            table_index = EXECUTION_TABLE_INDEX
+        if sorted_pos == 1:
+            table_index = second_table
+        if sorted_pos == 2:
+            table_index = third_table
         log_n_rows = table_log_heights[table_index]
-        bus_numerator_value = bus_numerators_values[table_index]
-        bus_denominator_value = bus_denominators_values[table_index]
+        bus_numerator_value = bus_numerators_values[sorted_pos]
+        bus_denominator_value = bus_denominators_values[sorted_pos]
         total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index]
 
         bus_final_value: Mut = bus_numerator_value
@@ -476,7 +501,14 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     whir_sum = add_extension_ret(mul_extension_ret(embed_in_ef(ENDING_PC), curr_randomness), whir_sum)
     curr_randomness += DIM
 
-    for table_index in unroll(0, N_TABLES):
+    for sorted_pos in unroll(0, N_TABLES):
+        table_index: Imu
+        if sorted_pos == 0:
+            table_index = EXECUTION_TABLE_INDEX
+        if sorted_pos == 1:
+            table_index = second_table
+        if sorted_pos == 2:
+            table_index = third_table
         debug_assert(len(pcs_points[table_index]) == len(pcs_values[table_index]))
         for i in unroll(0, len(pcs_values[table_index])):
             for j in unroll(0, len(pcs_values[table_index][i])):
@@ -572,7 +604,14 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_end))
     curr_randomness += DIM
 
-    for table_index in unroll(0, N_TABLES):
+    for sorted_pos in unroll(0, N_TABLES):
+        table_index: Imu
+        if sorted_pos == 0:
+            table_index = EXECUTION_TABLE_INDEX
+        if sorted_pos == 1:
+            table_index = second_table
+        if sorted_pos == 2:
+            table_index = third_table
         log_n_rows = table_log_heights[table_index]
         n_rows = table_heights[table_index]
         total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index]
@@ -598,7 +637,6 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         offset += n_rows * total_num_cols
 
     copy_5(mul_extension_ret(s, final_value), end_sum)
-
     return
 
 
