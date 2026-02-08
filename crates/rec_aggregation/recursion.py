@@ -710,7 +710,7 @@ def compute_total_gkr_n_vars(log_memory, log_bytecode_padded, tables_heights):
         total_lookup_values: Mut = 0
         for i in unroll(0, len(LOOKUPS_F_INDEXES[table_index])):
             total_lookup_values += len(LOOKUPS_F_VALUES[table_index][i])
-            total_lookup_values += DIM * len(LOOKUPS_EF_VALUES[table_index])
+        total_lookup_values += DIM * len(LOOKUPS_EF_VALUES[table_index])
         total_lookup_values += 1 # for the bus
         total += n_rows * total_lookup_values
     return log2_ceil_runtime(total)
