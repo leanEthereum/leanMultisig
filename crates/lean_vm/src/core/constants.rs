@@ -7,7 +7,7 @@ pub const DIGEST_LEN: usize = 8;
 
 /// Minimum and maximum memory size (as powers of two)
 pub const MIN_LOG_MEMORY_SIZE: usize = 16;
-pub const MAX_LOG_MEMORY_SIZE: usize = 25;
+pub const MAX_LOG_MEMORY_SIZE: usize = 26;
 
 /// Maximum memory size for VM runner (specific to this implementation)
 pub const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
@@ -15,9 +15,9 @@ pub const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
 /// Minimum and maximum number of rows per table (as powers of two), both inclusive
 pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to each at least, if this minimum is not reached, (ensuring AIR / GKR work fine, with SIMD, without too much edge cases). Long term, we should find a more elegant solution.
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
-    (Table::execution(), 24),
-    (Table::dot_product(), 20),
-    (Table::poseidon16(), 20),
+    (Table::execution(), 25),
+    (Table::dot_product(), 21),
+    (Table::poseidon16(), 21),
 ];
 
 /// Starting program counter
@@ -98,6 +98,6 @@ mod tests {
         for (table, max_log_n_rows) in MAX_LOG_N_ROWS_PER_TABLE {
             max_surface += (table.n_committed_columns() as u64) << (max_log_n_rows as u64);
         }
-        assert!(max_surface <= 1 << 29); // Maximum data we can commit via WHIR using an initial folding factor of 7
+        assert!(max_surface <= 1 << 30); // Maximum data we can commit via WHIR using an initial folding factor of 7, and rate = 1/2
     }
 }
