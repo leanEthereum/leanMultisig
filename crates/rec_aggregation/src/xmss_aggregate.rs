@@ -223,7 +223,7 @@ pub fn xmss_verify_aggregated_signatures(
         program,
         &public_input,
         proof,
-        &default_whir_config(log_inv_rate, prox_gaps_conjecture),
+        default_whir_config(log_inv_rate, prox_gaps_conjecture),
     )
     .map(|_| ())
 }

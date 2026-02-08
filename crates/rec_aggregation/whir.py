@@ -1,7 +1,6 @@
 from snark_lib import *
 from fiat_shamir import *
 
-WHIR_LOG_INV_RATE = WHIR_LOG_INV_RATE_PLACEHOLDER
 WHIR_FOLDING_FACTORS = WHIR_FOLDING_FACTORS_PLACEHOLDER
 WHIR_FINAL_VARS = WHIR_FINAL_VARS_PLACEHOLDER
 WHIR_FIRST_RS_REDUCTION_FACTOR = WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER
@@ -13,6 +12,7 @@ WHIR_GRINDING_BITS = WHIR_GRINDING_BITS_PLACEHOLDER
 def whir_open(
     fs: Mut,
     n_vars,
+    initial_log_inv_rate,
     root: Mut,
     ood_points_commit,
     combination_randomness_powers_0,
@@ -23,7 +23,7 @@ def whir_open(
     all_circle_values = Array(WHIR_N_ROUNDS + 1)
     all_combination_randomness_powers = Array(WHIR_N_ROUNDS)
 
-    domain_sz: Mut = n_vars + WHIR_LOG_INV_RATE
+    domain_sz: Mut = n_vars + initial_log_inv_rate
     for r in unroll(0, WHIR_N_ROUNDS):
         is_first_round: Imu
         if r == 0:

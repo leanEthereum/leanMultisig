@@ -5,6 +5,9 @@ pub const DIMENSION: usize = 5;
 
 pub const DIGEST_LEN: usize = 8;
 
+pub const MIN_WHIR_LOG_INV_RATE: usize = 1;
+pub const MAX_WHIR_LOG_INV_RATE: usize = 4;
+
 /// Minimum and maximum memory size (as powers of two)
 pub const MIN_LOG_MEMORY_SIZE: usize = 16;
 pub const MAX_LOG_MEMORY_SIZE: usize = 26;

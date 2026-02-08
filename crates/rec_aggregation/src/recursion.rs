@@ -65,19 +65,11 @@ def main():
         &bytecode_to_prove,
         &inner_public_input,
         proof_to_prove.proof.clone(),
-        &inner_whir_config,
+        inner_whir_config.clone(),
     )
     .unwrap();
 
     let outer_whir_config = WhirConfig::<EF>::new(&inner_whir_config, proof_to_prove.whir_n_vars);
-
-    // let guest_program_commitment = {
-    //     let mut prover_state = build_prover_state();
-    //     let polynomial = MleOwned::Base(bytecode_to_multilinear_polynomial(&bytecode_to_prove.instructions));
-    //     let witness = ext_whir.commit(&mut prover_state, &polynomial);
-    //     let commitment_transcript = prover_state.proof().to_vec();
-    //     assert_eq!(commitment_transcript.len(), ext_whir.committment_ood_samples * DIMENSION + VECTOR_LEN);
-    // };
 
     let mut replacements = whir_recursion_placeholder_replacements(&outer_whir_config);
 
@@ -106,6 +98,14 @@ def main():
     max_log_n_rows_per_table.sort_by_key(|(table, _)| table.index());
     max_log_n_rows_per_table.dedup();
     assert_eq!(max_log_n_rows_per_table.len(), N_TABLES);
+    replacements.insert(
+        "MIN_WHIR_LOG_INV_RATE_PLACEHOLDER".to_string(),
+        MIN_WHIR_LOG_INV_RATE.to_string(),
+    );
+    replacements.insert(
+        "MAX_WHIR_LOG_INV_RATE_PLACEHOLDER".to_string(),
+        MAX_WHIR_LOG_INV_RATE.to_string(),
+    );
     replacements.insert(
         "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
         format!(
@@ -335,7 +335,7 @@ def main():
         &recursion_bytecode,
         &outer_public_input,
         recursion_proof.proof,
-        &default_whir_config(log_inv_rate, prox_gaps_conjecture),
+        default_whir_config(log_inv_rate, prox_gaps_conjecture),
     )
     .unwrap();
     println!(
@@ -395,10 +395,6 @@ pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<E
     replacements.insert(
         format!("WHIR_FOLDING_FACTORS{}", end),
         format!("[{}]", folding_factors.join(", ")),
-    );
-    replacements.insert(
-        format!("WHIR_LOG_INV_RATE{}", end),
-        whir_config.starting_log_inv_rate.to_string(),
     );
     replacements.insert(
         format!("WHIR_FINAL_VARS{}", end),

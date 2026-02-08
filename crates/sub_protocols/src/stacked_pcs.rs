@@ -167,6 +167,11 @@ pub fn stacked_pcs_parse_commitment(
     }
 
     let stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode, tables_heights);
+    if stacked_n_vars
+        > F::TWO_ADICITY + whir_config_builder.folding_factor.at_round(0) - whir_config_builder.starting_log_inv_rate
+    {
+        return Err(ProofError::InvalidProof);
+    }
     WhirConfig::new(whir_config_builder, stacked_n_vars).parse_commitment(verifier_state)
 }
 

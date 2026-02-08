@@ -2,6 +2,9 @@ from snark_lib import *
 from whir import *
 
 N_TABLES = N_TABLES_PLACEHOLDER
+
+MIN_WHIR_LOG_INV_RATE = MIN_WHIR_LOG_INV_RATE_PLACEHOLDER
+MAX_WHIR_LOG_INV_RATE = MAX_WHIR_LOG_INV_RATE_PLACEHOLDER
 MIN_LOG_N_ROWS_PER_TABLE = MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER
 MAX_LOG_N_ROWS_PER_TABLE = MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER
 MIN_LOG_MEMORY_SIZE = MIN_LOG_MEMORY_SIZE_PLACEHOLDER
@@ -61,12 +64,16 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     # table dims
     debug_assert(N_TABLES + 1 < DIGEST_LEN)
-    fs, mem_and_table_dims = fs_receive_chunks(fs, 1)
-    for i in unroll(N_TABLES + 1, 8):
-        assert mem_and_table_dims[i] == 0
-    log_memory = mem_and_table_dims[0]
+    fs, dims = fs_receive_chunks(fs, 1)
+    for i in unroll(N_TABLES + 2, 8):
+        assert dims[i] == 0
+    whir_log_inv_rate = dims[0]
+    log_memory = dims[1]
+    table_log_heights = dims + 2
 
-    table_log_heights = mem_and_table_dims + 1
+    assert MIN_WHIR_LOG_INV_RATE <= whir_log_inv_rate
+    assert whir_log_inv_rate <= MAX_WHIR_LOG_INV_RATE
+
     log_n_cycles = table_log_heights[EXECUTION_TABLE_INDEX]
     assert log_n_cycles <= log_memory
 
@@ -85,6 +92,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     assert log_memory <= GUEST_BYTECODE_LEN
 
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
+    assert stacked_n_vars <= TWO_ADICITY + WHIR_FOLDING_FACTORS[0] - whir_log_inv_rate
 
     fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, WHIR_NUM_OOD_COMMIT)
 
@@ -486,6 +494,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     fs, folding_randomness_global, s, final_value, end_sum = whir_open(
         fs,
         stacked_n_vars,
+        whir_log_inv_rate,
         whir_base_root,
         whir_base_ood_points,
         combination_randomness_powers,

@@ -162,7 +162,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
         &bytecode,
         public_input,
         proof.proof.clone(),
-        &default_whir_config(starting_log_inv_rate, false),
+        default_whir_config(starting_log_inv_rate, false),
     )
     .unwrap();
     println!("{}", proof.exec_summary);
@@ -183,7 +183,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
                 &bytecode,
                 public_input,
                 fuzzed_proof,
-                &default_whir_config(starting_log_inv_rate, false),
+                default_whir_config(starting_log_inv_rate, false),
             );
             assert!(verify_result.is_err(), "Fuzzing failed at index {}", i);
         }

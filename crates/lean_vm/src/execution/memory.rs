@@ -50,7 +50,7 @@ impl Memory {
             if index >= 1 << MAX_LOG_MEMORY_SIZE {
                 return Err(RunnerError::OutOfMemory);
             }
-            self.0.resize((index + 1).next_power_of_two(), None);
+            self.0.resize(index + 1, None);
         }
         if let Some(existing) = &mut self.0[index] {
             if *existing != value {

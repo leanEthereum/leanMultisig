@@ -20,17 +20,22 @@ pub fn verify_execution(
     bytecode: &Bytecode,
     public_input: &[F],
     proof: Vec<F>,
-    whir_config: &WhirConfigBuilder,
+    mut whir_config: WhirConfigBuilder,
 ) -> Result<ProofVerificationDetails, ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
 
     let dims = verifier_state
-        .next_base_scalars_vec(1 + N_TABLES)?
+        .next_base_scalars_vec(2 + N_TABLES)?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>();
-    let log_memory = dims[0];
-    let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 1])).collect();
+    let log_inv_rate = dims[0];
+    let log_memory = dims[1];
+    let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 2])).collect();
+    if !(MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE).contains(&log_inv_rate) {
+        return Err(ProofError::InvalidProof);
+    }
+    whir_config.starting_log_inv_rate = log_inv_rate;
     for (table, &n_vars) in &table_n_vars {
         if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
             return Err(ProofError::InvalidProof);
@@ -57,7 +62,7 @@ pub fn verify_execution(
     }
 
     let parsed_commitment = stacked_pcs_parse_commitment(
-        whir_config,
+        &whir_config,
         &mut verifier_state,
         log_memory,
         bytecode.log_size(),
@@ -145,7 +150,7 @@ pub fn verify_execution(
         &committed_statements,
     );
     let total_whir_statements = global_statements_base.iter().map(|s| s.values.len()).sum();
-    WhirConfig::new(whir_config, parsed_commitment.num_variables).verify(
+    WhirConfig::new(&whir_config, parsed_commitment.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment,
         global_statements_base,

@@ -51,7 +51,7 @@ pub fn prove_execution(
     let mut prover_state = build_prover_state();
     prover_state.add_base_scalars(
         &[
-            vec![log2_strict_usize(memory.len())],
+            vec![whir_config.starting_log_inv_rate, log2_strict_usize(memory.len())],
             traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
         ]
         .concat()
