@@ -59,8 +59,8 @@ def unit_root_pow_const(domain_size: Const, index_bits):
 
 
 def poly_eq_extension_dynamic(point, n):
-    debug_assert(n < 10)
-    res = match_range(n, range(0, 1), lambda i: ONE_VEC_PTR, range(1, 8), lambda i: poly_eq_extension(point, i))
+    debug_assert(n < 9)
+    res = match_range(n, range(0, 1), lambda i: ONE_VEC_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
     return res
 
 
