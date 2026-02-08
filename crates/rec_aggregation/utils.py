@@ -513,10 +513,11 @@ def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
     hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)
     sum: Mut = bits[n_bits - 1]
-    power_of_2: Mut = 1
+    assert sum * (1 - sum) == 0
     for i in unroll(1, n_bits):
-        power_of_2 *= 2
-        sum += bits[n_bits - 1 - i] * power_of_2
+        b = bits[n_bits - 1 - i]
+        assert b * (1 - b) == 0
+        sum += b * 2**i
     assert to_decompose == sum
     return bits
 
