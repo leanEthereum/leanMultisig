@@ -27,7 +27,7 @@ def powers(alpha, n):
     # n: F
     assert n < 256
     assert 0 < n
-    res = match_range(n, range(1, 128), lambda i: powers_const(alpha, i))
+    res = match_range(n, range(1, 256), lambda i: powers_const(alpha, i))
     return res
 
 
