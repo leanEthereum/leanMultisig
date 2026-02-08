@@ -1,5 +1,6 @@
 //! Memory management for the VM
-use crate::core::{DIMENSION, EF, F, MAX_RUNNER_MEMORY_SIZE};
+use crate::MAX_LOG_MEMORY_SIZE;
+use crate::core::{DIMENSION, EF, F};
 use crate::diagnostics::RunnerError;
 use multilinear_toolkit::prelude::*;
 
@@ -46,10 +47,10 @@ impl Memory {
     /// or if we exceed memory limits
     pub fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
         if index >= self.0.len() {
-            if index >= MAX_RUNNER_MEMORY_SIZE {
+            if index >= 1 << MAX_LOG_MEMORY_SIZE {
                 return Err(RunnerError::OutOfMemory);
             }
-            self.0.resize(index + 1, None);
+            self.0.resize((index + 1).next_power_of_two(), None);
         }
         if let Some(existing) = &mut self.0[index] {
             if *existing != value {

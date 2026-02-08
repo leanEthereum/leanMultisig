@@ -9,9 +9,6 @@ pub const DIGEST_LEN: usize = 8;
 pub const MIN_LOG_MEMORY_SIZE: usize = 16;
 pub const MAX_LOG_MEMORY_SIZE: usize = 26;
 
-/// Maximum memory size for VM runner (specific to this implementation)
-pub const MAX_RUNNER_MEMORY_SIZE: usize = 1 << 24;
-
 /// Minimum and maximum number of rows per table (as powers of two), both inclusive
 pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to each at least, if this minimum is not reached, (ensuring AIR / GKR work fine, with SIMD, without too much edge cases). Long term, we should find a more elegant solution.
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
