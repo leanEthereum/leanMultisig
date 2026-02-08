@@ -19,7 +19,7 @@ use trace_gen::*;
 pub const SECURITY_BITS: usize = 123; // TODO 128 bits security? (with Poseidon over 20 field elements or with a more subtle soundness analysis (cf. https://eprint.iacr.org/2021/188.pdf))
 
 pub const GRINDING_BITS: usize = 18;
-pub const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 9;
+pub const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 8;
 pub const WHIR_INITIAL_FOLDING_FACTOR: usize = 7;
 pub const WHIR_SUBSEQUENT_FOLDING_FACTOR: usize = 5;
 
