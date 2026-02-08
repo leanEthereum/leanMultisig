@@ -59,6 +59,7 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
     encoding = Array(NUM_ENCODING_FE * 24 / W)
     remaining = Array(NUM_ENCODING_FE)
 
+    # TODO: decompose by chunks of 2.w bits (or even 3.w bits) and use a big match on the w^2 (or w^3) possibilities
     hint_decompose_bits_xmss(
         encoding,
         remaining,
