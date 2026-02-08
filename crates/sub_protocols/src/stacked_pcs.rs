@@ -1,4 +1,7 @@
-use lean_vm::{COL_PC, CommittedStatements, ENDING_PC, STARTING_PC, sort_tables_by_height};
+use lean_vm::{
+    ALL_TABLES, COL_PC, CommittedStatements, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE, STARTING_PC,
+    sort_tables_by_height,
+};
 use lean_vm::{EF, F, Table, TableT, TableTrace};
 use multilinear_toolkit::prelude::*;
 use owo_colors::OwoColorize;
@@ -178,14 +181,22 @@ pub fn stacked_pcs_parse_commitment(
 fn compute_stacked_n_vars(
     log_memory: usize,
     log_bytecode: usize,
-    tables_heights: &BTreeMap<Table, VarCount>,
+    tables_log_heights: &BTreeMap<Table, VarCount>,
 ) -> VarCount {
-    let max_table_log_n_rows = tables_heights.values().copied().max().unwrap();
+    let max_table_log_n_rows = tables_log_heights.values().copied().max().unwrap();
     let total_len = (2 << log_memory)
         + (1 << log_bytecode.max(max_table_log_n_rows))
-        + tables_heights
+        + tables_log_heights
             .iter()
             .map(|(table, log_n_rows)| table.n_committed_columns() << log_n_rows)
             .sum::<usize>();
     log2_ceil_usize(total_len)
+}
+
+pub fn min_stacked_n_vars(log_bytecode: usize) -> usize {
+    let mut min_tables_log_heights = BTreeMap::new();
+    for table in ALL_TABLES {
+        min_tables_log_heights.insert(table, MIN_LOG_N_ROWS_PER_TABLE);
+    }
+    compute_stacked_n_vars(MIN_LOG_MEMORY_SIZE, log_bytecode, &min_tables_log_heights)
 }

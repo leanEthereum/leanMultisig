@@ -1,15 +1,15 @@
 from snark_lib import *
 from fiat_shamir import *
 
-WHIR_FOLDING_FACTORS = WHIR_FOLDING_FACTORS_PLACEHOLDER
-WHIR_FINAL_VARS = WHIR_FINAL_VARS_PLACEHOLDER
+WHIR_INITIAL_FOLDING_FACTOR = WHIR_INITIAL_FOLDING_FACTOR_PLACEHOLDER
+WHIR_SUBSEQUENT_FOLDING_FACTOR = WHIR_SUBSEQUENT_FOLDING_FACTOR_PLACEHOLDER
 WHIR_FIRST_RS_REDUCTION_FACTOR = WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER
-WHIR_NUM_OOD_COMMIT = WHIR_NUM_OOD_COMMIT_PLACEHOLDER
-WHIR_NUM_OODS = WHIR_NUM_OODS_PLACEHOLDER
-WHIR_GRINDING_BITS = WHIR_GRINDING_BITS_PLACEHOLDER
-WHIR_NUM_QUERIES = WHIR_NUM_QUERIES_PLACEHOLDER
-WHIR_N_ROUNDS = len(WHIR_NUM_QUERIES) - 1
+MIN_WHIR_LOG_INV_RATE = MIN_WHIR_LOG_INV_RATE_PLACEHOLDER
+MAX_WHIR_LOG_INV_RATE = MAX_WHIR_LOG_INV_RATE_PLACEHOLDER
+MAX_NUM_VARIABLES_TO_SEND_COEFFS = MAX_NUM_VARIABLES_TO_SEND_COEFFS_PLACEHOLDER
 
+WHIR_ALL_POTENTIAL_NUM_QUERIES = WHIR_ALL_POTENTIAL_NUM_QUERIES_PLACEHOLDER
+WHIR_ALL_POTENTIAL_GRINDING = WHIR_ALL_POTENTIAL_GRINDING_PLACEHOLDER
 
 def whir_open(
     fs: Mut,
@@ -20,13 +20,20 @@ def whir_open(
     combination_randomness_powers_0,
     claimed_sum: Mut,
 ):
-    all_folding_randomness = Array(WHIR_N_ROUNDS + 2)
-    all_ood_points = Array(WHIR_N_ROUNDS)
-    all_circle_values = Array(WHIR_N_ROUNDS + 1)
-    all_combination_randomness_powers = Array(WHIR_N_ROUNDS)
+    n_rounds, n_final_vars, num_queries, num_oods, grinding_bits = get_whir_params(n_vars, initial_log_inv_rate)
+    n_final_coeffs = powers_of_two(n_final_vars)
+    folding_factors = Array(n_rounds + 1)
+    folding_factors[0] = WHIR_INITIAL_FOLDING_FACTOR
+    for i in range(1, n_rounds + 1):
+        folding_factors[i] = WHIR_SUBSEQUENT_FOLDING_FACTOR
+    
+    all_folding_randomness = Array(n_rounds + 2)
+    all_ood_points = Array(n_rounds)
+    all_circle_values = Array(n_rounds + 1)
+    all_combination_randomness_powers = Array(n_rounds)
 
     domain_sz: Mut = n_vars + initial_log_inv_rate
-    for r in unroll(0, WHIR_N_ROUNDS):
+    for r in range(0, n_rounds):
         is_first_round: Imu
         if r == 0:
             is_first_round = 1
@@ -43,84 +50,84 @@ def whir_open(
         ) = whir_round(
             fs,
             root,
-            WHIR_FOLDING_FACTORS[r],
-            2 ** WHIR_FOLDING_FACTORS[r],
+            folding_factors[r],
+            powers_of_two(folding_factors[r]),
             is_first_round,
-            WHIR_NUM_QUERIES[r],
+            num_queries[r],
             domain_sz,
             claimed_sum,
-            WHIR_GRINDING_BITS[r],
-            WHIR_NUM_OODS[r],
+            grinding_bits[r],
+            num_oods[r + 1],
         )
         if r == 0:
             domain_sz -= WHIR_FIRST_RS_REDUCTION_FACTOR
         else:
             domain_sz -= 1
 
-    fs, all_folding_randomness[WHIR_N_ROUNDS], claimed_sum = sumcheck_verify(
-        fs, WHIR_FOLDING_FACTORS[WHIR_N_ROUNDS], claimed_sum, 2
+    fs, all_folding_randomness[n_rounds], claimed_sum = sumcheck_verify(
+        fs, WHIR_SUBSEQUENT_FOLDING_FACTOR, claimed_sum, 2
     )
 
-    fs, final_coeffcients = fs_receive_ef(fs, 2**WHIR_FINAL_VARS)
+    fs, final_coeffcients = fs_receive_ef_by_log_dynamic(fs, n_final_vars, MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS+ 1)
 
-    fs, all_circle_values[WHIR_N_ROUNDS], final_folds = sample_stir_indexes_and_fold(
+    fs, all_circle_values[n_rounds], final_folds = sample_stir_indexes_and_fold(
         fs,
-        WHIR_NUM_QUERIES[WHIR_N_ROUNDS],
+        num_queries[n_rounds],
         0,
-        WHIR_FOLDING_FACTORS[WHIR_N_ROUNDS],
-        2 ** WHIR_FOLDING_FACTORS[WHIR_N_ROUNDS],
+        WHIR_SUBSEQUENT_FOLDING_FACTOR,
+        2 ** WHIR_SUBSEQUENT_FOLDING_FACTOR,
         domain_sz,
         root,
-        all_folding_randomness[WHIR_N_ROUNDS],
-        WHIR_GRINDING_BITS[WHIR_N_ROUNDS],
+        all_folding_randomness[n_rounds],
+        grinding_bits[n_rounds],
     )
 
-    final_circle_values = all_circle_values[WHIR_N_ROUNDS]
-    for i in range(0, WHIR_NUM_QUERIES[WHIR_N_ROUNDS]):
-        powers_of_2_rev = expand_from_univariate_base_const(final_circle_values[i], WHIR_FINAL_VARS)
-        poly_eq = poly_eq_base(powers_of_2_rev, WHIR_FINAL_VARS)
+    final_circle_values = all_circle_values[n_rounds]
+    for i in range(0, num_queries[n_rounds]):
+        powers_of_2_rev = expand_from_univariate_base(final_circle_values[i], n_final_vars)
+        poly_eq = match_range(n_final_vars, range(MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1), lambda n: poly_eq_base(powers_of_2_rev, n))
         final_pol_evaluated_on_circle = Array(DIM)
-        dot_product(
+        dot_product_be_dynamic(
             poly_eq,
             final_coeffcients,
             final_pol_evaluated_on_circle,
-            2**WHIR_FINAL_VARS,
-            BE,
+            n_final_coeffs,
         )
         copy_5(final_pol_evaluated_on_circle, final_folds + i * DIM)
 
-    fs, all_folding_randomness[WHIR_N_ROUNDS + 1], end_sum = sumcheck_verify(fs, WHIR_FINAL_VARS, claimed_sum, 2)
+    fs, all_folding_randomness[n_rounds + 1], end_sum = sumcheck_verify(fs, n_final_vars, claimed_sum, 2)
 
     folding_randomness_global = Array(n_vars * DIM)
 
     start: Mut = folding_randomness_global
-    for i in unroll(0, WHIR_N_ROUNDS + 1):
-        for j in unroll(0, WHIR_FOLDING_FACTORS[i]):
+    for i in range(0, n_rounds + 1):
+        for j in range(0, folding_factors[i]):
             copy_5(all_folding_randomness[i] + j * DIM, start + j * DIM)
-        start += WHIR_FOLDING_FACTORS[i] * DIM
-    for j in unroll(0, WHIR_FINAL_VARS):
-        copy_5(all_folding_randomness[WHIR_N_ROUNDS + 1] + j * DIM, start + j * DIM)
+        start += folding_factors[i] * DIM
+    for j in range(0, n_final_vars):
+        copy_5(all_folding_randomness[n_rounds + 1] + j * DIM, start + j * DIM)
 
-    all_ood_recovered_evals = Array(WHIR_NUM_OOD_COMMIT * DIM)
-    for i in unroll(0, WHIR_NUM_OOD_COMMIT):
+    all_ood_recovered_evals = Array(num_oods[0] * DIM)
+    for i in range(0, num_oods[0]):
         expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, n_vars)
         ood_rec = eq_mle_extension(expanded_from_univariate, folding_randomness_global, n_vars)
         copy_5(ood_rec, all_ood_recovered_evals + i * DIM)
-    s: Mut = dot_product_ret(
+    s: Mut = Array(DIM)
+    dot_product_ee_dynamic(
         all_ood_recovered_evals,
         combination_randomness_powers_0,
-        WHIR_NUM_OOD_COMMIT,
-        EE,
+        s,
+        num_oods[0],
     )
 
     n_vars_remaining: Mut = n_vars
     my_folding_randomness: Mut = folding_randomness_global
-    for i in unroll(0, WHIR_N_ROUNDS):
-        n_vars_remaining -= WHIR_FOLDING_FACTORS[i]
-        my_ood_recovered_evals = Array(WHIR_NUM_OODS[i] * DIM)
+    for i in range(0, n_rounds):
+        n_vars_remaining -= folding_factors[i]
+        my_ood_recovered_evals = Array(num_oods[i + 1] * DIM)
         combination_randomness_powers = all_combination_randomness_powers[i]
-        my_folding_randomness += WHIR_FOLDING_FACTORS[i] * DIM
-        for j in unroll(0, WHIR_NUM_OODS[i]):
+        my_folding_randomness += folding_factors[i] * DIM
+        for j in range(0, num_oods[i + 1]):
             expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars_remaining)
             ood_rec = eq_mle_extension(expanded_from_univariate, my_folding_randomness, n_vars_remaining)
             copy_5(ood_rec, my_ood_recovered_evals + j * DIM)
@@ -129,25 +136,27 @@ def whir_open(
             my_ood_recovered_evals,
             combination_randomness_powers,
             summed_ood,
-            WHIR_NUM_OODS[i],
+            num_oods[i + 1],
         )
 
-        s6s = Array((WHIR_NUM_QUERIES[i]) * DIM)
+        s6s = Array((num_queries[i]) * DIM)
         circle_value_i = all_circle_values[i]
-        for j in range(0, WHIR_NUM_QUERIES[i]):  # unroll ?
+        for j in range(0, num_queries[i]):  # unroll ?
             expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars_remaining)
             temp = eq_mle_base_extension(expanded_from_univariate, my_folding_randomness, n_vars_remaining)
             copy_5(temp, s6s + j * DIM)
-        s7 = dot_product_ret(
+        s7 = Array(DIM)
+        dot_product_ee_dynamic(
             s6s,
-            combination_randomness_powers + WHIR_NUM_OODS[i] * DIM,
-            WHIR_NUM_QUERIES[i],
-            EE,
+            combination_randomness_powers + num_oods[i + 1] * DIM,
+            s7,
+            num_queries[i],
         )
         s = add_extension_ret(s, s7)
         s = add_extension_ret(summed_ood, s)
-    poly_eq_final = poly_eq_extension(all_folding_randomness[WHIR_N_ROUNDS + 1], WHIR_FINAL_VARS)
-    final_value = dot_product_ret(poly_eq_final, final_coeffcients, 2**WHIR_FINAL_VARS, EE)
+    poly_eq_final = poly_eq_extension_dynamic(all_folding_randomness[n_rounds + 1], n_final_vars)
+    final_value = Array(DIM)
+    dot_product_ee_dynamic(poly_eq_final, final_coeffcients, final_value, n_final_coeffs)
     # copy_5(mul_extension_ret(s, final_value), end_sum);
 
     return fs, folding_randomness_global, s, final_value, end_sum
@@ -161,7 +170,7 @@ def sumcheck_verify(fs: Mut, n_steps, claimed_sum, degree: Const):
 
 def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
     for sc_round in range(0, n_steps):
-        fs, poly = fs_receive_ef(fs, degree + 1)
+        fs, poly = fs_receive_ef_inlined(fs, degree + 1)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
         copy_5(sum_over_boolean_hypercube, claimed_sum)
         fs, rand = fs_sample_ef(fs)
@@ -223,7 +232,7 @@ def sample_stir_indexes_and_fold(
 
     if merkle_leaves_in_basefield == 1:
         for i in range(0, num_queries):
-            dot_product(answers[i], poly_eq, folds + i * DIM, 2 ** WHIR_FOLDING_FACTORS[0], BE)
+            dot_product_be_dynamic(answers[i], poly_eq, folds + i * DIM, two_pow_folding_factor)
     else:
         for i in range(0, num_queries):
             dot_product_ee_dynamic(answers[i], poly_eq, folds + i * DIM, two_pow_folding_factor)
@@ -306,22 +315,59 @@ def parse_commitment(fs: Mut, num_ood):
     ood_evals: Imu
     debug_assert(num_ood < 4)
     debug_assert(num_ood != 0)
-    match num_ood:
-        case 0:
-            _ = 0  # unreachable
-        case 1:
-            fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 1)
-        case 2:
-            fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 2)
-        case 3:
-            fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 3)
-        case 4:
-            fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 4)
+    fs, root, ood_points, ood_evals = match_range(num_ood, range(1, 4), lambda n: parse_whir_commitment_const(fs, n))
     return fs, root, ood_points, ood_evals
 
 
 def parse_whir_commitment_const(fs: Mut, num_ood: Const):
     fs, root = fs_receive_chunks(fs, 1)
     fs, ood_points = fs_sample_many_ef(fs, num_ood)
-    fs, ood_evals = fs_receive_ef(fs, num_ood)
+    fs, ood_evals = fs_receive_ef_inlined(fs, num_ood)
     return fs, root, ood_points, ood_evals
+
+@inline
+def get_whir_params(n_vars, log_inv_rate):
+    debug_assert(WHIR_INITIAL_FOLDING_FACTOR < n_vars)
+    nv_except_first_round = n_vars - WHIR_INITIAL_FOLDING_FACTOR
+    debug_assert(MAX_NUM_VARIABLES_TO_SEND_COEFFS < nv_except_first_round)
+    n_rounds = div_ceil_dynamic(nv_except_first_round - MAX_NUM_VARIABLES_TO_SEND_COEFFS, WHIR_SUBSEQUENT_FOLDING_FACTOR)
+    final_vars = nv_except_first_round - n_rounds * WHIR_SUBSEQUENT_FOLDING_FACTOR
+
+    debug_assert(MIN_WHIR_LOG_INV_RATE <= log_inv_rate)
+    debug_assert(log_inv_rate <= MAX_WHIR_LOG_INV_RATE)
+    num_queries: Imu
+    num_queries = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_num_queries(r))
+
+    grinding_bits: Imu
+    grinding_bits = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_grinding_bits(r))
+
+    num_oods = get_num_oods(n_vars, log_inv_rate)
+
+    return n_rounds, final_vars, num_queries, num_oods, grinding_bits
+
+def get_num_queries(log_inv_rate: Const):
+    max = len(WHIR_ALL_POTENTIAL_NUM_QUERIES[log_inv_rate - MIN_WHIR_LOG_INV_RATE])
+    num_queries = Array(max)
+    for i in unroll(0, max):
+        num_queries[i] = WHIR_ALL_POTENTIAL_NUM_QUERIES[log_inv_rate - MIN_WHIR_LOG_INV_RATE][i]
+    return num_queries
+
+
+def get_grinding_bits(log_inv_rate: Const):
+    max = len(WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE])
+    print(max)
+    grinding_bits = Array(max)
+    for i in unroll(0, max):
+        grinding_bits[i] = WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][i]
+    return grinding_bits
+
+def get_num_oods(n_vars, log_inv_rate):
+    if n_vars == 24:
+        if log_inv_rate == 2:
+            num_ood = Array(3)
+            num_ood[0] = 2
+            num_ood[1] = 1
+            num_ood[2] = 2
+            return num_ood
+    # TODO add more cases here
+    assert False, "TODO get_num_oods"

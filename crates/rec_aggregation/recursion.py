@@ -3,8 +3,6 @@ from whir import *
 
 N_TABLES = N_TABLES_PLACEHOLDER
 
-MIN_WHIR_LOG_INV_RATE = MIN_WHIR_LOG_INV_RATE_PLACEHOLDER
-MAX_WHIR_LOG_INV_RATE = MAX_WHIR_LOG_INV_RATE_PLACEHOLDER
 MIN_LOG_N_ROWS_PER_TABLE = MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER
 MAX_LOG_N_ROWS_PER_TABLE = MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER
 MIN_LOG_MEMORY_SIZE = MIN_LOG_MEMORY_SIZE_PLACEHOLDER
@@ -92,9 +90,11 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     assert log_memory <= GUEST_BYTECODE_LEN
 
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
-    assert stacked_n_vars <= TWO_ADICITY + WHIR_FOLDING_FACTORS[0] - whir_log_inv_rate
+    assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
 
-    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, WHIR_NUM_OOD_COMMIT)
+    num_oods = get_num_oods(stacked_n_vars, whir_log_inv_rate)
+    num_ood_at_commitment = num_oods[0]
+    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_commitment(fs, num_ood_at_commitment)
 
     fs, logup_c = fs_sample_ef(fs)
 
@@ -111,8 +111,8 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     memory_and_acc_prefix = multilinear_location_prefix(0, n_vars_logup_gkr - log_memory, point_gkr)
 
-    fs, value_acc = fs_receive_ef(fs, 1)
-    fs, value_memory = fs_receive_ef(fs, 1)
+    fs, value_acc = fs_receive_ef_inlined(fs, 1)
+    fs, value_memory = fs_receive_ef_inlined(fs, 1)
 
     retrieved_numerators_value: Mut = opposite_extension_ret(mul_extension_ret(memory_and_acc_prefix, value_acc))
 
@@ -146,7 +146,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
             bytecode_value_corrected, one_minus_self_extension_ret(logup_alphas + i * DIM)
         )
 
-    fs, value_bytecode_acc = fs_receive_ef(fs, 1)
+    fs, value_bytecode_acc = fs_receive_ef_inlined(fs, 1)
     retrieved_numerators_value = sub_extension_ret(
         retrieved_numerators_value, mul_extension_ret(bytecode_multilinear_location_prefix, value_bytecode_acc)
     )
@@ -208,9 +208,9 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
             # 0] Bytecode lookup
             bytecode_prefix = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)
 
-            fs, eval_on_pc = fs_receive_ef(fs, 1)
+            fs, eval_on_pc = fs_receive_ef_inlined(fs, 1)
             pcs_values[EXECUTION_TABLE_INDEX][0][COL_PC].push(eval_on_pc)
-            fs, instr_evals = fs_receive_ef(fs, N_INSTRUCTION_COLUMNS)
+            fs, instr_evals = fs_receive_ef_inlined(fs, N_INSTRUCTION_COLUMNS)
             for i in unroll(0, N_INSTRUCTION_COLUMNS):
                 global_index = N_COMMITTED_EXEC_COLUMNS + i
                 pcs_values[EXECUTION_TABLE_INDEX][0][global_index].push(instr_evals + i * DIM)
@@ -224,12 +224,12 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
         prefix = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)
 
-        fs, eval_on_selector = fs_receive_ef(fs, 1)
+        fs, eval_on_selector = fs_receive_ef_inlined(fs, 1)
         retrieved_numerators_value = add_extension_ret(
             retrieved_numerators_value, mul_extension_ret(prefix, eval_on_selector)
         )
 
-        fs, eval_on_data = fs_receive_ef(fs, 1)
+        fs, eval_on_data = fs_receive_ef_inlined(fs, 1)
         retrieved_denominators_value = add_extension_ret(
             retrieved_denominators_value, mul_extension_ret(prefix, eval_on_data)
         )
@@ -244,11 +244,11 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
         for lookup_f_index in unroll(0, len(LOOKUPS_F_INDEXES[table_index])):
             col_index = LOOKUPS_F_INDEXES[table_index][lookup_f_index]
-            fs, index_eval = fs_receive_ef(fs, 1)
+            fs, index_eval = fs_receive_ef_inlined(fs, 1)
             debug_assert(len(pcs_values[table_index][0][col_index]) == 0)
             pcs_values[table_index][0][col_index].push(index_eval)
             for i in unroll(0, len(LOOKUPS_F_VALUES[table_index][lookup_f_index])):
-                fs, value_eval = fs_receive_ef(fs, 1)
+                fs, value_eval = fs_receive_ef_inlined(fs, 1)
                 col_index = LOOKUPS_F_VALUES[table_index][lookup_f_index][i]
                 debug_assert(len(pcs_values[table_index][0][col_index]) == 0)
                 pcs_values[table_index][0][col_index].push(value_eval)
@@ -272,7 +272,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
         for lookup_ef_index in unroll(0, len(LOOKUPS_EF_INDEXES[table_index])):
             col_index = LOOKUPS_EF_INDEXES[table_index][lookup_ef_index]
-            fs, index_eval = fs_receive_ef(fs, 1)
+            fs, index_eval = fs_receive_ef_inlined(fs, 1)
             if len(pcs_values[table_index][0][col_index]) == 0:
                 pcs_values[table_index][0][col_index].push(index_eval)
             else:
@@ -280,7 +280,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
                 copy_5(index_eval, pcs_values[table_index][0][col_index][0])
 
             for i in unroll(0, DIM):
-                fs, value_eval = fs_receive_ef(fs, 1)
+                fs, value_eval = fs_receive_ef_inlined(fs, 1)
                 pref = multilinear_location_prefix(
                     offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr
                 )  # TODO there is some duplication here
@@ -346,7 +346,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         n_down_columns_ef = len(AIR_DOWN_COLUMNS_EF[table_index])
         n_up_columns = n_up_columns_f + n_up_columns_ef
         n_down_columns = n_down_columns_f + n_down_columns_ef
-        fs, inner_evals = fs_receive_ef(fs, n_up_columns + n_down_columns)
+        fs, inner_evals = fs_receive_ef_inlined(fs, n_up_columns + n_down_columns)
 
         air_constraints_eval = evaluate_air_constraints(
             table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly
@@ -378,14 +378,14 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
             matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows)
 
-            fs, evals_f_on_down_columns = fs_receive_ef(fs, n_down_columns_f)
+            fs, evals_f_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns_f)
             batched_col_down_sc_eval: Mut = dot_product_ret(
                 evals_f_on_down_columns, batching_scalar_powers, n_down_columns_f, EE
             )
 
             evals_ef_on_down_columns: Imu
             if n_down_columns_ef != 0:
-                fs, evals_ef_on_down_columns = fs_receive_ef(fs, n_down_columns_ef)
+                fs, evals_ef_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns_ef)
                 batched_col_down_sc_eval = add_extension_ret(
                     batched_col_down_sc_eval,
                     dot_product_ret(
@@ -411,7 +411,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
                     evals_f_on_down_columns + i * DIM
                 )
             for i in unroll(0, n_down_columns_ef):
-                fs, transposed = fs_receive_ef(fs, DIM)
+                fs, transposed = fs_receive_ef_inlined(fs, DIM)
                 copy_5(
                     evals_ef_on_down_columns + i * DIM,
                     dot_product_with_the_base_vectors(transposed),
@@ -429,7 +429,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
             pcs_values[table_index][last_index_2][i].push(inner_evals + i * DIM)
 
         for i in unroll(0, n_up_columns_ef):
-            fs, transposed = fs_receive_ef(fs, DIM)
+            fs, transposed = fs_receive_ef_inlined(fs, DIM)
             copy_5(
                 inner_evals + (n_up_columns_f + n_down_columns_f + i) * DIM,
                 dot_product_with_the_base_vectors(transposed),
@@ -455,11 +455,12 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     # WHIR BASE
     combination_randomness_gen: Mut
     fs, combination_randomness_gen = fs_sample_ef(fs)
-    combination_randomness_powers: Mut = powers_const(
-        combination_randomness_gen, WHIR_NUM_OOD_COMMIT + TOTAL_WHIR_STATEMENTS
+    combination_randomness_powers: Mut = powers(
+        combination_randomness_gen, num_ood_at_commitment + TOTAL_WHIR_STATEMENTS
     )
-    whir_sum: Mut = dot_product_ret(whir_base_ood_evals, combination_randomness_powers, WHIR_NUM_OOD_COMMIT, EE)
-    curr_randomness: Mut = combination_randomness_powers + WHIR_NUM_OOD_COMMIT * DIM
+    whir_sum: Mut = Array(DIM)
+    dot_product_ee_dynamic(whir_base_ood_evals, combination_randomness_powers, whir_sum, num_ood_at_commitment)
+    curr_randomness: Mut = combination_randomness_powers + num_ood_at_commitment * DIM
 
     whir_sum = add_extension_ret(mul_extension_ret(value_memory, curr_randomness), whir_sum)
     curr_randomness += DIM
@@ -501,7 +502,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         whir_sum,
     )
 
-    curr_randomness = combination_randomness_powers + WHIR_NUM_OOD_COMMIT * DIM
+    curr_randomness = combination_randomness_powers + num_ood_at_commitment * DIM
 
     eq_memory_and_acc_point = eq_mle_extension(
         folding_randomness_global + (stacked_n_vars - log_memory) * DIM,
@@ -629,8 +630,8 @@ def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
 
 
 def verify_gkr_quotient(fs: Mut, n_vars):
-    fs, nums = fs_receive_ef(fs, 2)
-    fs, denoms = fs_receive_ef(fs, 2)
+    fs, nums = fs_receive_ef_inlined(fs, 2)
+    fs, denoms = fs_receive_ef_inlined(fs, 2)
 
     q1 = div_extension_ret(nums, denoms)
     q2 = div_extension_ret(nums + DIM, denoms + DIM)
@@ -669,7 +670,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)
     postponed_point = Array((n_vars + 1) * DIM)
     fs, postponed_value = sumcheck_verify_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM)
-    fs, inner_evals = fs_receive_ef(fs, 4)
+    fs, inner_evals = fs_receive_ef_inlined(fs, 4)
     a_num = inner_evals
     b_num = inner_evals + DIM
     a_den = inner_evals + 2 * DIM
@@ -726,6 +727,6 @@ def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_bet
         case 2:
             res = evaluate_air_constraints_table_2(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
     return res
-
+    
 
 EVALUATE_AIR_FUNCTIONS_PLACEHOLDER
