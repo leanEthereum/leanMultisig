@@ -25,9 +25,9 @@ def div_ceil_dynamic(a, b: Const):
 def powers(alpha, n):
     # alpha: EF
     # n: F
-    assert n < 128
+    assert n < 256
     assert 0 < n
-    res = match_range(n, range(1, 128), lambda i: powers_const(alpha, i))
+    res = match_range(n, range(1, 256), lambda i: powers_const(alpha, i))
     return res
 
 
@@ -59,8 +59,8 @@ def unit_root_pow_const(domain_size: Const, index_bits):
 
 
 def poly_eq_extension_dynamic(point, n):
-    debug_assert(n < 8)
-    res = match_range(n, range(0, 1), lambda i: ONE_VEC_PTR, range(1, 8), lambda i: poly_eq_extension(point, i))
+    debug_assert(n < 9)
+    res = match_range(n, range(0, 1), lambda i: ONE_VEC_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
     return res
 
 
@@ -82,8 +82,7 @@ def poly_eq_extension(point, n: Const):
     return res + (2**n - 1) * DIM
 
 
-@inline
-def poly_eq_base(point, n):
+def poly_eq_base(point, n: Const):
     # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
     res = Array((2 ** (n + 1) - 1))
@@ -184,11 +183,9 @@ def expand_from_univariate_ext(alpha, n):
 
 
 def dot_product_be_dynamic(a, b, res, n):
-    for i in unroll(6, 10):
-        if n == 2**i:
-            dot_product(a, b, res, 2**i, BE)
-            return
-    assert False, "dot_product_be_dynamic called with unsupported n"
+    debug_assert(n <= 256)
+    match_range(n, range(1, 257), lambda i: dot_product(a, b, res, i, BE))
+    return
 
 
 def dot_product_ee_dynamic(a, b, res, n):

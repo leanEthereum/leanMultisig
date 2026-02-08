@@ -4,24 +4,20 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program, compile_program_with_flags};
-use lean_prover::default_whir_config;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
+use lean_prover::{
+    MAX_NUM_VARIABLES_TO_SEND_COEFFS, WHIR_INITIAL_FOLDING_FACTOR, WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
+};
 use lean_vm::*;
 use multilinear_toolkit::prelude::symbolic::{
     SymbolicExpression, SymbolicOperation, get_symbolic_constraints_and_bus_data_values,
 };
 use multilinear_toolkit::prelude::*;
+use sub_protocols::min_stacked_n_vars;
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 
 pub fn run_recursion_benchmark(count: usize, log_inv_rate: usize, prox_gaps_conjecture: bool, tracing: bool) {
-    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("recursion.py")
-        .to_str()
-        .unwrap()
-        .to_string();
-
-    let inner_whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
     let program_to_prove = r#"
 DIM = 5
 POSEIDON_OF_ZERO = POSEIDON_OF_ZERO_PLACEHOLDER
@@ -50,6 +46,45 @@ def main():
     return
 "#
     .replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
+    run_recursion_benchmark_with_program(count, log_inv_rate, prox_gaps_conjecture, tracing, &program_to_prove);
+}
+
+#[test]
+fn test_end2end_recursion_poseidon_heavy() {
+    // Poseidon table larger than dot_product table (reversed ordering)
+    let program_to_prove = r#"
+DIM = 5
+POSEIDON_OF_ZERO = POSEIDON_OF_ZERO_PLACEHOLDER
+BE = 1
+
+def main():
+    for i in range(0, 1000):
+        null_ptr = ZERO_VEC_PTR
+        poseidon_of_zero = POSEIDON_OF_ZERO
+        poseidon16(null_ptr, null_ptr, poseidon_of_zero)
+        poseidon16(null_ptr, null_ptr, poseidon_of_zero)
+        poseidon16(null_ptr, null_ptr, poseidon_of_zero)
+    dot_product(ZERO_VEC_PTR, ZERO_VEC_PTR, ZERO_VEC_PTR, 2, BE)
+    return
+"#
+    .replace("POSEIDON_OF_ZERO_PLACEHOLDER", &POSEIDON_16_NULL_HASH_PTR.to_string());
+    run_recursion_benchmark_with_program(1, 2, false, false, &program_to_prove);
+}
+
+fn run_recursion_benchmark_with_program(
+    count: usize,
+    log_inv_rate: usize,
+    prox_gaps_conjecture: bool,
+    tracing: bool,
+    program_to_prove: &str,
+) {
+    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("recursion.py")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let inner_whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
     let bytecode_to_prove = compile_program(&ProgramSource::Raw(program_to_prove.to_string()));
     precompute_dft_twiddles::<F>(1 << 24);
     let inner_public_input = vec![];
@@ -73,20 +108,65 @@ def main():
 
     let mut replacements = whir_recursion_placeholder_replacements(&outer_whir_config);
 
-    assert!(
-        verif_details.log_memory >= verif_details.table_n_vars[&Table::execution()]
-            && verif_details
-                .table_n_vars
-                .values()
+    let log_bytecode = log2_ceil_usize(bytecode_to_prove.instructions.len());
+    let min_stacked = min_stacked_n_vars(log_bytecode);
+
+    let mut all_potential_num_queries = vec![];
+    let mut all_potential_grinding = vec![];
+    let mut all_potential_num_oods = vec![];
+    for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
+        let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
+        let whir_config_builder = default_whir_config(log_inv_rate, prox_gaps_conjecture);
+        let whir_config = WhirConfig::<EF>::new(&whir_config_builder, max_n_vars);
+        let mut num_queries = vec![];
+        let mut grinding_bits = vec![];
+        for round in &whir_config.round_parameters {
+            num_queries.push(round.num_queries);
+            grinding_bits.push(round.pow_bits);
+        }
+        num_queries.push(whir_config.final_queries);
+        grinding_bits.push(whir_config.final_pow_bits);
+        all_potential_num_queries.push(format!(
+            "[{}]",
+            num_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>().join(", ")
+        ));
+        all_potential_grinding.push(format!(
+            "[{}]",
+            grinding_bits
+                .iter()
+                .map(|q| q.to_string())
                 .collect::<Vec<_>>()
-                .windows(2)
-                .all(|w| w[0] >= w[1]),
-        "TODO a more general recursion program",
+                .join(", ")
+        ));
+
+        // OOD samples for each possible stacked_n_vars
+        let mut oods_for_rate = vec![];
+        for n_vars in min_stacked..=max_n_vars {
+            let cfg = WhirConfig::<EF>::new(&whir_config_builder, n_vars);
+            let mut oods = vec![cfg.committment_ood_samples];
+            for round in &cfg.round_parameters {
+                oods.push(round.ood_samples);
+            }
+            oods_for_rate.push(format!(
+                "[{}]",
+                oods.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        all_potential_num_oods.push(format!("[{}]", oods_for_rate.join(", ")));
+    }
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_NUM_QUERIES_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_num_queries.join(", ")),
     );
-    assert_eq!(
-        verif_details.table_n_vars.keys().copied().collect::<Vec<_>>(),
-        vec![Table::execution(), Table::dot_product(), Table::poseidon16()]
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_grinding.join(", ")),
     );
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_num_oods.join(", ")),
+    );
+    replacements.insert("MIN_STACKED_N_VARS_PLACEHOLDER".to_string(), min_stacked.to_string());
 
     // VM recursion parameters (different from WHIR)
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
@@ -105,6 +185,18 @@ def main():
     replacements.insert(
         "MAX_WHIR_LOG_INV_RATE_PLACEHOLDER".to_string(),
         MAX_WHIR_LOG_INV_RATE.to_string(),
+    );
+    replacements.insert(
+        "MAX_NUM_VARIABLES_TO_SEND_COEFFS_PLACEHOLDER".to_string(),
+        MAX_NUM_VARIABLES_TO_SEND_COEFFS.to_string(),
+    );
+    replacements.insert(
+        "WHIR_INITIAL_FOLDING_FACTOR_PLACEHOLDER".to_string(),
+        WHIR_INITIAL_FOLDING_FACTOR.to_string(),
+    );
+    replacements.insert(
+        "WHIR_SUBSEQUENT_FOLDING_FACTOR_PLACEHOLDER".to_string(),
+        WHIR_SUBSEQUENT_FOLDING_FACTOR.to_string(),
     );
     replacements.insert(
         "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
@@ -357,41 +449,19 @@ def main():
 
 pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<EF>) -> BTreeMap<String, String> {
     let mut num_queries = vec![];
-    let mut ood_samples = vec![];
-    let mut grinding_bits = vec![];
     let mut folding_factors = vec![];
     for round in &whir_config.round_parameters {
         num_queries.push(round.num_queries.to_string());
-        ood_samples.push(round.ood_samples.to_string());
-        grinding_bits.push(round.pow_bits.to_string());
         folding_factors.push(round.folding_factor.to_string());
     }
     folding_factors.push(whir_config.final_round_config().folding_factor.to_string());
-    grinding_bits.push(whir_config.final_pow_bits.to_string());
     num_queries.push(whir_config.final_queries.to_string());
 
     let end = "_PLACEHOLDER";
     let mut replacements = BTreeMap::new();
     replacements.insert(
-        format!("WHIR_NUM_QUERIES{}", end),
-        format!("[{}]", num_queries.join(", ")),
-    );
-    replacements.insert(
-        format!("WHIR_NUM_OOD_COMMIT{}", end),
-        whir_config.committment_ood_samples.to_string(),
-    );
-    replacements.insert(format!("WHIR_NUM_OODS{}", end), format!("[{}]", ood_samples.join(", ")));
-    replacements.insert(
-        format!("WHIR_GRINDING_BITS{}", end),
-        format!("[{}]", grinding_bits.join(", ")),
-    );
-    replacements.insert(
         format!("WHIR_FOLDING_FACTORS{}", end),
         format!("[{}]", folding_factors.join(", ")),
-    );
-    replacements.insert(
-        format!("WHIR_FINAL_VARS{}", end),
-        whir_config.n_vars_of_final_polynomial().to_string(),
     );
     replacements.insert(
         format!("WHIR_FIRST_RS_REDUCTION_FACTOR{}", end),

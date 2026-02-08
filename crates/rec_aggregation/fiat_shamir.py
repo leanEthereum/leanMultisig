@@ -95,12 +95,25 @@ def fs_receive_chunks(fs, n_chunks: Const):
 
 
 @inline
-def fs_receive_ef(fs, n):
+def fs_receive_ef_inlined(fs, n):
     new_fs, ef_ptr = fs_receive_chunks(fs, div_ceil(n * DIM, 8))
     for i in unroll(n * DIM, next_multiple_of(n * DIM, 8)):
         assert ef_ptr[i] == 0
     return new_fs, ef_ptr
 
+def fs_receive_ef_by_log_dynamic(fs, log_n, min_value: Const, max_value: Const):
+    debug_assert(log_n < max_value)
+    debug_assert(min_value <= log_n)
+    new_fs: Imu
+    ef_ptr: Imu
+    new_fs, ef_ptr = match_range(log_n, range(min_value, max_value), lambda ln: fs_receive_ef(fs, 2**ln))
+    return new_fs, ef_ptr
+
+def fs_receive_ef(fs, n: Const):
+    new_fs, ef_ptr = fs_receive_chunks(fs, div_ceil(n * DIM, 8))
+    for i in unroll(n * DIM, next_multiple_of(n * DIM, 8)):
+        assert ef_ptr[i] == 0
+    return new_fs, ef_ptr
 
 def fs_print_state(fs_state):
     for i in unroll(0, 9):

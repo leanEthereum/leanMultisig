@@ -476,7 +476,8 @@ fn compile_time_transform_in_lines(
             value,
             location,
         } = line
-            && let Some(expanded) = try_expand_match_range(value, targets, *location)?
+            && let Some(expanded) =
+                try_expand_match_range(value, targets, *location, const_arrays, &vector_len_tracker)?
         {
             lines.splice(i..=i, expanded);
             continue;
@@ -642,10 +643,13 @@ fn compile_time_transform_in_lines(
                 end,
                 body,
                 unroll: true,
-                ..
+                location,
             } => {
                 let (Some(start), Some(end)) = (start.as_scalar(), end.as_scalar()) else {
-                    return Err("Cannot unroll loop with non-constant bounds".to_string());
+                    return Err(format!(
+                        "line {}: Cannot unroll loop with non-constant bounds",
+                        location
+                    ));
                 };
                 let unroll_index = unroll_counter.get_next();
                 let (internal_vars, _) = find_variable_usage(body, const_arrays);
@@ -686,6 +690,8 @@ fn try_expand_match_range(
     value: &Expression,
     targets: &[AssignmentTarget],
     location: SourceLocation,
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    vector_len: &VectorLenTracker,
 ) -> Result<Option<Vec<Line>>, String> {
     let Expression::FunctionCall {
         function_name, args, ..
@@ -746,12 +752,12 @@ fn try_expand_match_range(
             return Err("match_range: expected range(start, end)".into());
         }
         let start = ra[0]
-            .as_scalar()
-            .ok_or("match_range: range start must be constant")?
+            .compile_time_eval(const_arrays, vector_len)
+            .ok_or(format!("match_range: range start must be constant (at {location})"))?
             .to_usize();
         let end = ra[1]
-            .as_scalar()
-            .ok_or("match_range: range end must be constant")?
+            .compile_time_eval(const_arrays, vector_len)
+            .ok_or(format!("match_range: range end must be constant (at {location})"))?
             .to_usize();
 
         // Parse lambda
