@@ -92,7 +92,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
     assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
 
-    num_oods = get_num_oods(stacked_n_vars, whir_log_inv_rate)
+    num_oods = get_num_oods(whir_log_inv_rate, stacked_n_vars)
     num_ood_at_commitment = num_oods[0]
     fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_commitment(fs, num_ood_at_commitment)
 

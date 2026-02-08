@@ -14,6 +14,7 @@ use multilinear_toolkit::prelude::symbolic::{
     SymbolicExpression, SymbolicOperation, get_symbolic_constraints_and_bus_data_values,
 };
 use multilinear_toolkit::prelude::*;
+use sub_protocols::min_stacked_n_vars;
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 
 pub fn run_recursion_benchmark(count: usize, log_inv_rate: usize, prox_gaps_conjecture: bool, tracing: bool) {
@@ -90,8 +91,12 @@ def main():
         vec![Table::execution(), Table::dot_product(), Table::poseidon16()]
     );
 
+    let log_bytecode = log2_ceil_usize(bytecode_to_prove.instructions.len());
+    let min_stacked = min_stacked_n_vars(log_bytecode);
+
     let mut all_potential_num_queries = vec![];
     let mut all_potential_grinding = vec![];
+    let mut all_potential_num_oods = vec![];
     for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
         let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
         let whir_config_builder = default_whir_config(log_inv_rate, prox_gaps_conjecture);
@@ -116,6 +121,21 @@ def main():
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+
+        // OOD samples for each possible stacked_n_vars
+        let mut oods_for_rate = vec![];
+        for n_vars in min_stacked..=max_n_vars {
+            let cfg = WhirConfig::<EF>::new(&whir_config_builder, n_vars);
+            let mut oods = vec![cfg.committment_ood_samples];
+            for round in &cfg.round_parameters {
+                oods.push(round.ood_samples);
+            }
+            oods_for_rate.push(format!(
+                "[{}]",
+                oods.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        all_potential_num_oods.push(format!("[{}]", oods_for_rate.join(", ")));
     }
     replacements.insert(
         "WHIR_ALL_POTENTIAL_NUM_QUERIES_PLACEHOLDER".to_string(),
@@ -125,6 +145,11 @@ def main():
         "WHIR_ALL_POTENTIAL_GRINDING_PLACEHOLDER".to_string(),
         format!("[{}]", all_potential_grinding.join(", ")),
     );
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_num_oods.join(", ")),
+    );
+    replacements.insert("MIN_STACKED_N_VARS_PLACEHOLDER".to_string(), min_stacked.to_string());
 
     // VM recursion parameters (different from WHIR)
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());

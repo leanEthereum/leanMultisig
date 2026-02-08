@@ -10,6 +10,8 @@ MAX_NUM_VARIABLES_TO_SEND_COEFFS = MAX_NUM_VARIABLES_TO_SEND_COEFFS_PLACEHOLDER
 
 WHIR_ALL_POTENTIAL_NUM_QUERIES = WHIR_ALL_POTENTIAL_NUM_QUERIES_PLACEHOLDER
 WHIR_ALL_POTENTIAL_GRINDING = WHIR_ALL_POTENTIAL_GRINDING_PLACEHOLDER
+WHIR_ALL_POTENTIAL_NUM_OODS = WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER
+MIN_STACKED_N_VARS = MIN_STACKED_N_VARS_PLACEHOLDER
 
 def whir_open(
     fs: Mut,
@@ -341,7 +343,7 @@ def get_whir_params(n_vars, log_inv_rate):
     grinding_bits: Imu
     grinding_bits = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_grinding_bits(r))
 
-    num_oods = get_num_oods(n_vars, log_inv_rate)
+    num_oods = get_num_oods(log_inv_rate, n_vars)
 
     return n_rounds, final_vars, num_queries, num_oods, grinding_bits
 
@@ -355,19 +357,23 @@ def get_num_queries(log_inv_rate: Const):
 
 def get_grinding_bits(log_inv_rate: Const):
     max = len(WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE])
-    print(max)
     grinding_bits = Array(max)
     for i in unroll(0, max):
         grinding_bits[i] = WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][i]
     return grinding_bits
 
-def get_num_oods(n_vars, log_inv_rate):
-    if n_vars == 24:
-        if log_inv_rate == 2:
-            num_ood = Array(3)
-            num_ood[0] = 2
-            num_ood[1] = 1
-            num_ood[2] = 2
-            return num_ood
-    # TODO add more cases here
-    assert False, "TODO get_num_oods"
+def get_num_oods(log_inv_rate, n_vars):
+    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_num_oods_const_rate(r, n_vars))
+    return res
+
+def get_num_oods_const_rate(log_inv_rate: Const, n_vars):
+    res = match_range(n_vars, range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1), lambda nv: get_num_oods_const(log_inv_rate, nv))
+    return res
+
+
+def get_num_oods_const(log_inv_rate: Const, n_vars: Const):
+    max = len(WHIR_ALL_POTENTIAL_NUM_OODS[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
+    num_oods = Array(max)
+    for i in unroll(0, max):
+        num_oods[i] = WHIR_ALL_POTENTIAL_NUM_OODS[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
+    return num_oods
