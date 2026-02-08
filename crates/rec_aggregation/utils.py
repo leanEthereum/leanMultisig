@@ -192,30 +192,9 @@ def dot_product_be_dynamic(a, b, res, n):
 
 
 def dot_product_ee_dynamic(a, b, res, n):
-    if n == 32:
-        dot_product(a, b, res, 32, EE)
-        return
-    if n == 16:
-        dot_product(a, b, res, 16, EE)
-        return
-    if n == 1:
-        dot_product(a, b, res, 1, EE)
-        return
-    if n == 2:
-        dot_product(a, b, res, 2, EE)
-        return
-
-    for i in unroll(0, WHIR_N_ROUNDS + 1):
-        if n == WHIR_NUM_QUERIES[i]:
-            dot_product(a, b, res, WHIR_NUM_QUERIES[i], EE)
-            return
-        if n == WHIR_NUM_QUERIES[i] + 1:
-            dot_product(a, b, res, WHIR_NUM_QUERIES[i] + 1, EE)
-            return
-    if n == 8:
-        dot_product(a, b, res, 8, EE)
-        return
-    assert False, "dot_product_ee_dynamic called with unsupported n"
+    debug_assert(n <= 256)
+    match_range(n, range(1, 257), lambda i: dot_product(a, b, res, i, EE))
+    return
 
 
 def mle_of_01234567_etc(point, n):

@@ -108,22 +108,56 @@ def fs_print_state(fs_state):
     return
 
 
-def sample_bits_const(fs, n_samples: Const):
-    # return the updated fiat-shamir, and a pointer to n pointers, each pointing to 31 (boolean) field elements,
+def fs_sample_data_with_offset(fs, n_chunks: Const, offset):
+    # Like fs_sample_chunks but uses domain separators [offset..offset+n_chunks-1].
+    # Only returns the sampled data, does NOT update fs.
+    sampled = Array(n_chunks * 8)
+    for i in unroll(0, n_chunks):
+        domain_sep = Array(8)
+        domain_sep[0] = offset + i
+        set_to_7_zeros(domain_sep + 1)
+        poseidon16(fs, domain_sep, sampled + i * 8)
+    return sampled
+
+
+def fs_finalize_sample(fs, total_n_chunks):
+    # Compute new fs state using domain_sep = total_n_chunks
+    # (same as the last poseidon call in fs_sample_chunks).
+    new_fs = Array(9)
+    domain_sep = Array(8)
+    domain_sep[0] = total_n_chunks
+    set_to_7_zeros(domain_sep + 1)
+    poseidon16(fs, domain_sep, new_fs)
+    new_fs[8] = fs[8]  # same transcript pointer
+    return new_fs
+
+
+def sample_bits_dynamic(fs: Mut, n_samples):
+    debug_assert(n_samples < 256)
+    n_samples_bit_decomposed = checked_decompose_bits_small_value_const(n_samples, 8)
     sampled_bits = Array(n_samples)
-    n_chunks = div_ceil(n_samples, 8)
-    new_fs, sampled = fs_sample_chunks(fs, n_chunks)
-    for i in unroll(0, n_samples):
-        bits, _ = checked_decompose_bits(sampled[i])
-        sampled_bits[i] = bits
+    counter: Mut = 0
+    offset: Mut = 0
+    for i in unroll(0, 4):
+        if n_samples_bit_decomposed[i] == 1:
+            n_chunks = 2**(7 - i) / 8
+            sampled = fs_sample_data_with_offset(fs, n_chunks, offset)
+            for j in unroll(0, 2**(7 - i)):
+                bits, _ = checked_decompose_bits(sampled[j])
+                sampled_bits[counter + j] = bits
+            counter += 2**(7 - i)
+            offset += n_chunks
+    remaining = n_samples - counter
+    debug_assert(remaining < 16)
+    final_sampled_bits = sampled_bits + counter
+    total_offset = match_range(remaining, range(0, 16), lambda r: finish_sample_bits_dynamic(fs, final_sampled_bits, r, offset))
+    new_fs = fs_finalize_sample(fs, total_offset)
     return new_fs, sampled_bits
 
-
-def sample_bits_dynamic(fs_state, n_samples):
-    new_fs_state: Imu
-    sampled_bits: Imu
-    for r in unroll(0, WHIR_N_ROUNDS + 1):
-        if n_samples == WHIR_NUM_QUERIES[r]:
-            new_fs_state, sampled_bits = sample_bits_const(fs_state, WHIR_NUM_QUERIES[r])
-            return new_fs_state, sampled_bits
-    assert False, "sample_bits_dynamic called with unsupported n_samples"
+def finish_sample_bits_dynamic(fs, final_sampled_bits, remaining: Const, offset):
+    n_chunks = div_ceil(remaining, 8)
+    sampled = fs_sample_data_with_offset(fs, n_chunks, offset)
+    for i in unroll(0, remaining):
+        bits, _ = checked_decompose_bits(sampled[i])
+        final_sampled_bits[i] = bits
+    return offset + n_chunks

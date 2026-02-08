@@ -3,10 +3,6 @@ from snark_lib import *
 DIM = 5  # extension degree
 DIGEST_LEN = 8
 
-WHIR_NUM_QUERIES = WHIR_NUM_QUERIES_PLACEHOLDER
-WHIR_N_ROUNDS = len(WHIR_NUM_QUERIES) - 1
-
-
 def batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, len):
     if len == DIM * 2:
         batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM * 2)
