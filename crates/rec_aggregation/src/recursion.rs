@@ -69,7 +69,7 @@ def main():
     )
     .unwrap();
 
-    let outer_whir_config = WhirConfig::<EF>::new(&inner_whir_config, proof_to_prove.first_whir_n_vars);
+    let outer_whir_config = WhirConfig::<EF>::new(&inner_whir_config, proof_to_prove.whir_n_vars);
 
     // let guest_program_commitment = {
     //     let mut prover_state = build_prover_state();
@@ -400,7 +400,6 @@ pub(crate) fn whir_recursion_placeholder_replacements(whir_config: &WhirConfig<E
         format!("WHIR_FOLDING_FACTORS{}", end),
         format!("[{}]", folding_factors.join(", ")),
     );
-    replacements.insert(format!("WHIR_N_VARS{}", end), whir_config.num_variables.to_string());
     replacements.insert(
         format!("WHIR_LOG_INV_RATE{}", end),
         whir_config.starting_log_inv_rate.to_string(),

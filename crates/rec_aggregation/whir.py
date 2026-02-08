@@ -1,7 +1,6 @@
 from snark_lib import *
 from fiat_shamir import *
 
-WHIR_N_VARS = WHIR_N_VARS_PLACEHOLDER
 WHIR_LOG_INV_RATE = WHIR_LOG_INV_RATE_PLACEHOLDER
 WHIR_FOLDING_FACTORS = WHIR_FOLDING_FACTORS_PLACEHOLDER
 WHIR_FINAL_VARS = WHIR_FINAL_VARS_PLACEHOLDER
@@ -13,6 +12,7 @@ WHIR_GRINDING_BITS = WHIR_GRINDING_BITS_PLACEHOLDER
 
 def whir_open(
     fs: Mut,
+    n_vars,
     root: Mut,
     ood_points_commit,
     combination_randomness_powers_0,
@@ -23,7 +23,7 @@ def whir_open(
     all_circle_values = Array(WHIR_N_ROUNDS + 1)
     all_combination_randomness_powers = Array(WHIR_N_ROUNDS)
 
-    domain_sz: Mut = WHIR_N_VARS + WHIR_LOG_INV_RATE
+    domain_sz: Mut = n_vars + WHIR_LOG_INV_RATE
     for r in unroll(0, WHIR_N_ROUNDS):
         is_first_round: Imu
         if r == 0:
@@ -89,7 +89,7 @@ def whir_open(
 
     fs, all_folding_randomness[WHIR_N_ROUNDS + 1], end_sum = sumcheck_verify(fs, WHIR_FINAL_VARS, claimed_sum, 2)
 
-    folding_randomness_global = Array(WHIR_N_VARS * DIM)
+    folding_randomness_global = Array(n_vars * DIM)
 
     start: Mut = folding_randomness_global
     for i in unroll(0, WHIR_N_ROUNDS + 1):
@@ -101,8 +101,8 @@ def whir_open(
 
     all_ood_recovered_evals = Array(WHIR_NUM_OOD_COMMIT * DIM)
     for i in unroll(0, WHIR_NUM_OOD_COMMIT):
-        expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, WHIR_N_VARS)
-        ood_rec = eq_mle_extension(expanded_from_univariate, folding_randomness_global, WHIR_N_VARS)
+        expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, n_vars)
+        ood_rec = eq_mle_extension(expanded_from_univariate, folding_randomness_global, n_vars)
         copy_5(ood_rec, all_ood_recovered_evals + i * DIM)
     s: Mut = dot_product_ret(
         all_ood_recovered_evals,
@@ -111,16 +111,16 @@ def whir_open(
         EE,
     )
 
-    n_vars: Mut = WHIR_N_VARS
+    n_vars_remaining: Mut = n_vars
     my_folding_randomness: Mut = folding_randomness_global
     for i in unroll(0, WHIR_N_ROUNDS):
-        n_vars -= WHIR_FOLDING_FACTORS[i]
+        n_vars_remaining -= WHIR_FOLDING_FACTORS[i]
         my_ood_recovered_evals = Array(WHIR_NUM_OODS[i] * DIM)
         combination_randomness_powers = all_combination_randomness_powers[i]
         my_folding_randomness += WHIR_FOLDING_FACTORS[i] * DIM
         for j in unroll(0, WHIR_NUM_OODS[i]):
-            expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars)
-            ood_rec = eq_mle_extension(expanded_from_univariate, my_folding_randomness, n_vars)
+            expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars_remaining)
+            ood_rec = eq_mle_extension(expanded_from_univariate, my_folding_randomness, n_vars_remaining)
             copy_5(ood_rec, my_ood_recovered_evals + j * DIM)
         summed_ood = Array(DIM)
         dot_product_ee_dynamic(
@@ -133,8 +133,8 @@ def whir_open(
         s6s = Array((WHIR_NUM_QUERIES[i]) * DIM)
         circle_value_i = all_circle_values[i]
         for j in range(0, WHIR_NUM_QUERIES[i]):  # unroll ?
-            expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars)
-            temp = eq_mle_base_extension(expanded_from_univariate, my_folding_randomness, n_vars)
+            expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars_remaining)
+            temp = eq_mle_base_extension(expanded_from_univariate, my_folding_randomness, n_vars_remaining)
             copy_5(temp, s6s + j * DIM)
         s7 = dot_product_ret(
             s6s,
@@ -183,7 +183,7 @@ def sample_stir_indexes_and_fold(
     folded_domain_size = domain_size - folding_factor
 
     fs = fs_grinding(fs, grinding_bits)
-    fs, stir_challenges_indexes = sample_bits_dynamic(fs, num_queries, folded_domain_size)
+    fs, stir_challenges_indexes = sample_bits_dynamic(fs, num_queries)
 
     answers = Array(
         num_queries

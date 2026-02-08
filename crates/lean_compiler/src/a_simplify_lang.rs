@@ -2182,7 +2182,7 @@ fn simplify_lines(
                                     "Custom hint {function_name} should not return values, at {location}"
                                 ));
                             }
-                            if !hint.n_args_range().contains(&args.len()) {
+                            if args.len() != hint.n_args() {
                                 return Err(format!(
                                     "Custom hint {function_name}: invalid number of arguments, at {location}"
                                 ));

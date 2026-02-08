@@ -6,7 +6,6 @@ use multilinear_toolkit::prelude::*;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use std::ops::Range;
 use strum::IntoEnumIterator;
 use utils::{ToUsize, pretty_integer, to_big_endian_in_field, to_little_endian_in_field};
 
@@ -77,6 +76,7 @@ pub enum CustomHint {
     DecomposeBitsXMSS,
     DecomposeBits,
     LessThan,
+    Log2Ceil,
 }
 
 impl CustomHint {
@@ -85,14 +85,16 @@ impl CustomHint {
             Self::DecomposeBitsXMSS => "hint_decompose_bits_xmss",
             Self::DecomposeBits => "hint_decompose_bits",
             Self::LessThan => "hint_less_than",
+            Self::Log2Ceil => "hint_log2_ceil",
         }
     }
 
-    pub fn n_args_range(&self) -> Range<usize> {
+    pub fn n_args(&self) -> usize {
         match self {
-            Self::DecomposeBitsXMSS => 5..6,
-            Self::DecomposeBits => 4..5,
-            Self::LessThan => 3..4,
+            Self::DecomposeBitsXMSS => 5,
+            Self::DecomposeBits => 4,
+            Self::LessThan => 3,
+            Self::Log2Ceil => 2,
         }
     }
 
@@ -144,6 +146,11 @@ impl CustomHint {
                 let res_ptr = args[2].memory_address(ctx.fp)?;
                 let result = if a.to_usize() < b.to_usize() { F::ONE } else { F::ZERO };
                 ctx.memory.set(res_ptr, result)?;
+            }
+            Self::Log2Ceil => {
+                let n = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let res_ptr = args[1].memory_address(ctx.fp)?;
+                ctx.memory.set(res_ptr, F::from_usize(log2_ceil_usize(n)))?;
             }
         }
         Ok(())

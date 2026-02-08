@@ -485,9 +485,9 @@ def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
 # Any field element (< p) is either:
 # -   1111111    | 00...00
 # - not(1111111) | xx...xx
-def checked_decompose_bits(a, k):
+def checked_decompose_bits(a):
     # return a pointer to the 31 bits of a
-    # .. and the partial value, reading the first K bits (with k <= 24)
+    # .. and the first 24 partial sums of these bits
     bits = Array(F_BITS)
     hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN)
 
@@ -506,8 +506,7 @@ def checked_decompose_bits(a, k):
         assert sum_24 == 0
 
     assert a == sum_24 + sum_7 * 2**24
-    partial_sum = partial_sums_24[k - 1]
-    return bits, partial_sum
+    return bits, partial_sums_24
 
 
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
@@ -556,7 +555,7 @@ def mle_of_zeros_then_ones(point, n_zeros, n_vars):
     if n_zeros == n_values:
         return ZERO_VEC_PTR
 
-    bits, _ = checked_decompose_bits(n_zeros, 0)
+    bits, _ = checked_decompose_bits(n_zeros)
 
     res: Mut = Array(DIM)
     set_to_one(res)
@@ -637,3 +636,16 @@ def dot_product_with_the_base_vectors(slice):
     # slice: pointer to DIM extension field elements
     # cf constants.rs: by convention, [10000] [01000] [00100] [00010] [00001] is harcoded in memory, starting at ONE_VEC_PTR
     return dot_product_ret(slice, ONE_VEC_PTR, 1, EE)
+
+
+def log2_ceil_runtime(n):
+    # requires: 2 < n <= 2^23
+    log2: Imu
+    hint_log2_ceil(n, log2)
+    assert log2 < 24
+    if powers_of_two(log2) != n:
+        _, partial_sums_24 = checked_decompose_bits(n)
+        assert partial_sums_24[log2-1] == n
+        assert partial_sums_24[log2-2] != n
+    return log2
+

@@ -24,7 +24,8 @@ def fs_grinding(fs, bits):
     new_fs[8] = transcript_ptr + 8
 
     sampled = new_fs[0]
-    _, sampled_low_bits_value = checked_decompose_bits(sampled, bits)
+    _, partial_sums_24 = checked_decompose_bits(sampled)
+    sampled_low_bits_value = partial_sums_24[bits - 1]
     assert sampled_low_bits_value == 0
 
     return new_fs
@@ -107,22 +108,22 @@ def fs_print_state(fs_state):
     return
 
 
-def sample_bits_const(fs, n_samples: Const, K):
+def sample_bits_const(fs, n_samples: Const):
     # return the updated fiat-shamir, and a pointer to n pointers, each pointing to 31 (boolean) field elements,
     sampled_bits = Array(n_samples)
     n_chunks = div_ceil(n_samples, 8)
     new_fs, sampled = fs_sample_chunks(fs, n_chunks)
     for i in unroll(0, n_samples):
-        bits, _ = checked_decompose_bits(sampled[i], K)
+        bits, _ = checked_decompose_bits(sampled[i])
         sampled_bits[i] = bits
     return new_fs, sampled_bits
 
 
-def sample_bits_dynamic(fs_state, n_samples, K):
+def sample_bits_dynamic(fs_state, n_samples):
     new_fs_state: Imu
     sampled_bits: Imu
     for r in unroll(0, WHIR_N_ROUNDS + 1):
         if n_samples == WHIR_NUM_QUERIES[r]:
-            new_fs_state, sampled_bits = sample_bits_const(fs_state, WHIR_NUM_QUERIES[r], K)
+            new_fs_state, sampled_bits = sample_bits_const(fs_state, WHIR_NUM_QUERIES[r])
             return new_fs_state, sampled_bits
     assert False, "sample_bits_dynamic called with unsupported n_samples"

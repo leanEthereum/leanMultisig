@@ -15,7 +15,7 @@ pub struct ExecutionProof {
     pub proof: Vec<F>,
     pub proof_size_fe: usize,
     pub exec_summary: String,
-    pub first_whir_n_vars: usize,
+    pub whir_n_vars: usize,
 }
 
 pub fn prove_execution(
@@ -110,7 +110,7 @@ pub fn prove_execution(
         &bytecode_acc,
         &traces,
     );
-    let first_whir_n_vars = stacked_pcs_witness.global_polynomial.by_ref().n_vars();
+    let whir_n_vars = stacked_pcs_witness.global_polynomial.by_ref().n_vars();
 
     // logup (GKR)
     let logup_c = prover_state.sample();
@@ -207,7 +207,7 @@ pub fn prove_execution(
         proof: prover_state.raw_proof(),
         proof_size_fe,
         exec_summary,
-        first_whir_n_vars,
+        whir_n_vars,
     }
 }
 

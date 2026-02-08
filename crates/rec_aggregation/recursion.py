@@ -67,18 +67,25 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         assert mem_and_table_dims[i] == 0
     log_memory = mem_and_table_dims[0]
 
-    table_dims = mem_and_table_dims + 1
-    log_cycles = table_dims[EXECUTION_TABLE_INDEX]
-    assert log_cycles <= log_memory
+    table_log_heights = mem_and_table_dims + 1
+    log_n_cycles = table_log_heights[EXECUTION_TABLE_INDEX]
+    assert log_n_cycles <= log_memory
 
+    log_bytecode = log2_ceil(GUEST_BYTECODE_LEN)
+    log_bytecode_padded = maximum(log_bytecode, log_n_cycles)
+
+    table_heights = Array(N_TABLES)
     for i in unroll(0, N_TABLES):
-        n_vars_for_table = table_dims[i]
-        assert n_vars_for_table <= log_cycles
-        assert MIN_LOG_N_ROWS_PER_TABLE <= n_vars_for_table
-        assert n_vars_for_table <= MAX_LOG_N_ROWS_PER_TABLE[i]
+        table_log_height = table_log_heights[i]
+        table_heights[i] = powers_of_two(table_log_height)
+        assert table_log_height <= log_n_cycles
+        assert MIN_LOG_N_ROWS_PER_TABLE <= table_log_height
+        assert table_log_height <= MAX_LOG_N_ROWS_PER_TABLE[i]
     assert MIN_LOG_MEMORY_SIZE <= log_memory
     assert log_memory <= MAX_LOG_MEMORY_SIZE
     assert log_memory <= GUEST_BYTECODE_LEN
+
+    stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
 
     fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, WHIR_NUM_OOD_COMMIT)
 
@@ -107,9 +114,6 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     offset: Mut = powers_of_two(log_memory)
 
-    log_bytecode = log2_ceil(GUEST_BYTECODE_LEN)
-    log_n_cycles = table_dims[EXECUTION_TABLE_INDEX]
-    log_bytecode_padded = maximum(log_bytecode, log_n_cycles)
     bytecode_and_acc_point = point_gkr + (N_VARS_LOGUP_GKR - log_bytecode) * DIM
     bytecode_multilinear_location_prefix = multilinear_location_prefix(
         offset / 2 ** log2_ceil(GUEST_BYTECODE_LEN), N_VARS_LOGUP_GKR - log_bytecode, point_gkr
@@ -185,8 +189,8 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     for table_index in unroll(0, N_TABLES):
         # I] Bus (data flow between tables)
 
-        log_n_rows = table_dims[table_index]
-        n_rows = powers_of_two(log_n_rows)
+        log_n_rows = table_log_heights[table_index]
+        n_rows = table_heights[table_index]
         inner_point = point_gkr + (N_VARS_LOGUP_GKR - log_n_rows) * DIM
         pcs_points[table_index].push(inner_point)
 
@@ -309,7 +313,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     air_alpha_powers = powers_const(air_alpha, MAX_NUM_AIR_CONSTRAINTS + 1)
 
     for table_index in unroll(0, N_TABLES):
-        log_n_rows = table_dims[table_index]
+        log_n_rows = table_log_heights[table_index]
         bus_numerator_value = bus_numerators_values[table_index]
         bus_denominator_value = bus_denominators_values[table_index]
         total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index]
@@ -479,6 +483,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     end_sum: Mut
     fs, folding_randomness_global, s, final_value, end_sum = whir_open(
         fs,
+        stacked_n_vars,
         whir_base_root,
         whir_base_ood_points,
         combination_randomness_powers,
@@ -488,18 +493,18 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     curr_randomness = combination_randomness_powers + WHIR_NUM_OOD_COMMIT * DIM
 
     eq_memory_and_acc_point = eq_mle_extension(
-        folding_randomness_global + (WHIR_N_VARS - log_memory) * DIM,
+        folding_randomness_global + (stacked_n_vars - log_memory) * DIM,
         memory_and_acc_point,
         log_memory,
     )
-    prefix_memory = multilinear_location_prefix(0, WHIR_N_VARS - log_memory, folding_randomness_global)
+    prefix_memory = multilinear_location_prefix(0, stacked_n_vars - log_memory, folding_randomness_global)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_memory), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 
-    prefix_acc_memory = multilinear_location_prefix(1, WHIR_N_VARS - log_memory, folding_randomness_global)
+    prefix_acc_memory = multilinear_location_prefix(1, stacked_n_vars - log_memory, folding_randomness_global)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc_memory), eq_memory_and_acc_point),
@@ -507,12 +512,12 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     curr_randomness += DIM
 
     eq_pub_mem = eq_mle_extension(
-        folding_randomness_global + (WHIR_N_VARS - inner_public_memory_log_size) * DIM,
+        folding_randomness_global + (stacked_n_vars - inner_public_memory_log_size) * DIM,
         public_memory_random_point,
         inner_public_memory_log_size,
     )
     prefix_pub_mem = multilinear_location_prefix(
-        0, WHIR_N_VARS - inner_public_memory_log_size, folding_randomness_global
+        0, stacked_n_vars - inner_public_memory_log_size, folding_randomness_global
     )
     s = add_extension_ret(
         s,
@@ -523,13 +528,13 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     offset = powers_of_two(log_memory) * 2  # memory and acc_memory
 
     eq_bytecode_acc = eq_mle_extension(
-        folding_randomness_global + (WHIR_N_VARS - log2_ceil(GUEST_BYTECODE_LEN)) * DIM,
+        folding_randomness_global + (stacked_n_vars - log2_ceil(GUEST_BYTECODE_LEN)) * DIM,
         bytecode_and_acc_point,
         log2_ceil(GUEST_BYTECODE_LEN),
     )
     prefix_bytecode_acc = multilinear_location_prefix(
         offset / 2 ** log2_ceil(GUEST_BYTECODE_LEN),
-        WHIR_N_VARS - log2_ceil(GUEST_BYTECODE_LEN),
+        stacked_n_vars - log2_ceil(GUEST_BYTECODE_LEN),
         folding_randomness_global,
     )
     s = add_extension_ret(
@@ -541,7 +546,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     prefix_pc_start = multilinear_location_prefix(
         offset + COL_PC * powers_of_two(log_n_cycles),
-        WHIR_N_VARS,
+        stacked_n_vars,
         folding_randomness_global,
     )
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_start))
@@ -549,28 +554,28 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     prefix_pc_end = multilinear_location_prefix(
         offset + (COL_PC + 1) * powers_of_two(log_n_cycles) - 1,
-        WHIR_N_VARS,
+        stacked_n_vars,
         folding_randomness_global,
     )
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_end))
     curr_randomness += DIM
 
     for table_index in unroll(0, N_TABLES):
-        log_n_rows = table_dims[table_index]
-        n_rows = powers_of_two(log_n_rows)
+        log_n_rows = table_log_heights[table_index]
+        n_rows = table_heights[table_index]
         total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index]
         for i in unroll(0, len(pcs_points[table_index])):
             point = pcs_points[table_index][i]
             eq_factor = eq_mle_extension(
                 point,
-                folding_randomness_global + (WHIR_N_VARS - log_n_rows) * DIM,
+                folding_randomness_global + (stacked_n_vars - log_n_rows) * DIM,
                 log_n_rows,
             )
             for j in unroll(0, total_num_cols):
                 if len(pcs_values[table_index][i][j]) == 1:
                     prefix = multilinear_location_prefix(
                         offset / n_rows + j,
-                        WHIR_N_VARS - log_n_rows,
+                        stacked_n_vars - log_n_rows,
                         folding_randomness_global,
                     )
                     s = add_extension_ret(
@@ -673,6 +678,17 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     copy_5(beta, postponed_point)
 
     return fs, postponed_point, new_claim_num, new_claim_den
+
+
+@inline
+def compute_stacked_n_vars(log_memory, log_bytecode_padded, tables_heights):
+    total: Mut = powers_of_two(log_memory + 1) # memory + acc_memory
+    total += powers_of_two(log_bytecode_padded)
+    for table_index in unroll(0, N_TABLES):
+        n_rows = tables_heights[table_index]
+        total += n_rows * (NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index])
+    debug_assert(30 - 24 < MIN_LOG_N_ROWS_PER_TABLE) # cf log2_ceil
+    return MIN_LOG_N_ROWS_PER_TABLE + log2_ceil_runtime(total / 2**MIN_LOG_N_ROWS_PER_TABLE)
 
 
 def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly):
