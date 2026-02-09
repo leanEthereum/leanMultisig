@@ -51,6 +51,9 @@
 
 \maketitle
 
+\tableofcontents
+\newpage
+
 \section{What is the goal of this zkVM?}
 
 Replacing the BLS signature scheme with a Post-Quantum alternative. One approach is to use stateful hash-based signatures, XMSS, as explained in \cite{ethereum_signatures}, \cite{top_hypercube} and \cite{LeanSig}, and to use a hash-based SNARK to handle aggregation.
@@ -125,14 +128,11 @@ Advantages:
     \item $< 2^{31}$ $\xrightarrow{}$ the sum of 2 field elements can be stored in an u32
 \end{itemize}
 
-The small 2-addicity (24) is not a limiting factor in WHIR, thanks to the use of an interleaved Reed Solomon code.
-
-% For instance, in a degree 8 extension, with rate = $1/2$, FRI/WHIR can commit to a polynomial of degree $2^{26}$ (FFT on a domain of size $2^{27}$), which is to equivalent to $2^{29}$ KoalaBear elements after RingSwitching \cite{fri_binius} $\approx 2 $ GiB of data (enough to prove the validity of $2$ million Poseidon2).
-
+The small 2-addicity (24) is not a limiting factor in WHIR, thanks to the use of an interleaved Reed Solomon code (example: with an initial folding of 7, and rate $1/2$, we can commit up to $2^{30}$ field elements).
 
 \vspace{3mm}
 
-\fbox{Extension field: of degree 5} : enables 128 bits of security in WHIR, with the Johnson bound, thanks to the latest result of \cite{proximity_gaps_rs_codes_2}.
+\fbox{Extension field: $\Fq$, with $q = p^5$} : the degree-5 extension enables 128 bits of security in WHIR, with the Johnson bound, thanks to the latest result of \cite{proximity_gaps_rs_codes_2}.
 
 \subsection{Memory}
 
@@ -247,19 +247,27 @@ $$
 \end{cases}
 $$
 
-\subsubsection{2 Precompiles}
+\subsection{Precompiles}
 
+The ISA supports two precompile instructions, each delegated to a dedicated table in the proving system (Section~\ref{sec:proving}).
 
+\subsubsection{Poseidon}
 
-\begin{enumerate}
-    \item \textbf{POSEIDON}: Poseidon2 permutation over 16 field elements.
-    \item \textbf{DOT\_PRODUCT}: Computes a dot product between either:
-    \begin{itemize}
-        \item two slices of extension field elements
-        \item one slice of base field elements, and one slice of extension field elements
-    \end{itemize}
-\end{enumerate}
+TODO
 
+\subsubsection{Dot product}
+
+Computes $\text{res} = \sum_{i=0}^{n-1} a_i \cdot b_i \in \Fq$, where:
+\begin{itemize}
+    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i \in \Fp$, $b_i \in \Fq$ (base $\times$ extension).
+    The $a_i$ are read from consecutive memory addresses starting at $\alpha$, and the $b_i$ from consecutive blocks of 5 starting at $\beta$.
+    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i \in \Fq$, $b_i \in \Fq$ (extension $\times$ extension).
+    Both slices are read from consecutive blocks of 5, starting at $\alpha$ and $\beta$ respectively.
+\end{itemize}
+
+\vspace{2mm}
+
+Parameters: memory addresses $\alpha$ (first operand), $\beta$ (second operand), $\gamma$ (result), a size $n > 0$, and the mode flag \texttt{is\_be} $\in \{0, 1\}$. The result is written as 5 consecutive field elements at $\textbf{m}[\gamma .. \gamma + 5]$.
 
 \subsection{ISA programming}
 
@@ -337,7 +345,39 @@ One efficient implementation consists in placing our blocks of code at regular i
 \newline
 Example: During XMSS verification, for each of the $v$ chains, we need to hash a pre-image, a number of times depending on the encoding, but known to be $< w$. Here $k = w$, and the $i-th$ block of code we could jump to will execute $i$ times the hash function (unrolled loop).
 
-\section{Proving system}
+\section{Proving system}\label{sec:proving}
+
+\subsection{Table sizes}\label{sec:table-sizes}
+
+Each table has a maximum number of rows (as a power of two):
+
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+Table & Max rows \\
+\midrule
+Execution & $2^{25}$ \\
+Dot product & $2^{21}$ \\
+Poseidon & $2^{21}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Tables are padded to the next power of two (with a minimum of $2^{8}$ rows). These bounds are critical for soundness: they ensure that logup multiplicities cannot overflow modulo $p$.
+
+\subsection{Arithmetic Intermediate Representation (AIR)}\label{sec:air-eval}
+
+If a table has $n$ columns, a transition constraint is a multivariate polynomial $C(x_1, \dots, x_n, y_1, \dots, y_n)$ in $2n$ variables, where $(x_1, \dots, x_n)$ represents the current row and $(y_1, \dots, y_n)$ represents the next row. Each table defines a set of such constraints, all of which must evaluate to zero on every pair of consecutive rows. For a table with $H$ rows (indexed $0, \dots, H-1$), the constraints are evaluated on $(H-1) + 1 = H$ pairs:
+\begin{itemize}
+    \item $H - 1$ consecutive pairs: $(\text{row}_i, \text{row}_{i+1})$ for $i = 0, \dots, H-2$
+    \item 1 \textbf{wrapping pair}: $(\text{row}_{H-1}, \text{row}_{H-1})$ --- the last row is paired with itself
+\end{itemize}
+
+The wrapping pair means that on the last row, $\text{next}(x) = x$ for every column $x$.
+
+\vspace{3mm}
+
+TODO: describe how to prove AIR via sumcheck.
 
 \subsection{Execution table}
 
@@ -423,6 +463,147 @@ For jump and conditional state transitions, let $J = \text{JUMP} \cdot \nu_A$:
 \end{itemize}
 
 Note: the constraint $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
+
+TODO: Verify and (formally) prove soundness.
+
+\subsection{Poseidon table}
+
+TODO
+
+\subsection{Dot product table}
+
+The dot product precompile computes $\text{res} = \sum_{i=0}^{n-1} a_i \cdot b_i \in \Fq$, where:
+\begin{itemize}
+    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i \in \Fp$, $b_i \in \Fq$ (base $\times$ extension)
+    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i \in \Fq$, $b_i \in \Fq$ (extension $\times$ extension)
+\end{itemize}
+
+\subsubsection{Trace layout}
+
+Each dot product of length $n$ occupies $n$ consecutive rows. The first row (\texttt{start} $= 1$) carries the full accumulated result; subsequent rows (\texttt{start} $= 0$) count down via \texttt{len}. Multiple dot products are stacked vertically.
+
+\vspace{3mm}
+
+\noindent\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccc|cccc|c}
+\toprule
+\multicolumn{8}{c|}{Base field columns ($\Fp$)} & \multicolumn{4}{c|}{Extension field columns ($\Fq$)} & \\
+\texttt{is\_be} & \texttt{flag} & \texttt{start} & \texttt{len} & $\text{idx}_A$ & $\text{idx}_B$ & $\text{idx}_R$ & $v_{A,\Fp}$ & $v_{A,\Fq}$ & $v_B$ & \texttt{res} & \texttt{comp} & \texttt{aux} \\
+\midrule
+\multicolumn{13}{l}{\textit{BE dot product ($n=3$, $\alpha\!=\!90$, $\beta\!=\!200$, $\gamma\!=\!50$): \quad $\texttt{res} = \sum_{i=0}^{2} \textbf{m}[90\!+\!i] \cdot \textbf{m}[200\!+\!5i\,..\,205\!+\!5i]$}} \\[2pt]
+1 & 1 & 1 & 3 & 90 & 200 & 50 & $\textbf{m}[90]$ & $\textbf{m}[90..95]$ & $\textbf{m}[200..205]$ & $\textbf{m}[50..55]$ & $c_2$ & 7 \\
+1 & 0 & 0 & 2 & 91 & 205 & 50 & $\textbf{m}[91]$ & $\textbf{m}[91..96]$ & $\textbf{m}[205..210]$ & $\textbf{m}[50..55]$ & $c_1$ & 5 \\
+1 & 0 & 0 & 1 & 92 & 210 & 50 & $\textbf{m}[92]$ & $\textbf{m}[92..97]$ & $\textbf{m}[210..215]$ & $\textbf{m}[50..55]$ & $c_0$ & 3 \\
+\midrule
+\multicolumn{13}{l}{\textit{EE dot product ($n=2$, $\alpha\!=\!300$, $\beta\!=\!400$, $\gamma\!=\!500$): \quad $\texttt{res} = \sum_{i=0}^{1} \textbf{m}[300\!+\!5i\,..\,305\!+\!5i] \cdot \textbf{m}[400\!+\!5i\,..\,405\!+\!5i]$}} \\[2pt]
+0 & 1 & 1 & 2 & 300 & 400 & 500 & $\textbf{m}[300]$ & $\textbf{m}[300..305]$ & $\textbf{m}[400..405]$ & $\textbf{m}[500..505]$ & $d_1$ & 4 \\
+0 & 0 & 0 & 1 & 305 & 405 & 500 & $\textbf{m}[305]$ & $\textbf{m}[305..310]$ & $\textbf{m}[405..410]$ & $\textbf{m}[500..505]$ & $d_0$ & 2 \\
+\bottomrule
+\end{tabular}%
+}
+
+\vspace{3mm}
+
+\textbf{Recurrence} (over $\Fq$):
+\begin{itemize}
+    \item BE: $c_0 = \textbf{m}[92] \cdot \textbf{m}[210..215]$, \; $c_1 = \textbf{m}[91] \cdot \textbf{m}[205..210] + c_0$, \; $c_2 = \textbf{m}[90] \cdot \textbf{m}[200..205] + c_1 = \texttt{res}$
+    \item EE: $d_0 = \textbf{m}[305..310] \cdot \textbf{m}[405..410]$, \; $d_1 = \textbf{m}[300..305] \cdot \textbf{m}[400..405] + d_0 = \texttt{res}$
+\end{itemize}
+
+\vspace{2mm}
+
+Notes: In BE mode, $\text{idx}_A$ increments by 1 (base field elements); in EE mode, by 5 (extension field elements). $\text{idx}_B$ always increments by 5. $\texttt{aux} = \texttt{is\_be} + 2 \cdot \texttt{len}$ is a non-committed column (used only for bus fingerprinting). Both $v_{A,\Fp}$ and $v_{A,\Fq}$ are read from memory on every row, but only the relevant one (depending on \texttt{is\_be}) is used in the computation.
+
+\subsubsection{Columns}
+
+\fbox{8 base field columns + 4 extension field columns = 28 $\Fp$-columns.}
+
+\vspace{3mm}
+
+\textbf{Base field columns ($\Fp$):}
+\begin{itemize}
+    \item \texttt{is\_be} $\in \{0,1\}$: mode flag (1 = base$\times$extension, 0 = extension$\times$extension)
+    \item \texttt{flag} $\in \{0,1\}$: bus selector (1 only on the first row of a real (non-padding) dot product)
+    \item \texttt{start} $\in \{0,1\}$: 1 on the first row of each group (and on padding rows)
+    \item \texttt{len}: countdown from $n$ to $1$
+    \item $\text{idx}_A$, $\text{idx}_B$, $\text{idx}_R$: memory addresses for $A$, $B$, and the result
+    \item $v_{A,\Fp}$: base field value $\textbf{m}[\text{idx}_A]$ (used in BE mode)
+\end{itemize}
+
+\textbf{Extension field columns ($\Fq$):}
+\begin{itemize}
+    \item $v_{A,\Fq}$: extension field value $\textbf{m}[\text{idx}_A .. \text{idx}_A + 5]$
+    \item $v_B$: extension field value $\textbf{m}[\text{idx}_B .. \text{idx}_B + 5]$
+    \item \texttt{res}: result value $\textbf{m}[\text{idx}_R .. \text{idx}_R + 5]$
+    \item \texttt{comp}: running computation (accumulated dot product)
+\end{itemize}
+
+\textbf{Non-committed column} (used for bus fingerprinting):
+\begin{itemize}
+    \item \texttt{aux} $= \texttt{is\_be} + 2 \cdot \texttt{len}$
+\end{itemize}
+
+\subsubsection{Memory lookups}
+Every row performs:
+\begin{itemize}
+    \item 1 base field lookup: $v_{A,\Fp} = \textbf{m}[\text{idx}_A]$
+    \item 3 extension field lookups: $v_{A,\Fq} = \textbf{m}[\text{idx}_A..+5]$, $\; v_B = \textbf{m}[\text{idx}_B..+5]$, $\; \texttt{res} = \textbf{m}[\text{idx}_R..+5]$
+\end{itemize}
+
+\subsubsection{Bus interaction}
+On rows where $\texttt{flag} = 1$, the table \textsc{Pull}s $(\text{idx}_A, \text{idx}_B, \text{idx}_R, \texttt{aux})$ from the corresponding bus. The execution table \textsc{Push}es a matching tuple for each dot product instruction.
+
+The \texttt{aux} encoding ensures both the mode and the length are bound to the bus data. Since \texttt{is\_be} is constrained to be boolean (constraint~\ref{dot:bool-isbe}), if an adversary flips \texttt{is\_be} while keeping \texttt{aux} constant, the adversary would need a length $\texttt{len}'$ such that $\texttt{aux} = (1 - \texttt{is\_be}) + 2 \cdot \texttt{len}'$, i.e.\ $2\cdot\texttt{len}' = 2\cdot\texttt{len} \pm 1$ over $\Fp$. By Lemma~\ref{lem:len-bound}, both $\texttt{len}$ and $\texttt{len}'$ are $\leq 2^{21} < p/2$, so the equation cannot overflow modulo $p$ and must hold over $\mathbb{Z}$. Over $\mathbb{Z}$, this is impossible by parity.
+
+\subsubsection{AIR constraints}
+
+We write $\text{next}(x)$ for the value of column $x$ on the \textbf{next row} (down).
+
+\vspace{3mm}
+
+\textbf{Value selection:} Define
+$$v_A = \texttt{is\_be} \cdot v_{A,\Fp} + (1 - \texttt{is\_be}) \cdot v_{A,\Fq} \;\in \Fq$$
+
+\textbf{Constraints:}
+\begin{enumerate}
+    \item\label{dot:bool-start} $\texttt{start} \cdot (1 - \texttt{start}) = 0$ \hfill (\texttt{start} is boolean)
+    \item\label{dot:bool-flag} $\texttt{flag} \cdot (1 - \texttt{flag}) = 0$ \hfill (\texttt{flag} is boolean)
+    \item\label{dot:bool-isbe} $\texttt{is\_be} \cdot (1 - \texttt{is\_be}) = 0$ \hfill (\texttt{is\_be} is boolean)
+    \item\label{dot:flag-start} $\texttt{flag} \cdot (1 - \texttt{start}) = 0$ \hfill (\texttt{flag} $\Rightarrow$ \texttt{start})
+    \item\label{dot:mode-consistent} $(\text{next}(\texttt{is\_be}) - \texttt{is\_be})^2 \cdot (1 - \text{next}(\texttt{start})) = 0$ \hfill (mode consistent within group)
+    \item\label{dot:recurrence} $\texttt{comp} - v_A \cdot v_B - \text{next}(\texttt{comp}) \cdot (1 - \text{next}(\texttt{start})) = 0$ \hfill (recurrence, over $\Fq$)
+    \item\label{dot:len-decrement} $(1 - \text{next}(\texttt{start})) \cdot (\texttt{len} - \text{next}(\texttt{len}) - 1) = 0$ \hfill (length countdown)
+    \item\label{dot:len-terminate} $\text{next}(\texttt{start}) \cdot (\texttt{len} - 1) = 0$ \hfill (must reach 1 before new group)
+    \item\label{dot:idx-a} $(1 - \text{next}(\texttt{start})) \cdot (\text{idx}_A - \text{next}(\text{idx}_A) + \delta_A) = 0$ \hfill (with $\delta_A = 5(1 - \texttt{is\_be}) + \texttt{is\_be}$)
+    \item\label{dot:idx-b} $(1 - \text{next}(\texttt{start})) \cdot (\text{idx}_B - \text{next}(\text{idx}_B) + 5) = 0$
+    \item\label{dot:result} $(\texttt{comp} - \texttt{res}) \cdot \texttt{start} = 0$ \hfill (result check, over $\Fq$)
+\end{enumerate}
+
+Constraint~\ref{dot:recurrence}: when $\text{next}(\texttt{start}) = 1$ (next row starts a new group), the tail term vanishes: $\texttt{comp} = v_A \cdot v_B$. Otherwise the partial sum is accumulated. Constraint~\ref{dot:result}: on the first row of each group, the accumulated computation must equal the result read from memory.
+
+
+TODO: Verify and (formally) prove soundness.
+
+\begin{lemma}\label{lem:len-bound}
+On every row $r$ of the dot product table, $\texttt{len}_r \leq H - r$ (as an integer in $\{0, \dots, p-1\}$), where $H \leq 2^{21}$ is the table height. In particular, $\texttt{len}_r \leq H$.
+\end{lemma}
+
+\begin{proof}
+By backward induction on $r$, from $r = H - 1$ down to $r = 0$.
+
+\vspace{2mm}
+
+\textbf{Base case ($r = H - 1$):} On the wrapping pair (row $H\!-\!1$ paired with itself, see Section~\ref{sec:air-eval}), $\text{next}(x) = x$ for every column $x$. Constraint~\ref{dot:len-decrement} becomes $(1 - \texttt{start}) \cdot (\texttt{len} - \texttt{len} - 1) = -(1 - \texttt{start}) = 0$, forcing $\texttt{start}_{H-1} = 1$. Then constraint~\ref{dot:len-terminate} becomes $1 \cdot (\texttt{len} - 1) = 0$, giving $\texttt{len}_{H-1} = 1 = H - (H-1)$. 
+
+\vspace{2mm}
+
+\textbf{Inductive step ($r < H - 1$):} Assume $\texttt{len}_s \leq H - s$ for all $s > r$. The pair (row $r$, row $r\!+\!1$) gives two cases depending on $\texttt{start}_{r+1} \in \{0,1\}$ (constraint~\ref{dot:bool-start}):
+
+\begin{itemize}
+    \item If $\texttt{start}_{r+1} = 1$: constraint~\ref{dot:len-terminate} gives $1 \cdot (\texttt{len}_r - 1) = 0$, so $\texttt{len}_r = 1 \leq H - r$.
+    \item If $\texttt{start}_{r+1} = 0$: constraint~\ref{dot:len-decrement} gives $(1 - 0) \cdot (\texttt{len}_r - \texttt{len}_{r+1} - 1) = 0$, so $\texttt{len}_r = \texttt{len}_{r+1} + 1$ in $\Fp$. By induction, $\texttt{len}_{r+1} \leq H - (r+1)$, so $\texttt{len}_{r+1} + 1 \leq H - r$. Since $H - r \leq H \leq 2^{21} < p$, the addition does not overflow modulo $p$, so $\texttt{len}_r = \texttt{len}_{r+1} + 1 \leq H - r$ as integers. 
+\end{itemize}
+\end{proof}
 
 \subsection{Data flow between tables / memory}
 
@@ -519,7 +700,7 @@ As with the indexed lookup into memory, this sum can be computed efficiently via
 
 A detailled soundness analysis can be found in \href{https://github.com/openvm-org/stark-backend/blob/main/docs/Soundness_of_Interactions_via_LogUp.pdf}{Soundness of Interactions via LogUp}.
 
-\section{Annex: simple stacking of multilinear polynomials}
+\subsection{Simple stacking of multilinear polynomials}
 
 \textit{Note 1}: It's always possible to reduce $n$ claims about a multilinear polynomial to a single one, using sumcheck. But this trick is not necessary with WHIR, which natively supports an arbitrary number of claims about the committed polynomial.
 \vspace{3mm}
