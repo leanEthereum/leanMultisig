@@ -19,16 +19,17 @@ use multilinear_toolkit::prelude::*;
 | ...       | ... | ...    | ...    | ...      | ...           | ...         | ...                | ...                                      |
 */
 
-// F columns
+// F columns (AIR)
 pub(super) const DOT_COL_IS_BE: usize = 0;
 pub(super) const DOT_COL_FLAG: usize = 1;
 pub(super) const DOT_COL_START: usize = 2;
 pub(super) const DOT_COL_LEN: usize = 3;
-pub(super) const DOT_COL_AUX: usize = 4; // = DOT_COL_IS_BE + DOT_COL_LEN * 2 (used for data flow with execution table. Soundness: if an adversary tries to cheat and switch the value of DOT_COL_IS_BE, then DOT_COL_LEN would be > (p-1)/2 (otherwise no overflow, and thus no cheating), which force a an AIR table of height > 2^29, which would contradict MAX_LOG_N_ROWS_PER_TABLE (in constants.rs))
-pub(super) const DOT_COL_A: usize = 5;
-pub(super) const DOT_COL_B: usize = 6;
-pub(super) const DOT_COL_RES: usize = 7;
-pub(super) const DOT_COL_VALUE_A_F: usize = 8;
+pub(super) const DOT_COL_A: usize = 4;
+pub(super) const DOT_COL_B: usize = 5;
+pub(super) const DOT_COL_RES: usize = 6;
+pub(super) const DOT_COL_VALUE_A_F: usize = 7;
+// F columns (non-AIR, used only for bus data in logup (prover side))
+pub(super) const DOT_COL_AUX: usize = 8; // = IS_BE + LEN * 2 (Soundness: if an adversary tries to cheat and switch IS_BE, then LEN would be > (p-1)/2, which forces a table height > 2^29, contradicting MAX_LOG_N_ROWS_PER_TABLE)
 // EF columns
 pub(super) const DOT_COL_VALUE_A_EF: usize = 0;
 pub(super) const DOT_COL_VALUE_B: usize = 1;
@@ -39,7 +40,7 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns_f_air(&self) -> usize {
-        9
+        8
     }
     fn n_columns_ef_air(&self) -> usize {
         4
@@ -68,7 +69,6 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
         let flag = up_f[DOT_COL_FLAG].clone();
         let start = up_f[DOT_COL_START].clone();
         let len = up_f[DOT_COL_LEN].clone();
-        let aux = up_f[DOT_COL_AUX].clone();
         let index_a = up_f[DOT_COL_A].clone();
         let index_b = up_f[DOT_COL_B].clone();
         let index_res = up_f[DOT_COL_RES].clone();
@@ -87,16 +87,19 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
 
         let computation_down = down_ef[0].clone();
 
+        // aux = is_be + 2*len (virtual expression, not a committed column)
+        let aux = is_be.clone() + len.double();
+
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 AB::F::from_usize(self.table().index()),
                 flag.clone(),
-                &[index_a.clone(), index_b.clone(), index_res.clone(), aux.clone()],
+                &[index_a.clone(), index_b.clone(), index_res.clone(), aux],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&flag));
-            builder.declare_values(&[index_a.clone(), index_b.clone(), index_res.clone(), aux.clone()]);
+            builder.declare_values(&[index_a.clone(), index_b.clone(), index_res.clone(), aux]);
         }
 
         let is_ee = AB::F::ONE - is_be.clone();
@@ -105,8 +108,6 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
         builder.assert_bool(flag.clone());
         builder.assert_zero(flag.clone() * (AB::F::ONE - start.clone()));
         builder.assert_bool(is_be.clone());
-
-        builder.assert_eq(aux, is_be.clone() + len.double());
 
         let mode_switch = (is_be_down.clone() - is_be.clone()).square();
         builder.assert_zero(mode_switch.clone() * (AB::F::ONE - start_down.clone()));

@@ -55,6 +55,10 @@ impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
         }
     }
 
+    fn n_columns_f_total(&self) -> usize {
+        self.n_columns_f_air() + 1 // +1 for DOT_COL_AUX (non-AIR, used in bus logup)
+    }
+
     fn padding_row_f(&self) -> Vec<F> {
         [
             vec![
@@ -62,9 +66,9 @@ impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
                 F::ZERO, // Flag
                 F::ONE,  // Start
                 F::ONE,  // Len
-                F::TWO,  // Aux (0 + 2*1)
             ],
-            vec![F::ZERO; self.n_columns_f_air() - 5],
+            vec![F::ZERO; self.n_columns_f_air() - 4], // A, B, RES, VALUE_A_F
+            vec![F::TWO],                              // Aux (non-AIR) = 0 + 2*1
         ]
         .concat()
     }
