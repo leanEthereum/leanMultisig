@@ -226,7 +226,7 @@ $$
 \textbf{m}[\text{fp} + \beta]
 \end{cases}
 &
-\text{next(fp)} &= 
+\text{updated\_fp} &=
 \begin{cases}
 \text{fp} \\
 \textbf{m}[\text{fp} + \gamma]
@@ -234,10 +234,16 @@ $$
 \end{align*}
 
 $$
-\text{next(pc)} = 
+\text{next(pc)} =
 \begin{cases}
 \text{dest} & \text{if condition} = 1 \\
 \text{pc} + 1 & \text{if condition} = 0
+\end{cases}
+\qquad
+\text{next(fp)} =
+\begin{cases}
+\text{updated\_fp} & \text{if condition} = 1 \\
+\text{fp} & \text{if condition} = 0
 \end{cases}
 $$
 
@@ -418,8 +424,8 @@ When there is no jump:
 When JUMP $= 1$, the condition is represented by $\nu_A$:
 \begin{itemize}
     \item $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$ 
-    \item $\text{JUMP} \cdot \nu_A \cdot ( \text{next(pc)} - \nu_C) = 0$
-    \item $\text{JUMP} \cdot \nu_A \cdot ( \text{next(fp)} - \nu_B) = 0$
+    \item $\text{JUMP} \cdot \nu_A \cdot ( \text{next(pc)} - \nu_B) = 0$
+    \item $\text{JUMP} \cdot \nu_A \cdot ( \text{next(fp)} - \nu_C) = 0$
     \item $\text{JUMP} \cdot (1 - \nu_A) \cdot ( \text{next(pc)} - (\text{pc} + 1)) = 0$
     \item $\text{JUMP} \cdot (1 - \nu_A) \cdot (\text{next(fp)} - \text{fp}) = 0$
 \end{itemize}
