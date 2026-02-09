@@ -19,6 +19,12 @@ def unroll(a: int, b: int):
     return range(a, b)
 
 
+# dynamic_unroll(start, end, n_bits) returns range(start, end) for Python execution
+def dynamic_unroll(start: int, end: int, n_bits: int):
+    _ = n_bits
+    return range(start, end)
+
+
 # Array - simulates write-once memory with pointer arithmetic
 class Array:
     def __init__(self, size: int):

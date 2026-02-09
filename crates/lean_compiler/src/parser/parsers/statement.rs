@@ -7,7 +7,7 @@ use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{Condition, Expression, Line, SourceLocation, VecLiteral},
+    lang::{Condition, Expression, Line, LoopKind, SourceLocation, VecLiteral},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -193,13 +193,19 @@ impl Parse<Line> for ForStatementParser {
         let mut inner = pair.into_inner();
         let iterator = next_inner_pair(&mut inner, "loop iterator")?.as_str().to_string();
 
-        // Next is either range or unroll_range
         let range_pair = next_inner_pair(&mut inner, "range expression")?;
-        let unroll = matches!(range_pair.as_rule(), Rule::unroll_range);
-
+        let rule = range_pair.as_rule();
         let mut range_inner = range_pair.into_inner();
         let start = ExpressionParser.parse(next_inner_pair(&mut range_inner, "loop start")?, ctx)?;
         let end = ExpressionParser.parse(next_inner_pair(&mut range_inner, "loop end")?, ctx)?;
+        let loop_kind = match rule {
+            Rule::unroll_range => LoopKind::Unroll,
+            Rule::dynamic_unroll_range => {
+                let n_bits = ExpressionParser.parse(next_inner_pair(&mut range_inner, "n_bits")?, ctx)?;
+                LoopKind::DynamicUnroll { n_bits }
+            }
+            _ => LoopKind::Range,
+        };
 
         let mut body = Vec::new();
         for item in inner {
@@ -213,7 +219,7 @@ impl Parse<Line> for ForStatementParser {
             start,
             end,
             body,
-            unroll,
+            loop_kind,
             location: SourceLocation {
                 file_id: ctx.current_file_id,
                 line_number,

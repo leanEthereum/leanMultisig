@@ -89,9 +89,10 @@ else_if_clause = { "else" ~ "if" ~ condition ~ ":" ~ newline ~ statement* ~ end_
 
 else_clause = { "else" ~ ":" ~ newline ~ statement* ~ end_block }
 
-for_statement = { "for" ~ identifier ~ "in" ~ (unroll_range | range) ~ ":" ~ newline ~ statement* ~ end_block }
+for_statement = { "for" ~ identifier ~ "in" ~ (dynamic_unroll_range | unroll_range | range) ~ ":" ~ newline ~ statement* ~ end_block }
 range = { "range" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 unroll_range = { "unroll" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
+dynamic_unroll_range = { "dynamic_unroll" ~ "(" ~ expression ~ "," ~ expression ~ "," ~ expression ~ ")" }
 
 match_statement = { "match" ~ expression ~ ":" ~ newline ~ match_arm* ~ end_block }
 match_arm = { "case" ~ pattern ~ ":" ~ newline ~ statement* ~ end_block }

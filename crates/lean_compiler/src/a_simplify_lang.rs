@@ -1,4 +1,8 @@
-use crate::{F, lang::*, parser::ConstArrayValue};
+use crate::{
+    CompilationFlags, F,
+    lang::*,
+    parser::{ConstArrayValue, parse_program},
+};
 use lean_vm::{ALL_TABLES, Boolean, BooleanExpr, CustomHint, FunctionName, SourceLocation, Table, TableT};
 use multilinear_toolkit::prelude::PrimeCharacteristicRing;
 use std::{
@@ -638,11 +642,49 @@ fn compile_time_transform_in_lines(
             }
 
             Line::ForLoop {
+                loop_kind: LoopKind::DynamicUnroll { n_bits },
                 iterator,
                 start,
                 end,
                 body,
-                unroll: true,
+                location,
+            } => {
+                let Some(start_val) = start.compile_time_eval(const_arrays, &vector_len_tracker) else {
+                    return Err(format!(
+                        "line {location}: dynamic_unroll start must be a compile-time constant"
+                    ));
+                };
+                if start_val != F::ZERO {
+                    return Err(format!("line {location}: dynamic_unroll start must be 0"));
+                }
+                let Some(n_bits_val) = n_bits.compile_time_eval(const_arrays, &vector_len_tracker) else {
+                    return Err(format!(
+                        "line {location}: dynamic_unroll n_bits must be a compile-time constant"
+                    ));
+                };
+                let n_bits_val = n_bits_val.to_usize();
+                if n_bits_val < 1 {
+                    return Err(format!(
+                        "line {location}: dynamic_unroll n_bits must be >= 1, got {n_bits_val}"
+                    ));
+                }
+                let expanded = expand_dynamic_unroll(
+                    &iterator.clone(),
+                    &end.clone(),
+                    n_bits_val,
+                    &body.clone(),
+                    *location,
+                    unroll_counter,
+                );
+                lines.splice(i..=i, expanded);
+                continue;
+            }
+            Line::ForLoop {
+                iterator,
+                start,
+                end,
+                body,
+                loop_kind: LoopKind::Unroll,
                 location,
             } => {
                 let (Some(start), Some(end)) = (start.as_scalar(), end.as_scalar()) else {
@@ -1113,7 +1155,7 @@ fn transform_mutable_in_loops_in_lines(
     let mut i = 0;
     while i < lines.len() {
         match &mut lines[i] {
-            Line::ForLoop { body, unroll: true, .. } => {
+            Line::ForLoop { body, loop_kind, .. } if loop_kind.is_unroll() => {
                 transform_mutable_in_loops_in_lines(body, const_arrays, counter);
                 i += 1;
             }
@@ -1122,7 +1164,7 @@ fn transform_mutable_in_loops_in_lines(
                 start,
                 end,
                 body,
-                unroll: false,
+                loop_kind: LoopKind::Range,
                 location,
             } => {
                 transform_mutable_in_loops_in_lines(body, const_arrays, counter);
@@ -1263,7 +1305,7 @@ fn transform_mutable_in_loops_in_lines(
                     start: start.clone(),
                     end: end.clone(),
                     body: new_body,
-                    unroll: false,
+                    loop_kind: LoopKind::Range,
                     location,
                 });
 
@@ -1449,11 +1491,14 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 start,
                 end,
                 body,
-                unroll: _,
+                loop_kind,
                 location: _,
             } => {
                 check_expr_scoping(start, ctx);
                 check_expr_scoping(end, ctx);
+                if let LoopKind::DynamicUnroll { n_bits } = loop_kind {
+                    check_expr_scoping(n_bits, ctx);
+                }
                 let mut new_scope_vars = BTreeSet::new();
                 new_scope_vars.insert(iterator.clone());
                 ctx.scopes.push(Scope { vars: new_scope_vars });
@@ -1561,9 +1606,17 @@ fn validate_vectors(
                 validate_vectors(else_branch, &all!(), inlined, Some(*location))?;
             }
             Line::ForLoop {
-                body, unroll, location, ..
+                body,
+                loop_kind,
+                location,
+                ..
             } => {
-                validate_vectors(body, &all!(), inlined, if *unroll { None } else { Some(*location) })?;
+                validate_vectors(
+                    body,
+                    &all!(),
+                    inlined,
+                    if loop_kind.is_unroll() { None } else { Some(*location) },
+                )?;
             }
             Line::Match { arms, location, .. } => {
                 for (_, arm) in arms {
@@ -2641,10 +2694,13 @@ fn simplify_lines(
                 start,
                 end,
                 body,
-                unroll,
+                loop_kind,
                 location,
             } => {
-                assert!(!*unroll, "Unrolled loops should have been handled already");
+                assert!(
+                    matches!(loop_kind, LoopKind::Range),
+                    "Unrolled/dynamic_unroll loops should have been handled already"
+                );
 
                 let mut loop_const_malloc = ConstMalloc {
                     counter: const_malloc.counter,
@@ -3188,6 +3244,7 @@ pub fn find_variable_usage(
                 start,
                 end,
                 body,
+                loop_kind,
                 ..
             } => {
                 let (body_internal, body_external) = find_variable_usage(body, const_arrays);
@@ -3196,6 +3253,9 @@ pub fn find_variable_usage(
                 external_vars.extend(body_external.difference(&internal_vars).cloned());
                 on_new_expr(start, &internal_vars, &mut external_vars);
                 on_new_expr(end, &internal_vars, &mut external_vars);
+                if let LoopKind::DynamicUnroll { n_bits } = loop_kind {
+                    on_new_expr(n_bits, &internal_vars, &mut external_vars);
+                }
             }
             Line::Panic { .. } | Line::LocationReport { .. } => {}
             Line::VecDeclaration { var, elements, .. } => {
@@ -3582,6 +3642,157 @@ fn replace_vars_for_unroll(
     transform_vars_in_lines(lines, &transform);
 }
 
+/// Expands `for idx in dynamic_unroll(0, a, n_bits): body` into:
+/// 1. Bit decomposition of `a` (with constraints)
+/// 2. Conditional execution of `body` for each index 0..a
+///
+/// The expansion template is written in zkDSL for readability, then parsed
+/// and post-processed (variable renaming, body splicing, location fixup).
+fn expand_dynamic_unroll(
+    iterator: &Var,
+    runtime_end: &Expression,
+    n_bits: usize,
+    body: &[Line],
+    location: SourceLocation,
+    unroll_counter: &mut Counter,
+) -> Vec<Line> {
+    let id = unroll_counter.get_next();
+    let pfx = format!("@du{id}");
+    let ps_len = n_bits + 1;
+
+    // The template is the zkDSL expansion of dynamic_unroll, with `end` as the
+    // runtime bound and `__iter` as a placeholder for the iterator assignment.
+    // The innermost `__iter = ps[k] + j` line will be replaced with
+    // `{iterator} = ps[k] + j` followed by the actual body.
+    //
+    // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^k.
+    // So ps[k] is the offset (number of indices below bit k), and ps[n_bits] == end.
+    let template = format!(
+        r#"
+def __dynamic_unroll_template(end):
+    bits = Array({n_bits})
+    le = 1
+    hint_decompose_bits(end, bits, {n_bits}, le)
+    ps = Array({ps_len})
+    ps[0] = 0
+    for k in unroll(0, {n_bits}):
+        b = bits[k]
+        assert b * (1 - b) == 0
+        ps[k + 1] = ps[k] + b * 2**k
+    assert end == ps[{n_bits}]
+    for k in unroll(0, {n_bits}):
+        if bits[k] == 1:
+            for j in unroll(0, 2**k):
+                __iter = ps[k] + j
+    return
+"#
+    );
+
+    let program = parse_program(&crate::ProgramSource::Raw(template), CompilationFlags::default()).unwrap();
+    assert_eq!(program.functions.len(), 1);
+    let func = program.functions.values().next().unwrap();
+    let mut lines = func.body.clone();
+
+    // Strip trailing return + its LocationReport
+    while matches!(
+        lines.last(),
+        Some(Line::FunctionRet { .. } | Line::LocationReport { .. })
+    ) {
+        lines.pop();
+    }
+    // Strip LocationReport lines (they carry template line numbers, not the real ones)
+    strip_location_reports(&mut lines);
+
+    // Rename all internal variables with @du{id}_ prefix.
+    // __iter is renamed directly to the user's iterator variable.
+    let internals: BTreeSet<String> = ["bits", "le", "ps", "k", "j", "b"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    transform_vars_in_lines(&mut lines, &|var: &Var| {
+        if var == "__iter" {
+            VarTransform::Rename(iterator.clone())
+        } else if var == "end" || internals.contains(var) {
+            VarTransform::Rename(format!("{pfx}_{var}"))
+        } else {
+            VarTransform::Keep
+        }
+    });
+
+    // Prepend: @du{id}_end = runtime_end
+    lines.insert(
+        0,
+        Line::Statement {
+            targets: vec![AssignmentTarget::Var {
+                var: format!("{pfx}_end"),
+                is_mutable: false,
+            }],
+            value: runtime_end.clone(),
+            location,
+        },
+    );
+
+    // Insert body after every `{iterator} = ...` assignment (the renamed __iter lines)
+    insert_body_after_var(&mut lines, iterator, body);
+
+    // Fix all source locations to point to the actual dynamic_unroll call site
+    set_locations_recursive(&mut lines, location);
+
+    lines
+}
+
+fn strip_location_reports(lines: &mut Vec<Line>) {
+    lines.retain(|l| !matches!(l, Line::LocationReport { .. }));
+    for line in lines.iter_mut() {
+        for block in line.nested_blocks_mut() {
+            strip_location_reports(block);
+        }
+    }
+}
+
+/// In every nested block, insert `body` lines after each statement that assigns to `var`.
+fn insert_body_after_var(lines: &mut [Line], var: &str, body: &[Line]) {
+    for line in lines.iter_mut() {
+        for block in line.nested_blocks_mut() {
+            let mut i = 0;
+            while i < block.len() {
+                if matches!(&block[i], Line::Statement { targets, .. }
+                    if targets.iter().any(|t| matches!(t, AssignmentTarget::Var { var: v, .. } if v == var)))
+                {
+                    let insert_pos = i + 1;
+                    for (j, body_line) in body.iter().enumerate() {
+                        block.insert(insert_pos + j, body_line.clone());
+                    }
+                    i += 1 + body.len();
+                } else {
+                    i += 1;
+                }
+            }
+            insert_body_after_var(block, var, body);
+        }
+    }
+}
+
+fn set_locations_recursive(lines: &mut [Line], location: SourceLocation) {
+    for line in lines {
+        match line {
+            Line::Statement { location: loc, .. }
+            | Line::Assert { location: loc, .. }
+            | Line::IfCondition { location: loc, .. }
+            | Line::ForLoop { location: loc, .. }
+            | Line::Match { location: loc, .. }
+            | Line::LocationReport { location: loc }
+            | Line::VecDeclaration { location: loc, .. }
+            | Line::Push { location: loc, .. }
+            | Line::Pop { location: loc, .. } => *loc = location,
+            Line::ForwardDeclaration { .. } | Line::FunctionRet { .. } | Line::Panic { .. } => {}
+        }
+        for block in line.nested_blocks_mut() {
+            set_locations_recursive(block, location);
+        }
+    }
+}
+
 fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) {
     match expr {
         Expression::Value(value) => match &value {
@@ -3666,9 +3877,18 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                 replace_vars_by_const_in_lines(then_branch, map);
                 replace_vars_by_const_in_lines(else_branch, map);
             }
-            Line::ForLoop { body, start, end, .. } => {
+            Line::ForLoop {
+                body,
+                start,
+                end,
+                loop_kind,
+                ..
+            } => {
                 replace_vars_by_const_in_expr(start, map);
                 replace_vars_by_const_in_expr(end, map);
+                if let LoopKind::DynamicUnroll { n_bits } = loop_kind {
+                    replace_vars_by_const_in_expr(n_bits, map);
+                }
                 replace_vars_by_const_in_lines(body, map);
             }
             Line::Assert { boolean, .. } => {

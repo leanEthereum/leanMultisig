@@ -328,8 +328,12 @@ for i in range(0, 10):                  # standard loop
     ...
 for i in unroll(0, 4):                  # unrolled at compile time
     ...
+for i in dynamic_unroll(0, a, n_bits):  # unroll over runtime-bounded range
+    ...
 ```
 Use `unroll` when bounds are const or compile-time expansion is needed.
+
+**`dynamic_unroll`** enables iterating from 0 to a runtime value `a` (known to be < 2^n_bits) in an unrolled fashion. The compiler automatically generates bit decomposition of `a`, verification constraints, and conditional execution for each index. `n_bits` must be compile-time known. The start must always be 0.
 
 **Mutable variables in non-unrolled loops:** Mutable variables can be modified inside non-unrolled loops. The compiler automatically transforms these into buffer-based implementations:
 

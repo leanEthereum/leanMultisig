@@ -147,30 +147,18 @@ def fs_finalize_sample(fs, total_n_chunks):
 
 def sample_bits_dynamic(fs: Mut, n_samples):
     debug_assert(n_samples < 256)
-    n_samples_bit_decomposed = checked_decompose_bits_small_value_const(n_samples, 8)
+    # Compute total_chunks = ceil(n_samples / 8) via bit decomposition.
+    # Big-endian: nb[0]=bit7 (MSB), nb[7]=bit0 (LSB).
+    nb = checked_decompose_bits_small_value_const(n_samples, 8)
+    floor_div = nb[0]*16 + nb[1]*8 + nb[2]*4 + nb[3]*2 + nb[4]
+    has_remainder = 1 - (1 - nb[5]) * (1 - nb[6]) * (1 - nb[7])
+    total_chunks = floor_div + has_remainder
+    # Sample exactly the needed chunks (dispatch via match_range to keep n_chunks const)
+    sampled = match_range(total_chunks, range(0, 33), lambda nc: fs_sample_data_with_offset(fs, nc, 0))
+    # Decompose each sampled field element into bits
     sampled_bits = Array(n_samples)
-    counter: Mut = 0
-    offset: Mut = 0
-    for i in unroll(0, 4):
-        if n_samples_bit_decomposed[i] == 1:
-            n_chunks = 2**(7 - i) / 8
-            sampled = fs_sample_data_with_offset(fs, n_chunks, offset)
-            for j in unroll(0, 2**(7 - i)):
-                bits, _ = checked_decompose_bits(sampled[j])
-                sampled_bits[counter + j] = bits
-            counter += 2**(7 - i)
-            offset += n_chunks
-    remaining = n_samples - counter
-    debug_assert(remaining < 16)
-    final_sampled_bits = sampled_bits + counter
-    total_offset = match_range(remaining, range(0, 16), lambda r: finish_sample_bits_dynamic(fs, final_sampled_bits, r, offset))
-    new_fs = fs_finalize_sample(fs, total_offset)
-    return new_fs, sampled_bits
-
-def finish_sample_bits_dynamic(fs, final_sampled_bits, remaining: Const, offset):
-    n_chunks = div_ceil(remaining, 8)
-    sampled = fs_sample_data_with_offset(fs, n_chunks, offset)
-    for i in unroll(0, remaining):
+    for i in dynamic_unroll(0, n_samples, 8):
         bits, _ = checked_decompose_bits(sampled[i])
-        final_sampled_bits[i] = bits
-    return offset + n_chunks
+        sampled_bits[i] = bits
+    new_fs = fs_finalize_sample(fs, total_chunks)
+    return new_fs, sampled_bits

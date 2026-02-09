@@ -579,6 +579,23 @@ impl VecLiteral {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LoopKind {
+    Range,
+    Unroll,
+    /// `for i in dynamic_unroll(0, a, n_bits): body` — unrolls over runtime-bounded range
+    /// using bit decomposition. `n_bits` must be compile-time known.
+    DynamicUnroll {
+        n_bits: Expression,
+    },
+}
+
+impl LoopKind {
+    pub fn is_unroll(&self) -> bool {
+        matches!(self, Self::Unroll | Self::DynamicUnroll { .. })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Match {
         value: Expression,
@@ -610,7 +627,7 @@ pub enum Line {
         start: Expression,
         end: Expression,
         body: Vec<Self>,
-        unroll: bool,
+        loop_kind: LoopKind,
         location: SourceLocation,
     },
     FunctionRet {
@@ -793,7 +810,7 @@ impl Line {
                 start,
                 end,
                 body,
-                unroll,
+                loop_kind,
                 location: _,
             } => {
                 let body_str = body
@@ -801,11 +818,19 @@ impl Line {
                     .map(|line| line.to_string_with_indent(indent + 1))
                     .collect::<Vec<_>>()
                     .join("\n");
-                let range_fn = if *unroll { "unroll" } else { "range" };
-                format!(
-                    "for {} in {}({}, {}) {{\n{}\n{}}}",
-                    iterator, range_fn, start, end, body_str, spaces
-                )
+                match loop_kind {
+                    LoopKind::DynamicUnroll { n_bits } => format!(
+                        "for {} in dynamic_unroll({}, {}, {}) {{\n{}\n{}}}",
+                        iterator, start, end, n_bits, body_str, spaces
+                    ),
+                    _ => {
+                        let range_fn = if loop_kind.is_unroll() { "unroll" } else { "range" };
+                        format!(
+                            "for {} in {}({}, {}) {{\n{}\n{}}}",
+                            iterator, range_fn, start, end, body_str, spaces
+                        )
+                    }
+                }
             }
             Self::FunctionRet { return_data } => {
                 let return_data_str = return_data
@@ -908,7 +933,15 @@ impl Line {
             }
             Self::Assert { boolean, .. } => vec![&mut boolean.left, &mut boolean.right],
             Self::IfCondition { condition, .. } => condition.expressions_mut(),
-            Self::ForLoop { start, end, .. } => vec![start, end],
+            Self::ForLoop {
+                start, end, loop_kind, ..
+            } => {
+                let mut exprs = vec![start, end];
+                if let LoopKind::DynamicUnroll { n_bits } = loop_kind {
+                    exprs.push(n_bits);
+                }
+                exprs
+            }
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
             Self::Push { indices, element, .. } => {
                 let mut exprs = indices.iter_mut().collect::<Vec<_>>();
