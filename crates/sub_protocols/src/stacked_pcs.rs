@@ -1,6 +1,6 @@
 use lean_vm::{
-    ALL_TABLES, COL_PC, CommittedStatements, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE, STARTING_PC,
-    sort_tables_by_height,
+    ALL_TABLES, COL_PC, CommittedStatements, DIMENSION, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
+    N_INSTRUCTION_COLUMNS, STARTING_PC, sort_tables_by_height,
 };
 use lean_vm::{EF, F, Table, TableT, TableTrace};
 use multilinear_toolkit::prelude::*;
@@ -199,4 +199,22 @@ pub fn min_stacked_n_vars(log_bytecode: usize) -> usize {
         min_tables_log_heights.insert(table, MIN_LOG_N_ROWS_PER_TABLE);
     }
     compute_stacked_n_vars(MIN_LOG_MEMORY_SIZE, log_bytecode, &min_tables_log_heights)
+}
+
+pub fn total_whir_statements() -> usize {
+    5 // memory + memory_acc + public_memory + bytecode_acc + pc_start + pc_end
+     + ALL_TABLES
+        .iter()
+        .map(|table| {
+            // AIR
+            table.n_committed_columns()
+            + table.n_down_columns_f() + table.n_down_columns_ef() * DIMENSION
+            // Lookups into memory
+            + table.lookups_f().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
+            + table.lookups_ef().len() * (1 + DIMENSION)
+        })
+        .sum::<usize>()
+        // bytecode lookup
+        + 1 // PC
+        + N_INSTRUCTION_COLUMNS
 }

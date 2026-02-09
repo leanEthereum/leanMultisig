@@ -14,7 +14,7 @@ use multilinear_toolkit::prelude::symbolic::{
     SymbolicExpression, SymbolicOperation, get_symbolic_constraints_and_bus_data_values,
 };
 use multilinear_toolkit::prelude::*;
-use sub_protocols::min_stacked_n_vars;
+use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 
 pub fn run_recursion_benchmark(count: usize, log_inv_rate: usize, prox_gaps_conjecture: bool, tracing: bool) {
@@ -378,7 +378,7 @@ fn run_recursion_benchmark_with_program(
     );
     replacements.insert(
         "TOTAL_WHIR_STATEMENTS_PLACEHOLDER".to_string(),
-        verif_details.total_whir_statements.to_string(),
+        total_whir_statements().to_string(),
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());

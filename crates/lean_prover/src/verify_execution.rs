@@ -12,7 +12,6 @@ pub struct ProofVerificationDetails {
     pub log_memory: usize,
     pub table_n_vars: BTreeMap<Table, VarCount>,
     pub first_quotient_gkr_n_vars: usize,
-    pub total_whir_statements: usize,
     pub bytecode_evaluation: Evaluation<EF>,
 }
 
@@ -150,7 +149,11 @@ pub fn verify_execution(
         &table_n_vars,
         &committed_statements,
     );
-    let total_whir_statements = global_statements_base.iter().map(|s| s.values.len()).sum();
+
+    // sanity check (not necessary for soundness)
+    let num_whir_statements = global_statements_base.iter().map(|s| s.values.len()).sum::<usize>();
+    assert_eq!(num_whir_statements, total_whir_statements());
+
     WhirConfig::new(&whir_config, parsed_commitment.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment,
@@ -161,7 +164,6 @@ pub fn verify_execution(
         log_memory,
         table_n_vars,
         first_quotient_gkr_n_vars: logup_statements.total_gkr_n_vars,
-        total_whir_statements,
         bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
     })
 }
