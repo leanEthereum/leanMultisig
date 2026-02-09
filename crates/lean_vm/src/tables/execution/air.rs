@@ -74,7 +74,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        16
+        14
     }
 
     #[inline]
@@ -158,14 +158,14 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
         builder.assert_zero(deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
 
-        builder.assert_zero((jump.clone() - AB::F::ONE) * (next_pc.clone() - pc_plus_one.clone()));
-        builder.assert_zero((jump.clone() - AB::F::ONE) * (next_fp.clone() - fp.clone()));
+        let jump_and_condition = jump.clone() * nu_a.clone();
 
-        builder.assert_zero(jump.clone() * nu_a.clone() * nu_a_minus_one.clone());
-        builder.assert_zero(jump.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
-        builder.assert_zero(jump.clone() * nu_a.clone() * (next_fp.clone() - nu_c.clone()));
-        builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_pc.clone() - pc_plus_one.clone()));
-        builder.assert_zero(jump.clone() * nu_a_minus_one.clone() * (next_fp.clone() - fp.clone()));
+        builder.assert_zero(jump_and_condition.clone() * nu_a_minus_one.clone());
+        builder.assert_zero(jump_and_condition.clone() * (next_pc.clone() - nu_b.clone()));
+        builder.assert_zero(jump_and_condition.clone() * (next_fp.clone() - nu_c.clone()));
+        let not_jump_and_condition = AB::F::ONE - jump_and_condition;
+        builder.assert_zero(not_jump_and_condition.clone() * (next_pc.clone() - pc_plus_one.clone()));
+        builder.assert_zero(not_jump_and_condition * (next_fp.clone() - fp.clone()));
     }
 }
 

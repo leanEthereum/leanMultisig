@@ -413,21 +413,13 @@ $$
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-When there is no jump:
+For jump and conditional state transitions, let $J = \text{JUMP} \cdot \nu_A$:
 \begin{itemize}
-    \item $(1 - \text{JUMP}) \cdot ( \text{next(pc)} - (\text{pc} + 1)) = 0$
-    \item $(1 - \text{JUMP}) \cdot (\text{next(fp)} - \text{fp}) = 0$
-\end{itemize}
-
-\vspace{3mm}
-
-When JUMP $= 1$, the condition is represented by $\nu_A$:
-\begin{itemize}
-    \item $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$ 
-    \item $\text{JUMP} \cdot \nu_A \cdot ( \text{next(pc)} - \nu_B) = 0$
-    \item $\text{JUMP} \cdot \nu_A \cdot ( \text{next(fp)} - \nu_C) = 0$
-    \item $\text{JUMP} \cdot (1 - \nu_A) \cdot ( \text{next(pc)} - (\text{pc} + 1)) = 0$
-    \item $\text{JUMP} \cdot (1 - \nu_A) \cdot (\text{next(fp)} - \text{fp}) = 0$
+    \item $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$
+    \item $J \cdot ( \text{next(pc)} - \nu_B) = 0$
+    \item $J \cdot ( \text{next(fp)} - \nu_C) = 0$
+    \item $(1 - J) \cdot ( \text{next(pc)} - (\text{pc} + 1)) = 0$
+    \item $(1 - J) \cdot (\text{next(fp)} - \text{fp}) = 0$
 \end{itemize}
 
 Note: the constraint $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
