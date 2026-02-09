@@ -34,7 +34,7 @@ AIR_DOWN_COLUMNS_EF = AIR_DOWN_COLUMNS_EF_PLACEHOLDER  # [[_; _]; N_TABLES]
 N_INSTRUCTION_COLUMNS = N_INSTRUCTION_COLUMNS_PLACEHOLDER
 N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER
 
-GUEST_BYTECODE_LEN = GUEST_BYTECODE_LEN_PLACEHOLDER
+LOG_GUEST_BYTECODE_LEN = LOG_GUEST_BYTECODE_LEN_PLACEHOLDER
 COL_PC = COL_PC_PLACEHOLDER
 TOTAL_WHIR_STATEMENTS = TOTAL_WHIR_STATEMENTS_PLACEHOLDER
 STARTING_PC = STARTING_PC_PLACEHOLDER
@@ -75,8 +75,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     log_n_cycles = table_log_heights[EXECUTION_TABLE_INDEX]
     assert log_n_cycles <= log_memory
 
-    log_bytecode = log2_ceil(GUEST_BYTECODE_LEN)
-    log_bytecode_padded = maximum(log_bytecode, log_n_cycles)
+    log_bytecode_padded = maximum(LOG_GUEST_BYTECODE_LEN, log_n_cycles)
 
     table_heights = Array(N_TABLES)
     for i in unroll(0, N_TABLES):
@@ -87,7 +86,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         assert table_log_height <= MAX_LOG_N_ROWS_PER_TABLE[i]
     assert MIN_LOG_MEMORY_SIZE <= log_memory
     assert log_memory <= MAX_LOG_MEMORY_SIZE
-    assert log_memory <= GUEST_BYTECODE_LEN
+    assert LOG_GUEST_BYTECODE_LEN <= log_memory
 
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
     assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
@@ -124,22 +123,22 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
 
     offset: Mut = powers_of_two(log_memory)
 
-    bytecode_and_acc_point = point_gkr + (n_vars_logup_gkr - log_bytecode) * DIM
+    bytecode_and_acc_point = point_gkr + (n_vars_logup_gkr - LOG_GUEST_BYTECODE_LEN) * DIM
     bytecode_multilinear_location_prefix = multilinear_location_prefix(
-        offset / 2 ** log2_ceil(GUEST_BYTECODE_LEN), n_vars_logup_gkr - log_bytecode, point_gkr
+        offset / 2 ** LOG_GUEST_BYTECODE_LEN, n_vars_logup_gkr - LOG_GUEST_BYTECODE_LEN, point_gkr
     )
     bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(
         offset / powers_of_two(log_bytecode_padded), n_vars_logup_gkr - log_bytecode_padded, point_gkr
     )
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
-    assert pub_mem[1] == log_bytecode + log2_ceil(N_INSTRUCTION_COLUMNS)
-    copy_many_ef(bytecode_and_acc_point, pub_mem + 2, log_bytecode)
+    assert pub_mem[1] == LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)
+    copy_many_ef(bytecode_and_acc_point, pub_mem + 2, LOG_GUEST_BYTECODE_LEN)
     copy_many_ef(
         logup_alphas + (log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM,
-        pub_mem + 2 + log_bytecode * DIM,
+        pub_mem + 2 + LOG_GUEST_BYTECODE_LEN * DIM,
         log2_ceil(N_INSTRUCTION_COLUMNS),
     )
-    bytecode_value = pub_mem + 2 + (log_bytecode + log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM
+    bytecode_value = pub_mem + 2 + (LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM
     bytecode_value_corrected: Mut = bytecode_value
     for i in unroll(0, log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)):
         bytecode_value_corrected = mul_extension_ret(
@@ -151,7 +150,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         retrieved_numerators_value, mul_extension_ret(bytecode_multilinear_location_prefix, value_bytecode_acc)
     )
 
-    bytecode_index_value = mle_of_01234567_etc(bytecode_and_acc_point, log_bytecode)
+    bytecode_index_value = mle_of_01234567_etc(bytecode_and_acc_point, LOG_GUEST_BYTECODE_LEN)
     retrieved_denominators_value = add_extension_ret(
         retrieved_denominators_value,
         mul_extension_ret(
@@ -176,7 +175,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
             bytecode_padded_multilinear_location_prefix,
             mle_of_zeros_then_ones(
                 point_gkr + (n_vars_logup_gkr - log_bytecode_padded) * DIM,
-                2 ** log2_ceil(GUEST_BYTECODE_LEN),
+                2 ** LOG_GUEST_BYTECODE_LEN,
                 log_bytecode_padded,
             ),
         ),
@@ -572,13 +571,13 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
     offset = powers_of_two(log_memory) * 2  # memory and acc_memory
 
     eq_bytecode_acc = eq_mle_extension(
-        folding_randomness_global + (stacked_n_vars - log2_ceil(GUEST_BYTECODE_LEN)) * DIM,
+        folding_randomness_global + (stacked_n_vars - LOG_GUEST_BYTECODE_LEN) * DIM,
         bytecode_and_acc_point,
-        log2_ceil(GUEST_BYTECODE_LEN),
+        LOG_GUEST_BYTECODE_LEN,
     )
     prefix_bytecode_acc = multilinear_location_prefix(
-        offset / 2 ** log2_ceil(GUEST_BYTECODE_LEN),
-        stacked_n_vars - log2_ceil(GUEST_BYTECODE_LEN),
+        offset / 2 ** LOG_GUEST_BYTECODE_LEN,
+        stacked_n_vars - LOG_GUEST_BYTECODE_LEN,
         folding_randomness_global,
     )
     s = add_extension_ret(
