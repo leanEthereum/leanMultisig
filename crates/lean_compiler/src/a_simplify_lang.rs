@@ -3642,6 +3642,10 @@ fn replace_vars_for_unroll(
     transform_vars_in_lines(lines, &transform);
 }
 
+/// Chunk size threshold for splitting large unrolls into hybrid loops.
+/// Bits k where 2^k > CHUNK_SIZE will use a runtime outer loop with CHUNK_SIZE inner unroll.
+const DYNAMIC_UNROLL_CHUNK_SIZE: usize = 1 << 9; // 512
+
 /// Expands `for idx in dynamic_unroll(0, a, n_bits): body` into:
 /// 1. Bit decomposition of `a` (with constraints)
 /// 2. Conditional execution of `body` for each index 0..a
@@ -3662,11 +3666,45 @@ fn expand_dynamic_unroll(
 
     // The template is the zkDSL expansion of dynamic_unroll, with `end` as the
     // runtime bound and `__iter` as a placeholder for the iterator assignment.
-    // The innermost `__iter = ps[k] + j` line will be replaced with
-    // `{iterator} = ps[k] + j` followed by the actual body.
     //
     // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^k.
     // So ps[k] is the offset (number of indices below bit k), and ps[n_bits] == end.
+    //
+    // For large bits (2^k > CHUNK_SIZE), we split into chunks to reduce bytecode size:
+    // - outer runtime loop over n_chunks = 2^k / CHUNK_SIZE
+    // - inner unroll over CHUNK_SIZE iterations
+    // For k <= log2(CHUNK_SIZE), the range loop has minimal overhead.
+
+    // Build the template with per-bit chunking logic
+    let mut loop_body = String::new();
+    for k in 0..n_bits {
+        let block_size = 1usize << k;
+        if block_size <= DYNAMIC_UNROLL_CHUNK_SIZE {
+            // Small block: fully unroll
+            loop_body.push_str(&format!(
+                r#"
+    if bits[{k}] == 1:
+        for j in unroll(0, {block_size}):
+            __iter = ps[{k}] + j
+"#
+            ));
+        } else {
+            // Large block: hybrid loop (runtime outer, unroll inner)
+            // Use an offset variable to avoid MUL per iteration
+            let n_chunks = block_size / DYNAMIC_UNROLL_CHUNK_SIZE;
+            loop_body.push_str(&format!(
+                r#"
+    if bits[{k}] == 1:
+        __offset_{k}: Mut = ps[{k}]
+        for chunk in range(0, {n_chunks}):
+            for j in unroll(0, {DYNAMIC_UNROLL_CHUNK_SIZE}):
+                __iter = __offset_{k} + j
+            __offset_{k} = __offset_{k} + {DYNAMIC_UNROLL_CHUNK_SIZE}
+"#
+            ));
+        }
+    }
+
     let template = format!(
         r#"
 def __dynamic_unroll_template(end):
@@ -3680,10 +3718,7 @@ def __dynamic_unroll_template(end):
         assert b * (1 - b) == 0
         ps[k + 1] = ps[k] + b * 2**k
     assert end == ps[{n_bits}]
-    for k in unroll(0, {n_bits}):
-        if bits[k] == 1:
-            for j in unroll(0, 2**k):
-                __iter = ps[k] + j
+{loop_body}
     return
 "#
     );
@@ -3705,14 +3740,14 @@ def __dynamic_unroll_template(end):
 
     // Rename all internal variables with @du{id}_ prefix.
     // __iter is renamed directly to the user's iterator variable.
-    let internals: BTreeSet<String> = ["bits", "le", "ps", "k", "j", "b"]
+    let internals: BTreeSet<String> = ["bits", "le", "ps", "k", "j", "b", "chunk"]
         .iter()
         .map(|s| s.to_string())
         .collect();
     transform_vars_in_lines(&mut lines, &|var: &Var| {
         if var == "__iter" {
             VarTransform::Rename(iterator.clone())
-        } else if var == "end" || internals.contains(var) {
+        } else if var == "end" || internals.contains(var) || var.starts_with("__offset_") {
             VarTransform::Rename(format!("{pfx}_{var}"))
         } else {
             VarTransform::Keep

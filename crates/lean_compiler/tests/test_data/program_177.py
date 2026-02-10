@@ -120,6 +120,17 @@ def main():
     for i in unroll(0, 10):
         assert src[i] == dst[i]
 
+    # --- Large n_bits to test chunking (bits > 10 trigger chunking at 1024 threshold) ---
+    # n_bits=12: bit 11 has 2^11=2048 iterations, should chunk into 2×1024
+    large_sum = sum_up_to(2500, 12)
+    # sum 0..2499 = 2500*2499/2 = 3123750
+    assert large_sum == 3123750
+
+    # n_bits=14: bit 13 has 2^13=8192 iterations, should chunk into 8×1024
+    huge_sum = sum_up_to(10000, 14)
+    # sum 0..9999 = 10000*9999/2 = 49995000
+    assert huge_sum == 49995000
+
     return
 
 
