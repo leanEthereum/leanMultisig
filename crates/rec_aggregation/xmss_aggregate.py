@@ -20,9 +20,10 @@ EE = 0  # extension-extension
 
 def main():
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
-    signatures_start = pub_mem[0]
-    n_signatures = pub_mem[1]
-    message = pub_mem + 2
+    signatures_start: Imu
+    hint_private_input_start(signatures_start)
+    n_signatures = pub_mem[0]
+    message = pub_mem + 1
     slot_ptr = message + MESSAGE_LEN
     slot_lo = slot_ptr[0]
     slot_hi = slot_ptr[1]

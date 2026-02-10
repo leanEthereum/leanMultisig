@@ -24,7 +24,6 @@ pub fn xmss_setup_aggregation_program() {
 
 fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message: [F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
     let mut public_input = vec![];
-    public_input.push(F::ZERO); // private input start, filled later
     public_input.push(F::from_usize(xmss_pub_keys.len()));
     public_input.extend(message.to_vec());
     let [slot_lo, slot_hi] = slot_to_field_elements(slot);
@@ -35,8 +34,6 @@ fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message: [F; MESSAGE_LEN_
         public_input.push(F::from_usize(is_left as usize));
     }
     public_input.extend(xmss_pub_keys.iter().flat_map(|pk| pk.merkle_root));
-    let private_input_start = (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
-    public_input[0] = F::from_usize(private_input_start);
     public_input
 }
 

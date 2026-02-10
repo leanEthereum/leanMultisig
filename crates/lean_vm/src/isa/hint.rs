@@ -77,6 +77,7 @@ pub enum CustomHint {
     DecomposeBits,
     LessThan,
     Log2Ceil,
+    PrivateInputStart,
 }
 
 impl CustomHint {
@@ -86,6 +87,7 @@ impl CustomHint {
             Self::DecomposeBits => "hint_decompose_bits",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
+            Self::PrivateInputStart => "hint_private_input_start",
         }
     }
 
@@ -95,6 +97,7 @@ impl CustomHint {
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
+            Self::PrivateInputStart => 1,
         }
     }
 
@@ -152,6 +155,10 @@ impl CustomHint {
                 let res_ptr = args[1].memory_address(ctx.fp)?;
                 ctx.memory.set(res_ptr, F::from_usize(log2_ceil_usize(n)))?;
             }
+            Self::PrivateInputStart => {
+                let res_ptr = args[0].memory_address(ctx.fp)?;
+                ctx.memory.set(res_ptr, F::from_usize(ctx.private_input_start))?;
+            }
         }
         Ok(())
     }
@@ -191,6 +198,7 @@ pub struct HintExecutionContext<'a> {
     pub checkpoint_ap: &'a mut usize,
     pub profiling: bool,
     pub memory_profile: &'a mut MemoryProfile,
+    pub private_input_start: usize,
     /// Pending deref hints: (target_addr, src_addr)
     /// Constraint: memory[target_addr] = memory[memory[src_addr]]
     /// Resolved at end of execution in correct order.

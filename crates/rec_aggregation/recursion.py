@@ -39,12 +39,11 @@ COL_PC = COL_PC_PLACEHOLDER
 TOTAL_WHIR_STATEMENTS = TOTAL_WHIR_STATEMENTS_PLACEHOLDER
 STARTING_PC = STARTING_PC_PLACEHOLDER
 ENDING_PC = ENDING_PC_PLACEHOLDER
-NONRESERVED_PROGRAM_INPUT_START = NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER
 
 
 def main():
-    pub_mem = NONRESERVED_PROGRAM_INPUT_START
-    priv_start = pub_mem[0]
+    priv_start: Imu
+    hint_private_input_start(priv_start)
     proof_size = priv_start[0]
     inner_public_memory_log_size = priv_start[1]
     inner_public_memory_size = powers_of_two(inner_public_memory_log_size)
@@ -131,14 +130,14 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
         offset / powers_of_two(log_bytecode_padded), n_vars_logup_gkr - log_bytecode_padded, point_gkr
     )
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
-    assert pub_mem[1] == LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)
-    copy_many_ef(bytecode_and_acc_point, pub_mem + 2, LOG_GUEST_BYTECODE_LEN)
+    assert pub_mem[0] == LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)
+    copy_many_ef(bytecode_and_acc_point, pub_mem + 1, LOG_GUEST_BYTECODE_LEN)
     copy_many_ef(
         logup_alphas + (log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM,
-        pub_mem + 2 + LOG_GUEST_BYTECODE_LEN * DIM,
+        pub_mem + 1 + LOG_GUEST_BYTECODE_LEN * DIM,
         log2_ceil(N_INSTRUCTION_COLUMNS),
     )
-    bytecode_value = pub_mem + 2 + (LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM
+    bytecode_value = pub_mem + 1 + (LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM
     bytecode_value_corrected: Mut = bytecode_value
     for i in unroll(0, log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)):
         bytecode_value_corrected = mul_extension_ret(

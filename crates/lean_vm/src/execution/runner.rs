@@ -264,6 +264,7 @@ fn execute_bytecode_helper(
                 checkpoint_ap: &mut checkpoint_ap,
                 profiling,
                 memory_profile: &mut mem_profile,
+                private_input_start: public_memory_size,
                 pending_deref_hints: &mut pending_deref_hints,
             };
             hint.execute_hint(&mut hint_ctx).map_err(|e| (pc, e))?;
