@@ -63,10 +63,7 @@ pub(super) fn exec_dot_product_ee(
 ) -> Result<(), RunnerError> {
     assert!(size > 0);
 
-    let (slice_0, slice_1, dot_product_result) = if ptr_arg_1.to_usize() == ONE_VEC_PTR {
-        if size != 1 {
-            unimplemented!("weird use case");
-        }
+    let (slice_0, slice_1, dot_product_result) = if ptr_arg_1.to_usize() == ONE_VEC_PTR && size == 1 {
         if ptr_res.to_usize() == ZERO_VEC_PTR {
             memory.set_ef_element(ptr_arg_0.to_usize(), EF::ZERO)?;
             (vec![EF::ZERO], vec![EF::ONE], EF::ZERO)

@@ -391,7 +391,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
                     inner_sum,
                     dot_product_ret(
                         evals_down_ef,
-                        batching_scalar_powers + n_down_columns_f,
+                        batching_scalar_powers + n_down_columns_f * DIM,
                         n_down_columns_ef,
                         EE,
                     ),
@@ -413,7 +413,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
                     batched_col_down_sc_eval,
                     dot_product_ret(
                         evals_ef_on_down_columns,
-                        batching_scalar_powers + n_down_columns_f,
+                        batching_scalar_powers + n_down_columns_f * DIM,
                         n_down_columns_ef,
                         EE,
                     ),
