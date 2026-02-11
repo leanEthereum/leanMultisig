@@ -234,7 +234,7 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
         program.functions.remove(&name);
     }
 
-    let mut mutable_loop_counter = MutableLoopTransformCounter::default();
+    let mut mutable_loop_counter = Counter::new();
     transform_mutable_in_loops_in_program(&mut program, &mut mutable_loop_counter);
 
     let mut new_functions = BTreeMap::new();
@@ -297,19 +297,25 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
     })
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct VectorLenTracker {
-    vectors: BTreeMap<Var, VectorLenValue>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VectorLenValue {
-    Scalar,
-    Vector(Vec<VectorLenValue>),
+pub enum TreeVec<S> {
+    Scalar(S),
+    Vector(Vec<TreeVec<S>>),
 }
 
-impl VectorLenTracker {
-    fn register(&mut self, var: &Var, value: VectorLenValue) {
+pub type VectorLenValue = TreeVec<()>;
+pub type VectorValue = TreeVec<Var>;
+
+#[derive(Debug, Clone, Default)]
+pub struct TreeVecTracker<S> {
+    vectors: BTreeMap<Var, TreeVec<S>>,
+}
+
+pub type VectorLenTracker = TreeVecTracker<()>;
+type VectorTracker = TreeVecTracker<Var>;
+
+impl<S> TreeVecTracker<S> {
+    fn register(&mut self, var: &Var, value: TreeVec<S>) {
         self.vectors.insert(var.clone(), value);
     }
 
@@ -317,16 +323,16 @@ impl VectorLenTracker {
         self.vectors.contains_key(var)
     }
 
-    pub fn get(&self, var: &Var) -> Option<&VectorLenValue> {
+    pub fn get(&self, var: &Var) -> Option<&TreeVec<S>> {
         self.vectors.get(var)
     }
 
-    fn get_mut(&mut self, var: &Var) -> Option<&mut VectorLenValue> {
+    fn get_mut(&mut self, var: &Var) -> Option<&mut TreeVec<S>> {
         self.vectors.get_mut(var)
     }
 }
 
-impl VectorLenValue {
+impl<S> TreeVec<S> {
     pub fn push(&mut self, elem: Self) {
         match self {
             Self::Vector(v) => v.push(elem),
@@ -366,31 +372,25 @@ impl VectorLenValue {
         }
     }
 
-    pub fn navigate(&self, idx: &[F]) -> Option<&Self> {
-        idx.iter().try_fold(self, |v, &i| v.get(i.to_usize()))
+    pub fn navigate(&self, idx: &[usize]) -> Option<&Self> {
+        idx.iter().try_fold(self, |v, &i| v.get(i))
     }
 
-    pub fn navigate_mut(&mut self, idx: &[F]) -> Option<&mut Self> {
-        idx.iter().try_fold(self, |v, &i| v.get_mut(i.to_usize()))
+    pub fn navigate_mut(&mut self, idx: &[usize]) -> Option<&mut Self> {
+        idx.iter().try_fold(self, |v, &i| v.get_mut(i))
     }
 }
 
 fn build_vector_len_value(elements: &[VecLiteral]) -> VectorLenValue {
-    let mut vec_elements = Vec::new();
-
-    for elem in elements {
-        let elem_len_value = build_vector_len_value_from_element(elem);
-        vec_elements.push(elem_len_value);
-    }
-
-    VectorLenValue::Vector(vec_elements)
-}
-
-fn build_vector_len_value_from_element(element: &VecLiteral) -> VectorLenValue {
-    match element {
-        VecLiteral::Vec(inner) => build_vector_len_value(inner),
-        VecLiteral::Expr(_) => VectorLenValue::Scalar,
-    }
+    VectorLenValue::Vector(
+        elements
+            .iter()
+            .map(|elem| match elem {
+                VecLiteral::Vec(inner) => build_vector_len_value(inner),
+                VecLiteral::Expr(_) => VectorLenValue::Scalar(()),
+            })
+            .collect(),
+    )
 }
 
 fn compile_time_transform_in_program(
@@ -578,10 +578,17 @@ fn compile_time_transform_in_lines(
                 element,
                 ..
             } => {
-                let Some(const_indices) = indices.iter().map(|idx| idx.as_scalar()).collect::<Option<Vec<_>>>() else {
+                let Some(const_indices) = indices
+                    .iter()
+                    .map(|idx| idx.as_scalar().map(|f| f.to_usize()))
+                    .collect::<Option<Vec<_>>>()
+                else {
                     return Err("push with non-constant indices".to_string());
                 };
-                let new_element = build_vector_len_value_from_element(element);
+                let new_element = match element {
+                    VecLiteral::Vec(inner) => build_vector_len_value(inner),
+                    VecLiteral::Expr(_) => VectorLenValue::Scalar(()),
+                };
                 let vector_value = vector_len_tracker
                     .get_mut(vector)
                     .ok_or_else(|| "pushing to undeclared vector".to_string())?;
@@ -603,7 +610,11 @@ fn compile_time_transform_in_lines(
                 indices,
                 location,
             } => {
-                let Some(const_indices) = indices.iter().map(|idx| idx.as_scalar()).collect::<Option<Vec<_>>>() else {
+                let Some(const_indices) = indices
+                    .iter()
+                    .map(|idx| idx.as_scalar().map(|f| f.to_usize()))
+                    .collect::<Option<Vec<_>>>()
+                else {
                     return Err(format!("line {}: pop with non-constant indices", location));
                 };
                 let vector_value = vector_len_tracker
@@ -1066,20 +1077,6 @@ fn substitute_const_vars_in_expr(expr: &mut Expression, const_var_exprs: &BTreeM
 //   }
 //   x = x_buff[size];
 
-/// Counter for generating unique variable names in the mutable loop transformation
-#[derive(Default)]
-struct MutableLoopTransformCounter {
-    counter: usize,
-}
-
-impl MutableLoopTransformCounter {
-    fn next_suffix(&mut self) -> usize {
-        let c = self.counter;
-        self.counter += 1;
-        c
-    }
-}
-
 /// Finds mutable variables that are:
 /// 1. Defined OUTSIDE this block (external)
 /// 2. Re-assigned INSIDE this block
@@ -1141,7 +1138,7 @@ fn find_assigned_external_vars_helper(
     }
 }
 
-fn transform_mutable_in_loops_in_program(program: &mut Program, counter: &mut MutableLoopTransformCounter) {
+fn transform_mutable_in_loops_in_program(program: &mut Program, counter: &mut Counter) {
     for func in program.functions.values_mut() {
         transform_mutable_in_loops_in_lines(&mut func.body, &program.const_arrays, counter);
     }
@@ -1150,7 +1147,7 @@ fn transform_mutable_in_loops_in_program(program: &mut Program, counter: &mut Mu
 fn transform_mutable_in_loops_in_lines(
     lines: &mut Vec<Line>,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
-    counter: &mut MutableLoopTransformCounter,
+    counter: &mut Counter,
 ) {
     let mut i = 0;
     while i < lines.len() {
@@ -1176,7 +1173,7 @@ fn transform_mutable_in_loops_in_lines(
                     continue;
                 }
 
-                let suffix = counter.next_suffix();
+                let suffix = counter.get_next();
 
                 // Generate the transformed code
                 let mut new_lines = Vec::new();
@@ -1267,7 +1264,13 @@ fn transform_mutable_in_loops_in_lines(
                     });
 
                     // Replace all references to var with body_name in the original body
-                    replace_var_in_lines(body, var, body_name);
+                    transform_vars_in_lines(body, &|v: &Var| {
+                        if v == var {
+                            VarTransform::Rename(body_name.clone())
+                        } else {
+                            VarTransform::Keep
+                        }
+                    });
                 }
 
                 // Add the original body (now modified to use body_vars)
@@ -1339,65 +1342,6 @@ fn transform_mutable_in_loops_in_lines(
                 i += 1;
             }
         }
-    }
-}
-
-/// Replaces all occurrences of a variable with another variable in a list of lines.
-/// This is used to replace references to mutable variables with their body counterparts.
-fn replace_var_in_lines(lines: &mut [Line], old_var: &Var, new_var: &Var) {
-    for line in lines {
-        match line {
-            Line::ForwardDeclaration { var, .. } => {
-                if var == old_var {
-                    *var = new_var.clone();
-                }
-            }
-            Line::Statement { targets, .. } => {
-                for target in targets {
-                    match target {
-                        AssignmentTarget::Var { var, .. } => {
-                            if var == old_var {
-                                *var = new_var.clone();
-                            }
-                        }
-                        AssignmentTarget::ArrayAccess { array, index } => {
-                            if array == old_var {
-                                *array = new_var.clone();
-                            }
-                            replace_var_in_expr(index, old_var, new_var);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-        for expr in line.expressions_mut() {
-            replace_var_in_expr(expr, old_var, new_var);
-        }
-        for block in line.nested_blocks_mut() {
-            replace_var_in_lines(block, old_var, new_var);
-        }
-    }
-}
-
-fn replace_var_in_expr(expr: &mut Expression, old_var: &Var, new_var: &Var) {
-    match expr {
-        Expression::Value(simple_expr) => {
-            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = simple_expr
-                && var == old_var
-            {
-                *var = new_var.clone();
-            }
-        }
-        Expression::ArrayAccess { array, .. } => {
-            if array == old_var {
-                *array = new_var.clone();
-            }
-        }
-        _ => {}
-    }
-    for inner_expr in expr.inner_exprs_mut() {
-        replace_var_in_expr(inner_expr, old_var, new_var);
     }
 }
 
@@ -1728,8 +1672,7 @@ struct Counters {
 
 impl Counters {
     fn aux_var(&mut self) -> Var {
-        let var = format!("@aux_var_{}", self.aux_vars.get_next());
-        var
+        format!("@aux_var_{}", self.aux_vars.get_next())
     }
 }
 
@@ -1902,85 +1845,6 @@ impl MutableVarTracker {
     }
 }
 
-/// Compile-time vector. Scalars hold variable names; Vectors hold nested values.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VectorValue {
-    Scalar { var: Var },
-    Vector(Vec<VectorValue>),
-}
-
-impl VectorValue {
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Vector(v) => v.len(),
-            _ => panic!("len on scalar"),
-        }
-    }
-
-    pub fn is_vector(&self) -> bool {
-        matches!(self, Self::Vector(_))
-    }
-
-    fn get(&self, i: usize) -> Option<&Self> {
-        match self {
-            Self::Vector(v) => v.get(i),
-            _ => None,
-        }
-    }
-
-    fn get_mut(&mut self, i: usize) -> Option<&mut Self> {
-        match self {
-            Self::Vector(v) => v.get_mut(i),
-            _ => None,
-        }
-    }
-
-    pub fn navigate(&self, idx: &[usize]) -> Option<&Self> {
-        idx.iter().try_fold(self, |v, &i| v.get(i))
-    }
-
-    pub fn navigate_mut(&mut self, idx: &[usize]) -> Option<&mut Self> {
-        idx.iter().try_fold(self, |v, &i| v.get_mut(i))
-    }
-
-    pub fn push(&mut self, elem: Self) {
-        match self {
-            Self::Vector(v) => v.push(elem),
-            _ => panic!("push on scalar"),
-        }
-    }
-
-    pub fn pop(&mut self) -> Option<Self> {
-        match self {
-            Self::Vector(v) => v.pop(),
-            _ => panic!("pop on scalar"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct VectorTracker {
-    vectors: BTreeMap<Var, VectorValue>,
-}
-
-impl VectorTracker {
-    fn register(&mut self, var: &Var, value: VectorValue) {
-        self.vectors.insert(var.clone(), value);
-    }
-
-    fn is_vector(&self, var: &Var) -> bool {
-        self.vectors.contains_key(var)
-    }
-
-    fn get(&self, var: &Var) -> Option<&VectorValue> {
-        self.vectors.get(var)
-    }
-
-    fn get_mut(&mut self, var: &Var) -> Option<&mut VectorValue> {
-        self.vectors.get_mut(var)
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct ConstMalloc {
     counter: usize,
@@ -2038,7 +1902,7 @@ fn build_vector_value_from_element(
             let aux_var = state.counters.aux_var();
             let simplified_value = simplify_expr(ctx, state, const_malloc, expr, lines)?;
             lines.push(SimpleLine::equality(aux_var.clone(), simplified_value));
-            Ok(VectorValue::Scalar { var: aux_var })
+            Ok(VectorValue::Scalar(aux_var))
         }
     }
 }
@@ -3000,7 +2864,7 @@ fn simplify_expr(
                     .ok_or_else(|| format!("Vector index out of bounds: {:?}", const_indices))?;
 
                 match element {
-                    VectorValue::Scalar { var } => {
+                    VectorValue::Scalar(var) => {
                         // Return memory reference to this variable
                         return Ok(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var.clone())));
                     }

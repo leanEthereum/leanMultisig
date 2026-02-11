@@ -429,7 +429,8 @@ impl Expression {
                 return Some(F::from_usize(target.len()));
             }
             if let Some(arr) = vector_len.get(array) {
-                let target = arr.navigate(&idx)?;
+                let usize_idx: Vec<usize> = idx.iter().map(|f| f.to_usize()).collect();
+                let target = arr.navigate(&usize_idx)?;
                 return Some(F::from_usize(target.len()));
             }
             return None;
