@@ -19,6 +19,7 @@ EE = 0  # extension-extension
 
 
 def main():
+    debug_assert(V % 2 == 0) # current implem only supports even V (cf "V / 2" bellow)
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     signatures_start: Imu
     hint_private_input_start(signatures_start)
@@ -60,7 +61,6 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
     encoding = Array(NUM_ENCODING_FE * 24 / W)
     remaining = Array(NUM_ENCODING_FE)
 
-    # TODO: decompose by chunks of 2.w bits (or even 3.w bits) and use a big match on the w^2 (or w^3) possibilities
     hint_decompose_bits_xmss(
         encoding,
         remaining,
@@ -93,30 +93,75 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
 
     wots_public_key = Array(V * DIGEST_LEN)
 
-    for i in unroll(0, V):
-        num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
-        chain_start = chain_starts + i * DIGEST_LEN
-        chain_end = wots_public_key + i * DIGEST_LEN
-        match_range(num_hashes,
-                    range(0, 1), lambda _: copy_8(chain_start, chain_end),
-                    range(1, 2), lambda _: poseidon16(chain_start, ZERO_VEC_PTR, chain_end),
-                    range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_start, num_hashes_const, chain_end))
-        
+    for i in unroll(0, V / 2):
+        pair_val = encoding[2 * i] + encoding[2 * i + 1] * CHAIN_LENGTH
+        chain_start_left = chain_starts + (2 * i) * DIGEST_LEN
+        chain_end_left = wots_public_key + (2 * i) * DIGEST_LEN
+        match_range(pair_val,
+                    range(0, CHAIN_LENGTH ** 2),
+                    lambda pv: handle_wots_pair(pv, chain_start_left, chain_end_left))
+
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
     merkle_verify(wots_pubkey_hashed, merkle_path, merkle_indexes, LOG_LIFETIME, merkle_root)
     return
 
 
-def chain_hash(input, n: Const, output):
-    debug_assert(2 <= n)
-    states = Array((n-1) * DIGEST_LEN)
-    poseidon16(input, ZERO_VEC_PTR, states)
-    state_indexes = Array(n - 1)
-    state_indexes[0] = states
-    for i in unroll(1, n-1):
-        state_indexes[i] = state_indexes[i - 1] + DIGEST_LEN
-        poseidon16(state_indexes[i - 1], ZERO_VEC_PTR, state_indexes[i])
-    poseidon16(state_indexes[n - 2], ZERO_VEC_PTR, output)
+def handle_wots_pair(pv: Const, chain_start_left, chain_end_left):
+    chain_start_right = chain_start_left + DIGEST_LEN
+    chain_end_right = chain_end_left + DIGEST_LEN
+    left_enc = pv % CHAIN_LENGTH
+    right_enc = (pv - left_enc) / CHAIN_LENGTH
+    num_left = (CHAIN_LENGTH - 1) - left_enc
+    num_right = (CHAIN_LENGTH - 1) - right_enc
+
+    # Left chain
+    if num_left == 0:
+        copy_8(chain_start_left, chain_end_left)
+    else if num_left == 1:
+        poseidon16(chain_start_left, ZERO_VEC_PTR, chain_end_left)
+    else if num_left == 2:
+        tmp_l = Array(DIGEST_LEN)
+        poseidon16(chain_start_left, ZERO_VEC_PTR, tmp_l)
+        poseidon16(tmp_l, ZERO_VEC_PTR, chain_end_left)
+    else if num_left == 3:
+        tmp_l = Array(2 * DIGEST_LEN)
+        poseidon16(chain_start_left, ZERO_VEC_PTR, tmp_l)
+        poseidon16(tmp_l, ZERO_VEC_PTR, tmp_l + DIGEST_LEN)
+        poseidon16(tmp_l + DIGEST_LEN, ZERO_VEC_PTR, chain_end_left)
+    else:
+        states_l = Array((num_left - 1) * DIGEST_LEN)
+        poseidon16(chain_start_left, ZERO_VEC_PTR, states_l)
+        si_l = Array(num_left - 1)
+        si_l[0] = states_l
+        for k in unroll(1, num_left - 1):
+            si_l[k] = si_l[k - 1] + DIGEST_LEN
+            poseidon16(si_l[k - 1], ZERO_VEC_PTR, si_l[k])
+        poseidon16(si_l[num_left - 2], ZERO_VEC_PTR, chain_end_left)
+
+    # Right chain
+    if num_right == 0:
+        copy_8(chain_start_right, chain_end_right)
+    else if num_right == 1:
+        poseidon16(chain_start_right, ZERO_VEC_PTR, chain_end_right)
+    else if num_right == 2:
+        tmp_r = Array(DIGEST_LEN)
+        poseidon16(chain_start_right, ZERO_VEC_PTR, tmp_r)
+        poseidon16(tmp_r, ZERO_VEC_PTR, chain_end_right)
+    else if num_right == 3:
+        tmp_r = Array(2 * DIGEST_LEN)
+        poseidon16(chain_start_right, ZERO_VEC_PTR, tmp_r)
+        poseidon16(tmp_r, ZERO_VEC_PTR, tmp_r + DIGEST_LEN)
+        poseidon16(tmp_r + DIGEST_LEN, ZERO_VEC_PTR, chain_end_right)
+    else:
+        states_r = Array((num_right - 1) * DIGEST_LEN)
+        poseidon16(chain_start_right, ZERO_VEC_PTR, states_r)
+        si_r = Array(num_right - 1)
+        si_r[0] = states_r
+        for k in unroll(1, num_right - 1):
+            si_r[k] = si_r[k - 1] + DIGEST_LEN
+            poseidon16(si_r[k - 1], ZERO_VEC_PTR, si_r[k])
+        poseidon16(si_r[num_right - 2], ZERO_VEC_PTR, chain_end_right)
+
     return
 
 
