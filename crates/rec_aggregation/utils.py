@@ -612,7 +612,7 @@ def next_mle(x, y, n):
 def dot_product_with_the_base_vectors(slice):
     # slice: pointer to DIM extension field elements
     # cf constants.rs: by convention, [10000] [01000] [00100] [00010] [00001] is harcoded in memory, starting at ONE_VEC_PTR
-    return dot_product_ret(slice, ONE_VEC_PTR, 1, EE)
+    return dot_product_ret(slice, ONE_VEC_PTR, DIM, EE)
 
 
 def _verify_log2_small(n, partial_sums_24, log2: Const):

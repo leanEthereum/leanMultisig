@@ -22,8 +22,11 @@ def main():
         null_ptr = ZERO_VEC_PTR  # pointer to zero vector
         poseidon_of_zero = POSEIDON_OF_ZERO
         poseidon16(null_ptr, null_ptr, poseidon_of_zero)
-        dot_product(null_ptr, null_ptr, null_ptr, 2, BE)
-        dot_product(null_ptr, null_ptr, null_ptr, 2, EE)
+        a = Array(DIM)
+        b = Array(DIM)
+        after_null_ptr = 16
+        dot_product(after_null_ptr, after_null_ptr, a, 3, BE)
+        dot_product(after_null_ptr, after_null_ptr, b, 2, EE)
         x: Mut = 0
         n = 10
         for j in range(0, n):
