@@ -208,6 +208,21 @@ def mle_of_01234567_etc(point, n):
         return res
 
 
+def range_check_power_of_2(a, n_bits: Const):
+    # assert a < 2**n_bits
+    debug_assert(n_bits < 30)
+    if n_bits <= 16:
+        assert a < 2**n_bits
+    else:
+        lo: Imu
+        hi: Imu
+        hint_decompose_16(a, lo, hi)
+        assert lo < 2**16
+        assert hi < 2**(n_bits - 16)
+        assert a == lo + hi * 2**16
+    return
+
+
 @inline
 def checked_less_than(a, b):
     res: Imu

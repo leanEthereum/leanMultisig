@@ -85,6 +85,10 @@ def hint_decompose_bits(value, bits, n_bits, endian):
     _ = value, bits, n_bits, endian
 
 
+def hint_decompose_16(a, lo, hi):
+    _ = a, lo, hi
+
+
 def hint_less_than(a, b, result_ptr):
     _ = a, b, result_ptr
 
