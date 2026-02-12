@@ -26,6 +26,7 @@ pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
     // Custom hints (manually listed since CustomHint doesn't re-export strum iterator)
     "hint_decompose_bits_xmss",
     "hint_decompose_bits",
+    "hint_decompose_nibbles",
     "range",
     "match_range",
 ];

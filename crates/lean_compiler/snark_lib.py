@@ -134,6 +134,9 @@ def match_range(value: int, *args):
 def hint_private_input_start(priv_start):
     _ = priv_start
 
+def hint_decompose_nibbles(value, nibbles, n_nibbles):
+    _ = value, nibbles, n_nibbles
+
 def hint_decompose_bits_xmss(*args):
     _ = args
 

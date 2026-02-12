@@ -79,6 +79,7 @@ pub enum CustomHint {
     /// a = lo + hi * 2^16
     /// Args: value, lo_ptr, hi_ptr
     Decompose16,
+    DecomposeNibbles,
     LessThan,
     Log2Ceil,
     PrivateInputStart,
@@ -90,6 +91,7 @@ impl CustomHint {
             Self::DecomposeBitsXMSS => "hint_decompose_bits_xmss",
             Self::DecomposeBits => "hint_decompose_bits",
             Self::Decompose16 => "hint_decompose_16",
+            Self::DecomposeNibbles => "hint_decompose_nibbles",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
             Self::PrivateInputStart => "hint_private_input_start",
@@ -101,6 +103,7 @@ impl CustomHint {
             Self::DecomposeBitsXMSS => 5,
             Self::DecomposeBits => 4,
             Self::Decompose16 => 3,
+            Self::DecomposeNibbles => 3,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
             Self::PrivateInputStart => 1,
@@ -157,6 +160,15 @@ impl CustomHint {
                 let hi = value >> 16;
                 ctx.memory.set(lo_ptr, F::from_usize(lo))?;
                 ctx.memory.set(hi_ptr, F::from_usize(hi))?;
+            }
+            Self::DecomposeNibbles => {
+                let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let memory_index = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let n_nibbles = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                for i in 0..n_nibbles {
+                    let nibble = F::from_usize((to_decompose >> (4 * i)) & 0xF);
+                    ctx.memory.set(memory_index + i, nibble)?;
+                }
             }
             Self::LessThan => {
                 let a = args[0].read_value(ctx.memory, ctx.fp)?;

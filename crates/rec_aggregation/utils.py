@@ -13,6 +13,7 @@ EE = 0  # extension-extension
 # bit decomposition hint
 BIG_ENDIAN = 0
 LITTLE_ENDIAN = 1
+N_NIBBLES = 8  # ceil(31/4) = 8 nibbles to cover a KoalaBear field element
 
 
 def div_ceil_dynamic(a, b: Const):
@@ -43,18 +44,30 @@ def powers_const(alpha, n: Const):
 
 
 @inline
-def unit_root_pow_dynamic(domain_size, index_bits):
-    # index_bits is a pointer to domain_size bits
+def unit_root_pow_dynamic(domain_size, index_nibbles):
+    # index_nibbles is a pointer to ceil(domain_size/4) nibbles
     debug_assert(domain_size < 26)
     debug_assert(0 < domain_size)
-    res = match_range(domain_size, range(1, 26), lambda i: unit_root_pow_const(i, index_bits))
+    res = match_range(domain_size, range(1, 26), lambda i: unit_root_pow_const(i, index_nibbles))
     return res
 
 
-def unit_root_pow_const(domain_size: Const, index_bits):
-    prod: Mut = (index_bits[0] * ROOT ** (2 ** (TWO_ADICITY - domain_size))) + (1 - index_bits[0])
-    for i in unroll(1, domain_size):
-        prod *= (index_bits[i] * ROOT ** (2 ** (TWO_ADICITY - domain_size + i))) + (1 - index_bits[i])
+def _urp_nibble(nibble, shift: Const, n_bits: Const):
+    # Compute ROOT^(masked_nibble * 2^shift) where masked_nibble = nibble % 2^n_bits
+    res = match_range(nibble, range(0, 16), lambda v: ROOT ** ((v % 2 ** n_bits) * 2 ** shift))
+    return res
+
+
+def unit_root_pow_const(domain_size: Const, index_nibbles):
+    n_full = (domain_size - domain_size % 4) / 4
+    remainder = domain_size % 4
+    prod: Mut = 1
+    for j in unroll(0, n_full):
+        contrib = _urp_nibble(index_nibbles[j], TWO_ADICITY - domain_size + 4 * j, 4)
+        prod *= contrib
+    if remainder != 0:
+        contrib = _urp_nibble(index_nibbles[n_full], TWO_ADICITY - domain_size + 4 * n_full, remainder)
+        prod *= contrib
     return prod
 
 
@@ -498,6 +511,34 @@ def checked_decompose_bits(a):
 
     assert a == sum_24 + sum_7 * 2**24
     return bits, partial_sums_24
+
+
+def checked_decompose_nibbles(a):
+    # Decompose field element a into 8 nibbles (4-bit chunks, little-endian)
+    # p = 2^31 - 2^24 + 1 = 0x7F000001
+    # In nibbles (LE): [1, 0, 0, 0, 0, 0, F, 7]
+    nibbles = Array(N_NIBBLES)
+    hint_decompose_nibbles(a, nibbles, N_NIBBLES)
+
+    # Verify each nibble is in range
+    for i in unroll(0, 7):
+        assert nibbles[i] < 16
+    assert nibbles[7] < 8  # top nibble has only 3 bits (bits 28-30)
+
+    # Reconstruct bottom 24 bits (nibbles 0-5)
+    bottom_24: Mut = nibbles[0]
+    for i in unroll(1, 6):
+        bottom_24 += nibbles[i] * 16**i
+
+    # Top byte (nibbles 6-7)
+    top_byte = nibbles[6] + nibbles[7] * 16
+
+    # Canonicality: if top byte == 0x7F == 127, bottom 24 bits must be 0
+    if top_byte == 127:
+        assert bottom_24 == 0
+
+    assert a == bottom_24 + top_byte * 16**6
+    return nibbles
 
 
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):

@@ -196,7 +196,7 @@ def sample_stir_indexes_and_fold(
     folded_domain_size = domain_size - folding_factor
 
     fs = fs_grinding(fs, grinding_bits)
-    fs, stir_challenges_indexes = sample_bits_dynamic(fs, num_queries)
+    fs, stir_challenges_nibbles = sample_nibbles_dynamic(fs, num_queries)
 
     answers = Array(
         num_queries
@@ -218,11 +218,11 @@ def sample_stir_indexes_and_fold(
 
     fs, merkle_paths = fs_hint(fs, folded_domain_size * num_queries * DIGEST_LEN)
 
-    # Merkle verification
+    # Merkle verification (uses nibbles for 4-level batching)
     merkle_verif_batch(
         merkle_paths,
         leaf_hashes,
-        stir_challenges_indexes,
+        stir_challenges_nibbles,
         prev_root,
         folded_domain_size,
         num_queries,
@@ -241,8 +241,7 @@ def sample_stir_indexes_and_fold(
 
     circle_values = Array(num_queries)  # ROOT^each_stir_index
     for i in range(0, num_queries):
-        stir_index_bits = stir_challenges_indexes[i]
-        circle_value = unit_root_pow_dynamic(folded_domain_size, stir_index_bits)
+        circle_value = unit_root_pow_dynamic(folded_domain_size, stir_challenges_nibbles[i])
         circle_values[i] = circle_value
 
     return fs, circle_values, folds

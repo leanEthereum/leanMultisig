@@ -162,3 +162,20 @@ def sample_bits_dynamic(fs: Mut, n_samples):
         sampled_bits[i] = bits
     new_fs = fs_finalize_sample(fs, total_chunks)
     return new_fs, sampled_bits
+
+
+def sample_nibbles_dynamic(fs: Mut, n_samples):
+    debug_assert(n_samples < 256)
+    # Compute total_chunks = ceil(n_samples / 8) via bit decomposition.
+    nb = checked_decompose_bits_small_value_const(n_samples, 8)
+    floor_div = nb[0]*16 + nb[1]*8 + nb[2]*4 + nb[3]*2 + nb[4]
+    has_remainder = 1 - (1 - nb[5]) * (1 - nb[6]) * (1 - nb[7])
+    total_chunks = floor_div + has_remainder
+    sampled = match_range(total_chunks, range(0, 33), lambda nc: fs_sample_data_with_offset(fs, nc, 0))
+    # Decompose each sampled field element into nibbles (4-bit chunks)
+    sampled_nibbles = Array(n_samples)
+    for i in dynamic_unroll(0, n_samples, 8):
+        nibbles = checked_decompose_nibbles(sampled[i])
+        sampled_nibbles[i] = nibbles
+    new_fs = fs_finalize_sample(fs, total_chunks)
+    return new_fs, sampled_nibbles
