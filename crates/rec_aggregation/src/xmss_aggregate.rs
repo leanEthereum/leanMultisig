@@ -29,9 +29,17 @@ fn build_public_input(xmss_pub_keys: &[XmssPublicKey], message: [F; MESSAGE_LEN_
     let [slot_lo, slot_hi] = slot_to_field_elements(slot);
     public_input.push(slot_lo);
     public_input.push(slot_hi);
-    for level in 0..LOG_LIFETIME {
-        let is_left = (((slot as u64) >> level) & 1) == 0;
-        public_input.push(F::from_usize(is_left as usize));
+    // Pack merkle position bits into 4-bit chunks (nibbles)
+    for chunk_idx in 0..LOG_LIFETIME / 4 {
+        let mut nibble_val: usize = 0;
+        for bit in 0..4 {
+            let level = chunk_idx * 4 + bit;
+            let is_left = (((slot as u64) >> level) & 1) == 0;
+            if is_left {
+                nibble_val |= 1 << bit;
+            }
+        }
+        public_input.push(F::from_usize(nibble_val));
     }
     public_input.extend(xmss_pub_keys.iter().flat_map(|pk| pk.merkle_root));
     public_input

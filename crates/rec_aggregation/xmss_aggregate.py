@@ -11,6 +11,8 @@ DIGEST_LEN = 8
 RANDOMNESS_LEN = RANDOMNESS_LEN_PLACEHOLDER
 SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIGEST_LEN
 NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W)) # 24 should be divisible by W (works for W=2,3,4)
+LEVELS_PER_CHUNK = 4
+N_MERKLE_CHUNKS = LOG_LIFETIME / LEVELS_PER_CHUNK
 
 # Dot product precompile:
 DIM = 5
@@ -27,17 +29,17 @@ def main():
     slot_ptr = message + MESSAGE_LEN
     slot_lo = slot_ptr[0]
     slot_hi = slot_ptr[1]
-    merkle_indexes = slot_ptr + 2 # is left ?
-    all_public_keys = merkle_indexes + LOG_LIFETIME
+    merkle_chunks = slot_ptr + 2
+    all_public_keys = merkle_chunks + N_MERKLE_CHUNKS
 
     for i in range(0, n_signatures):
         merkle_root = all_public_keys + i * DIGEST_LEN
         signature = signatures_start + SIG_SIZE * i
-        xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexes)
+        xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks)
     return
 
 
-def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexes):
+def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks):
     # signature: randomness | chain_tips | merkle_path
     # return the hashed xmss public key
     randomness = signature
@@ -103,7 +105,7 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_indexe
                     range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_start, num_hashes_const, chain_end))
         
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
-    merkle_verify(wots_pubkey_hashed, merkle_path, merkle_indexes, LOG_LIFETIME, merkle_root)
+    merkle_verify(wots_pubkey_hashed, merkle_path, merkle_chunks, LOG_LIFETIME, merkle_root)
     return
 
 
@@ -121,50 +123,65 @@ def chain_hash(input, n: Const, output):
 
 
 @inline
-def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, height, expected_root):
-    states = Array((height - 1) * DIGEST_LEN)
+def do_4_merkle_levels(b, state_in, path_chunk, state_out):
+    # Extract bits of b (compile-time; each division is exact so field div == integer div)
+    b0 = b % 2
+    r1 = (b - b0) / 2
+    b1 = r1 % 2
+    r2 = (r1 - b1) / 2
+    b2 = r2 % 2
+    r3 = (r2 - b2) / 2
+    b3 = r3 % 2
 
-    # First merkle round
-    match leaf_position_bits[0]:
-        case 0:
-            poseidon16(merkle_path, leaf_digest, states)
-        case 1:
-            poseidon16(leaf_digest, merkle_path, states)
+    temps = Array(3 * DIGEST_LEN)
+    temp_indexes = Array(3)
 
-    # Middle merkle rounds
-    state_indexes = Array(height - 1)
+    # Level 0: state_in -> temps
+    if b0 == 0:
+        poseidon16(path_chunk, state_in, temps)
+    else:
+        poseidon16(state_in, path_chunk, temps)
+
+    temp_indexes[0] = temps
+
+    # Level 1
+    temp_indexes[1] = temp_indexes[0] + DIGEST_LEN
+    if b1 == 0:
+        poseidon16(path_chunk + 1 * DIGEST_LEN, temp_indexes[0], temp_indexes[1])
+    else:
+        poseidon16(temp_indexes[0], path_chunk + 1 * DIGEST_LEN, temp_indexes[1])
+
+    # Level 2
+    temp_indexes[2] = temp_indexes[1] + DIGEST_LEN
+    if b2 == 0:
+        poseidon16(path_chunk + 2 * DIGEST_LEN, temp_indexes[1], temp_indexes[2])
+    else:
+        poseidon16(temp_indexes[1], path_chunk + 2 * DIGEST_LEN, temp_indexes[2])
+
+    # Level 3: -> state_out
+    if b3 == 0:
+        poseidon16(path_chunk + 3 * DIGEST_LEN, temp_indexes[2], state_out)
+    else:
+        poseidon16(temp_indexes[2], path_chunk + 3 * DIGEST_LEN, state_out)
+    return
+
+
+@inline
+def merkle_verify(leaf_digest, merkle_path, merkle_chunks, height, expected_root):
+    states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
+
+    # First chunk: leaf_digest -> states
+    match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, merkle_path, states))
+
+    # Middle chunks
+    state_indexes = Array(N_MERKLE_CHUNKS - 1)
     state_indexes[0] = states
-    for j in unroll(1, height - 1):
+    for j in unroll(1, N_MERKLE_CHUNKS - 1):
         state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
-        # Warning: this works only if leaf_position_bits[j] is known to be boolean:
-        match leaf_position_bits[j]:
-            case 0:
-                poseidon16(
-                    merkle_path + j * DIGEST_LEN,
-                    state_indexes[j - 1],
-                    state_indexes[j],
-                )
-            case 1:
-                poseidon16(
-                    state_indexes[j - 1],
-                    merkle_path + j * DIGEST_LEN,
-                    state_indexes[j],
-                )
+        match_range(merkle_chunks[j], range(0, 16), lambda b: do_4_merkle_levels(b, state_indexes[j - 1], merkle_path + j * LEVELS_PER_CHUNK * DIGEST_LEN, state_indexes[j]))
 
-    # Final merkle round
-    match leaf_position_bits[height - 1]:
-        case 0:
-            poseidon16(
-                merkle_path + (height - 1) * DIGEST_LEN,
-                state_indexes[height - 2],
-                expected_root,
-            )
-        case 1:
-            poseidon16(
-                state_indexes[height - 2],
-                merkle_path + (height - 1) * DIGEST_LEN,
-                expected_root,
-            )
+    # Last chunk: -> expected_root
+    match_range(merkle_chunks[N_MERKLE_CHUNKS - 1], range(0, 16), lambda b: do_4_merkle_levels(b, state_indexes[N_MERKLE_CHUNKS - 2], merkle_path + (N_MERKLE_CHUNKS - 1) * LEVELS_PER_CHUNK * DIGEST_LEN, expected_root))
     return
 
 
