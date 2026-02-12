@@ -39,13 +39,34 @@ impl Parse<Program> for ProgramParser {
                     // Visit the imported file and parse it into the context
                     // and program; also keep track of which files have been
                     // imported and do not import the same file twice.
-                    // Imports are resolved from the import root (entry point directory),
-                    // matching Python's behavior with PYTHONPATH.
-                    let filepath = ImportStatementParser.parse(item, ctx)?;
-                    let filepath = Path::new(&ctx.import_root)
-                        .join(filepath)
-                        .to_str()
-                        .expect("Invalid UTF-8 in filepath")
+                    // Imports are resolved relative to the importing file's directory.
+                    // Parent directory imports are supported: `from ..module import *`
+                    let relative_path = ImportStatementParser.parse(item, ctx)?;
+                    let is_parent_import = relative_path.starts_with("..");
+
+                    // Parent imports (..module) resolve relative to the current file's directory.
+                    // Normal imports resolve from the import root (entry file's directory).
+                    let base_dir = if is_parent_import {
+                        Path::new(&ctx.current_filepath)
+                            .parent()
+                            .filter(|p| !p.as_os_str().is_empty())
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| ctx.import_root.clone())
+                    } else {
+                        ctx.import_root.clone()
+                    };
+                    let raw_path = Path::new(&base_dir).join(&relative_path);
+                    let filepath = raw_path
+                        .canonicalize()
+                        .map_err(|e| {
+                            SemanticError::new(format!(
+                                "Cannot resolve import '{}' (resolved to '{}'): {}",
+                                relative_path,
+                                raw_path.display(),
+                                e
+                            ))
+                        })?
+                        .to_string_lossy()
                         .to_string();
 
                     // Check for circular imports
@@ -67,7 +88,16 @@ impl Parse<Program> for ProgramParser {
                     if !ctx.imported_filepaths.contains(&filepath) {
                         let saved_filepath = ctx.current_filepath.clone();
                         let saved_file_id = ctx.current_file_id;
+                        let saved_import_root = ctx.import_root.clone();
                         ctx.current_filepath = filepath.clone();
+                        // For parent directory imports, update import_root to the imported
+                        // file's directory so transitive non-relative imports resolve correctly.
+                        if is_parent_import {
+                            ctx.import_root = Path::new(&filepath)
+                                .parent()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                        }
                         ctx.imported_filepaths.insert(filepath.clone());
                         ctx.import_stack.push(filepath.clone());
                         ctx.current_source_code = ProgramSource::Filepath(filepath).get_content(&ctx.flags)?;
@@ -77,6 +107,7 @@ impl Parse<Program> for ProgramParser {
                         function_locations.extend(subprogram.function_locations);
                         source_code.extend(subprogram.source_code);
                         filepaths.extend(subprogram.filepaths);
+                        ctx.import_root = saved_import_root;
                         ctx.current_filepath = saved_filepath;
                         ctx.current_file_id = saved_file_id;
                     }
@@ -121,9 +152,21 @@ impl Parse<String> for ImportStatementParser {
         let item = next_inner_pair(&mut inner, "module_path")?;
         match item.as_rule() {
             Rule::module_path => {
-                let parts: Vec<&str> = item.into_inner().map(|p| p.as_str()).collect();
-                // Convert module.path to path/to/file.py
-                let filepath = format!("{}.py", parts.join("/"));
+                let mut has_parent_prefix = false;
+                let mut parts: Vec<&str> = Vec::new();
+                for p in item.into_inner() {
+                    match p.as_rule() {
+                        Rule::parent_prefix => has_parent_prefix = true,
+                        Rule::identifier => parts.push(p.as_str()),
+                        _ => {}
+                    }
+                }
+                // Convert module.path to path/to/file.py, with ../ prefix for parent imports
+                let filepath = if has_parent_prefix {
+                    format!("../{}.py", parts.join("/"))
+                } else {
+                    format!("{}.py", parts.join("/"))
+                };
                 Ok(filepath)
             }
             _ => Err(SemanticError::with_context(

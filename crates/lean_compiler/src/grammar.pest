@@ -9,7 +9,8 @@ newline = _{ "<NL>" }
 program = { SOI ~ (import_statement ~ newline)* ~ (constant_declaration ~ newline)* ~ function* ~ EOI }
 
 import_statement = { "from" ~ module_path ~ "import" ~ "*" }
-module_path = { identifier ~ ("." ~ identifier)* }
+module_path = { parent_prefix? ~ identifier ~ ("." ~ identifier)* }
+parent_prefix = @{ ".." }
 
 // Constants
 constant_declaration = { identifier ~ "=" ~ (array_literal | expression) }

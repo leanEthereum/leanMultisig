@@ -106,7 +106,13 @@ impl ParseContext {
         let current_source_code = input.get_content(&flags).unwrap();
         let (current_filepath, imported_filepaths) = match input {
             ProgramSource::Raw(_) => ("<raw_input>".to_string(), BTreeSet::new()),
-            ProgramSource::Filepath(fp) => (fp.clone(), [fp.clone()].into_iter().collect()),
+            ProgramSource::Filepath(fp) => {
+                let canonical = std::fs::canonicalize(fp)
+                    .map_err(|e| SemanticError::new(format!("Cannot resolve filepath '{}': {}", fp, e)))?
+                    .to_string_lossy()
+                    .to_string();
+                (canonical.clone(), [canonical].into_iter().collect())
+            }
         };
         let import_stack = vec![current_filepath.clone()];
         let import_root = std::path::Path::new(&current_filepath)

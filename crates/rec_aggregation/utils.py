@@ -126,9 +126,9 @@ def eq_mle_extension_const(a, b, n: Const):
 
 @inline
 def eq_mle_base_extension(a, b, n):
-    debug_assert(n < 26)
+    debug_assert(n < 31)
     debug_assert(0 < n)
-    res = match_range(n, range(1, 26), lambda i: eq_mle_extension_base_const(a, b, i))
+    res = match_range(n, range(1, 31), lambda i: eq_mle_extension_base_const(a, b, i))
     return res
 
 
@@ -615,14 +615,32 @@ def dot_product_with_the_base_vectors(slice):
     return dot_product_ret(slice, ONE_VEC_PTR, 1, EE)
 
 
+def _verify_log2_small(n, partial_sums_24, log2: Const):
+    # For log2 in [3, 23]: verify n has exactly log2 bits
+    assert partial_sums_24[log2 - 1] == n
+    assert partial_sums_24[log2 - 2] != n
+    return
+
+
+def _verify_log2_large(n, log2: Const):
+    # For log2 in [24, 28]: verify 2^(log2-1) < n <= 2^log2
+    # by checking that n - 2^(log2-1) - 1 fits in (log2-1) bits
+    remainder = n - 2**(log2 - 1) - 1
+    _unused = checked_decompose_bits_small_value_const(remainder, log2 - 1)
+    return
+
+
 def log2_ceil_runtime(n):
-    # requires: 2 < n <= 2^23
+    # requires: 2 < n <= 2^28
     log2: Imu
     hint_log2_ceil(n, log2)
-    assert log2 < 24
+    assert log2 < 29
     if powers_of_two(log2) != n:
         _, partial_sums_24 = checked_decompose_bits(n)
-        assert partial_sums_24[log2-1] == n
-        assert partial_sums_24[log2-2] != n
+        match_range(log2,
+            range(2, 24),
+            lambda i: _verify_log2_small(n, partial_sums_24, i),
+            range(24, 29),
+            lambda i: _verify_log2_large(n, i))
     return log2
 
