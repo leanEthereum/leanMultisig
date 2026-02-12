@@ -14,6 +14,7 @@
 - Recursion: Remove the few hardcoded constants that depend on the guest execution (cycles etc)
 - About the ordering of the variables in sumchecks, currently we do as follows:
 - [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1
+- Fancy zkDSL compiler opti: within each function frame, we could assign one (if any) of the dynamic allocation to the part of the memory coming just after the current frame. This way, the pointer would not be hinted, but rather constant at compile time -> more efficient memory acceses. We could even even have a special keyword (instead of just "Array") to specify which dynamic allocation should benefit from this optimization. Difficulty: that would require to manipulate segments of memory at runtime.
 
 [a, b, c, d, e, f, g, h]                                        (1st round of sumcheck)
 [(a-r).a + r.e, (1-r).b + r.f, (1-r).c + r.g, (1-r).d + r.h]    (2nd round of sumcheck)
