@@ -1,6 +1,6 @@
 use multilinear_toolkit::prelude::*;
 use rand::{CryptoRng, Rng};
-use utils::{ToUsize, to_little_endian_bits};
+use utils::{ToUsize, poseidon16_compress_pair, to_little_endian_bits};
 
 use crate::*;
 
@@ -100,9 +100,7 @@ impl WotsPublicKey {
 }
 
 pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
-    (0..n).fold(*a, |acc, _| {
-        poseidon16_compress([acc, Default::default()].concat().try_into().unwrap())
-    })
+    (0..n).fold(*a, |acc, _| poseidon16_compress_pair(acc, Default::default()))
 }
 
 pub fn iterate_hash_with_poseidon_trace(

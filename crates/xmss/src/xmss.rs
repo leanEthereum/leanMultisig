@@ -1,6 +1,7 @@
 use multilinear_toolkit::prelude::*;
 use rand::{CryptoRng, Rng, SeedableRng, rngs::StdRng};
 use sha3::{Digest as Sha3Digest, Keccak256};
+use utils::poseidon16_compress_pair;
 
 use crate::*;
 
@@ -89,7 +90,7 @@ pub fn xmss_key_gen(seed: [u8; 32], start: u32, end: u32) -> Result<(XmssSecretK
                     } else {
                         gen_random_node(&seed, level - 1, right_idx)
                     };
-                    poseidon16_compress([left, right].concat().try_into().unwrap())
+                    poseidon16_compress_pair(left, right)
                 })
                 .collect()
         };

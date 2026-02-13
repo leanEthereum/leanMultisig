@@ -348,17 +348,8 @@ impl Display for Hint {
                 write!(f, "m[fp + {offset}] = request_memory({size})")
             }
             Self::Custom(hint, args) => {
-                let decomposed = &args[0];
-                let remaining = &args[1];
-                let to_decompose = &args[2..];
-                write!(f, "{}(m[fp + {decomposed}], m[fp + {remaining}], ", hint.name())?;
-                for (i, v) in to_decompose.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{v}")?;
-                }
-                write!(f, ")")
+                let args_str = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>().join(", ");
+                write!(f, "{}({args_str})", hint.name())
             }
             Self::Print { line_info, content } => {
                 write!(f, "print(")?;

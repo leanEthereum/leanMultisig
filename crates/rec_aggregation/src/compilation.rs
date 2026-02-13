@@ -14,8 +14,16 @@ use std::rc::Rc;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 
-pub(crate) fn get_recursion_bytecode_helper(prox_gaps_conjecture: bool, inner_program_log_size: usize) -> Bytecode {
+pub(crate) fn get_recursion_bytecode_helper(
+    prox_gaps_conjecture: bool,
+    inner_program_log_size: usize,
+    bytecode_zero_eval: F,
+) -> Bytecode {
     let mut replacements = BTreeMap::new();
+    replacements.insert(
+        "BYTECODE_ZERO_EVAL_PLACEHOLDER".to_string(),
+        bytecode_zero_eval.as_canonical_u64().to_string(),
+    );
 
     let log_inner_bytecode = inner_program_log_size;
     let min_stacked = min_stacked_n_vars(log_inner_bytecode);

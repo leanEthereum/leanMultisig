@@ -18,8 +18,6 @@
 \usepackage{booktabs}
 \usepackage{tikz}
 \usepackage{tcolorbox}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
 \usepackage{amsthm}
 \usetikzlibrary{positioning, arrows.meta}
 
@@ -37,12 +35,6 @@
 \newcommand{\offopone}{\text{off}_{\text{op1}}}
 \newcommand*{\logeq}{\ratio\Leftrightarrow}
 
-\algnewcommand\algorithmicpublicinput{\textbf{Public input:}}
-\algnewcommand\publicinput{\item[\algorithmicpublicinput]}
-
-\algnewcommand\algorithmicprivateinput{\textbf{Private input:}}
-\algnewcommand\privateinput{\item[\algorithmicprivateinput]}
-
 \newtheorem{lemma}{Lemma}
 
 \title{Minimal zkVM for Lean Ethereum (draft 0.6.0)}
@@ -55,62 +47,79 @@
 \newpage
 
 \section{What is the goal of this zkVM?}
+Post-quantum signatures are at least an order of magnitude larger than their pre-quantum counterparts, but the migration is necessary to ensure Ethereum's security. Hash-based signatures offer strong security guarantees and conceptual simplicity, making them a promising candidate: leanXMSS at the consensus layer (where statefulness is not an issue, see \cite{ethereum_signatures}, \cite{top_hypercube}, and \cite{LeanSig}), and leanSPHINCS at the execution layer. A promising choice of hash function is Poseidon2 \cite{poseidon2}, for its snark-friendliness.
 
-Replacing the BLS signature scheme with a Post-Quantum alternative. One approach is to use stateful hash-based signatures, XMSS, as explained in \cite{ethereum_signatures}, \cite{top_hypercube} and \cite{LeanSig}, and to use a hash-based SNARK to handle aggregation.
-A candidate hash function is Poseidon2 \cite{poseidon2}.
+Since post-quantum signatures are much larger, we need to aggregate them. However, they lack the algebraic structure that makes aggregation easy for elliptic-curve schemes like BLS. Instead, we can aggregate them using a snark---itself hash-based, keeping everything post-quantum.
 
-We want to be able to:
-
+Concretely, we need to:
 \begin{itemize}
-    \item \textbf{Aggregate} XMSS signatures
-    \item \textbf{Merge} those aggregate signatures
+     \item \textbf{Aggregate} hash-based signatures (leanXMSS / leanSPHINCS)
+    \item \textbf{Merge} those aggregate signatures $\rightarrow$ recursive proof
 \end{itemize}
 
-The latter involves recursively verifying a SNARK. Both tasks mainly require to prove a lot of hashes. A minimal zkVM (inspired by Cairo \cite{cairo}) is useful as glue to handle all the logic.
+Both tasks mainly require proving a lot of hashes. A minimal zkVM (inspired by Cairo \cite{cairo}) is useful as glue to handle all the logic: leanVM.
 
-Aggregate / Merge can be unified in a single program, which is the only one the zkVM has to prove (see \ref{fig1} for a visual interpretation):
+Aggregation and merging are unified in a single program, that attests that a given set of signers have valid signatures for a given message. 
 
-\begin{algorithm}
-\caption{AggregateMerge}
-\begin{algorithmic}[1]
-\publicinput \textbf{pub\_keys} (of size $n$), \textbf{bitfield} ($k$ ones, $n-k$ zeros), \textbf{msg} (the encoding of the signed message)
-\privateinput $s > 0$, \textbf{sub\_bitfields} (of size $s$), \textbf{aggregate\_proofs} (of size $s - 1$), \textbf{signatures}
-
-
-\Comment{Bitfield consistency}
-
-\State Check: \textbf{bitfield} $= \bigcup_{i=0}^{s-1}$
-\textbf{sub\_bitfields}[i]
-
-
-\State \Comment{Verify the first $s-1$ sub\_bitfields using aggregate\_proofs:}
-
-\For{$i \gets 0$ to $s-2$}
-    \State inner\_public\_input $\gets$ (\textbf{pub\_keys}, \textbf{sub\_bitfields}[i], \textbf{msg})
-    \State \textit{snark\_verify}("AggregateMerge", inner\_public\_input, \textbf{aggregate\_proofs}[i])
-    % \State  \Comment{\textbf{snark\_verify}(program, public input, proof)}
-\EndFor
-
-\State \Comment{Verify the last sub\_bitfields using signatures}
-
-\State $k \gets 0$
-\For{$i \gets 0$ to $n-1$}
-    \If{\textbf{sub\_bitfields}[s-1][i] = 1}
-       \State \textit{signature\_verify}(\textbf{msg}, \textbf{pub\_keys}[i], \textbf{signatures}[k])
-       \State $k \gets k + 1$
-    \EndIf
-\EndFor
-
-\end{algorithmic}
-\end{algorithm}
-
-
-
-\begin{figure}[h]
-\label{fig1}
-\caption{AggregateMerge visualized.}
+\begin{figure}[ht]
 \centering
-\includegraphics[scale=0.6]{images/AggMerge.png}
+\begin{tikzpicture}[
+    proof/.style={draw, rounded corners=4pt, minimum width=2.6cm, minimum height=1cm, align=center, font=\small},
+    leaf/.style={proof},
+    merge/.style={proof, line width=0.8pt},
+    root/.style={proof, minimum width=3cm, line width=1.2pt},
+    xmss/.style={draw, dashed, rounded corners=2pt, minimum width=1.6cm, minimum height=0.7cm, align=center, font=\scriptsize},
+    attests/.style={font=\footnotesize, text=black!50},
+    arr/.style={-{Stealth[length=5pt]}, thick},
+    sigarr/.style={-{Stealth[length=4pt]}, densely dashed, thin},
+]
+
+% --- XMSS signature blocks (inputs) ---
+\node[xmss] (S1) at (0, -1.8) {signers $1$--$2500$};
+\node[xmss] (S2) at (3.5, -1.8) {signers $2501$--$5000$};
+\node[xmss] (S3) at (7, -1.8) {signers $5001$--$7500$};
+\node[xmss] (S4) at (10.5, -1.8) {signers $7501$--$10000$};
+
+% --- Leaf proofs ---
+\node[leaf] (L1) at (0, 0) {Proof $A$};
+\node[leaf] (L2) at (3.5, 0) {Proof $B$};
+\node[leaf] (L3) at (7, 0) {Proof $C$};
+
+% XMSS -> leaf arrows
+\draw[sigarr] (S1) -- (L1);
+\draw[sigarr] (S2) -- (L2);
+\draw[sigarr] (S3) -- (L3);
+
+% --- Middle level ---
+\node[merge] (M1) at (1.75, 2.5) {Proof $D$};
+\node[merge] (M2) at (8.75, 2.5) {Proof $E$};
+
+% XMSS -> E (direct group)
+\draw[sigarr] (S4) -- (M2);
+
+% Recursive arrows: leaves -> middle
+\draw[arr] (L1) -- (M1);
+\draw[arr] (L2) -- (M1);
+\draw[arr] (L3) -- (M2);
+
+% --- Root ---
+\node[root] (R) at (5.25, 5) {Final proof};
+
+% Recursive arrows: middle -> root
+\draw[arr] (M1) -- (R);
+\draw[arr] (M2) -- (R);
+
+% --- Coverage annotations (above each proof) ---
+\node[attests, above=8pt of L1] {$1\text{--}2500$};
+\node[attests, above=8pt of L2] {$2501\text{--}5000$};
+\node[attests, above=8pt of L3] {$5001\text{--}7500$};
+\node[attests, above=8pt of M1] {$1\text{--}5000$};
+\node[attests, above=8pt of M2] {$5001\text{--}10000$};
+\node[attests, above=8pt of R] {$1\text{--}10000$};
+
+\end{tikzpicture}
+\caption{Example of recursive aggregation of 10000 signatures. (Note: overlapping sets of signers are possible.) }
+\label{fig:recursive-aggregation}
 \end{figure}
 
 
@@ -783,6 +792,34 @@ There are alterntive ways to handle the stacking of multiple multilinear polynom
 \end{itemize}
 
 \textit{Note 3:} A meticulous implementation of WHIR could also take advantage of any potential repetitions in the committed polynomial, both at the FFT and the sumcheck level, leaving the Merklelisation as the main overhead.
+
+\section{Recursive Aggregation}\label{sec:recursive-aggregation}
+
+All XMSS public keys are stored in a Merkle tree (the \emph{public-key registry}). Signers are identified by their \emph{index} in this registry (rather than using a bitfield).
+
+The recursive aggregation program (see Figure~\ref{fig:recursive-aggregation}) takes $n_{\text{sigs}}$ signers and partitions them into $n_{\text{rec}} + 1$ sources: one \textbf{direct source} whose XMSS signatures are verified explicitly, and $n_{\text{rec}}$ \textbf{recursive sources}, each accompanied by a sub-proof that is verified via the leanVM verifier.
+
+For the direct source, the program checks each signer's XMSS signature and verifies a Merkle inclusion proof that their public key belongs to the registry.
+
+For each recursive source, the program runs the leanVM verifier on the provided sub-proof, confirming that the sub-proof itself is a valid recursive aggregation proof covering the source's signers.
+
+\subsection{Bytecode evaluation claims}\label{sec:bytecode-reduction}
+
+A key subtlety arises from recursion. Every leanVM proof is tied to a specific \emph{bytecode} --- the program that was executed, represented as a multilinear polynomial. In our case, there is a single program (that both contain XMSS verification and recursion algorithms). The leanVM verification algorithm requires evaluating the bytecode polynomial at a random point.
+
+When the recursive aggregation program verifies a sub-proof, it runs the leanVM verifier \emph{inside} the program. This verification produces a bytecode evaluation claim. For efficiency, rather than checking it inside the program (with a PCS), the claim is forwarded to the public input, to be checked externally.
+
+However, each sub-proof is potentially itself a recursive aggregation, and may have already forwarded its own bytecode claim in the same way. So for each of the $n_{\text{rec}}$ sub-proofs, \textbf{two} bytecode claims arise:
+
+\begin{enumerate}
+    \item \textbf{Inner-public-memory claim}: The bytecode claim that the sub-proof forwarded from its own recursive verifications (read from the sub-proof's public input).
+
+    \item \textbf{Inner-proof claim}: The new bytecode claim produced by verifying the sub-proof itself.
+\end{enumerate}
+
+After verifying all $n_{\text{rec}}$ sub-proofs, a fresh Fiat--Shamir transcript is initialized and fed with all $2 n_{\text{rec}}$ evaluation points and claimed values. This transcript produces a random linear combination challenge, and the $2 n_{\text{rec}}$ claims are then batched into a single one via sumcheck, yielding a reduced claim. This reduced claim is written to the public input for the next level of recursion.
+
+When $n_{\text{rec}} = 0$ (no recursion), the bytecode claim in the public input is set to zero.
 
 \clearpage
 \bibliographystyle{IEEEtran}

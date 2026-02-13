@@ -1,5 +1,6 @@
 from snark_lib import *
 from whir import *
+from hashing import *
 
 N_TABLES = N_TABLES_PLACEHOLDER
 
@@ -39,24 +40,100 @@ COL_PC = COL_PC_PLACEHOLDER
 TOTAL_WHIR_STATEMENTS = TOTAL_WHIR_STATEMENTS_PLACEHOLDER
 STARTING_PC = STARTING_PC_PLACEHOLDER
 ENDING_PC = ENDING_PC_PLACEHOLDER
+BYTECODE_POINT_N_VARS = LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)
+BYTECODE_ZERO_EVAL = BYTECODE_ZERO_EVAL_PLACEHOLDER
+CLAIM_DATA_SIZE = (BYTECODE_POINT_N_VARS + 1) * DIM
+CLAIM_DATA_SIZE_PADDED = next_multiple_of(CLAIM_DATA_SIZE, DIGEST_LEN)
 
 
 def main():
+    pub_mem = NONRESERVED_PROGRAM_INPUT_START
+    bytecode_claim_output = pub_mem
+
     priv_start: Imu
     hint_private_input_start(priv_start)
-    proof_size = priv_start[0]
-    inner_public_memory_log_size = priv_start[1]
+    inner_public_memory_log_size = priv_start[0]
     inner_public_memory_size = powers_of_two(inner_public_memory_log_size)
-    n_recursions = priv_start[2]
-    inner_public_memory = priv_start + 3
-    proofs_start = inner_public_memory + inner_public_memory_size
+    n_recursions = priv_start[1]
+
+    n_claims = n_recursions * 2
+    claim_datas = Array(n_claims) # Store pointers to bytecode evaluation claims ([point | value | zero padding] per claim)
+
+    entry: Mut = priv_start + 2 # Each entry: [proof_size | inner_public_memory | bytecode_value_hint (DIM) | proof_transcript (proof_size)]
     for i in range(0, n_recursions):
-        proof_transcript = proofs_start + i * proof_size
-        recursion(inner_public_memory_log_size, inner_public_memory, proof_transcript)
+        proof_size = entry[0]
+        inner_public_memory = entry + 1
+        bytecode_value_hint = inner_public_memory + inner_public_memory_size
+        proof_transcript = bytecode_value_hint + DIM
+
+        claim_datas[2 * i] = inner_public_memory + NONRESERVED_PROGRAM_INPUT_START # Inner-public-memory bytecode claim
+
+        # Verify recursive proof - returns inner-proof bytecode claim
+        claim_datas[2 * i + 1] = recursion(
+            inner_public_memory_log_size, inner_public_memory,
+            proof_transcript, bytecode_value_hint)
+
+        entry += 1 + inner_public_memory_size + DIM + proof_size
+
+    # Bytecode claims reduction: 2n -> 1 via sumcheck
+
+    if n_recursions == 0:
+        # Case A: no recursions, so no claims to reduce. Convention: output ((0, 0, ..., 0), bytecode((0, 0, ..., 0))) as the bytecode claim.
+        for k in unroll(0, BYTECODE_POINT_N_VARS):
+            set_to_5_zeros(bytecode_claim_output + k * DIM)
+        bytecode_claim_output[BYTECODE_POINT_N_VARS * DIM] = BYTECODE_ZERO_EVAL
+        for k in unroll(1, DIGEST_LEN):
+            bytecode_claim_output[BYTECODE_POINT_N_VARS * DIM + k] = 0
+        return
+
+    bytecode_sumcheck_proof = entry
+
+    # Hash all claims (to feed Fiat-Shamir)
+    bytecode_claims_hash: Mut = ZERO_VEC_PTR
+    for i in range(0, n_claims):
+        claim_ptr = claim_datas[i]
+        for k in unroll(CLAIM_DATA_SIZE, CLAIM_DATA_SIZE_PADDED):
+            assert claim_ptr[k] == 0
+        claim_hash = slice_hash(claim_ptr, CLAIM_DATA_SIZE_PADDED / DIGEST_LEN)
+        new_hash = Array(DIGEST_LEN)
+        poseidon16(bytecode_claims_hash, claim_hash, new_hash)
+        bytecode_claims_hash = new_hash
+
+    reduction_fs: Mut = fs_new(bytecode_sumcheck_proof)
+    reduction_fs, received_claims_hash = fs_receive_chunks(reduction_fs, 1)
+    copy_8(bytecode_claims_hash, received_claims_hash) # meaning fiat shamir has absorbed all the bytecode claims (point + value)
+
+    reduction_fs, alpha = fs_sample_ef(reduction_fs)
+    alpha_powers = powers(alpha, n_claims)
+
+    all_values = Array(n_claims * DIM)
+    for i in range(0, n_claims):
+        claim_ptr = claim_datas[i]
+        copy_5(claim_ptr + BYTECODE_POINT_N_VARS * DIM, all_values + i * DIM)
+
+    claimed_sum = Array(DIM)
+    dot_product_ee_dynamic(all_values, alpha_powers, claimed_sum, n_claims)
+
+    reduction_fs, challenges, final_eval = sumcheck_verify(reduction_fs, BYTECODE_POINT_N_VARS, claimed_sum, 2) # The number of rounds iis compile-time known -> we could inline + unroll (TODO?)
+
+    # Verify: final_eval == bytecode(r) * w(r) with w(r) = sum_i alpha^i * eq(r, point_i)
+    eq_evals = Array(n_claims * DIM)
+    for i in range(0, n_claims):
+        claim_ptr = claim_datas[i]
+        eq_val = eq_mle_extension(claim_ptr, challenges, BYTECODE_POINT_N_VARS)
+        copy_5(eq_val, eq_evals + i * DIM)
+    g_r = Array(DIM)
+    dot_product_ee_dynamic(eq_evals, alpha_powers, g_r, n_claims)
+
+    bytecode_value_at_r = div_extension_ret(final_eval, g_r)
+
+    copy_many_ef(challenges, bytecode_claim_output, BYTECODE_POINT_N_VARS)
+    copy_5(bytecode_value_at_r,
+          bytecode_claim_output + BYTECODE_POINT_N_VARS * DIM)
     return
 
 
-def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcript):
+def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcript, bytecode_value_hint):
     fs: Mut = fs_new(proof_transcript)
 
     # table dims
@@ -129,15 +206,18 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(
         offset / powers_of_two(log_bytecode_padded), n_vars_logup_gkr - log_bytecode_padded, point_gkr
     )
-    pub_mem = NONRESERVED_PROGRAM_INPUT_START
-    assert pub_mem[0] == LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)
-    copy_many_ef(bytecode_and_acc_point, pub_mem + 1, LOG_GUEST_BYTECODE_LEN)
+    # Build padded claim data: [point | value | zero padding]
+    claim_data = Array(CLAIM_DATA_SIZE_PADDED)
+    copy_many_ef(bytecode_and_acc_point, claim_data, LOG_GUEST_BYTECODE_LEN)
     copy_many_ef(
         logup_alphas + (log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM,
-        pub_mem + 1 + LOG_GUEST_BYTECODE_LEN * DIM,
+        claim_data + LOG_GUEST_BYTECODE_LEN * DIM,
         log2_ceil(N_INSTRUCTION_COLUMNS),
     )
-    bytecode_value = pub_mem + 1 + (LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)) * DIM
+    copy_5(bytecode_value_hint, claim_data + BYTECODE_POINT_N_VARS * DIM)
+    for k in unroll(CLAIM_DATA_SIZE, CLAIM_DATA_SIZE_PADDED):
+        claim_data[k] = 0
+    bytecode_value = claim_data + BYTECODE_POINT_N_VARS * DIM
     bytecode_value_corrected: Mut = bytecode_value
     for i in unroll(0, log2_ceil(MAX_BUS_WIDTH) - log2_ceil(N_INSTRUCTION_COLUMNS)):
         bytecode_value_corrected = mul_extension_ret(
@@ -187,7 +267,7 @@ def recursion(inner_public_memory_log_size, inner_public_memory, proof_transcrip
     else:
         continue_recursion_ordered(2, 1, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, inner_public_memory_log_size, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc)
 
-    return
+    return claim_data
 
 
 @inline
