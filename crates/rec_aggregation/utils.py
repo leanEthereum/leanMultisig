@@ -10,7 +10,6 @@ ROOT = 1791270792  # of order 2^TWO_ADICITY
 BE = 1  # base-extension
 EE = 0  # extension-extension
 
-
 def div_ceil_dynamic(a, b: Const):
     debug_assert(a <= 150)
     res = match_range(a, range(0, 151), lambda i: div_ceil(i, b))
@@ -122,7 +121,7 @@ def eq_mle_extension_const(a, b, n: Const):
 
 @inline
 def eq_mle_base_extension(a, b, n):
-    debug_assert(n < 31)
+    debug_assert(n <= 30)
     debug_assert(0 < n)
     res = match_range(n, range(1, 31), lambda i: eq_mle_extension_base_const(a, b, i))
     return res
@@ -634,7 +633,7 @@ def _verify_log2_small(n, partial_sums_24, log2: Const):
 
 
 def _verify_log2_large(n, log2: Const):
-    # For log2 in [24, 28]: verify 2^(log2-1) < n <= 2^log2
+    # For log2 in [24, 30]: verify 2^(log2-1) < n <= 2^log2
     # by checking that n - 2^(log2-1) - 1 fits in (log2-1) bits
     remainder = n - 2**(log2 - 1) - 1
     _unused = checked_decompose_bits_small_value_const(remainder, log2 - 1)
@@ -642,16 +641,16 @@ def _verify_log2_large(n, log2: Const):
 
 
 def log2_ceil_runtime(n):
-    # requires: 2 < n <= 2^28
+    # requires: 2 < n <= 2^30
     log2: Imu
     hint_log2_ceil(n, log2)
-    assert log2 < 29
+    assert log2 < 31
     if powers_of_two(log2) != n:
         _, partial_sums_24 = checked_decompose_bits(n)
         match_range(log2,
             range(2, 24),
             lambda i: _verify_log2_small(n, partial_sums_24, i),
-            range(24, 29),
+            range(24, 31),
             lambda i: _verify_log2_large(n, i))
     return log2
 

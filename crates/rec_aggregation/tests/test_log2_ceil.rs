@@ -29,11 +29,11 @@ fn test_log2_ceil() {
         test_log2_ceil_with((1 << exp) - 1);
     }
     // large values
-    for exp in 24..=28 {
+    for exp in 24..=30 {
         test_log2_ceil_with(1 << exp);
     }
-    for exp in 24..=27 {
+    for exp in 24..=29 {
         test_log2_ceil_with((1 << exp) + 1);
     }
-    test_log2_ceil_with((1 << 28) - 1);
+    test_log2_ceil_with((1 << 30) - 1);
 }
