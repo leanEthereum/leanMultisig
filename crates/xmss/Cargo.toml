@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 p3-koala-bear.workspace = true
+p3-symmetric.workspace = true
 rand.workspace = true
 utils.workspace = true
 multilinear-toolkit.workspace = true
