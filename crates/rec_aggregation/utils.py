@@ -479,18 +479,16 @@ def checked_decompose_bits(a):
     for i in unroll(0, F_BITS):
         assert bits[i] * (1 - bits[i]) == 0
     partial_sums_24 = Array(24)
-    sum_24: Mut = bits[0]
-    partial_sums_24[0] = sum_24
+    partial_sums_24[0] = bits[0]
     for i in unroll(1, 24):
-        sum_24 += bits[i] * 2**i
-        partial_sums_24[i] = sum_24
+        partial_sums_24[i] = partial_sums_24[i - 1] + bits[i] * 2**i
     sum_7: Mut = bits[24]
     for i in unroll(1, 7):
         sum_7 += bits[24 + i] * 2**i
     if sum_7 == 127:
-        assert sum_24 == 0
+        assert partial_sums_24[23] == 0
 
-    assert a == sum_24 + sum_7 * 2**24
+    assert a == partial_sums_24[23] + sum_7 * 2**24
     return bits, partial_sums_24
 
 
