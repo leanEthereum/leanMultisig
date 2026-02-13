@@ -22,15 +22,14 @@ const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_F
 
 #[derive(Debug, Clone)]
 pub struct AggregationTopology {
-    pub raw: usize,
-    pub profile: bool,
+    pub raw_xmss: usize,
     pub children: Vec<AggregationTopology>,
 }
 
 fn count_signers(topology: &AggregationTopology, overlap: usize) -> usize {
     let child_count: usize = topology.children.iter().map(|c| count_signers(c, overlap)).sum();
     let n_overlaps = topology.children.len().saturating_sub(1);
-    topology.raw + child_count - overlap * n_overlaps
+    topology.raw_xmss + child_count - overlap * n_overlaps
 }
 
 /// layers[0] = leaves, layers[height] = [root].
@@ -91,7 +90,6 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
 
 fn build_non_reserved_public_input(
     n_sigs: usize,
-    n_recursions: usize,
     registry_root: &[F; DIGEST_LEN],
     signer_indexes_hash: &[F; DIGEST_LEN],
     message: &[F; MESSAGE_LEN_FE],
@@ -100,7 +98,6 @@ fn build_non_reserved_public_input(
 ) -> Vec<F> {
     let mut pi = vec![];
     pi.push(F::from_usize(n_sigs));
-    pi.push(F::from_usize(n_recursions));
     pi.extend_from_slice(registry_root);
     pi.extend_from_slice(signer_indexes_hash);
     pi.extend_from_slice(message);
@@ -123,114 +120,118 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
     data
 }
 
-struct ChildProofData {
-    proof: Vec<F>,
-    public_input: Vec<F>,
-    bytecode_evaluation: Evaluation<EF>,
+#[derive(Debug)]
+pub struct AggregatedSigs {
+    pub signer_indices: Vec<usize>,
+    pub proof: Vec<F>,
+    pub bytecode_point: Option<MultilinearPoint<EF>>,
+}
+
+impl AggregatedSigs {
+    pub fn public_input(
+        &self,
+        registry_root: &[F; DIGEST_LEN],
+        message: &[F; MESSAGE_LEN_FE],
+        slot: u32,
+        bytecode: &Bytecode,
+    ) -> Vec<F> {
+        let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
+        let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
+
+        let bytecode_claim_output = match &self.bytecode_point {
+            Some(point) => {
+                let value = bytecode.instructions_multilinear.evaluate(point);
+                let mut ef_claim: Vec<EF> = point.0.clone();
+                ef_claim.push(value);
+                flatten_scalars_to_base::<F, EF>(&ef_claim)
+            }
+            None => {
+                let mut claim = vec![F::ZERO; bytecode_claim_size];
+                claim[bytecode_point_n_vars * DIMENSION] = bytecode.instructions_multilinear[0];
+                claim
+            }
+        };
+        assert_eq!(bytecode_claim_output.len(), bytecode_claim_size);
+
+        let indices_fe: Vec<F> = self.signer_indices.iter().map(|&i| F::from_usize(i)).collect();
+        let signer_indexes_hash = poseidon_compress_slice(&indices_fe);
+
+        build_non_reserved_public_input(
+            self.signer_indices.len(),
+            registry_root,
+            &signer_indexes_hash,
+            message,
+            slot,
+            &bytecode_claim_output,
+        )
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
-fn prove_aggregation_node(
-    topology: &AggregationTopology,
-    bytecode: &Bytecode,
+pub fn merge(
+    children: &[AggregatedSigs],
+    raw_signers: &[(usize, XmssPublicKey, XmssSignature)],
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     registry_merkle_tree: &[Vec<[F; DIGEST_LEN]>],
-    signer_indices: &[usize],
-    pub_keys: &[XmssPublicKey],
-    signatures: &[XmssSignature],
+    bytecode: &Bytecode,
+    overlap: usize,
     log_inv_rate: usize,
     prox_gaps_conjecture: bool,
-    overlap: usize,
-) -> (Vec<F>, Vec<F>) {
-    let n_sigs = signer_indices.len();
-    let n_recursions = topology.children.len();
-    let raw_count = topology.raw;
+) -> AggregatedSigs {
+    let n_recursions = children.len();
+    let raw_count = raw_signers.len();
     let whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
+    let registry_root = &registry_merkle_tree.last().unwrap()[0];
 
     let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
-    // Source 0 (raw XMSS)
-    let raw_signer_indices = &signer_indices[..raw_count];
-    let raw_pub_keys = &pub_keys[..raw_count];
-    let raw_signatures = &signatures[..raw_count];
-
-    // source >= 1 (recursions)
-    let mut child_proofs: Vec<ChildProofData> = vec![];
-    let mut child_start = raw_count;
-    for (child_idx, child) in topology.children.iter().enumerate() {
-        let child_count = count_signers(child, overlap);
-        let child_signer_indices = &signer_indices[child_start..child_start + child_count];
-        let child_pub_keys = &pub_keys[child_start..child_start + child_count];
-        let child_signatures = &signatures[child_start..child_start + child_count];
-
-        let (child_proof, inner_pub_input) = prove_aggregation_node(
-            child,
-            bytecode,
-            message,
-            slot,
-            registry_merkle_tree,
-            child_signer_indices,
-            child_pub_keys,
-            child_signatures,
-            log_inv_rate,
-            prox_gaps_conjecture,
-            overlap,
-        );
-
-        let inner_verif_details =
-            verify_execution(bytecode, &inner_pub_input, child_proof.clone(), whir_config.clone()).unwrap();
-
-        child_proofs.push(ChildProofData {
-            proof: child_proof,
-            public_input: inner_pub_input,
-            bytecode_evaluation: inner_verif_details.bytecode_evaluation,
-        });
-
-        child_start += child_count;
-        if child_idx < topology.children.len() - 1 {
-            child_start -= overlap;
+    // Build merged signer_indices: raw ++ children with overlap
+    let raw_indices: Vec<usize> = raw_signers.iter().map(|(idx, _, _)| *idx).collect();
+    let mut signer_indices = raw_indices.clone();
+    for (i, child) in children.iter().enumerate() {
+        if i == 0 {
+            signer_indices.extend_from_slice(&child.signer_indices);
+        } else {
+            signer_indices.extend_from_slice(&child.signer_indices[overlap..]);
         }
     }
+    let n_sigs = signer_indices.len();
 
-    // Compute global signer indexes hash
-    let global_indices_fe: Vec<F> = signer_indices.iter().map(|&i| F::from_usize(i)).collect();
-    let signer_indexes_hash = poseidon_compress_slice(&global_indices_fe);
+    // Verify child proofs
+    let mut child_pub_inputs: Vec<Vec<F>> = vec![];
+    let mut child_bytecode_evals: Vec<Evaluation<EF>> = vec![];
+    for child in children {
+        let child_pub_input = child.public_input(registry_root, message, slot, bytecode);
+        let verif = verify_execution(bytecode, &child_pub_input, child.proof.clone(), whir_config.clone()).unwrap();
+        child_bytecode_evals.push(verif.bytecode_evaluation);
+        child_pub_inputs.push(child_pub_input);
+    }
 
-    //Compute per-source sub-index lists and duplicate indices
-    let mut all_sub_indices = vec![raw_signer_indices.to_vec()];
+    // Sub-index lists and dup indices
+    let mut all_sub_indices: Vec<&[usize]> = vec![&raw_indices];
     let mut dup_indices = Vec::new();
-    let mut sub_start = raw_count;
-    for (child_idx, child) in topology.children.iter().enumerate() {
-        let child_count = count_signers(child, overlap);
-        all_sub_indices.push(signer_indices[sub_start..sub_start + child_count].to_vec());
-        if child_idx > 0 && overlap > 0 {
-            dup_indices.extend_from_slice(&signer_indices[sub_start..sub_start + overlap]);
-        }
-        sub_start += child_count;
-        if child_idx < topology.children.len() - 1 {
-            sub_start -= overlap;
+    for (i, child) in children.iter().enumerate() {
+        all_sub_indices.push(&child.signer_indices);
+        if i > 0 && overlap > 0 {
+            dup_indices.extend_from_slice(&child.signer_indices[..overlap]);
         }
     }
     dup_indices.sort();
 
     // Bytecode sumcheck reduction
-    let (bytecode_claim_output, final_sumcheck_transcript) = if n_recursions > 0 {
-        // Collect 2*n_recursions bytecode claims
-        let bytecode_claim_offset = 2 + 2 * DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
+    let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
+        let bytecode_claim_offset = 1 + 2 * DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
         let mut claims = vec![];
-        for child_data in &child_proofs {
-            // Claim from child's public input
+        for (i, _child) in children.iter().enumerate() {
             let first_claim = extract_bytecode_claim_from_public_input(
-                &child_data.public_input[bytecode_claim_offset..],
+                &child_pub_inputs[i][bytecode_claim_offset..],
                 bytecode_point_n_vars,
             );
             claims.push(first_claim);
-
-            // Claim from verify_execution
-            claims.push(child_data.bytecode_evaluation.clone());
+            claims.push(child_bytecode_evals[i].clone());
         }
 
         let claims_hash = hash_bytecode_claims(&claims);
@@ -242,7 +243,6 @@ fn prove_aggregation_node(
         let n_claims = claims.len();
         let alpha_powers: Vec<EF> = alpha.powers().take(n_claims).collect();
 
-        // Build weights: w(x) = sum_i alpha^i * eq(x, point_i)
         let weights_packed = claims
             .par_iter()
             .zip(&alpha_powers)
@@ -274,24 +274,23 @@ fn prove_aggregation_node(
         let reduced_point = challenges;
         let reduced_value = final_evals[0];
 
-        let mut ef_claim: Vec<EF> = reduced_point.0;
+        let mut ef_claim: Vec<EF> = reduced_point.0.clone();
         ef_claim.push(reduced_value);
         let claim_output = flatten_scalars_to_base::<F, EF>(&ef_claim);
         assert_eq!(claim_output.len(), bytecode_claim_size);
 
-        (claim_output, reduction_prover.raw_proof())
+        (claim_output, Some(reduced_point), reduction_prover.raw_proof())
     } else {
-        // n_recursions=0: output ((0,...,0), bytecode((0,...,0)))
         let mut claim_output = vec![F::ZERO; bytecode_claim_size];
         claim_output[bytecode_point_n_vars * DIMENSION] = bytecode.instructions_multilinear[0];
-        (claim_output, vec![])
+        (claim_output, None, vec![])
     };
 
     // Build public input
-    let registry_root = &registry_merkle_tree.last().unwrap()[0];
+    let global_indices_fe: Vec<F> = signer_indices.iter().map(|&i| F::from_usize(i)).collect();
+    let signer_indexes_hash = poseidon_compress_slice(&global_indices_fe);
     let non_reserved_public_input = build_non_reserved_public_input(
         n_sigs,
-        n_recursions,
         registry_root,
         &signer_indexes_hash,
         message,
@@ -300,8 +299,8 @@ fn prove_aggregation_node(
     );
     let public_memory = build_public_memory(&non_reserved_public_input);
 
-    // header size: (n_recursions+1) pointers + 1 sumcheck_proof_ptr + 1 n_dup + n_sigs + n_dup
-    let header_size = (n_recursions + 1) + 1 + 1 + n_sigs + dup_indices.len();
+    // header: 1 n_recursions + (n_recursions+1) pointers + 1 sumcheck_proof_ptr + 1 n_dup + n_sigs + n_dup
+    let header_size = 1 + (n_recursions + 1) + 1 + 1 + n_sigs + dup_indices.len();
 
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
@@ -309,46 +308,36 @@ fn prove_aggregation_node(
     {
         let mut block = vec![];
         block.push(F::from_usize(raw_count));
-        // raw_indices
-        for &idx in raw_signer_indices {
+        for &(idx, _, _) in raw_signers {
             block.push(F::from_usize(idx));
         }
-        // raw signer data: pubkey + registry_merkle_path + xmss_sig
-        for i in 0..raw_count {
-            block.extend_from_slice(&raw_pub_keys[i].merkle_root);
-            let proof = get_merkle_proof(registry_merkle_tree, raw_signer_indices[i]);
+        for (idx, pk, sig) in raw_signers {
+            block.extend_from_slice(&pk.merkle_root);
+            let proof = get_merkle_proof(registry_merkle_tree, *idx);
             for sibling in &proof {
                 block.extend_from_slice(sibling);
             }
-            block.extend(encode_xmss_signature(&raw_signatures[i]));
+            block.extend(encode_xmss_signature(sig));
         }
         source_blocks.push(block);
     }
 
     // Sources 1..n_recursions: recursive children
-    for (s_idx, child_data) in child_proofs.iter().enumerate() {
+    for (i, child) in children.iter().enumerate() {
         let mut block = vec![];
-        let child_sub_indices = &all_sub_indices[s_idx + 1];
-        let n_sub_sigs = child_sub_indices.len();
+        let sub_indices = all_sub_indices[i + 1];
 
-        block.push(F::from_usize(n_sub_sigs));
-        // sub_indices
-        for &idx in child_sub_indices {
+        block.push(F::from_usize(sub_indices.len()));
+        for &idx in sub_indices {
             block.push(F::from_usize(idx));
         }
         // bytecode_value_hint (DIM elements)
-        block.extend_from_slice(
-            &child_data
-                .bytecode_evaluation
-                .value
-                .as_basis_coefficients_slice()
-                .to_vec(),
-        );
+        block.extend_from_slice(child_bytecode_evals[i].value.as_basis_coefficients_slice());
         // inner_pub_mem
-        let child_pub_mem = build_public_memory(&child_data.public_input);
+        let child_pub_mem = build_public_memory(&child_pub_inputs[i]);
         block.extend_from_slice(&child_pub_mem);
         // proof_transcript
-        block.extend_from_slice(&child_data.proof);
+        block.extend_from_slice(&child.proof);
 
         source_blocks.push(block);
     }
@@ -363,12 +352,13 @@ fn prove_aggregation_node(
     let bytecode_sumcheck_proof_ptr = public_memory.len() + offset_in_priv;
 
     let mut private_input = vec![];
+    private_input.push(F::from_usize(n_recursions));
     for &ptr in &source_ptrs {
         private_input.push(F::from_usize(ptr));
     }
     private_input.push(F::from_usize(bytecode_sumcheck_proof_ptr));
     private_input.push(F::from_usize(dup_indices.len()));
-    for &idx in signer_indices {
+    for &idx in &signer_indices {
         private_input.push(F::from_usize(idx));
     }
     for &idx in &dup_indices {
@@ -379,16 +369,15 @@ fn prove_aggregation_node(
     for block in &source_blocks {
         private_input.extend_from_slice(block);
     }
-
     private_input.extend_from_slice(&final_sumcheck_transcript);
 
     let time = Instant::now();
     let execution_proof = prove_execution(
         bytecode,
         (&non_reserved_public_input, &private_input),
-        &vec![], // TODO precompute poseidons
+        &vec![],
         &whir_config,
-        topology.profile,
+        false,
     );
     let node_elapsed = time.elapsed();
 
@@ -403,7 +392,11 @@ fn prove_aggregation_node(
         execution_proof.proof_size_fe * F::bits() / (8 * 1024),
     );
 
-    (execution_proof.proof, non_reserved_public_input)
+    AggregatedSigs {
+        signer_indices,
+        proof: execution_proof.proof,
+        bytecode_point,
+    }
 }
 
 pub fn extract_bytecode_claim_from_public_input(public_input: &[F], bytecode_point_n_vars: usize) -> Evaluation<EF> {
@@ -426,6 +419,64 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         running_hash = poseidon16_compress_pair(running_hash, claim_hash);
     }
     running_hash
+}
+
+// --- Benchmark ---
+
+#[allow(clippy::too_many_arguments)]
+fn build_aggregation(
+    topology: &AggregationTopology,
+    bytecode: &Bytecode,
+    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
+    registry_merkle_tree: &[Vec<[F; DIGEST_LEN]>],
+    signer_indices: &[usize],
+    pub_keys: &[XmssPublicKey],
+    signatures: &[XmssSignature],
+    overlap: usize,
+    log_inv_rate: usize,
+    prox_gaps_conjecture: bool,
+) -> AggregatedSigs {
+    let raw_count = topology.raw_xmss;
+    let raw_signers: Vec<(usize, XmssPublicKey, XmssSignature)> = (0..raw_count)
+        .map(|i| (signer_indices[i], pub_keys[i].clone(), signatures[i].clone()))
+        .collect();
+
+    let mut child_results = vec![];
+    let mut child_start = raw_count;
+    for (child_idx, child) in topology.children.iter().enumerate() {
+        let child_count = count_signers(child, overlap);
+        let child_agg = build_aggregation(
+            child,
+            bytecode,
+            message,
+            slot,
+            registry_merkle_tree,
+            &signer_indices[child_start..child_start + child_count],
+            &pub_keys[child_start..child_start + child_count],
+            &signatures[child_start..child_start + child_count],
+            overlap,
+            log_inv_rate,
+            prox_gaps_conjecture,
+        );
+        child_results.push(child_agg);
+        child_start += child_count;
+        if child_idx < topology.children.len() - 1 {
+            child_start -= overlap;
+        }
+    }
+
+    merge(
+        &child_results,
+        &raw_signers,
+        message,
+        slot,
+        registry_merkle_tree,
+        bytecode,
+        overlap,
+        log_inv_rate,
+        prox_gaps_conjecture,
+    )
 }
 
 pub fn run_aggregation_benchmark(
@@ -483,7 +534,7 @@ pub fn run_aggregation_benchmark(
     let bytecode = compile_main_program_self_referential(prox_gaps_conjecture);
     println!("Compiled bytecode: {} instructions", bytecode.instructions.len());
 
-    let (proof, public_input) = prove_aggregation_node(
+    let result = build_aggregation(
         topology,
         &bytecode,
         &message,
@@ -492,16 +543,18 @@ pub fn run_aggregation_benchmark(
         &signer_indices,
         &pub_keys,
         &signatures,
+        overlap,
         log_inv_rate,
         prox_gaps_conjecture,
-        overlap,
     );
 
     // Verify root proof
+    let registry_root = &registry_layers.last().unwrap()[0];
+    let public_input = result.public_input(registry_root, &message, slot, &bytecode);
     verify_execution(
         &bytecode,
         &public_input,
-        proof,
+        result.proof,
         default_whir_config(log_inv_rate, prox_gaps_conjecture),
     )
     .unwrap();
@@ -510,25 +563,20 @@ pub fn run_aggregation_benchmark(
 #[test]
 fn test_recursive_aggregation() {
     let topology = AggregationTopology {
-        raw: 10,
-        profile: false,
+        raw_xmss: 10,
         children: vec![
             AggregationTopology {
-                raw: 60,
-                profile: false,
+                raw_xmss: 60,
                 children: vec![],
             },
             AggregationTopology {
-                raw: 40,
-                profile: false,
+                raw_xmss: 40,
                 children: vec![],
             },
             AggregationTopology {
-                raw: 0,
-                profile: false,
+                raw_xmss: 0,
                 children: vec![AggregationTopology {
-                    raw: 50,
-                    profile: false,
+                    raw_xmss: 50,
                     children: vec![],
                 }],
             },

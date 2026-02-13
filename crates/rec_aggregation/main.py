@@ -5,16 +5,14 @@ MAX_RECURSIONS = 16
 LOG_SIZE_PUBKEY_REGISTRY = LOG_SIZE_PUBKEY_REGISTRY_PLACEHOLDER
 DATA_PER_RAW_SIGNER = DIGEST_LEN + LOG_SIZE_PUBKEY_REGISTRY * DIGEST_LEN + SIG_SIZE
 INNER_PUB_MEM_SIZE = 2 ** INNER_PUBLIC_MEMORY_LOG_SIZE
-BYTECODE_CLAIM_OFFSET = 2 + 2 * DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS
+BYTECODE_CLAIM_OFFSET = 1 + 2 * DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS
 
 
 def main():
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     n_sigs = pub_mem[0]
     assert n_sigs <= 2**LOG_SIZE_PUBKEY_REGISTRY
-    n_recursions = pub_mem[1]
-    assert n_recursions <= MAX_RECURSIONS
-    registry_root = pub_mem + 2
+    registry_root = pub_mem + 1
     signer_indexes_hash_expected = registry_root + DIGEST_LEN
     message = signer_indexes_hash_expected + DIGEST_LEN
     slot_ptr = message + MESSAGE_LEN
@@ -26,7 +24,10 @@ def main():
     priv_start: Imu
     hint_private_input_start(priv_start)
 
-    signer_indexes_hash, sub_slice_starts, bytecode_sumcheck_proof, source_hashes = verify_signer_index_partitioning(n_sigs, n_recursions, priv_start)
+    n_recursions = priv_start[0]
+    assert n_recursions <= MAX_RECURSIONS
+
+    signer_indexes_hash, sub_slice_starts, bytecode_sumcheck_proof, source_hashes = verify_signer_index_partitioning(n_sigs, n_recursions, priv_start + 1)
 
     copy_8(signer_indexes_hash, signer_indexes_hash_expected)
 
@@ -166,9 +167,9 @@ def verify_recursive_sources_and_reduce_bytecode_claims(
             copy_5(i * DIM, inner_pub_mem + i * DIM)
         non_reserserved_inner_pub_mem = inner_pub_mem + NONRESERVED_PROGRAM_INPUT_START
         assert non_reserserved_inner_pub_mem[0] == n_sub_sigs
-        copy_8(registry_root, non_reserserved_inner_pub_mem + 2)
-        copy_8(sub_indexes_hash, non_reserserved_inner_pub_mem + 2 + DIGEST_LEN)
-        inner_msg = non_reserserved_inner_pub_mem + 2 + 2 * DIGEST_LEN
+        copy_8(registry_root, non_reserserved_inner_pub_mem + 1)
+        copy_8(sub_indexes_hash, non_reserserved_inner_pub_mem + 1 + DIGEST_LEN)
+        inner_msg = non_reserserved_inner_pub_mem + 1 + 2 * DIGEST_LEN
         debug_assert(MESSAGE_LEN <= 2*DIM)
         copy_5(message, inner_msg)
         copy_5(message + (MESSAGE_LEN - DIM), inner_msg + (MESSAGE_LEN - DIM) )
