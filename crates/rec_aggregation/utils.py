@@ -525,6 +525,14 @@ def dot_product_ret(a, b, n, mode):
     return res
 
 
+@inline
+def sum_continuous_ef(slice_ef, len):
+    debug_assert(len <= NUM_REPEATED_ONES_IN_RESERVED_MEMORY)
+    res = Array(DIM)
+    dot_product(REPEATED_ONES_PTR, slice_ef, res, len, BE)
+    return res
+
+
 def mle_of_zeros_then_ones(point, n_zeros, n_vars):
     if n_vars == 0:
         res = Array(DIM)

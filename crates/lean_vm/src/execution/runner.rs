@@ -8,8 +8,7 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES,
-    SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC, SourceLocation, Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC, SourceLocation, Table, TableTrace
 };
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -40,6 +39,7 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     }
 
     public_memory[POSEIDON_16_NULL_HASH_PTR..][..DIGEST_LEN].copy_from_slice(get_poseidon_16_of_zero());
+    public_memory[REPEATED_ONES_PTR..][..NUM_REPEATED_ONES_IN_RESERVED_MEMORY].fill(F::ONE);
     public_memory
 }
 

@@ -38,22 +38,27 @@ pub const ENDING_PC: usize = 0;
 /// reserved_area: reserved for special constants (size = 48 field elements)
 /// program_input: the input of the program we want to prove
 ///
-/// [reserved_area] = [00000000] [00000000] [10000000] [10000] [01000] [00100] [00010] [00001] [poseidon_16(0) (8 field elements)] [private input start pointer]
+/// [reserved_area] = [00000000] [00000000] [10000000] [10000] [01000] [00100] [00010] [00001] [poseidon_16(0) (8 field elements)] [111..111]
 ///
-/// Convention: pointing to 16 zeros
+/// pointing to 16 zeros
 pub const ZERO_VEC_PTR: usize = 0;
 
-/// Convention: pointing to [10000000]
+/// pointing to [10000000]
 pub const SAMPLING_DOMAIN_SEPARATOR_PTR: usize = ZERO_VEC_PTR + 2 * DIGEST_LEN;
 
-/// Convention: pointing to [10000] [01000] [00100] [00010] [00001]
+/// pointing to [10000] [01000] [00100] [00010] [00001]
 pub const EXTENSION_BASIS_PTR: usize = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN;
 
-/// Convention: pointing to the 8 elements of poseidon_16(0)
+/// pointing to the 8 elements of poseidon_16(0)
 pub const POSEIDON_16_NULL_HASH_PTR: usize = EXTENSION_BASIS_PTR + DIMENSION.pow(2);
 
+/// POINTING TO 111..111 (`NUM_REPEATED_ONES_IN_RESERVED_MEMORY` times)
+pub const NUM_REPEATED_ONES_IN_RESERVED_MEMORY: usize = 16;
+pub const REPEATED_ONES_PTR: usize = POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN;
+
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = (POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN).next_multiple_of(DIMENSION);
+pub const NONRESERVED_PROGRAM_INPUT_START: usize =
+    (REPEATED_ONES_PTR + NUM_REPEATED_ONES_IN_RESERVED_MEMORY).next_multiple_of(DIMENSION);
 
 /// The first element of basis corresponds to one
 pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;
