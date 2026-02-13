@@ -10,10 +10,6 @@ ROOT = 1791270792  # of order 2^TWO_ADICITY
 BE = 1  # base-extension
 EE = 0  # extension-extension
 
-# bit decomposition hint
-BIG_ENDIAN = 0
-LITTLE_ENDIAN = 1
-
 
 def div_ceil_dynamic(a, b: Const):
     debug_assert(a <= 150)

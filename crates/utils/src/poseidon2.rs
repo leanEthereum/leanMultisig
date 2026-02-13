@@ -39,3 +39,21 @@ pub fn poseidon16_compress(input: [KoalaBear; 16]) -> [KoalaBear; 8] {
     // Bad naming: it's actually a compression, not a permutation (i.e. output = poseidon16(input)[0..8] + input[0..8])
     get_poseidon16().permute(input)[0..8].try_into().unwrap()
 }
+
+pub fn poseidon_compress_slice(data: &[KoalaBear]) -> [KoalaBear; 8] {
+    assert!(!data.is_empty());
+    let len = data.len();
+    if len <= 16 {
+        let mut padded = [KoalaBear::default(); 16];
+        padded[..len].copy_from_slice(data);
+        return poseidon16_compress(padded);
+    }
+    let mut hash = poseidon16_compress(data[0..16].try_into().unwrap());
+    for chunk in data[16..].chunks(8) {
+        let mut block = [KoalaBear::default(); 16];
+        block[..8].copy_from_slice(&hash);
+        block[8..8 + chunk.len()].copy_from_slice(chunk);
+        hash = poseidon16_compress(block);
+    }
+    hash
+}
