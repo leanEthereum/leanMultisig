@@ -17,11 +17,12 @@ use utils::{ToUsize, get_poseidon_16_of_zero, pretty_integer};
 use xmss::Poseidon16History;
 
 /// Build public memory with standard initialization
-pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
+pub fn build_public_memory(non_reserved_public_input: &[F]) -> Vec<F> {
     // padded to a power of two
-    let public_memory_len = (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
+    let public_memory_len = (NONRESERVED_PROGRAM_INPUT_START + non_reserved_public_input.len()).next_power_of_two();
     let mut public_memory = F::zero_vec(public_memory_len);
-    public_memory[NONRESERVED_PROGRAM_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
+    public_memory[NONRESERVED_PROGRAM_INPUT_START..][..non_reserved_public_input.len()]
+        .copy_from_slice(non_reserved_public_input);
 
     // "zero" vector
     let zero_start = ZERO_VEC_PTR;

@@ -12,18 +12,56 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::rc::Rc;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
+use tracing::instrument;
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
 
-pub(crate) fn get_recursion_bytecode_helper(
-    prox_gaps_conjecture: bool,
-    inner_program_log_size: usize,
-    bytecode_zero_eval: F,
-) -> Bytecode {
-    let mut replacements = BTreeMap::new();
-    replacements.insert(
-        "BYTECODE_ZERO_EVAL_PLACEHOLDER".to_string(),
-        bytecode_zero_eval.as_canonical_u64().to_string(),
+use crate::{LOG_SIZE_PUBKEY_REGISTRY, MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
+
+fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: bool, bytecode_zero_eval: F) -> Bytecode {
+    let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
+    let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
+    // pub_input layout: n_sigs(1) + n_recursions(1) + pubkey_registry_root(8) + signers_hash(8) + slot_low(1) + slot_high(1)
+    //                   + message + merkle_chunks_fr_slot + bytecode_claim
+    let pub_input_size = 2 + 2 * DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size;
+    let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
+    let replacements = build_replacements(
+        inner_program_log_size,
+        inner_public_memory_log_size,
+        prox_gaps_conjecture,
+        bytecode_zero_eval,
     );
+
+    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("main.py")
+        .to_str()
+        .unwrap()
+        .to_string();
+    compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
+}
+
+#[instrument(skip_all)]
+pub(crate) fn compile_main_program_self_referential(prox_gaps_conjecture: bool) -> Bytecode {
+    let mut log_size_guess = 20;
+    loop {
+        let bytecode = compile_main_program(log_size_guess, prox_gaps_conjecture, F::ZERO);
+        let actual_log_size = bytecode.log_size();
+        if actual_log_size == log_size_guess {
+            // Now recompile with the correct bytecode_zero_eval
+            let bytecode_zero_eval = bytecode.instructions_multilinear[0];
+            return compile_main_program(actual_log_size, prox_gaps_conjecture, bytecode_zero_eval);
+        }
+        log_size_guess = actual_log_size;
+    }
+}
+
+fn build_replacements(
+    inner_program_log_size: usize,
+    inner_public_memory_log_size: usize,
+    prox_gaps_conjecture: bool,
+    bytecode_zero_eval: F,
+) -> BTreeMap<String, String> {
+    let mut replacements = BTreeMap::new();
 
     let log_inner_bytecode = inner_program_log_size;
     let min_stacked = min_stacked_n_vars(log_inner_bytecode);
@@ -155,6 +193,10 @@ pub(crate) fn get_recursion_bytecode_helper(
     replacements.insert(
         "NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER".to_string(),
         NONRESERVED_PROGRAM_INPUT_START.to_string(),
+    );
+    replacements.insert(
+        "INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER".to_string(),
+        inner_public_memory_log_size.to_string(),
     );
 
     let mut lookup_f_indexes_str = vec![];
@@ -304,13 +346,32 @@ pub(crate) fn get_recursion_bytecode_helper(
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
 
-    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("recursion.py")
-        .to_str()
-        .unwrap()
-        .to_string();
+    // XMSS-specific replacements
+    replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
+    replacements.insert("V_GRINDING_PLACEHOLDER".to_string(), V_GRINDING.to_string());
+    replacements.insert("W_PLACEHOLDER".to_string(), W.to_string());
+    replacements.insert("TARGET_SUM_PLACEHOLDER".to_string(), TARGET_SUM.to_string());
+    replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());
+    replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MESSAGE_LEN_FE.to_string());
+    replacements.insert("RANDOMNESS_LEN_PLACEHOLDER".to_string(), RANDOMNESS_LEN_FE.to_string());
+    replacements.insert(
+        "MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER".to_string(),
+        MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
+    );
 
-    compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
+    // Registry
+    replacements.insert(
+        "LOG_SIZE_PUBKEY_REGISTRY_PLACEHOLDER".to_string(),
+        LOG_SIZE_PUBKEY_REGISTRY.to_string(),
+    );
+
+    // Bytecode zero eval
+    replacements.insert(
+        "BYTECODE_ZERO_EVAL_PLACEHOLDER".to_string(),
+        bytecode_zero_eval.as_canonical_u64().to_string(),
+    );
+
+    replacements
 }
 
 fn all_air_evals_in_zk_dsl() -> String {

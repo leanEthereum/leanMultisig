@@ -1,4 +1,5 @@
 from snark_lib import *
+from utils import *
 
 V = V_PLACEHOLDER
 V_GRINDING = V_GRINDING_PLACEHOLDER
@@ -7,38 +8,14 @@ CHAIN_LENGTH = 2 ** W
 TARGET_SUM = TARGET_SUM_PLACEHOLDER
 LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
 MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
-DIGEST_LEN = 8
 RANDOMNESS_LEN = RANDOMNESS_LEN_PLACEHOLDER
 SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIGEST_LEN
 NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W)) # 24 should be divisible by W (works for W=2,3,4)
-LEVELS_PER_CHUNK = 4
-N_MERKLE_CHUNKS = LOG_LIFETIME / LEVELS_PER_CHUNK
-
-# Dot product precompile:
-DIM = 5
-BE = 1  # base-extension (unused for XMSS)
-EE = 0  # extension-extension
+MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
+N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 
 
-def main():
-    pub_mem = NONRESERVED_PROGRAM_INPUT_START
-    signatures_start: Imu
-    hint_private_input_start(signatures_start)
-    n_signatures = pub_mem[0]
-    message = pub_mem + 1
-    slot_ptr = message + MESSAGE_LEN
-    slot_lo = slot_ptr[0]
-    slot_hi = slot_ptr[1]
-    merkle_chunks = slot_ptr + 2
-    all_public_keys = merkle_chunks + N_MERKLE_CHUNKS
-
-    for i in range(0, n_signatures):
-        merkle_root = all_public_keys + i * DIGEST_LEN
-        signature = signatures_start + SIG_SIZE * i
-        xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks)
-    return
-
-
+@inline
 def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks):
     # signature: randomness | chain_tips | merkle_path
     # return the hashed xmss public key
@@ -50,12 +27,12 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks
 
     a_input_right = Array(DIGEST_LEN)
     b_input = Array(DIGEST_LEN * 2)
-    a_input_right[0] = message[8]
+    a_input_right[0] = message[DIGEST_LEN]
     copy_7(randomness, a_input_right + 1)
     poseidon16(message, a_input_right, b_input)
-    b_input[8] = slot_lo
-    b_input[9] = slot_hi
-    copy_6(merkle_root, b_input + 10)
+    b_input[DIGEST_LEN] = slot_lo
+    b_input[DIGEST_LEN + 1] = slot_hi
+    copy_6(merkle_root, b_input + DIGEST_LEN + 2)
     encoding_fe = Array(DIGEST_LEN)
     poseidon16(b_input, b_input + DIGEST_LEN, encoding_fe)
 
@@ -103,9 +80,9 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks
                     range(0, 1), lambda _: copy_8(chain_start, chain_end),
                     range(1, 2), lambda _: poseidon16(chain_start, ZERO_VEC_PTR, chain_end),
                     range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_start, num_hashes_const, chain_end))
-        
+
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
-    merkle_verify(wots_pubkey_hashed, merkle_path, merkle_chunks, LOG_LIFETIME, merkle_root)
+    xmss_merkle_verify(wots_pubkey_hashed, merkle_path, merkle_chunks, LOG_LIFETIME, merkle_root)
     return
 
 
@@ -167,7 +144,7 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out):
 
 
 @inline
-def merkle_verify(leaf_digest, merkle_path, merkle_chunks, height, expected_root):
+def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, height, expected_root):
     states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
 
     # First chunk: leaf_digest -> states
@@ -178,29 +155,10 @@ def merkle_verify(leaf_digest, merkle_path, merkle_chunks, height, expected_root
     state_indexes[0] = states
     for j in unroll(1, N_MERKLE_CHUNKS - 1):
         state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
-        match_range(merkle_chunks[j], range(0, 16), lambda b: do_4_merkle_levels(b, state_indexes[j - 1], merkle_path + j * LEVELS_PER_CHUNK * DIGEST_LEN, state_indexes[j]))
+        match_range(merkle_chunks[j], range(0, 16), lambda b: do_4_merkle_levels(b, state_indexes[j - 1], merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, state_indexes[j]))
 
     # Last chunk: -> expected_root
-    match_range(merkle_chunks[N_MERKLE_CHUNKS - 1], range(0, 16), lambda b: do_4_merkle_levels(b, state_indexes[N_MERKLE_CHUNKS - 2], merkle_path + (N_MERKLE_CHUNKS - 1) * LEVELS_PER_CHUNK * DIGEST_LEN, expected_root))
-    return
-
-
-@inline
-def slice_hash(data, len):
-    states = Array((len-1) * DIGEST_LEN)
-    poseidon16(data, data + DIGEST_LEN, states)
-    state_indexes = Array(len - 1)
-    state_indexes[0] = states
-    for i in unroll(1, len-1):
-        state_indexes[i] = state_indexes[i - 1] + DIGEST_LEN
-        poseidon16(state_indexes[i - 1], data + DIGEST_LEN * (i + 1), state_indexes[i])
-    return state_indexes[len - 2]
-
-
-@inline
-def copy_8(x, y):
-    dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    dot_product(x + (8 - DIM), ONE_VEC_PTR, y + (8 - DIM), 1, EE)
+    match_range(merkle_chunks[N_MERKLE_CHUNKS - 1], range(0, 16), lambda b: do_4_merkle_levels(b, state_indexes[N_MERKLE_CHUNKS - 2], merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, expected_root))
     return
 
 
@@ -214,11 +172,5 @@ def copy_7(x, y):
 @inline
 def copy_6(x, y):
     dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    y[5] = x[5]
-    return
-
-
-def print_digest(digest):
-    for i in unroll(0, DIGEST_LEN):
-        print(digest[i])
+    y[DIM] = x[DIM]
     return

@@ -9,9 +9,6 @@ use utils::ToUsize;
 
 #[derive(Debug, Clone)]
 pub struct ProofVerificationDetails {
-    pub log_memory: usize,
-    pub table_n_vars: BTreeMap<Table, VarCount>,
-    pub first_quotient_gkr_n_vars: usize,
     pub bytecode_evaluation: Evaluation<EF>,
 }
 
@@ -161,9 +158,6 @@ pub fn verify_execution(
     )?;
 
     Ok(ProofVerificationDetails {
-        log_memory,
-        table_n_vars,
-        first_quotient_gkr_n_vars: logup_statements.total_gkr_n_vars,
         bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
     })
 }
