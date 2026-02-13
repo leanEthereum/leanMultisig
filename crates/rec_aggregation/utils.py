@@ -104,11 +104,10 @@ def eq_mle_extension_const(a, b, n: Const):
         shift = i * DIM
         ai = a + shift
         bi = b + shift
-        buffi = buff + shift
         ab = mul_extension_ret(ai, bi)
-        buffi[0] = 1 + 2 * ab[0] - ai[0] - bi[0]
+        buff[i * DIM] = 1 + 2 * ab[0] - ai[0] - bi[0]
         for j in unroll(1, DIM):
-            buffi[j] = 2 * ab[j] - ai[j] - bi[j]
+            buff[i * DIM + j] = 2 * ab[j] - ai[j] - bi[j]
 
     current_prod: Mut = buff
     for i in unroll(0, n - 1):
@@ -136,11 +135,11 @@ def eq_mle_extension_base_const(a, b, n: Const):
     for i in unroll(0, n):
         ai = a[i]
         bi = b + i * DIM
-        buffi = buff + i * DIM
         ai_double = ai * 2
-        buffi[0] = 1 + ai_double * bi[0] - ai - bi[0]
+        ai_double_minus_one = ai_double - 1
+        buff[i * DIM] = 1 + ai_double_minus_one * bi[0] - ai
         for j in unroll(1, DIM):
-            buffi[j] = ai_double * bi[j] - bi[j]
+            buff[i * DIM +j] = ai_double_minus_one * bi[j]
 
     prods = Array(n * DIM)
     copy_5(buff, prods)
