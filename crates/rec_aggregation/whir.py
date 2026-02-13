@@ -301,14 +301,10 @@ def whir_round(
     )
 
 
-def polynomial_sum_at_0_and_1(coeffs, degree: Const):
+@inline
+def polynomial_sum_at_0_and_1(coeffs, degree):
     debug_assert(1 < degree)
-
-    res = Array(DIM * (1 + degree))
-    add_extension(coeffs, coeffs, res)  # constant coefficient is doubled
-    for i in unroll(0, degree):
-        add_extension(res + i * DIM, coeffs + (i + 1) * DIM, res + (i + 1) * DIM)  # TODO use the dot_product precompile
-    return res + degree * DIM
+    return add_extension_ret(sum_continuous_ef(coeffs, degree + 1), coeffs)
 
 
 def parse_commitment(fs: Mut, num_ood):
