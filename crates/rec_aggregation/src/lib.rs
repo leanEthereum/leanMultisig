@@ -1,6 +1,4 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
-use std::time::Instant;
-
 use lean_prover::default_whir_config;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
@@ -176,6 +174,7 @@ pub fn aggregate_merge(
     overlap: usize,
     log_inv_rate: usize,
     prox_gaps_conjecture: bool,
+    tracing: bool,
 ) -> AggregatedSigs {
     let n_recursions = children.len();
     let raw_count = raw_signers.len();
@@ -368,7 +367,6 @@ pub fn aggregate_merge(
     }
     private_input.extend_from_slice(&final_sumcheck_transcript);
 
-    let time = Instant::now();
     let execution_proof = prove_execution(
         bytecode,
         (&non_reserved_public_input, &private_input),
@@ -376,18 +374,10 @@ pub fn aggregate_merge(
         &whir_config,
         false,
     );
-    let node_elapsed = time.elapsed();
 
-    println!("{}", execution_proof.exec_summary);
-    println!(
-        "Node ({} sigs, {} raw, {} children, {} overlap): {:.3}s, proof {} KiB",
-        n_sigs,
-        raw_count,
-        n_recursions,
-        overlap,
-        node_elapsed.as_secs_f64(),
-        execution_proof.proof_size_fe * F::bits() / (8 * 1024),
-    );
+    if tracing {
+        println!("{}", execution_proof.exec_summary);
+    }
 
     AggregatedSigs {
         signer_indices,

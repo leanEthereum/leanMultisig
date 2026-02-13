@@ -1,3 +1,6 @@
+use std::io::{self, Write};
+use std::time::Instant;
+
 use lean_prover::default_whir_config;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
@@ -7,11 +10,173 @@ use rand::{Rng, SeedableRng};
 use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSignature};
 
 use crate::compilation::compile_main_program_self_referential;
-use crate::{AggregatedSigs, AggregationTopology, build_registry_merkle_tree, count_signers, aggregate_merge};
+use crate::{AggregatedSigs, AggregationTopology, aggregate_merge, build_registry_merkle_tree, count_signers};
+
+fn count_nodes(topology: &AggregationTopology) -> usize {
+    1 + topology.children.iter().map(count_nodes).sum::<usize>()
+}
+
+mod s {
+    pub const R: &str = "\x1b[0m";
+    pub const B: &str = "\x1b[1m";
+    pub const D: &str = "\x1b[2m";
+    pub const GRN: &str = "\x1b[38;5;114m";
+    pub const RED: &str = "\x1b[38;5;167m";
+    pub const ORG: &str = "\x1b[38;5;215m";
+    pub const CYN: &str = "\x1b[38;5;117m";
+    pub const PUR: &str = "\x1b[38;5;141m";
+    pub const GRY: &str = "\x1b[38;5;242m";
+    pub const WHT: &str = "\x1b[38;5;252m";
+    pub const DRK: &str = "\x1b[38;5;238m";
+}
+
+struct LiveTree {
+    descs: Vec<String>,
+    plain_lens: Vec<usize>,
+    max_plain_len: usize,
+    statuses: Vec<Option<(f64, usize)>>,
+    n_nodes: usize,
+}
+
+impl LiveTree {
+    fn new(descs: Vec<String>, plain_lens: Vec<usize>) -> Self {
+        let max_plain_len = plain_lens.iter().copied().max().unwrap_or(0);
+        let n_nodes = descs.len();
+        Self {
+            descs,
+            plain_lens,
+            max_plain_len,
+            statuses: vec![None; n_nodes],
+            n_nodes,
+        }
+    }
+
+    fn format_line(&self, i: usize) -> String {
+        let desc = &self.descs[i];
+        let gap = self.max_plain_len + 2 - self.plain_lens[i];
+        let dots = format!("{}{}{}", s::DRK, "·".repeat(gap), s::R);
+        match self.statuses[i] {
+            None => format!("{} {} {}· · ·{}", desc, dots, s::DRK, s::R),
+            Some((t, kib)) => format!(
+                "{} {} {}▸{} {}{}{:.3}s{}  {}{}{:>4} KiB{}",
+                desc,
+                dots,
+                s::DRK,
+                s::R,
+                s::ORG,
+                s::B,
+                t,
+                s::R,
+                s::CYN,
+                s::B,
+                kib,
+                s::R,
+            ),
+        }
+    }
+
+    fn print_initial(&self) {
+        for i in 0..self.n_nodes {
+            println!("{}", self.format_line(i));
+        }
+        println!();
+        io::stdout().flush().unwrap();
+    }
+
+    fn update_node(&mut self, index: usize, time_secs: f64, proof_kib: usize) {
+        self.statuses[index] = Some((time_secs, proof_kib));
+        let line = self.format_line(index);
+        let up = self.n_nodes + 1 - index;
+        print!("\x1b[{}A\r\x1b[2K{}\x1b[{}B\r", up, line, up);
+        io::stdout().flush().unwrap();
+    }
+
+    fn total_time(&self) -> f64 {
+        self.statuses.iter().filter_map(|s| s.as_ref()).map(|(t, _)| t).sum()
+    }
+}
+
+fn build_tree_descs(
+    topology: &AggregationTopology,
+    overlap: usize,
+    prefix: &str,
+    child_prefix: &str,
+    plain_prefix: &str,
+    plain_child_prefix: &str,
+    descs: &mut Vec<String>,
+    plain_lens: &mut Vec<usize>,
+) {
+    let n_sigs = count_signers(topology, overlap);
+    let n_children = topology.children.len();
+    let is_leaf = n_children == 0;
+
+    let (icon, icon_color) = if is_leaf { ("◇", s::ORG) } else { ("◆", s::PUR) };
+    let reduced = if n_children > 1 { overlap * (n_children - 1) } else { 0 };
+    let children_sum: usize = topology.children.iter().map(|c| count_signers(c, overlap)).sum();
+    let detail = if is_leaf {
+        format!("{}{}{}", s::GRN, n_sigs, s::R)
+    } else {
+        let mut parts: Vec<String> = vec![];
+        if children_sum > 0 {
+            parts.push(format!("{}{}{}", s::GRN, children_sum, s::R));
+        }
+        if topology.raw_xmss > 0 {
+            parts.push(format!("{}+ {}{}", s::GRN, topology.raw_xmss, s::R));
+        }
+        if reduced > 0 {
+            parts.push(format!("{}- {}{}", s::RED, reduced, s::R));
+        }
+        parts.join(" ")
+    };
+    let plain_detail = if is_leaf {
+        format!("{}", n_sigs)
+    } else {
+        let mut parts: Vec<String> = vec![];
+        if children_sum > 0 {
+            parts.push(format!("{}", children_sum));
+        }
+        if topology.raw_xmss > 0 {
+            parts.push(format!("+ {}", topology.raw_xmss));
+        }
+        if reduced > 0 {
+            parts.push(format!("- {}", reduced));
+        }
+        parts.join(" ")
+    };
+
+    // Children first (above), so leaves print at the top and proving flows top → bottom.
+    for (i, child) in topology.children.iter().enumerate() {
+        let is_first = i == 0;
+        let (p, cp, pp, pcp) = if is_first {
+            (
+                format!("{}{}┌──▸ {}", child_prefix, s::DRK, s::R),
+                format!("{}{}│    {}", child_prefix, s::DRK, s::R),
+                format!("{}┌──▸ ", plain_child_prefix),
+                format!("{}│    ", plain_child_prefix),
+            )
+        } else {
+            (
+                format!("{}{}├──▸ {}", child_prefix, s::DRK, s::R),
+                format!("{}{}│    {}", child_prefix, s::DRK, s::R),
+                format!("{}├──▸ ", plain_child_prefix),
+                format!("{}│    ", plain_child_prefix),
+            )
+        };
+        build_tree_descs(child, overlap, &p, &cp, &pp, &pcp, descs, plain_lens);
+    }
+
+    // Then the node itself (below its children).
+    let desc = format!("{}{}{}{} {}", prefix, icon_color, icon, s::R, detail,);
+    let plain = format!("{}{} {}", plain_prefix, icon, plain_detail);
+    plain_lens.push(plain.chars().count());
+    descs.push(desc);
+}
 
 #[allow(clippy::too_many_arguments)]
 fn build_aggregation(
     topology: &AggregationTopology,
+    display_index: usize,
+    display: &mut LiveTree,
     bytecode: &Bytecode,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
@@ -22,6 +187,7 @@ fn build_aggregation(
     overlap: usize,
     log_inv_rate: usize,
     prox_gaps_conjecture: bool,
+    tracing: bool,
 ) -> AggregatedSigs {
     let raw_count = topology.raw_xmss;
     let raw_signers: Vec<(usize, XmssPublicKey, XmssSignature)> = (0..raw_count)
@@ -30,10 +196,13 @@ fn build_aggregation(
 
     let mut child_results = vec![];
     let mut child_start = raw_count;
+    let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
         let child_count = count_signers(child, overlap);
         let child_agg = build_aggregation(
             child,
+            child_display_index,
+            display,
             bytecode,
             message,
             slot,
@@ -44,15 +213,18 @@ fn build_aggregation(
             overlap,
             log_inv_rate,
             prox_gaps_conjecture,
+            tracing,
         );
         child_results.push(child_agg);
+        child_display_index += count_nodes(child);
         child_start += child_count;
         if child_idx < topology.children.len() - 1 {
             child_start -= overlap;
         }
     }
 
-    aggregate_merge(
+    let time = Instant::now();
+    let result = aggregate_merge(
         &child_results,
         &raw_signers,
         message,
@@ -62,7 +234,17 @@ fn build_aggregation(
         overlap,
         log_inv_rate,
         prox_gaps_conjecture,
-    )
+        tracing,
+    );
+    let elapsed = time.elapsed();
+
+    if !tracing {
+        let own_display_index = display_index + count_nodes(topology) - 1;
+        let proof_kib = result.proof.len() * F::bits() / (8 * 1024);
+        display.update_node(own_display_index, elapsed.as_secs_f64(), proof_kib);
+    }
+
+    result
 }
 
 pub fn run_aggregation_benchmark(
@@ -109,7 +291,6 @@ pub fn run_aggregation_benchmark(
         .map(|&i| pub_keys_and_sigs[i % n_unique].1.clone())
         .collect();
 
-    // Build registry merkle tree
     let signers_for_tree: Vec<(usize, [F; DIGEST_LEN])> = signer_indices
         .iter()
         .zip(&pub_keys)
@@ -118,10 +299,21 @@ pub fn run_aggregation_benchmark(
     let registry_layers = build_registry_merkle_tree(&signers_for_tree);
 
     let bytecode = compile_main_program_self_referential(prox_gaps_conjecture);
-    println!("Compiled bytecode: {} instructions", bytecode.instructions.len());
+
+    // Build display
+    let mut descs = vec![];
+    let mut plain_lens = vec![];
+    build_tree_descs(topology, overlap, "  ", "  ", "  ", "  ", &mut descs, &mut plain_lens);
+    let mut display = LiveTree::new(descs, plain_lens);
+
+    if !tracing {
+        display.print_initial();
+    }
 
     let result = build_aggregation(
         topology,
+        0,
+        &mut display,
         &bytecode,
         &message,
         slot,
@@ -132,6 +324,7 @@ pub fn run_aggregation_benchmark(
         overlap,
         log_inv_rate,
         prox_gaps_conjecture,
+        tracing,
     );
 
     // Verify root proof
@@ -149,24 +342,41 @@ pub fn run_aggregation_benchmark(
 #[test]
 fn test_recursive_aggregation() {
     let topology = AggregationTopology {
-        raw_xmss: 10,
+        raw_xmss: 5,
         children: vec![
             AggregationTopology {
-                raw_xmss: 60,
-                children: vec![],
-            },
-            AggregationTopology {
-                raw_xmss: 40,
-                children: vec![],
-            },
-            AggregationTopology {
-                raw_xmss: 0,
+                raw_xmss: 2,
                 children: vec![AggregationTopology {
-                    raw_xmss: 50,
-                    children: vec![],
+                    raw_xmss: 3,
+                    children: vec![
+                        AggregationTopology {
+                            raw_xmss: 333,
+                            children: vec![],
+                        },
+                        AggregationTopology {
+                            raw_xmss: 555,
+                            children: vec![],
+                        },
+                    ],
+                }],
+            },
+            AggregationTopology {
+                raw_xmss: 3,
+                children: vec![AggregationTopology {
+                    raw_xmss: 3,
+                    children: vec![
+                        AggregationTopology {
+                            raw_xmss: 777,
+                            children: vec![],
+                        },
+                        AggregationTopology {
+                            raw_xmss: 666,
+                            children: vec![],
+                        },
+                    ],
                 }],
             },
         ],
     };
-    run_aggregation_benchmark(&topology, 10, 2, false, false);
+    run_aggregation_benchmark(&topology, 5, 2, false, false);
 }
