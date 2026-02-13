@@ -171,9 +171,17 @@ pub fn compile_to_low_level_bytecode(
         pc_to_location.push(current_location);
     }
 
+    let instructions_multilinear_packed = pack_extension(
+        &instructions_multilinear
+            .par_iter()
+            .map(|&pf| EF::from(pf))
+            .collect::<Vec<EF>>(),
+    );
+
     Ok(Bytecode {
         instructions,
         instructions_multilinear,
+        instructions_multilinear_packed,
         hints,
         starting_frame_memory,
         function_locations,

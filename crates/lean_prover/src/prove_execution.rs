@@ -44,8 +44,11 @@ pub fn prove_execution(
         info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
-    if memory.len() < 1 << MIN_LOG_MEMORY_SIZE {
-        memory.resize(1 << MIN_LOG_MEMORY_SIZE, F::ZERO);
+    // Memory must be at least MIN_LOG_MEMORY_SIZE and at least bytecode size
+    // (required by the stacked polynomial ordering)
+    let min_memory_size = (1 << MIN_LOG_MEMORY_SIZE).max(1 << bytecode.log_size());
+    if memory.len() < min_memory_size {
+        memory.resize(min_memory_size, F::ZERO);
     }
 
     let mut prover_state = build_prover_state();

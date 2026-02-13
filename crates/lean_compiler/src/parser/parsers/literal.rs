@@ -1,4 +1,7 @@
-use lean_vm::{NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, ZERO_VEC_PTR};
+use lean_vm::{
+    NONRESERVED_PROGRAM_INPUT_START, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR,
+    ZERO_VEC_PTR,
+};
 use multilinear_toolkit::prelude::*;
 
 use super::expression::ExpressionParser;
@@ -132,6 +135,7 @@ impl VarOrConstantParser {
                 NONRESERVED_PROGRAM_INPUT_START,
             ))),
             "ZERO_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ZERO_VEC_PTR))),
+            "POSEIDON_16_NULL_HASH_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(POSEIDON_16_NULL_HASH_PTR))),
             "ONE_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ONE_VEC_PTR))),
             "SAMPLING_DOMAIN_SEPARATOR_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(
                 SAMPLING_DOMAIN_SEPARATOR_PTR,

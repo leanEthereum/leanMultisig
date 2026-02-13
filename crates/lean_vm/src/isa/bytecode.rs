@@ -1,19 +1,20 @@
 //! Bytecode representation and management
 
+use multilinear_toolkit::prelude::EFPacking;
 use p3_util::log2_ceil_usize;
 
-use crate::{CodeAddress, F, FileId, FunctionName, Hint, SourceLocation};
+use crate::{CodeAddress, EF, F, FileId, FunctionName, Hint, SourceLocation};
 
 use super::Instruction;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-/// Complete bytecode representation with instructions and hints
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bytecode {
     pub instructions: Vec<Instruction>,
     pub instructions_multilinear: Vec<F>,
-    pub hints: BTreeMap<CodeAddress, Vec<Hint>>, // pc -> hints
+    pub instructions_multilinear_packed: Vec<EFPacking<EF>>, // embedded in the extension field(bad, TODO)
+    pub hints: BTreeMap<CodeAddress, Vec<Hint>>,             // pc -> hints
     pub starting_frame_memory: usize,
     // debug
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,
