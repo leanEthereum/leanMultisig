@@ -158,14 +158,8 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
         false,
     );
     let proof_time = time.elapsed();
-    verify_execution(
-        &bytecode,
-        public_input,
-        proof.proof.clone(),
-        default_whir_config(starting_log_inv_rate, false),
-    )
-    .unwrap();
-    println!("{}", proof.exec_summary);
+    verify_execution(&bytecode, public_input, proof.proof.clone(), false).unwrap();
+    println!("{}", proof.metadata.display());
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 
     if fuzzing {
@@ -179,12 +173,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
             }
             let mut fuzzed_proof = proof.proof.clone();
             fuzzed_proof[i] += F::ONE;
-            let verify_result = verify_execution(
-                &bytecode,
-                public_input,
-                fuzzed_proof,
-                default_whir_config(starting_log_inv_rate, false),
-            );
+            let verify_result = verify_execution(&bytecode, public_input, fuzzed_proof, false);
             assert!(verify_result.is_err(), "Fuzzing failed at index {}", i);
         }
     }

@@ -35,14 +35,18 @@ impl WotsSecretKey {
         &self.public_key
     }
 
-    pub fn sign(
+    pub fn sign_with_randomness(
         &self,
         message: &[F; MESSAGE_LEN_FE],
         slot: u32,
         truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
-        rng: &mut impl CryptoRng,
+        randomness: [F; RANDOMNESS_LEN_FE],
     ) -> WotsSignature {
-        let (randomness, encoding, _) = find_randomness_for_wots_encoding(message, slot, truncated_merkle_root, rng);
+        let encoding = wots_encode(message, slot, truncated_merkle_root, &randomness).unwrap();
+        self.sign_with_encoding(randomness, &encoding)
+    }
+
+    fn sign_with_encoding(&self, randomness: [F; RANDOMNESS_LEN_FE], encoding: &[u8; V]) -> WotsSignature {
         WotsSignature {
             chain_tips: std::array::from_fn(|i| iterate_hash(&self.pre_images[i], encoding[i] as usize)),
             randomness,

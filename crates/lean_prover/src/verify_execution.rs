@@ -9,9 +9,6 @@ use utils::ToUsize;
 
 #[derive(Debug, Clone)]
 pub struct ProofVerificationDetails {
-    pub log_memory: usize,
-    pub table_n_vars: BTreeMap<Table, VarCount>,
-    pub first_quotient_gkr_n_vars: usize,
     pub bytecode_evaluation: Evaluation<EF>,
 }
 
@@ -19,7 +16,7 @@ pub fn verify_execution(
     bytecode: &Bytecode,
     public_input: &[F],
     proof: Vec<F>,
-    mut whir_config: WhirConfigBuilder,
+    prox_gaps_conjecture: bool,
 ) -> Result<ProofVerificationDetails, ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
 
@@ -34,7 +31,7 @@ pub fn verify_execution(
     if !(MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE).contains(&log_inv_rate) {
         return Err(ProofError::InvalidProof);
     }
-    whir_config.starting_log_inv_rate = log_inv_rate;
+    let whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
     for (table, &n_vars) in &table_n_vars {
         if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
             return Err(ProofError::InvalidProof);
@@ -161,9 +158,6 @@ pub fn verify_execution(
     )?;
 
     Ok(ProofVerificationDetails {
-        log_memory,
-        table_n_vars,
-        first_quotient_gkr_n_vars: logup_statements.total_gkr_n_vars,
         bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
     })
 }

@@ -491,7 +491,6 @@ def checked_decompose_bits(a):
     assert a == partial_sums_24[23] + sum_7 * 2**24
     return bits, partial_sums_24
 
-
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
     hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)

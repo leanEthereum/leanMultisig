@@ -795,17 +795,13 @@ There are alterntive ways to handle the stacking of multiple multilinear polynom
 
 \section{Recursive Aggregation}\label{sec:recursive-aggregation}
 
-All XMSS public keys are stored in a Merkle tree (the \emph{public-key registry}). Signers are identified by their \emph{index} in this registry (rather than using a bitfield).
+The recursive aggregation program (see Figure~\ref{fig:recursive-aggregation}) attests that a set of public keys have valid signatures for a given message. It partitions the signers into $n_{\text{rec}} + 1$ sources: one \textbf{direct source} whose XMSS signatures are verified explicitly, and $n_{\text{rec}} \geq 0$ \textbf{recursive sources}, each accompanied by a sub-proof that is recursively verified.
 
-The recursive aggregation program (see Figure~\ref{fig:recursive-aggregation}) takes $n_{\text{sigs}}$ signers and partitions them into $n_{\text{rec}} + 1$ sources: one \textbf{direct source} whose XMSS signatures are verified explicitly, and $n_{\text{rec}}$ \textbf{recursive sources}, each accompanied by a sub-proof that is verified via the leanVM verifier.
-
-For the direct source, the program checks each signer's XMSS signature and verifies a Merkle inclusion proof that their public key belongs to the registry.
-
-For each recursive source, the program runs the leanVM verifier on the provided sub-proof, confirming that the sub-proof itself is a valid recursive aggregation proof covering the source's signers.
+For each recursive source, the program runs the leanVM verifier on the provided sub-proof, confirming that the sub-proof itself is a valid recursive aggregation proof covering the source's signers. When $n_{\text{rec}} = 0$, the program simply verifies all signatures directly.
 
 \subsection{Bytecode evaluation claims}\label{sec:bytecode-reduction}
 
-A key subtlety arises from recursion. Every leanVM proof is tied to a specific \emph{bytecode} --- the program that was executed, represented as a multilinear polynomial. In our case, there is a single program (that both contain XMSS verification and recursion algorithms). The leanVM verification algorithm requires evaluating the bytecode polynomial at a random point.
+A key subtlety arises from recursion. Every leanVM proof is tied to a specific \emph{bytecode} --- the program that was executed, represented as a multilinear polynomial. In our case, there is a single program (that both contain signature verification and recursion algorithms). The leanVM verification algorithm requires evaluating the bytecode polynomial at a random point.
 
 When the recursive aggregation program verifies a sub-proof, it runs the leanVM verifier \emph{inside} the program. This verification produces a bytecode evaluation claim. For efficiency, rather than checking it inside the program (with a PCS), the claim is forwarded to the public input, to be checked externally.
 
@@ -820,6 +816,25 @@ However, each sub-proof is potentially itself a recursive aggregation, and may h
 After verifying all $n_{\text{rec}}$ sub-proofs, a fresh Fiat--Shamir transcript is initialized and fed with all $2 n_{\text{rec}}$ evaluation points and claimed values. This transcript produces a random linear combination challenge, and the $2 n_{\text{rec}}$ claims are then batched into a single one via sumcheck, yielding a reduced claim. This reduced claim is written to the public input for the next level of recursion.
 
 When $n_{\text{rec}} = 0$ (no recursion), the bytecode claim in the public input is set to zero.
+
+
+\subsection{Signer partitioning}\label{sec:signer-partitioning}
+
+\emph{
+In the following, we assume  the message being signed is common to all signers (typically the case at Ethereum's consensus layer), but the scheme can be naturally adapted to distinct messages.}
+
+\vspace{3mm}
+
+Consider an aggregation of $n_{\text{sigs}}$ (distinct) signatures. The $n_{\text{sigs}}$ (distinct) public keys are part of the "public input" in memory. The aggregation program must ensure that each public key is verified by at least one of the $1 + n_{\text{rec}}$ sources (duplications allowed: some public keys may be verified by multiple sources).
+
+Let $n_{\text{dup}}$ be the total number of duplicated public keys across sources, counted with multiplicity. To ensure ensure valid partionning, we use the following algorithm:
+
+\begin{itemize}
+    \item Initialize a counter $c \gets 0$.
+    \item Initialize a (write-once) array $B$ of size $n_{\text{total}} = n_{\text{sigs}} + n_{\text{dup}}$.
+    \item For each source $s$, for each signature index $i \in [0, n_{\text{total}})$ verified by $s$, write $B[i] \gets c$ and increment $c$.
+    \item At the end, assert $c = n_{\text{total}}$.
+\end{itemize}
 
 \clearpage
 \bibliographystyle{IEEEtran}

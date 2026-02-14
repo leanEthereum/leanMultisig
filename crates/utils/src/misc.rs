@@ -1,14 +1,6 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 use multilinear_toolkit::prelude::*;
-use tracing::instrument;
-
-pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
-    let new_len = std::mem::size_of_val(slice) / std::mem::size_of::<After>();
-    assert_eq!(std::mem::size_of_val(slice), new_len * std::mem::size_of::<After>());
-    assert_eq!(slice.as_ptr() as usize % std::mem::align_of::<After>(), 0);
-    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const After, new_len) }
-}
 
 pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     assert!(n <= slice.len());
@@ -59,44 +51,13 @@ pub fn to_little_endian_in_field<F: Field>(value: usize, bit_count: usize) -> Ve
     res
 }
 
-#[macro_export]
-macro_rules! assert_eq_many {
-    ($first:expr, $($rest:expr),+ $(,)?) => {
-        {
-            let first_val = $first;
-            $(
-                assert_eq!(first_val, $rest,
-                    "assertion failed: `(left == right)`\n  left: `{:?}`,\n right: `{:?}`",
-                    first_val, $rest);
-            )+
-        }
-    };
-}
-
-#[instrument(skip_all)]
-pub fn transpose<F: Copy + Send + Sync>(matrix: &[F], width: usize, column_extra_capacity: usize) -> Vec<Vec<F>> {
-    assert!((matrix.len().is_multiple_of(width)));
-    let height = matrix.len() / width;
-    let res = vec![
-        {
-            let mut vec = Vec::<F>::with_capacity(height + column_extra_capacity);
-            #[allow(clippy::uninit_vec)]
-            unsafe {
-                vec.set_len(height);
-            }
-            vec
-        };
-        width
-    ];
-    matrix.par_chunks_exact(width).enumerate().for_each(|(row, chunk)| {
-        for (&value, col) in chunk.iter().zip(&res) {
-            unsafe {
-                let ptr = col.as_ptr() as *mut F;
-                ptr.add(row).write(value);
-            }
-        }
-    });
-    res
+/// Reverses the order of the lowest `n_bits` bits of `x`.
+pub fn bit_reverse(x: usize, n_bits: usize) -> usize {
+    let mut result = 0;
+    for i in 0..n_bits {
+        result |= ((x >> i) & 1) << (n_bits - 1 - i);
+    }
+    result
 }
 
 pub fn transposed_par_iter_mut<A: Send + Sync, const N: usize>(
@@ -125,16 +86,8 @@ impl<'a, T> VecOrSlice<'a, T> {
     }
 }
 
-pub fn encapsulate_vec<T>(v: Vec<T>) -> Vec<Vec<T>> {
-    v.into_iter().map(|x| vec![x]).collect()
-}
-
 pub fn collect_refs<T>(vecs: &[Vec<T>]) -> Vec<&[T]> {
     vecs.iter().map(Vec::as_slice).collect()
-}
-
-pub fn collect_inner_refs<T>(vecs: &[Vec<Vec<T>>]) -> Vec<Vec<&[T]>> {
-    vecs.iter().map(|v| collect_refs(v)).collect()
 }
 
 #[derive(Debug, Clone, Default)]
