@@ -30,7 +30,7 @@ Machine: M4 Max 48GB (CPU only)
 
 ### XMSS aggregation
 
-```
+```bash
 cargo run --release -- xmss --n-signatures 1350
 ```
 
@@ -43,7 +43,7 @@ cargo run --release -- xmss --n-signatures 1350
 
 ### Recursion
 
-```
+```bash
 cargo run --release -- recursion --n 2
 ```
 
@@ -52,6 +52,17 @@ cargo run --release -- recursion --n 2
 | Proven          | Conjectured     |
 | --------------- | --------------- |
 | 1.10s - 223 KiB | 1.05s - 134 KiB |
+
+
+### Bonus: unbounded recursive aggregation
+
+```bash
+cargo run --release -- fancy-aggregation
+```
+
+![Recursive aggregation](./misc/images/rec-agg.png)
+
+(Proven regime)
 
 ## Credits
 
