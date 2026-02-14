@@ -1,17 +1,18 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
-use lean_prover::default_whir_config;
+use lean_prover::{default_whir_config, verify_execution::ProofVerificationDetails};
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
-use utils::{bit_reverse, build_prover_state, poseidon_compress_slice, poseidon16_compress_pair};
+use utils::{build_prover_state, poseidon_compress_slice, poseidon16_compress_pair};
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements};
+
+use crate::compilation::get_aggregation_bytecode;
 
 pub mod benchmark;
 pub(crate) mod compilation;
 
-pub const LOG_SIZE_PUBKEY_REGISTRY: usize = 14;
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
@@ -27,44 +28,9 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
     topology.raw_xmss + child_count - overlap * n_overlaps
 }
 
-/// layers[0] = leaves, layers[height] = [root].
-pub(crate) fn build_registry_merkle_tree(signers: &[(usize, [F; DIGEST_LEN])]) -> Vec<Vec<[F; DIGEST_LEN]>> {
-    let height = LOG_SIZE_PUBKEY_REGISTRY;
-    let n_leaves = 1 << height;
-
-    // Initialize all leaves as zero hash
-    let mut leaves = vec![[F::ZERO; DIGEST_LEN]; n_leaves];
-
-    // Place each signer at the bit-reversed position
-    for &(index, ref digest) in signers {
-        let pos = bit_reverse(index, height);
-        leaves[pos] = *digest;
-    }
-
-    // Build tree bottom-up
-    let mut layers = vec![leaves];
-    for level in 0..height {
-        let prev = &layers[level];
-        let n_nodes = prev.len() / 2;
-        let mut current = Vec::with_capacity(n_nodes);
-        for i in 0..n_nodes {
-            current.push(poseidon16_compress_pair(prev[2 * i], prev[2 * i + 1]));
-        }
-        layers.push(current);
-    }
-    layers
-}
-
-fn get_merkle_proof(layers: &[Vec<[F; DIGEST_LEN]>], signer_index: usize) -> Vec<[F; DIGEST_LEN]> {
-    let height = layers.len() - 1;
-    let mut pos = bit_reverse(signer_index, height);
-    let mut proof = Vec::with_capacity(height);
-    for layer in layers.iter().take(height) {
-        let sibling_pos = pos ^ 1;
-        proof.push(layer[sibling_pos]);
-        pos >>= 1;
-    }
-    proof
+pub fn slice_hash_pubkeys(pub_keys: &[[F; DIGEST_LEN]]) -> [F; DIGEST_LEN] {
+    let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.iter().copied()).collect();
+    poseidon_compress_slice(&flat)
 }
 
 fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
@@ -85,16 +51,14 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
 
 fn build_non_reserved_public_input(
     n_sigs: usize,
-    registry_root: &[F; DIGEST_LEN],
-    signer_indexes_hash: &[F; DIGEST_LEN],
+    slice_hash: &[F; DIGEST_LEN],
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     bytecode_claim_output: &[F],
 ) -> Vec<F> {
     let mut pi = vec![];
     pi.push(F::from_usize(n_sigs));
-    pi.extend_from_slice(registry_root);
-    pi.extend_from_slice(signer_indexes_hash);
+    pi.extend_from_slice(slice_hash);
     pi.extend_from_slice(message);
     let [slot_lo, slot_hi] = slot_to_field_elements(slot);
     pi.push(slot_lo);
@@ -117,20 +81,15 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
 
 #[derive(Debug)]
 pub struct AggregatedSigs {
-    pub signer_indices: Vec<usize>,
+    pub pub_keys: Vec<[F; DIGEST_LEN]>,
     pub proof: Vec<F>,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
     pub metadata: ExecutionMetadata,
 }
 
 impl AggregatedSigs {
-    pub fn public_input(
-        &self,
-        registry_root: &[F; DIGEST_LEN],
-        message: &[F; MESSAGE_LEN_FE],
-        slot: u32,
-        bytecode: &Bytecode,
-    ) -> Vec<F> {
+    pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32, proximity_gaps_conjecture: bool) -> Vec<F> {
+        let bytecode = get_aggregation_bytecode(proximity_gaps_conjecture);
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
@@ -149,29 +108,36 @@ impl AggregatedSigs {
         };
         assert_eq!(bytecode_claim_output.len(), bytecode_claim_size);
 
-        let indices_fe: Vec<F> = self.signer_indices.iter().map(|&i| F::from_usize(i)).collect();
-        let signer_indexes_hash = poseidon_compress_slice(&indices_fe);
+        let slice_hash = slice_hash_pubkeys(&self.pub_keys);
 
-        build_non_reserved_public_input(
-            self.signer_indices.len(),
-            registry_root,
-            &signer_indexes_hash,
-            message,
-            slot,
-            &bytecode_claim_output,
-        )
+        build_non_reserved_public_input(self.pub_keys.len(), &slice_hash, message, slot, &bytecode_claim_output)
     }
+}
+
+pub fn verify_aggregation(
+    sigs: &AggregatedSigs,
+    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
+    log_inv_rate: usize,
+    prox_gaps_conjecture: bool,
+) -> Result<ProofVerificationDetails, ProofError> {
+    let public_input = sigs.public_input(&message, slot, prox_gaps_conjecture);
+    let bytecode = get_aggregation_bytecode(prox_gaps_conjecture);
+    verify_execution(
+        bytecode,
+        &public_input,
+        sigs.proof.clone(),
+        default_whir_config(log_inv_rate, prox_gaps_conjecture),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
-pub fn aggregate_merge(
+pub fn aggregate(
     children: &[AggregatedSigs],
-    raw_signers: &[(usize, XmssPublicKey, XmssSignature)],
+    raw_signers: &[(XmssPublicKey, XmssSignature)],
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    registry_merkle_tree: &[Vec<[F; DIGEST_LEN]>],
-    bytecode: &Bytecode,
     overlap: usize,
     log_inv_rate: usize,
     prox_gaps_conjecture: bool,
@@ -180,47 +146,45 @@ pub fn aggregate_merge(
     let n_recursions = children.len();
     let raw_count = raw_signers.len();
     let whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
-    let registry_root = &registry_merkle_tree.last().unwrap()[0];
 
+    let bytecode = get_aggregation_bytecode(prox_gaps_conjecture);
     let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
-    // Build merged signer_indices: raw ++ children with overlap
-    let raw_indices: Vec<usize> = raw_signers.iter().map(|(idx, _, _)| *idx).collect();
-    let mut signer_indices = raw_indices.clone();
+    // Build global pub_keys: raw ++ children (with overlap dedup)
+    let raw_pub_keys: Vec<[F; DIGEST_LEN]> = raw_signers.iter().map(|(pk, _)| pk.merkle_root).collect();
+    let mut global_pub_keys = raw_pub_keys;
     for (i, child) in children.iter().enumerate() {
         if i == 0 {
-            signer_indices.extend_from_slice(&child.signer_indices);
+            global_pub_keys.extend_from_slice(&child.pub_keys);
         } else {
-            signer_indices.extend_from_slice(&child.signer_indices[overlap..]);
+            global_pub_keys.extend_from_slice(&child.pub_keys[overlap..]);
         }
     }
-    let n_sigs = signer_indices.len();
+    let n_sigs = global_pub_keys.len();
+
+    // Build dup pub_keys (overlap portions of children 1+)
+    let mut dup_pub_keys: Vec<[F; DIGEST_LEN]> = Vec::new();
+    for (i, child) in children.iter().enumerate() {
+        if i > 0 && overlap > 0 {
+            dup_pub_keys.extend_from_slice(&child.pub_keys[..overlap]);
+        }
+    }
+    let n_dup = dup_pub_keys.len();
 
     // Verify child proofs
     let mut child_pub_inputs: Vec<Vec<F>> = vec![];
     let mut child_bytecode_evals: Vec<Evaluation<EF>> = vec![];
     for child in children {
-        let child_pub_input = child.public_input(registry_root, message, slot, bytecode);
+        let child_pub_input = child.public_input(message, slot, prox_gaps_conjecture);
         let verif = verify_execution(bytecode, &child_pub_input, child.proof.clone(), whir_config.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_pub_inputs.push(child_pub_input);
     }
 
-    // Sub-index lists and dup indices
-    let mut all_sub_indices: Vec<&[usize]> = vec![&raw_indices];
-    let mut dup_indices = Vec::new();
-    for (i, child) in children.iter().enumerate() {
-        all_sub_indices.push(&child.signer_indices);
-        if i > 0 && overlap > 0 {
-            dup_indices.extend_from_slice(&child.signer_indices[..overlap]);
-        }
-    }
-    dup_indices.sort();
-
     // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let bytecode_claim_offset = 1 + 2 * DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
+        let bytecode_claim_offset = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
         let mut claims = vec![];
         for (i, _child) in children.iter().enumerate() {
             let first_claim = extract_bytecode_claim_from_public_input(
@@ -284,50 +248,53 @@ pub fn aggregate_merge(
     };
 
     // Build public input
-    let global_indices_fe: Vec<F> = signer_indices.iter().map(|&i| F::from_usize(i)).collect();
-    let signer_indexes_hash = poseidon_compress_slice(&global_indices_fe);
-    let non_reserved_public_input = build_non_reserved_public_input(
-        n_sigs,
-        registry_root,
-        &signer_indexes_hash,
-        message,
-        slot,
-        &bytecode_claim_output,
-    );
+    let slice_hash = slice_hash_pubkeys(&global_pub_keys);
+    let non_reserved_public_input =
+        build_non_reserved_public_input(n_sigs, &slice_hash, message, slot, &bytecode_claim_output);
     let public_memory = build_public_memory(&non_reserved_public_input);
 
-    // header: 1 n_recursions + (n_recursions+1) pointers + 1 sumcheck_proof_ptr + 1 n_dup + n_sigs + n_dup
-    let header_size = 1 + (n_recursions + 1) + 1 + 1 + n_sigs + dup_indices.len();
+    // Build private input
+    // Layout: [n_recursions, n_dup, ptr_pubkeys, ptr_source_0..n_recursions, ptr_bytecode_sumcheck,
+    //          global_pubkeys, dup_pubkeys, source_blocks..., bytecode_sumcheck_proof]
+    let header_size = n_recursions + 5;
+    let pubkeys_start = public_memory.len() + header_size;
+    let pubkeys_block_size = n_sigs * DIGEST_LEN + n_dup * DIGEST_LEN;
 
+    // Build source blocks
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
     // Source 0: raw XMSS
     {
         let mut block = vec![];
         block.push(F::from_usize(raw_count));
-        for &(idx, _, _) in raw_signers {
-            block.push(F::from_usize(idx));
+        for i in 0..raw_count {
+            block.push(F::from_usize(i));
         }
-        for (idx, pk, sig) in raw_signers {
-            block.extend_from_slice(&pk.merkle_root);
-            let proof = get_merkle_proof(registry_merkle_tree, *idx);
-            for sibling in &proof {
-                block.extend_from_slice(sibling);
-            }
+        for (_, sig) in raw_signers {
             block.extend(encode_xmss_signature(sig));
         }
         source_blocks.push(block);
     }
 
     // Sources 1..n_recursions: recursive children
+    let mut child_global_start = raw_count;
     for (i, child) in children.iter().enumerate() {
         let mut block = vec![];
-        let sub_indices = all_sub_indices[i + 1];
+        let child_count = child.pub_keys.len();
 
-        block.push(F::from_usize(sub_indices.len()));
-        for &idx in sub_indices {
-            block.push(F::from_usize(idx));
+        block.push(F::from_usize(child_count));
+        // For children after the first, the overlap portion uses dup indices
+        if i > 0 && overlap > 0 {
+            let dup_offset = n_sigs + (i - 1) * overlap;
+            for j in 0..overlap {
+                block.push(F::from_usize(dup_offset + j));
+            }
         }
+        let non_overlap_count = if i > 0 { child_count - overlap } else { child_count };
+        for j in 0..non_overlap_count {
+            block.push(F::from_usize(child_global_start + j));
+        }
+
         // bytecode_value_hint (DIM elements)
         block.extend_from_slice(child_bytecode_evals[i].value.as_basis_coefficients_slice());
         // inner_pub_mem
@@ -337,32 +304,35 @@ pub fn aggregate_merge(
         block.extend_from_slice(&child.proof);
 
         source_blocks.push(block);
+        child_global_start += non_overlap_count;
     }
 
     // Compute absolute memory addresses for each source block
-    let mut offset_in_priv = header_size;
+    let sources_start = pubkeys_start + pubkeys_block_size;
+    let mut offset = sources_start;
     let mut source_ptrs: Vec<usize> = vec![];
     for block in &source_blocks {
-        source_ptrs.push(public_memory.len() + offset_in_priv);
-        offset_in_priv += block.len();
+        source_ptrs.push(offset);
+        offset += block.len();
     }
-    let bytecode_sumcheck_proof_ptr = public_memory.len() + offset_in_priv;
+    let bytecode_sumcheck_proof_ptr = offset;
 
     let mut private_input = vec![];
     private_input.push(F::from_usize(n_recursions));
+    private_input.push(F::from_usize(n_dup));
+    private_input.push(F::from_usize(pubkeys_start));
     for &ptr in &source_ptrs {
         private_input.push(F::from_usize(ptr));
     }
     private_input.push(F::from_usize(bytecode_sumcheck_proof_ptr));
-    private_input.push(F::from_usize(dup_indices.len()));
-    for &idx in &signer_indices {
-        private_input.push(F::from_usize(idx));
-    }
-    for &idx in &dup_indices {
-        private_input.push(F::from_usize(idx));
-    }
     assert_eq!(private_input.len(), header_size);
 
+    for pk in &global_pub_keys {
+        private_input.extend_from_slice(pk);
+    }
+    for pk in &dup_pub_keys {
+        private_input.extend_from_slice(pk);
+    }
     for block in &source_blocks {
         private_input.extend_from_slice(block);
     }
@@ -381,7 +351,7 @@ pub fn aggregate_merge(
     }
 
     AggregatedSigs {
-        signer_indices,
+        pub_keys: global_pub_keys,
         proof: execution_proof.proof,
         bytecode_point,
         metadata: execution_proof.metadata,

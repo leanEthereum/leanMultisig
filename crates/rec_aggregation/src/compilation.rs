@@ -11,19 +11,38 @@ use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
 
-use crate::{LOG_SIZE_PUBKEY_REGISTRY, MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
+use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
+
+static BYTECODE_DEFAULT: OnceLock<Bytecode> = OnceLock::new();
+static BYTECODE_CONJECTURE: OnceLock<Bytecode> = OnceLock::new();
+
+pub(crate) fn get_aggregation_bytecode(prox_gaps_conjecture: bool) -> &'static Bytecode {
+    if prox_gaps_conjecture {
+        &BYTECODE_CONJECTURE
+    } else {
+        &BYTECODE_DEFAULT
+    }
+    .get()
+    .unwrap_or_else(|| panic!("call init_aggregation_bytecode() first"))
+}
+
+pub(crate) fn init_aggregation_bytecode() {
+    BYTECODE_DEFAULT.get_or_init(|| compile_main_program_self_referential(false));
+    BYTECODE_CONJECTURE.get_or_init(|| compile_main_program_self_referential(true));
+}
 
 fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: bool, bytecode_zero_eval: F) -> Bytecode {
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
-    // pub_input layout: n_sigs(1) + pubkey_registry_root(8) + signers_hash(8) + slot_low(1) + slot_high(1)
+    // pub_input layout: n_sigs(1) + slice_hash(8) + slot_low(1) + slot_high(1)
     //                   + message + merkle_chunks_for_slot + bytecode_claim
-    let pub_input_size = 1 + 2 * DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size;
+    let pub_input_size = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size;
     let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
     let replacements = build_replacements(
         inner_program_log_size,
@@ -41,7 +60,7 @@ fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: boo
 }
 
 #[instrument(skip_all)]
-pub(crate) fn compile_main_program_self_referential(prox_gaps_conjecture: bool) -> Bytecode {
+fn compile_main_program_self_referential(prox_gaps_conjecture: bool) -> Bytecode {
     let mut log_size_guess = 20;
     loop {
         let bytecode = compile_main_program(log_size_guess, prox_gaps_conjecture, F::ZERO);
@@ -357,12 +376,6 @@ fn build_replacements(
     replacements.insert(
         "MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER".to_string(),
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
-    );
-
-    // Registry
-    replacements.insert(
-        "LOG_SIZE_PUBKEY_REGISTRY_PLACEHOLDER".to_string(),
-        LOG_SIZE_PUBKEY_REGISTRY.to_string(),
     );
 
     // Bytecode zero eval

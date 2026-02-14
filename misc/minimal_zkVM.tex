@@ -795,9 +795,9 @@ There are alterntive ways to handle the stacking of multiple multilinear polynom
 
 \section{Recursive Aggregation}\label{sec:recursive-aggregation}
 
-The recursive aggregation program (see Figure~\ref{fig:recursive-aggregation}) takes $n_{\text{sigs}}$ signers and partitions them into $n_{\text{rec}} + 1$ sources: one \textbf{direct source} whose signatures are verified explicitly, and $n_{\text{rec}}$ \textbf{recursive sources}, each accompanied by a sub-proof that is recursively verified.
+The recursive aggregation program (see Figure~\ref{fig:recursive-aggregation}) attests that a set of public keys have valid signatures for a given message. It partitions the signers into $n_{\text{rec}} + 1$ sources: one \textbf{direct source} whose XMSS signatures are verified explicitly, and $n_{\text{rec}} \geq 0$ \textbf{recursive sources}, each accompanied by a sub-proof that is recursively verified.
 
-For each recursive source, the program runs the leanVM verifier on the provided sub-proof, confirming that the sub-proof itself is a valid recursive aggregation proof covering the source's signers.
+For each recursive source, the program runs the leanVM verifier on the provided sub-proof, confirming that the sub-proof itself is a valid recursive aggregation proof covering the source's signers. When $n_{\text{rec}} = 0$, the program simply verifies all signatures directly.
 
 \subsection{Bytecode evaluation claims}\label{sec:bytecode-reduction}
 
@@ -820,59 +820,21 @@ When $n_{\text{rec}} = 0$ (no recursion), the bytecode claim in the public input
 
 \subsection{Signer partitioning}\label{sec:signer-partitioning}
 
-\subsubsection{Trivial partitioning}
+\emph{
+In the following, we assume  the message being signed is common to all signers (typically the case at Ethereum's consensus layer), but the scheme can be naturally adapted to distinct messages.}
 
-In the most straightforward approach, the aggregation program takes as input a list of public keys, and a mesage. In a loop, each public key is either directly verified (direct source) or assigned to one of the $n_{\text{rec}}$ recursive sources. Then, the program verifies each recursive source accordingly (with the same message).
+\vspace{3mm}
+
+Consider an aggregation of $n_{\text{sigs}}$ (distinct) signatures. The $n_{\text{sigs}}$ (distinct) public keys are part of the "public input" in memory. The aggregation program must ensure that each public key is verified by at least one of the $1 + n_{\text{rec}}$ sources (duplications allowed: some public keys may be verified by multiple sources).
+
+Let $n_{\text{dup}}$ be the total number of duplicated public keys across sources, counted with multiplicity. To ensure ensure valid partionning, we use the following algorithm:
 
 \begin{itemize}
-    \item Pros: simplicity
-    \item Cons: performance bottleneck in the final steps of aggregation when there are a lot of signers (think more than $2^{14}$)
+    \item Initialize a counter $c \gets 0$.
+    \item Initialize a (write-once) array $B$ of size $n_{\text{total}} = n_{\text{sigs}} + n_{\text{dup}}$.
+    \item For each source $s$, for each signature index $i \in [0, n_{\text{total}})$ verified by $s$, write $B[i] \gets c$ and increment $c$.
+    \item At the end, assert $c = n_{\text{total}}$.
 \end{itemize}
-
-If performance allows, this approach should be preferred.
-
-\subsubsection{Using a registry of signers}
-
-\emph{When the set of signers is large, but is known in advance (specifically: Ethereum's consensus layer), a potentially more efficient approach is possible, yet more complex.}
-\vspace{5mm}
-
-
-All public keys are stored in a Merkle tree (the \emph{public-key registry}). Signers are identified by their \emph{index} in this registry (rather than using a bitfield).
-
-For the direct source, the program checks each signature and verifies a Merkle inclusion proof that their public key belongs to the registry.
-
-Each aggregated signature attests to a set of $n_{\text{sigs}}$ signer indices from the public-key registry. The $n_{\text{rec}} + 1$ sources (one direct source and $n_{\text{rec}}$ recursive sources) may \emph{overlap}: a signer can appear in multiple sources. The program must verify that the claimed global set included in the union of all sources.
-
-\vspace{2mm}
-
-The (untrusted) prover hints three kinds of index lists:
-\begin{itemize}
-    \item \textbf{Global indices} $G$: the deduplicated list of all signer indices attested by this proof.
-    \item \textbf{Duplicate indices} $D$: each index appearing in $k > 1$ sources contributes $k - 1$ copies to $D$.
-    \item \textbf{Source indices} $S_s$ for each source $s \in \{0, \dots, n_{\text{rec}}\}$.
-\end{itemize}
-
-A constraint asserts $|G| + |D| = \sum_{s=0}^{n_{\text{rec}}} |S_s|$.
-
-The multiset identity to enforce is:
-$$G \cup D \;=\; \bigcup_{s=0}^{n_{\text{rec}}} S_s$$
-
-\textbf{Index hashing.} All these $2 + n_{\text{rec}}$ lists are hashed: $H(G)$, $H(D)$, and $(H(S_s))_{s=0}^{n_{\text{rec}}}$. 
-$H(G)$ is written to the public input (outer proof), and each $H(S_s)$ is written to the public input of the corresponding inner proof.
-
-
-\textbf{Challenge derivation.} By hashing together $H(G)$, $H(D)$, and $(H(S_s))_{s=0}^{n_{\text{rec}}}$, a Fiat--Shamir challenge $\alpha \in \Fq$ is derived.
-
-\vspace{2mm}
-
-\textbf{Consistency checks.} For any index list $I = (i_0, \dots, i_{k-1})$ with $i_j \in \Fp$, define the product polynomial $P_I(\alpha) = \prod_{j=0}^{k-1}(\alpha - i_j) \in \Fq$. The program evaluates both sides and asserts:
-$$P_G(\alpha) \cdot P_D(\alpha) = \prod_{s=0}^{n_{\text{rec}}} P_{S_s}(\alpha)$$
-
-Soundness of this argument is $(|G| + |D|)/q$, by the Schwartz--Zippel lemma.
-
-\vspace{5mm}
-
-\emph{The current implementation uses this signature registry, TODO can we use the trivial partioning instead (without too much performance overhead)?}
 
 \clearpage
 \bibliographystyle{IEEEtran}

@@ -290,7 +290,7 @@ fn execute_bytecode_helper(
         public_input_size: public_input.len(),
         private_input_size: private_input.len(),
         runtime_memory: runtime_memory_size,
-        memory_usage_percent: used_memory_cells as f64 / runtime_memory_size as f64 * 100.0,
+        memory_usage_percent: used_memory_cells as f64 / memory.0.len() as f64 * 100.0,
         n_poseidon_precomputed_used,
         n_poseidons_precomputed_total: poseidons_precomputed.len(),
         stdout: std::mem::take(std_out),
