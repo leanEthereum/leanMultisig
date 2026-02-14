@@ -665,9 +665,7 @@ fn compile_time_transform_in_lines(
                         "line {location}: dynamic_unroll start must be a compile-time constant"
                     ));
                 };
-                if start_val != F::ZERO {
-                    return Err(format!("line {location}: dynamic_unroll start must be 0"));
-                }
+                let start_val = start_val.to_usize();
                 let Some(n_bits_val) = n_bits.compile_time_eval(const_arrays, &vector_len_tracker) else {
                     return Err(format!(
                         "line {location}: dynamic_unroll n_bits must be a compile-time constant"
@@ -683,6 +681,7 @@ fn compile_time_transform_in_lines(
                     &iterator.clone(),
                     &end.clone(),
                     n_bits_val,
+                    start_val,
                     &body.clone(),
                     *location,
                     unroll_counter,
@@ -3510,9 +3509,12 @@ fn replace_vars_for_unroll(
 /// Bits k where 2^k > CHUNK_SIZE will use a runtime outer loop with CHUNK_SIZE inner unroll.
 const DYNAMIC_UNROLL_CHUNK_SIZE: usize = 1 << 9; // 512
 
-/// Expands `for idx in dynamic_unroll(0, a, n_bits): body` into:
-/// 1. Bit decomposition of `a` (with constraints)
-/// 2. Conditional execution of `body` for each index 0..a
+/// Expands `for idx in dynamic_unroll(start, a, n_bits): body` into:
+/// 1. Bit decomposition of `a - start` (with constraints)
+/// 2. Conditional execution of `body` for each index start..a
+///
+/// Computes `n_iters = end - start_val`, decomposes into bits, and offsets
+/// each iterator value by the compile-time `start_val`.
 ///
 /// The expansion template is written in zkDSL for readability, then parsed
 /// and post-processed (variable renaming, body splicing, location fixup).
@@ -3520,6 +3522,7 @@ fn expand_dynamic_unroll(
     iterator: &Var,
     runtime_end: &Expression,
     n_bits: usize,
+    start_val: usize,
     body: &[Line],
     location: SourceLocation,
     unroll_counter: &mut Counter,
@@ -3532,14 +3535,16 @@ fn expand_dynamic_unroll(
     // runtime bound and `__iter` as a placeholder for the iterator assignment.
     //
     // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^k.
-    // So ps[k] is the offset (number of indices below bit k), and ps[n_bits] == end.
+    // So ps[k] is the offset (number of indices below bit k), and ps[n_bits] == n_iters.
     //
     // For large bits (2^k > CHUNK_SIZE), we split into chunks to reduce bytecode size:
     // - outer runtime loop over n_chunks = 2^k / CHUNK_SIZE
     // - inner unroll over CHUNK_SIZE iterations
     // For k <= log2(CHUNK_SIZE), the range loop has minimal overhead.
 
-    // Build the template with per-bit chunking logic
+    // Build the template with per-bit chunking logic.
+    // Pre-compute __base_k = start_val + ps[k] once per activated bit,
+    // so the inner loop stays at 1 ADD per iteration.
     let mut loop_body = String::new();
     for k in 0..n_bits {
         let block_size = 1usize << k;
@@ -3548,8 +3553,9 @@ fn expand_dynamic_unroll(
             loop_body.push_str(&format!(
                 r#"
     if bits[{k}] == 1:
+        __base_{k} = {start_val} + ps[{k}]
         for j in unroll(0, {block_size}):
-            __iter = ps[{k}] + j
+            __iter = __base_{k} + j
 "#
             ));
         } else {
@@ -3559,7 +3565,7 @@ fn expand_dynamic_unroll(
             loop_body.push_str(&format!(
                 r#"
     if bits[{k}] == 1:
-        __offset_{k}: Mut = ps[{k}]
+        __offset_{k}: Mut = {start_val} + ps[{k}]
         for chunk in range(0, {n_chunks}):
             for j in unroll(0, {DYNAMIC_UNROLL_CHUNK_SIZE}):
                 __iter = __offset_{k} + j
@@ -3568,20 +3574,20 @@ fn expand_dynamic_unroll(
             ));
         }
     }
-
     let template = format!(
         r#"
 def __dynamic_unroll_template(end):
+    n_iters = end - {start_val}
     bits = Array({n_bits})
     le = 1
-    hint_decompose_bits(end, bits, {n_bits}, le)
+    hint_decompose_bits(n_iters, bits, {n_bits}, le)
     ps = Array({ps_len})
     ps[0] = 0
     for k in unroll(0, {n_bits}):
         b = bits[k]
         assert b * (1 - b) == 0
         ps[k + 1] = ps[k] + b * 2**k
-    assert end == ps[{n_bits}]
+    assert n_iters == ps[{n_bits}]
 {loop_body}
     return
 "#
@@ -3604,14 +3610,15 @@ def __dynamic_unroll_template(end):
 
     // Rename all internal variables with @du{id}_ prefix.
     // __iter is renamed directly to the user's iterator variable.
-    let internals: BTreeSet<String> = ["bits", "le", "ps", "k", "j", "b", "chunk"]
+    let internals: BTreeSet<String> = ["bits", "le", "ps", "k", "j", "b", "chunk", "n_iters"]
         .iter()
         .map(|s| s.to_string())
         .collect();
     transform_vars_in_lines(&mut lines, &|var: &Var| {
         if var == "__iter" {
             VarTransform::Rename(iterator.clone())
-        } else if var == "end" || internals.contains(var) || var.starts_with("__offset_") {
+        } else if var == "end" || internals.contains(var) || var.starts_with("__offset_") || var.starts_with("__base_")
+        {
             VarTransform::Rename(format!("{pfx}_{var}"))
         } else {
             VarTransform::Keep

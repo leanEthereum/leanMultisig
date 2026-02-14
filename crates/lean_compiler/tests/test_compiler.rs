@@ -142,6 +142,46 @@ fn test_reserved_function_names() {
 }
 
 #[test]
+fn test_dynamic_unroll_cycles() {
+    // Verify that dynamic_unroll costs ~2 cycles per iteration
+    for start in [0u32, 5, 50] {
+        let program = format!(
+            r#"
+def main():
+    a = NONRESERVED_PROGRAM_INPUT_START
+    end = a[0]
+    expected = a[1]
+    acc: Mut = 0
+    for i in dynamic_unroll({start}, end, 13):
+        acc = acc + i
+    assert acc == expected
+    return
+"#
+        );
+        let bytecode = compile_program(&ProgramSource::Raw(program));
+
+        let run = |end_val: u32| -> usize {
+            let expected_sum = (start..end_val).map(|i| i as u64).sum::<u64>() as u32;
+            let public_input = [F::new(end_val), F::new(expected_sum)];
+            let result = try_execute_bytecode(&bytecode, (&public_input, &[]), false, &vec![]).unwrap();
+            result.pcs.len()
+        };
+
+        let n_iters_a = 2000u32;
+        let n_iters_b = 4000u32;
+        let cycles_a = run(start + n_iters_a);
+        let cycles_b = run(start + n_iters_b);
+        let delta = cycles_b - cycles_a;
+        let extra_iters = n_iters_b - n_iters_a;
+        let expected_delta = 2 * extra_iters as usize;
+        // Allow 5% tolerance for fixed overhead per activated bit
+        let lo = expected_delta * 95 / 100;
+        let hi = expected_delta * 105 / 100;
+        assert!(delta >= lo && delta <= hi,);
+    }
+}
+
+#[test]
 fn debug_file_program() {
     let index = 167;
     let path = format!("{}/program_{}.py", test_data_dir(), index);
