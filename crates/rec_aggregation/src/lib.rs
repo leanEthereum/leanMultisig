@@ -6,7 +6,10 @@ use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 use utils::{build_prover_state, poseidon_compress_slice, poseidon16_compress_pair};
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements};
+use xmss::{
+    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements,
+    xmss_verify_with_poseidon_trace,
+};
 
 use crate::compilation::get_aggregation_bytecode;
 
@@ -340,10 +343,13 @@ pub fn aggregate(
     }
     private_input.extend_from_slice(&final_sumcheck_transcript);
 
+    // TODO precompute all the other poseidons
+    let xmss_poseidons_16_precomputed = precompute_poseidons(raw_signers, message);
+
     let execution_proof = prove_execution(
         bytecode,
         (&non_reserved_public_input, &private_input),
-        &vec![],
+        &xmss_poseidons_16_precomputed,
         &whir_config,
         false,
     );
@@ -381,4 +387,16 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         running_hash = poseidon16_compress_pair(running_hash, claim_hash);
     }
     running_hash
+}
+
+#[instrument(skip_all)]
+fn precompute_poseidons(
+    raw_signers: &[(XmssPublicKey, XmssSignature)],
+    message: &[F; MESSAGE_LEN_FE],
+) -> Poseidon16History {
+    let traces: Vec<_> = raw_signers
+        .par_iter()
+        .map(|(pub_key, sig)| xmss_verify_with_poseidon_trace(pub_key, message, sig).unwrap())
+        .collect();
+    traces.into_par_iter().flatten().collect()
 }
