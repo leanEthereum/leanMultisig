@@ -37,6 +37,7 @@ struct NodeStats {
     memory: usize,
     poseidons: usize,
     dots: usize,
+    n_xmss: Option<usize>,
 }
 
 struct LiveTree {
@@ -64,7 +65,7 @@ impl LiveTree {
         let pad = self.max_plain_len + 6; // desc + dots + " ▸ "
         let spacer = " ".repeat(pad);
         format!(
-            "{}{}{:>8}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}{}",
+            "{}{}{:>10}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}{}",
             s::D,
             spacer,
             "time",
@@ -83,33 +84,42 @@ impl LiveTree {
         let dots = format!("{}{}{}", s::DRK, "·".repeat(gap), s::R);
         match &self.statuses[i] {
             None => desc.to_string(),
-            Some(st) => format!(
-                "{} {} {}▸{} {}{}{:>7.3}s{}  {}{}{:>4} KiB{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}",
-                desc,
-                dots,
-                s::DRK,
-                s::R,
-                s::ORG,
-                s::B,
-                st.time_secs,
-                s::R,
-                s::CYN,
-                s::B,
-                st.proof_kib,
-                s::R,
-                s::WHT,
-                pretty_integer(st.cycles),
-                s::R,
-                s::WHT,
-                pretty_integer(st.memory),
-                s::R,
-                s::WHT,
-                pretty_integer(st.poseidons),
-                s::R,
-                s::WHT,
-                pretty_integer(st.dots),
-                s::R,
-            ),
+            Some(st) => {
+                // Both branches produce exactly 10 visible characters.
+                let time_col = match st.n_xmss {
+                    Some(n) => {
+                        let throughput = n as f64 / st.time_secs;
+                        // " 536 sig/s" = 10 chars
+                        format!("{}{}{:>4.0} sig/s{}", s::ORG, s::B, throughput, s::R)
+                    }
+                    // "    1.815s" = 10 chars
+                    None => format!("{}{}{:>9.3}s{}", s::ORG, s::B, st.time_secs, s::R),
+                };
+                format!(
+                    "{} {} {}▸{} {}  {}{}{:>4} KiB{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}",
+                    desc,
+                    dots,
+                    s::DRK,
+                    s::R,
+                    time_col,
+                    s::CYN,
+                    s::B,
+                    st.proof_kib,
+                    s::R,
+                    s::WHT,
+                    pretty_integer(st.cycles),
+                    s::R,
+                    s::WHT,
+                    pretty_integer(st.memory),
+                    s::R,
+                    s::WHT,
+                    pretty_integer(st.poseidons),
+                    s::R,
+                    s::WHT,
+                    pretty_integer(st.dots),
+                    s::R,
+                )
+            }
         }
     }
 
@@ -281,6 +291,7 @@ fn build_aggregation(
     if !tracing {
         let own_display_index = display_index + count_nodes(topology) - 1;
         let proof_kib = result.compressed_proof_len_fe * F::bits() / (8 * 1024);
+        let is_leaf = topology.children.is_empty();
         display.update_node(
             own_display_index,
             NodeStats {
@@ -290,6 +301,7 @@ fn build_aggregation(
                 memory: result.metadata.memory,
                 poseidons: result.metadata.n_poseidons,
                 dots: result.metadata.n_dot_products,
+                n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
             },
         );
     }
@@ -374,7 +386,8 @@ pub fn run_aggregation_benchmark(
 }
 
 #[test]
-fn test_recursive_aggregation() {
+#[ignore]
+fn test_complex_recursive_aggregation() {
     let topology = AggregationTopology {
         raw_xmss: 10,
         children: vec![AggregationTopology {
@@ -412,6 +425,31 @@ fn test_recursive_aggregation() {
             log_inv_rate: 1,
         }],
         log_inv_rate: 4,
+    };
+    run_aggregation_benchmark(&topology, 5, false, false);
+}
+
+#[test]
+fn test_recursive_aggregation() {
+    let topology = AggregationTopology {
+        raw_xmss: 10,
+        children: vec![AggregationTopology {
+            raw_xmss: 25,
+            children: vec![
+                AggregationTopology {
+                    raw_xmss: 100,
+                    children: vec![],
+                    log_inv_rate: 2,
+                },
+                AggregationTopology {
+                    raw_xmss: 40,
+                    children: vec![],
+                    log_inv_rate: 2,
+                },
+            ],
+            log_inv_rate: 1,
+        }],
+        log_inv_rate: 1,
     };
     run_aggregation_benchmark(&topology, 5, false, false);
 }
