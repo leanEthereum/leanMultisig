@@ -46,15 +46,13 @@ def main():
     raw_indices = source_0 + 1
     raw_sigs = raw_indices + n_raw_xmss
 
-    for i in range(0, n_raw_xmss):
+    for i in range(0, n_raw_xmss): # TODO dynamic unroll ?
+        # mark buffer for partition verification
         idx = raw_indices[i]
         assert idx < n_total
         buffer[idx] = counter
         counter += 1
-
-    # Verify raw XMSS signatures
-    for i in range(0, n_raw_xmss):
-        idx = raw_indices[i]
+        # Verify raw XMSS signatures
         pk = all_pubkeys + idx * DIGEST_LEN
         sig = raw_sigs + i * SIG_SIZE
         xmss_verify(pk, message, sig, slot_lo, slot_hi, merkle_chunks_for_slot)
