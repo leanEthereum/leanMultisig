@@ -376,47 +376,42 @@ pub fn run_aggregation_benchmark(
 #[test]
 fn test_recursive_aggregation() {
     let topology = AggregationTopology {
-        raw_xmss: 0,
-        children: vec![
-            AggregationTopology {
-                raw_xmss: 50,
-                children: vec![
-                    AggregationTopology {
-                        raw_xmss: 1350,
-                        children: vec![],
+        raw_xmss: 10,
+        children: vec![AggregationTopology {
+            raw_xmss: 0,
+            children: vec![
+                AggregationTopology {
+                    raw_xmss: 10,
+                    children: vec![AggregationTopology {
+                        raw_xmss: 25,
+                        children: vec![
+                            AggregationTopology {
+                                raw_xmss: 1350,
+                                children: vec![],
+                                log_inv_rate: 1,
+                            };
+                            3
+                        ],
                         log_inv_rate: 1,
-                    },
-                    AggregationTopology {
-                        raw_xmss: 1350,
-                        children: vec![],
-                        log_inv_rate: 1,
-                    },
-                    AggregationTopology {
-                        raw_xmss: 1350,
-                        children: vec![],
-                        log_inv_rate: 1,
-                    },
-                ],
-                log_inv_rate: 2,
-            },
-            AggregationTopology {
-                raw_xmss: 0,
-                children: vec![
-                    AggregationTopology {
-                        raw_xmss: 1350,
-                        children: vec![],
-                        log_inv_rate: 2,
-                    },
-                    AggregationTopology {
-                        raw_xmss: 1350,
-                        children: vec![],
-                        log_inv_rate: 2,
-                    },
-                ],
-                log_inv_rate: 2,
-            },
-        ],
-        log_inv_rate: 2,
+                    }],
+                    log_inv_rate: 3,
+                },
+                AggregationTopology {
+                    raw_xmss: 0,
+                    children: vec![
+                        AggregationTopology {
+                            raw_xmss: 1350,
+                            children: vec![],
+                            log_inv_rate: 2,
+                        };
+                        2
+                    ],
+                    log_inv_rate: 2,
+                },
+            ],
+            log_inv_rate: 1,
+        }],
+        log_inv_rate: 4,
     };
     run_aggregation_benchmark(&topology, 5, false, false);
 }
