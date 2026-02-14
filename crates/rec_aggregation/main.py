@@ -2,12 +2,17 @@ from recursion import *
 from xmss_aggregate import *
 
 MAX_RECURSIONS = 16
-MAX_N_SIGS = 2**16 # TODO increase
+
+# TODO increase (we would need a bigger minimal memory size, totally doable)
+MAX_N_SIGS = 2**15
+MAX_N_DUPS = 2**15
+
 INNER_PUB_MEM_SIZE = 2 ** INNER_PUBLIC_MEMORY_LOG_SIZE
 BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS
 
 
 def main():
+    debug_assert(MAX_N_SIGS + MAX_N_DUPS <= 2**16) # because of range checking, TODO increase
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     n_sigs = pub_mem[0]
     assert 1 < n_sigs
