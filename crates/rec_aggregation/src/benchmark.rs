@@ -192,15 +192,15 @@ fn build_tree_descs(
         let is_first = i == 0;
         let (p, cp, pp, pcp) = if is_first {
             (
-                format!("{}{}┌──▸ {}", child_prefix, s::DRK, s::R),
+                format!("{}{}┌──▸{} ", child_prefix, s::PUR, s::R),
                 format!("{}     ", child_prefix),
                 format!("{}┌──▸ ", plain_child_prefix),
                 format!("{}     ", plain_child_prefix),
             )
         } else {
             (
-                format!("{}{}├──▸ {}", child_prefix, s::DRK, s::R),
-                format!("{}{}│    {}", child_prefix, s::DRK, s::R),
+                format!("{}{}├──▸{} ", child_prefix, s::PUR, s::R),
+                format!("{}{}│   {} ", child_prefix, s::PUR, s::R),
                 format!("{}├──▸ ", plain_child_prefix),
                 format!("{}│    ", plain_child_prefix),
             )
@@ -209,8 +209,11 @@ fn build_tree_descs(
     }
 
     // Then the node itself (below its children).
-    let desc = format!("{}{}{}{} {}", prefix, icon_color, icon, s::R, detail,);
-    let plain = format!("{}{} {}", plain_prefix, icon, plain_detail);
+    let inv_rate = 1 << topology.log_inv_rate;
+    let rate_tag = format!(" {}R=1/{}{}", s::D, inv_rate, s::R);
+    let plain_rate_tag = format!(" R=1/{}", inv_rate);
+    let desc = format!("{}{}{}{} {}{}", prefix, icon_color, icon, s::R, detail, rate_tag,);
+    let plain = format!("{}{} {}{}", plain_prefix, icon, plain_detail, plain_rate_tag);
     plain_lens.push(plain.chars().count());
     descs.push(desc);
 }
@@ -225,7 +228,6 @@ fn build_aggregation(
     pub_keys: &[XmssPublicKey],
     signatures: &[XmssSignature],
     overlap: usize,
-    log_inv_rate: usize,
     prox_gaps_conjecture: bool,
     tracing: bool,
 ) -> AggregatedSigs {
@@ -248,7 +250,6 @@ fn build_aggregation(
             &pub_keys[child_start..child_start + child_count],
             &signatures[child_start..child_start + child_count],
             overlap,
-            log_inv_rate,
             prox_gaps_conjecture,
             tracing,
         );
@@ -267,7 +268,7 @@ fn build_aggregation(
         message,
         slot,
         overlap,
-        log_inv_rate,
+        topology.log_inv_rate,
         prox_gaps_conjecture,
         tracing,
     );
@@ -279,7 +280,7 @@ fn build_aggregation(
 
     if !tracing {
         let own_display_index = display_index + count_nodes(topology) - 1;
-        let proof_kib = result.proof.len() * F::bits() / (8 * 1024);
+        let proof_kib = result.compressed_proof_len_fe * F::bits() / (8 * 1024);
         display.update_node(
             own_display_index,
             NodeStats {
@@ -299,7 +300,6 @@ fn build_aggregation(
 pub fn run_aggregation_benchmark(
     topology: &AggregationTopology,
     overlap: usize,
-    log_inv_rate: usize,
     prox_gaps_conjecture: bool,
     tracing: bool,
 ) {
@@ -358,13 +358,19 @@ pub fn run_aggregation_benchmark(
         &pub_keys,
         &signatures,
         overlap,
-        log_inv_rate,
         prox_gaps_conjecture,
         tracing,
     );
 
     // Verify root proof
-    verify_aggregation(&aggregated_sigs, &message, slot, log_inv_rate, prox_gaps_conjecture).unwrap();
+    verify_aggregation(
+        &aggregated_sigs,
+        &message,
+        slot,
+        topology.log_inv_rate,
+        prox_gaps_conjecture,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -373,17 +379,25 @@ fn test_recursive_aggregation() {
         raw_xmss: 0,
         children: vec![
             AggregationTopology {
-                raw_xmss: 0,
+                raw_xmss: 50,
                 children: vec![
                     AggregationTopology {
                         raw_xmss: 1350,
                         children: vec![],
+                        log_inv_rate: 1,
                     },
                     AggregationTopology {
                         raw_xmss: 1350,
                         children: vec![],
+                        log_inv_rate: 1,
+                    },
+                    AggregationTopology {
+                        raw_xmss: 1350,
+                        children: vec![],
+                        log_inv_rate: 1,
                     },
                 ],
+                log_inv_rate: 2,
             },
             AggregationTopology {
                 raw_xmss: 0,
@@ -391,14 +405,18 @@ fn test_recursive_aggregation() {
                     AggregationTopology {
                         raw_xmss: 1350,
                         children: vec![],
+                        log_inv_rate: 2,
                     },
                     AggregationTopology {
                         raw_xmss: 1350,
                         children: vec![],
+                        log_inv_rate: 2,
                     },
                 ],
+                log_inv_rate: 2,
             },
         ],
+        log_inv_rate: 2,
     };
-    run_aggregation_benchmark(&topology, 5, 2, false, false);
+    run_aggregation_benchmark(&topology, 5, false, false);
 }

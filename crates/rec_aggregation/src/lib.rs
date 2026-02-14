@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
-use lean_prover::{default_whir_config, verify_execution::ProofVerificationDetails};
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::verify_execution;
+use lean_prover::{default_whir_config, verify_execution::ProofVerificationDetails};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
@@ -20,6 +20,7 @@ const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_F
 pub struct AggregationTopology {
     pub raw_xmss: usize,
     pub children: Vec<AggregationTopology>,
+    pub log_inv_rate: usize,
 }
 
 pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> usize {
@@ -83,6 +84,7 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
 pub struct AggregatedSigs {
     pub pub_keys: Vec<[F; DIGEST_LEN]>,
     pub proof: Vec<F>,
+    pub compressed_proof_len_fe: usize,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
     pub metadata: ExecutionMetadata,
 }
@@ -353,6 +355,7 @@ pub fn aggregate(
     AggregatedSigs {
         pub_keys: global_pub_keys,
         proof: execution_proof.proof,
+        compressed_proof_len_fe: execution_proof.proof_size_fe,
         bytecode_point,
         metadata: execution_proof.metadata,
     }
