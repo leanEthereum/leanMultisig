@@ -38,7 +38,6 @@ pub struct StackedPcsWitness {
     pub global_polynomial: MleOwned<EF>,
 }
 
-#[instrument(skip_all)]
 pub fn stacked_pcs_global_statements(
     stacked_n_vars: VarCount,
     memory_n_vars: VarCount,
