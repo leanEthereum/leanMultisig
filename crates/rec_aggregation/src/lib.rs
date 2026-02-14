@@ -154,7 +154,7 @@ pub fn aggregate(
     prox_gaps_conjecture: bool,
     tracing: bool,
 ) -> AggregatedSigs {
-    raw_xmss.sort_by(|(a, _), (b, _)| Digest(a.merkle_root).cmp(&Digest(b.merkle_root)));
+    raw_xmss.sort_by_key(|(a, _)| Digest(a.merkle_root));
     raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
 
     let n_recursions = children.len();
