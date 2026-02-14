@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use lean_vm::*;
@@ -6,13 +7,93 @@ use multilinear_toolkit::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use utils::pretty_integer;
-use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSignature};
+use xmss::{
+    MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TRUNCATED_MERKLE_ROOT_LEN_FE, XmssPublicKey, XmssSecretKey, XmssSignature,
+    find_randomness_for_wots_encoding, xmss_sign_with_randomness,
+};
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 use crate::{AggregatedSigs, AggregationTopology, aggregate, count_signers, verify_aggregation};
 
+pub const BENCHMARK_SLOT: u32 = 1111;
+
+pub fn message_for_benchmark() -> [F; MESSAGE_LEN_FE] {
+    std::array::from_fn(F::from_usize)
+}
+
 fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
+}
+
+// --- Signature cache ---
+//
+// Stores the WOTS randomness per signer as a flat JSON array.
+// Everything else is deterministic from StdRng::seed_from_u64(index).
+
+fn cache_file_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/benchmark_signers.json")
+}
+
+fn benchmark_keygen<R: Rng>(rng: &mut R) -> (XmssSecretKey, XmssPublicKey) {
+    let key_start = BENCHMARK_SLOT - rng.random_range(0..3);
+    let key_end = BENCHMARK_SLOT + rng.random_range(1..3);
+    xmss::xmss_key_gen(rng.random(), key_start, key_end).unwrap()
+}
+
+pub fn find_randomness_for_benchmark(index: usize) -> [F; RANDOMNESS_LEN_FE] {
+    let message = message_for_benchmark();
+    let mut rng = StdRng::seed_from_u64(index as u64);
+    let (_sk, pk) = benchmark_keygen(&mut rng);
+    let truncated: [F; TRUNCATED_MERKLE_ROOT_LEN_FE] =
+        pk.merkle_root[..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
+    let (randomness, _, _) = find_randomness_for_wots_encoding(&message, BENCHMARK_SLOT, &truncated, &mut rng);
+    randomness
+}
+
+pub fn reconstruct_signer_for_benchmark(
+    index: usize,
+    randomness: [F; RANDOMNESS_LEN_FE],
+) -> (XmssPublicKey, XmssSignature) {
+    let message = message_for_benchmark();
+    let slot = BENCHMARK_SLOT;
+    let mut rng = StdRng::seed_from_u64(index as u64);
+    let (sk, pk) = benchmark_keygen(&mut rng);
+    let sig = xmss_sign_with_randomness(&sk, &message, slot, randomness).unwrap();
+    (pk, sig)
+}
+
+fn write_cache(randomnesses: &[[F; RANDOMNESS_LEN_FE]]) {
+    let path = cache_file_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    let json = format!(
+        "[{}]",
+        randomnesses
+            .iter()
+            .flat_map(|r| r.iter().map(|f| f.to_string()))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    std::fs::write(&path, json).unwrap();
+    println!("Wrote {} entries to {}", randomnesses.len(), path.display());
+}
+
+fn read_cache() -> Vec<[F; RANDOMNESS_LEN_FE]> {
+    let path = cache_file_path();
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("cache not found, run generate_benchmark_signers_cache"));
+    let text = text.trim();
+    let inner = text.strip_prefix('[').unwrap().strip_suffix(']').unwrap();
+    let values: Vec<u32> = inner
+        .split(',')
+        .map(|s| s.trim().parse().expect("invalid value in cache"))
+        .collect();
+    assert!(values.len().is_multiple_of(RANDOMNESS_LEN_FE),);
+    values
+        .chunks_exact(RANDOMNESS_LEN_FE)
+        .map(|chunk| std::array::from_fn(|i| F::from_u32(chunk[i])))
+        .collect()
 }
 
 mod s {
@@ -149,6 +230,7 @@ impl LiveTree {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_tree_descs(
     topology: &AggregationTopology,
     overlap: usize,
@@ -233,16 +315,16 @@ fn build_aggregation(
     topology: &AggregationTopology,
     display_index: usize,
     display: &mut LiveTree,
-    message: &[F; MESSAGE_LEN_FE],
-    slot: u32,
     pub_keys: &[XmssPublicKey],
     signatures: &[XmssSignature],
     overlap: usize,
     prox_gaps_conjecture: bool,
     tracing: bool,
 ) -> AggregatedSigs {
+    let message = message_for_benchmark();
+    let slot = BENCHMARK_SLOT;
     let raw_count = topology.raw_xmss;
-    let raw_signers: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
+    let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
         .map(|i| (pub_keys[i].clone(), signatures[i].clone()))
         .collect();
 
@@ -255,8 +337,6 @@ fn build_aggregation(
             child,
             child_display_index,
             display,
-            message,
-            slot,
             &pub_keys[child_start..child_start + child_count],
             &signatures[child_start..child_start + child_count],
             overlap,
@@ -274,10 +354,9 @@ fn build_aggregation(
     let time = Instant::now();
     let result = aggregate(
         &child_results,
-        &raw_signers,
-        message,
+        raw_xmss,
+        &message,
         slot,
-        overlap,
         topology.log_inv_rate,
         prox_gaps_conjecture,
         tracing,
@@ -321,29 +400,14 @@ pub fn run_aggregation_benchmark(
     precompute_dft_twiddles::<F>(1 << 24);
 
     let n_sigs = count_signers(topology, overlap);
-    let message: [F; MESSAGE_LEN_FE] = (0..MESSAGE_LEN_FE)
-        .map(F::from_usize)
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
-    let slot: u32 = 1111;
 
-    let n_unique = 10.min(n_sigs).max(1);
-    let pub_keys_and_sigs: Vec<_> = (0..n_unique)
+    let cache = read_cache();
+    assert!(cache.len() >= n_sigs,);
+    let paired: Vec<_> = (0..n_sigs)
         .into_par_iter()
-        .map(|i| {
-            let mut rng = StdRng::seed_from_u64(i as u64);
-            let start = slot - rng.random_range(0..3);
-            let end = slot + rng.random_range(1..3);
-            let (sk, pk) = xmss::xmss_key_gen(rng.random(), start, end).unwrap();
-            let sig = xmss::xmss_sign(&mut rng, &sk, &message, slot).unwrap();
-            xmss::xmss_verify(&pk, &message, &sig).unwrap();
-            (pk, sig)
-        })
+        .map(|i| reconstruct_signer_for_benchmark(i, cache[i]))
         .collect();
-
-    let pub_keys: Vec<XmssPublicKey> = (0..n_sigs).map(|i| pub_keys_and_sigs[i % n_unique].0.clone()).collect();
-    let signatures: Vec<XmssSignature> = (0..n_sigs).map(|i| pub_keys_and_sigs[i % n_unique].1.clone()).collect();
+    let (pub_keys, signatures): (Vec<_>, Vec<_>) = paired.into_iter().unzip();
 
     init_aggregation_bytecode();
     println!(
@@ -365,8 +429,6 @@ pub fn run_aggregation_benchmark(
         topology,
         0,
         &mut display,
-        &message,
-        slot,
         &pub_keys,
         &signatures,
         overlap,
@@ -375,81 +437,29 @@ pub fn run_aggregation_benchmark(
     );
 
     // Verify root proof
-    verify_aggregation(
-        &aggregated_sigs,
-        &message,
-        slot,
-        topology.log_inv_rate,
-        prox_gaps_conjecture,
-    )
-    .unwrap();
+    let message = message_for_benchmark();
+    verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT, prox_gaps_conjecture).unwrap();
 }
 
 #[test]
 #[ignore]
-fn test_complex_recursive_aggregation() {
-    let topology = AggregationTopology {
-        raw_xmss: 10,
-        children: vec![AggregationTopology {
-            raw_xmss: 0,
-            children: vec![
-                AggregationTopology {
-                    raw_xmss: 10,
-                    children: vec![AggregationTopology {
-                        raw_xmss: 25,
-                        children: vec![
-                            AggregationTopology {
-                                raw_xmss: 1350,
-                                children: vec![],
-                                log_inv_rate: 1,
-                            };
-                            3
-                        ],
-                        log_inv_rate: 1,
-                    }],
-                    log_inv_rate: 3,
-                },
-                AggregationTopology {
-                    raw_xmss: 0,
-                    children: vec![
-                        AggregationTopology {
-                            raw_xmss: 1350,
-                            children: vec![],
-                            log_inv_rate: 2,
-                        };
-                        2
-                    ],
-                    log_inv_rate: 2,
-                },
-            ],
-            log_inv_rate: 1,
-        }],
-        log_inv_rate: 4,
-    };
-    run_aggregation_benchmark(&topology, 5, false, false);
-}
+fn generate_benchmark_signers_cache() {
+    let n_signers = 10_000;
 
-#[test]
-fn test_recursive_aggregation() {
-    let topology = AggregationTopology {
-        raw_xmss: 10,
-        children: vec![AggregationTopology {
-            raw_xmss: 25,
-            children: vec![
-                AggregationTopology {
-                    raw_xmss: 100,
-                    children: vec![],
-                    log_inv_rate: 2,
-                },
-                AggregationTopology {
-                    raw_xmss: 40,
-                    children: vec![],
-                    log_inv_rate: 2,
-                },
-            ],
-            log_inv_rate: 1,
-        }],
-        log_inv_rate: 1,
-    };
-    run_aggregation_benchmark(&topology, 5, false, false);
+    println!("Finding WOTS randomness for {} signers...", n_signers);
+    let start = Instant::now();
+    let randomnesses: Vec<[F; RANDOMNESS_LEN_FE]> = (0..n_signers)
+        .into_par_iter()
+        .map(find_randomness_for_benchmark)
+        .collect();
+    println!("Done in {:.1}s", start.elapsed().as_secs_f64());
+
+    write_cache(&randomnesses);
+
+    // sanity check:
+    let message = message_for_benchmark();
+    for &i in &[0, 1, n_signers / 2, n_signers - 1] {
+        let (pk, sig) = reconstruct_signer_for_benchmark(i, randomnesses[i]);
+        xmss::xmss_verify(&pk, &message, &sig).unwrap();
+    }
 }

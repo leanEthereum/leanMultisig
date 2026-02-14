@@ -32,9 +32,15 @@ pub(crate) fn get_aggregation_bytecode(prox_gaps_conjecture: bool) -> &'static B
     .unwrap_or_else(|| panic!("call init_aggregation_bytecode() first"))
 }
 
-pub(crate) fn init_aggregation_bytecode() {
-    BYTECODE_DEFAULT.get_or_init(|| compile_main_program_self_referential(false));
-    BYTECODE_CONJECTURE.get_or_init(|| compile_main_program_self_referential(true));
+pub fn init_aggregation_bytecode() {
+    rayon::join(
+        || {
+            BYTECODE_DEFAULT.get_or_init(|| compile_main_program_self_referential(false));
+        },
+        || {
+            BYTECODE_CONJECTURE.get_or_init(|| compile_main_program_self_referential(true));
+        },
+    );
 }
 
 fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: bool, bytecode_zero_eval: F) -> Bytecode {

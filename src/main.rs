@@ -37,6 +37,12 @@ enum Cli {
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
+    #[command(about = "Run a fancy aggregation topology")]
+    FancyAggregation {
+        // TODO use the latest results (i.e. update the conjecture)
+        #[arg(long, help = "Uses Conjecture 4.12 from WHIR (up to capacity)")]
+        prox_gaps_conjecture: bool,
+    },
 }
 
 fn main() {
@@ -81,6 +87,47 @@ fn main() {
             tracing,
         } => {
             benchmark_prove_poseidon_16(log_count, tracing);
+        }
+        Cli::FancyAggregation { prox_gaps_conjecture } => {
+            let topology = AggregationTopology {
+                raw_xmss: 10,
+                children: vec![AggregationTopology {
+                    raw_xmss: 0,
+                    children: vec![
+                        AggregationTopology {
+                            raw_xmss: 10,
+                            children: vec![AggregationTopology {
+                                raw_xmss: 25,
+                                children: vec![
+                                    AggregationTopology {
+                                        raw_xmss: 1350,
+                                        children: vec![],
+                                        log_inv_rate: 1,
+                                    };
+                                    3
+                                ],
+                                log_inv_rate: 1,
+                            }],
+                            log_inv_rate: 3,
+                        },
+                        AggregationTopology {
+                            raw_xmss: 0,
+                            children: vec![
+                                AggregationTopology {
+                                    raw_xmss: 1350,
+                                    children: vec![],
+                                    log_inv_rate: 2,
+                                };
+                                2
+                            ],
+                            log_inv_rate: 2,
+                        },
+                    ],
+                    log_inv_rate: 1,
+                }],
+                log_inv_rate: 4,
+            };
+            run_aggregation_benchmark(&topology, 5, prox_gaps_conjecture, false);
         }
     }
 }

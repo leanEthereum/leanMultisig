@@ -11,13 +11,18 @@ use xmss::{
     xmss_verify_with_poseidon_trace,
 };
 
+use std::collections::HashSet;
+
 use crate::compilation::get_aggregation_bytecode;
 
 pub mod benchmark;
-pub(crate) mod compilation;
+pub mod compilation;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Digest(pub [F; DIGEST_LEN]);
 
 #[derive(Debug, Clone)]
 pub struct AggregationTopology {
@@ -32,9 +37,9 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
     topology.raw_xmss + child_count - overlap * n_overlaps
 }
 
-pub fn slice_hash_pubkeys(pub_keys: &[[F; DIGEST_LEN]]) -> [F; DIGEST_LEN] {
-    let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.iter().copied()).collect();
-    poseidon_compress_slice(&flat)
+pub fn hash_pubkeys(pub_keys: &[Digest]) -> Digest {
+    let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.0.iter().copied()).collect();
+    Digest(poseidon_compress_slice(&flat))
 }
 
 fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
@@ -85,7 +90,7 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
 
 #[derive(Debug)]
 pub struct AggregatedSigs {
-    pub pub_keys: Vec<[F; DIGEST_LEN]>,
+    pub pub_keys: Vec<Digest>,
     pub proof: Vec<F>,
     pub compressed_proof_len_fe: usize,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
@@ -113,9 +118,15 @@ impl AggregatedSigs {
         };
         assert_eq!(bytecode_claim_output.len(), bytecode_claim_size);
 
-        let slice_hash = slice_hash_pubkeys(&self.pub_keys);
+        let slice_hash = hash_pubkeys(&self.pub_keys);
 
-        build_non_reserved_public_input(self.pub_keys.len(), &slice_hash, message, slot, &bytecode_claim_output)
+        build_non_reserved_public_input(
+            self.pub_keys.len(),
+            &slice_hash.0,
+            message,
+            slot,
+            &bytecode_claim_output,
+        )
     }
 }
 
@@ -123,66 +134,53 @@ pub fn verify_aggregation(
     sigs: &AggregatedSigs,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    log_inv_rate: usize,
     prox_gaps_conjecture: bool,
 ) -> Result<ProofVerificationDetails, ProofError> {
-    let public_input = sigs.public_input(&message, slot, prox_gaps_conjecture);
+    if !sigs.pub_keys.is_sorted() {
+        return Err(ProofError::InvalidProof);
+    }
+    let public_input = sigs.public_input(message, slot, prox_gaps_conjecture);
     let bytecode = get_aggregation_bytecode(prox_gaps_conjecture);
-    verify_execution(
-        bytecode,
-        &public_input,
-        sigs.proof.clone(),
-        default_whir_config(log_inv_rate, prox_gaps_conjecture),
-    )
+    verify_execution(bytecode, &public_input, sigs.proof.clone(), prox_gaps_conjecture)
 }
 
-#[allow(clippy::too_many_arguments)]
 #[instrument(skip_all)]
 pub fn aggregate(
     children: &[AggregatedSigs],
-    raw_signers: &[(XmssPublicKey, XmssSignature)],
+    mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    overlap: usize,
     log_inv_rate: usize,
     prox_gaps_conjecture: bool,
     tracing: bool,
 ) -> AggregatedSigs {
+    raw_xmss.sort_by(|(a, _), (b, _)| Digest(a.merkle_root).cmp(&Digest(b.merkle_root)));
+    raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
+
     let n_recursions = children.len();
-    let raw_count = raw_signers.len();
+    let raw_count = raw_xmss.len();
     let whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
 
     let bytecode = get_aggregation_bytecode(prox_gaps_conjecture);
     let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
-    // Build global pub_keys: raw ++ children (with overlap dedup)
-    let raw_pub_keys: Vec<[F; DIGEST_LEN]> = raw_signers.iter().map(|(pk, _)| pk.merkle_root).collect();
-    let mut global_pub_keys = raw_pub_keys;
-    for (i, child) in children.iter().enumerate() {
-        if i == 0 {
-            global_pub_keys.extend_from_slice(&child.pub_keys);
-        } else {
-            global_pub_keys.extend_from_slice(&child.pub_keys[overlap..]);
-        }
+    // Build global_pub_keys as sorted deduplicated union
+    let mut global_pub_keys: Vec<Digest> = raw_xmss.iter().map(|(pk, _)| Digest(pk.merkle_root)).collect();
+    for child in children.iter() {
+        assert!(child.pub_keys.is_sorted(), "child pub_keys must be sorted");
+        global_pub_keys.extend_from_slice(&child.pub_keys);
     }
+    global_pub_keys.sort();
+    global_pub_keys.dedup();
     let n_sigs = global_pub_keys.len();
-
-    // Build dup pub_keys (overlap portions of children 1+)
-    let mut dup_pub_keys: Vec<[F; DIGEST_LEN]> = Vec::new();
-    for (i, child) in children.iter().enumerate() {
-        if i > 0 && overlap > 0 {
-            dup_pub_keys.extend_from_slice(&child.pub_keys[..overlap]);
-        }
-    }
-    let n_dup = dup_pub_keys.len();
 
     // Verify child proofs
     let mut child_pub_inputs: Vec<Vec<F>> = vec![];
     let mut child_bytecode_evals: Vec<Evaluation<EF>> = vec![];
     for child in children {
         let child_pub_input = child.public_input(message, slot, prox_gaps_conjecture);
-        let verif = verify_execution(bytecode, &child_pub_input, child.proof.clone(), whir_config.clone()).unwrap();
+        let verif = verify_execution(bytecode, &child_pub_input, child.proof.clone(), prox_gaps_conjecture).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_pub_inputs.push(child_pub_input);
     }
@@ -253,9 +251,9 @@ pub fn aggregate(
     };
 
     // Build public input
-    let slice_hash = slice_hash_pubkeys(&global_pub_keys);
+    let slice_hash = hash_pubkeys(&global_pub_keys);
     let non_reserved_public_input =
-        build_non_reserved_public_input(n_sigs, &slice_hash, message, slot, &bytecode_claim_output);
+        build_non_reserved_public_input(n_sigs, &slice_hash.0, message, slot, &bytecode_claim_output);
     let public_memory = build_public_memory(&non_reserved_public_input);
 
     // Build private input
@@ -263,41 +261,38 @@ pub fn aggregate(
     //          global_pubkeys, dup_pubkeys, source_blocks..., bytecode_sumcheck_proof]
     let header_size = n_recursions + 5;
     let pubkeys_start = public_memory.len() + header_size;
-    let pubkeys_block_size = n_sigs * DIGEST_LEN + n_dup * DIGEST_LEN;
 
-    // Build source blocks
+    // Build source blocks (also discovers duplicate pub_keys)
+    let mut claimed: HashSet<Digest> = HashSet::new();
+    let mut dup_pub_keys: Vec<Digest> = Vec::new();
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
     // Source 0: raw XMSS
     {
-        let mut block = vec![];
-        block.push(F::from_usize(raw_count));
-        for i in 0..raw_count {
-            block.push(F::from_usize(i));
+        let mut block = vec![F::from_usize(raw_count)];
+        for (pk, _) in &raw_xmss {
+            let key = Digest(pk.merkle_root);
+            let pos = global_pub_keys.binary_search(&key).unwrap();
+            block.push(F::from_usize(pos));
+            claimed.insert(key);
         }
-        for (_, sig) in raw_signers {
+        for (_, sig) in &raw_xmss {
             block.extend(encode_xmss_signature(sig));
         }
         source_blocks.push(block);
     }
 
     // Sources 1..n_recursions: recursive children
-    let mut child_global_start = raw_count;
     for (i, child) in children.iter().enumerate() {
-        let mut block = vec![];
-        let child_count = child.pub_keys.len();
-
-        block.push(F::from_usize(child_count));
-        // For children after the first, the overlap portion uses dup indices
-        if i > 0 && overlap > 0 {
-            let dup_offset = n_sigs + (i - 1) * overlap;
-            for j in 0..overlap {
-                block.push(F::from_usize(dup_offset + j));
+        let mut block = vec![F::from_usize(child.pub_keys.len())];
+        for key in &child.pub_keys {
+            if claimed.insert(*key) {
+                let pos = global_pub_keys.binary_search(key).unwrap();
+                block.push(F::from_usize(pos));
+            } else {
+                block.push(F::from_usize(n_sigs + dup_pub_keys.len()));
+                dup_pub_keys.push(*key);
             }
-        }
-        let non_overlap_count = if i > 0 { child_count - overlap } else { child_count };
-        for j in 0..non_overlap_count {
-            block.push(F::from_usize(child_global_start + j));
         }
 
         // bytecode_value_hint (DIM elements)
@@ -309,8 +304,10 @@ pub fn aggregate(
         block.extend_from_slice(&child.proof);
 
         source_blocks.push(block);
-        child_global_start += non_overlap_count;
     }
+
+    let n_dup = dup_pub_keys.len();
+    let pubkeys_block_size = n_sigs * DIGEST_LEN + n_dup * DIGEST_LEN;
 
     // Compute absolute memory addresses for each source block
     let sources_start = pubkeys_start + pubkeys_block_size;
@@ -333,10 +330,10 @@ pub fn aggregate(
     assert_eq!(private_input.len(), header_size);
 
     for pk in &global_pub_keys {
-        private_input.extend_from_slice(pk);
+        private_input.extend_from_slice(&pk.0);
     }
     for pk in &dup_pub_keys {
-        private_input.extend_from_slice(pk);
+        private_input.extend_from_slice(&pk.0);
     }
     for block in &source_blocks {
         private_input.extend_from_slice(block);
@@ -344,7 +341,7 @@ pub fn aggregate(
     private_input.extend_from_slice(&final_sumcheck_transcript);
 
     // TODO precompute all the other poseidons
-    let xmss_poseidons_16_precomputed = precompute_poseidons(raw_signers, message);
+    let xmss_poseidons_16_precomputed = precompute_poseidons(&raw_xmss, message);
 
     let execution_proof = prove_execution(
         bytecode,
