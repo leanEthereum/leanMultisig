@@ -86,8 +86,7 @@ def main():
         poseidon16(pk0, pk1, running_hash)
 
         # Remaining pubkeys
-        for j_shift in dynamic_unroll(0, n_sub-2, log2_ceil(MAX_N_SIGS)):
-            j = j_shift + 2 # TODO allow dynamic_unroll to start from nonzero
+        for j in dynamic_unroll(2, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices[j]
             assert idx < n_total
             buffer[idx] = counter
