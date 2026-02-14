@@ -131,6 +131,39 @@ def main():
     # sum 0..9999 = 10000*9999/2 = 49995000
     assert huge_sum == 49995000
 
+    # --- Non-zero start: basic sum ---
+    # sum of 5..10 = 5+6+7+8+9 = 35
+    ns1 = sum_from_to(5, 10, 4)
+    assert ns1 == 35
+
+    # sum of 3..3 = 0 iterations
+    ns2 = sum_from_to(3, 3, 4)
+    assert ns2 == 0
+
+    # sum of 7..8 = 7 (1 iteration)
+    ns3 = sum_from_to(7, 8, 4)
+    assert ns3 == 7
+
+    # sum of 1..16 = 1+2+...+15 = 120
+    ns4 = sum_from_to(1, 16, 4)
+    assert ns4 == 120
+
+    # --- Non-zero start: array writes with offset ---
+    obuf = Array(16)
+    fill_squares_offset(obuf, 3, 8, 4)
+    # writes obuf[i-3] = i*i for i in 3..8
+    assert obuf[0] == 9
+    assert obuf[1] == 16
+    assert obuf[2] == 25
+    assert obuf[3] == 36
+    assert obuf[4] == 49
+
+    # --- Non-zero start: large n_bits (chunking path) ---
+    # sum of 100..2600 = sum(100..2599) = sum(0..2599) - sum(0..99)
+    # = 2600*2599/2 - 100*99/2 = 3378700 - 4950 = 3373750
+    large_offset_sum = sum_from_to_large(100, 2600, 12)
+    assert large_offset_sum == 3373750
+
     return
 
 
@@ -233,3 +266,23 @@ def copy_array(src, dst, n, n_bits: Const):
     for i in dynamic_unroll(0, n, n_bits):
         dst[i] = src[i]
     return
+
+
+def sum_from_to(start: Const, end, n_bits: Const):
+    acc: Mut = 0
+    for i in dynamic_unroll(start, end, n_bits):
+        acc = acc + i
+    return acc
+
+
+def fill_squares_offset(arr, start: Const, end, n_bits: Const):
+    for i in dynamic_unroll(start, end, n_bits):
+        arr[i - start] = i * i
+    return
+
+
+def sum_from_to_large(start: Const, end, n_bits: Const):
+    acc: Mut = 0
+    for i in dynamic_unroll(start, end, n_bits):
+        acc = acc + i
+    return acc
