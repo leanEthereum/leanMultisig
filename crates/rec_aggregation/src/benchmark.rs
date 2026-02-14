@@ -7,6 +7,7 @@ use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use utils::pretty_integer;
 use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSignature};
 
 use crate::compilation::compile_main_program_self_referential;
@@ -30,11 +31,21 @@ mod s {
     pub const DRK: &str = "\x1b[38;5;238m";
 }
 
+#[derive(Clone)]
+struct NodeStats {
+    time_secs: f64,
+    proof_kib: usize,
+    cycles: usize,
+    memory: usize,
+    poseidons: usize,
+    dots: usize,
+}
+
 struct LiveTree {
     descs: Vec<String>,
     plain_lens: Vec<usize>,
     max_plain_len: usize,
-    statuses: Vec<Option<(f64, usize)>>,
+    statuses: Vec<Option<NodeStats>>,
     n_nodes: usize,
 }
 
@@ -51,31 +62,61 @@ impl LiveTree {
         }
     }
 
+    fn header(&self) -> String {
+        let pad = self.max_plain_len + 6; // desc + dots + " ▸ "
+        let spacer = " ".repeat(pad);
+        format!(
+            "{}{}{:>8}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}{}",
+            s::D,
+            spacer,
+            "time",
+            "size",
+            "cycles",
+            "memory",
+            "poseidons",
+            "dots",
+            s::R,
+        )
+    }
+
     fn format_line(&self, i: usize) -> String {
         let desc = &self.descs[i];
         let gap = self.max_plain_len + 2 - self.plain_lens[i];
         let dots = format!("{}{}{}", s::DRK, "·".repeat(gap), s::R);
-        match self.statuses[i] {
-            None => format!("{} {} {}· · ·{}", desc, dots, s::DRK, s::R),
-            Some((t, kib)) => format!(
-                "{} {} {}▸{} {}{}{:.3}s{}  {}{}{:>4} KiB{}",
+        match &self.statuses[i] {
+            None => desc.to_string(),
+            Some(st) => format!(
+                "{} {} {}▸{} {}{}{:>7.3}s{}  {}{}{:>4} KiB{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}",
                 desc,
                 dots,
                 s::DRK,
                 s::R,
                 s::ORG,
                 s::B,
-                t,
+                st.time_secs,
                 s::R,
                 s::CYN,
                 s::B,
-                kib,
+                st.proof_kib,
+                s::R,
+                s::WHT,
+                pretty_integer(st.cycles),
+                s::R,
+                s::WHT,
+                pretty_integer(st.memory),
+                s::R,
+                s::WHT,
+                pretty_integer(st.poseidons),
+                s::R,
+                s::WHT,
+                pretty_integer(st.dots),
                 s::R,
             ),
         }
     }
 
     fn print_initial(&self) {
+        println!("{}", self.header());
         for i in 0..self.n_nodes {
             println!("{}", self.format_line(i));
         }
@@ -83,8 +124,8 @@ impl LiveTree {
         io::stdout().flush().unwrap();
     }
 
-    fn update_node(&mut self, index: usize, time_secs: f64, proof_kib: usize) {
-        self.statuses[index] = Some((time_secs, proof_kib));
+    fn update_node(&mut self, index: usize, stats: NodeStats) {
+        self.statuses[index] = Some(stats);
         let line = self.format_line(index);
         let up = self.n_nodes + 1 - index;
         print!("\x1b[{}A\r\x1b[2K{}\x1b[{}B\r", up, line, up);
@@ -92,7 +133,11 @@ impl LiveTree {
     }
 
     fn total_time(&self) -> f64 {
-        self.statuses.iter().filter_map(|s| s.as_ref()).map(|(t, _)| t).sum()
+        self.statuses
+            .iter()
+            .filter_map(|s| s.as_ref())
+            .map(|st| st.time_secs)
+            .sum()
     }
 }
 
@@ -150,9 +195,9 @@ fn build_tree_descs(
         let (p, cp, pp, pcp) = if is_first {
             (
                 format!("{}{}┌──▸ {}", child_prefix, s::DRK, s::R),
-                format!("{}{}│    {}", child_prefix, s::DRK, s::R),
+                format!("{}     ", child_prefix),
                 format!("{}┌──▸ ", plain_child_prefix),
-                format!("{}│    ", plain_child_prefix),
+                format!("{}     ", plain_child_prefix),
             )
         } else {
             (
@@ -241,7 +286,17 @@ fn build_aggregation(
     if !tracing {
         let own_display_index = display_index + count_nodes(topology) - 1;
         let proof_kib = result.proof.len() * F::bits() / (8 * 1024);
-        display.update_node(own_display_index, elapsed.as_secs_f64(), proof_kib);
+        display.update_node(
+            own_display_index,
+            NodeStats {
+                time_secs: elapsed.as_secs_f64(),
+                proof_kib,
+                cycles: result.metadata.cycles,
+                memory: result.metadata.memory,
+                poseidons: result.metadata.n_poseidons,
+                dots: result.metadata.n_dot_products,
+            },
+        );
     }
 
     result
@@ -370,8 +425,14 @@ fn test_recursive_aggregation() {
                             children: vec![],
                         },
                         AggregationTopology {
-                            raw_xmss: 666,
-                            children: vec![],
+                            raw_xmss: 234,
+                            children: vec![AggregationTopology {
+                                raw_xmss: 234,
+                                children: vec![AggregationTopology {
+                                    raw_xmss: 234,
+                                    children: vec![],
+                                }],
+                            }],
                         },
                     ],
                 }],

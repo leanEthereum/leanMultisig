@@ -120,6 +120,7 @@ pub struct AggregatedSigs {
     pub signer_indices: Vec<usize>,
     pub proof: Vec<F>,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
+    pub metadata: ExecutionMetadata,
 }
 
 impl AggregatedSigs {
@@ -376,13 +377,14 @@ pub fn aggregate_merge(
     );
 
     if tracing {
-        println!("{}", execution_proof.exec_summary);
+        println!("{}", execution_proof.metadata.display());
     }
 
     AggregatedSigs {
         signer_indices,
         proof: execution_proof.proof,
         bytecode_point,
+        metadata: execution_proof.metadata,
     }
 }
 

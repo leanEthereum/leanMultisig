@@ -9,6 +9,7 @@ pub struct ExecutionTrace {
     pub public_memory_size: usize,
     pub non_zero_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
+    pub metadata: ExecutionMetadata
 }
 
 pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResult) -> ExecutionTrace {
@@ -114,6 +115,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         public_memory_size: execution_result.public_memory_size,
         non_zero_memory_size: memory.0.len(),
         memory: memory_padded,
+        metadata: execution_result.metadata
     }
 }
 

@@ -10,6 +10,7 @@ use crate::{ExecutionHistory, NONRESERVED_PROGRAM_INPUT_START};
 pub(crate) fn profiling_report(
     instructions: &ExecutionHistory,
     function_locations: &BTreeMap<SourceLocation, String>,
+    mem_profile: &MemoryProfile,
 ) -> String {
     #[derive(Default, Clone)]
     struct FunctionStats {
@@ -55,6 +56,9 @@ pub(crate) fn profiling_report(
     function_data.sort_by_key(|(_, stats)| stats.exclusive_cycles);
 
     let mut report = String::new();
+
+    // memory profiling report
+    report += &memory_profiling_report(mem_profile);
 
     report.push_str("\n╔═════════════════════════════════════════════════════════════════════════╗\n");
     report.push_str("║                              PROFILING REPORT                           ║\n");

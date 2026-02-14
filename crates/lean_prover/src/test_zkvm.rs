@@ -165,7 +165,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
         default_whir_config(starting_log_inv_rate, false),
     )
     .unwrap();
-    println!("{}", proof.exec_summary);
+    println!("{}", proof.metadata.display());
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 
     if fuzzing {

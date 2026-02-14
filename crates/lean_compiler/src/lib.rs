@@ -153,7 +153,8 @@ pub fn try_compile_and_run(
 ) -> Result<String, Error> {
     let bytecode = try_compile_program(input)?;
     let result = try_execute_bytecode(&bytecode, (public_input, private_input), profiler, &vec![])?;
-    Ok(result.summary)
+    println!("{}", result.metadata.display());
+    Ok(result.metadata.display())
 }
 
 pub fn compile_and_run(input: &ProgramSource, (public_input, private_input): (&[F], &[F]), profiler: bool) {
