@@ -21,7 +21,7 @@ pub fn setup_verifier() {
 mod tests {
     use super::*;
     use rand::{SeedableRng, rngs::StdRng};
-    use rec_aggregation::benchmark::{
+    use xmss::signers_cache::{
         BENCHMARK_SLOT, find_randomness_for_benchmark, message_for_benchmark, reconstruct_signer_for_benchmark,
     };
 
