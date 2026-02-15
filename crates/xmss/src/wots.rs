@@ -20,15 +20,15 @@ pub struct WotsSignature {
 }
 
 impl WotsSecretKey {
-    pub fn random(rng: &mut impl CryptoRng, public_param: PublicParam) -> Self {
-        Self::new(rng.random(), public_param)
+    pub fn random(rng: &mut impl CryptoRng, public_param: PublicParam, slot: u32) -> Self {
+        Self::new(rng.random(), public_param, slot)
     }
 
-    pub fn new(pre_images: [Digest; V], public_param: PublicParam) -> Self {
+    pub fn new(pre_images: [Digest; V], public_param: PublicParam, slot: u32) -> Self {
         Self {
             pre_images,
             public_key: WotsPublicKey(std::array::from_fn(|i| {
-                iterate_hash(&pre_images[i], CHAIN_LENGTH - 1, public_param)
+                iterate_hash(&pre_images[i], CHAIN_LENGTH - 1, public_param, slot, i, 0)
             })),
         }
     }
@@ -45,7 +45,7 @@ impl WotsSecretKey {
         randomness: Randomness,
     ) -> WotsSignature {
         let encoding = wots_encode(message, slot, xmss_pub_key, &randomness).unwrap();
-        self.sign_with_encoding(randomness, &encoding, xmss_pub_key.public_param)
+        self.sign_with_encoding(randomness, &encoding, xmss_pub_key.public_param, slot)
     }
 
     fn sign_with_encoding(
@@ -53,9 +53,12 @@ impl WotsSecretKey {
         randomness: Randomness,
         encoding: &[u8; V],
         public_param: PublicParam,
+        slot: u32,
     ) -> WotsSignature {
         WotsSignature {
-            chain_tips: std::array::from_fn(|i| iterate_hash(&self.pre_images[i], encoding[i] as usize, public_param)),
+            chain_tips: std::array::from_fn(|i| {
+                iterate_hash(&self.pre_images[i], encoding[i] as usize, public_param, slot, i, 0)
+            }),
             randomness,
         }
     }
@@ -88,35 +91,33 @@ impl WotsSignature {
                 CHAIN_LENGTH - 1 - encoding[i] as usize,
                 poseidon_16_trace,
                 xmss_pub_key.public_param,
+                slot,
+                i,
+                encoding[i] as usize,
             )
         })))
     }
 }
 
 impl WotsPublicKey {
-    pub fn hash(&self, public_param: PublicParam) -> Digest {
-        self.hash_with_poseidon_trace(&mut Vec::new(), public_param)
+    pub fn hash(&self, public_param: PublicParam, slot: u32) -> Digest {
+        self.hash_with_poseidon_trace(&mut Vec::new(), public_param, slot)
     }
 
     pub fn hash_with_poseidon_trace(
         &self,
         poseidon_16_trace: &mut Poseidon16History,
         public_param: PublicParam,
+        slot: u32,
     ) -> Digest {
-        let mut left = [F::default(); 8];
-        left[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
-        left[PUBLIC_PARAM_LEN_FE..].copy_from_slice(&self.0[0]);
-        let mut right = [F::default(); 8];
-        right[PUBLIC_PARAM_LEN_FE..].copy_from_slice(&self.0[1]);
+        let left = build_left(&public_param, &self.0[0]);
+        let right = build_right(make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot), &self.0[1]);
         let mut running_hash: Digest = poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..DIGEST_SIZE]
             .try_into()
             .unwrap();
         for i in 2..V {
-            let mut left = [F::default(); 8];
-            left[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
-            left[PUBLIC_PARAM_LEN_FE..].copy_from_slice(&running_hash);
-            let mut right = [F::default(); 8];
-            right[PUBLIC_PARAM_LEN_FE..].copy_from_slice(&self.0[i]);
+            let left = build_left(&public_param, &running_hash);
+            let right = build_right(make_tweak(TWEAK_TYPE_WOTS_PK, i - 1, slot), &self.0[i]);
             running_hash = poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..DIGEST_SIZE]
                 .try_into()
                 .unwrap();
@@ -125,14 +126,19 @@ impl WotsPublicKey {
     }
 }
 
-pub fn iterate_hash(a: &Digest, n: usize, public_param: PublicParam) -> Digest {
-    (0..n).fold(*a, |acc, _| {
-        let mut left = [F::default(); 8];
-        left[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
-        left[PUBLIC_PARAM_LEN_FE..].copy_from_slice(&acc);
-        poseidon16_compress_pair(left, Default::default())[..DIGEST_SIZE]
-            .try_into()
-            .unwrap()
+pub fn iterate_hash(
+    a: &Digest,
+    n: usize,
+    public_param: PublicParam,
+    slot: u32,
+    chain_index: usize,
+    start_step: usize,
+) -> Digest {
+    (0..n).fold(*a, |acc, j| {
+        let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
+        let left = build_left(&public_param, &acc);
+        let right = build_right(tweak, &Default::default());
+        poseidon16_compress_pair(left, right)[..DIGEST_SIZE].try_into().unwrap()
     })
 }
 
@@ -141,12 +147,15 @@ pub fn iterate_hash_with_poseidon_trace(
     n: usize,
     poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
     public_param: PublicParam,
+    slot: u32,
+    chain_index: usize,
+    start_step: usize,
 ) -> Digest {
-    (0..n).fold(*a, |acc, _| {
-        let mut left = [F::default(); 8];
-        left[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
-        left[PUBLIC_PARAM_LEN_FE..].copy_from_slice(&acc);
-        poseidon16_compress_with_trace(left, Default::default(), poseidon_16_trace)[..DIGEST_SIZE]
+    (0..n).fold(*a, |acc, j| {
+        let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
+        let left = build_left(&public_param, &acc);
+        let right = build_right(tweak, &Default::default());
+        poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..DIGEST_SIZE]
             .try_into()
             .unwrap()
     })
@@ -184,14 +193,12 @@ pub fn wots_encode_with_poseidon_trace(
     randomness: &Randomness,
     poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
 ) -> Option<[u8; V]> {
-    // Encode slot as 2 field elements (16 bits each)
-    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
-
     let mut first_input_right = [F::default(); 8];
     first_input_right[0] = message[8];
     first_input_right[1..1 + RANDOMNESS_LEN_FE].copy_from_slice(randomness);
-    first_input_right[1 + RANDOMNESS_LEN_FE..].copy_from_slice(&[slot_lo, slot_hi]);
-    let pre_compressed = poseidon16_compress_with_trace(message[..8].try_into().unwrap(), first_input_right, poseidon_16_trace);
+    first_input_right[1 + RANDOMNESS_LEN_FE..].copy_from_slice(&make_tweak(TWEAK_TYPE_ENCODING, 0, slot));
+    let pre_compressed =
+        poseidon16_compress_with_trace(message[..8].try_into().unwrap(), first_input_right, poseidon_16_trace);
 
     let compressed = poseidon16_compress_with_trace(pre_compressed, xmss_pub_key.flaten(), poseidon_16_trace);
 
@@ -234,9 +241,3 @@ fn is_valid_encoding(encoding: &[u8]) -> bool {
     true
 }
 
-pub fn slot_to_field_elements(slot: u32) -> [F; 2] {
-    [
-        F::from_usize((slot & 0xFFFF) as usize),
-        F::from_usize(((slot >> 16) & 0xFFFF) as usize),
-    ]
-}

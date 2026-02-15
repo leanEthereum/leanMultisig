@@ -43,7 +43,7 @@ fn gen_wots_secret_key(seed: &[u8; 32], slot: u32, public_param: PublicParam) ->
     hasher.update(seed);
     hasher.update(slot.to_le_bytes());
     let mut rng = StdRng::from_seed(hasher.finalize().into());
-    WotsSecretKey::random(&mut rng, public_param)
+    WotsSecretKey::random(&mut rng, public_param, slot)
 }
 
 fn gen_public_param(seed: &[u8; 32]) -> PublicParam {
@@ -84,7 +84,7 @@ pub fn xmss_key_gen(
         .into_par_iter()
         .map(|slot| {
             let wots = gen_wots_secret_key(&seed, slot, public_param);
-            wots.public_key().hash(public_param)
+            wots.public_key().hash(public_param, slot)
         })
         .collect();
     let mut merkle_tree = vec![leaves];
@@ -113,12 +113,9 @@ pub fn xmss_key_gen(
                     } else {
                         gen_random_node(&seed, level - 1, right_idx)
                     };
-                    let mut posedion_left = [F::default(); 8];
-                    posedion_left[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
-                    posedion_left[PUBLIC_PARAM_LEN_FE..].copy_from_slice(&left);
-                    let mut poseidon_right = [F::default(); 8];
-                    poseidon_right[..DIGEST_SIZE].copy_from_slice(&right);
-                    poseidon16_compress_pair(posedion_left, poseidon_right)[..DIGEST_SIZE]
+                    let poseidon_left = build_left(&public_param, &left);
+                    let poseidon_right = build_right(make_tweak(TWEAK_TYPE_MERKLE, level, i as u32), &right);
+                    poseidon16_compress_pair(poseidon_left, poseidon_right)[..DIGEST_SIZE]
                         .try_into()
                         .unwrap()
                 })
@@ -224,27 +221,24 @@ pub fn xmss_verify_with_poseidon_trace(
             &mut poseidon_16_trace,
         )
         .ok_or(XmssVerifyError::InvalidWots)?;
-    let mut current_hash = wots_public_key.hash_with_poseidon_trace(&mut poseidon_16_trace, pub_key.public_param);
+    let mut current_hash =
+        wots_public_key.hash_with_poseidon_trace(&mut poseidon_16_trace, pub_key.public_param, signature.slot);
     if signature.merkle_proof.len() != LOG_LIFETIME {
         return Err(XmssVerifyError::InvalidMerklePath);
     }
     for (level, neighbour) in signature.merkle_proof.iter().enumerate() {
         let is_left = (((signature.slot as u64) >> level) & 1) == 0;
+        let parent_index = ((signature.slot as u64) >> (level + 1)) as u32;
+        let tweak = make_tweak(TWEAK_TYPE_MERKLE, level + 1, parent_index);
         if is_left {
-            let mut left = [F::default(); 8];
-            left[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&pub_key.public_param);
-            left[PUBLIC_PARAM_LEN_FE..].copy_from_slice(&current_hash);
-            let mut right = [F::default(); 8];
-            right[..DIGEST_SIZE].copy_from_slice(neighbour);
+            let left = build_left(&pub_key.public_param, &current_hash);
+            let right = build_right(tweak, neighbour);
             current_hash = poseidon16_compress_with_trace(left, right, &mut poseidon_16_trace)[..DIGEST_SIZE]
                 .try_into()
                 .unwrap();
         } else {
-            let mut left = [F::default(); 8];
-            left[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&pub_key.public_param);
-            left[PUBLIC_PARAM_LEN_FE..].copy_from_slice(neighbour);
-            let mut right = [F::default(); 8];
-            right[..DIGEST_SIZE].copy_from_slice(&current_hash);
+            let left = build_left(&pub_key.public_param, neighbour);
+            let right = build_right(tweak, &current_hash);
             current_hash = poseidon16_compress_with_trace(left, right, &mut poseidon_16_trace)[..DIGEST_SIZE]
                 .try_into()
                 .unwrap();
