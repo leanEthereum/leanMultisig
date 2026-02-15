@@ -21,15 +21,18 @@ fn keygen_sign_verify() {
 #[ignore]
 fn encoding_grinding_bits() {
     let n = 100;
+    let xmss_pub_key = XmssPublicKey {
+        merkle_root: Default::default(),
+        public_param: Default::default(),
+    };
     let total_iters = (0..n)
         .into_par_iter()
         .map(|i| {
             let message: [F; MESSAGE_LEN_FE] = Default::default();
             let slot = i as u32;
-            let truncated_merkle_root: [F; TRUNCATED_MERKLE_ROOT_LEN_FE] = Default::default();
             let mut rng = StdRng::seed_from_u64(i as u64);
             let (_randomness, _encoding, num_iters) =
-                find_randomness_for_wots_encoding(&message, slot, &truncated_merkle_root, &mut rng);
+                find_randomness_for_wots_encoding(&message, slot, &xmss_pub_key, &mut rng);
             num_iters
         })
         .sum::<usize>();
