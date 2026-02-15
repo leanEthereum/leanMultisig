@@ -7,11 +7,10 @@ use crate::*;
 
 #[derive(Debug)]
 pub struct XmssSecretKey {
-    pub(crate) start: u32,
-    pub(crate) end: u32,
+    pub(crate) slot_start: u32, // inclusive
+    pub(crate) slot_end: u32,   // inclusive
     pub(crate) seed: [u8; 32],
-    // merkle_tree[level] stores nodes at that level whose subtree overlaps [start, end].
-    // At level l, stored indices go from (start >> l) to (end >> l).
+    // At level l, stored indices go from (slot_start >> l) to (slot_end >> l).
     pub(crate) merkle_tree: Vec<Vec<Digest>>,
 }
 
@@ -52,12 +51,16 @@ pub enum XmssKeyGenError {
     InvalidRange,
 }
 
-pub fn xmss_key_gen(seed: [u8; 32], start: u32, end: u32) -> Result<(XmssSecretKey, XmssPublicKey), XmssKeyGenError> {
-    if start > end || end as u64 >= (1 << LOG_LIFETIME) {
+pub fn xmss_key_gen(
+    seed: [u8; 32],
+    slot_start: u32,
+    slot_end: u32,
+) -> Result<(XmssSecretKey, XmssPublicKey), XmssKeyGenError> {
+    if slot_start > slot_end || slot_end as u64 >= (1 << LOG_LIFETIME) {
         return Err(XmssKeyGenError::InvalidRange);
     }
-    // Level 0: WOTS leaf hashes for slots in [start, end]
-    let leaves: Vec<Digest> = (start as u64..end as u64 + 1)
+    // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
+    let leaves: Vec<Digest> = (slot_start as u64..slot_end as u64 + 1)
         .into_par_iter()
         .map(|slot| {
             let wots = gen_wots_secret_key(&seed, slot);
@@ -66,13 +69,13 @@ pub fn xmss_key_gen(seed: [u8; 32], start: u32, end: u32) -> Result<(XmssSecretK
         .collect();
     let mut merkle_tree = vec![leaves];
     // Build levels 1..=LOG_LIFETIME.
-    // At level l, we store nodes with index in [(start >> l), (end >> l)].
-    // Children outside [start, end]'s subtree are replaced by gen_random_node.
+    // At level l, we store nodes with index in [(slot_start >> l), (slot_end >> l)].
+    // Children outside [slot_start, slot_end]'s subtree are replaced by gen_random_node.
     for level in 1..=LOG_LIFETIME {
-        let base: u64 = (start as u64) >> level;
-        let top: u64 = (end as u64) >> level;
-        let prev_base: u64 = (start as u64) >> (level - 1);
-        let prev_top: u64 = (end as u64) >> (level - 1);
+        let base: u64 = (slot_start as u64) >> level;
+        let top: u64 = (slot_end as u64) >> level;
+        let prev_base: u64 = (slot_start as u64) >> (level - 1);
+        let prev_top: u64 = (slot_end as u64) >> (level - 1);
         let nodes: Vec<Digest> = {
             let prev = &merkle_tree[level - 1];
             (base..top + 1)
@@ -100,8 +103,8 @@ pub fn xmss_key_gen(seed: [u8; 32], start: u32, end: u32) -> Result<(XmssSecretK
         merkle_root: merkle_tree.last().unwrap()[0],
     };
     let secret_key = XmssSecretKey {
-        start,
-        end,
+        slot_start,
+        slot_end,
         seed,
         merkle_tree,
     };
@@ -131,7 +134,7 @@ pub fn xmss_sign_with_randomness(
     slot: u32,
     randomness: [F; RANDOMNESS_LEN_FE],
 ) -> Result<XmssSignature, XmssSignatureError> {
-    if slot < secret_key.start || slot > secret_key.end {
+    if slot < secret_key.slot_start || slot > secret_key.slot_end {
         return Err(XmssSignatureError::SlotOutOfRange);
     }
     let wots_secret_key = gen_wots_secret_key(&secret_key.seed, slot as u64);
@@ -141,8 +144,8 @@ pub fn xmss_sign_with_randomness(
     let merkle_proof = (0..LOG_LIFETIME)
         .map(|level| {
             let neighbour_index = ((slot as u64) >> level) ^ 1;
-            let base = (secret_key.start as u64) >> level;
-            let top = (secret_key.end as u64) >> level;
+            let base = (secret_key.slot_start as u64) >> level;
+            let top = (secret_key.slot_end as u64) >> level;
             if neighbour_index >= base && neighbour_index <= top {
                 secret_key.merkle_tree[level][(neighbour_index - base) as usize]
             } else {
