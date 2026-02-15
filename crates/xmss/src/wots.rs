@@ -240,4 +240,3 @@ fn is_valid_encoding(encoding: &[u8]) -> bool {
     }
     true
 }
-

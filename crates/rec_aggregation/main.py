@@ -8,7 +8,8 @@ MAX_N_SIGS = 2**15
 MAX_N_DUPS = 2**15
 
 INNER_PUB_MEM_SIZE = 2 ** INNER_PUBLIC_MEMORY_LOG_SIZE
-BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS
+BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS + DIGEST_LEN
+TWEAK_TABLE_LOG_SIZE = log2_ceil(TWEAK_TABLE_SIZE_FE)
 
 
 def main():
@@ -23,6 +24,7 @@ def main():
     slot_lo = slot_ptr[0]
     slot_hi = slot_ptr[1]
     merkle_chunks_for_slot = slot_ptr + 2
+    tweaks_hash_expected = merkle_chunks_for_slot + N_MERKLE_CHUNKS
     bytecode_claim_output = pub_mem + BYTECODE_CLAIM_OFFSET
 
     priv_start: Imu
@@ -34,11 +36,16 @@ def main():
     n_dup = priv_start[1]
     assert n_dup < MAX_N_SIGS # TODO increase
     all_pubkeys = priv_start[2]
-    sub_slice_starts = priv_start + 3
+    tweak_table = priv_start[3]
+    sub_slice_starts = priv_start + 4
     bytecode_sumcheck_proof = sub_slice_starts[n_recursions + 1]
 
     computed_pubkeys_hash = slice_hash_dynamic_unroll(all_pubkeys, n_sigs * DIGEST_LEN, MAX_LOG_MEMORY_SIZE)
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
+
+    # Verify tweak table hash
+    computed_tweaks_hash = slice_hash_dynamic_unroll(tweak_table, TWEAK_TABLE_SIZE_FE, TWEAK_TABLE_LOG_SIZE)
+    copy_8(computed_tweaks_hash, tweaks_hash_expected)
 
     # Buffer for partition verification
     n_total = n_sigs + n_dup
@@ -60,7 +67,7 @@ def main():
         # Verify raw XMSS signatures
         pk = all_pubkeys + idx * DIGEST_LEN
         sig = raw_sigs + i * SIG_SIZE
-        xmss_verify(pk, message, sig, slot_lo, slot_hi, merkle_chunks_for_slot)
+        xmss_verify(pk, message, sig, tweak_table, merkle_chunks_for_slot)
 
     # Recursive sources
     n_bytecode_claims = n_recursions * 2
@@ -114,6 +121,8 @@ def main():
         inner_msg[MESSAGE_LEN + 1] = slot_hi
         for k in unroll(0, N_MERKLE_CHUNKS):
             inner_msg[MESSAGE_LEN + 2 + k] = merkle_chunks_for_slot[k]
+        # Verify inner tweaks hash matches ours
+        copy_8(tweaks_hash_expected, inner_msg + MESSAGE_LEN + 2 + N_MERKLE_CHUNKS)
 
         # Collect inner bytecode claim from inner pub mem
         bytecode_claims[2 * rec_idx] = non_reserved_inner + BYTECODE_CLAIM_OFFSET

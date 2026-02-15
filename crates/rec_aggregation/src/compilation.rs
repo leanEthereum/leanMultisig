@@ -46,9 +46,9 @@ pub fn init_aggregation_bytecode() {
 fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: bool, bytecode_zero_eval: F) -> Bytecode {
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
-    // pub_input layout: n_sigs(1) + slice_hash(8) + slot_low(1) + slot_high(1)
-    //                   + message + merkle_chunks_for_slot + bytecode_claim
-    let pub_input_size = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size;
+    // pub_input layout: n_sigs(1) + slice_hash(8) + message + slot_low(1) + slot_high(1)
+    //                   + merkle_chunks_for_slot + tweaks_hash(8) + bytecode_claim
+    let pub_input_size = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN + claim_data_size;
     let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
     let replacements = build_replacements(
         inner_program_log_size,
