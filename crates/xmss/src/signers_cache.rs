@@ -22,9 +22,7 @@ pub fn find_randomness_for_benchmark(index: usize) -> [F; RANDOMNESS_LEN_FE] {
     let message = message_for_benchmark();
     let mut rng = StdRng::seed_from_u64(index as u64);
     let (_sk, pk) = benchmark_keygen(&mut rng);
-    let truncated: [F; TRUNCATED_MERKLE_ROOT_LEN_FE] =
-        pk.merkle_root[..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
-    let (randomness, _, _) = find_randomness_for_wots_encoding(&message, BENCHMARK_SLOT, &truncated, &mut rng);
+    let (randomness, _, _) = find_randomness_for_wots_encoding(&message, BENCHMARK_SLOT, &pk, &mut rng);
     randomness
 }
 
