@@ -31,13 +31,13 @@ def main():
         if i == 0:
             x += 100
             y += 1
-        else if i == 1:
+        elif i == 1:
             x += 50
             y += 2
-        else if i == 2:
+        elif i == 2:
             x += 25
             y += 4
-        else if i == 3:
+        elif i == 3:
             x -= 10
             y += 8
         else:
@@ -154,7 +154,7 @@ def main():
             if i == j:
                 if i == 0:
                     complex += 100
-                else if i == 1:
+                elif i == 1:
                     complex += 200
                 else:
                     complex += 300

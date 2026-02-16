@@ -10,15 +10,15 @@ def main():
                 y = y - 1
             if j == 10000:
                 y = y - 2
-            else if i != 1000:
+            elif i != 1000:
                 y = y + 2
             if j == 10000:
                 y = y - 2
-            else if i == 1000:
+            elif i == 1000:
                 y = y + 2
             if j == 10000:
                 y = y - 2
-            else if i != 1000:
+            elif i != 1000:
                 y = y + 2
             else:
                 y = y + 2

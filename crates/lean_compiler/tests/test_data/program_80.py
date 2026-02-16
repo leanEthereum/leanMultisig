@@ -4,7 +4,7 @@ def main():
     for i in unroll(0, 5):
         if i == 2:
             total = total + 100
-        else if i == 4:
+        elif i == 4:
             total = total + 1000
         else:
             total = total + 1
