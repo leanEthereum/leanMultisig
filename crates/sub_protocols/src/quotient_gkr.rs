@@ -77,7 +77,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     let (mut next_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
         prev_numerators_and_denominators_split,
         None,
-        &GKRQuotientComputation::<2> {},
+        &GKRQuotientComputation {},
         &alpha.powers().take(2).collect(),
         Some((claim_point.0.clone(), None)),
         false,
@@ -137,7 +137,7 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
 
     if postponed.value
         != point.eq_poly_outside(&postponed.point)
-            * <GKRQuotientComputation<2> as SumcheckComputation<EF>>::eval_extension(
+            * GKRQuotientComputation::eval_extension(
                 &Default::default(),
                 &inner_evals,
                 &[],
