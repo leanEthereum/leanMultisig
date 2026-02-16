@@ -82,7 +82,7 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks
                     range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_start, num_hashes_const, chain_end))
 
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
-    xmss_merkle_verify(wots_pubkey_hashed, merkle_path, merkle_chunks, LOG_LIFETIME, merkle_root)
+    xmss_merkle_verify(wots_pubkey_hashed, merkle_path, merkle_chunks, merkle_root)
     return
 
 
@@ -144,7 +144,7 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out):
 
 
 @inline
-def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, height, expected_root):
+def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root):
     states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
 
     # First chunk: leaf_digest -> states
