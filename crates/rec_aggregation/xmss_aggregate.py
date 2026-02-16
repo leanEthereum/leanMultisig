@@ -36,66 +36,95 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks
     encoding_fe = Array(DIGEST_LEN)
     poseidon16(b_input, b_input + DIGEST_LEN, encoding_fe)
 
-    encoding = Array(NUM_ENCODING_FE * 24 / W)
+    encoding = Array(NUM_ENCODING_FE * 24 / (2 * W))
     remaining = Array(NUM_ENCODING_FE)
 
-    # TODO: decompose by chunks of 2.w bits (or even 3.w bits) and use a big match on the w^2 (or w^3) possibilities
     hint_decompose_bits_xmss(
         encoding,
         remaining,
         encoding_fe,
         NUM_ENCODING_FE,
-        W
+        2 * W
     )
 
     # check that the decomposition is correct
     for i in unroll(0, NUM_ENCODING_FE):
-        for j in unroll(0, 24 / W):
-            assert encoding[i * (24 / W) + j] < CHAIN_LENGTH
+        for j in unroll(0, 24 / (2 * W)):
+            assert encoding[i * (24 / (2 * W)) + j] < CHAIN_LENGTH**2
 
-        assert remaining[i] < 2**7 - 1
+        assert remaining[i] < 2**7 - 1 # ensures uniformity + prevent overflow
 
         partial_sum: Mut = remaining[i] * 2**24
-        for j in unroll(0, 24/W):
-            partial_sum += encoding[i * (24 / W) + j] * CHAIN_LENGTH ** j
+        for j in unroll(0, 24/(2*W)):
+            partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH ** 2) ** j
         assert partial_sum == encoding_fe[i]
 
-    # we need to check the target sum
-    target_sum: Mut = encoding[0]
-    for i in unroll(1, V):
-        target_sum += encoding[i]
-    assert target_sum == TARGET_SUM
-
     # grinding
-    for i in unroll(V, V + V_GRINDING):
-        assert encoding[i] == CHAIN_LENGTH - 1
+    debug_assert(V_GRINDING % 2 == 0)
+    debug_assert(V % 2 == 0)
+    for i in unroll(V / 2, (V + V_GRINDING) / 2):
+        assert encoding[i] == CHAIN_LENGTH**2 - 1
 
+    target_sum: Mut = 0
+    
     wots_public_key = Array(V * DIGEST_LEN)
 
-    for i in unroll(0, V):
-        num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
-        chain_start = chain_starts + i * DIGEST_LEN
-        chain_end = wots_public_key + i * DIGEST_LEN
-        match_range(num_hashes,
-                    range(0, 1), lambda _: copy_8(chain_start, chain_end),
-                    range(1, 2), lambda _: poseidon16(chain_start, ZERO_VEC_PTR, chain_end),
-                    range(2, CHAIN_LENGTH), lambda num_hashes_const: chain_hash(chain_start, num_hashes_const, chain_end))
+    for i in unroll(0, V / 2):
+        # num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
+        chain_start = chain_starts + i * (DIGEST_LEN * 2)
+        chain_end = wots_public_key + i * (DIGEST_LEN * 2)
+        pair_chain_length_sum_ptr = Array(1)
+        match_range(encoding[i], range(0, CHAIN_LENGTH**2), lambda n: chain_hash(chain_start, n, chain_end, pair_chain_length_sum_ptr))
+        target_sum += pair_chain_length_sum_ptr[0]
+
+    assert target_sum == TARGET_SUM
 
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
     xmss_merkle_verify(wots_pubkey_hashed, merkle_path, merkle_chunks, merkle_root)
     return
 
 
-def chain_hash(input, n: Const, output):
-    debug_assert(2 <= n)
-    states = Array((n-1) * DIGEST_LEN)
-    poseidon16(input, ZERO_VEC_PTR, states)
-    state_indexes = Array(n - 1)
-    state_indexes[0] = states
-    for i in unroll(1, n-1):
-        state_indexes[i] = state_indexes[i - 1] + DIGEST_LEN
-        poseidon16(state_indexes[i - 1], ZERO_VEC_PTR, state_indexes[i])
-    poseidon16(state_indexes[n - 2], ZERO_VEC_PTR, output)
+def chain_hash(input_left, n: Const, output_left, pair_chain_length_sum_ptr):
+    debug_assert(n < CHAIN_LENGTH**2)
+
+    raw_left = n % CHAIN_LENGTH
+    raw_right = (n - raw_left) / CHAIN_LENGTH
+
+    n_left = (CHAIN_LENGTH - 1) - raw_left
+    if n_left == 0:
+        copy_8(input_left, output_left)
+    elif n_left == 1:
+        poseidon16(input_left, ZERO_VEC_PTR, output_left)
+    else:
+        states_left = Array((n_left-1) * DIGEST_LEN)
+        poseidon16(input_left, ZERO_VEC_PTR, states_left)
+        state_indexes_left = Array(n_left - 1)
+        state_indexes_left[0] = states_left
+        for i in unroll(1, n_left-1):
+            state_indexes_left[i] = state_indexes_left[i - 1] + DIGEST_LEN
+            poseidon16(state_indexes_left[i - 1], ZERO_VEC_PTR, state_indexes_left[i])
+        poseidon16(state_indexes_left[n_left - 2], ZERO_VEC_PTR, output_left)
+
+    n_right = (CHAIN_LENGTH - 1) - raw_right
+    debug_assert(raw_right < CHAIN_LENGTH)
+    input_right = input_left + DIGEST_LEN
+    output_right = output_left + DIGEST_LEN
+    if n_right == 0:
+        copy_8(input_right, output_right)
+    elif n_right == 1:
+        poseidon16(input_right, ZERO_VEC_PTR, output_right)
+    else:
+        states_right = Array((n_right-1) * DIGEST_LEN)
+        poseidon16(input_right, ZERO_VEC_PTR, states_right)
+        state_indexes_right = Array(n_right - 1)
+        state_indexes_right[0] = states_right
+        for i in unroll(1, n_right-1):
+            state_indexes_right[i] = state_indexes_right[i - 1] + DIGEST_LEN
+            poseidon16(state_indexes_right[i - 1], ZERO_VEC_PTR, state_indexes_right[i])
+        poseidon16(state_indexes_right[n_right - 2], ZERO_VEC_PTR, output_right)
+
+    pair_chain_length_sum_ptr[0] = raw_left + raw_right
+
     return
 
 

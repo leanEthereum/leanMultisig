@@ -59,7 +59,6 @@ mod tests {
             slot,
             log_inv_rate,
             prox_gaps_conjecture,
-            false,
         );
 
         let pub_keys_and_sigs_b: Vec<_> = (3..5)
@@ -73,7 +72,6 @@ mod tests {
             slot,
             log_inv_rate,
             prox_gaps_conjecture,
-            false,
         );
 
         let pub_keys_and_sigs_c: Vec<_> = (5..6)
@@ -88,7 +86,6 @@ mod tests {
             slot,
             log_inv_rate,
             prox_gaps_conjecture,
-            false,
         );
 
         verify_aggregation(&aggregated_final, &message, slot, prox_gaps_conjecture).unwrap();

@@ -152,7 +152,6 @@ pub fn aggregate(
     slot: u32,
     log_inv_rate: usize,
     prox_gaps_conjecture: bool,
-    tracing: bool,
 ) -> AggregatedSigs {
     raw_xmss.sort_by_key(|(a, _)| Digest(a.merkle_root));
     raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
@@ -350,10 +349,6 @@ pub fn aggregate(
         &whir_config,
         false,
     );
-
-    if tracing {
-        println!("{}", execution_proof.metadata.display());
-    }
 
     AggregatedSigs {
         pub_keys: global_pub_keys,

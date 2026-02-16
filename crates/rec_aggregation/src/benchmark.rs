@@ -277,12 +277,19 @@ fn build_aggregation(
         slot,
         topology.log_inv_rate,
         prox_gaps_conjecture,
-        tracing,
     );
     let elapsed = time.elapsed();
 
     if tracing {
         println!("{}", result.metadata.display());
+        if topology.children.is_empty() {
+            println!(
+                "{} XMSS/s",
+                (topology.raw_xmss as f64 / elapsed.as_secs_f64()).round() as usize
+            );
+        } else {
+            println!("{}s the final aggregation step", elapsed.as_secs_f64());
+        }
     }
 
     if !tracing {
