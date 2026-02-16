@@ -6,13 +6,13 @@ def main():
     for i in range(0, 6):
         if i == 0:
             result += 1
-        else if i == 1:
+        elif i == 1:
             result += 2
-        else if i == 2:
+        elif i == 2:
             result += 4
-        else if i == 3:
+        elif i == 3:
             result += 8
-        else if i == 4:
+        elif i == 4:
             result += 16
         else:
             result += 32

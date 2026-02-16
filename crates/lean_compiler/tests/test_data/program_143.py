@@ -155,9 +155,9 @@ def main():
     x24 = 5
     if incr(x24) == 4:
         result24 = 1
-    else if incr(x24) == 5:
+    elif incr(x24) == 5:
         result24 = 2
-    else if incr(x24) == 6:
+    elif incr(x24) == 6:
         result24 = 3
     else:
         result24 = 0
