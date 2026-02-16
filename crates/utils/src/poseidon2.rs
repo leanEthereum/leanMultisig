@@ -1,13 +1,5 @@
 use std::sync::OnceLock;
-
-use p3_koala_bear::KOALABEAR_RC16_EXTERNAL_FINAL;
-use p3_koala_bear::KOALABEAR_RC16_EXTERNAL_INITIAL;
-use p3_koala_bear::KOALABEAR_RC16_INTERNAL;
-use p3_koala_bear::KoalaBear;
-use p3_koala_bear::Poseidon2KoalaBear;
-use p3_poseidon2::ExternalLayerConstants;
-use p3_symmetric::Permutation;
-
+use multilinear_toolkit::prelude::*;
 pub type Poseidon16 = Poseidon2KoalaBear<16>;
 pub type Poseidon24 = Poseidon2KoalaBear<24>;
 
@@ -63,4 +55,12 @@ pub fn poseidon_compress_slice(data: &[KoalaBear]) -> [KoalaBear; 8] {
         hash = poseidon16_compress(block);
     }
     hash
+}
+
+
+#[test]
+fn test_poseidon16_compress() {
+    let input = [KoalaBear::ONE; 16];
+    let output = poseidon16_compress(input);
+    dbg!(output);
 }

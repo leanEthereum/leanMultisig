@@ -4,7 +4,7 @@ pub use multilinear_toolkit::prelude::ProofError;
 pub use rec_aggregation::{AggregatedSigs, AggregationTopology, Digest, aggregate, verify_aggregation};
 pub use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSecretKey, XmssSignature, xmss_key_gen, xmss_sign, xmss_verify};
 
-pub type F = p3_koala_bear::KoalaBear;
+pub type F = KoalaBear;
 
 /// Call once before proving. Compiles the aggregation program and precomputes DFT twiddles.
 pub fn setup_prover() {

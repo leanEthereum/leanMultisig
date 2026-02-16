@@ -1,7 +1,6 @@
 use lean_compiler::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::PrimeCharacteristicRing;
-use p3_util::log2_ceil_usize;
+use multilinear_toolkit::prelude::*;
 
 fn test_log2_ceil_with(n: usize) {
     let path = format!("{}/tests/test_log2_ceil.py", env!("CARGO_MANIFEST_DIR"));

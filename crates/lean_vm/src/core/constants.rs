@@ -65,8 +65,7 @@ pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;
 
 #[cfg(test)]
 mod tests {
-    use multilinear_toolkit::prelude::PrimeField64;
-    use p3_util::log2_ceil_u64;
+    use multilinear_toolkit::prelude::*;
 
     use crate::{DIMENSION, F, MAX_LOG_MEMORY_SIZE, MAX_LOG_N_ROWS_PER_TABLE, Table, TableT};
 

@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use crate::*;
 use air::verify_air;
 use lean_vm::*;
-use p3_util::log2_strict_usize;
 use sub_protocols::*;
 use utils::ToUsize;
 

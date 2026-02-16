@@ -27,7 +27,7 @@ mod tests {
     use crate::utils::next_mle;
 
     use super::*;
-    type F = p3_koala_bear::KoalaBear;
+    type F = KoalaBear;
 
     #[test]
     fn test_matrix_down_folded() {

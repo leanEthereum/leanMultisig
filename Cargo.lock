@@ -16,17 +16,14 @@ name = "air"
 version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
- "p3-koala-bear",
- "p3-util",
  "rand",
  "tracing",
- "utils",
+ "utils 0.1.0",
 ]
 
 [[package]]
 name = "air"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
 dependencies = [
  "p3-field",
 ]
@@ -99,13 +96,12 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
 dependencies = [
  "itertools",
  "p3-field",
- "p3-util",
  "rand",
  "rayon",
+ "utils 0.3.0",
 ]
 
 [[package]]
@@ -190,7 +186,6 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -266,14 +261,13 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
 dependencies = [
  "p3-field",
  "p3-koala-bear",
- "p3-poseidon2",
- "p3-symmetric",
  "rayon",
  "serde",
+ "symetric",
+ "utils 0.3.0",
 ]
 
 [[package]]
@@ -358,11 +352,10 @@ dependencies = [
  "clap",
  "lean_vm",
  "multilinear-toolkit",
- "p3-koala-bear",
  "rand",
  "rec_aggregation",
  "sub_protocols",
- "utils",
+ "utils 0.1.0",
  "xmss",
 ]
 
@@ -373,16 +366,12 @@ dependencies = [
  "air 0.1.0",
  "lean_vm",
  "multilinear-toolkit",
- "p3-koala-bear",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
  "pest",
  "pest_derive",
  "rand",
  "sub_protocols",
  "tracing",
- "utils",
+ "utils 0.1.0",
  "xmss",
 ]
 
@@ -396,16 +385,12 @@ dependencies = [
  "lean_vm",
  "multilinear-toolkit",
  "owo-colors",
- "p3-koala-bear",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
  "pest",
  "pest_derive",
  "rand",
  "sub_protocols",
  "tracing",
- "utils",
+ "utils 0.1.0",
  "xmss",
 ]
 
@@ -418,17 +403,13 @@ dependencies = [
  "itertools",
  "multilinear-toolkit",
  "num_enum",
- "p3-koala-bear",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
  "pest",
  "pest_derive",
  "rand",
  "strum",
  "thiserror",
  "tracing",
- "utils",
+ "utils 0.1.0",
  "xmss",
 ]
 
@@ -462,18 +443,18 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
 dependencies = [
  "air 0.3.0",
  "backend",
  "constraints-folder",
  "fiat-shamir",
  "p3-field",
- "p3-maybe-rayon",
- "p3-util",
+ "p3-koala-bear",
  "rayon",
  "sumcheck",
+ "symetric",
  "tracing",
+ "utils 0.3.0",
  "whir",
 ]
 
@@ -555,178 +536,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
 
 [[package]]
-name = "p3-challenger"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "p3-field",
- "p3-maybe-rayon",
- "p3-symmetric",
- "p3-util",
- "tracing",
-]
-
-[[package]]
-name = "p3-commit"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "itertools",
- "p3-challenger",
- "p3-dft",
- "p3-field",
- "p3-matrix",
- "p3-util",
- "serde",
-]
-
-[[package]]
-name = "p3-dft"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "itertools",
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-util",
- "tracing",
-]
-
-[[package]]
 name = "p3-field"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
 dependencies = [
  "itertools",
  "num-bigint",
- "p3-maybe-rayon",
- "p3-util",
  "paste",
  "rand",
+ "rayon",
  "serde",
  "tracing",
+ "utils 0.3.0",
 ]
 
 [[package]]
 name = "p3-koala-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
 dependencies = [
  "itertools",
  "num-bigint",
  "p3-field",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
- "rand",
- "serde",
-]
-
-[[package]]
-name = "p3-matrix"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "itertools",
- "p3-field",
- "p3-maybe-rayon",
- "p3-util",
- "rand",
- "serde",
- "tracing",
- "transpose",
-]
-
-[[package]]
-name = "p3-maybe-rayon"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "rayon",
-]
-
-[[package]]
-name = "p3-mds"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "p3-dft",
- "p3-field",
- "p3-symmetric",
- "p3-util",
- "rand",
-]
-
-[[package]]
-name = "p3-merkle-tree"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "itertools",
- "p3-commit",
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-symmetric",
- "p3-util",
- "rand",
- "serde",
- "tracing",
-]
-
-[[package]]
-name = "p3-monty-31"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "itertools",
- "num-bigint",
- "p3-dft",
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-mds",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
  "paste",
  "rand",
- "serde",
- "tracing",
- "transpose",
-]
-
-[[package]]
-name = "p3-poseidon2"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "p3-field",
- "p3-mds",
- "p3-symmetric",
- "p3-util",
- "rand",
-]
-
-[[package]]
-name = "p3-symmetric"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
- "itertools",
- "p3-field",
- "serde",
-]
-
-[[package]]
-name = "p3-util"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=lean-multisig#ca9c49248ba854171f93380bf6b957e1bb6f1654"
-dependencies = [
  "rayon",
  "serde",
+ "tracing",
+ "utils 0.3.0",
 ]
 
 [[package]]
@@ -885,14 +720,10 @@ dependencies = [
  "lean_prover",
  "lean_vm",
  "multilinear-toolkit",
- "p3-koala-bear",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
  "rand",
  "sub_protocols",
  "tracing",
- "utils",
+ "utils 0.1.0",
  "xmss",
 ]
 
@@ -986,12 +817,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
-name = "strength_reduce"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82"
-
-[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1025,25 +850,30 @@ dependencies = [
  "lean_vm",
  "multilinear-toolkit",
  "owo-colors",
- "p3-koala-bear",
- "p3-util",
  "rand",
  "tracing",
- "utils",
+ "utils 0.1.0",
 ]
 
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
 dependencies = [
  "air 0.3.0",
  "backend",
  "constraints-folder",
  "fiat-shamir",
  "p3-field",
- "p3-util",
  "rayon",
+ "utils 0.3.0",
+]
+
+[[package]]
+name = "symetric"
+version = "0.3.0"
+dependencies = [
+ "p3-field",
+ "p3-koala-bear",
 ]
 
 [[package]]
@@ -1191,16 +1021,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "transpose"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
-dependencies = [
- "num-integer",
- "strength_reduce",
-]
-
-[[package]]
 name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1229,14 +1049,17 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
- "p3-koala-bear",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
  "rand",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "utils"
+version = "0.3.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1263,24 +1086,19 @@ dependencies = [
 [[package]]
 name = "whir"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
 dependencies = [
  "backend",
  "fiat-shamir",
  "itertools",
- "p3-commit",
- "p3-dft",
  "p3-field",
  "p3-koala-bear",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-merkle-tree",
- "p3-symmetric",
- "p3-util",
  "rand",
  "rayon",
+ "serde",
  "sumcheck",
+ "symetric",
  "tracing",
+ "utils 0.3.0",
 ]
 
 [[package]]
@@ -1340,10 +1158,9 @@ name = "xmss"
 version = "0.1.0"
 dependencies = [
  "multilinear-toolkit",
- "p3-koala-bear",
  "rand",
  "sha3",
- "utils",
+ "utils 0.1.0",
 ]
 
 [[package]]

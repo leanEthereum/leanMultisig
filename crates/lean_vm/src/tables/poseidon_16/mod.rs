@@ -1,12 +1,7 @@
-use p3_poseidon2::GenericPoseidon2LinearLayers;
 use std::any::TypeId;
 
 use crate::{tables::poseidon_16::trace_gen::default_poseidon_row, *};
 use multilinear_toolkit::prelude::{symbolic::SymbolicExpression, *};
-use p3_koala_bear::{
-    GenericPoseidon2LinearLayersKoalaBear, KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL,
-    KOALABEAR_RC16_INTERNAL, KoalaBear,
-};
 use utils::{ToUsize, poseidon16_compress};
 
 mod trace_gen;

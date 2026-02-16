@@ -5,7 +5,6 @@ use lean_vm::{
 use lean_vm::{EF, F, Table, TableT, TableTrace};
 use multilinear_toolkit::prelude::*;
 use owo_colors::OwoColorize;
-use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use tracing::instrument;
 use utils::{VarCount, transpose_slice_to_basis_coefficients};

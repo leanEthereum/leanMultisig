@@ -206,7 +206,6 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
-    use p3_koala_bear::QuinticExtensionFieldKB;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use utils::{build_prover_state, build_verifier_state, init_tracing};
 

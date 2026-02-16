@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::KoalaBear;
 use rand::{SeedableRng, rngs::StdRng};
 use xmss::*;
 

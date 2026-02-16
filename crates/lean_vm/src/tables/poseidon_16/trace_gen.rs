@@ -1,4 +1,3 @@
-use p3_poseidon2::GenericPoseidon2LinearLayers;
 use tracing::instrument;
 
 use crate::{
@@ -6,10 +5,6 @@ use crate::{
     tables::{Poseidon2Cols, WIDTH, num_cols_poseidon_16},
 };
 use multilinear_toolkit::prelude::*;
-use p3_koala_bear::{
-    GenericPoseidon2LinearLayersKoalaBear, KOALABEAR_RC16_EXTERNAL_FINAL, KOALABEAR_RC16_EXTERNAL_INITIAL,
-    KOALABEAR_RC16_INTERNAL, KoalaBear,
-};
 
 #[instrument(name = "generate Poseidon2 trace", skip_all)]
 pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {

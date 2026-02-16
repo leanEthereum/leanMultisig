@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
-use p3_koala_bear::KoalaBear;
 pub mod signers_cache;
 mod wots;
+use multilinear_toolkit::prelude::KoalaBear;
 use utils::poseidon16_compress;
 pub use wots::*;
 mod xmss;

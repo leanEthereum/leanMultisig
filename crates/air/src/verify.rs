@@ -1,5 +1,4 @@
 use multilinear_toolkit::prelude::*;
-use p3_util::log2_ceil_usize;
 
 use crate::{AirClaims, utils::next_mle};
 
