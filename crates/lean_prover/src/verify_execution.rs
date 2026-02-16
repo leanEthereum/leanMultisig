@@ -199,7 +199,6 @@ fn verify_bus_and_air(
                     verifier_state,
                     $t,
                     extra_data,
-                    1,
                     log_n_nrows,
                     Some(bus_virtual_statement),
                 )?

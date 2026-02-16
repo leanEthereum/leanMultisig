@@ -56,11 +56,3 @@ pub fn poseidon_compress_slice(data: &[KoalaBear]) -> [KoalaBear; 8] {
     }
     hash
 }
-
-
-#[test]
-fn test_poseidon16_compress() {
-    let input = [KoalaBear::ONE; 16];
-    let output = poseidon16_compress(input);
-    dbg!(output);
-}

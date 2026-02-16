@@ -75,7 +75,6 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     let alpha = prover_state.sample();
 
     let (mut next_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
-        1,
         prev_numerators_and_denominators_split,
         None,
         &GKRQuotientComputation::<2> {},

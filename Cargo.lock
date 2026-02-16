@@ -25,7 +25,7 @@ dependencies = [
 name = "air"
 version = "0.3.0"
 dependencies = [
- "p3-field",
+ "field",
 ]
 
 [[package]]
@@ -97,8 +97,8 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 name = "backend"
 version = "0.3.0"
 dependencies = [
+ "field",
  "itertools",
- "p3-field",
  "rand",
  "rayon",
  "utils 0.3.0",
@@ -189,7 +189,7 @@ version = "0.3.0"
 dependencies = [
  "air 0.3.0",
  "backend",
- "p3-field",
+ "field",
 ]
 
 [[package]]
@@ -262,11 +262,25 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 name = "fiat-shamir"
 version = "0.3.0"
 dependencies = [
- "p3-field",
- "p3-koala-bear",
+ "field",
+ "koala-bear",
  "rayon",
  "serde",
  "symetric",
+ "utils 0.3.0",
+]
+
+[[package]]
+name = "field"
+version = "0.3.0"
+dependencies = [
+ "itertools",
+ "num-bigint",
+ "paste",
+ "rand",
+ "rayon",
+ "serde",
+ "tracing",
  "utils 0.3.0",
 ]
 
@@ -336,6 +350,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
 dependencies = [
  "cpufeatures",
+]
+
+[[package]]
+name = "koala-bear"
+version = "0.3.0"
+dependencies = [
+ "field",
+ "itertools",
+ "num-bigint",
+ "paste",
+ "rand",
+ "rayon",
+ "serde",
+ "tracing",
+ "utils 0.3.0",
 ]
 
 [[package]]
@@ -448,8 +477,8 @@ dependencies = [
  "backend",
  "constraints-folder",
  "fiat-shamir",
- "p3-field",
- "p3-koala-bear",
+ "field",
+ "koala-bear",
  "rayon",
  "sumcheck",
  "symetric",
@@ -534,35 +563,6 @@ name = "owo-colors"
 version = "4.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
-
-[[package]]
-name = "p3-field"
-version = "0.3.0"
-dependencies = [
- "itertools",
- "num-bigint",
- "paste",
- "rand",
- "rayon",
- "serde",
- "tracing",
- "utils 0.3.0",
-]
-
-[[package]]
-name = "p3-koala-bear"
-version = "0.3.0"
-dependencies = [
- "itertools",
- "num-bigint",
- "p3-field",
- "paste",
- "rand",
- "rayon",
- "serde",
- "tracing",
- "utils 0.3.0",
-]
 
 [[package]]
 name = "paste"
@@ -863,7 +863,7 @@ dependencies = [
  "backend",
  "constraints-folder",
  "fiat-shamir",
- "p3-field",
+ "field",
  "rayon",
  "utils 0.3.0",
 ]
@@ -872,8 +872,8 @@ dependencies = [
 name = "symetric"
 version = "0.3.0"
 dependencies = [
- "p3-field",
- "p3-koala-bear",
+ "field",
+ "koala-bear",
 ]
 
 [[package]]
@@ -1089,9 +1089,9 @@ version = "0.3.0"
 dependencies = [
  "backend",
  "fiat-shamir",
+ "field",
  "itertools",
- "p3-field",
- "p3-koala-bear",
+ "koala-bear",
  "rand",
  "rayon",
  "serde",

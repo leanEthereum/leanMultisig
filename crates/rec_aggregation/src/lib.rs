@@ -222,7 +222,6 @@ pub fn aggregate(
             MleGroupOwned::ExtensionPacked(vec![bytecode.instructions_multilinear_packed.clone(), weights_packed]);
 
         let (challenges, final_evals, _) = sumcheck_prove::<EF, _, _>(
-            1,
             witness,
             None,
             &ProductComputation {},

@@ -1,6 +1,6 @@
 use multilinear_toolkit::prelude::*;
 use tracing::{info_span, instrument};
-use utils::{fold_multilinear_chunks, multilinears_linear_combination};
+use utils::multilinears_linear_combination;
 
 use crate::{AirClaims, uni_skip_utils::matrix_next_mle_folded, utils::column_shifted};
 
@@ -16,7 +16,6 @@ pub fn prove_air<EF: ExtensionField<PF<EF>>, A: Air>(
     prover_state: &mut impl FSProver<EF>,
     air: &A,
     extra_data: A::ExtraData,
-    univariate_skips: usize,
     columns_f: &[impl AsRef<[PF<EF>]>],
     columns_ef: &[impl AsRef<[EF]>],
     virtual_column_statement: Option<Evaluation<EF>>, // point should be randomness generated after committing to the columns
@@ -31,22 +30,16 @@ where
     assert!(columns_f.iter().all(|col| col.len() == n_rows));
     assert!(columns_ef.iter().all(|col| col.len() == n_rows));
     let log_n_rows = log2_strict_usize(n_rows);
-    assert!(
-        univariate_skips < log_n_rows,
-        "TODO handle the case UNIVARIATE_SKIPS >= log_length"
-    );
 
     // crate::check_air_validity(air, &extra_data, &columns_f, &columns_ef).unwrap();
 
     assert!(extra_data.alpha_powers().len() >= air.n_constraints() + virtual_column_statement.is_some() as usize);
 
-    let n_sc_rounds = log_n_rows + 1 - univariate_skips;
-
     let zerocheck_challenges = virtual_column_statement
         .as_ref()
         .map(|st| st.point.0.clone())
-        .unwrap_or_else(|| prover_state.sample_vec(n_sc_rounds));
-    assert_eq!(zerocheck_challenges.len(), n_sc_rounds);
+        .unwrap_or_else(|| prover_state.sample_vec(log_n_rows));
+    assert_eq!(zerocheck_challenges.len(), log_n_rows);
 
     let shifted_rows_f = air
         .down_column_indexes_f()
@@ -73,7 +66,6 @@ where
 
     let (outer_sumcheck_challenge, inner_sums, _) = info_span!("zerocheck").in_scope(|| {
         sumcheck_prove(
-            univariate_skips,
             columns_up_down_group_f_packed,
             Some(columns_up_down_group_ef_packed),
             air,
@@ -91,121 +83,19 @@ where
 
     prover_state.add_extension_scalars(&inner_sums);
 
-    if univariate_skips == 1 {
-        open_columns_no_skip(
-            prover_state,
-            &inner_sums,
-            &air.down_column_indexes_f(),
-            &air.down_column_indexes_ef(),
-            &columns_f,
-            &columns_ef,
-            &outer_sumcheck_challenge,
-        )
-    } else if shifted_rows_f.is_empty() && shifted_rows_ef.is_empty() {
-        // usefull for poseidon2 benchmark
-        open_flat_columns(
-            prover_state,
-            univariate_skips,
-            &columns_f,
-            &columns_ef,
-            &outer_sumcheck_challenge,
-        )
-    } else {
-        panic!(
-            "Currently unsupported for simplicty (checkout c7944152a4325b1e1913446e6684112099db5d78 for a version that supported this case)"
-        );
-    }
+    open_columns(
+        prover_state,
+        &inner_sums,
+        &air.down_column_indexes_f(),
+        &air.down_column_indexes_ef(),
+        &columns_f,
+        &columns_ef,
+        &outer_sumcheck_challenge,
+    )
 }
 
 #[instrument(skip_all)]
-fn open_flat_columns<EF: ExtensionField<PF<EF>>>(
-    prover_state: &mut impl FSProver<EF>,
-    univariate_skips: usize,
-    columns_f: &[&[PF<EF>]],
-    columns_ef: &[&[EF]],
-    outer_sumcheck_challenge: &[EF],
-) -> AirClaims<EF> {
-    let n_up_down_columns = columns_f.len() + columns_ef.len();
-    let batching_scalars = prover_state.sample_vec(log2_ceil_usize(n_up_down_columns));
-
-    let eval_eq_batching_scalars = eval_eq(&batching_scalars)[..n_up_down_columns].to_vec();
-
-    let mut batched_column_up =
-        multilinears_linear_combination(columns_f, &eval_eq_batching_scalars[..columns_f.len()]);
-    if !columns_ef.is_empty() {
-        let batched_column_up_ef = multilinears_linear_combination(
-            columns_ef,
-            &eval_eq_batching_scalars[columns_f.len()..][..columns_ef.len()],
-        );
-        batched_column_up
-            .par_iter_mut()
-            .zip(&batched_column_up_ef)
-            .for_each(|(a, &b)| {
-                *a += b;
-            });
-    }
-
-    let sub_evals = fold_multilinear_chunks(
-        &batched_column_up,
-        &MultilinearPoint(outer_sumcheck_challenge[1..].to_vec()),
-    );
-    prover_state.add_extension_scalars(&sub_evals);
-
-    let epsilons = prover_state.sample_vec(univariate_skips);
-
-    let inner_sum = sub_evals.evaluate(&MultilinearPoint(epsilons.clone()));
-
-    let point = [epsilons, outer_sumcheck_challenge[1..].to_vec()].concat();
-
-    // TODO opti in case of flat AIR (no need of `matrix_next_mle_folded`)
-    let matrix_up = eval_eq(&point);
-    let inner_mle = info_span!("packing").in_scope(|| {
-        MleGroupOwned::ExtensionPacked(vec![pack_extension(&matrix_up), pack_extension(&batched_column_up)])
-    });
-
-    let (inner_challenges, _, _) = info_span!("structured columns sumcheck").in_scope(|| {
-        sumcheck_prove::<EF, _, _>(
-            1,
-            inner_mle,
-            None,
-            &ProductComputation {},
-            &vec![],
-            None,
-            false,
-            prover_state,
-            inner_sum,
-            false,
-        )
-    });
-
-    let (evaluations_remaining_to_prove_f, evaluations_remaining_to_prove_ef) =
-        info_span!("final evals").in_scope(|| {
-            (
-                columns_f
-                    .par_iter()
-                    .map(|col| col.evaluate(&inner_challenges))
-                    .collect::<Vec<_>>(),
-                columns_ef
-                    .par_iter()
-                    .map(|col| col.evaluate(&inner_challenges))
-                    .collect::<Vec<_>>(),
-            )
-        });
-    prover_state.add_extension_scalars(&evaluations_remaining_to_prove_f);
-    prover_state.add_extension_scalars(&evaluations_remaining_to_prove_ef);
-
-    AirClaims {
-        point: inner_challenges,
-        evals_f: evaluations_remaining_to_prove_f,
-        evals_ef: evaluations_remaining_to_prove_ef,
-        down_point: None,
-        evals_f_on_down_columns: vec![],
-        evals_ef_on_down_columns: vec![],
-    }
-}
-
-#[instrument(skip_all)]
-fn open_columns_no_skip<EF: ExtensionField<PF<EF>>>(
+fn open_columns<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     inner_evals: &[EF],
     columns_with_shift_f: &[usize],
@@ -269,7 +159,6 @@ fn open_columns_no_skip<EF: ExtensionField<PF<EF>>>(
 
     let (inner_challenges, _, _) = info_span!("structured columns sumcheck").in_scope(|| {
         sumcheck_prove::<EF, _, _>(
-            1,
             inner_mle,
             None,
             &ProductComputation {},

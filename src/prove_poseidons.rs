@@ -11,7 +11,6 @@ use utils::{
 };
 
 const WIDTH: usize = 16;
-const UNIVARIATE_SKIPS: usize = 3;
 
 #[test]
 fn test_benchmark_air_poseidon_16() {
@@ -81,7 +80,6 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             &mut prover_state,
             &air,
             extra_data,
-            UNIVARIATE_SKIPS,
             &collect_refs(&trace),
             &[] as &[&[EF]],
             None,
@@ -122,7 +120,6 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             &mut verifier_state,
             &air,
             extra_data,
-            UNIVARIATE_SKIPS,
             log2_ceil_usize(n_rows),
             None,
         )
