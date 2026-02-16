@@ -25,6 +25,7 @@ dependencies = [
 name = "air"
 version = "0.3.0"
 dependencies = [
+ "backend",
  "field",
 ]
 
@@ -181,15 +182,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
  "windows-sys",
-]
-
-[[package]]
-name = "constraints-folder"
-version = "0.3.0"
-dependencies = [
- "air 0.3.0",
- "backend",
- "field",
 ]
 
 [[package]]
@@ -475,7 +467,6 @@ version = "0.3.0"
 dependencies = [
  "air 0.3.0",
  "backend",
- "constraints-folder",
  "fiat-shamir",
  "field",
  "koala-bear",
@@ -861,7 +852,6 @@ version = "0.3.0"
 dependencies = [
  "air 0.3.0",
  "backend",
- "constraints-folder",
  "fiat-shamir",
  "field",
  "rayon",

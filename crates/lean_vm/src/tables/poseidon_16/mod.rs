@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
 use crate::{tables::poseidon_16::trace_gen::default_poseidon_row, *};
-use multilinear_toolkit::prelude::{symbolic::SymbolicExpression, *};
+use multilinear_toolkit::prelude::*;
 use utils::{ToUsize, poseidon16_compress};
 
 mod trace_gen;

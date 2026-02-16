@@ -4,9 +4,6 @@ use lean_prover::{
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
-use multilinear_toolkit::prelude::symbolic::{
-    SymbolicExpression, SymbolicOperation, get_symbolic_constraints_and_bus_data_values,
-};
 use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
