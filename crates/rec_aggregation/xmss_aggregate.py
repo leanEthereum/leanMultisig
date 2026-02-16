@@ -93,7 +93,7 @@ def chain_hash(input_left, n: Const, output_left, pair_chain_length_sum_ptr):
     n_left = (CHAIN_LENGTH - 1) - raw_left
     if n_left == 0:
         copy_8(input_left, output_left)
-    else if n_left == 1:
+    elif n_left == 1:
         poseidon16(input_left, ZERO_VEC_PTR, output_left)
     else:
         states_left = Array((n_left-1) * DIGEST_LEN)
@@ -111,7 +111,7 @@ def chain_hash(input_left, n: Const, output_left, pair_chain_length_sum_ptr):
     output_right = output_left + DIGEST_LEN
     if n_right == 0:
         copy_8(input_right, output_right)
-    else if n_right == 1:
+    elif n_right == 1:
         poseidon16(input_right, ZERO_VEC_PTR, output_right)
     else:
         states_right = Array((n_right-1) * DIGEST_LEN)
