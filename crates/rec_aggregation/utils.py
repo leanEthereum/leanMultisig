@@ -147,6 +147,36 @@ def eq_mle_extension_base_const(a, b, n: Const):
         mul_extension(prods + i * DIM, buff + (i + 1) * DIM, prods + (i + 1) * DIM)
     return prods + (n - 1) * DIM
 
+@inline
+def eq_mle_base_extension_boolean(a, b, n):
+    debug_assert(n <= 30)
+    debug_assert(0 < n)
+    res = match_range(n, range(1, 31), lambda i: eq_mle_extension_base_const_boolean(a, b, i))
+    return res
+
+
+def eq_mle_extension_base_const_boolean(a, b, n: Const):
+    # a: base, full of booleans
+    # b: extension
+
+    buff = Array(n * DIM)
+
+    match a[0]:
+        case 0:
+            one_minus_self_extension(b, buff)
+        case 1:
+            copy_5(b, buff)
+    
+    for i in unroll(1, n):
+        match a[i]:
+            case 0:
+                one_minus_bi = one_minus_self_extension_ret(b + i * DIM)
+                mul_extension(buff + (i - 1) * DIM, one_minus_bi, buff + i * DIM)
+            case 1:
+                mul_extension(buff + (i - 1) * DIM, b + i * DIM, buff + i * DIM)
+
+    return buff + (n - 1) * DIM
+
 
 @inline
 def expand_from_univariate_base(alpha, n):
@@ -278,10 +308,16 @@ def add_extension(a, b, c):
 @inline
 def one_minus_self_extension_ret(a):
     res = Array(DIM)
+    one_minus_self_extension(a, res)
+    return res
+
+
+@inline
+def one_minus_self_extension(a, res):
     res[0] = 1 - a[0]
     for i in unroll(1, DIM):
         res[i] = 0 - a[i]
-    return res
+    return
 
 
 @inline

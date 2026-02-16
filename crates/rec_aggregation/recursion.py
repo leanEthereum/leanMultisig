@@ -631,7 +631,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
 
 def multilinear_location_prefix(offset, n_vars, point):
     bits = checked_decompose_bits_small_value(offset, n_vars)
-    res = eq_mle_base_extension(bits, point, n_vars)
+    res = eq_mle_base_extension_boolean(bits, point, n_vars)
     return res
 
 
