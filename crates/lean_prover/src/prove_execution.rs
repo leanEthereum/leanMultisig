@@ -39,6 +39,7 @@ pub fn prove_execution(
                 poseidons_16_precomputed,
             )
         });
+        bytecode.print_analytics(&execution_result.pcs);
         info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
