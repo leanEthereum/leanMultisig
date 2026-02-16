@@ -114,14 +114,14 @@ impl CustomHint {
                 let remaining_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let to_decompose_ptr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let num_to_decompose = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let w = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
-                assert!(w == 2 || w == 3 || w == 4);
+                let chunk_size = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(24_usize.is_multiple_of(chunk_size));
                 let mut memory_index_decomposed = decomposed_ptr;
                 let mut memory_index_remaining = remaining_ptr;
                 for i in 0..num_to_decompose {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
-                    for i in 0..24 / w {
-                        let value = F::from_usize((value >> (w * i)) & ((1 << w) - 1));
+                    for i in 0..24 / chunk_size {
+                        let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
                         ctx.memory.set(memory_index_decomposed, value)?;
                         memory_index_decomposed += 1;
                     }

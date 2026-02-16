@@ -277,7 +277,6 @@ fn build_aggregation(
         slot,
         topology.log_inv_rate,
         prox_gaps_conjecture,
-        tracing,
     );
     let elapsed = time.elapsed();
 
