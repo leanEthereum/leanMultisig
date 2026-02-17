@@ -6,3 +6,4 @@ edition.workspace = true
 [dependencies]
 koala-bear = { path = "../koala-bear", package = "mt-koala-bear" }
 field = { path = "../field", package = "mt-field" }
+rayon.workspace = true

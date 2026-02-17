@@ -15,7 +15,7 @@ type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 
 /*
-RUSTFLAGS='-C target-cpu=native' cargo test --release --package whir --test run_whir -- test_run_whir --exact --nocapture
+WHIR_NUM_VARIABLES=25 cargo test --release --package mt-whir --test run_whir -- test_run_whir --exact --nocapture
 */
 
 #[test]
@@ -32,7 +32,10 @@ fn test_run_whir() {
     }
     let poseidon16 = default_koalabear_poseidon2_16();
 
-    let num_variables = 25;
+    let num_variables = std::env::var("WHIR_NUM_VARIABLES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(18);
     let num_coeffs = 1 << num_variables;
 
     let params = WhirConfigBuilder {

@@ -10,3 +10,6 @@ pub use sponge::*;
 
 mod compression;
 pub use compression::*;
+
+pub mod merkle;
+pub use merkle::DIGEST_ELEMS;

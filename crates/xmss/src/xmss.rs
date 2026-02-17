@@ -1,7 +1,6 @@
 use multilinear_toolkit::prelude::*;
 use rand::{CryptoRng, Rng, SeedableRng, rngs::StdRng};
 use sha3::{Digest as Sha3Digest, Keccak256};
-use utils::poseidon16_compress_pair;
 
 use crate::*;
 
@@ -59,6 +58,7 @@ pub fn xmss_key_gen(
     if slot_start > slot_end || slot_end as u64 >= (1 << LOG_LIFETIME) {
         return Err(XmssKeyGenError::InvalidRange);
     }
+    let perm = default_koalabear_poseidon2_16();
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
     let leaves: Vec<Digest> = (slot_start as u64..slot_end as u64 + 1)
         .into_par_iter()
@@ -93,7 +93,7 @@ pub fn xmss_key_gen(
                     } else {
                         gen_random_node(&seed, level - 1, right_idx)
                     };
-                    poseidon16_compress_pair(left, right)
+                    compress(&perm, [left, right])
                 })
                 .collect()
         };

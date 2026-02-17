@@ -72,7 +72,7 @@ fn main() {
                 raw_xmss: 0,
                 children: vec![
                     AggregationTopology {
-                        raw_xmss: 10,
+                        raw_xmss: 700,
                         children: vec![],
                         log_inv_rate,
                     };
