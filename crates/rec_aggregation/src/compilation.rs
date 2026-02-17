@@ -1,6 +1,6 @@
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
-    MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
+    GRINDING_BITS, MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
@@ -29,15 +29,12 @@ pub(crate) fn get_aggregation_bytecode(prox_gaps_conjecture: bool) -> &'static B
     .unwrap_or_else(|| panic!("call init_aggregation_bytecode() first"))
 }
 
-pub fn init_aggregation_bytecode() {
-    rayon::join(
-        || {
-            BYTECODE_DEFAULT.get_or_init(|| compile_main_program_self_referential(false));
-        },
-        || {
-            BYTECODE_CONJECTURE.get_or_init(|| compile_main_program_self_referential(true));
-        },
-    );
+pub fn init_aggregation_bytecode(prox_gaps_conjecture: bool) {
+    if prox_gaps_conjecture {
+        BYTECODE_CONJECTURE.get_or_init(|| compile_main_program_self_referential(true));
+    } else {
+        BYTECODE_DEFAULT.get_or_init(|| compile_main_program_self_referential(false));
+    }
 }
 
 fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: bool, bytecode_zero_eval: F) -> Bytecode {
@@ -97,6 +94,7 @@ fn build_replacements(
     let mut all_potential_query_grinding = vec![];
     let mut all_potential_num_oods = vec![];
     let mut all_potential_folding_grinding = vec![];
+    let mut too_much_grinding = false;
     for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
         let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
         let whir_config_builder = default_whir_config(log_inv_rate, prox_gaps_conjecture);
@@ -107,6 +105,9 @@ fn build_replacements(
         let mut folding_grinding_for_rate = vec![];
         for n_vars in min_stacked..=max_n_vars {
             let cfg = WhirConfig::<EF>::new(&whir_config_builder, n_vars);
+            if cfg.max_folding_pow_bits() > GRINDING_BITS {
+                too_much_grinding = true;
+            }
 
             let mut num_queries = vec![];
             let mut query_grinding_bits = vec![];
@@ -151,6 +152,12 @@ fn build_replacements(
         all_potential_query_grinding.push(format!("[{}]", query_grinding_for_rate.join(", ")));
         all_potential_num_oods.push(format!("[{}]", oods_for_rate.join(", ")));
         all_potential_folding_grinding.push(format!("[{}]", folding_grinding_for_rate.join(", ")));
+    }
+    if too_much_grinding {
+        tracing::warn!(
+            "Too much grinding for WHIR folding (prox_gaps_conjecture = {})",
+            prox_gaps_conjecture
+        );
     }
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),

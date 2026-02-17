@@ -116,9 +116,6 @@ pub struct RoundConfig<EF: Field> {
 #[derive(Debug, Clone)]
 pub struct WhirConfig<EF: Field> {
     pub num_variables: usize,
-    pub soundness_type: SecurityAssumption,
-    pub security_level: usize,
-    pub max_pow_bits: usize,
 
     pub committment_ood_samples: usize,
     pub starting_log_inv_rate: usize,
@@ -149,7 +146,7 @@ where
             "Increasing the code rate is not a good idea"
         );
 
-        let protocol_security_level = whir_parameters.security_level.saturating_sub(whir_parameters.pow_bits);
+        let query_security_level = whir_parameters.security_level.saturating_sub(whir_parameters.pow_bits);
         let field_size_bits = EF::bits();
         let mut log_inv_rate = whir_parameters.starting_log_inv_rate;
 
@@ -201,7 +198,7 @@ where
 
             let num_queries = whir_parameters
                 .soundness_type
-                .queries(protocol_security_level, log_inv_rate);
+                .queries(query_security_level, log_inv_rate);
 
             let ood_samples = whir_parameters.soundness_type.determine_ood_samples(
                 whir_parameters.security_level,
@@ -253,7 +250,7 @@ where
 
         let final_queries = whir_parameters
             .soundness_type
-            .queries(protocol_security_level, log_inv_rate);
+            .queries(query_security_level, log_inv_rate);
 
         let final_query_pow_bits = 0_f64.max(
             whir_parameters.security_level as f64
@@ -265,11 +262,8 @@ where
         let final_folding_pow_bits = 0_f64.max(whir_parameters.security_level as f64 - (field_size_bits - 1) as f64);
 
         Self {
-            security_level: whir_parameters.security_level,
-            max_pow_bits: whir_parameters.pow_bits,
             committment_ood_samples,
             num_variables: num_variables,
-            soundness_type: whir_parameters.soundness_type,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits: starting_folding_pow_bits as usize,
             folding_factor: whir_parameters.folding_factor,
@@ -333,21 +327,8 @@ where
         self.num_variables - self.folding_factor.total_number(self.n_rounds())
     }
 
-    pub fn check_pow_bits(&self) -> bool {
-        let max_bits = self.max_pow_bits;
-
-        // Check the main pow bits values
-        if self.starting_folding_pow_bits > max_bits
-            || self.final_query_pow_bits > max_bits
-            || self.final_folding_pow_bits > max_bits
-        {
-            return false;
-        }
-
-        // Check all round parameters
-        self.round_parameters
-            .iter()
-            .all(|r| r.query_pow_bits <= max_bits && r.folding_pow_bits <= max_bits)
+    pub fn max_folding_pow_bits(&self) -> usize {
+        self.round_parameters.iter().map(|r| r.folding_pow_bits).max().unwrap()
     }
 
     #[must_use]

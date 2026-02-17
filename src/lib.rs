@@ -8,13 +8,13 @@ pub type F = KoalaBear;
 
 /// Call once before proving. Compiles the aggregation program and precomputes DFT twiddles.
 pub fn setup_prover() {
-    rec_aggregation::compilation::init_aggregation_bytecode();
+    rec_aggregation::compilation::init_aggregation_bytecode(false);
     precompute_dft_twiddles::<F>(1 << 24);
 }
 
 /// Call once before verifying (not needed if `setup_prover` was already called).
 pub fn setup_verifier() {
-    rec_aggregation::compilation::init_aggregation_bytecode();
+    rec_aggregation::compilation::init_aggregation_bytecode(false);
 }
 
 #[cfg(test)]
@@ -44,7 +44,6 @@ mod tests {
         setup_prover();
 
         let log_inv_rate = 1;
-        let prox_gaps_conjecture = false;
         let message: [F; MESSAGE_LEN_FE] = message_for_benchmark();
         let slot: u32 = BENCHMARK_SLOT;
 
@@ -58,7 +57,7 @@ mod tests {
             &message,
             slot,
             log_inv_rate,
-            prox_gaps_conjecture,
+            false,
         );
 
         let pub_keys_and_sigs_b: Vec<_> = (3..5)
@@ -71,7 +70,7 @@ mod tests {
             &message,
             slot,
             log_inv_rate,
-            prox_gaps_conjecture,
+            false,
         );
 
         let pub_keys_and_sigs_c: Vec<_> = (5..6)
@@ -85,9 +84,9 @@ mod tests {
             &message,
             slot,
             log_inv_rate,
-            prox_gaps_conjecture,
+            false,
         );
 
-        verify_aggregation(&aggregated_final, &message, slot, prox_gaps_conjecture).unwrap();
+        verify_aggregation(&aggregated_final, &message, slot, false).unwrap();
     }
 }

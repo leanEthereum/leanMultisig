@@ -335,7 +335,7 @@ pub fn run_aggregation_benchmark(
         .collect();
     let (pub_keys, signatures): (Vec<_>, Vec<_>) = paired.into_iter().unzip();
 
-    init_aggregation_bytecode();
+    init_aggregation_bytecode(prox_gaps_conjecture);
     println!(
         "Aggregation program: {} instructions\n",
         pretty_integer(get_aggregation_bytecode(prox_gaps_conjecture).instructions.len())
