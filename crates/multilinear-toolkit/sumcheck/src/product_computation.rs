@@ -1,5 +1,3 @@
-use std::ops::Mul;
-
 use fiat_shamir::*;
 use field::*;
 use poly::*;
@@ -8,16 +6,13 @@ use rayon::prelude::*;
 use crate::{SumcheckComputation, sumcheck_prove_many_rounds};
 
 #[derive(Debug)]
-pub struct MultiProductComputation<const N: usize>;
+pub struct ProductComputation;
 
-pub type ProductComputation = MultiProductComputation<2>;
-pub type CubeComputation = MultiProductComputation<3>;
-
-impl<const N: usize, EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for MultiProductComputation<N> {
+impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for ProductComputation {
     type ExtraData = Vec<EF>;
 
     fn degree(&self) -> usize {
-        N
+        2
     }
     #[inline(always)]
     fn eval_base(&self, _point: &[PF<EF>], _: &[EF], _: &Self::ExtraData) -> EF {
@@ -25,12 +20,11 @@ impl<const N: usize, EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for Mul
     }
     #[inline(always)]
     fn eval_extension(&self, point: &[EF], _: &[EF], _: &Self::ExtraData) -> EF {
-        mul_many_const::<N, _>(point)
+        point[0] * point[1]
     }
     #[inline(always)]
     fn eval_packed_base(&self, point: &[PFPacking<EF>], _: &[EFPacking<EF>], _: &Self::ExtraData) -> EFPacking<EF> {
-        // TODO this is very inneficient
-        EFPacking::<EF>::from(mul_many_const::<N, _>(point))
+        EFPacking::<EF>::from(point[0] * point[1])
     }
     #[inline(always)]
     fn eval_packed_extension(
@@ -39,19 +33,7 @@ impl<const N: usize, EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for Mul
         _: &[EFPacking<EF>],
         _: &Self::ExtraData,
     ) -> EFPacking<EF> {
-        mul_many_const::<N, _>(point)
-    }
-}
-
-#[inline(always)]
-pub fn mul_many_const<const N: usize, A: Mul<Output = A> + Copy>(args: &[A]) -> A {
-    match N {
-        2 => args[0] * args[1],
-        3 => args[0] * args[1] * args[2],
-        4 => args[0] * args[1] * args[2] * args[3],
-        8 => args[0] * args[1] * args[2] * args[3] * args[4] * args[5] * args[6] * args[7],
-        16 => mul_many_const::<8, A>(&args[0..8]) * mul_many_const::<8, A>(&args[8..16]),
-        _ => unimplemented!(),
+        point[0] * point[1]
     }
 }
 
@@ -86,12 +68,7 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     sum = first_sumcheck_poly.evaluate(r1);
 
     if n_rounds == 1 {
-        return (
-            MultilinearPoint(vec![r1]),
-            sum,
-            pol_a.fold(&[EF::ONE - r1, r1]),
-            pol_b.fold(&[EF::ONE - r1, r1]),
-        );
+        return (MultilinearPoint(vec![r1]), sum, pol_a.fold(r1), pol_b.fold(r1));
     }
 
     let (second_sumcheck_poly, folded) = match (pol_a, pol_b) {
@@ -130,7 +107,7 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     let (mut challenges, folds, _, sum) = sumcheck_prove_many_rounds(
         folded,
         None,
-        Some(vec![EF::ONE - r2, r2]),
+        Some(r2),
         &ProductComputation {},
         &vec![],
         None,

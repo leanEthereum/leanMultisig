@@ -417,7 +417,6 @@ dependencies = [
  "mt-field",
  "mt-koala-bear",
  "mt-poly",
- "mt-utils",
  "rayon",
 ]
 

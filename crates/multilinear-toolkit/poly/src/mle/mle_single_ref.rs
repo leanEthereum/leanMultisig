@@ -117,15 +117,15 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleRef<'a, EF> {
         }
     }
 
-    pub fn fold(&self, scalars: &[EF]) -> MleOwned<EF> {
+    pub fn fold(&self, alpha: EF) -> MleOwned<EF> {
         match self {
-            Self::Base(pols) => MleOwned::Extension(fold_multilinear(pols, scalars, &|a, b| b * a)),
-            Self::Extension(pols) => MleOwned::Extension(fold_multilinear(pols, scalars, &|a, b| b * a)),
+            Self::Base(pols) => MleOwned::Extension(fold_multilinear(pols, alpha, &|a, b| b * a)),
+            Self::Extension(pols) => MleOwned::Extension(fold_multilinear(pols, alpha, &|a, b| b * a)),
             Self::BasePacked(pols) => {
-                let scalars_packed = scalars.iter().map(|&s| EFPacking::<EF>::from(s)).collect::<Vec<_>>();
-                MleOwned::ExtensionPacked(fold_multilinear(pols, &scalars_packed, &|a, b| b * a))
+                let alpha_packed = EFPacking::<EF>::from(alpha);
+                MleOwned::ExtensionPacked(fold_multilinear(pols, alpha_packed, &|a, b| b * a))
             }
-            Self::ExtensionPacked(pols) => MleOwned::ExtensionPacked(fold_multilinear(pols, scalars, &|a, b| a * b)),
+            Self::ExtensionPacked(pols) => MleOwned::ExtensionPacked(fold_multilinear(pols, alpha, &|a, b| a * b)),
         }
     }
 }

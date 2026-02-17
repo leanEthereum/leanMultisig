@@ -1,5 +1,4 @@
 use std::{
-    iter::Sum,
     mem::ManuallyDrop,
     ops::{Add, Range, Sub},
 };
@@ -65,23 +64,23 @@ pub const fn packing_width<EF: Field>() -> usize {
 pub fn batch_fold_multilinears<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
-    OF: Copy + Add<IF, Output = OF> + Send + Sync + Sum,
+    OF: Copy + Add<IF, Output = OF> + Send + Sync,
     F: Fn(IF, EF) -> OF + Sync + Send,
 >(
     polys: &[&[IF]],
-    scalars: &[EF],
+    alpha: EF,
     mul_if_of: F,
 ) -> Vec<Vec<OF>> {
     let total_size: usize = polys.iter().map(|p| p.len()).sum();
     if total_size < PARALLEL_THRESHOLD {
         polys
             .iter()
-            .map(|poly| fold_multilinear(poly, scalars, &mul_if_of))
+            .map(|poly| fold_multilinear(poly, alpha, &mul_if_of))
             .collect()
     } else {
         polys
             .par_iter()
-            .map(|poly| fold_multilinear(poly, scalars, &mul_if_of))
+            .map(|poly| fold_multilinear(poly, alpha, &mul_if_of))
             .collect()
     }
 }
@@ -89,55 +88,26 @@ pub fn batch_fold_multilinears<
 pub fn fold_multilinear<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
-    OF: Copy + Add<IF, Output = OF> + Send + Sync + Sum,
+    OF: Copy + Add<IF, Output = OF> + Send + Sync,
     F: Fn(IF, EF) -> OF + Sync + Send,
 >(
     m: &[IF],
-    scalars: &[EF],
+    alpha: EF,
     mul_if_of: &F,
 ) -> Vec<OF> {
-    assert!(scalars.len().is_power_of_two() && scalars.len() <= m.len());
-    let new_size = m.len() / scalars.len();
+    let new_size = m.len() / 2;
     let mut res = unsafe { uninitialized_vec(new_size) };
 
     if new_size < PARALLEL_THRESHOLD {
-        if scalars.len() == 2 {
-            assert_eq!(scalars[0], EF::ONE - scalars[1]);
-            let alpha = scalars[1];
-            for i in 0..new_size {
-                res[i] = mul_if_of(m[i + new_size] - m[i], alpha) + m[i];
-            }
-        } else {
-            for i in 0..new_size {
-                res[i] = scalars
-                    .iter()
-                    .enumerate()
-                    .map(|(j, s)| mul_if_of(m[i + j * new_size], *s))
-                    .sum();
-            }
+        for i in 0..new_size {
+            res[i] = mul_if_of(m[i + new_size] - m[i], alpha) + m[i];
         }
     } else {
-        if scalars.len() == 2 {
-            assert_eq!(scalars[0], EF::ONE - scalars[1]);
-            let alpha = scalars[1];
-            (0..new_size)
-                .into_par_iter()
-                .with_min_len(PARALLEL_THRESHOLD)
-                .map(|i| mul_if_of(m[i + new_size] - m[i], alpha) + m[i])
-                .collect_into_vec(&mut res);
-        } else {
-            (0..new_size)
-                .into_par_iter()
-                .with_min_len(PARALLEL_THRESHOLD)
-                .map(|i| {
-                    scalars
-                        .iter()
-                        .enumerate()
-                        .map(|(j, s)| mul_if_of(m[i + j * new_size], *s))
-                        .sum()
-                })
-                .collect_into_vec(&mut res);
-        }
+        (0..new_size)
+            .into_par_iter()
+            .with_min_len(PARALLEL_THRESHOLD)
+            .map(|i| mul_if_of(m[i + new_size] - m[i], alpha) + m[i])
+            .collect_into_vec(&mut res);
     }
     res
 }

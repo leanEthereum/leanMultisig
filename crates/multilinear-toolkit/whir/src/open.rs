@@ -400,7 +400,7 @@ where
         let (challenges, folds, _, new_sum) = sumcheck_prove_many_rounds(
             MleGroupRef::merge(&[&self.evals.by_ref(), &self.weights.by_ref()]),
             None,
-            prev_folding_scalar.map(|r| vec![EF::ONE - r, r]),
+            prev_folding_scalar,
             &ProductComputation {},
             &vec![],
             None,
