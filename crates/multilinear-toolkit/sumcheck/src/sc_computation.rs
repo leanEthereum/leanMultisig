@@ -810,8 +810,8 @@ where
                     .map(|k| {
                         let id = i + k * compute_fold_size;
                         let res: EFPacking<EF> = if bi_folded {
-                            <_ as Add<EFPacking<EF>>>::add(
-                                m[id + prev_folded_size] - m[id] * prev_folding_factors[1],
+                            <EFPacking<EF> as Add>::add(
+                                (m[id + prev_folded_size] - m[id]) * prev_folding_factors[1],
                                 m[id],
                             )
                         } else {
