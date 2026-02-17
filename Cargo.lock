@@ -25,8 +25,8 @@ dependencies = [
 name = "air"
 version = "0.3.0"
 dependencies = [
- "backend",
  "field",
+ "poly",
 ]
 
 [[package]]
@@ -93,17 +93,6 @@ name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
-
-[[package]]
-name = "backend"
-version = "0.3.0"
-dependencies = [
- "field",
- "itertools",
- "rand",
- "rayon",
- "utils 0.3.0",
-]
 
 [[package]]
 name = "bincode"
@@ -466,10 +455,10 @@ name = "multilinear-toolkit"
 version = "0.3.0"
 dependencies = [
  "air 0.3.0",
- "backend",
  "fiat-shamir",
  "field",
  "koala-bear",
+ "poly",
  "rayon",
  "sumcheck",
  "symetric",
@@ -609,6 +598,17 @@ name = "pin-project-lite"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
+
+[[package]]
+name = "poly"
+version = "0.3.0"
+dependencies = [
+ "field",
+ "itertools",
+ "rand",
+ "rayon",
+ "utils 0.3.0",
+]
 
 [[package]]
 name = "ppv-lite86"
@@ -851,9 +851,9 @@ name = "sumcheck"
 version = "0.3.0"
 dependencies = [
  "air 0.3.0",
- "backend",
  "fiat-shamir",
  "field",
+ "poly",
  "rayon",
  "utils 0.3.0",
 ]
@@ -1077,14 +1077,13 @@ dependencies = [
 name = "whir"
 version = "0.3.0"
 dependencies = [
- "backend",
  "fiat-shamir",
  "field",
  "itertools",
  "koala-bear",
+ "poly",
  "rand",
  "rayon",
- "serde",
  "sumcheck",
  "symetric",
  "tracing",
