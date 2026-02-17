@@ -192,6 +192,7 @@ fn debug_file_program() {
 fn debug_str_program() {
     let program = r#"
 def main():
+    
     return
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);

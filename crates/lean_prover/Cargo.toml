@@ -17,7 +17,6 @@ rand.workspace = true
 
 
 tracing.workspace = true
-owo-colors.workspace = true
 air.workspace = true
 sub_protocols.workspace = true
 lean_vm.workspace = true

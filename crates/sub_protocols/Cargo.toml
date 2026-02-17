@@ -10,7 +10,6 @@ workspace = true
 tracing.workspace = true
 utils.workspace = true
 
-owo-colors.workspace = true
 lean_vm.workspace = true
 multilinear-toolkit.workspace = true
 

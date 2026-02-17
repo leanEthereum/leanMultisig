@@ -1,9 +1,9 @@
 use crate::{prove_gkr_quotient, verify_gkr_quotient};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
-use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use tracing::instrument;
+use utils::ansi::Colorize;
 use utils::*;
 
 #[derive(Debug, PartialEq, Hash, Clone)]

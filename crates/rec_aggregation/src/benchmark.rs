@@ -7,25 +7,13 @@ use utils::pretty_integer;
 use xmss::signers_cache::*;
 use xmss::{XmssPublicKey, XmssSignature};
 
+use utils::ansi as s;
+
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 use crate::{AggregatedSigs, AggregationTopology, aggregate, count_signers, verify_aggregation};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
-}
-
-mod s {
-    pub const R: &str = "\x1b[0m";
-    pub const B: &str = "\x1b[1m";
-    pub const D: &str = "\x1b[2m";
-    pub const GRN: &str = "\x1b[38;5;114m";
-    pub const RED: &str = "\x1b[38;5;167m";
-    pub const ORG: &str = "\x1b[38;5;215m";
-    pub const CYN: &str = "\x1b[38;5;117m";
-    pub const PUR: &str = "\x1b[38;5;141m";
-    pub const GRY: &str = "\x1b[38;5;242m";
-    pub const WHT: &str = "\x1b[38;5;252m";
-    pub const DRK: &str = "\x1b[38;5;238m";
 }
 
 #[derive(Clone)]

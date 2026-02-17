@@ -68,7 +68,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Compile(e) => write!(f, "{e}"),
-            Self::Runtime(e) => write!(f, "Runtime error: {e}"),
+            Self::Runtime(e) => write!(f, "Runtime error: {e:?}"),
         }
     }
 }

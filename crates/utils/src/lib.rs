@@ -1,5 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+pub mod ansi;
+
 mod misc;
 pub use misc::*;
 

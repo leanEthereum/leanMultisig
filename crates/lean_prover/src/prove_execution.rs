@@ -4,9 +4,9 @@ use crate::*;
 use air::prove_air;
 use lean_vm::*;
 
-use owo_colors::OwoColorize;
 use sub_protocols::*;
 use tracing::info_span;
+use utils::ansi::Colorize;
 use utils::build_prover_state;
 use xmss::Poseidon16History;
 

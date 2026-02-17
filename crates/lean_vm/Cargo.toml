@@ -7,7 +7,6 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-colored.workspace = true
 pest.workspace = true
 pest_derive.workspace = true
 utils.workspace = true
@@ -19,6 +18,5 @@ rand.workspace = true
 
 tracing.workspace = true
 air.workspace = true
-thiserror.workspace = true
 multilinear-toolkit.workspace = true
 itertools.workspace = true

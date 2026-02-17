@@ -95,7 +95,7 @@ pub fn execute_bytecode(
         profiling,
         poseidons_16_precomputed,
     )
-    .unwrap_or_else(|err| panic!("Error during bytecode execution: {err}"))
+    .unwrap_or_else(|err| panic!("Error during bytecode execution: {err:?}"))
 }
 
 /// Resolve pending deref hints in correct order

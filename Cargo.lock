@@ -148,15 +148,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "colored"
-version = "3.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
-dependencies = [
- "windows-sys",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -305,7 +296,6 @@ dependencies = [
  "lean_compiler",
  "lean_vm",
  "multilinear-toolkit",
- "owo-colors",
  "pest",
  "pest_derive",
  "rand",
@@ -320,13 +310,11 @@ name = "lean_vm"
 version = "0.1.0"
 dependencies = [
  "air",
- "colored",
  "itertools",
  "multilinear-toolkit",
  "pest",
  "pest_derive",
  "rand",
- "thiserror",
  "tracing",
  "utils",
  "xmss",
@@ -533,12 +521,6 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
-
-[[package]]
-name = "owo-colors"
-version = "4.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
 
 [[package]]
 name = "paste"
@@ -778,7 +760,6 @@ version = "0.1.0"
 dependencies = [
  "lean_vm",
  "multilinear-toolkit",
- "owo-colors",
  "rand",
  "tracing",
  "utils",
