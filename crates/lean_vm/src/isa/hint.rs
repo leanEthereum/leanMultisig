@@ -6,7 +6,6 @@ use multilinear_toolkit::prelude::*;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use strum::IntoEnumIterator;
 use utils::{ToUsize, pretty_integer, to_big_endian_in_field, to_little_endian_in_field};
 
 /// VM hints provide execution guidance and debugging information, but does not appear
@@ -66,7 +65,7 @@ pub enum Hint {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CustomHint {
     // Decompose values into their custom representations:
     /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
@@ -83,6 +82,15 @@ pub enum CustomHint {
     Log2Ceil,
     PrivateInputStart,
 }
+
+pub const CUSTOM_HINTS: [CustomHint; 6] = [
+    CustomHint::DecomposeBitsXMSS,
+    CustomHint::DecomposeBits,
+    CustomHint::Decompose16,
+    CustomHint::LessThan,
+    CustomHint::Log2Ceil,
+    CustomHint::PrivateInputStart,
+];
 
 impl CustomHint {
     pub fn name(&self) -> &str {
@@ -179,7 +187,7 @@ impl CustomHint {
     }
 
     pub fn find_by_name(name: &str) -> Option<Self> {
-        Self::iter().find(|&hint| hint.name() == name)
+        CUSTOM_HINTS.iter().find(|hint| hint.name() == name).copied()
     }
 }
 

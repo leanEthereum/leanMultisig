@@ -30,7 +30,7 @@ mod tests {
         let start = 555;
         let end = 565;
         let slot = 560;
-        let key_gen_seed: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let key_gen_seed: [u8; 20] = std::array::from_fn(|i| i as u8);
         let message_hash: [F; MESSAGE_LEN_FE] = std::array::from_fn(|i| F::from_usize(i * 3));
 
         let (secret_key, pub_key) = xmss_key_gen(key_gen_seed, start, end).unwrap();

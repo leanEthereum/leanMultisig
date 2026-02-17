@@ -1,6 +1,5 @@
 use multilinear_toolkit::prelude::*;
 use rand::{CryptoRng, Rng, SeedableRng, rngs::StdRng};
-use sha3::{Digest as Sha3Digest, Keccak256};
 
 use crate::*;
 
@@ -8,7 +7,7 @@ use crate::*;
 pub struct XmssSecretKey {
     pub(crate) slot_start: u32, // inclusive
     pub(crate) slot_end: u32,   // inclusive
-    pub(crate) seed: [u8; 32],
+    pub(crate) seed: [u8; 20],
     // At level l, stored indices go from (slot_start >> l) to (slot_end >> l).
     pub(crate) merkle_tree: Vec<Vec<Digest>>,
 }
@@ -25,23 +24,23 @@ pub struct XmssPublicKey {
     pub merkle_root: Digest,
 }
 
-fn gen_wots_secret_key(seed: &[u8; 32], slot: u64) -> WotsSecretKey {
-    let mut hasher = Keccak256::new();
-    hasher.update(b"wots_secret_key");
-    hasher.update(seed);
-    hasher.update(slot.to_le_bytes());
-    let mut rng = StdRng::from_seed(hasher.finalize().into());
+fn gen_wots_secret_key(seed: &[u8; 20], slot: u32) -> WotsSecretKey {
+    let mut rng_seed = [0u8; 32];
+    rng_seed[..20].copy_from_slice(seed);
+    rng_seed[20] = 0x00;
+    rng_seed[21..25].copy_from_slice(&slot.to_le_bytes());
+    let mut rng = StdRng::from_seed(rng_seed);
     WotsSecretKey::random(&mut rng)
 }
 
 /// Deterministic pseudo-random digest for an out-of-range tree node.
-fn gen_random_node(seed: &[u8; 32], level: usize, index: u64) -> Digest {
-    let mut hasher = Keccak256::new();
-    hasher.update(b"random_node");
-    hasher.update(seed);
-    hasher.update((level as u64).to_le_bytes());
-    hasher.update(index.to_le_bytes());
-    let mut rng = StdRng::from_seed(hasher.finalize().into());
+fn gen_random_node(seed: &[u8; 20], level: usize, index: u32) -> Digest {
+    let mut rng_seed = [0u8; 32];
+    rng_seed[..20].copy_from_slice(seed);
+    rng_seed[20] = 0x01;
+    rng_seed[21] = level as u8;
+    rng_seed[22..26].copy_from_slice(&index.to_le_bytes());
+    let mut rng = StdRng::from_seed(rng_seed);
     rng.random()
 }
 
@@ -51,16 +50,16 @@ pub enum XmssKeyGenError {
 }
 
 pub fn xmss_key_gen(
-    seed: [u8; 32],
+    seed: [u8; 20],
     slot_start: u32,
     slot_end: u32,
 ) -> Result<(XmssSecretKey, XmssPublicKey), XmssKeyGenError> {
-    if slot_start > slot_end || slot_end as u64 >= (1 << LOG_LIFETIME) {
+    if slot_start > slot_end {
         return Err(XmssKeyGenError::InvalidRange);
     }
     let perm = default_koalabear_poseidon2_16();
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
-    let leaves: Vec<Digest> = (slot_start as u64..slot_end as u64 + 1)
+    let leaves: Vec<Digest> = (slot_start..slot_end + 1)
         .into_par_iter()
         .map(|slot| {
             let wots = gen_wots_secret_key(&seed, slot);
@@ -72,10 +71,10 @@ pub fn xmss_key_gen(
     // At level l, we store nodes with index in [(slot_start >> l), (slot_end >> l)].
     // Children outside [slot_start, slot_end]'s subtree are replaced by gen_random_node.
     for level in 1..=LOG_LIFETIME {
-        let base: u64 = (slot_start as u64) >> level;
-        let top: u64 = (slot_end as u64) >> level;
-        let prev_base: u64 = (slot_start as u64) >> (level - 1);
-        let prev_top: u64 = (slot_end as u64) >> (level - 1);
+        let base = u64::from(slot_start) >> level;
+        let top = u64::from(slot_end) >> level;
+        let prev_base = u64::from(slot_start) >> (level - 1);
+        let prev_top = u64::from(slot_end) >> (level - 1);
         let nodes: Vec<Digest> = {
             let prev = &merkle_tree[level - 1];
             (base..top + 1)
@@ -86,12 +85,14 @@ pub fn xmss_key_gen(
                     let left = if left_idx >= prev_base && left_idx <= prev_top {
                         prev[(left_idx - prev_base) as usize]
                     } else {
-                        gen_random_node(&seed, level - 1, left_idx)
+                        assert!((left_idx as u64) < 1u64 << 32);
+                        gen_random_node(&seed, level - 1, left_idx as u32)
                     };
                     let right = if right_idx >= prev_base && right_idx <= prev_top {
                         prev[(right_idx - prev_base) as usize]
                     } else {
-                        gen_random_node(&seed, level - 1, right_idx)
+                        assert!((right_idx as u64) < 1u64 << 32);
+                        gen_random_node(&seed, level - 1, right_idx as u32)
                     };
                     compress(&perm, [left, right])
                 })
@@ -137,15 +138,15 @@ pub fn xmss_sign_with_randomness(
     if slot < secret_key.slot_start || slot > secret_key.slot_end {
         return Err(XmssSignatureError::SlotOutOfRange);
     }
-    let wots_secret_key = gen_wots_secret_key(&secret_key.seed, slot as u64);
+    let wots_secret_key = gen_wots_secret_key(&secret_key.seed, slot);
     let merkle_root = secret_key.public_key().merkle_root;
     let truncated_merkle_root = merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
     let wots_signature = wots_secret_key.sign_with_randomness(message, slot, &truncated_merkle_root, randomness);
     let merkle_proof = (0..LOG_LIFETIME)
         .map(|level| {
-            let neighbour_index = ((slot as u64) >> level) ^ 1;
-            let base = (secret_key.slot_start as u64) >> level;
-            let top = (secret_key.slot_end as u64) >> level;
+            let neighbour_index = (slot >> level) ^ 1;
+            let base = secret_key.slot_start >> level;
+            let top = secret_key.slot_end >> level;
             if neighbour_index >= base && neighbour_index <= top {
                 secret_key.merkle_tree[level][(neighbour_index - base) as usize]
             } else {
@@ -204,7 +205,7 @@ pub fn xmss_verify_with_poseidon_trace(
         return Err(XmssVerifyError::InvalidMerklePath);
     }
     for (level, neighbour) in signature.merkle_proof.iter().enumerate() {
-        let is_left = (((signature.slot as u64) >> level) & 1) == 0;
+        let is_left = ((signature.slot >> level) & 1) == 0;
         if is_left {
             current_hash = poseidon16_compress_with_trace(&current_hash, neighbour, &mut poseidon_16_trace);
         } else {
