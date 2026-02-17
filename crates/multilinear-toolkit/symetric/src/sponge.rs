@@ -3,31 +3,34 @@
 use crate::Compression;
 
 // T-SPONGE (https://eprint.iacr.org/2014/223)
+// Right-to-left: processes chunks from the end so trailing zeros are absorbed first.
 pub fn hash_iter<T, Comp, I, const WIDTH: usize, const RATE: usize, const OUT: usize>(comp: &Comp, input: I) -> [T; OUT]
 where
     T: Default + Copy,
     Comp: Compression<[T; WIDTH]>,
     I: IntoIterator<Item = T>,
 {
-    let mut state = [T::default(); WIDTH];
-    let mut input = input.into_iter();
+    let data: Vec<T> = input.into_iter().collect();
+    hash_data::<T, Comp, WIDTH, RATE, OUT>(comp, &data)
+}
 
-    for i in 0..WIDTH {
-        state[i] = input.next().unwrap_or_default();
-    }
+fn hash_data<T, Comp, const WIDTH: usize, const RATE: usize, const OUT: usize>(comp: &Comp, data: &[T]) -> [T; OUT]
+where
+    T: Default + Copy,
+    Comp: Compression<[T; WIDTH]>,
+{
+    debug_assert!(RATE == OUT);
+    debug_assert!(WIDTH == OUT + RATE);
+
+    let n_chunks = data.len() / RATE;
+    debug_assert!(n_chunks >= 2);
+    let mut state: [T; WIDTH] = data[data.len() - WIDTH..].try_into().unwrap();
     comp.compress_mut(&mut state);
 
-    'outer: loop {
-        for i in 0..RATE {
-            if let Some(x) = input.next() {
-                state[i + (WIDTH - RATE)] = x;
-            } else {
-                if i != 0 {
-                    comp.compress_mut(&mut state);
-                }
-                break 'outer;
-            }
-        }
+    // Fold remaining chunks right to left
+    for chunk_idx in (0..n_chunks - 2).rev() {
+        let offset = chunk_idx * RATE;
+        state[WIDTH - RATE..].copy_from_slice(&data[offset..offset + RATE]);
         comp.compress_mut(&mut state);
     }
 
@@ -43,7 +46,8 @@ where
     Comp: Compression<[T; WIDTH]>,
     I: IntoIterator<Item = &'a [T]>,
 {
-    hash_iter::<_, _, _, WIDTH, RATE, OUT>(comp, input.into_iter().flatten().copied())
+    let data: Vec<T> = input.into_iter().flatten().copied().collect();
+    hash_data::<T, Comp, WIDTH, RATE, OUT>(comp, &data)
 }
 
 pub fn hash_slice<T, Comp, const WIDTH: usize, const RATE: usize, const OUT: usize>(
@@ -54,5 +58,5 @@ where
     T: Default + Copy,
     Comp: Compression<[T; WIDTH]>,
 {
-    hash_iter_slices::<_, _, _, WIDTH, RATE, OUT>(comp, core::iter::once(input))
+    hash_data::<T, Comp, WIDTH, RATE, OUT>(comp, input)
 }

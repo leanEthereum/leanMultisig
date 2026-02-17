@@ -7,38 +7,50 @@ DIGEST_LEN = 8
 LITTLE_ENDIAN = 1
 BIG_ENDIAN = 0
 
-def batch_hash_slice(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks):
+def batch_hash_slice_rtl(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks):
     if num_chunks == DIM * 2:
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM * 2)
+        batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM * 2)
         return
     if num_chunks == 16:
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 16)
+        batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, 16)
         return
     if num_chunks == 8:
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 8)
+        batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, 8)
         return
     if num_chunks == 20:
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 20)
+        batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, 20)
         return
     if num_chunks == 1:
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 1)
+        batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, 1)
         return
     if num_chunks == 4:
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 4)
+        batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, 4)
         return
     if num_chunks == 5:
-        batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, 5)
+        batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, 5)
         return
     print(num_chunks)
     assert False, "batch_hash_slice called with unsupported len"
 
 
-def batch_hash_slice_const(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks: Const):
+def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks: Const):
     for i in range(0, num_queries):
         data = all_data_to_hash[i]
-        res = slice_hash(data, num_chunks)
+        res = slice_hash_rtl(data, num_chunks)
         all_resulting_hashes[i] = res
     return
+
+
+@inline
+def slice_hash_rtl(data, num_chunks):
+    states = Array((num_chunks - 1) * DIGEST_LEN)
+    poseidon16(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
+    state_indexes = Array(num_chunks)
+    state_indexes[0] = states
+    for j in unroll(1, num_chunks - 1):
+        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
+        poseidon16(state_indexes[j - 1], data + (num_chunks - 2 - j) * DIGEST_LEN, state_indexes[j])
+    return state_indexes[num_chunks - 2]
 
 
 @inline
