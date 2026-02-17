@@ -121,7 +121,6 @@ fn build_replacements(
             }
             num_queries.push(cfg.final_queries);
             query_grinding_bits.push(cfg.final_query_pow_bits);
-            folding_grinding.push(cfg.final_folding_pow_bits);
 
             queries_for_rate.push(format!(
                 "[{}]",

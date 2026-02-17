@@ -180,12 +180,8 @@ where
             .ok_or(ProofError::InvalidProof)
             .unwrap();
 
-        let final_sumcheck_randomness = verify_sumcheck_rounds::<F, EF>(
-            verifier_state,
-            &mut claimed_sum,
-            self.final_sumcheck_rounds,
-            self.final_folding_pow_bits,
-        )?;
+        let final_sumcheck_randomness =
+            verify_sumcheck_rounds::<F, EF>(verifier_state, &mut claimed_sum, self.final_sumcheck_rounds, 0)?;
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 
         // Compute folding randomness across all rounds.

@@ -129,7 +129,6 @@ pub struct WhirConfig<EF: Field> {
     pub final_query_pow_bits: usize,
     pub final_log_inv_rate: usize,
     pub final_sumcheck_rounds: usize,
-    pub final_folding_pow_bits: usize,
 }
 
 impl<EF> WhirConfig<EF>
@@ -259,7 +258,10 @@ where
                     .queries_error(log_inv_rate, final_queries),
         );
 
-        let final_folding_pow_bits = 0_f64.max(whir_parameters.security_level as f64 - (field_size_bits - 1) as f64);
+        assert!(
+            field_size_bits > whir_parameters.security_level,
+            "Field size must be greater than security level"
+        );
 
         Self {
             committment_ood_samples,
@@ -272,7 +274,6 @@ where
             final_queries,
             final_query_pow_bits: final_query_pow_bits as usize,
             final_sumcheck_rounds,
-            final_folding_pow_bits: final_folding_pow_bits as usize,
             final_log_inv_rate: log_inv_rate,
         }
     }
@@ -378,51 +379,30 @@ where
 
     /// Compute the synthetic or derived `RoundConfig` for the final phase.
     ///
-    /// - If no folding rounds were configured, constructs a fallback config
-    ///   based on the starting domain and folding factor.
-    /// - If rounds were configured, derives the final config by adapting
-    ///   the last round’s values for the final folding phase.
+    /// Derives the final config by adapting the last round's values for the final folding phase.
     ///
     /// This is used by the verifier when verifying the final polynomial,
     /// ensuring consistent challenge selection and STIR constraint handling.
     pub fn final_round_config(&self) -> RoundConfig<EF> {
-        if self.round_parameters.is_empty() {
-            // Fallback: no folding rounds, use initial domain setup
-            RoundConfig {
-                num_variables: self.num_variables - self.folding_factor.at_round(0),
-                folding_factor: self.folding_factor.at_round(self.n_rounds()),
-                num_queries: self.final_queries,
-                query_pow_bits: self.final_query_pow_bits,
-                domain_size: self.starting_domain_size(),
-                folded_domain_gen: PF::<EF>::two_adic_generator(
-                    self.starting_domain_size().ilog2() as usize - self.folding_factor.at_round(0),
-                ),
-                ood_samples: 0, // no OOD in synthetic final phase
-                folding_pow_bits: self.final_folding_pow_bits,
-                log_inv_rate: self.starting_log_inv_rate,
-            }
-        } else {
-            let rs_reduction_factor = self.rs_reduction_factor(self.n_rounds() - 1);
-            let folding_factor = self.folding_factor.at_round(self.n_rounds());
+        assert!(!self.round_parameters.is_empty());
+        let rs_reduction_factor = self.rs_reduction_factor(self.n_rounds() - 1);
+        let folding_factor = self.folding_factor.at_round(self.n_rounds());
 
-            // Derive final round config from last round, adjusted for next fold
-            let last = self.round_parameters.last().unwrap();
-            let domain_size = last.domain_size >> rs_reduction_factor;
-            let folded_domain_gen = PF::<EF>::two_adic_generator(
-                domain_size.ilog2() as usize - self.folding_factor.at_round(self.n_rounds()),
-            );
+        let last = self.round_parameters.last().unwrap();
+        let domain_size = last.domain_size >> rs_reduction_factor;
+        let folded_domain_gen =
+            PF::<EF>::two_adic_generator(domain_size.ilog2() as usize - self.folding_factor.at_round(self.n_rounds()));
 
-            RoundConfig {
-                num_variables: last.num_variables - folding_factor,
-                folding_factor,
-                num_queries: self.final_queries,
-                query_pow_bits: self.final_query_pow_bits,
-                domain_size,
-                folded_domain_gen,
-                ood_samples: last.ood_samples,
-                folding_pow_bits: self.final_folding_pow_bits,
-                log_inv_rate: last.log_inv_rate,
-            }
+        RoundConfig {
+            num_variables: last.num_variables - folding_factor,
+            folding_factor,
+            num_queries: self.final_queries,
+            query_pow_bits: self.final_query_pow_bits,
+            domain_size,
+            folded_domain_gen,
+            ood_samples: last.ood_samples,
+            folding_pow_bits: 0,
+            log_inv_rate: last.log_inv_rate,
         }
     }
 }

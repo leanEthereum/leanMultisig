@@ -290,7 +290,10 @@ fn build_aggregation(
         } else {
             println!("{:.3}s the final aggregation step", elapsed.as_secs_f64());
         }
-        println!("Proof size: {} KiB", result.compressed_proof_len_fe * F::bits() / (8 * 1024));
+        println!(
+            "Proof size: {} KiB",
+            result.compressed_proof_len_fe * F::bits() / (8 * 1024)
+        );
     }
 
     if !tracing {

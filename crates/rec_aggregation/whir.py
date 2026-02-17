@@ -99,7 +99,7 @@ def whir_open(
         )
         copy_5(final_pol_evaluated_on_circle, final_folds + i * DIM)
 
-    fs, all_folding_randomness[n_rounds + 1], end_sum = sumcheck_verify_with_grinding(fs, n_final_vars, claimed_sum, 2, folding_grinding[n_rounds + 1])
+    fs, all_folding_randomness[n_rounds + 1], end_sum = sumcheck_verify(fs, n_final_vars, claimed_sum, 2)
 
     folding_randomness_global = Array(n_vars * DIM)
 

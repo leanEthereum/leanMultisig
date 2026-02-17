@@ -51,27 +51,13 @@ mod tests {
             .into_par_iter()
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
-        let aggregated_a = aggregate(
-            &[],
-            pub_keys_and_sigs_a,
-            &message,
-            slot,
-            log_inv_rate,
-            false,
-        );
+        let aggregated_a = aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate, false);
 
         let pub_keys_and_sigs_b: Vec<_> = (3..5)
             .into_par_iter()
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
-        let aggregated_b = aggregate(
-            &[],
-            pub_keys_and_sigs_b,
-            &message,
-            slot,
-            log_inv_rate,
-            false,
-        );
+        let aggregated_b = aggregate(&[], pub_keys_and_sigs_b, &message, slot, log_inv_rate, false);
 
         let pub_keys_and_sigs_c: Vec<_> = (5..6)
             .into_par_iter()

@@ -240,12 +240,10 @@ where
 
         // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
-            let final_folding_randomness = round_state.sumcheck_prover.run_sumcheck_many_rounds(
-                None,
-                prover_state,
-                self.final_sumcheck_rounds,
-                self.final_folding_pow_bits,
-            );
+            let final_folding_randomness =
+                round_state
+                    .sumcheck_prover
+                    .run_sumcheck_many_rounds(None, prover_state, self.final_sumcheck_rounds, 0);
 
             round_state.randomness_vec.extend(final_folding_randomness.0);
         }
