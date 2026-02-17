@@ -288,8 +288,9 @@ fn build_aggregation(
                 (topology.raw_xmss as f64 / elapsed.as_secs_f64()).round() as usize
             );
         } else {
-            println!("{}s the final aggregation step", elapsed.as_secs_f64());
+            println!("{:.3}s the final aggregation step", elapsed.as_secs_f64());
         }
+        println!("Proof size: {} KiB", result.compressed_proof_len_fe * F::bits() / (8 * 1024));
     }
 
     if !tracing {
