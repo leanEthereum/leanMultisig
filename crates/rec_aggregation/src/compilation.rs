@@ -62,13 +62,13 @@ fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: boo
 #[instrument(skip_all)]
 fn compile_main_program_self_referential(prox_gaps_conjecture: bool) -> Bytecode {
     let mut log_size_guess = 19;
+    let bytecode_zero_eval = F::ONE;
     loop {
-        let bytecode = compile_main_program(log_size_guess, prox_gaps_conjecture, F::ZERO);
+        let bytecode = compile_main_program(log_size_guess, prox_gaps_conjecture, bytecode_zero_eval);
+        assert_eq!(bytecode_zero_eval, bytecode.instructions_multilinear[0]);
         let actual_log_size = bytecode.log_size();
         if actual_log_size == log_size_guess {
-            // Now recompile with the correct bytecode_zero_eval
-            let bytecode_zero_eval = bytecode.instructions_multilinear[0];
-            return compile_main_program(actual_log_size, prox_gaps_conjecture, bytecode_zero_eval);
+            return bytecode;
         } else {
             println!(
                 "Wrong guess at `compile_main_program_self_referential`, should be {} instead of {}, recompiling...",
