@@ -116,14 +116,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             alpha_powers: air_alpha_powers,
             ..Default::default()
         };
-        let air_claims = verify_air(
-            &mut verifier_state,
-            &air,
-            extra_data,
-            log2_ceil_usize(n_rows),
-            None,
-        )
-        .unwrap();
+        let air_claims = verify_air(&mut verifier_state, &air, extra_data, log2_ceil_usize(n_rows), None).unwrap();
 
         let betas = verifier_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
         let packed_point = MultilinearPoint([betas.clone(), air_claims.point.0].concat());

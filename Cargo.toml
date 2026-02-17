@@ -8,7 +8,18 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["crates/*"]
+members = [
+    "crates/*",
+    "crates/multilinear-toolkit/utils",
+    "crates/multilinear-toolkit/field",
+    "crates/multilinear-toolkit/koala-bear",
+    "crates/multilinear-toolkit/poly",
+    "crates/multilinear-toolkit/symetric",
+    "crates/multilinear-toolkit/air",
+    "crates/multilinear-toolkit/fiat-shamir",
+    "crates/multilinear-toolkit/sumcheck",
+    "crates/multilinear-toolkit/whir",
+]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -53,6 +64,7 @@ rec_aggregation = { path = "crates/rec_aggregation" }
 thiserror = "2.0"
 clap = { version = "4.5.52", features = ["derive"] }
 rand = "0.9.2"
+rayon = "*"
 sha3 = "0.10.8"
 pest = "2.7"
 pest_derive = "2.7"
@@ -68,7 +80,7 @@ owo-colors = "4.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }
 
-multilinear-toolkit = { path = "../multilinear-toolkit" }
+multilinear-toolkit = { path = "crates/multilinear-toolkit" }
 
 [dependencies]
 clap.workspace = true

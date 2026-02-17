@@ -1,7 +1,6 @@
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 
-
 #[derive(Debug)]
 pub struct ConstraintChecker<EF: ExtensionField<PF<EF>>> {
     pub up_f: Vec<PF<EF>>,
@@ -56,7 +55,6 @@ impl<EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintChecker<EF> {
         // do nothing
     }
 }
-
 
 #[instrument(name = "Check trace validity", skip_all)]
 pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(

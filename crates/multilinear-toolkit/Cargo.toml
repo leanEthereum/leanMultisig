@@ -1,0 +1,17 @@
+[package]
+name = "multilinear-toolkit"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+symetric = { path = "symetric", package = "mt-symetric" }
+poly = { path = "poly", package = "mt-poly" }
+sumcheck = { path = "sumcheck", package = "mt-sumcheck" }
+field = { path = "field", package = "mt-field" }
+air = { path = "air", package = "mt-air" }
+rayon.workspace = true
+whir = { path = "whir", package = "mt-whir" }
+tracing.workspace = true
+fiat-shamir = { path = "fiat-shamir", package = "mt-fiat-shamir" }
+koala-bear = { path = "koala-bear", package = "mt-koala-bear" }
+utils = { path = "utils", package = "mt-utils" }

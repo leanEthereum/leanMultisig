@@ -18,15 +18,7 @@ dependencies = [
  "multilinear-toolkit",
  "rand",
  "tracing",
- "utils 0.1.0",
-]
-
-[[package]]
-name = "air"
-version = "0.3.0"
-dependencies = [
- "field",
- "poly",
+ "utils",
 ]
 
 [[package]]
@@ -240,32 +232,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
-name = "fiat-shamir"
-version = "0.3.0"
-dependencies = [
- "field",
- "koala-bear",
- "rayon",
- "serde",
- "symetric",
- "utils 0.3.0",
-]
-
-[[package]]
-name = "field"
-version = "0.3.0"
-dependencies = [
- "itertools",
- "num-bigint",
- "paste",
- "rand",
- "rayon",
- "serde",
- "tracing",
- "utils 0.3.0",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -334,21 +300,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "koala-bear"
-version = "0.3.0"
-dependencies = [
- "field",
- "itertools",
- "num-bigint",
- "paste",
- "rand",
- "rayon",
- "serde",
- "tracing",
- "utils 0.3.0",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -358,14 +309,14 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 name = "lean-multisig"
 version = "0.1.0"
 dependencies = [
- "air 0.1.0",
+ "air",
  "clap",
  "lean_vm",
  "multilinear-toolkit",
  "rand",
  "rec_aggregation",
  "sub_protocols",
- "utils 0.1.0",
+ "utils",
  "xmss",
 ]
 
@@ -373,7 +324,7 @@ dependencies = [
 name = "lean_compiler"
 version = "0.1.0"
 dependencies = [
- "air 0.1.0",
+ "air",
  "lean_vm",
  "multilinear-toolkit",
  "pest",
@@ -381,7 +332,7 @@ dependencies = [
  "rand",
  "sub_protocols",
  "tracing",
- "utils 0.1.0",
+ "utils",
  "xmss",
 ]
 
@@ -389,7 +340,7 @@ dependencies = [
 name = "lean_prover"
 version = "0.1.0"
 dependencies = [
- "air 0.1.0",
+ "air",
  "itertools",
  "lean_compiler",
  "lean_vm",
@@ -400,7 +351,7 @@ dependencies = [
  "rand",
  "sub_protocols",
  "tracing",
- "utils 0.1.0",
+ "utils",
  "xmss",
 ]
 
@@ -408,7 +359,7 @@ dependencies = [
 name = "lean_vm"
 version = "0.1.0"
 dependencies = [
- "air 0.1.0",
+ "air",
  "colored",
  "itertools",
  "multilinear-toolkit",
@@ -419,7 +370,7 @@ dependencies = [
  "strum",
  "thiserror",
  "tracing",
- "utils 0.1.0",
+ "utils",
  "xmss",
 ]
 
@@ -451,20 +402,128 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
-name = "multilinear-toolkit"
-version = "0.3.0"
+name = "mt-air"
+version = "0.1.0"
 dependencies = [
- "air 0.3.0",
- "fiat-shamir",
- "field",
- "koala-bear",
- "poly",
+ "mt-field",
+ "mt-poly",
+]
+
+[[package]]
+name = "mt-fiat-shamir"
+version = "0.1.0"
+dependencies = [
+ "mt-field",
+ "mt-koala-bear",
+ "mt-symetric",
+ "mt-utils",
  "rayon",
- "sumcheck",
- "symetric",
+ "serde",
+]
+
+[[package]]
+name = "mt-field"
+version = "0.1.0"
+dependencies = [
+ "itertools",
+ "mt-utils",
+ "num-bigint",
+ "paste",
+ "rand",
+ "rayon",
+ "serde",
  "tracing",
- "utils 0.3.0",
- "whir",
+]
+
+[[package]]
+name = "mt-koala-bear"
+version = "0.1.0"
+dependencies = [
+ "itertools",
+ "mt-field",
+ "mt-utils",
+ "num-bigint",
+ "paste",
+ "rand",
+ "rayon",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "mt-poly"
+version = "0.1.0"
+dependencies = [
+ "itertools",
+ "mt-field",
+ "mt-koala-bear",
+ "mt-utils",
+ "rand",
+ "rayon",
+]
+
+[[package]]
+name = "mt-sumcheck"
+version = "0.1.0"
+dependencies = [
+ "mt-air",
+ "mt-fiat-shamir",
+ "mt-field",
+ "mt-koala-bear",
+ "mt-poly",
+ "mt-utils",
+ "rayon",
+]
+
+[[package]]
+name = "mt-symetric"
+version = "0.1.0"
+dependencies = [
+ "mt-field",
+ "mt-koala-bear",
+]
+
+[[package]]
+name = "mt-utils"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "mt-whir"
+version = "0.1.0"
+dependencies = [
+ "itertools",
+ "mt-fiat-shamir",
+ "mt-field",
+ "mt-koala-bear",
+ "mt-poly",
+ "mt-sumcheck",
+ "mt-symetric",
+ "mt-utils",
+ "rand",
+ "rayon",
+ "tracing",
+ "tracing-forest",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "multilinear-toolkit"
+version = "0.1.0"
+dependencies = [
+ "mt-air",
+ "mt-fiat-shamir",
+ "mt-field",
+ "mt-koala-bear",
+ "mt-poly",
+ "mt-sumcheck",
+ "mt-symetric",
+ "mt-utils",
+ "mt-whir",
+ "rayon",
+ "tracing",
 ]
 
 [[package]]
@@ -600,17 +659,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
 
 [[package]]
-name = "poly"
-version = "0.3.0"
-dependencies = [
- "field",
- "itertools",
- "rand",
- "rayon",
- "utils 0.3.0",
-]
-
-[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -705,7 +753,7 @@ dependencies = [
 name = "rec_aggregation"
 version = "0.1.0"
 dependencies = [
- "air 0.1.0",
+ "air",
  "bincode",
  "lean_compiler",
  "lean_prover",
@@ -714,7 +762,7 @@ dependencies = [
  "rand",
  "sub_protocols",
  "tracing",
- "utils 0.1.0",
+ "utils",
  "xmss",
 ]
 
@@ -843,27 +891,7 @@ dependencies = [
  "owo-colors",
  "rand",
  "tracing",
- "utils 0.1.0",
-]
-
-[[package]]
-name = "sumcheck"
-version = "0.3.0"
-dependencies = [
- "air 0.3.0",
- "fiat-shamir",
- "field",
- "poly",
- "rayon",
- "utils 0.3.0",
-]
-
-[[package]]
-name = "symetric"
-version = "0.3.0"
-dependencies = [
- "field",
- "koala-bear",
+ "utils",
 ]
 
 [[package]]
@@ -1046,13 +1074,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "utils"
-version = "0.3.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1071,23 +1092,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9517f9239f02c069db75e65f174b3da828fe5f5b945c4dd26bd25d89c03ebcf5"
 dependencies = [
  "wit-bindgen",
-]
-
-[[package]]
-name = "whir"
-version = "0.3.0"
-dependencies = [
- "fiat-shamir",
- "field",
- "itertools",
- "koala-bear",
- "poly",
- "rand",
- "rayon",
- "sumcheck",
- "symetric",
- "tracing",
- "utils 0.3.0",
 ]
 
 [[package]]
@@ -1149,7 +1153,7 @@ dependencies = [
  "multilinear-toolkit",
  "rand",
  "sha3",
- "utils 0.1.0",
+ "utils",
 ]
 
 [[package]]
