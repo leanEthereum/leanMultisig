@@ -8,6 +8,7 @@ use std::time::Instant;
 type EF = QuinticExtensionFieldKB;
 
 #[test]
+#[ignore]
 fn bench_grinding() {
     let n_reps = 100;
     for grinding_bits in 10..=20 {
