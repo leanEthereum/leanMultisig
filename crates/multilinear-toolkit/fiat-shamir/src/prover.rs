@@ -9,7 +9,7 @@ use field::integers::QuotientMap;
 use field::{ExtensionField, PrimeField64};
 use rayon::prelude::*;
 use std::{fmt::Debug, sync::Mutex};
-use symetric::Permutation;
+use symetric::Compression;
 
 #[derive(Debug)]
 pub struct ProverState<EF: ExtensionField<PF<EF>>, P> {
@@ -17,15 +17,15 @@ pub struct ProverState<EF: ExtensionField<PF<EF>>, P> {
     transcript: Proof<PF<EF>>,
 }
 
-impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]>> ProverState<EF, P>
+impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]>> ProverState<EF, P>
 where
     PF<EF>: PrimeField64,
 {
     #[must_use]
-    pub fn new(permutation: P) -> Self {
+    pub fn new(compressor: P) -> Self {
         assert!(EF::DIMENSION <= RATE);
         Self {
-            challenger: Challenger::new(permutation),
+            challenger: Challenger::new(compressor),
             transcript: Proof(Vec::new()),
         }
     }
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]>> ChallengeSampler<EF> for ProverState<EF, P>
+impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]>> ChallengeSampler<EF> for ProverState<EF, P>
 where
     PF<EF>: PrimeField64,
 {
@@ -56,7 +56,7 @@ where
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]> + Permutation<[<PF<EF> as Field>::Packing; WIDTH]>>
+impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]> + Compression<[<PF<EF> as Field>::Packing; WIDTH]>>
     FSProver<EF> for ProverState<EF, P>
 where
     PF<EF>: PrimeField64,
@@ -120,7 +120,7 @@ where
                     .for_each(|(val, state)| *val = Packed::<EF>::from(*state));
                 packed_state[RATE] = packed_witnesses;
 
-                self.challenger.permutation.permute_mut(&mut packed_state);
+                self.challenger.compressor.compress_mut(&mut packed_state);
 
                 let samples = packed_state[0].as_slice();
                 for (sample, witness) in samples.iter().zip(packed_witnesses.as_slice()) {

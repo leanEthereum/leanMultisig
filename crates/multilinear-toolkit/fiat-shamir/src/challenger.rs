@@ -1,29 +1,28 @@
 use field::PrimeField64;
-use symetric::Permutation;
+use symetric::Compression;
 
 pub(crate) const RATE: usize = 8;
 pub(crate) const WIDTH: usize = RATE * 2;
 
 #[derive(Clone, Debug)]
 pub struct Challenger<F, P> {
-    pub permutation: P,
+    pub compressor: P,
     pub state: [F; RATE],
 }
 
-// In reality P is a Cryptographic Compression Function (todo rename)
-impl<F: PrimeField64, P: Permutation<[F; WIDTH]>> Challenger<F, P> {
-    pub fn new(permutation: P) -> Self
+impl<F: PrimeField64, P: Compression<[F; WIDTH]>> Challenger<F, P> {
+    pub fn new(compressor: P) -> Self
     where
         F: Default,
     {
         Self {
-            permutation,
+            compressor,
             state: [F::ZERO; RATE],
         }
     }
 
     fn hash_state_with(&self, value: &[F; RATE]) -> [F; RATE] {
-        self.permutation.permute({
+        self.compressor.compress({
             let mut concat = [F::ZERO; WIDTH];
             concat[..RATE].copy_from_slice(&self.state);
             concat[RATE..].copy_from_slice(value);

@@ -12,7 +12,7 @@ use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon2
 use poly::*;
 
 use rayon::prelude::*;
-use symetric::Permutation;
+use symetric::Compression;
 use symetric::merkle::unpack_array;
 use tracing::instrument;
 
@@ -127,7 +127,7 @@ impl<F: Clone + Copy + Default + Send + Sync, M: Matrix<F>, const DIGEST_ELEMS: 
     pub fn new<P, Perm, const WIDTH: usize, const RATE: usize>(perm: &Perm, leaf: M) -> Self
     where
         P: PackedValue<Value = F> + Default,
-        Perm: Permutation<[F; WIDTH]> + Permutation<[P; WIDTH]>,
+        Perm: Compression<[F; WIDTH]> + Compression<[P; WIDTH]>,
     {
         let first_layer = first_digest_layer::<P, Perm, _, DIGEST_ELEMS, WIDTH, RATE>(perm, &leaf);
         let tree = symetric::merkle::MerkleTree::from_first_layer::<P, Perm, WIDTH>(perm, first_layer);
@@ -155,7 +155,7 @@ fn first_digest_layer<P, Perm, M, const DIGEST_ELEMS: usize, const WIDTH: usize,
 where
     P: PackedValue + Default,
     P::Value: Default + Copy,
-    Perm: Permutation<[P::Value; WIDTH]> + Permutation<[P; WIDTH]>,
+    Perm: Compression<[P::Value; WIDTH]> + Compression<[P; WIDTH]>,
     M: Matrix<P::Value>,
 {
     let width = P::WIDTH;

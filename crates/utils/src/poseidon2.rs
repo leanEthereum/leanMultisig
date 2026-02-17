@@ -28,8 +28,7 @@ pub fn get_poseidon_16_of_zero() -> &'static [KoalaBear; 8] {
 
 #[inline(always)]
 pub fn poseidon16_compress(input: [KoalaBear; 16]) -> [KoalaBear; 8] {
-    // Bad naming: it's actually a compression, not a permutation (i.e. output = poseidon16(input)[0..8] + input[0..8])
-    get_poseidon16().permute(input)[0..8].try_into().unwrap()
+    get_poseidon16().compress(input)[0..8].try_into().unwrap()
 }
 
 pub fn poseidon16_compress_pair(left: [KoalaBear; 8], right: [KoalaBear; 8]) -> [KoalaBear; 8] {

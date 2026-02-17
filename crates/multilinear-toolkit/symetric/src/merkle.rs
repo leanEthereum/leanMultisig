@@ -6,7 +6,7 @@ use std::array;
 use field::PackedValue;
 use rayon::prelude::*;
 
-use crate::Permutation;
+use crate::Compression;
 
 pub const DIGEST_ELEMS: usize = 8;
 
@@ -18,10 +18,10 @@ pub struct MerkleTree<F, const DIGEST_ELEMS: usize> {
 
 impl<F: Clone + Copy + Default + Send + Sync, const DIGEST_ELEMS: usize> MerkleTree<F, DIGEST_ELEMS> {
     /// Build a Merkle tree from a pre-computed first digest layer.
-    pub fn from_first_layer<P, Perm, const WIDTH: usize>(perm: &Perm, first_layer: Vec<[F; DIGEST_ELEMS]>) -> Self
+    pub fn from_first_layer<P, Comp, const WIDTH: usize>(comp: &Comp, first_layer: Vec<[F; DIGEST_ELEMS]>) -> Self
     where
         P: PackedValue<Value = F> + Default,
-        Perm: Permutation<[F; WIDTH]> + Permutation<[P; WIDTH]>,
+        Comp: Compression<[F; WIDTH]> + Compression<[P; WIDTH]>,
     {
         let mut digest_layers = vec![first_layer];
         loop {
@@ -29,7 +29,7 @@ impl<F: Clone + Copy + Default + Send + Sync, const DIGEST_ELEMS: usize> MerkleT
             if prev_layer.len() == 1 {
                 break;
             }
-            digest_layers.push(compress_layer::<P, Perm, DIGEST_ELEMS, WIDTH>(prev_layer, perm));
+            digest_layers.push(compress_layer::<P, Comp, DIGEST_ELEMS, WIDTH>(prev_layer, comp));
         }
         Self { digest_layers }
     }
@@ -47,14 +47,14 @@ impl<F: Clone + Copy + Default + Send + Sync, const DIGEST_ELEMS: usize> MerkleT
     }
 }
 
-pub fn compress_layer<P, Perm, const DIGEST_ELEMS: usize, const WIDTH: usize>(
+pub fn compress_layer<P, Comp, const DIGEST_ELEMS: usize, const WIDTH: usize>(
     prev_layer: &[[P::Value; DIGEST_ELEMS]],
-    perm: &Perm,
+    comp: &Comp,
 ) -> Vec<[P::Value; DIGEST_ELEMS]>
 where
     P: PackedValue + Default,
     P::Value: Default + Copy,
-    Perm: Permutation<[P::Value; WIDTH]> + Permutation<[P; WIDTH]>,
+    Comp: Compression<[P::Value; WIDTH]> + Compression<[P; WIDTH]>,
 {
     let width = P::WIDTH;
     let next_len_padded = if prev_layer.len() == 2 {
@@ -74,7 +74,7 @@ where
             let first_row = i * width;
             let left = array::from_fn(|j| P::from_fn(|k| prev_layer[2 * (first_row + k)][j]));
             let right = array::from_fn(|j| P::from_fn(|k| prev_layer[2 * (first_row + k) + 1][j]));
-            let packed_digest = crate::compress(perm, [left, right]);
+            let packed_digest = crate::compress(comp, [left, right]);
             for (dst, src) in digests_chunk.iter_mut().zip(unpack_array(packed_digest)) {
                 *dst = src;
             }
@@ -83,14 +83,14 @@ where
     for i in (next_len / width * width)..next_len {
         let left = prev_layer[2 * i];
         let right = prev_layer[2 * i + 1];
-        next_digests[i] = crate::compress(perm, [left, right]);
+        next_digests[i] = crate::compress(comp, [left, right]);
     }
 
     next_digests
 }
 
-pub fn merkle_verify<F, Perm, const DIGEST_ELEMS: usize, const WIDTH: usize, const RATE: usize>(
-    perm: &Perm,
+pub fn merkle_verify<F, Comp, const DIGEST_ELEMS: usize, const WIDTH: usize, const RATE: usize>(
+    comp: &Comp,
     commit: &[F; DIGEST_ELEMS],
     log_height: usize,
     mut index: usize,
@@ -99,13 +99,13 @@ pub fn merkle_verify<F, Perm, const DIGEST_ELEMS: usize, const WIDTH: usize, con
 ) -> bool
 where
     F: Default + Copy + PartialEq,
-    Perm: Permutation<[F; WIDTH]>,
+    Comp: Compression<[F; WIDTH]>,
 {
     if opening_proof.len() != log_height {
         return false;
     }
 
-    let mut root = crate::hash_slice::<_, _, WIDTH, RATE, DIGEST_ELEMS>(perm, opened_values);
+    let mut root = crate::hash_slice::<_, _, WIDTH, RATE, DIGEST_ELEMS>(comp, opened_values);
 
     for &sibling in opening_proof.iter() {
         let (left, right) = if index & 1 == 0 {
@@ -113,7 +113,7 @@ where
         } else {
             (sibling, root)
         };
-        root = crate::compress(perm, [left, right]);
+        root = crate::compress(comp, [left, right]);
         index >>= 1;
     }
 

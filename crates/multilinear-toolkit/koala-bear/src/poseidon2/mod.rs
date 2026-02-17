@@ -9,7 +9,6 @@ mod round_numbers;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-use crate::symmetric::{CryptographicPermutation, Permutation};
 pub use external::*;
 use field::{Algebra, InjectiveMonomial, PrimeField, PrimeField64};
 pub use generic::*;
@@ -85,32 +84,22 @@ where
     }
 }
 
-impl<F, A, ExternalPerm, InternalPerm, const WIDTH: usize, const D: u64> Permutation<[A; WIDTH]>
-    for Poseidon2<F, ExternalPerm, InternalPerm, WIDTH, D>
-where
-    F: PrimeField + InjectiveMonomial<D>,
-    A: Algebra<F> + Sync + InjectiveMonomial<D>,
-    ExternalPerm: ExternalLayer<A, WIDTH, D>,
-    InternalPerm: InternalLayer<A, WIDTH, D>,
+impl<F: PrimeField + InjectiveMonomial<D>, ExternalPerm, InternalPerm, const WIDTH: usize, const D: u64>
+    Poseidon2<F, ExternalPerm, InternalPerm, WIDTH, D>
 {
-    fn permute_mut(&self, state: &mut [A; WIDTH]) {
+    /// Poseidon2 compression: output = Poseidon2(input) + input
+    pub fn compress_in_place<A>(&self, state: &mut [A; WIDTH])
+    where
+        A: Algebra<F> + Sync + InjectiveMonomial<D>,
+        ExternalPerm: ExternalLayer<A, WIDTH, D>,
+        InternalPerm: InternalLayer<A, WIDTH, D>,
+    {
         let initial_state = state.clone();
         self.external_layer.permute_state_initial(state);
         self.internal_layer.permute_state(state);
         self.external_layer.permute_state_terminal(state);
-        // Warning: this is not really poseidon2 permutation, this is poseidon2 in "compression" mode
         state.iter_mut().zip(initial_state.into_iter()).for_each(|(s, i)| {
             *s = s.clone() + i;
         });
     }
-}
-
-impl<F, A, ExternalPerm, InternalPerm, const WIDTH: usize, const D: u64> CryptographicPermutation<[A; WIDTH]>
-    for Poseidon2<F, ExternalPerm, InternalPerm, WIDTH, D>
-where
-    F: PrimeField + InjectiveMonomial<D>,
-    A: Algebra<F> + Sync + InjectiveMonomial<D>,
-    ExternalPerm: ExternalLayer<A, WIDTH, D>,
-    InternalPerm: InternalLayer<A, WIDTH, D>,
-{
 }

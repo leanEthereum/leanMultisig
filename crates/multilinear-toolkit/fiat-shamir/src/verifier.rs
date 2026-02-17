@@ -4,7 +4,7 @@ use crate::{
 };
 use field::PrimeCharacteristicRing;
 use field::{ExtensionField, PrimeField64};
-use symetric::Permutation;
+use symetric::Compression;
 
 #[derive(Debug)]
 pub struct VerifierState<EF: ExtensionField<PF<EF>>, P> {
@@ -14,15 +14,15 @@ pub struct VerifierState<EF: ExtensionField<PF<EF>>, P> {
     _extension_field: std::marker::PhantomData<EF>,
 }
 
-impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]>> VerifierState<EF, P>
+impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]>> VerifierState<EF, P>
 where
     PF<EF>: PrimeField64,
 {
     #[must_use]
-    pub fn new(transcript: Vec<PF<EF>>, permutation: P) -> Self {
+    pub fn new(transcript: Vec<PF<EF>>, compressor: P) -> Self {
         assert!(EF::DIMENSION <= RATE);
         Self {
-            challenger: Challenger::new(permutation),
+            challenger: Challenger::new(compressor),
             transcript,
             index: 0,
             _extension_field: std::marker::PhantomData,
@@ -30,7 +30,7 @@ where
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]>> ChallengeSampler<EF> for VerifierState<EF, P>
+impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]>> ChallengeSampler<EF> for VerifierState<EF, P>
 where
     PF<EF>: PrimeField64,
 {
@@ -42,7 +42,7 @@ where
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]>> FSVerifier<EF> for VerifierState<EF, P>
+impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]>> FSVerifier<EF> for VerifierState<EF, P>
 where
     PF<EF>: PrimeField64,
 {

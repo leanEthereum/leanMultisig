@@ -1,5 +1,5 @@
 use field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
-use symetric::Permutation;
+use symetric::Compression;
 
 use crate::challenger::{Challenger, RATE, WIDTH};
 
@@ -25,7 +25,7 @@ pub fn pack_scalars_to_extension<F: Field, EF: ExtensionField<F>>(scalars: &[F])
         .collect()
 }
 
-pub(crate) fn sample_vec<F: PrimeField64, EF: ExtensionField<F>, P: Permutation<[F; WIDTH]>>(
+pub(crate) fn sample_vec<F: PrimeField64, EF: ExtensionField<F>, P: Compression<[F; WIDTH]>>(
     challenger: &mut Challenger<F, P>,
     len: usize,
 ) -> Vec<EF> {

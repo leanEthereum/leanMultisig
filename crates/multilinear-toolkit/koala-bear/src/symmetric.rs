@@ -11,8 +11,5 @@ pub trait Permutation<T: Clone>: Clone + Sync {
     fn permute_mut(&self, input: &mut T);
 }
 
-/// A permutation thought to be cryptographically secure.
-pub trait CryptographicPermutation<T: Clone>: Permutation<T> {}
-
 /// A marker trait for MDS permutations (from mds).
 pub trait MdsPermutation<T: Clone, const WIDTH: usize>: Permutation<[T; WIDTH]> {}
