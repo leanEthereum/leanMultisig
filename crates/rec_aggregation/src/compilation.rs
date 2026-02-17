@@ -97,41 +97,43 @@ fn build_replacements(
     for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
         let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
         let whir_config_builder = default_whir_config(log_inv_rate, prox_gaps_conjecture);
-        let whir_config = WhirConfig::<EF>::new(&whir_config_builder, max_n_vars);
-        let mut num_queries = vec![];
-        let mut grinding_bits = vec![];
-        for round in &whir_config.round_parameters {
-            num_queries.push(round.num_queries);
-            grinding_bits.push(round.pow_bits);
-        }
-        num_queries.push(whir_config.final_queries);
-        grinding_bits.push(whir_config.final_pow_bits);
-        all_potential_num_queries.push(format!(
-            "[{}]",
-            num_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>().join(", ")
-        ));
-        all_potential_grinding.push(format!(
-            "[{}]",
-            grinding_bits
-                .iter()
-                .map(|q| q.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
 
-        // OOD samples for each possible stacked_n_vars
+        let mut queries_for_rate = vec![];
+        let mut grinding_for_rate = vec![];
         let mut oods_for_rate = vec![];
         for n_vars in min_stacked..=max_n_vars {
             let cfg = WhirConfig::<EF>::new(&whir_config_builder, n_vars);
+
+            let mut num_queries = vec![];
+            let mut grinding_bits = vec![];
             let mut oods = vec![cfg.committment_ood_samples];
             for round in &cfg.round_parameters {
+                num_queries.push(round.num_queries);
+                grinding_bits.push(round.pow_bits);
                 oods.push(round.ood_samples);
             }
+            num_queries.push(cfg.final_queries);
+            grinding_bits.push(cfg.final_pow_bits);
+
+            queries_for_rate.push(format!(
+                "[{}]",
+                num_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>().join(", ")
+            ));
+            grinding_for_rate.push(format!(
+                "[{}]",
+                grinding_bits
+                    .iter()
+                    .map(|q| q.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
             oods_for_rate.push(format!(
                 "[{}]",
                 oods.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")
             ));
         }
+        all_potential_num_queries.push(format!("[{}]", queries_for_rate.join(", ")));
+        all_potential_grinding.push(format!("[{}]", grinding_for_rate.join(", ")));
         all_potential_num_oods.push(format!("[{}]", oods_for_rate.join(", ")));
     }
     replacements.insert(

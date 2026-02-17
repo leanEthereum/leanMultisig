@@ -334,28 +334,46 @@ def get_whir_params(n_vars, log_inv_rate):
     debug_assert(MIN_WHIR_LOG_INV_RATE <= log_inv_rate)
     debug_assert(log_inv_rate <= MAX_WHIR_LOG_INV_RATE)
     num_queries: Imu
-    num_queries = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_num_queries(r))
+    num_queries = get_num_queries(log_inv_rate, n_vars)
 
     grinding_bits: Imu
-    grinding_bits = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_grinding_bits(r))
+    grinding_bits = get_grinding_bits(log_inv_rate, n_vars)
 
     num_oods = get_num_oods(log_inv_rate, n_vars)
 
     return n_rounds, final_vars, num_queries, num_oods, grinding_bits
 
-def get_num_queries(log_inv_rate: Const):
-    max = len(WHIR_ALL_POTENTIAL_NUM_QUERIES[log_inv_rate - MIN_WHIR_LOG_INV_RATE])
+@inline
+def get_num_queries(log_inv_rate, n_vars):
+    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_num_queries_const_rate(r, n_vars))
+    return res
+
+def get_num_queries_const_rate(log_inv_rate: Const, n_vars):
+    res = match_range(n_vars, range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1), lambda nv: get_num_queries_const(log_inv_rate, nv))
+    return res
+
+def get_num_queries_const(log_inv_rate: Const, n_vars: Const):
+    max = len(WHIR_ALL_POTENTIAL_NUM_QUERIES[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
     num_queries = Array(max)
     for i in unroll(0, max):
-        num_queries[i] = WHIR_ALL_POTENTIAL_NUM_QUERIES[log_inv_rate - MIN_WHIR_LOG_INV_RATE][i]
+        num_queries[i] = WHIR_ALL_POTENTIAL_NUM_QUERIES[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
     return num_queries
 
 
-def get_grinding_bits(log_inv_rate: Const):
-    max = len(WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE])
+@inline
+def get_grinding_bits(log_inv_rate, n_vars):
+    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_grinding_bits_const_rate(r, n_vars))
+    return res
+
+def get_grinding_bits_const_rate(log_inv_rate: Const, n_vars):
+    res = match_range(n_vars, range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1), lambda nv: get_grinding_bits_const(log_inv_rate, nv))
+    return res
+
+def get_grinding_bits_const(log_inv_rate: Const, n_vars: Const):
+    max = len(WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
     grinding_bits = Array(max)
     for i in unroll(0, max):
-        grinding_bits[i] = WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][i]
+        grinding_bits[i] = WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
     return grinding_bits
 
 def get_num_oods(log_inv_rate, n_vars):
