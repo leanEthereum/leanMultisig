@@ -39,7 +39,6 @@ But we can get the bost of both worlds (suggested by Lev, TODO implement):
 - Double Check AIR constraints, logup overflows etc
 - Formal Verification
 - Padd with noop cycles to always ensure memory size >= bytecode size (liveness), and ensure this condition is checked by the verifier (soundness)
-- re-enable grinding at folding in whir (should be small, like 1 or 2 bits?)
 
 # Ideas
 

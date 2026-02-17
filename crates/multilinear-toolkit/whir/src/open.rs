@@ -96,7 +96,7 @@ where
                 info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point))
             });
 
-        prover_state.pow_grinding(round_params.pow_bits);
+        prover_state.pow_grinding(round_params.query_pow_bits);
 
         let (ood_challenges, stir_challenges, stir_challenges_indexes) = self.compute_stir_queries(
             prover_state,
@@ -194,7 +194,7 @@ where
             _ => unreachable!(),
         });
 
-        prover_state.pow_grinding(self.final_pow_bits);
+        prover_state.pow_grinding(self.final_query_pow_bits);
 
         // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
@@ -397,7 +397,7 @@ where
         prev_folding_scalar: Option<EF>,
         prover_state: &mut impl FSProver<EF>,
         n_rounds: usize,
-        _pow_bits: usize, // TODO pow grinding
+        pow_bits: usize,
     ) -> MultilinearPoint<EF> {
         let (challenges, folds, _, new_sum) = sumcheck_prove_many_rounds(
             MleGroupRef::merge(&[&self.evals.by_ref(), &self.weights.by_ref()]),
@@ -412,6 +412,7 @@ where
             None,
             n_rounds,
             false,
+            pow_bits,
         );
 
         self.sum = new_sum;
@@ -426,7 +427,7 @@ where
         combination_randomness: EF,
         prover_state: &mut impl FSProver<EF>,
         folding_factor: usize,
-        _pow_bits: usize, // TODO
+        pow_bits: usize,
     ) -> (Self, MultilinearPoint<EF>) {
         assert_ne!(folding_factor, 0);
 
@@ -434,8 +435,14 @@ where
 
         let mut evals = evals.pack();
         let mut weights = Mle::Owned(MleOwned::ExtensionPacked(weights));
-        let (challengess, new_sum, new_evals, new_weights) =
-            run_product_sumcheck(&evals.by_ref(), &weights.by_ref(), prover_state, sum, folding_factor);
+        let (challengess, new_sum, new_evals, new_weights) = run_product_sumcheck(
+            &evals.by_ref(),
+            &weights.by_ref(),
+            prover_state,
+            sum,
+            folding_factor,
+            pow_bits,
+        );
 
         evals = new_evals.into();
         weights = new_weights.into();

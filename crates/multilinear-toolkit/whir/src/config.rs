@@ -102,7 +102,7 @@ pub struct WhirConfigBuilder {
 
 #[derive(Debug, Clone)]
 pub struct RoundConfig<EF: Field> {
-    pub pow_bits: usize,
+    pub query_pow_bits: usize,
     pub folding_pow_bits: usize,
     pub num_queries: usize,
     pub ood_samples: usize,
@@ -129,7 +129,7 @@ pub struct WhirConfig<EF: Field> {
     pub round_parameters: Vec<RoundConfig<EF>>,
 
     pub final_queries: usize,
-    pub final_pow_bits: usize,
+    pub final_query_pow_bits: usize,
     pub final_log_inv_rate: usize,
     pub final_sumcheck_rounds: usize,
     pub final_folding_pow_bits: usize,
@@ -220,7 +220,8 @@ where
                 num_queries,
             );
 
-            let pow_bits = 0_f64.max(whir_parameters.security_level as f64 - (query_error.min(combination_error)));
+            let query_pow_bits =
+                0_f64.max(whir_parameters.security_level as f64 - (query_error.min(combination_error)));
 
             let folding_pow_bits = Self::folding_pow_bits(
                 whir_parameters.security_level,
@@ -234,7 +235,7 @@ where
             let folded_domain_gen = PF::<EF>::two_adic_generator(domain_size.ilog2() as usize - folding_factor);
 
             round_parameters.push(RoundConfig {
-                pow_bits: pow_bits as usize,
+                query_pow_bits: query_pow_bits as usize,
                 folding_pow_bits: folding_pow_bits as usize,
                 num_queries,
                 ood_samples,
@@ -254,7 +255,7 @@ where
             .soundness_type
             .queries(protocol_security_level, log_inv_rate);
 
-        let final_pow_bits = 0_f64.max(
+        let final_query_pow_bits = 0_f64.max(
             whir_parameters.security_level as f64
                 - whir_parameters
                     .soundness_type
@@ -275,7 +276,7 @@ where
             rs_domain_initial_reduction_factor: whir_parameters.rs_domain_initial_reduction_factor,
             round_parameters,
             final_queries,
-            final_pow_bits: final_pow_bits as usize,
+            final_query_pow_bits: final_query_pow_bits as usize,
             final_sumcheck_rounds,
             final_folding_pow_bits: final_folding_pow_bits as usize,
             final_log_inv_rate: log_inv_rate,
@@ -337,7 +338,7 @@ where
 
         // Check the main pow bits values
         if self.starting_folding_pow_bits > max_bits
-            || self.final_pow_bits > max_bits
+            || self.final_query_pow_bits > max_bits
             || self.final_folding_pow_bits > max_bits
         {
             return false;
@@ -346,7 +347,7 @@ where
         // Check all round parameters
         self.round_parameters
             .iter()
-            .all(|r| r.pow_bits <= max_bits && r.folding_pow_bits <= max_bits)
+            .all(|r| r.query_pow_bits <= max_bits && r.folding_pow_bits <= max_bits)
     }
 
     #[must_use]
@@ -410,7 +411,7 @@ where
                 num_variables: self.num_variables - self.folding_factor.at_round(0),
                 folding_factor: self.folding_factor.at_round(self.n_rounds()),
                 num_queries: self.final_queries,
-                pow_bits: self.final_pow_bits,
+                query_pow_bits: self.final_query_pow_bits,
                 domain_size: self.starting_domain_size(),
                 folded_domain_gen: PF::<EF>::two_adic_generator(
                     self.starting_domain_size().ilog2() as usize - self.folding_factor.at_round(0),
@@ -434,7 +435,7 @@ where
                 num_variables: last.num_variables - folding_factor,
                 folding_factor,
                 num_queries: self.final_queries,
-                pow_bits: self.final_pow_bits,
+                query_pow_bits: self.final_query_pow_bits,
                 domain_size,
                 folded_domain_gen,
                 ood_samples: last.ood_samples,
@@ -523,7 +524,7 @@ impl SecurityAssumption {
                 let rho = 1. / f64::from(1 << log_inv_rate);
                 let rho_sqrt = rho.sqrt();
                 let gamma = 1. - rho_sqrt - eta;
-                let n = f64::from(1 << (log_degree + log_inv_rate));
+                let n = (1usize << (log_degree + log_inv_rate)) as f64;
                 let m = (rho_sqrt / (2. * eta)).ceil().max(3.);
                 let num_1 = 2. * (m + 0.5).powi(5) + 3. * (m + 0.5) * gamma * rho * n;
                 let den_1 = 3. * rho * rho_sqrt;

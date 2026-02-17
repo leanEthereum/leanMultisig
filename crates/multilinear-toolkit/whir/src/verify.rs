@@ -241,7 +241,7 @@ where
     {
         let leafs_base_field = round_index == 0;
 
-        verifier_state.check_pow_grinding(params.pow_bits)?;
+        verifier_state.check_pow_grinding(params.query_pow_bits)?;
 
         let stir_challenges_indexes = get_challenge_stir_queries(
             params.domain_size >> params.folding_factor,
@@ -435,7 +435,7 @@ pub(crate) fn verify_sumcheck_rounds<F, EF>(
     verifier_state: &mut impl FSVerifier<EF>,
     claimed_sum: &mut EF,
     rounds: usize,
-    _pow_bits: usize,
+    pow_bits: usize,
 ) -> ProofResult<SumcheckRandomness<EF>>
 where
     F: TwoAdicField,
@@ -453,8 +453,7 @@ where
             panic!();
         }
 
-        // TODO: re-enable PoW grinding
-        // verifier_state.check_pow_grinding(pow_bits)?;
+        verifier_state.check_pow_grinding(pow_bits)?;
 
         // Sample the next verifier folding randomness rᵢ
         let rand: EF = verifier_state.sample();

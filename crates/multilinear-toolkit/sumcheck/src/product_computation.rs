@@ -61,6 +61,7 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     mut sum: EF,
     n_rounds: usize,
+    pow_bits: usize,
 ) -> (MultilinearPoint<EF>, EF, MleOwned<EF>, MleOwned<EF>) {
     assert!(n_rounds >= 1);
     let first_sumcheck_poly = match (pol_a, pol_b) {
@@ -80,6 +81,7 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     };
 
     prover_state.add_extension_scalars(&first_sumcheck_poly.coeffs);
+    prover_state.pow_grinding(pow_bits);
     let r1: EF = prover_state.sample();
     sum = first_sumcheck_poly.evaluate(r1);
 
@@ -121,6 +123,7 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     };
 
     prover_state.add_extension_scalars(&second_sumcheck_poly.coeffs);
+    prover_state.pow_grinding(pow_bits);
     let r2: EF = prover_state.sample();
     sum = second_sumcheck_poly.evaluate(r2);
 
@@ -137,6 +140,7 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
         None,
         n_rounds - 2,
         false,
+        pow_bits,
     );
 
     challenges.splice(0..0, [r1, r2]);

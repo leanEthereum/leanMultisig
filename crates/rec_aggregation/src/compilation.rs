@@ -89,36 +89,41 @@ fn build_replacements(
     let min_stacked = min_stacked_n_vars(log_inner_bytecode);
 
     let mut all_potential_num_queries = vec![];
-    let mut all_potential_grinding = vec![];
+    let mut all_potential_query_grinding = vec![];
     let mut all_potential_num_oods = vec![];
+    let mut all_potential_folding_grinding = vec![];
     for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
         let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
         let whir_config_builder = default_whir_config(log_inv_rate, prox_gaps_conjecture);
 
         let mut queries_for_rate = vec![];
-        let mut grinding_for_rate = vec![];
+        let mut query_grinding_for_rate = vec![];
         let mut oods_for_rate = vec![];
+        let mut folding_grinding_for_rate = vec![];
         for n_vars in min_stacked..=max_n_vars {
             let cfg = WhirConfig::<EF>::new(&whir_config_builder, n_vars);
 
             let mut num_queries = vec![];
-            let mut grinding_bits = vec![];
+            let mut query_grinding_bits = vec![];
             let mut oods = vec![cfg.committment_ood_samples];
+            let mut folding_grinding = vec![cfg.starting_folding_pow_bits];
             for round in &cfg.round_parameters {
                 num_queries.push(round.num_queries);
-                grinding_bits.push(round.pow_bits);
+                query_grinding_bits.push(round.query_pow_bits);
                 oods.push(round.ood_samples);
+                folding_grinding.push(round.folding_pow_bits);
             }
             num_queries.push(cfg.final_queries);
-            grinding_bits.push(cfg.final_pow_bits);
+            query_grinding_bits.push(cfg.final_query_pow_bits);
+            folding_grinding.push(cfg.final_folding_pow_bits);
 
             queries_for_rate.push(format!(
                 "[{}]",
                 num_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>().join(", ")
             ));
-            grinding_for_rate.push(format!(
+            query_grinding_for_rate.push(format!(
                 "[{}]",
-                grinding_bits
+                query_grinding_bits
                     .iter()
                     .map(|q| q.to_string())
                     .collect::<Vec<_>>()
@@ -128,10 +133,19 @@ fn build_replacements(
                 "[{}]",
                 oods.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")
             ));
+            folding_grinding_for_rate.push(format!(
+                "[{}]",
+                folding_grinding
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         all_potential_num_queries.push(format!("[{}]", queries_for_rate.join(", ")));
-        all_potential_grinding.push(format!("[{}]", grinding_for_rate.join(", ")));
+        all_potential_query_grinding.push(format!("[{}]", query_grinding_for_rate.join(", ")));
         all_potential_num_oods.push(format!("[{}]", oods_for_rate.join(", ")));
+        all_potential_folding_grinding.push(format!("[{}]", folding_grinding_for_rate.join(", ")));
     }
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),
@@ -142,12 +156,16 @@ fn build_replacements(
         format!("[{}]", all_potential_num_queries.join(", ")),
     );
     replacements.insert(
-        "WHIR_ALL_POTENTIAL_GRINDING_PLACEHOLDER".to_string(),
-        format!("[{}]", all_potential_grinding.join(", ")),
+        "WHIR_ALL_POTENTIAL_QUERY_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_query_grinding.join(", ")),
     );
     replacements.insert(
         "WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER".to_string(),
         format!("[{}]", all_potential_num_oods.join(", ")),
+    );
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_FOLDING_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_folding_grinding.join(", ")),
     );
     replacements.insert("MIN_STACKED_N_VARS_PLACEHOLDER".to_string(), min_stacked.to_string());
 

@@ -78,6 +78,7 @@ where
         None,
         n_rounds,
         store_intermediate_foldings,
+        0,
     );
 
     let final_folds = [final_folds_f, final_folds_ef]
@@ -113,6 +114,7 @@ pub fn sumcheck_prove_many_rounds<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
     mut missing_mul_factors: Option<EF>,
     n_rounds: usize,
     store_intermediate_foldings: bool,
+    pow_bits: usize,
 ) -> (MultilinearPoint<EF>, MleGroupOwned<EF>, MleGroupOwned<EF>, EF)
 where
     EF: ExtensionField<PF<EF>>,
@@ -177,6 +179,7 @@ where
             sum,
             missing_mul_factors,
         );
+        prover_state.pow_grinding(pow_bits);
         let challenge = prover_state.sample();
         challenges.push(challenge);
 
