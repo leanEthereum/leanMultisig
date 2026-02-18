@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "air"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#b7ceae68bd76a2a76bd48902082180ec06775f74"
 dependencies = [
  "p3-field",
 ]
@@ -99,13 +99,14 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "backend"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#b7ceae68bd76a2a76bd48902082180ec06775f74"
 dependencies = [
  "itertools",
  "p3-field",
  "p3-util",
  "rand",
  "rayon",
+ "serde",
 ]
 
 [[package]]
@@ -190,7 +191,7 @@ dependencies = [
 [[package]]
 name = "constraints-folder"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#b7ceae68bd76a2a76bd48902082180ec06775f74"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -266,7 +267,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fiat-shamir"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#b7ceae68bd76a2a76bd48902082180ec06775f74"
 dependencies = [
  "p3-field",
  "p3-koala-bear",
@@ -445,6 +446,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
+name = "lz4_flex"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab6473172471198271ff72e9379150e9dfd70d8e533e0752a27e515b48dd375e"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -462,7 +472,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "multilinear-toolkit"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#b7ceae68bd76a2a76bd48902082180ec06775f74"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -884,12 +894,14 @@ dependencies = [
  "lean_compiler",
  "lean_prover",
  "lean_vm",
+ "lz4_flex",
  "multilinear-toolkit",
  "p3-koala-bear",
  "p3-poseidon2",
  "p3-symmetric",
  "p3-util",
  "rand",
+ "serde",
  "sub_protocols",
  "tracing",
  "utils",
@@ -1035,7 +1047,7 @@ dependencies = [
 [[package]]
 name = "sumcheck"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#b7ceae68bd76a2a76bd48902082180ec06775f74"
 dependencies = [
  "air 0.3.0",
  "backend",
@@ -1201,6 +1213,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
+
+[[package]]
 name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1263,7 +1281,7 @@ dependencies = [
 [[package]]
 name = "whir"
 version = "0.3.0"
-source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#2dba23f7871e11b402737651f4c6376b87e73c80"
+source = "git+https://github.com/leanEthereum/multilinear-toolkit.git#b7ceae68bd76a2a76bd48902082180ec06775f74"
 dependencies = [
  "backend",
  "fiat-shamir",

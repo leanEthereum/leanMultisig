@@ -11,6 +11,7 @@ use xmss::{
     xmss_verify_with_poseidon_trace,
 };
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use crate::compilation::get_aggregation_bytecode;
@@ -21,7 +22,7 @@ pub mod compilation;
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Digest(pub [F; DIGEST_LEN]);
 
 #[derive(Debug, Clone)]
@@ -88,16 +89,31 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
     data
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AggregatedSigs {
     pub pub_keys: Vec<Digest>,
-    pub proof: Vec<F>,
-    pub compressed_proof_len_fe: usize,
+    pub proof: PrunedProof<F>,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
-    pub metadata: ExecutionMetadata,
+    // benchmark / debug purpose
+    #[serde(skip, default)]
+    pub metadata: Option<ExecutionMetadata>,
 }
 
 impl AggregatedSigs {
+    pub fn raw_proof(&self) -> Option<Vec<F>> {
+        self.proof.clone().restore().map(|p| p.raw_proof())
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let encoded = bincode::serialize(self).expect("bincode serialization failed");
+        lz4_flex::compress_prepend_size(&encoded)
+    }
+
+    pub fn deserialize(bytes: &[u8]) -> Self {
+        let decompressed = lz4_flex::decompress_size_prepended(bytes).expect("lz4 decompression failed");
+        bincode::deserialize(&decompressed).expect("bincode deserialization failed")
+    }
+
     pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
         let bytecode = get_aggregation_bytecode();
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
@@ -140,9 +156,14 @@ pub fn verify_aggregation(
     }
     let public_input = sigs.public_input(message, slot);
     let bytecode = get_aggregation_bytecode();
-    verify_execution(bytecode, &public_input, sigs.proof.clone())
+    verify_execution(
+        bytecode,
+        &public_input,
+        sigs.raw_proof().ok_or(ProofError::InvalidProof)?,
+    )
 }
 
+/// panics if one of the sub-proof (children) is invalid
 #[instrument(skip_all)]
 pub fn aggregate(
     children: &[AggregatedSigs],
@@ -173,11 +194,14 @@ pub fn aggregate(
     let n_sigs = global_pub_keys.len();
 
     // Verify child proofs
-    let mut child_pub_inputs: Vec<Vec<F>> = vec![];
-    let mut child_bytecode_evals: Vec<Evaluation<EF>> = vec![];
+    let mut child_pub_inputs = vec![];
+    let mut child_bytecode_evals = vec![];
+    let mut raw_child_proofs = vec![];
     for child in children {
         let child_pub_input = child.public_input(message, slot);
-        let verif = verify_execution(bytecode, &child_pub_input, child.proof.clone()).unwrap();
+        let child_proof = child.proof.clone().restore().expect("invalid child proof").raw_proof();
+        raw_child_proofs.push(child_proof.clone());
+        let verif = verify_execution(bytecode, &child_pub_input, child_proof).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_pub_inputs.push(child_pub_input);
     }
@@ -298,7 +322,7 @@ pub fn aggregate(
         let child_pub_mem = build_public_memory(&child_pub_inputs[i]);
         block.extend_from_slice(&child_pub_mem);
         // proof_transcript
-        block.extend_from_slice(&child.proof);
+        block.extend_from_slice(&raw_child_proofs[i]);
 
         source_blocks.push(block);
     }
@@ -351,9 +375,8 @@ pub fn aggregate(
     AggregatedSigs {
         pub_keys: global_pub_keys,
         proof: execution_proof.proof,
-        compressed_proof_len_fe: execution_proof.proof_size_fe,
         bytecode_point,
-        metadata: execution_proof.metadata,
+        metadata: Some(execution_proof.metadata),
     }
 }
 

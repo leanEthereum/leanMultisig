@@ -50,7 +50,7 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
 
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
-    let mut log_size_guess = 20;
+    let mut log_size_guess = 19;
     loop {
         let bytecode = compile_main_program(log_size_guess, F::ZERO);
         let actual_log_size = bytecode.log_size();

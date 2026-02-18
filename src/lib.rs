@@ -20,7 +20,7 @@ pub fn setup_verifier() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{SeedableRng, rngs::StdRng};
+    use rand::Rng;
     use xmss::signers_cache::{
         BENCHMARK_SLOT, find_randomness_for_benchmark, message_for_benchmark, reconstruct_signer_for_benchmark,
     };
@@ -30,12 +30,11 @@ mod tests {
         let start = 555;
         let end = 565;
         let slot = 560;
-        let key_gen_seed: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let key_gen_seed: [u8; 32] = rand::rng().random();
         let message_hash: [F; MESSAGE_LEN_FE] = std::array::from_fn(|i| F::from_usize(i * 3));
 
         let (secret_key, pub_key) = xmss_key_gen(key_gen_seed, start, end).unwrap();
-        let mut rng = StdRng::from_seed(std::array::from_fn(|i| (i * 2) as u8));
-        let signature = xmss_sign(&mut rng, &secret_key, &message_hash, slot).unwrap();
+        let signature = xmss_sign(&mut rand::rng(), &secret_key, &message_hash, slot).unwrap();
         xmss_verify(&pub_key, &message_hash, &signature).unwrap();
     }
 
@@ -43,24 +42,21 @@ mod tests {
     fn test_recursive_aggregation() {
         setup_prover();
 
-        let log_inv_rate = 1;
+        let log_inv_rate = 1; // [1, 2, 3 or 4] (lower = faster but bigger proofs)
         let message: [F; MESSAGE_LEN_FE] = message_for_benchmark();
         let slot: u32 = BENCHMARK_SLOT;
 
         let pub_keys_and_sigs_a: Vec<_> = (0..3)
-            .into_par_iter()
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
         let aggregated_a = aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate);
 
         let pub_keys_and_sigs_b: Vec<_> = (3..5)
-            .into_par_iter()
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
         let aggregated_b = aggregate(&[], pub_keys_and_sigs_b, &message, slot, log_inv_rate);
 
         let pub_keys_and_sigs_c: Vec<_> = (5..6)
-            .into_par_iter()
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
 

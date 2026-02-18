@@ -12,9 +12,15 @@ use xmss::Poseidon16History;
 
 #[derive(Debug)]
 pub struct ExecutionProof {
-    pub proof: Vec<F>,
-    pub proof_size_fe: usize,
+    pub proof: PrunedProof<F>,
+    // benchmark / debug purpose
     pub metadata: ExecutionMetadata,
+}
+
+impl ExecutionProof {
+    pub fn raw_proof(&self) -> Option<Vec<F>> {
+        Some(self.proof.clone().restore()?.raw_proof())
+    }
 }
 
 pub fn prove_execution(
@@ -204,10 +210,8 @@ pub fn prove_execution(
         &stacked_pcs_witness.global_polynomial.by_ref(),
     );
 
-    let proof_size_fe = prover_state.pruned_proof().proof_size_fe();
     ExecutionProof {
-        proof: prover_state.raw_proof(),
-        proof_size_fe,
+        proof: prover_state.into_pruned_proof(),
         metadata,
     }
 }

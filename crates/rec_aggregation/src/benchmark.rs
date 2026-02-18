@@ -272,7 +272,7 @@ fn build_aggregation(
     let elapsed = time.elapsed();
 
     if tracing {
-        println!("{}", result.metadata.display());
+        println!("{}", result.metadata.as_ref().unwrap().display());
         if topology.children.is_empty() {
             println!(
                 "{} XMSS/s",
@@ -285,17 +285,17 @@ fn build_aggregation(
 
     if !tracing {
         let own_display_index = display_index + count_nodes(topology) - 1;
-        let proof_kib = result.compressed_proof_len_fe * F::bits() / (8 * 1024);
+        let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
         let is_leaf = topology.children.is_empty();
         display.update_node(
             own_display_index,
             NodeStats {
                 time_secs: elapsed.as_secs_f64(),
                 proof_kib,
-                cycles: result.metadata.cycles,
-                memory: result.metadata.memory,
-                poseidons: result.metadata.n_poseidons,
-                dots: result.metadata.n_dot_products,
+                cycles: result.metadata.as_ref().unwrap().cycles,
+                memory: result.metadata.as_ref().unwrap().memory,
+                poseidons: result.metadata.as_ref().unwrap().n_poseidons,
+                dots: result.metadata.as_ref().unwrap().n_dot_products,
                 n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
             },
         );
