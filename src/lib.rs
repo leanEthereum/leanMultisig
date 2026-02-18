@@ -42,7 +42,7 @@ mod tests {
     fn test_recursive_aggregation() {
         setup_prover();
 
-        let log_inv_rate = 1; // [1, 2, 3 or 4] (lower = faster but bigger proofs)
+        let log_inv_rate = 2; // [1, 2, 3 or 4] (lower = faster but bigger proofs)
         let message: [F; MESSAGE_LEN_FE] = message_for_benchmark();
         let slot: u32 = BENCHMARK_SLOT;
 
@@ -68,6 +68,10 @@ mod tests {
             log_inv_rate,
         );
 
-        verify_aggregation(&aggregated_final, &message, slot).unwrap();
+        let serialized_final = aggregated_final.serialize();
+        println!("Serialized aggregated final: {} KiB", serialized_final.len() / 1024);
+        let deserialized_final = AggregatedSigs::deserialize(&serialized_final).unwrap();
+
+        verify_aggregation(&deserialized_final, &message, slot).unwrap();
     }
 }
