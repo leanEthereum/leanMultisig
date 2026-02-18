@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 use lean_prover::prove_execution::prove_execution;
+use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
-use lean_prover::{default_whir_config, verify_execution::ProofVerificationDetails};
 use lean_vm::*;
 use multilinear_toolkit::prelude::*;
 use tracing::instrument;
@@ -98,8 +98,8 @@ pub struct AggregatedSigs {
 }
 
 impl AggregatedSigs {
-    pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32, proximity_gaps_conjecture: bool) -> Vec<F> {
-        let bytecode = get_aggregation_bytecode(proximity_gaps_conjecture);
+    pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+        let bytecode = get_aggregation_bytecode();
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
@@ -134,14 +134,13 @@ pub fn verify_aggregation(
     sigs: &AggregatedSigs,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    prox_gaps_conjecture: bool,
 ) -> Result<ProofVerificationDetails, ProofError> {
     if !sigs.pub_keys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
-    let public_input = sigs.public_input(message, slot, prox_gaps_conjecture);
-    let bytecode = get_aggregation_bytecode(prox_gaps_conjecture);
-    verify_execution(bytecode, &public_input, sigs.proof.clone(), prox_gaps_conjecture)
+    let public_input = sigs.public_input(message, slot);
+    let bytecode = get_aggregation_bytecode();
+    verify_execution(bytecode, &public_input, sigs.proof.clone())
 }
 
 #[instrument(skip_all)]
@@ -151,16 +150,15 @@ pub fn aggregate(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     log_inv_rate: usize,
-    prox_gaps_conjecture: bool,
 ) -> AggregatedSigs {
     raw_xmss.sort_by_key(|(a, _)| Digest(a.merkle_root));
     raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
 
     let n_recursions = children.len();
     let raw_count = raw_xmss.len();
-    let whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
+    let whir_config = lean_prover::default_whir_config(log_inv_rate);
 
-    let bytecode = get_aggregation_bytecode(prox_gaps_conjecture);
+    let bytecode = get_aggregation_bytecode();
     let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
@@ -178,8 +176,8 @@ pub fn aggregate(
     let mut child_pub_inputs: Vec<Vec<F>> = vec![];
     let mut child_bytecode_evals: Vec<Evaluation<EF>> = vec![];
     for child in children {
-        let child_pub_input = child.public_input(message, slot, prox_gaps_conjecture);
-        let verif = verify_execution(bytecode, &child_pub_input, child.proof.clone(), prox_gaps_conjecture).unwrap();
+        let child_pub_input = child.public_input(message, slot);
+        let verif = verify_execution(bytecode, &child_pub_input, child.proof.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_pub_inputs.push(child_pub_input);
     }

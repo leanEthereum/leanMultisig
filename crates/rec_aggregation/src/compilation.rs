@@ -19,43 +19,26 @@ use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRI
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
-static BYTECODE_DEFAULT: OnceLock<Bytecode> = OnceLock::new();
-static BYTECODE_CONJECTURE: OnceLock<Bytecode> = OnceLock::new();
+static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
 
-pub(crate) fn get_aggregation_bytecode(prox_gaps_conjecture: bool) -> &'static Bytecode {
-    if prox_gaps_conjecture {
-        &BYTECODE_CONJECTURE
-    } else {
-        &BYTECODE_DEFAULT
-    }
-    .get()
-    .unwrap_or_else(|| panic!("call init_aggregation_bytecode() first"))
+pub(crate) fn get_aggregation_bytecode() -> &'static Bytecode {
+    BYTECODE
+        .get()
+        .unwrap_or_else(|| panic!("call init_aggregation_bytecode() first"))
 }
 
 pub fn init_aggregation_bytecode() {
-    rayon::join(
-        || {
-            BYTECODE_DEFAULT.get_or_init(|| compile_main_program_self_referential(false));
-        },
-        || {
-            BYTECODE_CONJECTURE.get_or_init(|| compile_main_program_self_referential(true));
-        },
-    );
+    BYTECODE.get_or_init(compile_main_program_self_referential);
 }
 
-fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: bool, bytecode_zero_eval: F) -> Bytecode {
+fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     // pub_input layout: n_sigs(1) + slice_hash(8) + slot_low(1) + slot_high(1)
     //                   + message + merkle_chunks_for_slot + bytecode_claim
     let pub_input_size = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size;
     let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
-    let replacements = build_replacements(
-        inner_program_log_size,
-        inner_public_memory_log_size,
-        prox_gaps_conjecture,
-        bytecode_zero_eval,
-    );
+    let replacements = build_replacements(inner_program_log_size, inner_public_memory_log_size, bytecode_zero_eval);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("main.py")
@@ -66,15 +49,15 @@ fn compile_main_program(inner_program_log_size: usize, prox_gaps_conjecture: boo
 }
 
 #[instrument(skip_all)]
-fn compile_main_program_self_referential(prox_gaps_conjecture: bool) -> Bytecode {
+fn compile_main_program_self_referential() -> Bytecode {
     let mut log_size_guess = 20;
     loop {
-        let bytecode = compile_main_program(log_size_guess, prox_gaps_conjecture, F::ZERO);
+        let bytecode = compile_main_program(log_size_guess, F::ZERO);
         let actual_log_size = bytecode.log_size();
         if actual_log_size == log_size_guess {
             // Now recompile with the correct bytecode_zero_eval
             let bytecode_zero_eval = bytecode.instructions_multilinear[0];
-            return compile_main_program(actual_log_size, prox_gaps_conjecture, bytecode_zero_eval);
+            return compile_main_program(actual_log_size, bytecode_zero_eval);
         }
         log_size_guess = actual_log_size;
     }
@@ -83,7 +66,6 @@ fn compile_main_program_self_referential(prox_gaps_conjecture: bool) -> Bytecode
 fn build_replacements(
     inner_program_log_size: usize,
     inner_public_memory_log_size: usize,
-    prox_gaps_conjecture: bool,
     bytecode_zero_eval: F,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
@@ -96,7 +78,7 @@ fn build_replacements(
     let mut all_potential_num_oods = vec![];
     for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
         let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
-        let whir_config_builder = default_whir_config(log_inv_rate, prox_gaps_conjecture);
+        let whir_config_builder = default_whir_config(log_inv_rate);
 
         let mut queries_for_rate = vec![];
         let mut grinding_for_rate = vec![];

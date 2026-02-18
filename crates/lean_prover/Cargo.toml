@@ -6,6 +6,9 @@ edition.workspace = true
 [lints]
 workspace = true
 
+[features]
+prox-gaps-conjecture = []
+
 [dependencies]
 pest.workspace = true
 pest_derive.workspace = true

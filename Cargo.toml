@@ -77,6 +77,9 @@ p3-monty-31 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "l
 
 multilinear-toolkit = { git = "https://github.com/leanEthereum/multilinear-toolkit.git" }
 
+[features]
+prox-gaps-conjecture = ["rec_aggregation/prox-gaps-conjecture"]
+
 [dependencies]
 clap.workspace = true
 rec_aggregation.workspace = true

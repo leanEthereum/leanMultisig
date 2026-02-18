@@ -24,10 +24,10 @@ pub const WHIR_INITIAL_FOLDING_FACTOR: usize = 7;
 pub const WHIR_SUBSEQUENT_FOLDING_FACTOR: usize = 5;
 pub const RS_DOMAIN_INITIAL_REDUCTION_FACTOR: usize = 5;
 
-pub fn default_whir_config(starting_log_inv_rate: usize, prox_gaps_conjecture: bool) -> WhirConfigBuilder {
+pub fn default_whir_config(starting_log_inv_rate: usize) -> WhirConfigBuilder {
     WhirConfigBuilder {
         folding_factor: FoldingFactor::new(WHIR_INITIAL_FOLDING_FACTOR, WHIR_SUBSEQUENT_FOLDING_FACTOR),
-        soundness_type: if prox_gaps_conjecture {
+        soundness_type: if cfg!(feature = "prox-gaps-conjecture") {
             SecurityAssumption::CapacityBound // TODO update formula with State of the Art Conjecture
         } else {
             SecurityAssumption::JohnsonBound

@@ -8,7 +8,7 @@ use xmss::signers_cache::*;
 use xmss::{XmssPublicKey, XmssSignature};
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
-use crate::{AggregatedSigs, AggregationTopology, aggregate, count_signers, verify_aggregation};
+use crate::{AggregatedSigs, AggregationTopology, aggregate, count_signers};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
@@ -236,7 +236,6 @@ fn build_aggregation(
     pub_keys: &[XmssPublicKey],
     signatures: &[XmssSignature],
     overlap: usize,
-    prox_gaps_conjecture: bool,
     tracing: bool,
 ) -> AggregatedSigs {
     let message = message_for_benchmark();
@@ -258,7 +257,6 @@ fn build_aggregation(
             &pub_keys[child_start..child_start + child_count],
             &signatures[child_start..child_start + child_count],
             overlap,
-            prox_gaps_conjecture,
             tracing,
         );
         child_results.push(child_agg);
@@ -270,14 +268,7 @@ fn build_aggregation(
     }
 
     let time = Instant::now();
-    let result = aggregate(
-        &child_results,
-        raw_xmss,
-        &message,
-        slot,
-        topology.log_inv_rate,
-        prox_gaps_conjecture,
-    );
+    let result = aggregate(&child_results, raw_xmss, &message, slot, topology.log_inv_rate);
     let elapsed = time.elapsed();
 
     if tracing {
@@ -313,12 +304,7 @@ fn build_aggregation(
     result
 }
 
-pub fn run_aggregation_benchmark(
-    topology: &AggregationTopology,
-    overlap: usize,
-    prox_gaps_conjecture: bool,
-    tracing: bool,
-) {
+pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) {
     if tracing {
         utils::init_tracing();
     }
@@ -337,7 +323,7 @@ pub fn run_aggregation_benchmark(
     init_aggregation_bytecode();
     println!(
         "Aggregation program: {} instructions\n",
-        pretty_integer(get_aggregation_bytecode(prox_gaps_conjecture).instructions.len())
+        pretty_integer(get_aggregation_bytecode().instructions.len())
     );
 
     // Build display
@@ -350,18 +336,9 @@ pub fn run_aggregation_benchmark(
         display.print_initial();
     }
 
-    let aggregated_sigs = build_aggregation(
-        topology,
-        0,
-        &mut display,
-        &pub_keys,
-        &signatures,
-        overlap,
-        prox_gaps_conjecture,
-        tracing,
-    );
+    let aggregated_sigs = build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
 
     // Verify root proof
     let message = message_for_benchmark();
-    verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT, prox_gaps_conjecture).unwrap();
+    crate::verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT).unwrap();
 }

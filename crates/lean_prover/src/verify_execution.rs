@@ -16,7 +16,6 @@ pub fn verify_execution(
     bytecode: &Bytecode,
     public_input: &[F],
     proof: Vec<F>,
-    prox_gaps_conjecture: bool,
 ) -> Result<ProofVerificationDetails, ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
 
@@ -31,7 +30,7 @@ pub fn verify_execution(
     if !(MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE).contains(&log_inv_rate) {
         return Err(ProofError::InvalidProof);
     }
-    let whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
+    let whir_config = default_whir_config(log_inv_rate);
     for (table, &n_vars) in &table_n_vars {
         if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
             return Err(ProofError::InvalidProof);

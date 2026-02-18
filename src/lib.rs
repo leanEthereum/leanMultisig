@@ -44,7 +44,6 @@ mod tests {
         setup_prover();
 
         let log_inv_rate = 1;
-        let prox_gaps_conjecture = false;
         let message: [F; MESSAGE_LEN_FE] = message_for_benchmark();
         let slot: u32 = BENCHMARK_SLOT;
 
@@ -52,27 +51,13 @@ mod tests {
             .into_par_iter()
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
-        let aggregated_a = aggregate(
-            &[],
-            pub_keys_and_sigs_a,
-            &message,
-            slot,
-            log_inv_rate,
-            prox_gaps_conjecture,
-        );
+        let aggregated_a = aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate);
 
         let pub_keys_and_sigs_b: Vec<_> = (3..5)
             .into_par_iter()
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
-        let aggregated_b = aggregate(
-            &[],
-            pub_keys_and_sigs_b,
-            &message,
-            slot,
-            log_inv_rate,
-            prox_gaps_conjecture,
-        );
+        let aggregated_b = aggregate(&[], pub_keys_and_sigs_b, &message, slot, log_inv_rate);
 
         let pub_keys_and_sigs_c: Vec<_> = (5..6)
             .into_par_iter()
@@ -85,9 +70,8 @@ mod tests {
             &message,
             slot,
             log_inv_rate,
-            prox_gaps_conjecture,
         );
 
-        verify_aggregation(&aggregated_final, &message, slot, prox_gaps_conjecture).unwrap();
+        verify_aggregation(&aggregated_final, &message, slot).unwrap();
     }
 }
