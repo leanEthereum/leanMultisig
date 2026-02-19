@@ -1,0 +1,15 @@
+[package]
+name = "mt-sumcheck"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+field = { path = "../field", package = "mt-field" }
+air = { path = "../air", package = "mt-air" }
+poly = { path = "../poly", package = "mt-poly" }
+fiat-shamir = { path = "../fiat-shamir", package = "mt-fiat-shamir" }
+
+rayon.workspace = true
+
+[dev-dependencies]
+koala-bear = { path = "../koala-bear", package = "mt-koala-bear" }

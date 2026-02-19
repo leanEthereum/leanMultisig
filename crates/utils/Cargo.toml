@@ -7,14 +7,14 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-p3-koala-bear.workspace = true
+
 tracing-forest.workspace = true
-p3-symmetric.workspace = true
-p3-poseidon2.workspace = true
+
+
 tracing-subscriber.workspace = true
 tracing.workspace = true
-p3-util.workspace = true
-multilinear-toolkit.workspace = true
+
+backend.workspace = true
 
 [dev-dependencies]
 rand.workspace = true

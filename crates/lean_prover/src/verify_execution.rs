@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use crate::*;
 use air::verify_air;
 use lean_vm::*;
-use p3_util::log2_strict_usize;
 use sub_protocols::*;
 use utils::ToUsize;
 
@@ -199,7 +198,6 @@ fn verify_bus_and_air(
                     verifier_state,
                     $t,
                     extra_data,
-                    1,
                     log_n_nrows,
                     Some(bus_virtual_statement),
                 )?

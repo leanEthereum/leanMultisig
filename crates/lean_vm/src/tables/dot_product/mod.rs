@@ -2,7 +2,7 @@ use crate::{
     tables::dot_product::exec::{exec_dot_product_be, exec_dot_product_ee},
     *,
 };
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 mod air;
 use air::*;

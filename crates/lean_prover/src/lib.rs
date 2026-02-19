@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
+use backend::*;
 use lean_vm::{EF, F};
-use multilinear_toolkit::prelude::*;
 use utils::*;
 
 mod trace_gen;

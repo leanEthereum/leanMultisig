@@ -1,31 +1,19 @@
 use std::io::{self, Write};
 use std::time::Instant;
 
+use backend::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use utils::pretty_integer;
 use xmss::signers_cache::*;
 use xmss::{XmssPublicKey, XmssSignature};
+
+use utils::ansi as s;
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 use crate::{AggregatedSigs, AggregationTopology, aggregate, count_signers};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
-}
-
-mod s {
-    pub const R: &str = "\x1b[0m";
-    pub const B: &str = "\x1b[1m";
-    pub const D: &str = "\x1b[2m";
-    pub const GRN: &str = "\x1b[38;5;114m";
-    pub const RED: &str = "\x1b[38;5;167m";
-    pub const ORG: &str = "\x1b[38;5;215m";
-    pub const CYN: &str = "\x1b[38;5;117m";
-    pub const PUR: &str = "\x1b[38;5;141m";
-    pub const GRY: &str = "\x1b[38;5;242m";
-    pub const WHT: &str = "\x1b[38;5;252m";
-    pub const DRK: &str = "\x1b[38;5;238m";
 }
 
 #[derive(Clone)]
@@ -279,8 +267,12 @@ fn build_aggregation(
                 (topology.raw_xmss as f64 / elapsed.as_secs_f64()).round() as usize
             );
         } else {
-            println!("{}s the final aggregation step", elapsed.as_secs_f64());
+            println!("{:.3}s the final aggregation step", elapsed.as_secs_f64());
         }
+        println!(
+            "Proof size: {} KiB",
+            result.proof.proof_size_fe() * F::bits() / (8 * 1024)
+        );
     }
 
     if !tracing {

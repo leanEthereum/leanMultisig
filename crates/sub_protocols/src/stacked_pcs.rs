@@ -1,13 +1,12 @@
+use backend::*;
 use lean_vm::{
     ALL_TABLES, COL_PC, CommittedStatements, DIMENSION, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
     N_INSTRUCTION_COLUMNS, STARTING_PC, sort_tables_by_height,
 };
 use lean_vm::{EF, F, Table, TableT, TableTrace};
-use multilinear_toolkit::prelude::*;
-use owo_colors::OwoColorize;
-use p3_util::log2_ceil_usize;
 use std::collections::BTreeMap;
 use tracing::instrument;
+use utils::ansi::Colorize;
 use utils::{VarCount, transpose_slice_to_basis_coefficients};
 
 /*
@@ -145,7 +144,8 @@ pub fn stack_polynomials_and_commit(
 
     let global_polynomial = MleOwned::Base(global_polynomial);
 
-    let inner_witness = WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial);
+    let inner_witness =
+        WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial, offset);
     StackedPcsWitness {
         stacked_n_vars,
         inner_witness,

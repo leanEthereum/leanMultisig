@@ -1,6 +1,6 @@
+use backend::BasedVectorSpace;
 use lean_compiler::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::BasedVectorSpace;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon16_compress;
 
@@ -192,6 +192,7 @@ fn debug_file_program() {
 fn debug_str_program() {
     let program = r#"
 def main():
+    
     return
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);

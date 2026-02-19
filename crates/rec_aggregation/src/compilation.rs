@@ -1,13 +1,10 @@
+use backend::*;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
-    MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
+    GRINDING_BITS, MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
-use multilinear_toolkit::prelude::symbolic::{
-    SymbolicExpression, SymbolicOperation, get_symbolic_constraints_and_bus_data_values,
-};
-use multilinear_toolkit::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::rc::Rc;
@@ -51,13 +48,18 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
     let mut log_size_guess = 19;
+    let bytecode_zero_eval = F::ONE;
     loop {
-        let bytecode = compile_main_program(log_size_guess, F::ZERO);
+        let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
+        assert_eq!(bytecode_zero_eval, bytecode.instructions_multilinear[0]);
         let actual_log_size = bytecode.log_size();
         if actual_log_size == log_size_guess {
-            // Now recompile with the correct bytecode_zero_eval
-            let bytecode_zero_eval = bytecode.instructions_multilinear[0];
-            return compile_main_program(actual_log_size, bytecode_zero_eval);
+            return bytecode;
+        } else {
+            println!(
+                "Wrong guess at `compile_main_program_self_referential`, should be {} instead of {}, recompiling...",
+                actual_log_size, log_size_guess
+            );
         }
         log_size_guess = actual_log_size;
     }
@@ -74,36 +76,44 @@ fn build_replacements(
     let min_stacked = min_stacked_n_vars(log_inner_bytecode);
 
     let mut all_potential_num_queries = vec![];
-    let mut all_potential_grinding = vec![];
+    let mut all_potential_query_grinding = vec![];
     let mut all_potential_num_oods = vec![];
+    let mut all_potential_folding_grinding = vec![];
+    let mut too_much_grinding = false;
     for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
         let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
         let whir_config_builder = default_whir_config(log_inv_rate);
 
         let mut queries_for_rate = vec![];
-        let mut grinding_for_rate = vec![];
+        let mut query_grinding_for_rate = vec![];
         let mut oods_for_rate = vec![];
+        let mut folding_grinding_for_rate = vec![];
         for n_vars in min_stacked..=max_n_vars {
             let cfg = WhirConfig::<EF>::new(&whir_config_builder, n_vars);
+            if cfg.max_folding_pow_bits() > GRINDING_BITS {
+                too_much_grinding = true;
+            }
 
             let mut num_queries = vec![];
-            let mut grinding_bits = vec![];
+            let mut query_grinding_bits = vec![];
             let mut oods = vec![cfg.committment_ood_samples];
+            let mut folding_grinding = vec![cfg.starting_folding_pow_bits];
             for round in &cfg.round_parameters {
                 num_queries.push(round.num_queries);
-                grinding_bits.push(round.pow_bits);
+                query_grinding_bits.push(round.query_pow_bits);
                 oods.push(round.ood_samples);
+                folding_grinding.push(round.folding_pow_bits);
             }
             num_queries.push(cfg.final_queries);
-            grinding_bits.push(cfg.final_pow_bits);
+            query_grinding_bits.push(cfg.final_query_pow_bits);
 
             queries_for_rate.push(format!(
                 "[{}]",
                 num_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>().join(", ")
             ));
-            grinding_for_rate.push(format!(
+            query_grinding_for_rate.push(format!(
                 "[{}]",
-                grinding_bits
+                query_grinding_bits
                     .iter()
                     .map(|q| q.to_string())
                     .collect::<Vec<_>>()
@@ -113,10 +123,22 @@ fn build_replacements(
                 "[{}]",
                 oods.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")
             ));
+            folding_grinding_for_rate.push(format!(
+                "[{}]",
+                folding_grinding
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         all_potential_num_queries.push(format!("[{}]", queries_for_rate.join(", ")));
-        all_potential_grinding.push(format!("[{}]", grinding_for_rate.join(", ")));
+        all_potential_query_grinding.push(format!("[{}]", query_grinding_for_rate.join(", ")));
         all_potential_num_oods.push(format!("[{}]", oods_for_rate.join(", ")));
+        all_potential_folding_grinding.push(format!("[{}]", folding_grinding_for_rate.join(", ")));
+    }
+    if too_much_grinding {
+        tracing::warn!("Too much grinding for WHIR folding",);
     }
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),
@@ -127,12 +149,16 @@ fn build_replacements(
         format!("[{}]", all_potential_num_queries.join(", ")),
     );
     replacements.insert(
-        "WHIR_ALL_POTENTIAL_GRINDING_PLACEHOLDER".to_string(),
-        format!("[{}]", all_potential_grinding.join(", ")),
+        "WHIR_ALL_POTENTIAL_QUERY_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_query_grinding.join(", ")),
     );
     replacements.insert(
         "WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER".to_string(),
         format!("[{}]", all_potential_num_oods.join(", ")),
+    );
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_FOLDING_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_folding_grinding.join(", ")),
     );
     replacements.insert("MIN_STACKED_N_VARS_PLACEHOLDER".to_string(), min_stacked.to_string());
 

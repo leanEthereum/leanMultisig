@@ -1,10 +1,10 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
-pub use multilinear_toolkit::prelude::ProofError;
+pub use backend::ProofError;
 pub use rec_aggregation::{AggregatedSigs, AggregationTopology, Digest, aggregate, verify_aggregation};
 pub use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSecretKey, XmssSignature, xmss_key_gen, xmss_sign, xmss_verify};
 
-pub type F = p3_koala_bear::KoalaBear;
+pub type F = KoalaBear;
 
 /// Call once before proving. Compiles the aggregation program and precomputes DFT twiddles.
 pub fn setup_prover() {
@@ -30,7 +30,7 @@ mod tests {
         let start = 555;
         let end = 565;
         let slot = 560;
-        let key_gen_seed: [u8; 32] = rand::rng().random();
+        let key_gen_seed: [u8; 20] = rand::rng().random();
         let message_hash: [F; MESSAGE_LEN_FE] = std::array::from_fn(|i| F::from_usize(i * 3));
 
         let (secret_key, pub_key) = xmss_key_gen(key_gen_seed, start, end).unwrap();

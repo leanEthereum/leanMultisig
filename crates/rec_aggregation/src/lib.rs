@@ -1,9 +1,9 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
+use backend::*;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 use utils::{build_prover_state, poseidon_compress_slice, poseidon16_compress_pair};
 use xmss::{
@@ -105,13 +105,13 @@ impl AggregatedSigs {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        let encoded = bincode::serialize(self).expect("bincode serialization failed");
+        let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
         lz4_flex::compress_prepend_size(&encoded)
     }
 
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
-        bincode::deserialize(&decompressed).ok()
+        postcard::from_bytes(&decompressed).ok()
     }
 
     pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
@@ -244,7 +244,6 @@ pub fn aggregate(
             MleGroupOwned::ExtensionPacked(vec![bytecode.instructions_multilinear_packed.clone(), weights_packed]);
 
         let (challenges, final_evals, _) = sumcheck_prove::<EF, _, _>(
-            1,
             witness,
             None,
             &ProductComputation {},

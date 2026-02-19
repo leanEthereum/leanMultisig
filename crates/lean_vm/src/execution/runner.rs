@@ -10,7 +10,7 @@ use crate::{
     NUM_REPEATED_ONES_IN_RESERVED_MEMORY, REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC, Table,
     TableTrace,
 };
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use std::collections::{BTreeMap, BTreeSet};
 use utils::{ToUsize, get_poseidon_16_of_zero};
 use xmss::Poseidon16History;
@@ -95,7 +95,7 @@ pub fn execute_bytecode(
         profiling,
         poseidons_16_precomputed,
     )
-    .unwrap_or_else(|err| panic!("Error during bytecode execution: {err}"))
+    .unwrap_or_else(|err| panic!("Error during bytecode execution: {err:?}"))
 }
 
 /// Resolve pending deref hints in correct order

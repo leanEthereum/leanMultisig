@@ -9,8 +9,9 @@ MAX_WHIR_LOG_INV_RATE = MAX_WHIR_LOG_INV_RATE_PLACEHOLDER
 MAX_NUM_VARIABLES_TO_SEND_COEFFS = MAX_NUM_VARIABLES_TO_SEND_COEFFS_PLACEHOLDER
 
 WHIR_ALL_POTENTIAL_NUM_QUERIES = WHIR_ALL_POTENTIAL_NUM_QUERIES_PLACEHOLDER
-WHIR_ALL_POTENTIAL_GRINDING = WHIR_ALL_POTENTIAL_GRINDING_PLACEHOLDER
+WHIR_ALL_POTENTIAL_QUERY_GRINDING = WHIR_ALL_POTENTIAL_QUERY_GRINDING_PLACEHOLDER
 WHIR_ALL_POTENTIAL_NUM_OODS = WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER
+WHIR_ALL_POTENTIAL_FOLDING_GRINDING = WHIR_ALL_POTENTIAL_FOLDING_GRINDING_PLACEHOLDER
 MIN_STACKED_N_VARS = MIN_STACKED_N_VARS_PLACEHOLDER
 
 def whir_open(
@@ -22,7 +23,7 @@ def whir_open(
     combination_randomness_powers_0,
     claimed_sum: Mut,
 ):
-    n_rounds, n_final_vars, num_queries, num_oods, grinding_bits = get_whir_params(n_vars, initial_log_inv_rate)
+    n_rounds, n_final_vars, num_queries, num_oods, query_grinding_bits, folding_grinding = get_whir_params(n_vars, initial_log_inv_rate)
     n_final_coeffs = powers_of_two(n_final_vars)
     folding_factors = Array(n_rounds + 1)
     folding_factors[0] = WHIR_INITIAL_FOLDING_FACTOR
@@ -58,16 +59,17 @@ def whir_open(
             num_queries[r],
             domain_sz,
             claimed_sum,
-            grinding_bits[r],
+            query_grinding_bits[r],
             num_oods[r + 1],
+            folding_grinding[r],
         )
         if r == 0:
             domain_sz -= WHIR_FIRST_RS_REDUCTION_FACTOR
         else:
             domain_sz -= 1
 
-    fs, all_folding_randomness[n_rounds], claimed_sum = sumcheck_verify(
-        fs, WHIR_SUBSEQUENT_FOLDING_FACTOR, claimed_sum, 2
+    fs, all_folding_randomness[n_rounds], claimed_sum = sumcheck_verify_with_grinding(
+        fs, WHIR_SUBSEQUENT_FOLDING_FACTOR, claimed_sum, 2, folding_grinding[n_rounds]
     )
 
     fs, final_coeffcients = fs_receive_ef_by_log_dynamic(fs, n_final_vars, MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS+ 1)
@@ -81,7 +83,7 @@ def whir_open(
         domain_sz,
         root,
         all_folding_randomness[n_rounds],
-        grinding_bits[n_rounds],
+        query_grinding_bits[n_rounds],
     )
 
     final_circle_values = all_circle_values[n_rounds]
@@ -182,6 +184,20 @@ def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, ch
     return fs, claimed_sum
 
 
+def sumcheck_verify_with_grinding(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, folding_grinding_bits):
+    challenges = Array(n_steps * DIM)
+    for sc_round in range(0, n_steps):
+        fs, poly = fs_receive_ef_inlined(fs, degree + 1)
+        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
+        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        fs = fs_grinding(fs, folding_grinding_bits)
+        fs, rand = fs_sample_ef(fs)
+        claimed_sum = univariate_polynomial_eval(poly, rand, degree)
+        copy_5(rand, challenges + sc_round * DIM)
+
+    return fs, challenges, claimed_sum
+
+
 def sample_stir_indexes_and_fold(
     fs: Mut,
     num_queries,
@@ -191,11 +207,11 @@ def sample_stir_indexes_and_fold(
     domain_size,
     prev_root,
     folding_randomness,
-    grinding_bits,
+    query_grinding_bits,
 ):
     folded_domain_size = domain_size - folding_factor
 
-    fs = fs_grinding(fs, grinding_bits)
+    fs = fs_grinding(fs, query_grinding_bits)
     fs, stir_challenges_indexes = sample_bits_dynamic(fs, num_queries)
 
     answers = Array(
@@ -214,7 +230,7 @@ def sample_stir_indexes_and_fold(
         answers[i] = answer
 
     leaf_hashes = Array(num_queries)  # a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
-    batch_hash_slice(num_queries, answers, leaf_hashes, n_chunks_per_answer / DIGEST_LEN)
+    batch_hash_slice_rtl(num_queries, answers, leaf_hashes, n_chunks_per_answer / DIGEST_LEN)
 
     fs, merkle_paths = fs_hint(fs, folded_domain_size * num_queries * DIGEST_LEN)
 
@@ -257,10 +273,11 @@ def whir_round(
     num_queries,
     domain_size,
     claimed_sum,
-    grinding_bits,
+    query_grinding_bits,
     num_ood,
+    folding_grinding_bits,
 ):
-    fs, folding_randomness, new_claimed_sum_a = sumcheck_verify(fs, folding_factor, claimed_sum, 2)
+    fs, folding_randomness, new_claimed_sum_a = sumcheck_verify_with_grinding(fs, folding_factor, claimed_sum, 2, folding_grinding_bits)
 
     fs, root, ood_points, ood_evals = parse_commitment(fs, num_ood)
 
@@ -273,7 +290,7 @@ def whir_round(
         domain_size,
         prev_root,
         folding_randomness,
-        grinding_bits,
+        query_grinding_bits,
     )
 
     fs, combination_randomness_gen = fs_sample_ef(fs)
@@ -336,12 +353,15 @@ def get_whir_params(n_vars, log_inv_rate):
     num_queries: Imu
     num_queries = get_num_queries(log_inv_rate, n_vars)
 
-    grinding_bits: Imu
-    grinding_bits = get_grinding_bits(log_inv_rate, n_vars)
+    query_grinding_bits: Imu
+    query_grinding_bits = get_query_grinding_bits(log_inv_rate, n_vars)
 
     num_oods = get_num_oods(log_inv_rate, n_vars)
 
-    return n_rounds, final_vars, num_queries, num_oods, grinding_bits
+    folding_grinding: Imu
+    folding_grinding = get_folding_grinding(log_inv_rate, n_vars)
+
+    return n_rounds, final_vars, num_queries, num_oods, query_grinding_bits, folding_grinding
 
 @inline
 def get_num_queries(log_inv_rate, n_vars):
@@ -361,20 +381,36 @@ def get_num_queries_const(log_inv_rate: Const, n_vars: Const):
 
 
 @inline
-def get_grinding_bits(log_inv_rate, n_vars):
-    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_grinding_bits_const_rate(r, n_vars))
+def get_query_grinding_bits(log_inv_rate, n_vars):
+    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_query_grinding_bits_const_rate(r, n_vars))
     return res
 
-def get_grinding_bits_const_rate(log_inv_rate: Const, n_vars):
-    res = match_range(n_vars, range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1), lambda nv: get_grinding_bits_const(log_inv_rate, nv))
+def get_query_grinding_bits_const_rate(log_inv_rate: Const, n_vars):
+    res = match_range(n_vars, range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1), lambda nv: get_query_grinding_bits_const(log_inv_rate, nv))
     return res
 
-def get_grinding_bits_const(log_inv_rate: Const, n_vars: Const):
-    max = len(WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
-    grinding_bits = Array(max)
+def get_query_grinding_bits_const(log_inv_rate: Const, n_vars: Const):
+    max = len(WHIR_ALL_POTENTIAL_QUERY_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
+    query_grinding_bits = Array(max)
     for i in unroll(0, max):
-        grinding_bits[i] = WHIR_ALL_POTENTIAL_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
-    return grinding_bits
+        query_grinding_bits[i] = WHIR_ALL_POTENTIAL_QUERY_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
+    return query_grinding_bits
+
+@inline
+def get_folding_grinding(log_inv_rate, n_vars):
+    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_folding_grinding_const_rate(r, n_vars))
+    return res
+
+def get_folding_grinding_const_rate(log_inv_rate: Const, n_vars):
+    res = match_range(n_vars, range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1), lambda nv: get_folding_grinding_const(log_inv_rate, nv))
+    return res
+
+def get_folding_grinding_const(log_inv_rate: Const, n_vars: Const):
+    max = len(WHIR_ALL_POTENTIAL_FOLDING_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
+    folding_grinding = Array(max)
+    for i in unroll(0, max):
+        folding_grinding[i] = WHIR_ALL_POTENTIAL_FOLDING_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
+    return folding_grinding
 
 def get_num_oods(log_inv_rate, n_vars):
     res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_num_oods_const_rate(r, n_vars))

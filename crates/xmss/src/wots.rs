@@ -1,4 +1,4 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use rand::{CryptoRng, Rng};
 use utils::{ToUsize, poseidon16_compress_pair, to_little_endian_bits};
 

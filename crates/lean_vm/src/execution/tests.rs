@@ -1,5 +1,5 @@
 use crate::*;
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 #[test]
 fn test_basic_memory_operations() {

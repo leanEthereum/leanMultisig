@@ -4,9 +4,9 @@ use crate::*;
 use air::prove_air;
 use lean_vm::*;
 
-use owo_colors::OwoColorize;
 use sub_protocols::*;
 use tracing::info_span;
+use utils::ansi::Colorize;
 use utils::build_prover_state;
 use xmss::Poseidon16History;
 
@@ -254,7 +254,6 @@ fn prove_bus_and_air(
                     prover_state,
                     $t,
                     extra_data,
-                    1,
                     &trace.base[..$t.n_columns_f_air()],
                     &trace.ext[..$t.n_columns_ef_air()],
                     Some(bus_virtual_statement),

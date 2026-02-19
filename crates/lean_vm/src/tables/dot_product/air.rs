@@ -1,7 +1,7 @@
 use crate::{
     DIMENSION, EF, ExtraDataForBuses, TableT, eval_virtual_bus_column, tables::dot_product::DotProductPrecompile,
 };
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 /*
 (DIMENSION = 5)

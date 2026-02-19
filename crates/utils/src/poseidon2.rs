@@ -1,13 +1,5 @@
+use backend::*;
 use std::sync::OnceLock;
-
-use p3_koala_bear::KOALABEAR_RC16_EXTERNAL_FINAL;
-use p3_koala_bear::KOALABEAR_RC16_EXTERNAL_INITIAL;
-use p3_koala_bear::KOALABEAR_RC16_INTERNAL;
-use p3_koala_bear::KoalaBear;
-use p3_koala_bear::Poseidon2KoalaBear;
-use p3_poseidon2::ExternalLayerConstants;
-use p3_symmetric::Permutation;
-
 pub type Poseidon16 = Poseidon2KoalaBear<16>;
 pub type Poseidon24 = Poseidon2KoalaBear<24>;
 
@@ -36,8 +28,7 @@ pub fn get_poseidon_16_of_zero() -> &'static [KoalaBear; 8] {
 
 #[inline(always)]
 pub fn poseidon16_compress(input: [KoalaBear; 16]) -> [KoalaBear; 8] {
-    // Bad naming: it's actually a compression, not a permutation (i.e. output = poseidon16(input)[0..8] + input[0..8])
-    get_poseidon16().permute(input)[0..8].try_into().unwrap()
+    get_poseidon16().compress(input)[0..8].try_into().unwrap()
 }
 
 pub fn poseidon16_compress_pair(left: [KoalaBear; 8], right: [KoalaBear; 8]) -> [KoalaBear; 8] {

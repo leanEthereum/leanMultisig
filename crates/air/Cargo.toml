@@ -9,9 +9,9 @@ workspace = true
 [dependencies]
 tracing.workspace = true
 utils.workspace = true
-p3-util.workspace = true
-multilinear-toolkit.workspace = true
+
+backend.workspace = true
 
 [dev-dependencies]
-p3-koala-bear.workspace = true
+
 rand.workspace = true

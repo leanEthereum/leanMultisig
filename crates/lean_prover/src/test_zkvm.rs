@@ -1,7 +1,7 @@
 use crate::{default_whir_config, prove_execution::prove_execution, verify_execution::verify_execution};
+use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{init_tracing, poseidon16_compress};
 

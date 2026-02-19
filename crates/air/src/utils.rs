@@ -1,4 +1,4 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 /// Returns a multilinear polynomial in 2n variables that evaluates to 1
 /// if and only if the second n-bit vector is equal to the first vector plus one (viewed as big-endian integers).

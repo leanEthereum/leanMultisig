@@ -1,5 +1,5 @@
 use crate::{DIMENSION, EF, F, InstructionContext, RunnerError, Table};
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
 use utils::VarCount;

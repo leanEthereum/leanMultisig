@@ -1,5 +1,5 @@
 use crate::{ALL_TABLES, EF, ExecutionTable, ExtraDataForBuses, F, eval_virtual_bus_column};
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 pub const N_RUNTIME_COLUMNS: usize = 8;
 pub const N_INSTRUCTION_COLUMNS: usize = 12;

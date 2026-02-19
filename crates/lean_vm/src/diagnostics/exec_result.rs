@@ -4,7 +4,6 @@ use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
 use crate::{N_TABLES, Table, TableTrace};
-use thiserror::Error;
 use utils::pretty_integer;
 
 #[derive(Debug, Default)]
