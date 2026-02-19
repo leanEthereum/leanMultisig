@@ -104,16 +104,16 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
-    pub fn fold(&self, scalars: &[EF]) -> MleGroupOwned<EF> {
+    pub fn fold(&self, alpha: EF) -> MleGroupOwned<EF> {
         match self {
-            Self::Base(pols) => MleGroupOwned::Extension(batch_fold_multilinears(pols, scalars, |a, b| b * a)),
-            Self::Extension(pols) => MleGroupOwned::Extension(batch_fold_multilinears(pols, scalars, |a, b| b * a)),
+            Self::Base(pols) => MleGroupOwned::Extension(batch_fold_multilinears(pols, alpha, |a, b| b * a)),
+            Self::Extension(pols) => MleGroupOwned::Extension(batch_fold_multilinears(pols, alpha, |a, b| b * a)),
             Self::BasePacked(pols) => {
-                let scalars_packed = scalars.iter().map(|&s| EFPacking::<EF>::from(s)).collect::<Vec<_>>();
-                MleGroupOwned::ExtensionPacked(batch_fold_multilinears(pols, &scalars_packed, |a, b| b * a))
+                let alpha_packed = EFPacking::<EF>::from(alpha);
+                MleGroupOwned::ExtensionPacked(batch_fold_multilinears(pols, alpha_packed, |a, b| b * a))
             }
             Self::ExtensionPacked(pols) => {
-                MleGroupOwned::ExtensionPacked(batch_fold_multilinears(pols, scalars, |a, b| a * b))
+                MleGroupOwned::ExtensionPacked(batch_fold_multilinears(pols, alpha, |a, b| a * b))
             }
         }
     }
