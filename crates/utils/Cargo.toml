@@ -14,7 +14,7 @@ tracing-forest.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 
-multilinear-toolkit.workspace = true
+backend.workspace = true
 
 [dev-dependencies]
 rand.workspace = true

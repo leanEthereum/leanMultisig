@@ -3,7 +3,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use multilinear_toolkit::prelude::{KoalaBear, QuinticExtensionFieldKB};
+use backend::{KoalaBear, QuinticExtensionFieldKB};
 
 /// Base field type for VM operations
 pub type F = KoalaBear;

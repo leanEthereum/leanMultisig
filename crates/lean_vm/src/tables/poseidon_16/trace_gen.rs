@@ -4,7 +4,7 @@ use crate::{
     F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
     tables::{Poseidon2Cols, WIDTH, num_cols_poseidon_16},
 };
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 #[instrument(name = "generate Poseidon2 trace", skip_all)]
 pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {

@@ -24,7 +24,7 @@ air.workspace = true
 sub_protocols.workspace = true
 lean_vm.workspace = true
 lean_compiler.workspace = true
-multilinear-toolkit.workspace = true
+backend.workspace = true
 itertools.workspace = true
 
 [dev-dependencies]

@@ -11,7 +11,7 @@ tracing.workspace = true
 utils.workspace = true
 
 lean_vm.workspace = true
-multilinear-toolkit.workspace = true
+backend.workspace = true
 
 [dev-dependencies]
 

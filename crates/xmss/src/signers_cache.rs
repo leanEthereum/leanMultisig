@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 

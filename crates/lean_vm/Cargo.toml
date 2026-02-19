@@ -18,5 +18,5 @@ rand.workspace = true
 
 tracing.workspace = true
 air.workspace = true
-multilinear-toolkit.workspace = true
+backend.workspace = true
 itertools.workspace = true

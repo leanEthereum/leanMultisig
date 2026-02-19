@@ -10,7 +10,7 @@ workspace = true
 tracing.workspace = true
 utils.workspace = true
 
-multilinear-toolkit.workspace = true
+backend.workspace = true
 
 [dev-dependencies]
 

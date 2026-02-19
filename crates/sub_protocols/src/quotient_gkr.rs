@@ -1,4 +1,4 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use tracing::instrument;
 
 use crate::MIN_VARS_FOR_PACKING;

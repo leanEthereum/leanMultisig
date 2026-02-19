@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 
 use crate::from_end;
 
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use tracing::instrument;
 
 #[instrument(skip_all)]

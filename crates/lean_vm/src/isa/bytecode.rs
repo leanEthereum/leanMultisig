@@ -1,6 +1,6 @@
 //! Bytecode representation and management
 
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 use crate::{CodeAddress, EF, F, FileId, FunctionName, Hint, SourceLocation};
 

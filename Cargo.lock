@@ -15,7 +15,7 @@ dependencies = [
 name = "air"
 version = "0.1.0"
 dependencies = [
- "multilinear-toolkit",
+ "backend",
  "rand",
  "tracing",
  "utils",
@@ -85,6 +85,23 @@ name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
+
+[[package]]
+name = "backend"
+version = "0.1.0"
+dependencies = [
+ "mt-air",
+ "mt-fiat-shamir",
+ "mt-field",
+ "mt-koala-bear",
+ "mt-poly",
+ "mt-sumcheck",
+ "mt-symetric",
+ "mt-utils",
+ "mt-whir",
+ "rayon",
+ "tracing",
+]
 
 [[package]]
 name = "bincode"
@@ -270,9 +287,9 @@ name = "lean-multisig"
 version = "0.1.0"
 dependencies = [
  "air",
+ "backend",
  "clap",
  "lean_vm",
- "multilinear-toolkit",
  "rand",
  "rec_aggregation",
  "sub_protocols",
@@ -285,8 +302,8 @@ name = "lean_compiler"
 version = "0.1.0"
 dependencies = [
  "air",
+ "backend",
  "lean_vm",
- "multilinear-toolkit",
  "pest",
  "pest_derive",
  "rand",
@@ -301,10 +318,10 @@ name = "lean_prover"
 version = "0.1.0"
 dependencies = [
  "air",
+ "backend",
  "itertools",
  "lean_compiler",
  "lean_vm",
- "multilinear-toolkit",
  "pest",
  "pest_derive",
  "rand",
@@ -319,8 +336,8 @@ name = "lean_vm"
 version = "0.1.0"
 dependencies = [
  "air",
+ "backend",
  "itertools",
- "multilinear-toolkit",
  "pest",
  "pest_derive",
  "rand",
@@ -472,23 +489,6 @@ dependencies = [
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "multilinear-toolkit"
-version = "0.1.0"
-dependencies = [
- "mt-air",
- "mt-fiat-shamir",
- "mt-field",
- "mt-koala-bear",
- "mt-poly",
- "mt-sumcheck",
- "mt-symetric",
- "mt-utils",
- "mt-whir",
- "rayon",
- "tracing",
 ]
 
 [[package]]
@@ -682,12 +682,12 @@ name = "rec_aggregation"
 version = "0.1.0"
 dependencies = [
  "air",
+ "backend",
  "bincode",
  "lean_compiler",
  "lean_prover",
  "lean_vm",
  "lz4_flex",
- "multilinear-toolkit",
  "rand",
  "serde",
  "sub_protocols",
@@ -779,8 +779,8 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "sub_protocols"
 version = "0.1.0"
 dependencies = [
+ "backend",
  "lean_vm",
- "multilinear-toolkit",
  "rand",
  "tracing",
  "utils",
@@ -934,7 +934,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "utils"
 version = "0.1.0"
 dependencies = [
- "multilinear-toolkit",
+ "backend",
  "rand",
  "tracing",
  "tracing-forest",
@@ -1009,7 +1009,7 @@ checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 name = "xmss"
 version = "0.1.0"
 dependencies = [
- "multilinear-toolkit",
+ "backend",
  "rand",
  "utils",
 ]

@@ -2,7 +2,7 @@
 use crate::MAX_LOG_MEMORY_SIZE;
 use crate::core::{DIMENSION, EF, F};
 use crate::diagnostics::RunnerError;
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 /// VM memory implementation with sparse allocation
 #[derive(Debug, Clone, Default)]

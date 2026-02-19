@@ -10,4 +10,4 @@ workspace = true
 
 rand.workspace = true
 utils.workspace = true
-multilinear-toolkit.workspace = true
+backend.workspace = true

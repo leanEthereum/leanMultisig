@@ -1,6 +1,6 @@
+use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 
 #[test]
 fn test_log2_ceil() {

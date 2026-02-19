@@ -1,9 +1,9 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
+use backend::*;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use tracing::instrument;
 use utils::{build_prover_state, poseidon_compress_slice, poseidon16_compress_pair};
 use xmss::{

@@ -6,7 +6,7 @@ mod utils;
 mod validity_check;
 mod verify;
 
-use multilinear_toolkit::prelude::{Field, MultilinearPoint};
+use backend::{Field, MultilinearPoint};
 pub use prove::*;
 pub use validity_check::*;
 pub use verify::*;

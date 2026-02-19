@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     assert!(n <= slice.len());

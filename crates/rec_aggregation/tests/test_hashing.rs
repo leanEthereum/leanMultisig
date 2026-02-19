@@ -1,6 +1,6 @@
+use backend::PrimeCharacteristicRing;
 use lean_compiler::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::PrimeCharacteristicRing;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon_compress_slice;
 

@@ -1,4 +1,4 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use std::sync::OnceLock;
 pub type Poseidon16 = Poseidon2KoalaBear<16>;
 pub type Poseidon24 = Poseidon2KoalaBear<24>;

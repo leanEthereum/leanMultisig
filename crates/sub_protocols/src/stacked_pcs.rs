@@ -1,9 +1,9 @@
+use backend::*;
 use lean_vm::{
     ALL_TABLES, COL_PC, CommittedStatements, DIMENSION, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
     N_INSTRUCTION_COLUMNS, STARTING_PC, sort_tables_by_height,
 };
 use lean_vm::{EF, F, Table, TableT, TableTrace};
-use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
 use tracing::instrument;
 use utils::ansi::Colorize;

@@ -1,6 +1,6 @@
 use crate::{prove_gkr_quotient, verify_gkr_quotient};
+use backend::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
 use tracing::instrument;
 use utils::ansi::Colorize;

@@ -1,6 +1,6 @@
 use crate::{F, instruction_encoder::field_representation, ir::*, lang::*};
+use backend::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use std::collections::BTreeMap;
 use utils::ToUsize;
 

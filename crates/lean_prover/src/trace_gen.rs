@@ -1,5 +1,5 @@
+use backend::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use std::{array, collections::BTreeMap, iter::repeat_n};
 use utils::{ToUsize, transposed_par_iter_mut};
 

@@ -7,7 +7,7 @@ use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
 use crate::tables::TableT;
 use crate::{Table, TableTrace};
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;

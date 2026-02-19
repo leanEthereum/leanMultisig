@@ -1,6 +1,6 @@
+use backend::BasedVectorSpace;
 use lean_compiler::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::BasedVectorSpace;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon16_compress;
 

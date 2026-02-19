@@ -1,4 +1,4 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use rand::{SeedableRng, rngs::StdRng};
 use xmss::*;
 

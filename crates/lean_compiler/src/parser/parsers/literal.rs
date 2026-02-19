@@ -1,8 +1,8 @@
+use backend::*;
 use lean_vm::{
     NONRESERVED_PROGRAM_INPUT_START, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_VEC_PTR, POSEIDON_16_NULL_HASH_PTR,
     REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, ZERO_VEC_PTR,
 };
-use multilinear_toolkit::prelude::*;
 
 use super::expression::ExpressionParser;
 use super::{ConstArrayValue, Parse, ParseContext, ParsedConstant, next_inner_pair};

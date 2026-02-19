@@ -3,8 +3,8 @@ use crate::{
     lang::*,
     parser::{ConstArrayValue, parse_program},
 };
+use backend::PrimeCharacteristicRing;
 use lean_vm::{ALL_TABLES, Boolean, BooleanExpr, CustomHint, FunctionName, SourceLocation, Table, TableT};
-use multilinear_toolkit::prelude::PrimeCharacteristicRing;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},

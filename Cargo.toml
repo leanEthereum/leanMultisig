@@ -10,15 +10,15 @@ edition = "2024"
 [workspace]
 members = [
     "crates/*",
-    "crates/multilinear-toolkit/utils",
-    "crates/multilinear-toolkit/field",
-    "crates/multilinear-toolkit/koala-bear",
-    "crates/multilinear-toolkit/poly",
-    "crates/multilinear-toolkit/symetric",
-    "crates/multilinear-toolkit/air",
-    "crates/multilinear-toolkit/fiat-shamir",
-    "crates/multilinear-toolkit/sumcheck",
-    "crates/multilinear-toolkit/whir",
+    "crates/backend/utils",
+    "crates/backend/field",
+    "crates/backend/koala-bear",
+    "crates/backend/poly",
+    "crates/backend/symetric",
+    "crates/backend/air",
+    "crates/backend/fiat-shamir",
+    "crates/backend/sumcheck",
+    "crates/backend/whir",
 ]
 
 [workspace.lints]
@@ -75,7 +75,7 @@ tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }
 bincode = "1.3.3"
 lz4_flex = "0.12.0"
 
-multilinear-toolkit = { path = "crates/multilinear-toolkit" }
+backend = { path = "crates/backend" }
 
 [features]
 prox-gaps-conjecture = ["rec_aggregation/prox-gaps-conjecture"]
@@ -90,7 +90,7 @@ sub_protocols.workspace = true
 utils.workspace = true
 
 lean_vm.workspace = true
-multilinear-toolkit.workspace = true
+backend.workspace = true
 
 
 [profile.release]

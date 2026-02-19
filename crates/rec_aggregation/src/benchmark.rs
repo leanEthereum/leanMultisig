@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 use std::time::Instant;
 
+use backend::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use utils::pretty_integer;
 use xmss::signers_cache::*;
 use xmss::{XmssPublicKey, XmssSignature};
