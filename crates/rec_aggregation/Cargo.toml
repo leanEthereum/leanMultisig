@@ -14,9 +14,6 @@ utils.workspace = true
 xmss.workspace = true
 rand.workspace = true
 
-
-
-
 tracing.workspace = true
 air.workspace = true
 sub_protocols.workspace = true
@@ -24,6 +21,6 @@ lean_vm.workspace = true
 lean_compiler.workspace = true
 lean_prover.workspace = true
 backend.workspace = true
-bincode.workspace = true
+postcard.workspace = true
 lz4_flex.workspace = true
 serde.workspace = true
