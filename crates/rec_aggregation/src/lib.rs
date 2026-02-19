@@ -105,13 +105,13 @@ impl AggregatedSigs {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        let encoded = bincode::serialize(self).expect("bincode serialization failed");
+        let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
         lz4_flex::compress_prepend_size(&encoded)
     }
 
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
-        bincode::deserialize(&decompressed).ok()
+        postcard::from_bytes(&decompressed).ok()
     }
 
     pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
