@@ -2,12 +2,13 @@ use std::{any::TypeId, iter::repeat_n};
 
 use field::Field;
 use koala_bear::{KoalaBear, default_koalabear_poseidon2_16};
+use serde::{Deserialize, Serialize};
 
 use crate::{PrunedMerklePaths, challenger::RATE};
 
 pub(crate) const DIGEST_LEN_FE: usize = 8;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TranscriptData<F, MerklePaths> {
     Interraction(Vec<F>),
     GrindingWitness(F),
@@ -71,7 +72,7 @@ impl<F: Field> Proof<F> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrunedProof<F>(pub(crate) Vec<TranscriptData<F, PrunedMerklePaths<F, F>>>);
 
 impl<F: Field> PrunedProof<F> {

@@ -10,6 +10,7 @@ utils = { path = "../utils", package = "mt-utils" }
 itertools.workspace = true
 rayon.workspace = true
 rand.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 koala-bear = { path = "../koala-bear", package = "mt-koala-bear" }

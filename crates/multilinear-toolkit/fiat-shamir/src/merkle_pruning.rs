@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{DIGEST_LEN_FE, MerklePath, MerklePaths};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrunedMerklePaths<Data, F> {
     pub merkle_height: usize,
     pub original_order: Vec<usize>,

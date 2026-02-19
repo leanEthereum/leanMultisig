@@ -6,6 +6,9 @@ edition.workspace = true
 [lints]
 workspace = true
 
+[features]
+prox-gaps-conjecture = ["lean_prover/prox-gaps-conjecture"]
+
 [dependencies]
 utils.workspace = true
 xmss.workspace = true
@@ -21,3 +24,6 @@ lean_vm.workspace = true
 lean_compiler.workspace = true
 lean_prover.workspace = true
 multilinear-toolkit.workspace = true
+bincode.workspace = true
+lz4_flex.workspace = true
+serde.workspace = true

@@ -72,8 +72,13 @@ serde_json = "1.0.145"
 serde = { version = "1.0.228", features = ["derive"] }
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }
+bincode = "1.3.3"
+lz4_flex = "0.12.0"
 
 multilinear-toolkit = { path = "crates/multilinear-toolkit" }
+
+[features]
+prox-gaps-conjecture = ["rec_aggregation/prox-gaps-conjecture"]
 
 [dependencies]
 clap.workspace = true

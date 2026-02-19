@@ -154,26 +154,27 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
         &bytecode,
         (public_input, private_input),
         &vec![],
-        &default_whir_config(starting_log_inv_rate, false),
+        &default_whir_config(starting_log_inv_rate),
         false,
     );
     let proof_time = time.elapsed();
-    verify_execution(&bytecode, public_input, proof.proof.clone(), false).unwrap();
+    verify_execution(&bytecode, public_input, proof.raw_proof().unwrap()).unwrap();
     println!("{}", proof.metadata.display());
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 
     if fuzzing {
         println!("Starting fuzzing...");
         let mut percent = 0;
-        for i in 0..proof.proof.len() {
-            let new_percent = i * 100 / proof.proof.len();
+        let raw_proof = proof.raw_proof().unwrap();
+        for i in 0..raw_proof.len() {
+            let new_percent = i * 100 / raw_proof.len();
             if new_percent != percent {
                 percent = new_percent;
                 println!("{}%", percent);
             }
-            let mut fuzzed_proof = proof.proof.clone();
+            let mut fuzzed_proof = raw_proof.clone();
             fuzzed_proof[i] += F::ONE;
-            let verify_result = verify_execution(&bytecode, public_input, fuzzed_proof, false);
+            let verify_result = verify_execution(&bytecode, public_input, fuzzed_proof);
             assert!(verify_result.is_err(), "Fuzzing failed at index {}", i);
         }
     }

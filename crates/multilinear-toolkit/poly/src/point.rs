@@ -2,11 +2,12 @@ use std::ops::{Deref, DerefMut};
 
 use field::*;
 use rand::{Rng, distr::StandardUniform};
+use serde::{Deserialize, Serialize};
 
 /// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
 ///
 /// Often, `x_i` are binary. If strictly binary, `BinaryHypercubePoint` is used.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MultilinearPoint<F>(pub Vec<F>);
 
 impl<F> Deref for MultilinearPoint<F> {
