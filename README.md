@@ -36,8 +36,8 @@ cargo run --release -- xmss --n-signatures 1400
 
 | WHIR rate \ regime | Proven               | Conjectured          |
 | ------------------ | -------------------- | -------------------- |
-| 1/2                | 530 XMSS/s - 383 KiB | 530 XMSS/s - 209 KiB |
-| 1/4                | 420 XMSS/s - 252 KiB | 420 XMSS/s - 148 KiB |
+| 1/2                | 610 XMSS/s - 383 KiB | 610 XMSS/s - 209 KiB |
+| 1/4                | 490 XMSS/s - 252 KiB | 490 XMSS/s - 148 KiB |
 
 (Proving throughput - proof size)
 
@@ -51,7 +51,7 @@ cargo run --release -- recursion --n 2
 
 | Proven          | Conjectured     |
 | --------------- | --------------- |
-| 1.10s - 223 KiB | 1.05s - 134 KiB |
+| 1.08s - 223 KiB | 1.03s - 134 KiB |
 
 
 ### Bonus: unbounded recursive aggregation
@@ -60,7 +60,7 @@ cargo run --release -- recursion --n 2
 cargo run --release -- fancy-aggregation
 ```
 
-![Recursive aggregation](./misc/images/rec-agg.png)
+![Recursive aggregation](./misc/images/fancy-aggregation.png)
 
 (Proven regime)
 
