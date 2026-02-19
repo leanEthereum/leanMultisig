@@ -18,7 +18,7 @@ members = [
     "crates/backend/air",
     "crates/backend/fiat-shamir",
     "crates/backend/sumcheck",
-    "crates/backend/whir",
+    "crates/whir",
 ]
 
 [workspace.lints]
@@ -48,6 +48,7 @@ should_panic_without_expect = "allow"
 similar_names = "allow"
 suboptimal_flops = "allow"
 cast_sign_loss = "allow"
+wildcard_imports = "allow"
 
 [workspace.dependencies]
 # Local
