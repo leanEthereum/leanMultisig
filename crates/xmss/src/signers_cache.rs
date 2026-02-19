@@ -1,10 +1,17 @@
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use backend::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use crate::*;
+
+static SIGNERS_CACHE: OnceLock<Vec<[F; RANDOMNESS_LEN_FE]>> = OnceLock::new();
+
+pub fn get_benchmark_signers_cache() -> &'static Vec<[F; RANDOMNESS_LEN_FE]> {
+    SIGNERS_CACHE.get_or_init(read_benchmark_signers_cache)
+}
 
 pub const BENCHMARK_SLOT: u32 = 1111;
 

@@ -225,7 +225,7 @@ fn build_aggregation(
     signatures: &[XmssSignature],
     overlap: usize,
     tracing: bool,
-) -> AggregatedSigs {
+) -> (AggregatedSigs, f64) {
     let message = message_for_benchmark();
     let slot = BENCHMARK_SLOT;
     let raw_count = topology.raw_xmss;
@@ -238,7 +238,7 @@ fn build_aggregation(
     let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
         let child_count = count_signers(child, overlap);
-        let child_agg = build_aggregation(
+        let (child_agg, _) = build_aggregation(
             child,
             child_display_index,
             display,
@@ -293,10 +293,10 @@ fn build_aggregation(
         );
     }
 
-    result
+    (result, elapsed.as_secs_f64())
 }
 
-pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) {
+pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
     if tracing {
         utils::init_tracing();
     }
@@ -304,7 +304,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
 
     let n_sigs = count_signers(topology, overlap);
 
-    let cache = read_benchmark_signers_cache();
+    let cache = get_benchmark_signers_cache();
     assert!(cache.len() >= n_sigs);
     let paired: Vec<_> = (0..n_sigs)
         .into_par_iter()
@@ -328,9 +328,56 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         display.print_initial();
     }
 
-    let aggregated_sigs = build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
+    let (aggregated_sigs, time) =
+        build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
 
     // Verify root proof
     let message = message_for_benchmark();
     crate::verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT).unwrap();
+    time
+}
+
+#[test]
+#[ignore]
+fn test_aggregation_throughput_per_num_xmss() {
+    let log_inv_rate = 1;
+    precompute_dft_twiddles::<F>(1 << 24);
+    init_aggregation_bytecode();
+    let _ = get_aggregation_bytecode();
+    let mut num_xmss_and_time = vec![];
+    let mut indexes = vec![];
+    for i in 1..100 {
+        indexes.push(i * 10);
+    }
+    for i in 50..100 {
+        indexes.push(i * 20);
+    }
+    for i in 40..60 {
+        indexes.push(i * 50);
+    }
+    for num_xmss in indexes {
+        let topology = AggregationTopology {
+            raw_xmss: num_xmss,
+            children: vec![],
+            log_inv_rate,
+        };
+        let time = run_aggregation_benchmark(&topology, 0, false);
+        num_xmss_and_time.push((num_xmss, time));
+        println!(
+            "{} XMSS -> {} XMSS/s",
+            num_xmss,
+            (num_xmss as f64 / time).round() as usize
+        );
+
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+
+        let mut csv = String::from("num_sigs,throughput (XMSS/s)\n");
+        for &(n, t) in &num_xmss_and_time {
+            csv.push_str(&format!("{},{:.1}\n", n, n as f64 / t));
+        }
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benchmarks/xmss_throughput.csv");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &csv).unwrap();
+        println!("\nWrote {}", path.display());
+    }
 }
