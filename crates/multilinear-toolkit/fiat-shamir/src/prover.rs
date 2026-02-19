@@ -101,7 +101,7 @@ where
 
         let witness_found = Mutex::<Option<PF<EF>>>::new(None);
         // each batch tests lanes witnesses simultaneously
-        let num_batches = (PF::<EF>::ORDER_U64 + lanes as u64 - 1) / lanes as u64;
+        let num_batches = PF::<EF>::ORDER_U64.div_ceil(lanes as u64);
         (0..num_batches)
             .into_par_iter()
             .find_any(|&batch| {

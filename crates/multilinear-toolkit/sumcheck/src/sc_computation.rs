@@ -172,16 +172,17 @@ fn handle_product_computation<'a, EF: ExtensionField<PF<EF>>>(
 ) -> Vec<(PF<EF>, EF)> {
     let poly = match group_f {
         MleGroupRef::Extension(multilinears) => {
-            compute_product_sumcheck_polynomial(&multilinears[0], &multilinears[1], sum, identity_decompose)
+            compute_product_sumcheck_polynomial(multilinears[0], multilinears[1], sum, identity_decompose)
         }
         MleGroupRef::ExtensionPacked(multilinears) => {
-            compute_product_sumcheck_polynomial(&multilinears[0], &multilinears[1], sum, packing_decompose)
+            compute_product_sumcheck_polynomial(multilinears[0], multilinears[1], sum, packing_decompose)
         }
         _ => unimplemented!(),
     };
     poly_to_evals(&poly)
 }
 
+#[allow(clippy::type_complexity)]
 fn handle_product_computation_with_fold<'a, EF: ExtensionField<PF<EF>>>(
     group_f: &MleGroupRef<'a, EF>,
     prev_folding_factor: EF,
@@ -190,8 +191,8 @@ fn handle_product_computation_with_fold<'a, EF: ExtensionField<PF<EF>>>(
     let (poly, folded_f) = match group_f {
         MleGroupRef::Extension(multilinears) => {
             let (poly, folded) = fold_and_compute_product_sumcheck_polynomial(
-                &multilinears[0],
-                &multilinears[1],
+                multilinears[0],
+                multilinears[1],
                 prev_folding_factor,
                 sum,
                 identity_decompose,
@@ -200,8 +201,8 @@ fn handle_product_computation_with_fold<'a, EF: ExtensionField<PF<EF>>>(
         }
         MleGroupRef::ExtensionPacked(multilinears) => {
             let (poly, folded) = fold_and_compute_product_sumcheck_polynomial(
-                &multilinears[0],
-                &multilinears[1],
+                multilinears[0],
+                multilinears[1],
                 prev_folding_factor,
                 sum,
                 packing_decompose,
@@ -227,10 +228,10 @@ fn handle_gkr_quotient<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers<EF>>(
 
     let poly = match group_f {
         MleGroupRef::Extension(m) => compute_gkr_quotient_sumcheck_polynomial(
-            &m[0],
-            &m[1],
-            &m[2],
-            &m[3],
+            m[0],
+            m[1],
+            m[2],
+            m[3],
             alpha,
             first_eq_factor,
             eq_mle.as_extension().unwrap(),
@@ -239,10 +240,10 @@ fn handle_gkr_quotient<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers<EF>>(
             identity_decompose,
         ),
         MleGroupRef::ExtensionPacked(m) => compute_gkr_quotient_sumcheck_polynomial(
-            &m[0],
-            &m[1],
-            &m[2],
-            &m[3],
+            m[0],
+            m[1],
+            m[2],
+            m[3],
             alpha,
             first_eq_factor,
             eq_mle.as_extension_packed().unwrap(),
@@ -255,6 +256,7 @@ fn handle_gkr_quotient<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers<EF>>(
     poly_to_evals(&poly)
 }
 
+#[allow(clippy::type_complexity)]
 fn handle_gkr_quotient_with_fold<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers<EF>>(
     group_f: &MleGroupRef<'a, EF>,
     prev_folding_factor: EF,
@@ -271,10 +273,10 @@ fn handle_gkr_quotient_with_fold<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers
         MleGroupRef::Extension(m) => {
             let (poly, folded) = fold_and_compute_gkr_quotient_sumcheck_polynomial(
                 prev_folding_factor,
-                &m[0],
-                &m[1],
-                &m[2],
-                &m[3],
+                m[0],
+                m[1],
+                m[2],
+                m[3],
                 alpha,
                 first_eq_factor,
                 eq_mle.as_extension().unwrap(),
@@ -287,10 +289,10 @@ fn handle_gkr_quotient_with_fold<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers
         MleGroupRef::ExtensionPacked(m) => {
             let (poly, folded) = fold_and_compute_gkr_quotient_sumcheck_polynomial(
                 prev_folding_factor,
-                &m[0],
-                &m[1],
-                &m[2],
-                &m[3],
+                m[0],
+                m[1],
+                m[2],
+                m[3],
                 alpha,
                 first_eq_factor,
                 eq_mle.as_extension_packed().unwrap(),
@@ -430,6 +432,7 @@ where
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub fn fold_and_sumcheck_compute<'a, EF: ExtensionField<PF<EF>>, SC>(
     prev_folding_factor: EF,
     group_f: &MleGroupRef<'a, EF>,
@@ -570,6 +573,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sumcheck_compute_core<EF, IF, EFT, FFT, SC>(
     multilinears_f: &[&[IF]],
     multilinears_ef: &[&[EFT]],
@@ -618,6 +622,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 fn sumcheck_fold_and_compute_core<EF, IF, IEF, FT, FFT, SC>(
     multilinears_f: &[&[IF]],
     multilinears_ef: &[&[IEF]],

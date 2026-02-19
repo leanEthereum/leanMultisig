@@ -7,10 +7,10 @@ use field::PackedValue;
 use field::{ExtensionField, TwoAdicField};
 use poly::*;
 use rayon::prelude::*;
-use tracing::instrument;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use tracing::instrument;
 use utils::log2_strict_usize;
 
 use crate::EvalsDft;
@@ -35,7 +35,6 @@ pub(crate) fn sample_ood_points<EF: ExtensionField<PF<EF>>, E>(
 ) -> (Vec<EF>, Vec<EF>)
 where
     E: Fn(&MultilinearPoint<EF>) -> EF,
-    EF: ExtensionField<PF<EF>>,
 {
     let mut ood_points = Vec::new();
     let mut ood_answers = Vec::new();
@@ -76,7 +75,7 @@ pub(crate) fn reorder_and_dft<EF: ExtensionField<PF<EF>>>(
 where
     PF<EF>: TwoAdicField,
 {
-    let prepared_evals = prepare_evals_for_fft(&evals, folding_factor, log_inv_rate, dft_n_cols);
+    let prepared_evals = prepare_evals_for_fft(evals, folding_factor, log_inv_rate, dft_n_cols);
     let dft = global_dft::<PF<EF>>();
     let dft_size = (1 << (evals.n_vars() + log_inv_rate)) >> folding_factor;
     if dft.max_n_twiddles() < dft_size {
@@ -132,7 +131,7 @@ fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync>(
     log_inv_rate: usize,
     dft_n_cols: usize,
 ) -> Vec<A> {
-    assert!(evals.len() % (1 << folding_factor) == 0);
+    assert!(evals.len().is_multiple_of(1 << folding_factor));
     let n_blocks = 1 << folding_factor;
     let full_len = evals.len() << log_inv_rate;
     let block_size = full_len / n_blocks;
@@ -156,7 +155,7 @@ fn prepare_evals_for_fft_packed_extension<EF: ExtensionField<PF<EF>>>(
     log_inv_rate: usize,
 ) -> Vec<EF> {
     let log_packing = packing_log_width::<EF>();
-    assert!((evals.len() << log_packing) % (1 << folding_factor) == 0);
+    assert!((evals.len() << log_packing).is_multiple_of(1 << folding_factor));
     let n_blocks = 1 << folding_factor;
     let full_len = evals.len() << (log_inv_rate + log_packing);
     let block_size = full_len / n_blocks;

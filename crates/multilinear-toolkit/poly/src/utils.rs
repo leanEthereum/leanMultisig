@@ -224,11 +224,12 @@ pub fn split_at_mut_many<'a, A>(slice: &'a mut [A], indices: &[usize]) -> Vec<&'
 
 // Parallel
 
+#[allow(clippy::type_complexity)]
 pub fn par_iter_split_4<'a, A: Sync + Send>(
     u: &'a [A],
 ) -> Zip<Zip<Iter<'a, A>, Iter<'a, A>>, Zip<Iter<'a, A>, Iter<'a, A>>> {
     let n = u.len();
-    assert!(n % 4 == 0);
+    assert!(n.is_multiple_of(4));
     let [u_ll, u_lr, u_rl, u_rr] = split_at_many(u, &[n / 4, n / 2, 3 * n / 4]).try_into().ok().unwrap();
     (u_ll.par_iter().zip(u_lr)).zip(u_rl.par_iter().zip(u_rr.par_iter()))
 }
@@ -239,7 +240,7 @@ pub fn par_iter_split_2<'a, A: Sync + Send>(u: &'a [A]) -> Zip<Iter<'a, A>, Iter
 
 pub fn par_iter_split_2_capped<'a, A: Sync + Send>(u: &'a [A], range: Range<usize>) -> Zip<Iter<'a, A>, Iter<'a, A>> {
     let n = u.len();
-    assert!(n % 2 == 0);
+    assert!(n.is_multiple_of(2));
     let (u_left, u_right) = u.split_at(n / 2);
     u_left[range.clone()].par_iter().zip(u_right[range.clone()].par_iter())
 }
@@ -253,52 +254,54 @@ pub fn par_iter_mut_split_2_capped<'a, A: Sync + Send>(
     range: Range<usize>,
 ) -> Zip<IterMut<'a, A>, IterMut<'a, A>> {
     let n = u.len();
-    assert!(n % 2 == 0);
+    assert!(n.is_multiple_of(2));
     let (u_left, u_right) = u.split_at_mut(n / 2);
     u_left[range.clone()].par_iter_mut().zip(u_right[range].par_iter_mut())
 }
 
+#[allow(clippy::type_complexity)]
 pub fn par_zip_fold_2<'a, 'b, A: Sync + Send, B: Sync + Send>(
     u: &'a [A],
     folded: &'b mut [B],
 ) -> Zip<Zip<Zip<Iter<'a, A>, Iter<'a, A>>, Zip<Iter<'a, A>, Iter<'a, A>>>, Zip<IterMut<'b, B>, IterMut<'b, B>>> {
     let n = u.len();
-    assert!(n % 4 == 0);
+    assert!(n.is_multiple_of(4));
     assert_eq!(folded.len(), n / 2);
     par_iter_split_4(u).zip(par_iter_mut_split_2(folded))
 }
 
 // Sequential
 
-pub fn iter_split_2<'a, A>(u: &'a [A]) -> impl Iterator<Item = (&'a A, &'a A)> {
+pub fn iter_split_2<A>(u: &[A]) -> impl Iterator<Item = (&A, &A)> {
     let n = u.len();
-    assert!(n % 2 == 0);
+    assert!(n.is_multiple_of(2));
     let (u_left, u_right) = u.split_at(n / 2);
     u_left.iter().zip(u_right.iter())
 }
 
-pub fn iter_split_4<'a, A>(u: &'a [A]) -> impl Iterator<Item = ((&'a A, &'a A), (&'a A, &'a A))> {
+pub fn iter_split_4<A>(u: &[A]) -> impl Iterator<Item = ((&A, &A), (&A, &A))> {
     let n = u.len();
-    assert!(n % 4 == 0);
+    assert!(n.is_multiple_of(4));
     let (u_left, u_right) = u.split_at(n / 2);
     let (u_ll, u_lr) = u_left.split_at(n / 4);
     let (u_rl, u_rr) = u_right.split_at(n / 4);
     u_ll.iter().zip(u_lr.iter()).zip(u_rl.iter().zip(u_rr.iter()))
 }
 
-pub fn iter_mut_split_2<'a, A>(u: &'a mut [A]) -> impl Iterator<Item = (&'a mut A, &'a mut A)> {
+pub fn iter_mut_split_2<A>(u: &mut [A]) -> impl Iterator<Item = (&mut A, &mut A)> {
     let n = u.len();
-    assert!(n % 2 == 0);
+    assert!(n.is_multiple_of(2));
     let (u_left, u_right) = u.split_at_mut(n / 2);
     u_left.iter_mut().zip(u_right.iter_mut())
 }
 
+#[allow(clippy::type_complexity)]
 pub fn zip_fold_2<'a, 'b, A, B>(
     u: &'a [A],
     folded: &'b mut [B],
 ) -> impl Iterator<Item = (((&'a A, &'a A), (&'a A, &'a A)), (&'b mut B, &'b mut B))> {
     let n = u.len();
-    assert!(n % 4 == 0);
+    assert!(n.is_multiple_of(4));
     assert_eq!(folded.len(), n / 2);
     iter_split_4(u).zip(iter_mut_split_2(folded))
 }

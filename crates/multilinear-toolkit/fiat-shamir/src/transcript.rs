@@ -40,7 +40,7 @@ impl<F: Field> Proof<F> {
                     proof.extend(repeat_n(F::ZERO, padding));
                 }
                 TranscriptData::GrindingWitness(scalar) => {
-                    proof.push(scalar.clone());
+                    proof.push(*scalar);
                     proof.extend(repeat_n(F::ZERO, RATE - 1));
                 }
                 TranscriptData::MerklePaths(paths) => {
@@ -100,7 +100,9 @@ impl<F: Field> PrunedProof<F> {
                                 let restored = paths.restore(&hash_fn, &combine_fn)?;
 
                                 TranscriptData::MerklePaths(unsafe {
-                                    std::mem::transmute::<_, MerklePaths<F, F>>(restored)
+                                    std::mem::transmute::<MerklePaths<KoalaBear, KoalaBear>, MerklePaths<F, F>>(
+                                        restored,
+                                    )
                                 })
                             } else {
                                 unimplemented!()

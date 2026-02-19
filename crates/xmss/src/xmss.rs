@@ -85,13 +85,13 @@ pub fn xmss_key_gen(
                     let left = if left_idx >= prev_base && left_idx <= prev_top {
                         prev[(left_idx - prev_base) as usize]
                     } else {
-                        assert!((left_idx as u64) < 1u64 << 32);
+                        assert!(left_idx < 1u64 << 32);
                         gen_random_node(&seed, level - 1, left_idx as u32)
                     };
                     let right = if right_idx >= prev_base && right_idx <= prev_top {
                         prev[(right_idx - prev_base) as usize]
                     } else {
-                        assert!((right_idx as u64) < 1u64 << 32);
+                        assert!(right_idx < 1u64 << 32);
                         gen_random_node(&seed, level - 1, right_idx as u32)
                     };
                     compress(&perm, [left, right])

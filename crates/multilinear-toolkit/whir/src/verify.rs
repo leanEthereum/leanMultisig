@@ -59,7 +59,7 @@ impl<F: Field, EF: ExtensionField<F>> ParsedCommitment<F, EF> {
     }
 }
 
-impl<'a, EF> WhirConfig<EF>
+impl<EF> WhirConfig<EF>
 where
     EF: TwoAdicField + ExtensionField<PF<EF>>,
 {
@@ -74,21 +74,21 @@ where
     }
 }
 
-impl<'a, EF> WhirConfig<EF>
+impl<EF> WhirConfig<EF>
 where
     EF: TwoAdicField + ExtensionField<PF<EF>>,
     PF<EF>: TwoAdicField,
 {
     #[allow(clippy::too_many_lines)]
-    pub fn verify<F: TwoAdicField>(
+    pub fn verify<F>(
         &self,
         verifier_state: &mut impl FSVerifier<EF>,
         parsed_commitment: &ParsedCommitment<F, EF>,
         statement: Vec<SparseStatement<EF>>,
     ) -> ProofResult<MultilinearPoint<EF>>
     where
+        F: TwoAdicField + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
-        F: ExtensionField<PF<EF>>,
     {
         statement
             .iter()
@@ -223,7 +223,7 @@ where
         Ok(combination_randomness)
     }
 
-    fn verify_stir_challenges<F: Field>(
+    fn verify_stir_challenges<F>(
         &self,
         verifier_state: &mut impl FSVerifier<EF>,
         params: &RoundConfig<EF>,
@@ -232,8 +232,8 @@ where
         round_index: usize,
     ) -> ProofResult<Vec<SparseStatement<EF>>>
     where
+        F: Field + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
-        F: ExtensionField<PF<EF>>,
     {
         let leafs_base_field = round_index == 0;
 
@@ -283,7 +283,8 @@ where
         Ok(stir_constraints)
     }
 
-    fn verify_merkle_proof<F: Field>(
+    #[allow(clippy::too_many_arguments)]
+    fn verify_merkle_proof<F>(
         &self,
         verifier_state: &mut impl FSVerifier<EF>,
         root: &[PF<EF>; DIGEST_ELEMS],
@@ -294,8 +295,8 @@ where
         var_shift: usize,
     ) -> ProofResult<Vec<Vec<EF>>>
     where
+        F: Field + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
-        F: ExtensionField<PF<EF>>,
     {
         // Branch depending on whether the committed leafs are base field or extension field.
         let res = if leafs_base_field {

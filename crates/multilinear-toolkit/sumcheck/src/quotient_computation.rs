@@ -70,10 +70,7 @@ pub fn sum_fractions_const_2_by_2<A: Copy + Mul<Output = A> + Add<Output = A>>(
 }
 
 #[inline(always)]
-fn my_dot_product<A1: Copy, A2: Copy>(a: &[A1], b: &[A2]) -> A1
-where
-    A1: Algebra<A2>,
-{
+fn my_dot_product<A1: Copy + Algebra<A2>, A2: Copy>(a: &[A1], b: &[A2]) -> A1 {
     debug_assert_eq!(a.len(), b.len());
     let mut res = a[0] * b[0];
     for (x, y) in a.iter().zip(b.iter()).skip(1) {
@@ -83,6 +80,7 @@ where
 }
 
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 fn compute_sumcheck_terms<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
     u0_left: F,
     u0_right: F,
@@ -95,19 +93,20 @@ fn compute_sumcheck_terms<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
     eq_val: F,
 ) -> (F, F, F, F) {
     let (mut c0_term_single, mut c2_term_single) = sumcheck_quadratic(((&u2_left, &u2_right), (&u3_left, &u3_right)));
-    c0_term_single = c0_term_single * eq_val;
-    c2_term_single = c2_term_single * eq_val;
+    c0_term_single *= eq_val;
+    c2_term_single *= eq_val;
 
     let (c0_term_double_a, c2_term_double_a) = sumcheck_quadratic(((&u0_left, &u0_right), (&u3_left, &u3_right)));
     let (c0_term_double_b, c2_term_double_b) = sumcheck_quadratic(((&u1_left, &u1_right), (&u2_left, &u2_right)));
     let mut c0_term_double = c0_term_double_a + c0_term_double_b;
     let mut c2_term_double = c2_term_double_a + c2_term_double_b;
-    c0_term_double = c0_term_double * eq_val;
-    c2_term_double = c2_term_double * eq_val;
+    c0_term_double *= eq_val;
+    c2_term_double *= eq_val;
 
     (c0_term_single, c2_term_single, c0_term_double, c2_term_double)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finalize_polynomial<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
     c0_term_single: F,
     c2_term_single: F,
@@ -134,6 +133,7 @@ fn finalize_polynomial<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
     ])
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_gkr_quotient_sumcheck_polynomial<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
     u0: &[F],
     u1: &[F],
@@ -149,6 +149,7 @@ pub(crate) fn compute_gkr_quotient_sumcheck_polynomial<F: Algebra<EF> + Copy + S
     let n = u0.len();
     assert_eq!(eq_mle.len(), n / 2);
 
+    #[allow(clippy::type_complexity)]
     let map_fn = |(
         ((((u0_left, u0_right), (u1_left, u1_right)), (u2_left, u2_right)), (u3_left, u3_right)),
         &eq_val,
@@ -195,6 +196,7 @@ pub(crate) fn compute_gkr_quotient_sumcheck_polynomial<F: Algebra<EF> + Copy + S
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn fold_and_compute_gkr_quotient_sumcheck_polynomial<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
     prev_folding_factor: EF,
     u0: &[F],
@@ -224,6 +226,7 @@ pub(crate) fn fold_and_compute_gkr_quotient_sumcheck_polynomial<F: Algebra<EF> +
         (u_left, u_right)
     };
 
+    #[allow(clippy::type_complexity)]
     let map_fn = |(((((u0_prev, u0_f), (u1_prev, u1_f)), (u2_prev, u2_f)), (u3_prev, u3_f)), &eq_val): (
         (
             (

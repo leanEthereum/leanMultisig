@@ -1060,7 +1060,7 @@ fn packed_eq_poly<F: Field, EF: ExtensionField<F>>(eval: &[EF], scalar: EF) -> E
 pub fn parallel_inner_repeat<A: Copy + Send + Sync>(src: &[A], n: usize) -> Vec<A> {
     if src.len() * n <= 1 << 12 {
         // sequential repeat
-        src.iter().flat_map(|&v| std::iter::repeat(v).take(n)).collect()
+        src.iter().flat_map(|&v| std::iter::repeat_n(v, n)).collect()
     } else {
         let res = unsafe { uninitialized_vec::<A>(src.len() * n) };
         src.par_iter().enumerate().for_each(|(i, &v)| {
@@ -1137,7 +1137,7 @@ mod tests {
                 .collect::<Vec<_>>();
             let starts_big_endian = boolean_starts.iter().fold(0, |acc, &bit| (acc << 1) | (bit as usize));
             let point = &point[boolean_starts.len()..];
-            compute_sparse_eval_eq_packed(starts_big_endian, &point, &mut out_packed, scalar);
+            compute_sparse_eval_eq_packed(starts_big_endian, point, &mut out_packed, scalar);
             let unpacked: Vec<EF> = unpack_extension(&out_packed);
             assert_eq!(out_no_packing, unpacked);
         }
@@ -1178,7 +1178,7 @@ mod tests {
                 compute_eval_eq::<F, EF, true>(&eval, &mut out_3, scalar);
                 let out_3_packed = out_3
                     .par_chunks_exact(packing_width)
-                    .map(|chunk| <EF as ExtensionField<F>>::ExtensionPacking::from_ext_slice(chunk))
+                    .map(<EF as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
                     .collect::<Vec<_>>();
                 println!("EXTENSION PACKED AFTER: {:?}", time.elapsed());
 
@@ -1213,7 +1213,7 @@ mod tests {
                 compute_eval_eq_base::<F, EF, true>(&eval, &mut out_3, scalar);
                 let out_3_packed = out_3
                     .par_chunks_exact(packing_width)
-                    .map(|chunk| <EF as ExtensionField<F>>::ExtensionPacking::from_ext_slice(chunk))
+                    .map(<EF as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
                     .collect::<Vec<_>>();
                 println!("BASE PACKED AFTER: {:?}", time.elapsed());
 

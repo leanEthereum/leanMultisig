@@ -82,7 +82,7 @@ where
 
     let final_folds = [final_folds_f, final_folds_ef]
         .into_iter()
-        .map(|mle| {
+        .flat_map(|mle| {
             mle.by_ref()
                 .as_extension()
                 .unwrap()
@@ -93,7 +93,6 @@ where
                 })
                 .collect::<Vec<_>>()
         })
-        .flatten()
         .collect::<Vec<_>>();
 
     (challenges, final_folds, final_sum)

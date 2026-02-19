@@ -23,7 +23,7 @@ where
     fn validate_statement(&self, statement: &[SparseStatement<EF>]) {
         statement.iter().for_each(|e| {
             assert_eq!(e.total_num_variables, self.num_variables);
-            assert!(e.values.len() > 0);
+            assert!(!e.values.is_empty());
             assert!(e.values.iter().all(|v| v.selector < 1 << e.selector_num_variables()));
         });
     }
@@ -42,7 +42,7 @@ where
         polynomial: &MleRef<'_, EF>,
     ) -> MultilinearPoint<EF> {
         assert!(self.validate_parameters());
-        assert!(self.validate_witness(&witness, &polynomial));
+        assert!(self.validate_witness(&witness, polynomial));
         self.validate_statement(&statement);
 
         let mut round_state =
@@ -113,14 +113,10 @@ where
             self.folding_factor.at_round(round_index) + round_state.commitment_merkle_prover_data_b.is_some() as usize,
         );
 
-        let stir_evaluations = if round_state.commitment_merkle_prover_data_b.is_some() {
+        let stir_evaluations = if let Some(data_b) = &round_state.commitment_merkle_prover_data_b {
             let answers_a =
                 open_merkle_tree_at_challenges(&round_state.merkle_prover_data, prover_state, &stir_challenges_indexes);
-            let answers_b = open_merkle_tree_at_challenges(
-                round_state.commitment_merkle_prover_data_b.as_ref().unwrap(),
-                prover_state,
-                &stir_challenges_indexes,
-            );
+            let answers_b = open_merkle_tree_at_challenges(data_b, prover_state, &stir_challenges_indexes);
             let mut stir_evaluations = Vec::new();
             for (answer_a, answer_b) in answers_a.iter().zip(&answers_b) {
                 let vars_a = answer_a.by_ref().n_vars();
@@ -352,7 +348,7 @@ where
             .iter()
             .zip(combination_randomness.iter())
             .for_each(|(point, &rand)| {
-                compute_eval_eq_packed::<_, true>(point, &mut self.weights.as_extension_packed_mut().unwrap(), rand);
+                compute_eval_eq_packed::<_, true>(point, self.weights.as_extension_packed_mut().unwrap(), rand);
             });
 
         self.sum += combination_randomness
@@ -377,11 +373,7 @@ where
             .iter()
             .zip(combination_randomness.iter())
             .for_each(|(point, &rand)| {
-                compute_eval_eq_base_packed::<_, _, true>(
-                    point,
-                    &mut self.weights.as_extension_packed_mut().unwrap(),
-                    rand,
-                );
+                compute_eval_eq_base_packed::<_, _, true>(point, self.weights.as_extension_packed_mut().unwrap(), rand);
             });
 
         // Accumulate the weighted sum (cheap, done sequentially)

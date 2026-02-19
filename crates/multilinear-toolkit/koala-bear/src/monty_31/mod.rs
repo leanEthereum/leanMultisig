@@ -3,6 +3,7 @@
 //! An abstraction of 31-bit fields which use a MONTY approach for faster multiplication.
 
 mod data_traits;
+#[allow(clippy::module_inception)]
 mod monty_31;
 pub(crate) mod poseidon2_monty;
 pub(crate) mod utils;

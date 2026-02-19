@@ -36,6 +36,7 @@ impl FoldingFactor {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     pub const fn check_validity(&self, num_variables: usize) -> Result<(), ()> {
         if self.first_round > num_variables
             || self.subsequent_round > num_variables
@@ -265,7 +266,7 @@ where
 
         Self {
             committment_ood_samples,
-            num_variables: num_variables,
+            num_variables,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits: starting_folding_pow_bits as usize,
             folding_factor: whir_parameters.folding_factor,

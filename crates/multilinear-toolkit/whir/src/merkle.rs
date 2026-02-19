@@ -25,6 +25,7 @@ pub use symetric::DIGEST_ELEMS;
 
 pub(crate) type RoundMerkleTree<F, EF> = WhirMerkleTree<F, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>;
 
+#[allow(clippy::missing_transmute_annotations)]
 pub(crate) fn merkle_commit<F: Field, EF: ExtensionField<F>>(
     matrix: DenseMatrix<EF>,
     full_n_cols: usize,
@@ -55,6 +56,7 @@ pub(crate) fn merkle_commit<F: Field, EF: ExtensionField<F>>(
     }
 }
 
+#[allow(clippy::missing_transmute_annotations)]
 pub(crate) fn merkle_open<F: Field, EF: ExtensionField<F>>(
     merkle_tree: &RoundMerkleTree<F, EF>,
     index: usize,
@@ -79,6 +81,7 @@ pub(crate) fn merkle_open<F: Field, EF: ExtensionField<F>>(
     }
 }
 
+#[allow(clippy::missing_transmute_annotations)]
 pub(crate) fn merkle_verify<F: Field, EF: ExtensionField<F>>(
     merkle_root: [F; DIGEST_ELEMS],
     index: usize,

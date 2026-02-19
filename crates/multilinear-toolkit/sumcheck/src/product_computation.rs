@@ -48,16 +48,16 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     assert!(n_rounds >= 1);
     let first_sumcheck_poly = match (pol_a, pol_b) {
         (MleRef::BasePacked(evals), MleRef::ExtensionPacked(weights)) => {
-            compute_product_sumcheck_polynomial(&evals, &weights, sum, |e| EFPacking::<EF>::to_ext_iter([e]).collect())
+            compute_product_sumcheck_polynomial(evals, weights, sum, |e| EFPacking::<EF>::to_ext_iter([e]).collect())
         }
         (MleRef::ExtensionPacked(evals), MleRef::ExtensionPacked(weights)) => {
-            compute_product_sumcheck_polynomial(evals, &weights, sum, |e| EFPacking::<EF>::to_ext_iter([e]).collect())
+            compute_product_sumcheck_polynomial(evals, weights, sum, |e| EFPacking::<EF>::to_ext_iter([e]).collect())
         }
         (MleRef::Base(evals), MleRef::Extension(weights)) => {
-            compute_product_sumcheck_polynomial(evals, &weights, sum, |e| vec![e])
+            compute_product_sumcheck_polynomial(evals, weights, sum, |e| vec![e])
         }
         (MleRef::Extension(evals), MleRef::Extension(weights)) => {
-            compute_product_sumcheck_polynomial(evals, &weights, sum, |e| vec![e])
+            compute_product_sumcheck_polynomial(evals, weights, sum, |e| vec![e])
         }
         _ => unimplemented!(),
     };
@@ -74,26 +74,26 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     let (second_sumcheck_poly, folded) = match (pol_a, pol_b) {
         (MleRef::BasePacked(evals), MleRef::ExtensionPacked(weights)) => {
             let (second_sumcheck_poly, folded) =
-                fold_and_compute_product_sumcheck_polynomial(&evals, &weights, r1, sum, |e| {
+                fold_and_compute_product_sumcheck_polynomial(evals, weights, r1, sum, |e| {
                     EFPacking::<EF>::to_ext_iter([e]).collect()
                 });
             (second_sumcheck_poly, MleGroupOwned::ExtensionPacked(folded))
         }
         (MleRef::ExtensionPacked(evals), MleRef::ExtensionPacked(weights)) => {
             let (second_sumcheck_poly, folded) =
-                fold_and_compute_product_sumcheck_polynomial(evals, &weights, r1, sum, |e| {
+                fold_and_compute_product_sumcheck_polynomial(evals, weights, r1, sum, |e| {
                     EFPacking::<EF>::to_ext_iter([e]).collect()
                 });
             (second_sumcheck_poly, MleGroupOwned::ExtensionPacked(folded))
         }
         (MleRef::Base(evals), MleRef::Extension(weights)) => {
             let (second_sumcheck_poly, folded) =
-                fold_and_compute_product_sumcheck_polynomial(evals, &weights, r1, sum, |e| vec![e]);
+                fold_and_compute_product_sumcheck_polynomial(evals, weights, r1, sum, |e| vec![e]);
             (second_sumcheck_poly, MleGroupOwned::Extension(folded))
         }
         (MleRef::Extension(evals), MleRef::Extension(weights)) => {
             let (second_sumcheck_poly, folded) =
-                fold_and_compute_product_sumcheck_polynomial(evals, &weights, r1, sum, |e| vec![e]);
+                fold_and_compute_product_sumcheck_polynomial(evals, weights, r1, sum, |e| vec![e]);
             (second_sumcheck_poly, MleGroupOwned::Extension(folded))
         }
         _ => unimplemented!(),
@@ -188,6 +188,7 @@ pub fn fold_and_compute_product_sumcheck_polynomial<
     let mut pol_0_folded = unsafe { uninitialized_vec::<EFPacking>(n / 2) };
     let mut pol_1_folded = unsafe { uninitialized_vec::<EFPacking>(n / 2) };
 
+    #[allow(clippy::type_complexity)]
     let process_element = |(p0_prev, p0_f): (((&F, &F), (&F, &F)), (&mut EFPacking, &mut EFPacking)),
                            (p1_prev, p1_f): (
         ((&EFPacking, &EFPacking), (&EFPacking, &EFPacking)),

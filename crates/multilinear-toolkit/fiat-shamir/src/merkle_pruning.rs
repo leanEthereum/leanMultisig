@@ -202,10 +202,10 @@ mod tests {
         let mut sibling_hashes = Vec::with_capacity(height);
 
         let mut idx = leaf_index;
-        for level in 0..height {
+        for tree_level in &tree[..tree.len() - 1] {
             // Sibling is at idx ^ 1
             let sibling_idx = idx ^ 1;
-            sibling_hashes.push(tree[level][sibling_idx]);
+            sibling_hashes.push(tree_level[sibling_idx]);
             idx /= 2;
         }
 
@@ -223,7 +223,7 @@ mod tests {
         let tree = build_merkle_tree(&leaves);
 
         // Generate paths for leaves 5, 1, 3 (not in sorted order)
-        let indices = vec![5, 1, 3];
+        let indices = [5, 1, 3];
         let paths = MerklePaths(
             indices
                 .iter()

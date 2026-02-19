@@ -55,7 +55,7 @@ where
     pub ood_answers: Vec<EF>,
 }
 
-impl<'a, EF> WhirConfig<EF>
+impl<EF> WhirConfig<EF>
 where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: TwoAdicField,

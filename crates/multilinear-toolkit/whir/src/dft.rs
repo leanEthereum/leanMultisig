@@ -357,7 +357,7 @@ fn dft_layer_par_extra_layers<F: Field, B: Butterfly<F>, M: MultiLayerButterfly<
         1 => {
             // Safe as DitButterfly is #[repr(transparent)]
             let fft_layer: &[B] = unsafe { as_base_slice(&root_table[0]) };
-            dft_layer_par(&mut mat.values, fft_layer, width);
+            dft_layer_par(mat.values, fft_layer, width);
         }
         2 => {
             let twiddles_small: &[B] = unsafe { as_base_slice(&root_table[1]) };
