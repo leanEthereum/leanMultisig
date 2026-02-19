@@ -7,13 +7,13 @@ use field::PackedValue;
 use field::{ExtensionField, TwoAdicField};
 use poly::*;
 use rayon::prelude::*;
+use tracing::instrument;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use utils::log2_strict_usize;
 
 use crate::EvalsDft;
-use crate::Matrix;
 use crate::RowMajorMatrix;
 
 pub(crate) fn get_challenge_stir_queries<F: Field, Chal: ChallengeSampler<F>>(
@@ -71,26 +71,24 @@ pub(crate) fn reorder_and_dft<EF: ExtensionField<PF<EF>>>(
     evals: &MleRef<'_, EF>,
     folding_factor: usize,
     log_inv_rate: usize,
+    dft_n_cols: usize,
 ) -> DftOutput<EF>
 where
     PF<EF>: TwoAdicField,
 {
-    let prepared_evals = prepare_evals_for_fft(&evals, folding_factor, log_inv_rate);
-    let width = 1 << folding_factor;
+    let prepared_evals = prepare_evals_for_fft(&evals, folding_factor, log_inv_rate, dft_n_cols);
     let dft = global_dft::<PF<EF>>();
     let dft_size = (1 << (evals.n_vars() + log_inv_rate)) >> folding_factor;
     if dft.max_n_twiddles() < dft_size {
         tracing::warn!("Twiddles have not been precomputed, for size = {}", dft_size);
     }
     match prepared_evals {
-        DftInput::Base(evals) => DftOutput::Base(
-            dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(evals, width))
-                .to_row_major_matrix(),
-        ),
-        DftInput::Extension(evals) => DftOutput::Extension(
-            dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(evals, width))
-                .to_row_major_matrix(),
-        ),
+        DftInput::Base(evals) => {
+            DftOutput::Base(dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(evals, dft_n_cols)))
+        }
+        DftInput::Extension(evals) => {
+            DftOutput::Extension(dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(evals, dft_n_cols)))
+        }
     }
 }
 
@@ -98,17 +96,27 @@ fn prepare_evals_for_fft<EF: ExtensionField<PF<EF>>>(
     evals: &MleRef<'_, EF>,
     folding_factor: usize,
     log_inv_rate: usize,
+    dft_n_cols: usize,
 ) -> DftInput<EF> {
     match evals {
-        MleRef::Base(evals) => DftInput::Base(prepare_evals_for_fft_unpacked(evals, folding_factor, log_inv_rate)),
+        MleRef::Base(evals) => DftInput::Base(prepare_evals_for_fft_unpacked(
+            evals,
+            folding_factor,
+            log_inv_rate,
+            dft_n_cols,
+        )),
         MleRef::BasePacked(evals) => DftInput::Base(prepare_evals_for_fft_unpacked(
             PFPacking::<EF>::unpack_slice(evals),
             folding_factor,
             log_inv_rate,
+            dft_n_cols,
         )),
-        MleRef::Extension(evals) => {
-            DftInput::Extension(prepare_evals_for_fft_unpacked(evals, folding_factor, log_inv_rate))
-        }
+        MleRef::Extension(evals) => DftInput::Extension(prepare_evals_for_fft_unpacked(
+            evals,
+            folding_factor,
+            log_inv_rate,
+            dft_n_cols,
+        )),
         MleRef::ExtensionPacked(evals) => DftInput::Extension(prepare_evals_for_fft_packed_extension(
             evals,
             folding_factor,
@@ -117,23 +125,25 @@ fn prepare_evals_for_fft<EF: ExtensionField<PF<EF>>>(
     }
 }
 
+#[instrument(skip_all)]
 fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync>(
     evals: &[A],
     folding_factor: usize,
     log_inv_rate: usize,
+    dft_n_cols: usize,
 ) -> Vec<A> {
     assert!(evals.len() % (1 << folding_factor) == 0);
     let n_blocks = 1 << folding_factor;
     let full_len = evals.len() << log_inv_rate;
     let block_size = full_len / n_blocks;
     let log_block_size = log2_strict_usize(block_size);
-    let n_blocks_mask = n_blocks - 1;
+    let out_len = block_size * dft_n_cols;
 
-    (0..full_len)
+    (0..out_len)
         .into_par_iter()
         .map(|i| {
-            let block_index = i & n_blocks_mask;
-            let offset_in_block = i >> folding_factor;
+            let block_index = i % dft_n_cols;
+            let offset_in_block = i / dft_n_cols;
             let src_index = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
             unsafe { *evals.get_unchecked(src_index) }
         })

@@ -14,14 +14,18 @@ pub enum MerkleData<EF: ExtensionField<PF<EF>>> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> MerkleData<EF> {
-    pub(crate) fn build(matrix: DftOutput<EF>) -> (Self, [PF<EF>; DIGEST_ELEMS]) {
+    pub(crate) fn build(
+        matrix: DftOutput<EF>,
+        full_n_cols: usize,
+        effective_n_cols: usize,
+    ) -> (Self, [PF<EF>; DIGEST_ELEMS]) {
         match matrix {
             DftOutput::Base(m) => {
-                let (root, prover_data) = merkle_commit::<PF<EF>, PF<EF>>(m);
+                let (root, prover_data) = merkle_commit::<PF<EF>, PF<EF>>(m, full_n_cols, effective_n_cols);
                 (MerkleData::Base(prover_data), root)
             }
             DftOutput::Extension(m) => {
-                let (root, prover_data) = merkle_commit::<PF<EF>, EF>(m);
+                let (root, prover_data) = merkle_commit::<PF<EF>, EF>(m, full_n_cols, effective_n_cols);
                 (MerkleData::Extension(prover_data), root)
             }
         }
@@ -57,16 +61,28 @@ where
     PF<EF>: TwoAdicField,
 {
     #[instrument(skip_all)]
-    pub fn commit(&self, prover_state: &mut impl FSProver<EF>, polynomial: &MleOwned<EF>) -> Witness<EF> {
+    pub fn commit(
+        &self,
+        prover_state: &mut impl FSProver<EF>,
+        polynomial: &MleOwned<EF>,
+        actual_data_len: usize, // polynomial[actual_data_len..] is zero
+    ) -> Witness<EF> {
+        let n_blocks = 1usize << self.folding_factor.at_round(0);
+        let evals_len = 1usize << self.num_variables;
+        let effective_n_cols = actual_data_len.div_ceil(evals_len / n_blocks);
+        // DFT matrix width: skip as many zero columns as possible, aligned to packing (SIMD)
+        let dft_n_cols = effective_n_cols.next_multiple_of(packing_width::<EF>()).min(n_blocks);
+
         let folded_matrix = info_span!("FFT").in_scope(|| {
             reorder_and_dft(
                 &polynomial.by_ref(),
                 self.folding_factor.at_round(0),
                 self.starting_log_inv_rate,
+                dft_n_cols,
             )
         });
 
-        let (prover_data, root) = MerkleData::build(folded_matrix);
+        let (prover_data, root) = MerkleData::build(folded_matrix, n_blocks, effective_n_cols);
 
         prover_state.add_base_scalars(&root);
 

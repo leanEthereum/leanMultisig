@@ -30,6 +30,7 @@ use field::{BasedVectorSpace, Field, PackedField, TwoAdicField};
 use itertools::Itertools;
 
 use rayon::prelude::*;
+use tracing::instrument;
 use utils::{as_base_slice, log2_strict_usize};
 
 use crate::{Matrix, RowMajorMatrix, RowMajorMatrixViewMut};
@@ -142,6 +143,7 @@ where
         mat
     }
 
+    #[instrument(skip_all)]
     pub(crate) fn dft_algebra_batch_by_evals<V: BasedVectorSpace<F> + Clone + Send + Sync>(
         &self,
         mat: RowMajorMatrix<V>,

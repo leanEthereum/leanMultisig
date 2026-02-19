@@ -83,10 +83,12 @@ where
                 &folded_evaluations.by_ref(),
                 folding_factor_next,
                 log2_strict_usize(inv_rate),
+                1 << folding_factor_next,
             )
         });
 
-        let (prover_data, root) = MerkleData::build(folded_matrix);
+        let full = 1 << folding_factor_next;
+        let (prover_data, root) = MerkleData::build(folded_matrix, full, full);
 
         prover_state.add_base_scalars(&root);
 

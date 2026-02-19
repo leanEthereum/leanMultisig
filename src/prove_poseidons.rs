@@ -67,7 +67,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             commitmed_pol[i << log_n_rows..(i + 1) << log_n_rows].copy_from_slice(col);
         }
         let committed_pol = MleOwned::Base(commitmed_pol);
-        let witness = whir_config.commit(&mut prover_state, &committed_pol);
+        let witness = whir_config.commit(&mut prover_state, &committed_pol, num_cols_poseidon_16() << log_n_rows);
 
         let alpha = prover_state.sample();
         let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
