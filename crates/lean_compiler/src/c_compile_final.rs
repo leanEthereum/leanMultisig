@@ -211,14 +211,6 @@ fn compile_block(
         None
     };
 
-    let try_as_mem_or_fp = |value: &IntermediateValue| match value {
-        IntermediateValue::MemoryAfterFp { offset } => Some(MemOrFp::MemoryAfterFp {
-            offset: eval_const_expression_usize(offset, compiler),
-        }),
-        IntermediateValue::Fp => Some(MemOrFp::Fp),
-        _ => None,
-    };
-
     let codegen_jump = |hints: &BTreeMap<CodeAddress, Vec<Hint>>,
                         low_level_bytecode: &mut Vec<Instruction>,
                         condition: IntermediateValue,
@@ -239,8 +231,8 @@ fn compile_block(
             MemOrConstant::MemoryAfterFp { offset } => Label::custom(format!("fp+{offset}")),
         };
         let updated_fp = updated_fp
-            .map(|fp| try_as_mem_or_fp(&fp).unwrap())
-            .unwrap_or(MemOrFp::Fp);
+            .map(|fp| fp.try_into_mem_or_fp_or_constant(compiler).unwrap())
+            .unwrap_or(MemOrFpOrConstant::FpRelative { offset: 0 });
         low_level_bytecode.push(Instruction::Jump {
             condition: try_as_mem_or_constant(&condition).unwrap(),
             label,
@@ -268,7 +260,7 @@ fn compile_block(
                     low_level_bytecode.push(Instruction::Computation {
                         operation: Operation::Add,
                         arg_a: MemOrConstant::zero(),
-                        arg_c: res.try_into_mem_or_fp(compiler).unwrap(),
+                        arg_c: res.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                         res: MemOrConstant::Constant(op_res),
                     });
                     pc += 1;
@@ -282,7 +274,7 @@ fn compile_block(
                 low_level_bytecode.push(Instruction::Computation {
                     operation,
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
-                    arg_c: try_as_mem_or_fp(&arg_b).unwrap(),
+                    arg_c: arg_b.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                     res: try_as_mem_or_constant(&res).unwrap(),
                 });
             }
@@ -291,7 +283,7 @@ fn compile_block(
                     // fp x 0 = 1 is impossible, so we can use it to panic
                     operation: Operation::Mul,
                     arg_a: MemOrConstant::zero(),
-                    arg_c: MemOrFp::Fp,
+                    arg_c: MemOrFpOrConstant::FpRelative { offset: 0 },
                     res: MemOrConstant::one(),
                 });
             }
@@ -303,7 +295,7 @@ fn compile_block(
                         IntermediateValue::MemoryAfterFp { offset } => MemOrFpOrConstant::MemoryAfterFp {
                             offset: eval_const_expression_usize(&offset, compiler),
                         },
-                        IntermediateValue::Fp => MemOrFpOrConstant::Fp,
+                        IntermediateValue::Fp => MemOrFpOrConstant::FpRelative { offset: 0 },
                         IntermediateValue::Constant(c) => {
                             MemOrFpOrConstant::Constant(eval_const_expression(&c, compiler))
                         }
@@ -331,7 +323,7 @@ fn compile_block(
                     table,
                     arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
                     arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
-                    arg_c: try_as_mem_or_fp(&arg_c).unwrap(),
+                    arg_c: arg_c.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                     aux_1: eval_const_expression_usize(&aux_1, compiler),
                     aux_2: eval_const_expression_usize(&aux_2, compiler),
                 });
@@ -450,13 +442,13 @@ fn try_as_constant(value: &IntermediateValue, compiler: &Compiler) -> Option<F> 
 }
 
 impl IntermediateValue {
-    fn try_into_mem_or_fp(&self, compiler: &Compiler) -> Result<MemOrFp, String> {
+    fn try_into_mem_or_fp_or_constant(&self, compiler: &Compiler) -> Result<MemOrFpOrConstant, String> {
         match self {
-            Self::MemoryAfterFp { offset } => Ok(MemOrFp::MemoryAfterFp {
+            Self::MemoryAfterFp { offset } => Ok(MemOrFpOrConstant::MemoryAfterFp {
                 offset: eval_const_expression_usize(offset, compiler),
             }),
-            Self::Fp => Ok(MemOrFp::Fp),
-            _ => Err(format!("Cannot convert {self:?} to MemOrFp")),
+            Self::Fp => Ok(MemOrFpOrConstant::FpRelative { offset: 0 }),
+            Self::Constant(c) => Ok(MemOrFpOrConstant::Constant(eval_const_expression(c, compiler))),
         }
     }
     fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {

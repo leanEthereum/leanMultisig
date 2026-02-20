@@ -204,7 +204,7 @@ c &=
 \begin{cases}
 \gamma \\
 \textbf{m}[\text{fp} + \gamma]  \\
-\text{fp}
+\text{fp} + \gamma
 \end{cases}
 \end{align*}
 
@@ -216,7 +216,7 @@ $$
 \begin{cases}
 & \gamma \\
 & \textbf{m}[\text{fp} + \gamma]   \\
-& \text{fp}  
+& \text{fp} + \gamma
 
 \end{cases}
 $$
@@ -428,7 +428,7 @@ We define the following quantities:
 \begin{itemize}
     \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A) \cdot \text{value}_A$ 
     \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B) \cdot \text{value}_B$ 
-    \item $\nu_C = \text{flag}_C \cdot \text{operand}_C + (1 - \text{flag}_C - \text{flag}_\text{fp}) \cdot \text{value}_C + \text{flag}_\text{fp} \cdot \text{fp}$
+    \item $\nu_C = \text{flag}_C \cdot \text{operand}_C + (1 - \text{flag}_C - \text{flag}_\text{fp}) \cdot \text{value}_C + \text{flag}_\text{fp} \cdot (\text{fp} + \gamma)$
 \end{itemize}
 
 With the associated constraints: 

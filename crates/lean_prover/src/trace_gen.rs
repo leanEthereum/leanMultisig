@@ -67,10 +67,10 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
             let nu_a = flag_a * field_repr[instr_idx(COL_OPERAND_A)] + (F::ONE - flag_a) * value_a;
             let nu_b = flag_b * field_repr[instr_idx(COL_OPERAND_B)] + (F::ONE - flag_b) * value_b;
-            // nu_C = flag_C * operand_C + (1 - flag_C - flag_fp) * value_C + flag_fp * fp
+            // nu_C = flag_C * operand_C + (1 - flag_C - flag_fp) * value_C + flag_fp * (fp + operand_C)
             let nu_c = flag_c * field_repr[instr_idx(COL_OPERAND_C)]
                 + (F::ONE - flag_c - flag_fp) * value_c
-                + flag_fp * F::from_usize(fp);
+                + flag_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)]);
             if let Instruction::Precompile { .. } = instruction {
                 *trace_row[COL_IS_PRECOMPILE] = F::ONE;
             }

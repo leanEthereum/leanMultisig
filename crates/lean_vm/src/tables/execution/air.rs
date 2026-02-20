@@ -96,10 +96,10 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
 
         let nu_a = flag_a * operand_a.clone() + value_a.clone() * -flag_a_minus_one.clone();
         let nu_b = flag_b * operand_b.clone() + value_b.clone() * -flag_b_minus_one.clone();
-        // nu_C = flag_C * operand_C + (1 - flag_C - flag_fp) * value_C + flag_fp * fp
+        // nu_C = flag_C * operand_C + (1 - flag_C - flag_fp) * value_C + flag_fp * (fp + operand_C)
         let nu_c = flag_c.clone() * operand_c.clone()
             + one_minus_flag_c_and_flag_fp.clone() * value_c.clone()
-            + flag_fp.clone() * fp.clone();
+            + flag_fp.clone() * (fp.clone() + operand_c.clone());
 
         let fp_plus_operand_a = fp.clone() + operand_a.clone();
         let fp_plus_operand_b = fp.clone() + operand_b.clone();
