@@ -1,3 +1,4 @@
+use super::MemOrConstant;
 use crate::core::F;
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
@@ -36,6 +37,15 @@ impl MemOrFpOrConstant {
             Self::MemoryAfterFp { offset } => Ok(fp + *offset),
             Self::FpRelative { .. } => Err(RunnerError::NotAPointer),
             Self::Constant(_) => Err(RunnerError::NotAPointer),
+        }
+    }
+
+    /// Convert to MemOrConstant, panicking if FpRelative
+    pub fn as_mem_or_constant(&self) -> MemOrConstant {
+        match self {
+            Self::MemoryAfterFp { offset } => MemOrConstant::MemoryAfterFp { offset: *offset },
+            Self::Constant(c) => MemOrConstant::Constant(*c),
+            Self::FpRelative { .. } => panic!("Cannot convert FpRelative to MemOrConstant"),
         }
     }
 }

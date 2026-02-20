@@ -65,7 +65,7 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
         padding_row[COL_FLAG_A] = F::ONE;
         padding_row[COL_OPERAND_A] = F::ONE;
         padding_row[COL_FLAG_B] = F::ONE;
-        padding_row[COL_FLAG_FP] = F::ONE; // this is kind of arbitrary
+        padding_row[COL_FLAG_C_FP] = F::ONE; // this is kind of arbitrary
         padding_row[COL_EXEC_NU_A] = F::ONE; // because at the end of program, we always jump (looping at pc=0, so condition = nu_a = 1)
         padding_row
     }

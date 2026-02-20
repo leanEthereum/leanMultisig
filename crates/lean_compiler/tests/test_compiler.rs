@@ -192,7 +192,13 @@ fn debug_file_program() {
 fn debug_str_program() {
     let program = r#"
 def main():
-    
+    n = 10000
+    array = Array(n * 8)
+    for i in range(0, 16):
+        array[i] = 0
+    for i in unroll(2, n):
+        poseidon16(array + (i - 2) * 8, array + (i - 1) * 8, array + i * 8)
+    print(array + (n - 1) * 8)
     return
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);

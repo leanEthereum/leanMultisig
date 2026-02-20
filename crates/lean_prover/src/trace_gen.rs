@@ -36,18 +36,19 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             let flag_a = field_repr[instr_idx(COL_FLAG_A)];
             let flag_b = field_repr[instr_idx(COL_FLAG_B)];
             let flag_c = field_repr[instr_idx(COL_FLAG_C)];
-            let flag_fp = field_repr[instr_idx(COL_FLAG_FP)];
+            let flag_c_fp = field_repr[instr_idx(COL_FLAG_C_FP)];
+            let flag_ab_fp = field_repr[instr_idx(COL_FLAG_AB_FP)];
             let aux = field_repr[instr_idx(COL_AUX)];
             let is_deref = aux == F::TWO;
 
             let mut addr_a = F::ZERO;
-            if flag_a.is_zero() {
+            if flag_a.is_zero() && flag_ab_fp.is_zero() {
                 addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)];
             }
             let value_a = memory.0.get(addr_a.to_usize()).copied().flatten().unwrap_or_default();
 
             let mut addr_b = F::ZERO;
-            if flag_b.is_zero() {
+            if flag_b.is_zero() && flag_ab_fp.is_zero() {
                 addr_b = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_B)];
             } else if is_deref {
                 // DEREF: addr_B = value_A + operand_B
@@ -56,7 +57,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             let value_b = memory.0.get(addr_b.to_usize()).copied().flatten().unwrap_or_default();
 
             let mut addr_c = F::ZERO;
-            if flag_c.is_zero() && flag_fp.is_zero() {
+            if flag_c.is_zero() && flag_c_fp.is_zero() {
                 addr_c = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)];
             }
             let value_c = memory.0.get(addr_c.to_usize()).copied().flatten().unwrap_or_default();
@@ -65,12 +66,15 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
                 *trace_row[j + N_RUNTIME_COLUMNS] = *field;
             }
 
-            let nu_a = flag_a * field_repr[instr_idx(COL_OPERAND_A)] + (F::ONE - flag_a) * value_a;
-            let nu_b = flag_b * field_repr[instr_idx(COL_OPERAND_B)] + (F::ONE - flag_b) * value_b;
-            // nu_C = flag_C * operand_C + (1 - flag_C - flag_fp) * value_C + flag_fp * (fp + operand_C)
+            let nu_a = flag_a * field_repr[instr_idx(COL_OPERAND_A)]
+                + (F::ONE - flag_a - flag_ab_fp) * value_a
+                + flag_ab_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)]);
+            let nu_b = flag_b * field_repr[instr_idx(COL_OPERAND_B)]
+                + (F::ONE - flag_b - flag_ab_fp) * value_b
+                + flag_ab_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_B)]);
             let nu_c = flag_c * field_repr[instr_idx(COL_OPERAND_C)]
-                + (F::ONE - flag_c - flag_fp) * value_c
-                + flag_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)]);
+                + (F::ONE - flag_c - flag_c_fp) * value_c
+                + flag_c_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)]);
             if let Instruction::Precompile { .. } = instruction {
                 *trace_row[COL_IS_PRECOMPILE] = F::ONE;
             }

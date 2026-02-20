@@ -291,15 +291,7 @@ fn compile_block(
                 low_level_bytecode.push(Instruction::Deref {
                     shift_0: eval_const_expression(&shift_0, compiler).to_usize(),
                     shift_1: eval_const_expression(&shift_1, compiler).to_usize(),
-                    res: match res {
-                        IntermediateValue::MemoryAfterFp { offset } => MemOrFpOrConstant::MemoryAfterFp {
-                            offset: eval_const_expression_usize(&offset, compiler),
-                        },
-                        IntermediateValue::Fp => MemOrFpOrConstant::FpRelative { offset: 0 },
-                        IntermediateValue::Constant(c) => {
-                            MemOrFpOrConstant::Constant(eval_const_expression(&c, compiler))
-                        }
-                    },
+                    res: res.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                 });
             }
             IntermediateInstruction::JumpIfNotZero {
@@ -321,8 +313,8 @@ fn compile_block(
             } => {
                 low_level_bytecode.push(Instruction::Precompile {
                     table,
-                    arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
-                    arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
+                    arg_a: arg_a.try_into_mem_or_fp_or_constant(compiler).unwrap(),
+                    arg_b: arg_b.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                     arg_c: arg_c.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                     aux_1: eval_const_expression_usize(&aux_1, compiler),
                     aux_2: eval_const_expression_usize(&aux_2, compiler),
@@ -448,6 +440,9 @@ impl IntermediateValue {
                 offset: eval_const_expression_usize(offset, compiler),
             }),
             Self::Fp => Ok(MemOrFpOrConstant::FpRelative { offset: 0 }),
+            Self::FpRelative { offset } => Ok(MemOrFpOrConstant::FpRelative {
+                offset: eval_const_expression_usize(offset, compiler),
+            }),
             Self::Constant(c) => Ok(MemOrFpOrConstant::Constant(eval_const_expression(c, compiler))),
         }
     }

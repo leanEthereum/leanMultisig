@@ -50,8 +50,8 @@ pub enum Instruction {
 
     Precompile {
         table: Table,
-        arg_a: MemOrConstant,
-        arg_b: MemOrConstant,
+        arg_a: MemOrFpOrConstant,
+        arg_b: MemOrFpOrConstant,
         arg_c: MemOrFpOrConstant,
         aux_1: usize,
         aux_2: usize,

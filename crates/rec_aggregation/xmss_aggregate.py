@@ -98,12 +98,9 @@ def chain_hash(input_left, n: Const, output_left, pair_chain_length_sum_ptr):
     else:
         states_left = Array((n_left-1) * DIGEST_LEN)
         poseidon16(input_left, ZERO_VEC_PTR, states_left)
-        state_indexes_left = Array(n_left - 1)
-        state_indexes_left[0] = states_left
         for i in unroll(1, n_left-1):
-            state_indexes_left[i] = state_indexes_left[i - 1] + DIGEST_LEN
-            poseidon16(state_indexes_left[i - 1], ZERO_VEC_PTR, state_indexes_left[i])
-        poseidon16(state_indexes_left[n_left - 2], ZERO_VEC_PTR, output_left)
+            poseidon16(states_left + (i - 1) * DIGEST_LEN, ZERO_VEC_PTR, states_left + i * DIGEST_LEN)
+        poseidon16(states_left + (n_left - 2) * DIGEST_LEN, ZERO_VEC_PTR, output_left)
 
     n_right = (CHAIN_LENGTH - 1) - raw_right
     debug_assert(raw_right < CHAIN_LENGTH)
@@ -116,12 +113,9 @@ def chain_hash(input_left, n: Const, output_left, pair_chain_length_sum_ptr):
     else:
         states_right = Array((n_right-1) * DIGEST_LEN)
         poseidon16(input_right, ZERO_VEC_PTR, states_right)
-        state_indexes_right = Array(n_right - 1)
-        state_indexes_right[0] = states_right
         for i in unroll(1, n_right-1):
-            state_indexes_right[i] = state_indexes_right[i - 1] + DIGEST_LEN
-            poseidon16(state_indexes_right[i - 1], ZERO_VEC_PTR, state_indexes_right[i])
-        poseidon16(state_indexes_right[n_right - 2], ZERO_VEC_PTR, output_right)
+            poseidon16(states_right + (i - 1) * DIGEST_LEN, ZERO_VEC_PTR, states_right + i * DIGEST_LEN)
+        poseidon16(states_right + (n_right - 2) * DIGEST_LEN, ZERO_VEC_PTR, output_right)
 
     pair_chain_length_sum_ptr[0] = raw_left + raw_right
 
@@ -140,7 +134,6 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out):
     b3 = r3 % 2
 
     temps = Array(3 * DIGEST_LEN)
-    temp_indexes = Array(3)
 
     # Level 0: state_in -> temps
     if b0 == 0:
@@ -148,27 +141,24 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out):
     else:
         poseidon16(state_in, path_chunk, temps)
 
-    temp_indexes[0] = temps
 
     # Level 1
-    temp_indexes[1] = temp_indexes[0] + DIGEST_LEN
     if b1 == 0:
-        poseidon16(path_chunk + 1 * DIGEST_LEN, temp_indexes[0], temp_indexes[1])
+        poseidon16(path_chunk + 1 * DIGEST_LEN, temps, temps + DIGEST_LEN)
     else:
-        poseidon16(temp_indexes[0], path_chunk + 1 * DIGEST_LEN, temp_indexes[1])
+        poseidon16(temps, path_chunk + 1 * DIGEST_LEN, temps + DIGEST_LEN)
 
     # Level 2
-    temp_indexes[2] = temp_indexes[1] + DIGEST_LEN
     if b2 == 0:
-        poseidon16(path_chunk + 2 * DIGEST_LEN, temp_indexes[1], temp_indexes[2])
+        poseidon16(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
     else:
-        poseidon16(temp_indexes[1], path_chunk + 2 * DIGEST_LEN, temp_indexes[2])
+        poseidon16(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
 
     # Level 3: -> state_out
     if b3 == 0:
-        poseidon16(path_chunk + 3 * DIGEST_LEN, temp_indexes[2], state_out)
+        poseidon16(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
     else:
-        poseidon16(temp_indexes[2], path_chunk + 3 * DIGEST_LEN, state_out)
+        poseidon16(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
     return
 
 
@@ -180,14 +170,11 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root):
     match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, merkle_path, states))
 
     # Middle chunks
-    state_indexes = Array(N_MERKLE_CHUNKS - 1)
-    state_indexes[0] = states
     for j in unroll(1, N_MERKLE_CHUNKS - 1):
-        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
-        match_range(merkle_chunks[j], range(0, 16), lambda b: do_4_merkle_levels(b, state_indexes[j - 1], merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, state_indexes[j]))
+        match_range(merkle_chunks[j], range(0, 16), lambda b: do_4_merkle_levels(b, states + (j - 1) * DIGEST_LEN, merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, states + j * DIGEST_LEN))
 
     # Last chunk: -> expected_root
-    match_range(merkle_chunks[N_MERKLE_CHUNKS - 1], range(0, 16), lambda b: do_4_merkle_levels(b, state_indexes[N_MERKLE_CHUNKS - 2], merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, expected_root))
+    match_range(merkle_chunks[N_MERKLE_CHUNKS - 1], range(0, 16), lambda b: do_4_merkle_levels(b, states + (N_MERKLE_CHUNKS - 2) * DIGEST_LEN, merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, expected_root))
     return
 
 

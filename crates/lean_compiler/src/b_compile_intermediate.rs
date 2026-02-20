@@ -1,6 +1,6 @@
 use crate::{a_simplify_lang::*, ir::*, lang::*};
 use lean_vm::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use utils::ToUsize;
 
 #[derive(Default)]
@@ -15,6 +15,11 @@ struct Compiler {
     args_count: usize,
     stack_size: usize,
     stack_pos: usize,
+    const_mallocs: BTreeMap<ConstMallocLabel, usize>, // label -> start offset from fp
+    const_malloc_vars: BTreeMap<Var, usize>,          // var -> start offset from fp (same data, different key)
+    /// Instruction index of the ADD that computed each derived fp-relative var.
+    /// When a precompile uses FpRelative for the var, the ADD is dead and can be removed.
+    derived_fp_relative_add_idx: BTreeMap<Var, usize>,
 }
 
 #[derive(Default)]
@@ -25,8 +30,7 @@ struct StackFrameLayout {
 
 #[derive(Default)]
 struct ScopeLayout {
-    var_positions: BTreeMap<Var, usize>,              // var -> memory offset from fp
-    const_mallocs: BTreeMap<ConstMallocLabel, usize>, // const_malloc_label -> start = memory offset from fp
+    var_positions: BTreeMap<Var, usize>, // var -> memory offset from fp
 }
 
 impl Compiler {
@@ -50,12 +54,10 @@ impl Compiler {
                 panic!("Variable {var} not in scope");
             }
             VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset } => {
-                for scope in self.stack_frame_layout.scopes.iter().rev() {
-                    if let Some(base) = scope.const_mallocs.get(malloc_label) {
-                        return ConstExpression::MathExpr(MathOperation::Add, vec![(*base).into(), offset.clone()]);
-                    }
-                }
-                panic!("Const malloc {malloc_label} not in scope");
+                let base = self.const_mallocs.get(malloc_label).unwrap_or_else(|| {
+                    panic!("Const malloc {malloc_label} not in scope");
+                });
+                ConstExpression::MathExpr(MathOperation::Add, vec![(*base).into(), offset.clone()])
             }
         }
     }
@@ -103,6 +105,19 @@ impl IntermediateValue {
     }
 }
 
+/// Try to encode a precompile arg as FpRelative (fp + known_offset).
+/// Works for const_malloc vars and derived fp-relative vars (const_malloc + constant).
+fn try_precompile_fp_relative(expr: &SimpleExpr, compiler: &Compiler) -> Option<IntermediateValue> {
+    if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = expr {
+        compiler
+            .const_malloc_vars
+            .get(var)
+            .map(|&start| IntermediateValue::FpRelative { offset: start.into() })
+    } else {
+        None
+    }
+}
+
 pub fn compile_to_intermediate_bytecode(simple_program: SimpleProgram) -> Result<IntermediateBytecode, String> {
     let mut compiler = Compiler::default();
     let mut memory_sizes = BTreeMap::new();
@@ -143,6 +158,9 @@ fn compile_function(
     compiler.stack_pos = stack_pos;
     compiler.stack_size = stack_pos;
     compiler.args_count = function.arguments.len();
+    compiler.const_mallocs.clear();
+    compiler.const_malloc_vars.clear();
+    compiler.derived_fp_relative_add_idx.clear();
 
     compile_lines(
         &Label::function(function.name.clone()),
@@ -152,6 +170,93 @@ fn compile_function(
     )
 }
 
+/// Count how many times each Var is used (read, not defined) in the given lines.
+/// Includes uses in nested blocks (Match arms, IfNotZero branches).
+fn count_var_uses(lines: &[SimpleLine]) -> BTreeMap<Var, usize> {
+    let mut counts = BTreeMap::new();
+    fn count_expr(expr: &SimpleExpr, counts: &mut BTreeMap<Var, usize>) {
+        if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = expr {
+            *counts.entry(v.clone()).or_default() += 1;
+        }
+    }
+    fn count_lines(lines: &[SimpleLine], counts: &mut BTreeMap<Var, usize>) {
+        for line in lines {
+            match line {
+                SimpleLine::Assignment { arg0, arg1, .. } => {
+                    count_expr(arg0, counts);
+                    count_expr(arg1, counts);
+                }
+                SimpleLine::AssertZero { arg0, arg1, .. } => {
+                    count_expr(arg0, counts);
+                    count_expr(arg1, counts);
+                }
+                SimpleLine::RawAccess { res, index, .. } => {
+                    count_expr(res, counts);
+                    count_expr(index, counts);
+                }
+                SimpleLine::Precompile { args, .. } => {
+                    for arg in args {
+                        count_expr(arg, counts);
+                    }
+                }
+                SimpleLine::FunctionCall { args, .. } => {
+                    for arg in args {
+                        count_expr(arg, counts);
+                    }
+                }
+                SimpleLine::FunctionRet { return_data } => {
+                    for expr in return_data {
+                        count_expr(expr, counts);
+                    }
+                }
+                SimpleLine::Print { content, .. } => {
+                    for expr in content {
+                        count_expr(expr, counts);
+                    }
+                }
+                SimpleLine::HintMAlloc { size, .. } => {
+                    count_expr(size, counts);
+                }
+                SimpleLine::CustomHint(_, args) => {
+                    for arg in args {
+                        count_expr(arg, counts);
+                    }
+                }
+                SimpleLine::Match { value, arms, .. } => {
+                    count_expr(value, counts);
+                    for arm in arms {
+                        count_lines(arm, counts);
+                    }
+                }
+                SimpleLine::IfNotZero {
+                    condition,
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    count_expr(condition, counts);
+                    count_lines(then_branch, counts);
+                    count_lines(else_branch, counts);
+                }
+                SimpleLine::DebugAssert(bool_expr, _) => {
+                    count_expr(&bool_expr.left, counts);
+                    count_expr(&bool_expr.right, counts);
+                }
+                SimpleLine::RangeCheck { val, bound } => {
+                    count_expr(val, counts);
+                    count_expr(bound, counts);
+                }
+                SimpleLine::ForwardDeclaration { .. }
+                | SimpleLine::ConstMalloc { .. }
+                | SimpleLine::Panic { .. }
+                | SimpleLine::LocationReport { .. } => {}
+            }
+        }
+    }
+    count_lines(lines, &mut counts);
+    counts
+}
+
 fn compile_lines(
     function_name: &Label,
     lines: &[SimpleLine],
@@ -159,6 +264,8 @@ fn compile_lines(
     final_jump: Option<Label>,
 ) -> Result<Vec<IntermediateInstruction>, String> {
     let mut instructions = Vec::new();
+    let mut dead_add_indices: BTreeSet<usize> = BTreeSet::new();
+    let var_use_counts = count_var_uses(lines);
 
     for (i, line) in lines.iter().enumerate() {
         match line {
@@ -176,6 +283,29 @@ fn compile_lines(
                 arg0,
                 arg1,
             } => {
+                // Track derived fp-relative variables: if result = fp_relative_var + constant,
+                // then the result is also fp-relative (e.g. `ptr = arr + 8` where arr is const_malloc)
+                if let VarOrConstMallocAccess::Var(v) = var
+                    && *operation == MathOperation::Add
+                {
+                    let fp_offset = match (arg0, arg1) {
+                        (SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)), SimpleExpr::Constant(c))
+                        | (SimpleExpr::Constant(c), SimpleExpr::Memory(VarOrConstMallocAccess::Var(x))) => compiler
+                            .const_malloc_vars
+                            .get(x)
+                            .and_then(|&base| c.naive_eval().map(|f| base + f.to_usize())),
+                        _ => None,
+                    };
+                    if let Some(offset) = fp_offset {
+                        compiler.const_malloc_vars.insert(v.clone(), offset);
+                        // Record the instruction index so we can remove this ADD later
+                        // if it's only used as a FpRelative precompile arg
+                        compiler
+                            .derived_fp_relative_add_idx
+                            .insert(v.clone(), instructions.len());
+                    }
+                }
+
                 let arg0 = IntermediateValue::from_simple_expr(arg0, compiler);
                 let arg1 = IntermediateValue::from_simple_expr(arg1, compiler);
 
@@ -474,6 +604,9 @@ fn compile_lines(
                     Table::Execution(_) => unreachable!(),
                 }
                 // if arg_c is constant, create a variable (in memory) to hold it
+                // Track which args actually used FpRelative, so we can mark their ADDs as dead
+                let mut fp_relative_vars: Vec<Var> = vec![];
+
                 let arg_c = if let SimpleExpr::Constant(cst) = &args[2] {
                     instructions.push(IntermediateInstruction::Computation {
                         operation: Operation::Add,
@@ -487,16 +620,51 @@ fn compile_lines(
                     compiler.stack_pos += 1;
                     IntermediateValue::MemoryAfterFp { offset: offset.into() }
                 } else {
-                    IntermediateValue::from_simple_expr(&args[2], compiler)
+                    let fp_rel = try_precompile_fp_relative(&args[2], compiler);
+                    if fp_rel.is_some()
+                        && let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = &args[2]
+                    {
+                        fp_relative_vars.push(var.clone());
+                    }
+                    fp_rel.unwrap_or_else(|| IntermediateValue::from_simple_expr(&args[2], compiler))
+                };
+                let (arg_a, arg_b) = match (
+                    try_precompile_fp_relative(&args[0], compiler),
+                    try_precompile_fp_relative(&args[1], compiler),
+                ) {
+                    (Some(a), Some(b)) => {
+                        // Both are FpRelative — mark both as dead
+                        if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = &args[0] {
+                            fp_relative_vars.push(var.clone());
+                        }
+                        if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = &args[1] {
+                            fp_relative_vars.push(var.clone());
+                        }
+                        (a, b)
+                    }
+                    _ => (
+                        IntermediateValue::from_simple_expr(&args[0], compiler),
+                        IntermediateValue::from_simple_expr(&args[1], compiler),
+                    ),
                 };
                 instructions.push(IntermediateInstruction::Precompile {
                     table: *table,
-                    arg_a: IntermediateValue::from_simple_expr(&args[0], compiler),
-                    arg_b: IntermediateValue::from_simple_expr(&args[1], compiler),
+                    arg_a,
+                    arg_b,
                     arg_c,
                     aux_1: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
                     aux_2: args.get(4).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
                 });
+                // Mark dead ADD instructions for single-use args that used FpRelative encoding.
+                // Only safe to remove if the variable is used exactly once in this block.
+                // Deferred removal at end of compile_lines to avoid index invalidation.
+                for var in fp_relative_vars {
+                    if var_use_counts.get(&var) == Some(&1)
+                        && let Some(idx) = compiler.derived_fp_relative_add_idx.remove(&var)
+                    {
+                        dead_add_indices.insert(idx);
+                    }
+                }
             }
 
             SimpleLine::FunctionRet { return_data } => {
@@ -664,6 +832,17 @@ fn compile_lines(
         });
     }
 
+    // Remove dead ADD instructions whose results were encoded as FpRelative in precompiles
+    if !dead_add_indices.is_empty() {
+        let instructions = instructions
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| !dead_add_indices.contains(i))
+            .map(|(_, instr)| instr)
+            .collect();
+        return Ok(instructions);
+    }
+
     Ok(instructions)
 }
 
@@ -674,8 +853,8 @@ fn handle_const_malloc(
     size: usize,
     label: &ConstMallocLabel,
 ) {
-    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-    current_scope_layout.const_mallocs.insert(*label, compiler.stack_pos);
+    compiler.const_mallocs.insert(*label, compiler.stack_pos);
+    compiler.const_malloc_vars.insert(var.clone(), compiler.stack_pos);
     instructions.push(IntermediateInstruction::Computation {
         operation: Operation::Add,
         arg_a: IntermediateValue::Constant(compiler.stack_pos.into()),

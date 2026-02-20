@@ -63,8 +63,17 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
                 _ => unreachable!("unknown precompile table"),
             };
             fields[instr_idx(COL_PRECOMPILE_DATA)] = F::from_usize(precompile_data);
-            set_nu_a(&mut fields, arg_a);
-            set_nu_b(&mut fields, arg_b);
+            match (arg_a, arg_b) {
+                (MemOrFpOrConstant::FpRelative { offset: off_a }, MemOrFpOrConstant::FpRelative { offset: off_b }) => {
+                    fields[instr_idx(COL_FLAG_AB_FP)] = F::ONE;
+                    fields[instr_idx(COL_OPERAND_A)] = F::from_usize(*off_a);
+                    fields[instr_idx(COL_OPERAND_B)] = F::from_usize(*off_b);
+                }
+                (a, b) => {
+                    set_nu_a(&mut fields, &a.as_mem_or_constant());
+                    set_nu_b(&mut fields, &b.as_mem_or_constant());
+                }
+            }
             set_nu_c(&mut fields, arg_c);
         }
     }
@@ -101,7 +110,7 @@ fn set_nu_b(fields: &mut [F; N_INSTRUCTION_COLUMNS], b: &MemOrConstant) {
 fn set_nu_c(fields: &mut [F; N_INSTRUCTION_COLUMNS], c: &MemOrFpOrConstant) {
     match c {
         MemOrFpOrConstant::FpRelative { offset } => {
-            fields[instr_idx(COL_FLAG_FP)] = F::ONE;
+            fields[instr_idx(COL_FLAG_C_FP)] = F::ONE;
             fields[instr_idx(COL_OPERAND_C)] = F::from_usize(*offset);
         }
         MemOrFpOrConstant::MemoryAfterFp { offset } => {

@@ -11,6 +11,8 @@ pub enum IntermediateValue {
     Fp,
     /// Memory location at frame pointer + offset.
     MemoryAfterFp { offset: ConstExpression },
+    /// Frame pointer + offset (no memory access).
+    FpRelative { offset: ConstExpression },
 }
 
 impl IntermediateValue {
@@ -42,6 +44,9 @@ impl Display for IntermediateValue {
             Self::Fp => write!(f, "fp"),
             Self::MemoryAfterFp { offset } => {
                 write!(f, "m[fp + {offset}]")
+            }
+            Self::FpRelative { offset } => {
+                write!(f, "fp + {offset}")
             }
         }
     }
