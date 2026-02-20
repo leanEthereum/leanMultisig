@@ -428,10 +428,15 @@ We define the following quantities:
 \begin{itemize}
     \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A) \cdot \text{value}_A$ 
     \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B) \cdot \text{value}_B$ 
-    \item $\nu_C = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B - \text{flag}_\text{fp}) \cdot \text{value}_B + \text{flag}_\text{fp} \cdot \text{fp}$
+    \item $\nu_C = \text{flag}_C \cdot \text{operand}_C + (1 - \text{flag}_C - \text{flag}_\text{fp}) \cdot \text{value}_C + \text{flag}_\text{fp} \cdot \text{fp}$
 \end{itemize}
 
-With the associated constraints: $\forall X \in \{A, B, C\}: (1 -\text{flag}_X) \cdot (\text{address}_X - (\text{fp} + \text{operand}_X)) = 0$
+With the associated constraints: 
+\begin{itemize}
+    \item $(1 - \text{flag}_A) \cdot (\text{address}_A - (\text{fp} + \text{operand}_A)) = 0$
+    \item $(1 - \text{flag}_B) \cdot (\text{address}_B - (\text{fp} + \text{operand}_B)) = 0$
+    \item $(1 - \text{flag}_C - \text{flag}_\text{fp}) \cdot (\text{address}_C - (\text{fp} + \text{operand}_C)) = 0$
+\end{itemize}
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 

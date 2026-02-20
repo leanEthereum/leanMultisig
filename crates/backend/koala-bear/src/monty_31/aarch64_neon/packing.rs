@@ -188,6 +188,7 @@ impl<FP: FieldParameters> PrimeCharacteristicRing for PackedMontyField31Neon<FP>
     const ONE: Self = Self::broadcast(MontyField31::ONE);
     const TWO: Self = Self::broadcast(MontyField31::TWO);
     const NEG_ONE: Self = Self::broadcast(MontyField31::NEG_ONE);
+    const INVERSE_OF_TWO: Self = Self::broadcast(MontyField31::INVERSE_OF_TWO);
 
     #[inline]
     fn from_prime_subfield(f: Self::PrimeSubfield) -> Self {

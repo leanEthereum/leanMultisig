@@ -1,5 +1,6 @@
 use crate::{
-    DIMENSION, EF, ExtraDataForBuses, TableT, eval_virtual_bus_column, tables::dot_product::DotProductPrecompile,
+    DIMENSION, EF, ExtraDataForBuses, eval_virtual_bus_column,
+    tables::dot_product::{DOT_PRODUCT_PRECOMPILE_DATA_BASE, DotProductPrecompile},
 };
 use backend::*;
 
@@ -87,19 +88,18 @@ impl<const BUS: bool> Air for DotProductPrecompile<BUS> {
 
         let computation_down = down_ef[0].clone();
 
-        // aux = is_be + 2*len (virtual expression, not a committed column)
-        let aux = is_be.clone() + len.double();
+        // aux = DOT_PRODUCT_PRECOMPILE_DATA_BASE + 2*(is_be + 2*len) (virtual expression, not a committed column)
+        let aux = AB::F::from_usize(DOT_PRODUCT_PRECOMPILE_DATA_BASE) + (is_be.clone() + len.double()).double();
 
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
-                AB::F::from_usize(self.table().index()),
                 flag.clone(),
-                &[index_a.clone(), index_b.clone(), index_res.clone(), aux],
+                &[aux, index_a.clone(), index_b.clone(), index_res.clone()],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&flag));
-            builder.declare_values(&[index_a.clone(), index_b.clone(), index_res.clone(), aux]);
+            builder.declare_values(&[aux, index_a.clone(), index_b.clone(), index_res.clone()]);
         }
 
         let is_ee = AB::F::ONE - is_be.clone();

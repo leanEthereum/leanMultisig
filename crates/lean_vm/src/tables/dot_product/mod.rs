@@ -9,6 +9,8 @@ use air::*;
 mod exec;
 pub use exec::fill_trace_dot_product;
 
+pub const DOT_PRODUCT_PRECOMPILE_DATA_BASE: usize = 0; // domain separation between Poseidon / DotProduct precompiles
+
 /// Dot product between 2 vectors in the extension field EF.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DotProductPrecompile<const BUS: bool>; // BE = true for base-extension, false for extension-extension
@@ -48,10 +50,14 @@ impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
 
     fn bus(&self) -> Bus {
         Bus {
-            table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
             selector: DOT_COL_FLAG,
-            data: vec![DOT_COL_A, DOT_COL_B, DOT_COL_RES, DOT_COL_AUX],
+            data: vec![
+                BusData::Column(DOT_COL_AUX),
+                BusData::Column(DOT_COL_A),
+                BusData::Column(DOT_COL_B),
+                BusData::Column(DOT_COL_RES),
+            ],
         }
     }
 
@@ -68,7 +74,7 @@ impl<const BUS: bool> TableT for DotProductPrecompile<BUS> {
                 F::ONE,  // Len
             ],
             vec![F::ZERO; self.n_columns_f_air() - 4], // A, B, RES, VALUE_A_F
-            vec![F::TWO],                              // Aux (non-AIR) = 0 + 2*1
+            vec![F::from_usize(DOT_PRODUCT_PRECOMPILE_DATA_BASE + 4)], // Aux = BASE + 2*(0 + 2*1)
         ]
         .concat()
     }

@@ -36,18 +36,17 @@ impl BusDirection {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum BusData {
+    Column(ColIndex),
+    Constant(usize),
+}
+
 #[derive(Debug)]
 pub struct Bus {
     pub direction: BusDirection,
-    pub table: BusTable,
     pub selector: ColIndex,
-    pub data: Vec<ColIndex>, // For now, we only supports F (base field) columns as bus data
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum BusTable {
-    Constant(Table),
-    Variable(ColIndex),
+    pub data: Vec<BusData>,
 }
 
 #[derive(Debug, Default)]

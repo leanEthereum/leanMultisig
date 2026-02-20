@@ -1,6 +1,6 @@
-use crate::core::F;
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
+use crate::{MemOrFp, core::F};
 use backend::*;
 use std::fmt::{Display, Formatter};
 
@@ -16,6 +16,15 @@ pub enum MemOrFpOrConstant {
     Fp,
     /// Direct constant value
     Constant(F),
+}
+
+impl From<MemOrFp> for MemOrFpOrConstant {
+    fn from(value: MemOrFp) -> Self {
+        match value {
+            MemOrFp::MemoryAfterFp { offset } => Self::MemoryAfterFp { offset },
+            MemOrFp::Fp => Self::Fp,
+        }
+    }
 }
 
 impl MemOrFpOrConstant {

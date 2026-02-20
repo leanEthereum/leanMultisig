@@ -131,16 +131,12 @@ pub fn max_air_constraints() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use utils::{BYTECODE_TABLE_INDEX, MEMORY_TABLE_INDEX};
-
     use super::*;
 
     #[test]
     fn test_table_indices() {
         for (i, table) in ALL_TABLES.iter().enumerate() {
             assert_eq!(table.index(), i);
-            assert_ne!(table.index(), MEMORY_TABLE_INDEX);
-            assert_ne!(table.index(), BYTECODE_TABLE_INDEX);
         }
     }
 }

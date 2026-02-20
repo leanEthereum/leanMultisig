@@ -99,6 +99,10 @@ where
         value: field_to_array(PF::NEG_ONE),
     };
 
+    const INVERSE_OF_TWO: Self = Self {
+        value: field_to_array(PF::INVERSE_OF_TWO),
+    };
+
     #[inline]
     fn from_prime_subfield(val: Self::PrimeSubfield) -> Self {
         PF::from_prime_subfield(val).into()

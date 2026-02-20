@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
-use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
+use utils::Counter;
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
@@ -213,12 +213,16 @@ fn build_replacements(
     );
     replacements.insert("MAX_BUS_WIDTH_PLACEHOLDER".to_string(), max_bus_width().to_string());
     replacements.insert(
-        "MEMORY_TABLE_INDEX_PLACEHOLDER".to_string(),
-        MEMORY_TABLE_INDEX.to_string(),
+        "LOGUP_MEMORY_DOMAINSEP_PLACEHOLDER".to_string(),
+        LOGUP_MEMORY_DOMAINSEP.to_string(),
     );
     replacements.insert(
-        "BYTECODE_TABLE_INDEX_PLACEHOLDER".to_string(),
-        BYTECODE_TABLE_INDEX.to_string(),
+        "LOGUP_PRECOMPILE_DOMAINSEP_PLACEHOLDER".to_string(),
+        LOGUP_PRECOMPILE_DOMAINSEP.to_string(),
+    );
+    replacements.insert(
+        "LOGUP_BYTECODE_DOMAINSEP_PLACEHOLDER".to_string(),
+        LOGUP_BYTECODE_DOMAINSEP.to_string(),
     );
     replacements.insert(
         "LOG_GUEST_BYTECODE_LEN_PLACEHOLDER".to_string(),
@@ -438,10 +442,6 @@ where
     }
 
     // first: bus data
-    let table_index = match table.bus().table {
-        BusTable::Constant(c) => format!("embed_in_ef({})", c.index()),
-        BusTable::Variable(col) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, col),
-    };
     let flag = write_down_air_constraint_eval(&bus_flag, &mut cache, &mut res, &mut vars_counter);
     res += &format!("\n    buff = Array(DIM * {})", bus_data.len());
     for (i, data) in bus_data.iter().enumerate() {
@@ -453,8 +453,7 @@ where
         bus_data.len()
     );
     res += &format!(
-        "\n    bus_res = add_extension_ret(mul_extension_ret({}, logup_alphas_eq_poly + {} * DIM), bus_res)",
-        table_index,
+        "\n    bus_res = add_extension_ret(mul_base_extension_ret(LOGUP_PRECOMPILE_DOMAINSEP, logup_alphas_eq_poly + {} * DIM), bus_res)",
         max_bus_width().next_power_of_two() - 1
     );
     res += "\n    bus_res = mul_extension_ret(bus_res, bus_beta)";
@@ -481,8 +480,10 @@ fn write_down_air_constraint_eval(
     vars_counter: &mut Counter,
 ) -> String {
     match constraint {
-        SymbolicExpression::Constant(_) => {
-            unreachable!()
+        SymbolicExpression::Constant(c) => {
+            let aux_var = format!("aux_{}", vars_counter.get_next());
+            res.push_str(&format!("\n    {} = embed_in_ef({})", aux_var, c.as_canonical_u32()));
+            aux_var
         }
         SymbolicExpression::Variable(v) => {
             format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index)

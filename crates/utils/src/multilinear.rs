@@ -115,11 +115,6 @@ pub fn mle_of_01234567_etc<F: Field>(point: &[F]) -> F {
     }
 }
 
-/// table = 3 is reversed for memory lookup
-pub const MEMORY_TABLE_INDEX: usize = 3;
-/// table = 4 is reversed for bytecode lookup
-pub const BYTECODE_TABLE_INDEX: usize = 4;
-
 pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF> + ExtensionField<F>>(
     table: F,
     data: &[IF],

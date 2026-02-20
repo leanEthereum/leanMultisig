@@ -64,7 +64,7 @@ pub fn prove_generic_logup(
         .zip(memory.par_iter().enumerate())
         .for_each(|(denom, (i, &mem_value))| {
             *denom = c - finger_print(
-                F::from_usize(MEMORY_TABLE_INDEX),
+                F::from_usize(LOGUP_MEMORY_DOMAINSEP),
                 &[mem_value, F::from_usize(i)],
                 alphas_eq_poly,
             )
@@ -86,7 +86,7 @@ pub fn prove_generic_logup(
         )
         .for_each(|(denom, (i, instr))| {
             *denom = c - finger_print(
-                F::from_usize(BYTECODE_TABLE_INDEX),
+                F::from_usize(LOGUP_BYTECODE_DOMAINSEP),
                 &[instr[..N_INSTRUCTION_COLUMNS].to_vec(), vec![F::from_usize(i)]].concat(),
                 alphas_eq_poly,
             )
@@ -122,7 +122,7 @@ pub fn prove_generic_logup(
                         data.push(col[i]);
                     }
                     data.push(pc_column[i]);
-                    *denom = c - finger_print(F::from_usize(BYTECODE_TABLE_INDEX), &data, alphas_eq_poly)
+                    *denom = c - finger_print(F::from_usize(LOGUP_BYTECODE_DOMAINSEP), &data, alphas_eq_poly)
                 });
             offset += 1 << log_n_rows;
         }
@@ -144,15 +144,14 @@ pub fn prove_generic_logup(
             .for_each(|(i, denom)| {
                 *denom = {
                     c + finger_print(
-                        match &bus.table {
-                            BusTable::Constant(table) => table.embed(),
-                            BusTable::Variable(col) => trace.base[*col][i],
-                        },
-                        bus.data
+                        F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP),
+                        &bus.data
                             .iter()
-                            .map(|col| trace.base[*col][i])
-                            .collect::<Vec<_>>()
-                            .as_slice(),
+                            .map(|entry| match entry {
+                                BusData::Column(col) => trace.base[*col][i],
+                                BusData::Constant(val) => F::from_usize(*val),
+                            })
+                            .collect::<Vec<_>>(),
                         alphas_eq_poly,
                     )
                 }
@@ -192,8 +191,11 @@ pub fn prove_generic_logup(
                         denom_chunk.par_iter_mut().enumerate().for_each(|(j, denom)| {
                             let index = col_index[j] + i_field;
                             let mem_value = col_values[i].as_slice()[j];
-                            *denom =
-                                c - finger_print(F::from_usize(MEMORY_TABLE_INDEX), &[mem_value, index], alphas_eq_poly)
+                            *denom = c - finger_print(
+                                F::from_usize(LOGUP_MEMORY_DOMAINSEP),
+                                &[mem_value, index],
+                                alphas_eq_poly,
+                            )
                         });
                     });
                 offset += col_values.len() << log_n_rows;
@@ -387,7 +389,7 @@ pub fn verify_generic_logup(
     let value_index = mle_of_01234567_etc(&memory_and_acc_point);
     retrieved_denominators_value += pref
         * (c - finger_print(
-            F::from_usize(MEMORY_TABLE_INDEX),
+            F::from_usize(LOGUP_MEMORY_DOMAINSEP),
             &[value_memory, value_index],
             alphas_eq_poly,
         ));
@@ -423,7 +425,7 @@ pub fn verify_generic_logup(
     retrieved_denominators_value += pref
         * (c - (bytecode_value_corrected
             + bytecode_index_value * alphas_eq_poly[N_INSTRUCTION_COLUMNS]
-            + *alphas_eq_poly.last().unwrap() * F::from_usize(BYTECODE_TABLE_INDEX)));
+            + *alphas_eq_poly.last().unwrap() * F::from_usize(LOGUP_BYTECODE_DOMAINSEP)));
     // Padding for bytecode
     retrieved_denominators_value +=
         pref_padded * mle_of_zeros_then_ones(1 << log_bytecode, from_end(&point_gkr, log_bytecode_padded));
@@ -458,7 +460,7 @@ pub fn verify_generic_logup(
             retrieved_numerators_value += pref; // numerator is 1
             retrieved_denominators_value += pref
                 * (c - finger_print(
-                    F::from_usize(BYTECODE_TABLE_INDEX),
+                    F::from_usize(LOGUP_BYTECODE_DOMAINSEP),
                     &[instr_evals, vec![eval_on_pc]].concat(),
                     alphas_eq_poly,
                 ));
@@ -497,7 +499,7 @@ pub fn verify_generic_logup(
                 retrieved_numerators_value += pref; // numerator is 1
                 retrieved_denominators_value += pref
                     * (c - finger_print(
-                        F::from_usize(MEMORY_TABLE_INDEX),
+                        F::from_usize(LOGUP_MEMORY_DOMAINSEP),
                         &[value_eval, index_eval + F::from_usize(i)],
                         alphas_eq_poly,
                     ));
@@ -518,7 +520,7 @@ pub fn verify_generic_logup(
                 retrieved_numerators_value += pref;
                 retrieved_denominators_value += pref
                     * (c - finger_print(
-                        F::from_usize(MEMORY_TABLE_INDEX),
+                        F::from_usize(LOGUP_MEMORY_DOMAINSEP),
                         &[value_eval, index_eval + F::from_usize(i)],
                         alphas_eq_poly,
                     ));

@@ -98,6 +98,7 @@ impl<F: Field> PrimeCharacteristicRing for SymbolicExpression<F> {
     const ONE: Self = Self::Constant(F::ONE);
     const TWO: Self = Self::Constant(F::TWO);
     const NEG_ONE: Self = Self::Constant(F::NEG_ONE);
+    const INVERSE_OF_TWO: Self = Self::Constant(F::INVERSE_OF_TWO);
 
     #[inline]
     fn from_prime_subfield(f: Self::PrimeSubfield) -> Self {
