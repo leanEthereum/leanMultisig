@@ -202,8 +202,9 @@ b &=
 &
 c &= 
 \begin{cases}
-\text{fp} \\
-\textbf{m}[\text{fp} + \gamma]
+\gamma \\
+\textbf{m}[\text{fp} + \gamma]  \\
+\text{fp}
 \end{cases}
 \end{align*}
 
@@ -393,7 +394,7 @@ TODO: describe how to prove AIR via sumcheck.
 
 \subsubsection{Commitment}
 
-\fbox{At each cycle, we commit to 20 (base) field elements:}
+\fbox{At each cycle, we commit to 19 (base) field elements:}
 
 \begin{itemize}
     \item pc (program counter)
@@ -401,19 +402,19 @@ TODO: describe how to prove AIR via sumcheck.
     % \item jump (non zero when a jump occurs)
     \item $\text{addr}_A$, $\text{addr}_B$, $\text{addr}_C$
     \item $\text{value}_A = \textbf{m}[\text{addr}_A]$, $\text{value}_B = \textbf{m}[\text{addr}_B]$, $\text{value}_C = \textbf{m}[\text{addr}_C]$
-    \item 12 field elements describing the instruction being executed (see below)
+    \item 11 field elements describing the instruction being executed (see below)
 \end{itemize}
 
 
 \subsubsection{Instruction Encoding}
 
-Each instruction is described by 12 field elements:
+Each instruction is described by 10 field elements ($\Fp$):
 
 \begin{itemize}
-    \item 3 operands ($\in \Fp$): $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
-    \item 3 associated flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$
-    \item 5 opcode flags ($\in \{0, 1\}$): ADD, MUL, DEREF, JUMP, PRECOMPILE\_INDEX
-    \item 1 multi-purpose operand: AUX
+    \item 3 operands: $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
+    \item 4 flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$, $\text{flag}_\text{fp}$
+    \item 3 opcode flags: MUL ($\in \{0, 1\}$), JUMP ($\in \{0, 1\}$), AUX ($\in \{0, 1, 2, 3\}$) (AUX handles both ADD and DEREF)
+    \item PRECOMPILE\_DATA
 \end{itemize}
 
 
@@ -427,51 +428,75 @@ We define the following quantities:
 \begin{itemize}
     \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A) \cdot \text{value}_A$ 
     \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B) \cdot \text{value}_B$ 
-    \item $\nu_C = \text{flag}_C \cdot \text{fp} + (1 - \text{flag}_C) \cdot \text{value}_C$ 
+    \item $\nu_C = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B - \text{flag}_\text{fp}) \cdot \text{value}_B + \text{flag}_\text{fp} \cdot \text{fp}$
 \end{itemize}
 
 With the associated constraints: $\forall X \in \{A, B, C\}: (1 -\text{flag}_X) \cdot (\text{address}_X - (\text{fp} + \text{operand}_X)) = 0$
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-For addition and multiplication:
+Let $P_0, P_1, P_2$ be the Lagrange basis polynomials at points $0, 1, 2$. Explicitely:
+
+$$P_0(x) = (x-1)\cdot(x-2) / 2 \hspace{10mm} P_1(x) = x \cdot (2-x) \hspace{10mm} P_2(x) = x \cdot (x-1) / 2$$
+
+We define the following virtual columns (non-committed):
+
+
+\begin{itemize}
+    \item ADD = $P_1(\text{AUX})$
+    \item DEREF = $P_2(\text{AUX})$
+    \item IS\_PRECOMPILE = $1 - (\text{ADD} + \text{MUL} + \text{DEREF} + \text{JUMP})$
+\end{itemize}
+
+IS\_PRECOMPILE is used a "bus selector" (see \ref{buses}).
+
+\vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
+
+PRECOMPILE\_DATA encodes the precompile being called, and the parameters of the call:
+\begin{itemize}
+    \item No precompile $\rightarrow$ PRECOMPILE\_DATA $= 0$
+    \item Poseidon precompile $\rightarrow$ PRECOMPILE\_DATA $= 1$
+    \item Dot product precompile $\rightarrow$ PRECOMPILE\_DATA $= 2 \cdot (\texttt{is\_be} + 2\cdot \text{len})$
+\end{itemize}
+
+\vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
+
+For addition, set AUX $= 1$.
 \begin{itemize}
     \item $\text{ADD} \cdot(\nu_B - (\nu_A + \nu_C)) = 0$
+\end{itemize}
+
+
+\vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
+
+For multiplication, set MUL $= 1$.
+\begin{itemize}
     \item $\text{MUL} \cdot(\nu_B - \nu_A \cdot \nu_C) = 0$
 \end{itemize}
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-When DEREF $= 1$, set $\text{flag}_A = 0$, $\text{flag}_C = 1$ and:
-$$
-\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = 
-\left\{
-\begin{array}{lcl}
-\gamma & \xrightarrow{} & \text{AUX} = 1, \text{ flag}_B = 1 \\
-\textbf{m}[\text{fp} + \gamma] & \xrightarrow{} & \text{AUX} = 1, \text{ flag}_B = 0 \\
-\text{fp} & \xrightarrow{} & \text{AUX}  = 0 \text{ (flag}_B = 1)
-\end{array}
-\right.
-$$
+For DEREF instructions, set AUX $= 2$, $\text{flag}_A = 0$, $\text{flag}_B = 1$ and $\text{flag}_A$ / $\text{flag}_\text{fp}$ according to whether the third operand is an immediate value, a memory read, or the frame pointer. 
+
+The relation $\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = \nu_C$ is then captured by:
 
 \begin{itemize}
-    \item $\text{DEREF} \cdot (\text{addr}_C - (\text{value}_A + \text{operand}_C)) = 0$
-    \item $\text{DEREF} \cdot \text{AUX} \cdot (\text{value}_C - \nu_B) = 0$
-    \item $\text{DEREF} \cdot (1 - \text{AUX}) \cdot (\text{value}_C - \text{fp}) = 0$
+    \item $\text{DEREF} \cdot (\text{addr}_B - (\text{value}_A + \text{operand}_B)) = 0$
+    \item $\text{DEREF} \cdot (\text{value}_B - \nu_C) = 0$
 \end{itemize}
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
 For jump and conditional state transitions, let $J = \text{JUMP} \cdot \nu_A$:
 \begin{itemize}
-    \item $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$
+    \item $J \cdot (1 - \nu_A) = 0$
     \item $J \cdot ( \text{next(pc)} - \nu_B) = 0$
     \item $J \cdot ( \text{next(fp)} - \nu_C) = 0$
     \item $(1 - J) \cdot ( \text{next(pc)} - (\text{pc} + 1)) = 0$
     \item $(1 - J) \cdot (\text{next(fp)} - \text{fp}) = 0$
 \end{itemize}
 
-Note: the constraint $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
+Note: the constraint $J \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
 
 TODO: Verify and (formally) prove soundness.
 
@@ -549,7 +574,7 @@ Notes: In BE mode, $\text{idx}_A$ increments by 1 (base field elements); in EE m
 
 \textbf{Non-committed column} (used for bus fingerprinting):
 \begin{itemize}
-    \item \texttt{aux} $= \texttt{is\_be} + 2 \cdot \texttt{len}$
+    \item \texttt{aux} $= 2 \cdot (\texttt{is\_be} + 2 \cdot \texttt{len})$
 \end{itemize}
 
 \subsubsection{Memory lookups}
@@ -563,6 +588,8 @@ Every row performs:
 On rows where $\texttt{flag} = 1$, the table \textsc{Pull}s $(\text{idx}_A, \text{idx}_B, \text{idx}_R, \texttt{aux})$ from the corresponding bus. The execution table \textsc{Push}es a matching tuple for each dot product instruction.
 
 The \texttt{aux} encoding ensures both the mode and the length are bound to the bus data. Since \texttt{is\_be} is constrained to be boolean (constraint~\ref{dot:bool-isbe}), if an adversary flips \texttt{is\_be} while keeping \texttt{aux} constant, the adversary would need a length $\texttt{len}'$ such that $\texttt{aux} = (1 - \texttt{is\_be}) + 2 \cdot \texttt{len}'$, i.e.\ $2\cdot\texttt{len}' = 2\cdot\texttt{len} \pm 1$ over $\Fp$. By Lemma~\ref{lem:len-bound}, both $\texttt{len}$ and $\texttt{len}'$ are $\leq 2^{21} < p/2$, so the equation cannot overflow modulo $p$ and must hold over $\mathbb{Z}$. Over $\mathbb{Z}$, this is impossible by parity.
+
+Finally, $\texttt{len}$ should always be $> 0$ (it's part of the bytecode, and thus cannot be tampered with by the adversary), which ensures that \texttt{aux} is always $\geq 2$ (using lemma \ref{lem:len-bound} again, preventing overflow modulo $p$), and thus different from the poseidon precompile encoding (1).
 
 \subsubsection{AIR constraints}
 
@@ -655,55 +682,54 @@ $$\sum_{T \in \mathcal{T}} \sum_{i<n_T} \sum_{j<H_T} \frac{1}{X - (\text{col}_{\
 
 This can be computed via GKR, as introduced in \cite{logup_gkr}.
 
-\subsubsection{Buses: Data flow between tables}
+\subsubsection{Precompile bus: Data flow between tables}\label{buses}
 
 See OpenVM \cite{openvm}, definition 2.2.2, for more details.
 
-To each table is associated a list of buses. Declaring a bus for a given table requires specifying:
+At each cycle when IS\_PRECOMPILE = 1, the execution table \textsc{Push}es $$\sigma = (\text{PRECOMPILE\_DATA}, \nu_A, \nu_B, \nu_C)$$ to the "precompile bus".
 
-\begin{enumerate}
-    \item \textbf{Direction}: either \textsc{Pull} or \textsc{Push}
-    \item \textbf{Bus index}: can be either a constant or given by a column
-    \item \textbf{Data columns}: a list (of arbitrary size) of columns defining which data is passed to the bus
-    \item \textbf{Selector column}: enforced via AIR constraint to only contain Boolean values ($\in \{0, 1\}$), indicating at which row the bus is active (1) or silenced (0)
-\end{enumerate}
+In case of Poseidon call, PRECOMPILE\_DATA = 1 and $\nu_A$, $\nu_B$, $\nu_C$ represent the left input address, the right input address, and the output address (3 pointers to a chunk of 8 field elements in memory).
+
+In case of dot product call, PRECOMPILE\_DATA $= 2 \cdot (\texttt{is\_be} + 2 \cdot \texttt{len})$ encodes both the mode and the length, and $\nu_A$, $\nu_B$, $\nu_C$ represent the address of the left slice, the address of the right slice, and the address of the result.
+
+Each such tuple $\sigma$ (counting multiplicity) must be \textsc{Pulled} by one of the precompile tables. Given that the Poseidon table only pulls tuples with PRECOMPILE\_DATA $= 1$, and the dot product table only pulls tuples with PRECOMPILE\_DATA $\geq 4$ (since $\texttt{len} \geq 1$), the bus is effectively partitioned into two disjoint sub-buses, one for each precompile.
+
+Similarly to the IS\_PRECOMPILE (virtual) column for the execution table, each one of the two precompile tables has a boolean (virtual) column acting as a bus selector, indicating at which rows the table is pulling from the bus (1) or not (0).
 
 \vspace{3mm}
 
-\textbf{Balance rule:} At the end of execution, every bus (identified by its index) must be \textit{balanced} across all tables: for each data tuple, the number of pushes must equal the number of pulls.
+\textbf{Balance rule:} At the end of execution, for each tuple $\sigma$, the number of pushes must equal the number of pulls accross the 3 tables: execution, poseidon, and dot product.
 
 \vspace{5mm}
 
 \textbf{Proving system (logup):}
 
-Let $\mathcal{T}$ denote the set of all tables in the system. For each table $T \in \mathcal{T}$ with $H_T$ rows, let $\mathcal{B}_T$ denote the set of buses associated with $T$. For each bus $b \in \mathcal{B}_T$, we have:
+Let $\mathcal{T}$ denote the set of all tables in the system. Each table $T \in \mathcal{T}$ has $H_T$ rows. The bus interaction of the table $T$ is defined by:
 \begin{itemize}
-    \item $\text{dir}_{T,b} \in \{+1, -1\}$: the direction ($+1$ for \textsc{Push}, $-1$ for \textsc{Pull})
-    \item $\text{sel}_{T,b}: [0, H_T) \to \{0, 1\}$: the selector column
-    \item $\text{bus\_idx}_{T,b}: [0, H_T) \to \Fp$: the bus index (assumed to be a column here, but could also be a constant)
-    \item $\text{data}_{T,b} = (d_0, d_1, \ldots, d_{k-1})$: the $k$ data columns
+    \item $\text{dir}_{T} \in \{+1, -1\}$: the direction ($+1$ for \textsc{Push}, $-1$ for \textsc{Pull})
+    \item $\text{sel}_{T}: [0, H_T) \to \{0, 1\}$: the selector (virtual) column
+    \item $\sigma_{T} = (\sigma_0, \ldots, \sigma_{k-1})$: the $k$ data columns
 \end{itemize}
 
 \vspace{3mm}
 
-The verifier sends a random challenge $\alpha \in \Fq$ (TODO quantify soundness error). For a bus with index $\beta$ and data tuple $(c_0, c_1, \ldots, c_{k-1})$, define the encoding:
-$$\text{encode}(\beta, c_0, \ldots, c_{k-1}) = \beta + \sum_{i=0}^{k-1} \alpha^{i+1} \cdot c_i$$
+The verifier sends a random challenge $\alpha \in \Fq$. Define the encoding of a tuple $\sigma = (\sigma_0, \ldots, \sigma_{k-1})$ by:
+$$\text{encode}(\sigma_0, \ldots, \sigma_{k-1}) = \sum_{i=0}^{k-1} \alpha^{i} \cdot \sigma_i$$
 
 \vspace{3mm}
 
-Except with probability $N/q$, where $N = \sum_{T \in \mathcal{T}} |\mathcal{B}_T| \cdot H_T$ is the total number of bus interactions, the bus balance constraint is satisfied if for a randomly sampled $X \in \Fq$:
+Except with negligible probability probability (TODO quantify precisely), the bus is balanced if for a randomly sampled $X \in \Fq$:
 
-$$\sum_{T \in \mathcal{T}} \sum_{b \in \mathcal{B}_T} \sum_{j=0}^{H_T - 1} \frac{\text{dir}_{T,b} \cdot \text{sel}_{T,b}(j)}{X - \text{encode}\big(\text{bus\_idx}_{T,b}(j), \text{data}_{T,b}(j)\big)} = 0$$
+$$\sum_{T \in \mathcal{T}} \sum_{j=0}^{H_T - 1} \frac{\text{dir}_{T} \cdot \text{sel}_{T}(j)}{X - \text{encode}(\sigma_{T}(j))} = 0$$
 
-
-\vspace{3mm}
-
-\textit{Overflow constraint:} For soundness, we must ensure that multiplicities do not overflow modulo $p$. This requires that for each bus index $\beta$, the total number of interactions (pushes and pulls combined) is strictly less than $p$:
-$$\forall \beta: \quad \sum_{\substack{T \in \mathcal{T}, b \in \mathcal{B}_T \\ \text{bus\_idx}_{T,b} = \beta}} H_T < p$$
 
 \vspace{3mm}
 
-As with the indexed lookup into memory, this sum can be computed efficiently via GKR \cite{logup_gkr}. In practice, all logup sums (bus balance and memory lookups) are batched into a single GKR instance, using random linear combination.
+\textit{Overflow constraint:} We must ensure that multiplicities do not overflow modulo $p$. This is enforced by limitting the maximum height of each table.
+
+\vspace{3mm}
+
+As with the indexed lookup into memory, this sum can be computed efficiently via GKR \cite{logup_gkr}. In practice, all logup instances (bus balance and memory lookups) are batched into a single GKR instance, using an addition field element passed to the encoding tuple for domain separation: LOGUP\_MEMORY = 0 for the memory interraction, and LOGUP\_PRECOMPILE = 1.
 
 \vspace{3mm} TODO: Unified vision in which memory is just another table, and memory accesses are just bus interactions?
 
