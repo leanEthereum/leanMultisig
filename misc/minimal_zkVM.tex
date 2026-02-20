@@ -185,22 +185,22 @@ Notations:
 
 \subsubsection{ADD / MUL}
 
-$a + c = b$ or $a \cdot c = b$ with: 
+ADD: $\nu_a + \nu_c = \nu_b$ \hspace{3mm} and \hspace{3mm} MUL: $\nu_a \cdot \nu_c = \nu_b$ with: 
 
 \begin{align*}
-a &= 
+\nu_a &= 
 \begin{cases}
 \alpha \\
 \textbf{m}[\text{fp} + \alpha]
 \end{cases}
 &
-b &= 
+\nu_b &= 
 \begin{cases}
 \beta \\
 \textbf{m}[\text{fp} + \beta]
 \end{cases}
 &
-c &= 
+\nu_c &= 
 \begin{cases}
 \gamma \\
 \textbf{m}[\text{fp} + \gamma]  \\
@@ -238,7 +238,7 @@ $$
 &
 \text{updated\_fp} &=
 \begin{cases}
-\text{fp} \\
+\text{fp} + \gamma \\
 \textbf{m}[\text{fp} + \gamma]
 \end{cases}
 \end{align*}
@@ -259,25 +259,35 @@ $$
 
 \subsection{Precompiles}
 
-The ISA supports two precompile instructions, each delegated to a dedicated table in the proving system (Section~\ref{sec:proving}).
+There are two "precompile" instructions: DOT\_PRODUCT and POSEIDON2. Each precompile instruction has three (potentially runtime) parameters $\nu_A$, $\nu_B$, $\nu_C$, and a compile-time value \texttt{PRECOMPILE\_DATA}.
 
-\subsubsection{Poseidon}
+$\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, with the additional possibility of $\nu_A = \text{fp} + \alpha$ and $\nu_B = \text{fp} + \beta$, but these two must be used simultaneously (if $\nu_A$ is fp-relative, then $\nu_B$ must be fp-relative too, and vice versa).
 
-TODO
+\subsubsection{POSEIDON2}
 
-\subsubsection{Dot product}
+Compression of 16 field elements (two blocks of 8) into 8 field elements.
 
-Computes $\text{res} = \sum_{i=0}^{n-1} a_i \cdot b_i \in \Fq$, where:
-\begin{itemize}
-    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i \in \Fp$, $b_i \in \Fq$ (base $\times$ extension).
-    The $a_i$ are read from consecutive memory addresses starting at $\alpha$, and the $b_i$ from consecutive blocks of 5 starting at $\beta$.
-    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i \in \Fq$, $b_i \in \Fq$ (extension $\times$ extension).
-    Both slices are read from consecutive blocks of 5, starting at $\alpha$ and $\beta$ respectively.
-\end{itemize}
+$$
+\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon2}(\textbf{m}[\nu_A..\nu_A + 8] | \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
+$$
 
 \vspace{2mm}
 
-Parameters: memory addresses $\alpha$ (first operand), $\beta$ (second operand), $\gamma$ (result), a size $n > 0$, and the mode flag \texttt{is\_be} $\in \{0, 1\}$. The result is written as 5 consecutive field elements at $\textbf{m}[\gamma .. \gamma + 5]$.
+\texttt{PRECOMPILE\_DATA} $= 1$
+
+\subsubsection{DOT\_PRODUCT}\label{dot_product_instruction}
+
+Computes $\text{res} = \sum_{i=0}^{n-1} a_i \cdot b_i \in \Fq$, where:
+\begin{itemize}
+    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i \in \Fp$, $b_i \in \Fq$ (base $\times$ extension), $a_i = \textbf{m}[\nu_A + i]$, $b_i = \textbf{m}[\nu_B + 5.i.. \nu_B + 5.(i+1)]$, res = $\textbf{m}[\nu_C.. \nu_C + 5]$
+    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i \in \Fq$, $b_i \in \Fq$ (extension $\times$ extension), $a_i = \textbf{m}[\nu_A + 5.i.. \nu_A + 5.(i+1)]$, $b_i = \textbf{m}[\nu_B + 5.i.. \nu_B + 5.(i+1)]$, res = $\textbf{m}[\nu_C.. \nu_C + 5]$
+\end{itemize}
+
+(Chunks of 5 field elements $\textbf{m}[x..x+5]$ are interpreted as an extension field element ($\Fq = {\mathbb F_{p^5}}$)).
+
+\vspace{2mm}
+
+\texttt{PRECOMPILE\_DATA} $= 2 \cdot (\texttt{is\_be} + 2 \cdot n)$, encoding both the mode and the length $n > 0$.
 
 \subsection{ISA programming}
 
@@ -394,7 +404,7 @@ TODO: describe how to prove AIR via sumcheck.
 
 \subsubsection{Commitment}
 
-\fbox{At each cycle, we commit to 19 (base) field elements:}
+\fbox{At each cycle, we commit to 20 (base) field elements:}
 
 \begin{itemize}
     \item pc (program counter)
@@ -402,40 +412,43 @@ TODO: describe how to prove AIR via sumcheck.
     % \item jump (non zero when a jump occurs)
     \item $\text{addr}_A$, $\text{addr}_B$, $\text{addr}_C$
     \item $\text{value}_A = \textbf{m}[\text{addr}_A]$, $\text{value}_B = \textbf{m}[\text{addr}_B]$, $\text{value}_C = \textbf{m}[\text{addr}_C]$
-    \item 11 field elements describing the instruction being executed (see below)
+    \item 12 field elements describing the instruction being executed (see below)
 \end{itemize}
 
 
 \subsubsection{Instruction Encoding}
 
-Each instruction is described by 10 field elements ($\Fp$):
+Each instruction is described by 12 field elements ($\Fp$):
 
 \begin{itemize}
     \item 3 operands: $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
-    \item 4 flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$, $\text{flag}_\text{fp}$
-    \item 3 opcode flags: MUL ($\in \{0, 1\}$), JUMP ($\in \{0, 1\}$), AUX ($\in \{0, 1, 2, 3\}$) (AUX handles both ADD and DEREF)
+    \item 5 flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$, $\text{flag}^{C}_\text{fp}$, $\text{flag}^{AB}_\text{fp}$
+    \item 3 opcode flags: MUL ($\in \{0, 1\}$), JUMP ($\in \{0, 1\}$), AUX ($\in \{0, 1, 2\}$) (AUX handles both ADD and DEREF)
     \item PRECOMPILE\_DATA
 \end{itemize}
+
+$\text{flag}^{AB}_\text{fp}$ is only used by precompile instructions; for ADD, MUL, DEREF, and JUMP it is always 0.
 
 
 \subsubsection{AIR transition constraints}
 
-We use \fbox{transition constraints of degree 5}, but it's always possible to make them quadratic with additional columns in the execution table.
+\fbox{We use transition constraints of degree 5.}
 
 \vspace{5mm}
 
-We define the following quantities:
+We define the following values:
 \begin{itemize}
-    \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A) \cdot \text{value}_A$ 
-    \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B) \cdot \text{value}_B$ 
+    \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A - \text{flag}^{AB}_\text{fp}) \cdot \text{value}_A + \text{flag}^{AB}_\text{fp} \cdot (\text{fp} + \alpha)$ 
+    \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B - \text{flag}^{AB}_\text{fp}) \cdot \text{value}_B + \text{flag}^{AB}_\text{fp} \cdot (\text{fp} + \beta)$
     \item $\nu_C = \text{flag}_C \cdot \text{operand}_C + (1 - \text{flag}_C - \text{flag}_\text{fp}) \cdot \text{value}_C + \text{flag}_\text{fp} \cdot (\text{fp} + \gamma)$
 \end{itemize}
 
-With the associated constraints: 
+
+With the associated constraints:
 \begin{itemize}
-    \item $(1 - \text{flag}_A) \cdot (\text{address}_A - (\text{fp} + \text{operand}_A)) = 0$
-    \item $(1 - \text{flag}_B) \cdot (\text{address}_B - (\text{fp} + \text{operand}_B)) = 0$
-    \item $(1 - \text{flag}_C - \text{flag}_\text{fp}) \cdot (\text{address}_C - (\text{fp} + \text{operand}_C)) = 0$
+    \item $(1 - \text{flag}_A - \text{flag}^{AB}_\text{fp}) \cdot (\text{address}_A - (\text{fp} + \text{operand}_A)) = 0$
+    \item $(1 - \text{flag}_B - \text{flag}^{AB}_\text{fp}) \cdot (\text{address}_B - (\text{fp} + \text{operand}_B)) = 0$
+    \item $(1 - \text{flag}_C - \text{flag}^{C}_\text{fp}) \cdot (\text{address}_C - (\text{fp} + \text{operand}_C)) = 0$
 \end{itemize}
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
@@ -444,8 +457,7 @@ Let $P_0, P_1, P_2$ be the Lagrange basis polynomials at points $0, 1, 2$. Expli
 
 $$P_0(x) = (x-1)\cdot(x-2) / 2 \hspace{10mm} P_1(x) = x \cdot (2-x) \hspace{10mm} P_2(x) = x \cdot (x-1) / 2$$
 
-We define the following virtual columns (non-committed):
-
+We define the following values:
 
 \begin{itemize}
     \item ADD = $P_1(\text{AUX})$
@@ -481,7 +493,7 @@ For multiplication, set MUL $= 1$.
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-For DEREF instructions, set AUX $= 2$, $\text{flag}_A = 0$, $\text{flag}_B = 1$ and $\text{flag}_A$ / $\text{flag}_\text{fp}$ according to whether the third operand is an immediate value, a memory read, or the frame pointer. 
+For DEREF instructions, set AUX $= 2$, $\text{flag}_A = 0$, $\text{flag}_B = 1$ and $\text{flag}_C$ / $\text{flag}^{C}_\text{fp}$ according to whether the third operand is an immediate value, a memory read, or fp-relative.
 
 The relation $\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = \nu_C$ is then captured by:
 
@@ -492,7 +504,7 @@ The relation $\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = \nu_C$ is the
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-For jump and conditional state transitions, let $J = \text{JUMP} \cdot \nu_A$:
+For (conditional) jumps, let $J = \text{JUMP} \cdot \nu_A$:
 \begin{itemize}
     \item $J \cdot (1 - \nu_A) = 0$
     \item $J \cdot ( \text{next(pc)} - \nu_B) = 0$
@@ -503,6 +515,8 @@ For jump and conditional state transitions, let $J = \text{JUMP} \cdot \nu_A$:
 
 Note: the constraint $J \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
 
+\vspace{3mm}
+
 TODO: Verify and (formally) prove soundness.
 
 \subsection{Poseidon table}
@@ -511,11 +525,7 @@ TODO
 
 \subsection{Dot product table}
 
-The dot product precompile computes $\text{res} = \sum_{i=0}^{n-1} a_i \cdot b_i \in \Fq$, where:
-\begin{itemize}
-    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i \in \Fp$, $b_i \in \Fq$ (base $\times$ extension)
-    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i \in \Fq$, $b_i \in \Fq$ (extension $\times$ extension)
-\end{itemize}
+See \ref{dot_product_instruction} for the instruction specification.
 
 \subsubsection{Trace layout}
 
