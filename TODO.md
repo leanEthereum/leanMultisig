@@ -38,6 +38,7 @@ But we can get the bost of both worlds (suggested by Lev, TODO implement):
 - 128 bits security? (currently 123.9)
 - Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed checked (Lev)
 - Double Check AIR constraints, logup overflows etc
+- Do we need to enforce some values at the first row of the dot-product table?
 - Formal Verification
 - Padd with noop cycles to always ensure memory size >= bytecode size (liveness), and ensure this condition is checked by the verifier (soundness)
 
