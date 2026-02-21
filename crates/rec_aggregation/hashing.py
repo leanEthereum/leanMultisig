@@ -57,12 +57,9 @@ def slice_hash_rtl(data, num_chunks):
 def slice_hash(data, num_chunks):
     states = Array((num_chunks - 1) * DIGEST_LEN)
     poseidon16(data, data + DIGEST_LEN, states)
-    state_indexes = Array(num_chunks)
-    state_indexes[0] = states
     for j in unroll(1, num_chunks - 1):
-        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
-        poseidon16(state_indexes[j - 1], data + (j + 1) * DIGEST_LEN, state_indexes[j])
-    return state_indexes[num_chunks - 2]
+        poseidon16(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
+    return states + (num_chunks - 2) * DIGEST_LEN
 
 
 def slice_hash_dynamic_unroll(data, len, len_bits: Const):

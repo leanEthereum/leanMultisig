@@ -17,9 +17,6 @@ struct Compiler {
     stack_pos: usize,
     const_mallocs: BTreeMap<ConstMallocLabel, usize>, // label -> start offset from fp
     const_malloc_vars: BTreeMap<Var, usize>,          // var -> start offset from fp (same data, different key)
-    /// Instruction index of the ADD that computed each derived fp-relative var.
-    /// When a precompile uses FpRelative for the var, the ADD is dead and can be removed.
-    derived_fp_relative_add_idx: BTreeMap<Var, usize>,
 }
 
 #[derive(Default)]
@@ -160,7 +157,6 @@ fn compile_function(
     compiler.args_count = function.arguments.len();
     compiler.const_mallocs.clear();
     compiler.const_malloc_vars.clear();
-    compiler.derived_fp_relative_add_idx.clear();
 
     compile_lines(
         &Label::function(function.name.clone()),
@@ -257,6 +253,21 @@ fn count_var_uses(lines: &[SimpleLine]) -> BTreeMap<Var, usize> {
     counts
 }
 
+fn apply_dead_add_removal(
+    instructions: Vec<IntermediateInstruction>,
+    dead_add_indices: &BTreeSet<usize>,
+) -> Vec<IntermediateInstruction> {
+    if dead_add_indices.is_empty() {
+        return instructions;
+    }
+    instructions
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !dead_add_indices.contains(i))
+        .map(|(_, instr)| instr)
+        .collect()
+}
+
 fn compile_lines(
     function_name: &Label,
     lines: &[SimpleLine],
@@ -265,6 +276,9 @@ fn compile_lines(
 ) -> Result<Vec<IntermediateInstruction>, String> {
     let mut instructions = Vec::new();
     let mut dead_add_indices: BTreeSet<usize> = BTreeSet::new();
+    // Maps derived fp-relative vars to the instruction index of the ADD that computed them.
+    // Local to this invocation: indices reference *this* invocation's `instructions` vector only.
+    let mut derived_fp_relative_add_idx: BTreeMap<Var, usize> = BTreeMap::new();
     let var_use_counts = count_var_uses(lines);
 
     for (i, line) in lines.iter().enumerate() {
@@ -300,9 +314,7 @@ fn compile_lines(
                         compiler.const_malloc_vars.insert(v.clone(), offset);
                         // Record the instruction index so we can remove this ADD later
                         // if it's only used as a FpRelative precompile arg
-                        compiler
-                            .derived_fp_relative_add_idx
-                            .insert(v.clone(), instructions.len());
+                        derived_fp_relative_add_idx.insert(v.clone(), instructions.len());
                     }
                 }
 
@@ -413,7 +425,7 @@ fn compile_lines(
                 // Nested matches would otherwise reuse the same temp positions, causing conflicts.
                 // This is consistent with IfNotZero which also doesn't reset stack_pos.
 
-                return Ok(instructions);
+                return Ok(apply_dead_add_removal(instructions, &dead_add_indices));
             }
 
             SimpleLine::IfNotZero {
@@ -517,7 +529,7 @@ fn compile_lines(
                 // It is not necessary to update compiler.stack_size here because the preceding call to
                 // compile_lines should have done so.
 
-                return Ok(instructions);
+                return Ok(apply_dead_add_removal(instructions, &dead_add_indices));
             }
 
             SimpleLine::RawAccess { res, index, shift } => {
@@ -594,7 +606,7 @@ fn compile_lines(
                 // It is not necessary to update compiler.stack_size here because the preceding call to
                 // compile_lines should have done so.
 
-                return Ok(instructions);
+                return Ok(apply_dead_add_removal(instructions, &dead_add_indices));
             }
 
             SimpleLine::Precompile { table, args, .. } => {
@@ -660,7 +672,7 @@ fn compile_lines(
                 // Deferred removal at end of compile_lines to avoid index invalidation.
                 for var in fp_relative_vars {
                     if var_use_counts.get(&var) == Some(&1)
-                        && let Some(idx) = compiler.derived_fp_relative_add_idx.remove(&var)
+                        && let Some(idx) = derived_fp_relative_add_idx.remove(&var)
                     {
                         dead_add_indices.insert(idx);
                     }
@@ -832,18 +844,7 @@ fn compile_lines(
         });
     }
 
-    // Remove dead ADD instructions whose results were encoded as FpRelative in precompiles
-    if !dead_add_indices.is_empty() {
-        let instructions = instructions
-            .into_iter()
-            .enumerate()
-            .filter(|(i, _)| !dead_add_indices.contains(i))
-            .map(|(_, instr)| instr)
-            .collect();
-        return Ok(instructions);
-    }
-
-    Ok(instructions)
+    Ok(apply_dead_add_removal(instructions, &dead_add_indices))
 }
 
 fn handle_const_malloc(
