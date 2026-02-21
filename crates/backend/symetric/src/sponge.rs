@@ -2,8 +2,7 @@
 
 use crate::Compression;
 
-// T-SPONGE (https://eprint.iacr.org/2014/223)
-
+// IV should have been added to data when necessary (typically: when the length of the data beeing hashed is not constant). Maybe we should re-add IV all the time for simplicity?
 pub fn hash_slice<T, Comp, const WIDTH: usize, const RATE: usize, const OUT: usize>(comp: &Comp, data: &[T]) -> [T; OUT]
 where
     T: Default + Copy,

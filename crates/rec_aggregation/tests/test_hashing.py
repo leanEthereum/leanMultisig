@@ -8,6 +8,6 @@ def main():
     debug_assert(0 < len)
     data = pub_mem + 1
     expected_hash = pub_mem + 1 + len
-    hash = slice_hash_dynamic_unroll(data, len, 15)
+    hash = slice_hash_with_iv_dynamic_unroll(data, len, 15)
     copy_8(hash, expected_hash)
     return

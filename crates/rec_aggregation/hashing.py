@@ -65,7 +65,8 @@ def slice_hash(data, num_chunks):
     return state_indexes[num_chunks - 2]
 
 
-def slice_hash_dynamic_unroll(data, len, len_bits: Const):
+
+def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
     remainder = modulo_8(len, len_bits)
     num_full_elements = len - remainder
     num_full_chunks = num_full_elements / 8
@@ -74,25 +75,27 @@ def slice_hash_dynamic_unroll(data, len, len_bits: Const):
         left = Array(DIGEST_LEN)
         fill_padded_chunk(left, data, remainder)
         result = Array(DIGEST_LEN)
-        poseidon16(left, ZERO_VEC_PTR, result)
+        poseidon16(ZERO_VEC_PTR, left, result)
         return result
 
     if num_full_chunks == 1:
         if remainder == 0:
             result = Array(DIGEST_LEN)
-            poseidon16(data, ZERO_VEC_PTR, result)
+            poseidon16(ZERO_VEC_PTR, data, result)
             return result
         else:
+            h0 = Array(DIGEST_LEN)
+            poseidon16(ZERO_VEC_PTR, data, h0)
             right = Array(DIGEST_LEN)
             fill_padded_chunk(right, data + DIGEST_LEN, remainder)
             result = Array(DIGEST_LEN)
-            poseidon16(data, right, result)
+            poseidon16(h0, right, result)
             return result
 
     if remainder == 0:
-        return slice_hash_chunks(data, num_full_chunks, len_bits)
+        return slice_hash_chunks_with_iv(data, num_full_chunks, len_bits)
     else:
-        hash = slice_hash_chunks(data, num_full_chunks, len_bits)
+        hash = slice_hash_chunks_with_iv(data, num_full_chunks, len_bits)
         padded_last = Array(DIGEST_LEN)
         fill_padded_chunk(padded_last, data + num_full_elements, remainder)
         final_hash = Array(DIGEST_LEN)
@@ -100,14 +103,14 @@ def slice_hash_dynamic_unroll(data, len, len_bits: Const):
         return final_hash
 
 
-def slice_hash_chunks(data, num_chunks, num_chunks_bits: Const):
+def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits: Const):
     debug_assert(1 < num_chunks)
-    states = Array((num_chunks - 1) * DIGEST_LEN)
-    poseidon16(data, data + DIGEST_LEN, states)
-    n_iters = num_chunks - 2
+    states = Array(num_chunks * DIGEST_LEN)
+    poseidon16(ZERO_VEC_PTR, data, states)
+    n_iters = num_chunks - 1
     for j in dynamic_unroll(0, n_iters, num_chunks_bits):
-        poseidon16(states + j * DIGEST_LEN, data + (j + 2) * DIGEST_LEN, states + (j + 1) * DIGEST_LEN)
-    return states + (num_chunks - 2) * DIGEST_LEN
+        poseidon16(states + j * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + (j + 1) * DIGEST_LEN)
+    return states + (num_chunks - 1) * DIGEST_LEN
 
 
 def fill_padded_chunk(dst, src, n):

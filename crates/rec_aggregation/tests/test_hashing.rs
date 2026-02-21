@@ -12,7 +12,10 @@ fn test_slice_hashing() {
     for len in [1, 2, 6, 7, 8, 9, 15, 16, 17, 24, 100, 1000, 12345] {
         let mut rng = StdRng::seed_from_u64(0);
         let data: Vec<F> = (0..len).map(|_| rng.random()).collect();
-        let hash = poseidon_compress_slice(&data);
+        let iv_and_data: Vec<F> = std::iter::repeat_n(F::ZERO, DIGEST_LEN)
+            .chain(data.iter().copied())
+            .collect();
+        let hash = poseidon_compress_slice(&iv_and_data);
         let mut public_input = vec![F::from_usize(len)];
         public_input.extend(&data);
         public_input.extend(hash);
