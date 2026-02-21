@@ -44,13 +44,12 @@ def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hash
 @inline
 def slice_hash_rtl(data, num_chunks):
     states = Array((num_chunks - 1) * DIGEST_LEN)
+    
     poseidon16(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
-    state_indexes = Array(num_chunks)
-    state_indexes[0] = states
     for j in unroll(1, num_chunks - 1):
-        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
-        poseidon16(state_indexes[j - 1], data + (num_chunks - 2 - j) * DIGEST_LEN, state_indexes[j])
-    return state_indexes[num_chunks - 2]
+        poseidon16(states + (j - 1) * DIGEST_LEN, data + (num_chunks - 2 - j) * DIGEST_LEN, states + j * DIGEST_LEN)
+    return states + (num_chunks - 2) * DIGEST_LEN
+
 
 
 @inline
@@ -179,23 +178,20 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, height: Co
             poseidon16(merkle_path, leaf_digest, states)
 
     # Remaining merkle rounds
-    state_indexes = Array(height)
-    state_indexes[0] = states
     for j in unroll(1, height):
-        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
         # Warning: this works only if leaf_position_bits[i] is known to be boolean:
         match leaf_position_bits[j]:
             case 0:
                 poseidon16(
-                    state_indexes[j - 1],
+                    states + (j - 1) * DIGEST_LEN,
                     merkle_path + j * DIGEST_LEN,
-                    state_indexes[j],
+                    states + j * DIGEST_LEN,
                 )
             case 1:
                 poseidon16(
                     merkle_path + j * DIGEST_LEN,
-                    state_indexes[j - 1],
-                    state_indexes[j],
+                    states + (j - 1) * DIGEST_LEN,
+                    states + j * DIGEST_LEN,
                 )
-    copy_8(state_indexes[height - 1], root)
+    copy_8(states + (height - 1) * DIGEST_LEN, root)
     return
