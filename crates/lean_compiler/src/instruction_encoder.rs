@@ -56,9 +56,16 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
         } => {
             let precompile_data = match *table {
                 Table::Poseidon16(_) => POSEIDON_PRECOMPILE_DATA,
-                Table::DotProduct(_) => {
+                Table::ExtensionOp(_) => {
                     assert!(*aux_2 == 0 || *aux_2 == 1);
-                    DOT_PRODUCT_PRECOMPILE_DATA_BASE + 2 * (*aux_2 + 2 * *aux_1) // 2*(is_be + 2*len)
+                    let is_be = *aux_2;
+                    let op_flag = match *aux_1 {
+                        0 => 4,  // ADD: flag_add = 1
+                        1 => 8,  // MUL: flag_mul = 1
+                        2 => 16, // POLY_EQ: flag_poly_eq = 1
+                        _ => unreachable!("invalid extension_op op_type"),
+                    };
+                    2 * is_be + op_flag
                 }
                 _ => unreachable!("unknown precompile table"),
             };

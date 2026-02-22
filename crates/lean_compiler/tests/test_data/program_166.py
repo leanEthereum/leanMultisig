@@ -1,6 +1,5 @@
 from snark_lib import *
 
-EE = 0
 DIM = 5
 
 
@@ -35,5 +34,5 @@ def main():
 
 @inline
 def copy_5(a, b):
-    dot_product(a, ONE_VEC_PTR, b, 1, EE)
+    mul_ee(a, ONE_VEC_PTR, b)
     return

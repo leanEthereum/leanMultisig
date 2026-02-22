@@ -33,11 +33,18 @@ fn is_reserved_function_name(name: &str) -> bool {
     if RESERVED_FUNCTION_NAMES.contains(&name) || CUSTOM_HINTS.iter().any(|hint| hint.name() == name) {
         return true;
     }
-    // Check precompile names (poseidon16, dot_product, execution)
+    // Check precompile names (poseidon16, extension_op functions)
     for table in ALL_TABLES {
         if table.name() == name && !table.is_execution_table() {
             return true;
         }
+    }
+    // Extension op function names
+    if matches!(
+        name,
+        "add_be" | "add_ee" | "mul_be" | "mul_ee" | "poly_eq_be" | "poly_eq_ee"
+    ) {
+        return true;
     }
     false
 }

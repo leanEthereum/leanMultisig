@@ -201,7 +201,7 @@ pub fn min_stacked_n_vars(log_bytecode: usize) -> usize {
 }
 
 pub fn total_whir_statements() -> usize {
-    5 // memory + memory_acc + public_memory + bytecode_acc + pc_start + pc_end
+    5 // memory + memory_acc + public_memory + bytecode_acc + pc_start + pc_end (5 not 6: compensates for shared ARG_A index in F and EF lookups)
      + ALL_TABLES
         .iter()
         .map(|table| {

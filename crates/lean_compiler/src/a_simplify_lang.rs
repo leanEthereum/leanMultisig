@@ -2101,7 +2101,43 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for precompile functions (poseidon16, dot_product)
+                        // Special handling for extension_op precompile functions
+                        // add_be, add_ee, mul_be, mul_ee, poly_eq_be, poly_eq_ee
+                        if let Some((op_type, is_be)) = match function_name.as_str() {
+                            "add_be" => Some((0, 1)),
+                            "add_ee" => Some((0, 0)),
+                            "mul_be" => Some((1, 1)),
+                            "mul_ee" => Some((1, 0)),
+                            "poly_eq_be" => Some((2, 1)),
+                            "poly_eq_ee" => Some((2, 0)),
+                            _ => None,
+                        } {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "Precompile {function_name} should not return values, at {location}"
+                                ));
+                            }
+                            if args.len() != 3 {
+                                return Err(format!(
+                                    "Precompile {function_name} expects 3 arguments (a, b, result), got {}, at {location}",
+                                    args.len()
+                                ));
+                            }
+                            let mut simplified_args: Vec<SimpleExpr> = args
+                                .iter()
+                                .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            // Inject op_type and is_be as extra constant args
+                            simplified_args.push(SimpleExpr::Constant(op_type.into()));
+                            simplified_args.push(SimpleExpr::Constant(is_be.into()));
+                            res.push(SimpleLine::Precompile {
+                                table: Table::extension_op(),
+                                args: simplified_args,
+                            });
+                            continue;
+                        }
+
+                        // Special handling for precompile functions (poseidon16)
                         if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name)
                             && !table.is_execution_table()
                         {

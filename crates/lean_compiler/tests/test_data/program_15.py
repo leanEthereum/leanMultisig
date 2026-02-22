@@ -1,8 +1,5 @@
 from snark_lib import *
 
-BE = 1  # base-extension
-EE = 0  # extension-extension
-
 
 def main():
     x = 1
@@ -62,13 +59,13 @@ def assert_eq_3(x, y):
 
 
 def assert_eq_4(x, y):
-    dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    dot_product(x + 3, ONE_VEC_PTR, y + 3, 1, EE)
+    mul_ee(x, ONE_VEC_PTR, y)
+    mul_ee(x + 3, ONE_VEC_PTR, y + 3)
     return
 
 
 @inline
 def assert_eq_5(x, y):
-    dot_product(x, ONE_VEC_PTR, y, 1, EE)
-    dot_product(x + 3, ONE_VEC_PTR, y + 3, 1, EE)
+    mul_ee(x, ONE_VEC_PTR, y)
+    mul_ee(x + 3, ONE_VEC_PTR, y + 3)
     return

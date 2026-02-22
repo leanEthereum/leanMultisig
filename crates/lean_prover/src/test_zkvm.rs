@@ -22,15 +22,41 @@ DIM = 5
 N = 11
 DIGEST_LEN = 8
 
-# Dot product precompile:
-BE = 1  # base-extension
-EE = 0  # extension-extension
-
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
     poseidon16(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
-    dot_product(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N, BE)
-    dot_product(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N, EE)
+
+    # Base-extension dot product: sum_i base[i] * ext_a[i] -> result
+    base_ptr = pub_start + 88
+    ext_a_ptr = pub_start + 88 + N
+    res_be = pub_start + 1000
+    acc_be: Mut = Array(DIM)
+    mul_be(base_ptr, ext_a_ptr, acc_be)
+    for i in unroll(1, N - 1):
+        tmp = Array(DIM)
+        mul_be(base_ptr + i, ext_a_ptr + i * DIM, tmp)
+        new_acc_be = Array(DIM)
+        add_ee(acc_be, tmp, new_acc_be)
+        acc_be = new_acc_be
+    last_be = Array(DIM)
+    mul_be(base_ptr + N - 1, ext_a_ptr + (N - 1) * DIM, last_be)
+    add_ee(acc_be, last_be, res_be)
+
+    # Extension-extension dot product: sum_i ext_a[i] * ext_b[i] -> result
+    ext_b_ptr = pub_start + 88 + N * (DIM + 1)
+    res_ee = pub_start + 1000 + DIM
+    acc_ee: Mut = Array(DIM)
+    mul_ee(ext_a_ptr, ext_b_ptr, acc_ee)
+    for i in unroll(1, N - 1):
+        tmp2 = Array(DIM)
+        mul_ee(ext_a_ptr + i * DIM, ext_b_ptr + i * DIM, tmp2)
+        new_acc_ee = Array(DIM)
+        add_ee(acc_ee, tmp2, new_acc_ee)
+        acc_ee = new_acc_ee
+    last_ee = Array(DIM)
+    mul_ee(ext_a_ptr + (N - 1) * DIM, ext_b_ptr + (N - 1) * DIM, last_ee)
+    add_ee(acc_ee, last_ee, res_ee)
+
     c: Mut = 0
     for i in range(0,100):
         c += 1

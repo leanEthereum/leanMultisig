@@ -410,7 +410,7 @@ fn build_replacements(
 fn all_air_evals_in_zk_dsl() -> String {
     let mut res = String::new();
     res += &air_eval_in_zk_dsl(ExecutionTable::<false> {});
-    res += &air_eval_in_zk_dsl(DotProductPrecompile::<false> {});
+    res += &air_eval_in_zk_dsl(ExtensionOpPrecompile::<false> {});
     res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {});
     res
 }
@@ -448,10 +448,18 @@ where
         let data_str = write_down_air_constraint_eval(data, &mut cache, &mut res, &mut vars_counter);
         res += &format!("\n    copy_5({}, buff + DIM * {})", data_str, i);
     }
-    res += &format!(
-        "\n    bus_res: Mut = dot_product_ret(buff, logup_alphas_eq_poly, {}, EE)",
-        bus_data.len()
-    );
+    // dot product: bus_res = sum(buff[i] * logup_alphas_eq_poly[i]) for i in 0..bus_data.len()
+    res += "\n    bus_res_init = Array(DIM)";
+    res += "\n    mul_ee(buff, logup_alphas_eq_poly, bus_res_init)";
+    res += "\n    bus_res: Mut = bus_res_init";
+    for i in 1..bus_data.len() {
+        res += &format!(
+            "\n    bus_res_tmp_{i} = Array(DIM)\
+             \n    mul_ee(buff + {off} * DIM, logup_alphas_eq_poly + {off} * DIM, bus_res_tmp_{i})\
+             \n    bus_res = add_extension_ret(bus_res, bus_res_tmp_{i})",
+            off = i,
+        );
+    }
     res += &format!(
         "\n    bus_res = add_extension_ret(mul_base_extension_ret(LOGUP_PRECOMPILE_DOMAINSEP, logup_alphas_eq_poly + {} * DIM), bus_res)",
         max_bus_width().next_power_of_two() - 1
