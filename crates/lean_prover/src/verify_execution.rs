@@ -14,7 +14,7 @@ pub struct ProofVerificationDetails {
 pub fn verify_execution(
     bytecode: &Bytecode,
     public_input: &[F],
-    proof: Vec<F>,
+    proof: RawProof<F>,
 ) -> Result<ProofVerificationDetails, ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
 

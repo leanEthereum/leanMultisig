@@ -163,7 +163,7 @@ def main():
         let run = |end_val: u32| -> usize {
             let expected_sum = (start..end_val).map(|i| i as u64).sum::<u64>() as u32;
             let public_input = [F::new(end_val), F::new(expected_sum)];
-            let result = try_execute_bytecode(&bytecode, (&public_input, &[]), false, &vec![]).unwrap();
+            let result = try_execute_bytecode(&bytecode, &public_input, &ExecutionWitness::empty(), false).unwrap();
             result.pcs.len()
         };
 

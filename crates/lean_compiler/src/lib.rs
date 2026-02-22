@@ -152,7 +152,11 @@ pub fn try_compile_and_run(
     profiler: bool,
 ) -> Result<String, Error> {
     let bytecode = try_compile_program(input)?;
-    let result = try_execute_bytecode(&bytecode, (public_input, private_input), profiler, &vec![])?;
+    let witness = ExecutionWitness {
+        private_input,
+        ..ExecutionWitness::empty()
+    };
+    let result = try_execute_bytecode(&bytecode, public_input, &witness, profiler)?;
     println!("{}", result.metadata.display());
     Ok(result.metadata.display())
 }

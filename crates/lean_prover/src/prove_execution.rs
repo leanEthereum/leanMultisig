@@ -8,8 +8,6 @@ use sub_protocols::*;
 use tracing::info_span;
 use utils::ansi::Colorize;
 use utils::build_prover_state;
-use xmss::Poseidon16History;
-
 #[derive(Debug)]
 pub struct ExecutionProof {
     pub proof: PrunedProof<F>,
@@ -18,15 +16,15 @@ pub struct ExecutionProof {
 }
 
 impl ExecutionProof {
-    pub fn raw_proof(&self) -> Option<Vec<F>> {
-        Some(self.proof.clone().restore()?.raw_proof())
+    pub fn raw_proof(&self) -> Option<RawProof<F>> {
+        Some(self.proof.clone().restore()?.into_raw_proof())
     }
 }
 
 pub fn prove_execution(
     bytecode: &Bytecode,
-    (public_input, private_input): (&[F], &[F]),
-    poseidons_16_precomputed: &Poseidon16History,
+    public_input: &[F],
+    witness: &ExecutionWitness<'_>,
     whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> ExecutionProof {
@@ -37,14 +35,8 @@ pub fn prove_execution(
         mut memory,              // padded with zeros to next power of two
         metadata,
     } = info_span!("Witness generation").in_scope(|| {
-        let execution_result = info_span!("Executing bytecode").in_scope(|| {
-            execute_bytecode(
-                bytecode,
-                (public_input, private_input),
-                vm_profiler,
-                poseidons_16_precomputed,
-            )
-        });
+        let execution_result = info_span!("Executing bytecode")
+            .in_scope(|| execute_bytecode(bytecode, public_input, witness, vm_profiler));
         info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 

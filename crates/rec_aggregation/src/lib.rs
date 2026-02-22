@@ -105,8 +105,8 @@ pub struct AggregatedSigs {
 }
 
 impl AggregatedSigs {
-    pub fn raw_proof(&self) -> Option<Vec<F>> {
-        self.proof.clone().restore().map(|p| p.raw_proof())
+    pub fn raw_proof(&self) -> Option<RawProof<F>> {
+        self.proof.clone().restore().map(|p| p.into_raw_proof())
     }
 
     pub fn serialize(&self) -> Vec<u8> {
@@ -201,14 +201,19 @@ pub fn aggregate(
     // Verify child proofs
     let mut child_pub_inputs = vec![];
     let mut child_bytecode_evals = vec![];
-    let mut raw_child_proofs = vec![];
+    let mut child_raw_proofs = vec![];
     for child in children {
         let child_pub_input = child.public_input(message, slot);
-        let child_proof = child.proof.clone().restore().expect("invalid child proof").raw_proof();
-        raw_child_proofs.push(child_proof.clone());
-        let verif = verify_execution(bytecode, &child_pub_input, child_proof).unwrap();
+        let raw_proof = child
+            .proof
+            .clone()
+            .restore()
+            .expect("invalid child proof")
+            .into_raw_proof();
+        let verif = verify_execution(bytecode, &child_pub_input, raw_proof.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_pub_inputs.push(child_pub_input);
+        child_raw_proofs.push(raw_proof);
     }
 
     // Bytecode sumcheck reduction
@@ -268,7 +273,11 @@ pub fn aggregate(
         let claim_output = flatten_scalars_to_base::<F, EF>(&ef_claim);
         assert_eq!(claim_output.len(), bytecode_claim_size);
 
-        (claim_output, Some(reduced_point), reduction_prover.raw_proof())
+        (
+            claim_output,
+            Some(reduced_point),
+            reduction_prover.raw_proof().transcript,
+        )
     } else {
         let mut claim_output = vec![F::ZERO; bytecode_claim_size];
         claim_output[bytecode_point_n_vars * DIMENSION] = bytecode.instructions_multilinear[0];
@@ -292,7 +301,13 @@ pub fn aggregate(
     let mut dup_pub_keys: Vec<Digest> = Vec::new();
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
-    // Source 0: raw XMSS
+    // Build XMSS hint data (passed separately, not in private input)
+    let xmss_hint_data: Vec<F> = raw_xmss
+        .iter()
+        .flat_map(|(_, sig)| encode_xmss_signature(sig))
+        .collect();
+
+    // Source 0: raw XMSS (indices only; signature data goes via hint_xmss)
     {
         let mut block = vec![F::from_usize(raw_count)];
         for (pk, _) in &raw_xmss {
@@ -300,9 +315,6 @@ pub fn aggregate(
             let pos = global_pub_keys.binary_search(&key).unwrap();
             block.push(F::from_usize(pos));
             claimed.insert(key);
-        }
-        for (_, sig) in &raw_xmss {
-            block.extend(encode_xmss_signature(sig));
         }
         source_blocks.push(block);
     }
@@ -325,8 +337,8 @@ pub fn aggregate(
         // inner_pub_mem
         let child_pub_mem = build_public_memory(&child_pub_inputs[i]);
         block.extend_from_slice(&child_pub_mem);
-        // proof_transcript
-        block.extend_from_slice(&raw_child_proofs[i]);
+        // proof_transcript (without Merkle data, delivered via hint_merkle)
+        block.extend_from_slice(&child_raw_proofs[i].transcript);
 
         source_blocks.push(block);
     }
@@ -368,13 +380,25 @@ pub fn aggregate(
     // TODO precompute all the other poseidons
     let xmss_poseidons_16_precomputed = precompute_poseidons(&raw_xmss, message);
 
-    let execution_proof = prove_execution(
-        bytecode,
-        (&non_reserved_public_input, &private_input),
-        &xmss_poseidons_16_precomputed,
-        &whir_config,
-        false,
-    );
+    // Build Merkle hint data from all child proofs (consumed by hint_merkle in whir.py)
+    let merkle_hint_data: Vec<F> = child_raw_proofs
+        .iter()
+        .flat_map(|p| p.merkle_openings.iter())
+        .flat_map(|o| {
+            o.leaf_data
+                .iter()
+                .copied()
+                .chain(o.path.iter().flat_map(|d| d.iter().copied()))
+        })
+        .collect();
+
+    let witness = ExecutionWitness {
+        private_input: &private_input,
+        poseidons_16_precomputed: &xmss_poseidons_16_precomputed,
+        xmss_hint_data: &xmss_hint_data,
+        merkle_hint_data: &merkle_hint_data,
+    };
+    let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);
 
     AggregatedSigs {
         pub_keys: global_pub_keys,

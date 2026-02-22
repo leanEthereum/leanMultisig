@@ -19,6 +19,6 @@ fn test_slice_hashing() {
         let mut public_input = vec![F::from_usize(len)];
         public_input.extend(&data);
         public_input.extend(hash);
-        execute_bytecode(&bytecode, (&public_input, &[]), false, &vec![]);
+        execute_bytecode(&bytecode, &public_input, &ExecutionWitness::empty(), false);
     }
 }

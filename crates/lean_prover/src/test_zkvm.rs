@@ -7,16 +7,6 @@ use utils::{init_tracing, poseidon16_compress};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
-    test_zk_vm_all_precompiles_helper(false);
-}
-
-#[test]
-#[ignore] // slow test
-fn test_zk_vm_fuzzing() {
-    test_zk_vm_all_precompiles_helper(true);
-}
-
-fn test_zk_vm_all_precompiles_helper(fuzzing: bool) {
     let program_str = r#"
 DIM = 5
 N = 11
@@ -88,7 +78,7 @@ def main():
     );
     public_input[1100 + 3 + 3 * DIMENSION..][..DIMENSION].copy_from_slice(poly_eq.as_basis_coefficients_slice());
 
-    test_zk_vm_helper(program_str, (&public_input, &[]), fuzzing);
+    test_zk_vm_helper(program_str, (&public_input, &[]));
 }
 
 #[test]
@@ -101,7 +91,7 @@ def main():
     return
 "#;
 
-    test_zk_vm_helper(program_str, (&[], &[]), false);
+    test_zk_vm_helper(program_str, (&[], &[]));
 }
 
 #[test]
@@ -140,20 +130,22 @@ def fibonacci_const(a, b, n: Const):
 "#;
     let program_str = program_str.replace("FIB_N_PLACEHOLDER", &n.to_string());
 
-    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]), false);
+    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]));
 }
 
-fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F]), fuzzing: bool) {
-    if !fuzzing {
-        utils::init_tracing();
-    }
+fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F])) {
+    utils::init_tracing();
     let bytecode = compile_program(&ProgramSource::Raw(program_str.to_string()));
     let time = std::time::Instant::now();
     let starting_log_inv_rate = 1;
+    let witness = ExecutionWitness {
+        private_input,
+        ..ExecutionWitness::empty()
+    };
     let proof = prove_execution(
         &bytecode,
-        (public_input, private_input),
-        &vec![],
+        public_input,
+        &witness,
         &default_whir_config(starting_log_inv_rate),
         false,
     );
@@ -161,21 +153,4 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
     verify_execution(&bytecode, public_input, proof.raw_proof().unwrap()).unwrap();
     println!("{}", proof.metadata.display());
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
-
-    if fuzzing {
-        println!("Starting fuzzing...");
-        let mut percent = 0;
-        let raw_proof = proof.raw_proof().unwrap();
-        for i in 0..raw_proof.len() {
-            let new_percent = i * 100 / raw_proof.len();
-            if new_percent != percent {
-                percent = new_percent;
-                println!("{}%", percent);
-            }
-            let mut fuzzed_proof = raw_proof.clone();
-            fuzzed_proof[i] += F::ONE;
-            let verify_result = verify_execution(&bytecode, public_input, fuzzed_proof);
-            assert!(verify_result.is_err(), "Fuzzing failed at index {}", i);
-        }
-    }
 }

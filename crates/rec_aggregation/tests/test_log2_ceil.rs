@@ -10,7 +10,7 @@ fn test_log2_ceil() {
     let run = |n: usize| {
         let expected = log2_ceil_usize(n);
         let public_input = vec![F::from_usize(n), F::from_usize(expected)];
-        execute_bytecode(&bytecode, (&public_input, &[]), false, &vec![]);
+        execute_bytecode(&bytecode, &public_input, &ExecutionWitness::empty(), false);
     };
 
     // small values (n > 2)

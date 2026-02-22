@@ -1,6 +1,6 @@
 use field::ExtensionField;
 
-use crate::{MerklePath, PF, ProofError, flatten_scalars_to_base, pack_scalars_to_extension};
+use crate::{MerkleOpening, MerklePath, PF, ProofError, flatten_scalars_to_base, pack_scalars_to_extension};
 
 pub trait ChallengeSampler<EF> {
     fn sample_vec(&mut self, len: usize) -> Vec<EF>;
@@ -40,9 +40,8 @@ pub trait FSProver<EF: ExtensionField<PF<EF>>>: ChallengeSampler<EF> {
 
 pub trait FSVerifier<EF: ExtensionField<PF<EF>>>: ChallengeSampler<EF> {
     fn state(&self) -> String;
-    fn transcript(&self) -> Vec<PF<EF>>;
     fn next_base_scalars_vec(&mut self, n: usize) -> Result<Vec<PF<EF>>, ProofError>;
-    fn receive_hint_base_scalars(&mut self, n: usize) -> Result<Vec<PF<EF>>, ProofError>;
+    fn next_merkle_opening(&mut self) -> Result<MerkleOpening<PF<EF>>, ProofError>;
     fn check_pow_grinding(&mut self, bits: usize) -> Result<(), ProofError>;
 
     fn next_extension_scalars_vec(&mut self, n: usize) -> Result<Vec<EF>, ProofError> {
@@ -53,11 +52,5 @@ pub trait FSVerifier<EF: ExtensionField<PF<EF>>>: ChallengeSampler<EF> {
 
     fn next_extension_scalar(&mut self) -> Result<EF, ProofError> {
         Ok(self.next_extension_scalars_vec(1)?[0])
-    }
-
-    fn receive_hint_extension_scalars(&mut self, n: usize) -> Result<Vec<EF>, ProofError> {
-        Ok(pack_scalars_to_extension(
-            &self.receive_hint_base_scalars(n * EF::DIMENSION)?,
-        ))
     }
 }

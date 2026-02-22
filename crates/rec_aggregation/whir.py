@@ -204,9 +204,7 @@ def sample_stir_indexes_and_fold(
     fs = fs_grinding(fs, query_grinding_bits)
     fs, stir_challenges_indexes = sample_bits_dynamic(fs, num_queries)
 
-    answers = Array(
-        num_queries
-    )  # a vector of pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
+    answers = Array(num_queries)
 
     n_chunks_per_answer: Imu
     # the number of chunk of 8 field elements per merkle leaf opened
@@ -215,23 +213,9 @@ def sample_stir_indexes_and_fold(
     else:
         n_chunks_per_answer = two_pow_folding_factor * DIM
 
-    for i in range(0, num_queries):
-        fs, answer = fs_hint(fs, n_chunks_per_answer)
-        answers[i] = answer
-
-    leaf_hashes = Array(num_queries)  # a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
-    batch_hash_slice_rtl(num_queries, answers, leaf_hashes, n_chunks_per_answer / DIGEST_LEN)
-
-    fs, merkle_paths = fs_hint(fs, folded_domain_size * num_queries * DIGEST_LEN)
-
-    # Merkle verification
-    merkle_verif_batch(
-        merkle_paths,
-        leaf_hashes,
-        stir_challenges_indexes,
-        prev_root,
-        folded_domain_size,
-        num_queries,
+    hash_and_verify_merkle_batch_hint(
+        num_queries, answers, stir_challenges_indexes, prev_root,
+        folded_domain_size, n_chunks_per_answer / DIGEST_LEN,
     )
 
     folds = Array(num_queries * DIM)

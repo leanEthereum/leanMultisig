@@ -143,3 +143,10 @@ def hint_decompose_bits_xmss(*args):
 
 def hint_log2_ceil(n):
     return log2_ceil(n)
+
+def hint_xmss(buff):
+    _ = buff
+
+def hint_merkle(buff, n):
+    _ = buff
+    _ = n

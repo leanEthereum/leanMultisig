@@ -203,37 +203,25 @@ where
             prover_state,
         );
 
-        {
-            let mut paths_base: Vec<MerklePath<PF<EF>, PF<EF>>> = Vec::new();
-            let mut paths_ext: Vec<MerklePath<EF, PF<EF>>> = Vec::new();
+        for challenge in final_challenge_indexes {
+            let (answer, sibling_hashes) = round_state.merkle_prover_data.open(challenge);
 
-            for challenge in final_challenge_indexes {
-                let (answer, sibling_hashes) = round_state.merkle_prover_data.open(challenge);
-
-                match answer {
-                    MleOwned::Base(leaf) => {
-                        paths_base.push(MerklePath {
-                            leaf_data: leaf,
-                            sibling_hashes,
-                            leaf_index: challenge,
-                        });
-                    }
-                    MleOwned::Extension(leaf) => {
-                        paths_ext.push(MerklePath {
-                            leaf_data: leaf,
-                            sibling_hashes,
-                            leaf_index: challenge,
-                        });
-                    }
-                    _ => unreachable!(),
+            match answer {
+                MleOwned::Base(leaf) => {
+                    prover_state.hint_merkle_paths_base(vec![MerklePath {
+                        leaf_data: leaf,
+                        sibling_hashes,
+                        leaf_index: challenge,
+                    }]);
                 }
-            }
-
-            if !paths_base.is_empty() {
-                prover_state.hint_merkle_paths_base(paths_base);
-            }
-            if !paths_ext.is_empty() {
-                prover_state.hint_merkle_paths_extension(paths_ext);
+                MleOwned::Extension(leaf) => {
+                    prover_state.hint_merkle_paths_extension(vec![MerklePath {
+                        leaf_data: leaf,
+                        sibling_hashes,
+                        leaf_index: challenge,
+                    }]);
+                }
+                _ => unreachable!(),
             }
         }
 
@@ -286,37 +274,28 @@ fn open_merkle_tree_at_challenges<EF: ExtensionField<PF<EF>>>(
     stir_challenges_indexes: &[usize],
 ) -> Vec<MleOwned<EF>> {
     let mut answers = Vec::new();
-    let mut paths_base: Vec<MerklePath<PF<EF>, PF<EF>>> = Vec::new();
-    let mut paths_ext: Vec<MerklePath<EF, PF<EF>>> = Vec::new();
 
     for &challenge in stir_challenges_indexes {
         let (answer, sibling_hashes) = merkle_tree.open(challenge);
 
         match &answer {
             MleOwned::Base(leaf) => {
-                paths_base.push(MerklePath {
+                prover_state.hint_merkle_paths_base(vec![MerklePath {
                     leaf_data: leaf.clone(),
                     sibling_hashes,
                     leaf_index: challenge,
-                });
+                }]);
             }
             MleOwned::Extension(leaf) => {
-                paths_ext.push(MerklePath {
+                prover_state.hint_merkle_paths_extension(vec![MerklePath {
                     leaf_data: leaf.clone(),
                     sibling_hashes,
                     leaf_index: challenge,
-                });
+                }]);
             }
             _ => unreachable!(),
         }
         answers.push(answer);
-    }
-
-    if !paths_base.is_empty() {
-        prover_state.hint_merkle_paths_base(paths_base);
-    }
-    if !paths_ext.is_empty() {
-        prover_state.hint_merkle_paths_extension(paths_ext);
     }
 
     answers
