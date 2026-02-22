@@ -179,11 +179,13 @@ fn compile_lines(
     for (i, line) in lines.iter().enumerate() {
         match line {
             SimpleLine::ForwardDeclaration { var } => {
-                let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                current_scope_layout
-                    .var_positions
-                    .insert(var.clone(), compiler.stack_pos);
-                compiler.stack_pos += 1;
+                if !compiler.dead_fp_relative_vars.contains(var) {
+                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
+                    current_scope_layout
+                        .var_positions
+                        .insert(var.clone(), compiler.stack_pos);
+                    compiler.stack_pos += 1;
+                }
             }
 
             SimpleLine::Assignment {
@@ -212,7 +214,11 @@ fn compile_lines(
                     }
                 }
 
-                // Register var in scope (needed even for dead vars so get_offset works)
+                if is_dead_derived {
+                    // No slot needed: all uses go through const_malloc_vars, not var_positions
+                    continue;
+                }
+
                 if let VarOrConstMallocAccess::Var(var) = var
                     && !compiler.is_in_scope(var)
                 {
@@ -221,10 +227,6 @@ fn compile_lines(
                         .var_positions
                         .insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
-                }
-
-                if is_dead_derived {
-                    continue;
                 }
 
                 let arg0 = IntermediateValue::from_simple_expr(arg0, compiler);
@@ -593,7 +595,7 @@ fn compile_lines(
             }
             SimpleLine::ConstMalloc { var, size, label } => {
                 let size = size.naive_eval().unwrap().to_usize();
-                if !compiler.is_in_scope(var) {
+                if !compiler.dead_fp_relative_vars.contains(var) && !compiler.is_in_scope(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout
                         .var_positions
