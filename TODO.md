@@ -2,14 +2,12 @@
 
 ## Perf
 
-- 128 bits security
-- Merkle pruning
+- we can save 2 committed columns in the execution table (keeping the same degree of constraints)
 - the interpreter of leanISA (+ witness generation) can be partially parallelized when there are some independent loops
 - Opti WHIR: in sumcheck we know more than f(0) + f(1), we know f(0) and f(1)
 - Opti WHIR https://github.com/tcoratger/whir-p3/issues/303 and https://github.com/tcoratger/whir-p3/issues/306 ?
 - Avoid the embedding overhead in logup, when denominators = "c - index"
 - Proof size: replace all equality checks in the verifier algo by value deduction
-- Poseidon in 'Compression' mode everywhere (except in 'Sponge' mode? cf. eprint 2014/223)
 - Recursion: Remove the few hardcoded constants that depend on the guest execution (cycles etc)
 - About the ordering of the variables in sumchecks, currently we do as follows:
 - [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1
@@ -36,8 +34,10 @@ But we can get the bost of both worlds (suggested by Lev, TODO implement):
 
 ## Security:
 
+- 128 bits security? (currently 123.9)
 - Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed checked (Lev)
 - Double Check AIR constraints, logup overflows etc
+- Do we need to enforce some values at the first row of the dot-product table?
 - Formal Verification
 - Padd with noop cycles to always ensure memory size >= bytecode size (liveness), and ensure this condition is checked by the verifier (soundness)
 

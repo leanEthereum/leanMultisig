@@ -184,13 +184,14 @@ where
         prover_state: &mut impl FSProver<EF>,
         round_state: &mut RoundState<EF>,
     ) -> ProofResult<()> {
-        // Directly send coefficients of the polynomial to the verifier.
-
-        prover_state.add_extension_scalars(&match &round_state.sumcheck_prover.evals {
+        // Convert evaluations to coefficient form and send to the verifier.
+        let mut coeffs = match &round_state.sumcheck_prover.evals {
             MleOwned::Extension(evals) => evals.clone(),
             MleOwned::ExtensionPacked(evals) => unpack_extension::<EF>(evals),
             _ => unreachable!(),
-        });
+        };
+        evals_to_coeffs(&mut coeffs);
+        prover_state.add_extension_scalars(&coeffs);
 
         prover_state.pow_grinding(self.final_query_pow_bits);
 

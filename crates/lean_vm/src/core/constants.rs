@@ -43,7 +43,7 @@ pub const ENDING_PC: usize = 0;
 /// reserved_area: reserved for special constants (size = 48 field elements)
 /// program_input: the input of the program we want to prove
 ///
-/// [reserved_area] = [00000000] [00000000] [10000000] [10000] [01000] [00100] [00010] [00001] [poseidon_16(0) (8 field elements)] [111..111]
+/// [reserved_area] = [00000000] [00000000] [10000000] [10000] [01000] [00100] [00010] [00001] [poseidon_16(0) (8 FE)] [111..111 (16 FE)] [2 -1 -1 1]
 ///
 /// pointing to 16 zeros
 pub const ZERO_VEC_PTR: usize = 0;
@@ -61,9 +61,12 @@ pub const POSEIDON_16_NULL_HASH_PTR: usize = EXTENSION_BASIS_PTR + DIMENSION.pow
 pub const NUM_REPEATED_ONES_IN_RESERVED_MEMORY: usize = 16;
 pub const REPEATED_ONES_PTR: usize = POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN;
 
+/// [2, -1, -1, 1] is useful to compute (xy + (1-x)(1-y)) = 2xy - x - y + 1 = dot_product([xy, x, y, 1], [2, -1, -1, 1])
+pub const EQ_MLE_COEFFS_LEN: usize = 4;
+pub const EQ_MLE_COEFFS_PTR: usize = REPEATED_ONES_PTR + NUM_REPEATED_ONES_IN_RESERVED_MEMORY;
+
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize =
-    (REPEATED_ONES_PTR + NUM_REPEATED_ONES_IN_RESERVED_MEMORY).next_multiple_of(DIMENSION);
+pub const NONRESERVED_PROGRAM_INPUT_START: usize = (EQ_MLE_COEFFS_PTR + EQ_MLE_COEFFS_LEN).next_multiple_of(DIMENSION);
 
 /// The first element of basis corresponds to one
 pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;

@@ -39,7 +39,12 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
 }
 
 pub fn hash_pubkeys(pub_keys: &[Digest]) -> Digest {
-    let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.0.iter().copied()).collect();
+    let iv = [F::ZERO; DIGEST_LEN];
+    let flat: Vec<F> = iv
+        .iter()
+        .copied()
+        .chain(pub_keys.iter().flat_map(|pk| pk.0.iter().copied()))
+        .collect();
     Digest(poseidon_compress_slice(&flat))
 }
 

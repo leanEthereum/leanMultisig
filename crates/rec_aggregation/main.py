@@ -37,7 +37,7 @@ def main():
     sub_slice_starts = priv_start + 3
     bytecode_sumcheck_proof = sub_slice_starts[n_recursions + 1]
 
-    computed_pubkeys_hash = slice_hash_dynamic_unroll(all_pubkeys, n_sigs * DIGEST_LEN, MAX_LOG_MEMORY_SIZE)
+    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * DIGEST_LEN, MAX_LOG_MEMORY_SIZE)
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
 
     # Buffer for partition verification
@@ -69,27 +69,22 @@ def main():
     for rec_idx in range(0, n_recursions):
         source_data = sub_slice_starts[rec_idx + 1]
         n_sub = source_data[0]
+        assert n_sub != 0
+        assert n_sub < MAX_N_SIGS
         sub_indices = source_data + 1
         bytecode_value_hint = sub_indices + n_sub
         inner_pub_mem = bytecode_value_hint + DIM
         proof_transcript = inner_pub_mem + INNER_PUB_MEM_SIZE
 
-        # First two pubkeys initialize the hash
         idx0 = sub_indices[0]
         assert idx0 < n_total
         buffer[idx0] = counter
         counter += 1
-        idx1 = sub_indices[1]
-        assert idx1 < n_total
-        buffer[idx1] = counter
-        counter += 1
         pk0 = all_pubkeys + idx0 * DIGEST_LEN
-        pk1 = all_pubkeys + idx1 * DIGEST_LEN
         running_hash: Mut = Array(DIGEST_LEN)
-        poseidon16(pk0, pk1, running_hash)
+        poseidon16(ZERO_VEC_PTR, pk0, running_hash)
 
-        # Remaining pubkeys
-        for j in dynamic_unroll(2, n_sub, log2_ceil(MAX_N_SIGS)):
+        for j in dynamic_unroll(1, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices[j]
             assert idx < n_total
             buffer[idx] = counter

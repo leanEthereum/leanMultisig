@@ -60,7 +60,7 @@ impl LiveTree {
             "cycles",
             "memory",
             "poseidons",
-            "dots",
+            "dot-products",
             s::R,
         )
     }

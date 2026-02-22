@@ -41,6 +41,46 @@ impl<F: Field, EL: Borrow<[F]>> EvaluationsList<F> for EL {
     }
 }
 
+pub fn evals_to_coeffs<F: PrimeCharacteristicRing + Copy>(data: &mut [F]) {
+    let n = data.len();
+    let mut half = 1;
+    while half < n {
+        for i in (0..n).step_by(2 * half) {
+            for j in 0..half {
+                data[i + j + half] -= data[i + j];
+            }
+        }
+        half <<= 1;
+    }
+    bit_reverse_permutation(data);
+}
+
+pub fn bit_reverse_permutation<T>(data: &mut [T]) {
+    let n = data.len();
+    let log_n = n.ilog2() as usize;
+    for i in 0..n {
+        let j = i.reverse_bits() >> (usize::BITS as usize - log_n);
+        if i < j {
+            data.swap(i, j);
+        }
+    }
+}
+
+pub fn eval_multilinear_coeffs<F, EF>(coeffs: &[F], point: &[EF]) -> EF
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    debug_assert_eq!(coeffs.len(), 1 << point.len());
+    match point {
+        [] => EF::from(coeffs[0]),
+        [x, tail @ ..] => {
+            let (c0, c1) = coeffs.split_at(coeffs.len() / 2);
+            eval_multilinear_coeffs(c0, tail) + eval_multilinear_coeffs(c1, tail) * *x
+        }
+    }
+}
+
 /// Multiply the polynomial by a scalar factor.
 #[must_use]
 pub fn scale_poly<F: Field, EF: ExtensionField<F>>(poly: &[F], factor: EF) -> Vec<EF> {

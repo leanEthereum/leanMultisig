@@ -76,20 +76,6 @@ def poly_eq_extension(point, n: Const):
             )
     return res + (2**n - 1) * DIM
 
-
-def poly_eq_base(point, n: Const):
-    # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
-
-    res = Array((2 ** (n + 1) - 1))
-    res[0] = 1
-    for s in unroll(0, n):
-        p = point[n - 1 - s]
-        for i in unroll(0, 2**s):
-            res[2 ** (s + 1) - 1 + 2**s + i] = p * res[2**s - 1 + i]
-            res[2 ** (s + 1) - 1 + i] = res[2**s - 1 + i] - res[2 ** (s + 1) - 1 + 2**s + i]
-    return res + (2**n - 1)
-
-
 def eq_mle_extension(a, b, n):
     debug_assert(n < 30)
     debug_assert(0 < n)
@@ -98,24 +84,25 @@ def eq_mle_extension(a, b, n):
 
 
 def eq_mle_extension_const(a, b, n: Const):
-    buff = Array(n * DIM)
+    # eq(a, b) = prod_i (a_i * b_i + (1-a_i)*(1-b_i)) = prod_i (2*a_i*b_i - a_i - b_i + 1)
+
+    eqs = Array(n * DIM)
 
     for i in unroll(0, n):
-        shift = i * DIM
-        ai = a + shift
-        bi = b + shift
-        ab = mul_extension_ret(ai, bi)
-        buff[i * DIM] = 1 + 2 * ab[0] - ai[0] - bi[0]
-        for j in unroll(1, DIM):
-            buff[i * DIM + j] = 2 * ab[j] - ai[j] - bi[j]
+        ai = a + i * DIM
+        bi = b + i * DIM
+        temp = Array(4 * DIM)
+        mul_extension(ai, bi, temp)
+        copy_5(ai, temp + DIM)
+        copy_5(bi, temp + 2 * DIM)
+        set_to_one(temp + 3 * DIM)
+        dot_product(EQ_MLE_COEFFS_PTR, temp, eqs + i * DIM, 4, BE)
 
-    current_prod: Mut = buff
+    prods = Array(n * DIM)
+    copy_5(eqs, prods)
     for i in unroll(0, n - 1):
-        next_prod = Array(DIM)
-        mul_extension(current_prod, buff + (i + 1) * DIM, next_prod)
-        current_prod = next_prod
-
-    return current_prod
+        mul_extension(prods + i * DIM, eqs + (i + 1) * DIM, prods + (i + 1) * DIM)
+    return prods + (n - 1) * DIM
 
 
 @inline
@@ -130,21 +117,24 @@ def eq_mle_extension_base_const(a, b, n: Const):
     # a: base
     # b: extension
 
-    buff = Array(n * DIM)
+    buff = Array(n * (DIM + 1))
 
     for i in unroll(0, n):
         ai = a[i]
         bi = b + i * DIM
         ai_double = ai * 2
         ai_double_minus_one = ai_double - 1
-        buff[i * DIM] = 1 + ai_double_minus_one * bi[0] - ai
-        for j in unroll(1, DIM):
-            buff[i * DIM +j] = ai_double_minus_one * bi[j]
+        buff[i * (DIM + 1)] = 1 + ai_double_minus_one * bi[0] - ai
+        ai_double_minus_one_ptr = Array(1)
+        ai_double_minus_one_ptr[0] = ai_double_minus_one
+        dot_product(ai_double_minus_one_ptr, bi + 1, buff + i * (DIM + 1) + 1, 1, BE)
+        # for j in unroll(1, DIM):
+        #     buff[i * DIM +j] = ai_double_minus_one * bi[j]
 
     prods = Array(n * DIM)
     copy_5(buff, prods)
     for i in unroll(0, n - 1):
-        mul_extension(prods + i * DIM, buff + (i + 1) * DIM, prods + (i + 1) * DIM)
+        mul_extension(prods + i * DIM, buff + (i + 1) * (DIM + 1), prods + (i + 1) * DIM)
     return prods + (n - 1) * DIM
 
 @inline
@@ -204,6 +194,31 @@ def expand_from_univariate_ext(alpha, n):
     for i in range(0, n - 1):
         mul_extension(res + i * DIM, res + i * DIM, res + (i + 1) * DIM)
     return res
+
+
+def univariate_eval_on_base(coeffs, alpha, n: Const):
+    # coeffs= univariate poly of degree 2^n
+    # alpha: base field element
+    # -> evaluates it at (1, alpha, alpha^2, alpha^4, ..., alpha^(2^(n-1)))
+    alpha_powers = Array(2**n)
+    alpha_powers[0] = 1
+    for i in unroll(0, 2**n - 1):
+        alpha_powers[i + 1] = alpha_powers[i] * alpha
+    result = Array(DIM)
+    dot_product(alpha_powers, coeffs, result, 2**n, BE)
+    return result
+
+
+def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
+    # Evaluate multilinear polynomial in coefficient form (bit-reversed) at point.
+    basis = Array(2**n * DIM)
+    set_to_one(basis)
+    for k in unroll(0, n):
+        for j in unroll(0, 2**k):
+            mul_extension(basis + j * DIM, point + k * DIM, basis + (j + 2**k) * DIM)
+    result = Array(DIM)
+    dot_product(coeffs, basis, result, 2**n, EE)
+    return result
 
 
 def dot_product_be_dynamic(a, b, res, n):
@@ -617,11 +632,13 @@ def next_mle(x, y, n):
     for i in range(0, n):
         xi = x + i * DIM
         yi = y + i * DIM
-        xy = mul_extension_ret(xi, yi)
-        one_minus_x = one_minus_self_extension_ret(xi)
-        one_minus_y = one_minus_self_extension_ret(yi)
-        prod_one_minus = mul_extension_ret(one_minus_x, one_minus_y)
-        eq_i = add_extension_ret(xy, prod_one_minus)
+        temp = Array(4 * DIM)
+        mul_extension(xi, yi, temp)
+        copy_5(xi, temp + DIM)
+        copy_5(yi, temp + 2 * DIM)
+        set_to_one(temp + 3 * DIM)
+        eq_i = Array(DIM)
+        dot_product(EQ_MLE_COEFFS_PTR, temp, eq_i, 4, BE)
         mul_extension(eq_prefix + i * DIM, eq_i, eq_prefix + (i + 1) * DIM)
 
     # Build low_suffix[0..n+1] where low_suffix[i] = prod_{j>=i} (x[j] * (1-y[j]))
