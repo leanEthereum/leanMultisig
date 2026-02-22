@@ -268,6 +268,47 @@ fn apply_dead_add_removal(
         .collect()
 }
 
+/// Phase 2 of dead ADD removal: mark derived fp-relative ADDs as dead when all uses of
+/// the result variable are FpRelative-encoded (no memory load needed). Populates
+/// `dead_derived_base_vars` so the next phase can check if base const_malloc ADDs are also dead.
+fn mark_dead_derived_adds(
+    dead_add_indices: &mut BTreeSet<usize>,
+    derived_fp_relative_add_idx: &BTreeMap<Var, (usize, Var)>,
+    var_use_counts: &BTreeMap<Var, usize>,
+    fp_relative_use_count: &BTreeMap<Var, usize>,
+    dead_derived_base_vars: &mut BTreeMap<Var, usize>,
+) {
+    for (var, (idx, base_var)) in derived_fp_relative_add_idx {
+        let total_uses = var_use_counts.get(var).copied().unwrap_or(0);
+        let fp_rel_uses = fp_relative_use_count.get(var).copied().unwrap_or(0);
+        if total_uses > 0 && total_uses == fp_rel_uses {
+            dead_add_indices.insert(*idx);
+            *dead_derived_base_vars.entry(base_var.clone()).or_default() += 1;
+        }
+    }
+}
+
+/// Phase 3 of dead ADD removal: mark ConstMalloc ADDs as dead when the stored pointer
+/// is never read at runtime. This happens when all uses of the variable are either:
+/// - FpRelative precompile args (which encode `fp + offset` directly, not via memory)
+/// - Operands in derived fp-relative ADDs that were themselves dead-removed
+fn mark_dead_const_malloc_adds(
+    dead_add_indices: &mut BTreeSet<usize>,
+    const_malloc_add_idx: &BTreeMap<Var, usize>,
+    var_use_counts: &BTreeMap<Var, usize>,
+    fp_relative_use_count: &BTreeMap<Var, usize>,
+    dead_derived_base_vars: &BTreeMap<Var, usize>,
+) {
+    for (var, &idx) in const_malloc_add_idx {
+        let total_uses = var_use_counts.get(var).copied().unwrap_or(0);
+        let fp_rel_uses = fp_relative_use_count.get(var).copied().unwrap_or(0);
+        let dead_derived_uses = dead_derived_base_vars.get(var).copied().unwrap_or(0);
+        if total_uses == fp_rel_uses + dead_derived_uses {
+            dead_add_indices.insert(idx);
+        }
+    }
+}
+
 fn compile_lines(
     function_name: &Label,
     lines: &[SimpleLine],
@@ -276,9 +317,15 @@ fn compile_lines(
 ) -> Result<Vec<IntermediateInstruction>, String> {
     let mut instructions = Vec::new();
     let mut dead_add_indices: BTreeSet<usize> = BTreeSet::new();
-    // Maps derived fp-relative vars to the instruction index of the ADD that computed them.
+    // Maps derived fp-relative vars to (instruction index, base const_malloc var).
     // Local to this invocation: indices reference *this* invocation's `instructions` vector only.
-    let mut derived_fp_relative_add_idx: BTreeMap<Var, usize> = BTreeMap::new();
+    let mut derived_fp_relative_add_idx: BTreeMap<Var, (usize, Var)> = BTreeMap::new();
+    // Maps const_malloc vars to the instruction index of their pointer-storing ADD.
+    let mut const_malloc_add_idx: BTreeMap<Var, usize> = BTreeMap::new();
+    // How many times each var is used as FpRelative in precompile args.
+    let mut fp_relative_use_count: BTreeMap<Var, usize> = BTreeMap::new();
+    // How many times each base var appears in dead-removed derived fp-relative ADDs.
+    let mut dead_derived_base_vars: BTreeMap<Var, usize> = BTreeMap::new();
     let var_use_counts = count_var_uses(lines);
 
     for (i, line) in lines.iter().enumerate() {
@@ -302,19 +349,22 @@ fn compile_lines(
                 if let VarOrConstMallocAccess::Var(v) = var
                     && *operation == MathOperation::Add
                 {
-                    let fp_offset = match (arg0, arg1) {
+                    let (fp_offset, base_var) = match (arg0, arg1) {
                         (SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)), SimpleExpr::Constant(c))
-                        | (SimpleExpr::Constant(c), SimpleExpr::Memory(VarOrConstMallocAccess::Var(x))) => compiler
-                            .const_malloc_vars
-                            .get(x)
-                            .and_then(|&base| c.naive_eval().map(|f| base + f.to_usize())),
-                        _ => None,
+                        | (SimpleExpr::Constant(c), SimpleExpr::Memory(VarOrConstMallocAccess::Var(x))) => {
+                            let offset = compiler
+                                .const_malloc_vars
+                                .get(x)
+                                .and_then(|&base| c.naive_eval().map(|f| base + f.to_usize()));
+                            (offset, Some(x.clone()))
+                        }
+                        _ => (None, None),
                     };
                     if let Some(offset) = fp_offset {
                         compiler.const_malloc_vars.insert(v.clone(), offset);
-                        // Record the instruction index so we can remove this ADD later
+                        // Record the instruction index and base var so we can remove this ADD later
                         // if it's only used as a FpRelative precompile arg
-                        derived_fp_relative_add_idx.insert(v.clone(), instructions.len());
+                        derived_fp_relative_add_idx.insert(v.clone(), (instructions.len(), base_var.unwrap()));
                     }
                 }
 
@@ -425,6 +475,20 @@ fn compile_lines(
                 // Nested matches would otherwise reuse the same temp positions, causing conflicts.
                 // This is consistent with IfNotZero which also doesn't reset stack_pos.
 
+                mark_dead_derived_adds(
+                    &mut dead_add_indices,
+                    &derived_fp_relative_add_idx,
+                    &var_use_counts,
+                    &fp_relative_use_count,
+                    &mut dead_derived_base_vars,
+                );
+                mark_dead_const_malloc_adds(
+                    &mut dead_add_indices,
+                    &const_malloc_add_idx,
+                    &var_use_counts,
+                    &fp_relative_use_count,
+                    &dead_derived_base_vars,
+                );
                 return Ok(apply_dead_add_removal(instructions, &dead_add_indices));
             }
 
@@ -529,6 +593,20 @@ fn compile_lines(
                 // It is not necessary to update compiler.stack_size here because the preceding call to
                 // compile_lines should have done so.
 
+                mark_dead_derived_adds(
+                    &mut dead_add_indices,
+                    &derived_fp_relative_add_idx,
+                    &var_use_counts,
+                    &fp_relative_use_count,
+                    &mut dead_derived_base_vars,
+                );
+                mark_dead_const_malloc_adds(
+                    &mut dead_add_indices,
+                    &const_malloc_add_idx,
+                    &var_use_counts,
+                    &fp_relative_use_count,
+                    &dead_derived_base_vars,
+                );
                 return Ok(apply_dead_add_removal(instructions, &dead_add_indices));
             }
 
@@ -606,6 +684,20 @@ fn compile_lines(
                 // It is not necessary to update compiler.stack_size here because the preceding call to
                 // compile_lines should have done so.
 
+                mark_dead_derived_adds(
+                    &mut dead_add_indices,
+                    &derived_fp_relative_add_idx,
+                    &var_use_counts,
+                    &fp_relative_use_count,
+                    &mut dead_derived_base_vars,
+                );
+                mark_dead_const_malloc_adds(
+                    &mut dead_add_indices,
+                    &const_malloc_add_idx,
+                    &var_use_counts,
+                    &fp_relative_use_count,
+                    &dead_derived_base_vars,
+                );
                 return Ok(apply_dead_add_removal(instructions, &dead_add_indices));
             }
 
@@ -667,15 +759,10 @@ fn compile_lines(
                     aux_1: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
                     aux_2: args.get(4).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
                 });
-                // Mark dead ADD instructions for single-use args that used FpRelative encoding.
-                // Only safe to remove if the variable is used exactly once in this block.
-                // Deferred removal at end of compile_lines to avoid index invalidation.
+                // Accumulate FpRelative use counts; dead ADD removal is deferred to finalization
+                // so we can compare total uses vs FpRelative uses across the whole block.
                 for var in fp_relative_vars {
-                    if var_use_counts.get(&var) == Some(&1)
-                        && let Some(idx) = derived_fp_relative_add_idx.remove(&var)
-                    {
-                        dead_add_indices.insert(idx);
-                    }
+                    *fp_relative_use_count.entry(var.clone()).or_default() += 1;
                 }
             }
 
@@ -728,6 +815,7 @@ fn compile_lines(
                         .insert(var.clone(), compiler.stack_pos);
                     compiler.stack_pos += 1;
                 }
+                const_malloc_add_idx.insert(var.clone(), instructions.len());
                 handle_const_malloc(&mut instructions, compiler, var, size, label);
             }
             SimpleLine::CustomHint(hint, args) => {
@@ -844,6 +932,20 @@ fn compile_lines(
         });
     }
 
+    mark_dead_derived_adds(
+        &mut dead_add_indices,
+        &derived_fp_relative_add_idx,
+        &var_use_counts,
+        &fp_relative_use_count,
+        &mut dead_derived_base_vars,
+    );
+    mark_dead_const_malloc_adds(
+        &mut dead_add_indices,
+        &const_malloc_add_idx,
+        &var_use_counts,
+        &fp_relative_use_count,
+        &dead_derived_base_vars,
+    );
     Ok(apply_dead_add_removal(instructions, &dead_add_indices))
 }
 
