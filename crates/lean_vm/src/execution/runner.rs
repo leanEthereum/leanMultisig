@@ -6,9 +6,9 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, EXTENSION_BASIS_PTR, HintExecutionContext, N_TABLES,
-    NUM_REPEATED_ONES_IN_RESERVED_MEMORY, REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC, Table,
-    TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, EQ_MLE_COEFFS_LEN, EQ_MLE_COEFFS_PTR, EXTENSION_BASIS_PTR,
+    HintExecutionContext, N_TABLES, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, REPEATED_ONES_PTR,
+    SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC, Table, TableTrace,
 };
 use backend::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,6 +41,9 @@ pub fn build_public_memory(non_reserved_public_input: &[F]) -> Vec<F> {
 
     public_memory[POSEIDON_16_NULL_HASH_PTR..][..DIGEST_LEN].copy_from_slice(get_poseidon_16_of_zero());
     public_memory[REPEATED_ONES_PTR..][..NUM_REPEATED_ONES_IN_RESERVED_MEMORY].fill(F::ONE);
+
+    public_memory[EQ_MLE_COEFFS_PTR..][..EQ_MLE_COEFFS_LEN].copy_from_slice(&[F::TWO, F::NEG_ONE, F::NEG_ONE, F::ONE]);
+
     public_memory
 }
 

@@ -98,24 +98,25 @@ def eq_mle_extension(a, b, n):
 
 
 def eq_mle_extension_const(a, b, n: Const):
-    buff = Array(n * DIM)
+    # eq(a, b) = prod_i (a_i * b_i + (1-a_i)*(1-b_i)) = prod_i (2*a_i*b_i - a_i - b_i + 1)
+
+    eqs = Array(n * DIM)
 
     for i in unroll(0, n):
-        shift = i * DIM
-        ai = a + shift
-        bi = b + shift
-        ab = mul_extension_ret(ai, bi)
-        buff[i * DIM] = 1 + 2 * ab[0] - ai[0] - bi[0]
-        for j in unroll(1, DIM):
-            buff[i * DIM + j] = 2 * ab[j] - ai[j] - bi[j]
+        ai = a + i * DIM
+        bi = b + i * DIM
+        temp = Array(4 * DIM)
+        mul_extension(ai, bi, temp)
+        copy_5(ai, temp + DIM)
+        copy_5(bi, temp + 2 * DIM)
+        set_to_one(temp + 3 * DIM)
+        dot_product(EQ_MLE_COEFFS_PTR, temp, eqs + i * DIM, 4, BE)
 
-    current_prod: Mut = buff
+    prods = Array(n * DIM)
+    copy_5(eqs, prods)
     for i in unroll(0, n - 1):
-        next_prod = Array(DIM)
-        mul_extension(current_prod, buff + (i + 1) * DIM, next_prod)
-        current_prod = next_prod
-
-    return current_prod
+        mul_extension(prods + i * DIM, eqs + (i + 1) * DIM, prods + (i + 1) * DIM)
+    return prods + (n - 1) * DIM
 
 
 @inline
