@@ -117,21 +117,24 @@ def eq_mle_extension_base_const(a, b, n: Const):
     # a: base
     # b: extension
 
-    buff = Array(n * DIM)
+    buff = Array(n * (DIM + 1))
 
     for i in unroll(0, n):
         ai = a[i]
         bi = b + i * DIM
         ai_double = ai * 2
         ai_double_minus_one = ai_double - 1
-        buff[i * DIM] = 1 + ai_double_minus_one * bi[0] - ai
-        for j in unroll(1, DIM):
-            buff[i * DIM +j] = ai_double_minus_one * bi[j]
+        buff[i * (DIM + 1)] = 1 + ai_double_minus_one * bi[0] - ai
+        ai_double_minus_one_ptr = Array(1)
+        ai_double_minus_one_ptr[0] = ai_double_minus_one
+        dot_product(ai_double_minus_one_ptr, bi + 1, buff + i * (DIM + 1) + 1, 1, BE)
+        # for j in unroll(1, DIM):
+        #     buff[i * DIM +j] = ai_double_minus_one * bi[j]
 
     prods = Array(n * DIM)
     copy_5(buff, prods)
     for i in unroll(0, n - 1):
-        mul_extension(prods + i * DIM, buff + (i + 1) * DIM, prods + (i + 1) * DIM)
+        mul_extension(prods + i * DIM, buff + (i + 1) * (DIM + 1), prods + (i + 1) * DIM)
     return prods + (n - 1) * DIM
 
 @inline
