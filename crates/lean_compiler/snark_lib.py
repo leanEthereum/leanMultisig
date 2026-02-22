@@ -81,8 +81,28 @@ def poseidon16(left, right, output, mode):
     _ = left, right, output, mode
 
 
-def dot_product(a, b, result, length, mode):
-    _ = a, b, result, length, mode
+def add_be(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def add_ee(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def dot_product_be(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def dot_product_ee(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def poly_eq_be(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def poly_eq_ee(a, b, result, length=None):
+    _ = a, b, result, length
 
 
 def hint_decompose_bits(value, bits, n_bits, endian):

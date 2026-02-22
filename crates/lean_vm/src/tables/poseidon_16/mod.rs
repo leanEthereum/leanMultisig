@@ -12,7 +12,7 @@ const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 
 const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
 const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
 
-pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation between Poseidon / DotProduct precompiles
+pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation between Poseidon / ExtensionOp precompiles
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_A: ColIndex = 1;
