@@ -632,11 +632,13 @@ def next_mle(x, y, n):
     for i in range(0, n):
         xi = x + i * DIM
         yi = y + i * DIM
-        xy = mul_extension_ret(xi, yi)
-        one_minus_x = one_minus_self_extension_ret(xi)
-        one_minus_y = one_minus_self_extension_ret(yi)
-        prod_one_minus = mul_extension_ret(one_minus_x, one_minus_y)
-        eq_i = add_extension_ret(xy, prod_one_minus)
+        temp = Array(4 * DIM)
+        mul_extension(xi, yi, temp)
+        copy_5(xi, temp + DIM)
+        copy_5(yi, temp + 2 * DIM)
+        set_to_one(temp + 3 * DIM)
+        eq_i = Array(DIM)
+        dot_product(EQ_MLE_COEFFS_PTR, temp, eq_i, 4, BE)
         mul_extension(eq_prefix + i * DIM, eq_i, eq_prefix + (i + 1) * DIM)
 
     # Build low_suffix[0..n+1] where low_suffix[i] = prod_{j>=i} (x[j] * (1-y[j]))
