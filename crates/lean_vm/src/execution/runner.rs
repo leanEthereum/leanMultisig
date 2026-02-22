@@ -284,11 +284,26 @@ fn execute_bytecode_helper(
         .filter(|&&x| x.is_some())
         .count();
 
+    let dot_trace = &traces[&Table::dot_product()];
+    let dot_product_length_histogram = {
+        let mut hist = BTreeMap::new();
+        let flag_col = &dot_trace.base[1]; // DOT_COL_FLAG
+        let len_col = &dot_trace.base[3]; // DOT_COL_LEN
+        for (i, &flag) in flag_col.iter().enumerate() {
+            if flag == F::ONE {
+                let len = len_col[i].to_usize();
+                *hist.entry(len).or_insert(0) += 1;
+            }
+        }
+        hist
+    };
+
     let metadata = ExecutionMetadata {
         cycles,
         memory: memory.0.len(),
         n_poseidons: traces[&Table::poseidon16()].base[0].len(),
-        n_dot_products: traces[&Table::dot_product()].base[0].len(),
+        n_dot_products: dot_trace.base[0].len(),
+        dot_product_length_histogram,
         bytecode_size: bytecode.instructions.len(),
         public_input_size: public_input.len(),
         private_input_size: private_input.len(),

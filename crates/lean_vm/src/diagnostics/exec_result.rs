@@ -12,6 +12,7 @@ pub struct ExecutionMetadata {
     pub memory: usize,
     pub n_poseidons: usize,
     pub n_dot_products: usize,
+    pub dot_product_length_histogram: BTreeMap<usize, usize>,
     pub bytecode_size: usize,
     pub public_input_size: usize,
     pub private_input_size: usize,
@@ -72,6 +73,23 @@ impl ExecutionMetadata {
         }
         if self.n_dot_products > 0 {
             out.push_str(&format!("DotProduct calls: {}\n", pretty_integer(self.n_dot_products)));
+            let mut total_rows_gt1 = 0usize;
+            for (&len, &count) in &self.dot_product_length_histogram {
+                out.push_str(&format!(
+                    "  length {}: {} calls\n",
+                    pretty_integer(len),
+                    pretty_integer(count)
+                ));
+                if len > 1 {
+                    total_rows_gt1 += len * count;
+                }
+            }
+            if total_rows_gt1 > 0 {
+                out.push_str(&format!(
+                    "  total rows (length > 1): {}\n",
+                    pretty_integer(total_rows_gt1)
+                ));
+            }
         }
         out.push_str("──────────────────────────────────────────────────────────────────────────\n");
 

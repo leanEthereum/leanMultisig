@@ -373,7 +373,7 @@ pub fn aggregate(
         (&non_reserved_public_input, &private_input),
         &xmss_poseidons_16_precomputed,
         &whir_config,
-        false,
+        true,
     );
 
     AggregatedSigs {
