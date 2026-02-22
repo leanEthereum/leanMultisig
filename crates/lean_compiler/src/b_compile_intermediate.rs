@@ -41,6 +41,14 @@ impl Compiler {
         false
     }
 
+    fn register_var_if_needed(&mut self, var: &Var) {
+        if !self.is_in_scope(var) {
+            let scope = self.stack_frame_layout.scopes.last_mut().unwrap();
+            scope.var_positions.insert(var.clone(), self.stack_pos);
+            self.stack_pos += 1;
+        }
+    }
+
     fn get_offset(&self, var: &VarOrConstMallocAccess) -> ConstExpression {
         match var {
             VarOrConstMallocAccess::Var(var) => {
@@ -61,25 +69,6 @@ impl Compiler {
     }
 }
 
-impl SimpleExpr {
-    fn to_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediateValue {
-        match self {
-            Self::Memory(VarOrConstMallocAccess::Var(var)) => IntermediateValue::MemoryAfterFp {
-                offset: compiler.get_offset(&var.clone().into()),
-            },
-            Self::Memory(VarOrConstMallocAccess::ConstMallocAccess { malloc_label, offset }) => {
-                IntermediateValue::MemoryAfterFp {
-                    offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
-                        malloc_label: *malloc_label,
-                        offset: offset.clone(),
-                    }),
-                }
-            }
-            Self::Constant(c) => IntermediateValue::Constant(c.clone()),
-        }
-    }
-}
-
 impl IntermediateValue {
     fn from_simple_expr(expr: &SimpleExpr, compiler: &Compiler) -> Self {
         match expr {
@@ -96,10 +85,6 @@ impl IntermediateValue {
             }
             SimpleExpr::Constant(c) => Self::Constant(c.clone()),
         }
-    }
-
-    fn from_var_or_const_malloc_access(var_or_const: &VarOrConstMallocAccess, compiler: &Compiler) -> Self {
-        Self::from_simple_expr(&var_or_const.clone().into(), compiler)
     }
 }
 
@@ -219,14 +204,8 @@ fn compile_lines(
                     continue;
                 }
 
-                if let VarOrConstMallocAccess::Var(var) = var
-                    && !compiler.is_in_scope(var)
-                {
-                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout
-                        .var_positions
-                        .insert(var.clone(), compiler.stack_pos);
-                    compiler.stack_pos += 1;
+                if let VarOrConstMallocAccess::Var(var) = var {
+                    compiler.register_var_if_needed(var);
                 }
 
                 let arg0 = IntermediateValue::from_simple_expr(arg0, compiler);
@@ -236,7 +215,7 @@ fn compile_lines(
                     *operation,
                     arg0,
                     arg1,
-                    IntermediateValue::from_var_or_const_malloc_access(var, compiler),
+                    IntermediateValue::from_simple_expr(&var.clone().into(), compiler),
                 ));
             }
 
@@ -434,14 +413,8 @@ fn compile_lines(
             }
 
             SimpleLine::RawAccess { res, index, shift } => {
-                if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = res
-                    && !compiler.is_in_scope(var)
-                {
-                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout
-                        .var_positions
-                        .insert(var.clone(), compiler.stack_pos);
-                    compiler.stack_pos += 1;
+                if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = res {
+                    compiler.register_var_if_needed(var);
                 }
                 let shift_0 = match index {
                     SimpleExpr::Constant(c) => c.clone(),
@@ -450,7 +423,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Deref {
                     shift_0,
                     shift_1: shift.clone(),
-                    res: res.to_mem_after_fp_or_constant(compiler),
+                    res: IntermediateValue::from_simple_expr(res, compiler),
                 });
             }
 
@@ -475,13 +448,7 @@ fn compile_lines(
                 )?);
 
                 for var in return_data.iter() {
-                    if !compiler.is_in_scope(var) {
-                        let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                        current_scope_layout
-                            .var_positions
-                            .insert(var.clone(), compiler.stack_pos);
-                        compiler.stack_pos += 1;
-                    }
+                    compiler.register_var_if_needed(var);
                 }
 
                 let after_call = {
@@ -581,13 +548,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Panic);
             }
             SimpleLine::HintMAlloc { var, size } => {
-                if !compiler.is_in_scope(var) {
-                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout
-                        .var_positions
-                        .insert(var.clone(), compiler.stack_pos);
-                    compiler.stack_pos += 1;
-                }
+                compiler.register_var_if_needed(var);
                 instructions.push(IntermediateInstruction::RequestMemory {
                     offset: compiler.get_offset(&var.clone().into()),
                     size: IntermediateValue::from_simple_expr(size, compiler),
@@ -595,12 +556,8 @@ fn compile_lines(
             }
             SimpleLine::ConstMalloc { var, size, label } => {
                 let size = size.naive_eval().unwrap().to_usize();
-                if !compiler.dead_fp_relative_vars.contains(var) && !compiler.is_in_scope(var) {
-                    let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
-                    current_scope_layout
-                        .var_positions
-                        .insert(var.clone(), compiler.stack_pos);
-                    compiler.stack_pos += 1;
+                if !compiler.dead_fp_relative_vars.contains(var) {
+                    compiler.register_var_if_needed(var);
                 }
                 handle_const_malloc(&mut instructions, compiler, var, size, label);
             }
@@ -772,7 +729,7 @@ fn setup_function_call(
         instructions.push(IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
             shift_1: (2 + i).into(),
-            res: arg.to_mem_after_fp_or_constant(compiler),
+            res: IntermediateValue::from_simple_expr(arg, compiler),
         });
     }
 

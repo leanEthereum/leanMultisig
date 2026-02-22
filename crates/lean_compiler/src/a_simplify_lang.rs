@@ -1179,17 +1179,30 @@ fn transform_mutable_in_loops_in_lines(
 
                 let location = *location;
 
+                let start_is_zero = start.as_scalar() == Some(F::ZERO);
+
                 // Create size variable: @loop_size_{suffix} = end - start
-                // TODO opti if start is zero
+                // When start is zero, use end directly as the size
                 let size_var = format!("@loop_size_{suffix}");
-                new_lines.push(Line::Statement {
-                    targets: vec![AssignmentTarget::Var {
-                        var: size_var.clone(),
-                        is_mutable: false,
-                    }],
-                    value: Expression::MathExpr(MathOperation::Sub, vec![end.clone(), start.clone()]),
-                    location,
-                });
+                if start_is_zero {
+                    new_lines.push(Line::Statement {
+                        targets: vec![AssignmentTarget::Var {
+                            var: size_var.clone(),
+                            is_mutable: false,
+                        }],
+                        value: end.clone(),
+                        location,
+                    });
+                } else {
+                    new_lines.push(Line::Statement {
+                        targets: vec![AssignmentTarget::Var {
+                            var: size_var.clone(),
+                            is_mutable: false,
+                        }],
+                        value: Expression::MathExpr(MathOperation::Sub, vec![end.clone(), start.clone()]),
+                        location,
+                    });
+                }
 
                 let mut var_to_buff: BTreeMap<Var, (Var, Var)> = BTreeMap::new(); // var -> (buff_name, body_name)
 
@@ -1232,19 +1245,30 @@ fn transform_mutable_in_loops_in_lines(
                 let iterator = iterator.clone();
                 let mut new_body = Vec::new();
 
-                // buff_idx = i - start
+                // buff_idx = i - start (or just i when start is zero)
                 let buff_idx_var = format!("@loop_buff_idx_{suffix}");
-                new_body.push(Line::Statement {
-                    targets: vec![AssignmentTarget::Var {
-                        var: buff_idx_var.clone(),
-                        is_mutable: false,
-                    }],
-                    value: Expression::MathExpr(
-                        MathOperation::Sub,
-                        vec![Expression::var(iterator.clone()), start.clone()], // TODO opti if start is zero
-                    ),
-                    location,
-                });
+                if start_is_zero {
+                    new_body.push(Line::Statement {
+                        targets: vec![AssignmentTarget::Var {
+                            var: buff_idx_var.clone(),
+                            is_mutable: false,
+                        }],
+                        value: Expression::var(iterator.clone()),
+                        location,
+                    });
+                } else {
+                    new_body.push(Line::Statement {
+                        targets: vec![AssignmentTarget::Var {
+                            var: buff_idx_var.clone(),
+                            is_mutable: false,
+                        }],
+                        value: Expression::MathExpr(
+                            MathOperation::Sub,
+                            vec![Expression::var(iterator.clone()), start.clone()],
+                        ),
+                        location,
+                    });
+                }
 
                 // For each modified variable: mut body_var = buff[buff_idx]
                 for (var, (buff_name, body_name)) in &var_to_buff {
@@ -2178,6 +2202,7 @@ fn simplify_lines(
                             handle_array_assignment(
                                 ctx,
                                 state,
+                                const_malloc,
                                 &mut res,
                                 &array,
                                 &[simplified_index],
@@ -2246,6 +2271,7 @@ fn simplify_lines(
                                             handle_array_assignment(
                                                 ctx,
                                                 state,
+                                                const_malloc,
                                                 &mut res,
                                                 array,
                                                 &simplified_index,
@@ -2324,6 +2350,7 @@ fn simplify_lines(
                                     handle_array_assignment(
                                         ctx,
                                         state,
+                                        const_malloc,
                                         &mut res,
                                         array,
                                         &[simplified_index],
@@ -2897,6 +2924,7 @@ fn simplify_expr(
             handle_array_assignment(
                 ctx,
                 state,
+                const_malloc,
                 lines,
                 array,
                 &[simplified_index],
@@ -3368,6 +3396,7 @@ pub enum ArrayAccessType {
 fn handle_array_assignment(
     ctx: &SimplifyContext<'_>,
     state: &mut SimplifyState<'_>,
+    const_malloc: &ConstMalloc,
     res: &mut Vec<SimpleLine>,
     array: &Var,
     simplified_index: &[SimpleExpr],
@@ -3397,12 +3426,32 @@ fn handle_array_assignment(
         return;
     }
 
+    // Use ConstMallocAccess when the array is a const_malloc and the index is a constant.
+    // This compiles to a direct ADD (fp + offset) instead of a DEREF (double dereference).
+    if simplified_index.len() == 1
+        && let SimpleExpr::Constant(offset) = &simplified_index[0]
+        && let Some(&label) = const_malloc.map.get(&array)
+    {
+        let const_access = VarOrConstMallocAccess::ConstMallocAccess {
+            malloc_label: label,
+            offset: offset.clone(),
+        };
+        match access_type {
+            ArrayAccessType::VarIsAssigned(var) => {
+                res.push(SimpleLine::equality(var, const_access));
+            }
+            ArrayAccessType::ArrayIsAssigned(expr) => {
+                res.push(SimpleLine::equality(const_access, expr));
+            }
+        }
+        return;
+    }
+
     let value_simplified = match access_type {
         ArrayAccessType::VarIsAssigned(var) => SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)),
         ArrayAccessType::ArrayIsAssigned(expr) => expr,
     };
 
-    // TODO opti: in some case we could use ConstMallocAccess
     assert_eq!(simplified_index.len(), 1);
     let simplified_index = simplified_index[0].clone();
     let (index_var, shift) = match simplified_index {
@@ -3741,76 +3790,30 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
 
 fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
     for line in lines {
+        // Debug: assert target vars are not const-replaced
         match line {
-            Line::Match { value, arms, .. } => {
-                replace_vars_by_const_in_expr(value, map);
-                for (_, statements) in arms {
-                    replace_vars_by_const_in_lines(statements, map);
-                }
-            }
             Line::ForwardDeclaration { var, .. } => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
             }
-            Line::Statement { targets, value, .. } => {
-                replace_vars_by_const_in_expr(value, map);
-                for target in targets {
+            Line::Statement { targets, .. } => {
+                for target in targets.iter() {
                     match target {
                         AssignmentTarget::Var { var, .. } => {
                             assert!(!map.contains_key(var), "Variable {var} is a constant");
                         }
-                        AssignmentTarget::ArrayAccess { array, index } => {
+                        AssignmentTarget::ArrayAccess { array, .. } => {
                             assert!(!map.contains_key(array), "Array {array} is a constant");
-                            replace_vars_by_const_in_expr(index, map);
                         }
                     }
                 }
             }
-            Line::IfCondition {
-                condition,
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                match condition {
-                    Condition::Comparison(cond) => {
-                        replace_vars_by_const_in_expr(&mut cond.left, map);
-                        replace_vars_by_const_in_expr(&mut cond.right, map);
-                    }
-                    Condition::AssumeBoolean(expr) => {
-                        replace_vars_by_const_in_expr(expr, map);
-                    }
-                }
-                replace_vars_by_const_in_lines(then_branch, map);
-                replace_vars_by_const_in_lines(else_branch, map);
-            }
-            Line::ForLoop {
-                body,
-                start,
-                end,
-                loop_kind,
-                ..
-            } => {
-                replace_vars_by_const_in_expr(start, map);
-                replace_vars_by_const_in_expr(end, map);
-                if let LoopKind::DynamicUnroll { n_bits } = loop_kind {
-                    replace_vars_by_const_in_expr(n_bits, map);
-                }
-                replace_vars_by_const_in_lines(body, map);
-            }
-            Line::Assert { boolean, .. } => {
-                replace_vars_by_const_in_expr(&mut boolean.left, map);
-                replace_vars_by_const_in_expr(&mut boolean.right, map);
-            }
-            Line::FunctionRet { return_data } => {
-                for ret in return_data {
-                    replace_vars_by_const_in_expr(ret, map);
-                }
-            }
-            Line::LocationReport { .. } | Line::Panic { .. } => {}
-            Line::VecDeclaration { .. } | Line::Push { .. } | Line::Pop { .. } => {
-                // VecDeclaration, Push and Pop contain VecLiteral elements which may have expressions
-                // but these are compile-time constructs handled separately
-            }
+            _ => {}
+        }
+        for expr in line.expressions_mut() {
+            replace_vars_by_const_in_expr(expr, map);
+        }
+        for block in line.nested_blocks_mut() {
+            replace_vars_by_const_in_lines(block, map);
         }
     }
 }
