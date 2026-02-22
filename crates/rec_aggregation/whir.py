@@ -24,7 +24,6 @@ def whir_open(
     claimed_sum: Mut,
 ):
     n_rounds, n_final_vars, num_queries, num_oods, query_grinding_bits, folding_grinding = get_whir_params(n_vars, initial_log_inv_rate)
-    n_final_coeffs = powers_of_two(n_final_vars)
     folding_factors = Array(n_rounds + 1)
     folding_factors[0] = WHIR_INITIAL_FOLDING_FACTOR
     for i in range(1, n_rounds + 1):
@@ -88,15 +87,8 @@ def whir_open(
 
     final_circle_values = all_circle_values[n_rounds]
     for i in range(0, num_queries[n_rounds]):
-        powers_of_2_rev = expand_from_univariate_base(final_circle_values[i], n_final_vars)
-        poly_eq = match_range(n_final_vars, range(MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1), lambda n: poly_eq_base(powers_of_2_rev, n))
-        final_pol_evaluated_on_circle = Array(DIM)
-        dot_product_be_dynamic(
-            poly_eq,
-            final_coeffcients,
-            final_pol_evaluated_on_circle,
-            n_final_coeffs,
-        )
+        alpha = final_circle_values[i]
+        final_pol_evaluated_on_circle = match_range(n_final_vars, range(MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1), lambda n: univariate_eval_on_base(final_coeffcients, alpha, n))
         copy_5(final_pol_evaluated_on_circle, final_folds + i * DIM)
 
     fs, all_folding_randomness[n_rounds + 1], end_sum = sumcheck_verify(fs, n_final_vars, claimed_sum, 2)
@@ -158,9 +150,7 @@ def whir_open(
         )
         s = add_extension_ret(s, s7)
         s = add_extension_ret(summed_ood, s)
-    poly_eq_final = poly_eq_extension_dynamic(all_folding_randomness[n_rounds + 1], n_final_vars)
-    final_value = Array(DIM)
-    dot_product_ee_dynamic(poly_eq_final, final_coeffcients, final_value, n_final_coeffs)
+    final_value = match_range(n_final_vars, range(MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1), lambda n: eval_multilinear_coeffs_rev(final_coeffcients, all_folding_randomness[n_rounds + 1], n))
     # copy_5(mul_extension_ret(s, final_value), end_sum);
 
     return fs, folding_randomness_global, s, final_value, end_sum

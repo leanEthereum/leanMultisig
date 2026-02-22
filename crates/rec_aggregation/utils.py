@@ -76,20 +76,6 @@ def poly_eq_extension(point, n: Const):
             )
     return res + (2**n - 1) * DIM
 
-
-def poly_eq_base(point, n: Const):
-    # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
-
-    res = Array((2 ** (n + 1) - 1))
-    res[0] = 1
-    for s in unroll(0, n):
-        p = point[n - 1 - s]
-        for i in unroll(0, 2**s):
-            res[2 ** (s + 1) - 1 + 2**s + i] = p * res[2**s - 1 + i]
-            res[2 ** (s + 1) - 1 + i] = res[2**s - 1 + i] - res[2 ** (s + 1) - 1 + 2**s + i]
-    return res + (2**n - 1)
-
-
 def eq_mle_extension(a, b, n):
     debug_assert(n < 30)
     debug_assert(0 < n)
@@ -205,6 +191,31 @@ def expand_from_univariate_ext(alpha, n):
     for i in range(0, n - 1):
         mul_extension(res + i * DIM, res + i * DIM, res + (i + 1) * DIM)
     return res
+
+
+def univariate_eval_on_base(coeffs, alpha, n: Const):
+    # coeffs= univariate poly of degree 2^n
+    # alpha: base field element
+    # -> evaluates it at (1, alpha, alpha^2, alpha^4, ..., alpha^(2^(n-1)))
+    alpha_powers = Array(2**n)
+    alpha_powers[0] = 1
+    for i in unroll(0, 2**n - 1):
+        alpha_powers[i + 1] = alpha_powers[i] * alpha
+    result = Array(DIM)
+    dot_product(alpha_powers, coeffs, result, 2**n, BE)
+    return result
+
+
+def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
+    # Evaluate multilinear polynomial in coefficient form (bit-reversed) at point.
+    basis = Array(2**n * DIM)
+    set_to_one(basis)
+    for k in unroll(0, n):
+        for j in unroll(0, 2**k):
+            mul_extension(basis + j * DIM, point + k * DIM, basis + (j + 2**k) * DIM)
+    result = Array(DIM)
+    dot_product(coeffs, basis, result, 2**n, EE)
+    return result
 
 
 def dot_product_be_dynamic(a, b, res, n):

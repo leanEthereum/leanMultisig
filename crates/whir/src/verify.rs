@@ -161,7 +161,7 @@ where
 
         // In the final round we receive the full polynomial instead of a commitment.
         let n_final_coeffs = 1 << self.n_vars_of_final_polynomial();
-        let final_evaluations = verifier_state.next_extension_scalars_vec(n_final_coeffs)?;
+        let final_coefficients = verifier_state.next_extension_scalars_vec(n_final_coeffs)?;
 
         // Verify in-domain challenges on the previous commitment.
         let stir_constraints = self.verify_stir_challenges(
@@ -175,7 +175,7 @@ where
         // Verify stir constraints directly on final polynomial
         stir_constraints
             .iter()
-            .all(|c| verify_constraint(c, &final_evaluations))
+            .all(|c| verify_constraint_coeffs(c, &final_coefficients))
             .then_some(())
             .ok_or(ProofError::InvalidProof)
             .unwrap();
@@ -194,8 +194,10 @@ where
 
         let evaluation_of_weights = self.eval_constraints_poly(&round_constraints, folding_randomness.clone());
 
-        // Check the final sumcheck evaluation
-        let final_value = final_evaluations.evaluate(&final_sumcheck_randomness);
+        // Check the final sumcheck evaluation (coefficient form, reversed point)
+        let mut reversed_point = final_sumcheck_randomness.0.clone();
+        reversed_point.reverse();
+        let final_value = eval_multilinear_coeffs(&final_coefficients, &reversed_point);
         if claimed_sum != evaluation_of_weights * final_value {
             panic!();
         }
@@ -417,12 +419,19 @@ where
     }
 }
 
-fn verify_constraint<EF: Field>(constraint: &SparseStatement<EF>, poly: &[EF]) -> bool {
-    // poly.evaluate(&constraint.point) == constraint.value
-    constraint
-        .values
-        .iter()
-        .all(|e| poly.evaluate_sparse(e.selector, &constraint.point) == e.value)
+fn verify_constraint_coeffs<EF: Field>(constraint: &SparseStatement<EF>, coeffs: &[EF]) -> bool {
+    assert_eq!(constraint.selector_num_variables(), 0);
+    let alpha = constraint.point[0];
+    // Verify the point is expand_from_univariate(alpha, n): [alpha, alpha^2, alpha^4, ...]
+    assert!(
+        constraint
+            .point
+            .iter()
+            .zip(constraint.point.iter().skip(1))
+            .all(|(&a, &b)| a * a == b)
+    );
+    let univariate_eval = coeffs.iter().rfold(EF::ZERO, |acc, &c| acc * alpha + c);
+    constraint.values.iter().all(|e| univariate_eval == e.value)
 }
 
 /// The full vector of folding randomness values, in reverse round order.
