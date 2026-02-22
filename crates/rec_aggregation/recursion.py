@@ -380,15 +380,14 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
             batching_scalar_powers = powers_const(batching_scalar, n_down_columns)
             evals_down_f = inner_evals + n_up_columns_f * DIM
             evals_down_ef = inner_evals + (n_up_columns_f + n_down_columns_f + n_up_columns_ef) * DIM
-            inner_sum: Mut = dot_product_ret(evals_down_f, batching_scalar_powers, n_down_columns_f, EE)
+            inner_sum: Mut = dot_product_ee_ret(evals_down_f, batching_scalar_powers, n_down_columns_f)
             if n_down_columns_ef != 0:
                 inner_sum = add_extension_ret(
                     inner_sum,
-                    dot_product_ret(
+                    dot_product_ee_ret(
                         evals_down_ef,
                         batching_scalar_powers + n_down_columns_f * DIM,
                         n_down_columns_ef,
-                        EE,
                     ),
                 )
 
@@ -397,8 +396,8 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
             matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows)
 
             fs, evals_f_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns_f)
-            batched_col_down_sc_eval: Mut = dot_product_ret(
-                evals_f_on_down_columns, batching_scalar_powers, n_down_columns_f, EE
+            batched_col_down_sc_eval: Mut = dot_product_ee_ret(
+                evals_f_on_down_columns, batching_scalar_powers, n_down_columns_f
             )
 
             evals_ef_on_down_columns: Imu
@@ -406,11 +405,10 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
                 fs, evals_ef_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns_ef)
                 batched_col_down_sc_eval = add_extension_ret(
                     batched_col_down_sc_eval,
-                    dot_product_ret(
+                    dot_product_ee_ret(
                         evals_ef_on_down_columns,
                         batching_scalar_powers + n_down_columns_f * DIM,
                         n_down_columns_ef,
-                        EE,
                     ),
                 )
 
@@ -459,13 +457,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
     fs, public_memory_random_point = fs_sample_many_ef(fs, INNER_PUBLIC_MEMORY_LOG_SIZE)
     poly_eq_public_mem = poly_eq_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
     public_memory_eval = Array(DIM)
-    dot_product(
-        inner_public_memory,
-        poly_eq_public_mem,
-        public_memory_eval,
-        2**INNER_PUBLIC_MEMORY_LOG_SIZE,
-        BE
-    )
+    dot_product_be_const(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
 
     # WHIR BASE
     combination_randomness_gen: Mut
@@ -632,7 +624,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
 
 def multilinear_location_prefix(offset, n_vars, point):
     bits = checked_decompose_bits_small_value(offset, n_vars)
-    res = eq_mle_base_extension_boolean(bits, point, n_vars)
+    res = eq_mle_base_extension(bits, point, n_vars)
     return res
 
 
@@ -640,7 +632,7 @@ def fingerprint_2(table_index, data_1, data_2, logup_alphas_eq_poly):
     buff = Array(DIM * 2)
     copy_5(data_1, buff)
     copy_5(data_2, buff + DIM)
-    res: Mut = dot_product_ret(buff, logup_alphas_eq_poly, 2, EE)
+    res: Mut = dot_product_ee_ret(buff, logup_alphas_eq_poly, 2)
     res = add_extension_ret(
         res, mul_base_extension_ret(table_index, logup_alphas_eq_poly + (2 ** log2_ceil(MAX_BUS_WIDTH) - 1) * DIM)
     )
@@ -648,7 +640,7 @@ def fingerprint_2(table_index, data_1, data_2, logup_alphas_eq_poly):
 
 
 def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
-    res: Mut = dot_product_ret(instr_evals, logup_alphas_eq_poly, N_INSTRUCTION_COLUMNS, EE)
+    res: Mut = dot_product_ee_ret(instr_evals, logup_alphas_eq_poly, N_INSTRUCTION_COLUMNS)
     res = add_extension_ret(res, mul_extension_ret(eval_on_pc, logup_alphas_eq_poly + N_INSTRUCTION_COLUMNS * DIM))
     res = add_extension_ret(
         res,
@@ -673,8 +665,8 @@ def verify_gkr_quotient(fs: Mut, n_vars):
 
     point_poly_eq = poly_eq_extension(points[0], 1)
 
-    first_claim_num = dot_product_ret(nums, point_poly_eq, 2, EE)
-    first_claim_den = dot_product_ret(denoms, point_poly_eq, 2, EE)
+    first_claim_num = dot_product_ee_ret(nums, point_poly_eq, 2)
+    first_claim_den = dot_product_ee_ret(denoms, point_poly_eq, 2)
     claims_num[0] = first_claim_num
     claims_den[0] = first_claim_den
 
@@ -712,8 +704,8 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     fs, beta = fs_sample_ef(fs)
 
     point_poly_eq = poly_eq_extension(beta, 1)
-    new_claim_num = dot_product_ret(inner_evals, point_poly_eq, 2, EE)
-    new_claim_den = dot_product_ret(inner_evals + 2 * DIM, point_poly_eq, 2, EE)
+    new_claim_num = dot_product_ee_ret(inner_evals, point_poly_eq, 2)
+    new_claim_den = dot_product_ee_ret(inner_evals + 2 * DIM, point_poly_eq, 2)
 
     copy_5(beta, postponed_point)
 

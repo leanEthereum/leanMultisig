@@ -20,17 +20,37 @@ fn test_zk_vm_all_precompiles_helper(fuzzing: bool) {
     let program_str = r#"
 DIM = 5
 N = 11
+M = 3
 DIGEST_LEN = 8
-
-# Dot product precompile:
-BE = 1  # base-extension
-EE = 0  # extension-extension
 
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
     poseidon16(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
-    dot_product(pub_start + 88, pub_start + 88 + N, pub_start + 1000, N, BE)
-    dot_product(pub_start + 88 + N, pub_start + 88 + N * (DIM + 1), pub_start + 1000 + DIM, N, EE)
+
+    base_ptr = pub_start + 88
+    ext_a_ptr = pub_start + 88 + N
+    ext_b_ptr = pub_start + 88 + N * (DIM + 1)
+
+    # dot_product_be: sum_i base[i] * ext_a[i]
+    dot_product_be(base_ptr, ext_a_ptr, pub_start + 1000, N)
+
+    # dot_product_ee: sum_i ext_a[i] * ext_b[i]
+    dot_product_ee(ext_a_ptr, ext_b_ptr, pub_start + 1000 + DIM, N)
+
+    # add_be: sum_i (base[i] + ext_a[i])
+    add_be(base_ptr, ext_a_ptr, pub_start + 1200, N)
+
+    # add_ee: sum_i (ext_a[i] + ext_b[i])
+    add_ee(ext_a_ptr, ext_b_ptr, pub_start + 1200 + DIM, N)
+
+    # poly_eq_be: prod_i (a[i]*b[i] + (1-a[i])*(1-b[i])) with base a, ext b
+    slice_a_ptr = pub_start + 1100
+    slice_b_ptr = pub_start + 1100 + M
+    poly_eq_be(slice_a_ptr, slice_b_ptr, pub_start + 1100 + M + M * DIM, M)
+
+    # poly_eq_ee: prod_i (a[i]*b[i] + (1-a[i])*(1-b[i])) with ext a, ext b
+    poly_eq_ee(ext_a_ptr, ext_b_ptr, pub_start + 1300, N)
+
     c: Mut = 0
     for i in range(0,100):
         c += 1
@@ -40,53 +60,71 @@ def main():
 "#;
 
     const N: usize = 11;
+    const M: usize = 3;
 
     let mut rng = StdRng::seed_from_u64(0);
     let mut public_input = F::zero_vec(1 << 13);
 
+    // Poseidon test data
     let poseidon_16_compress_input: [F; 16] = rng.random();
     public_input[32..48].copy_from_slice(&poseidon_16_compress_input);
     public_input[48..56].copy_from_slice(&poseidon16_compress(poseidon_16_compress_input)[..8]);
-
     let poseidon_24_input: [F; 24] = rng.random();
     public_input[56..80].copy_from_slice(&poseidon_24_input);
 
-    let dot_product_slice_base: [F; N] = rng.random();
-    let dot_product_slice_ext_a: [EF; N] = rng.random();
-    let dot_product_slice_ext_b: [EF; N] = rng.random();
+    // Extension op operands: base[N], ext_a[N], ext_b[N]
+    let base_slice: [F; N] = rng.random();
+    let ext_a_slice: [EF; N] = rng.random();
+    let ext_b_slice: [EF; N] = rng.random();
 
-    public_input[88..][..N].copy_from_slice(&dot_product_slice_base);
-    public_input[88 + N..][..N * DIMENSION].copy_from_slice(
-        &dot_product_slice_ext_a
+    let ef_to_f = |slice: &[EF]| -> Vec<F> {
+        slice
             .iter()
-            .flat_map(|&x| x.as_basis_coefficients_slice().to_vec())
-            .collect::<Vec<F>>(),
-    );
-    public_input[88 + N + N * DIMENSION..][..N * DIMENSION].copy_from_slice(
-        &dot_product_slice_ext_b
-            .iter()
-            .flat_map(|&x| x.as_basis_coefficients_slice().to_vec())
-            .collect::<Vec<F>>(),
-    );
-    let dot_product_base_ext: EF = dot_product(dot_product_slice_ext_a.into_iter(), dot_product_slice_base.into_iter());
-    let dot_product_ext_ext: EF = dot_product(dot_product_slice_ext_a.into_iter(), dot_product_slice_ext_b.into_iter());
+            .flat_map(|x| x.as_basis_coefficients_slice().to_vec())
+            .collect()
+    };
 
-    public_input[1000..][..DIMENSION].copy_from_slice(dot_product_base_ext.as_basis_coefficients_slice());
-    public_input[1000 + DIMENSION..][..DIMENSION].copy_from_slice(dot_product_ext_ext.as_basis_coefficients_slice());
+    public_input[88..][..N].copy_from_slice(&base_slice);
+    public_input[88 + N..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_a_slice));
+    public_input[88 + N + N * DIMENSION..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_b_slice));
 
-    let slice_a: [F; 3] = rng.random();
-    let slice_b: [EF; 3] = rng.random();
-    let poly_eq = MultilinearPoint(slice_b.to_vec())
+    // dot_product_be result at 1000
+    let dot_product_be_result: EF = dot_product(ext_a_slice.into_iter(), base_slice.into_iter());
+    public_input[1000..][..DIMENSION].copy_from_slice(dot_product_be_result.as_basis_coefficients_slice());
+
+    // dot_product_ee result at 1005
+    let dot_product_ee_result: EF = dot_product(ext_a_slice.into_iter(), ext_b_slice.into_iter());
+    public_input[1000 + DIMENSION..][..DIMENSION].copy_from_slice(dot_product_ee_result.as_basis_coefficients_slice());
+
+    // add_be result at 1200: sum_i (EF::from(base[i]) + ext_a[i])
+    let add_be_result: EF = (0..N)
+        .map(|i| EF::from(base_slice[i]) + ext_a_slice[i])
+        .fold(EF::ZERO, |a, b| a + b);
+    public_input[1200..][..DIMENSION].copy_from_slice(add_be_result.as_basis_coefficients_slice());
+
+    // add_ee result at 1205: sum_i (ext_a[i] + ext_b[i])
+    let add_ee_result: EF = (0..N)
+        .map(|i| ext_a_slice[i] + ext_b_slice[i])
+        .fold(EF::ZERO, |a, b| a + b);
+    public_input[1200 + DIMENSION..][..DIMENSION].copy_from_slice(add_ee_result.as_basis_coefficients_slice());
+
+    // poly_eq_be operands: slice_a[M] (base), slice_b[M] (ext) at 1100
+    let slice_a: [F; M] = rng.random();
+    let slice_b: [EF; M] = rng.random();
+    public_input[1100..][..M].copy_from_slice(&slice_a);
+    public_input[1100 + M..][..M * DIMENSION].copy_from_slice(&ef_to_f(&slice_b));
+
+    // poly_eq_be result at 1100 + M + M*DIM = 1118
+    let poly_eq_be_result = MultilinearPoint(slice_b.to_vec())
         .eq_poly_outside(&MultilinearPoint(slice_a.iter().map(|&x| EF::from(x)).collect()));
-    public_input[1100..][..3].copy_from_slice(&slice_a);
-    public_input[1100 + 3..][..3 * DIMENSION].copy_from_slice(
-        slice_b
-            .iter()
-            .flat_map(|&x| x.as_basis_coefficients_slice().to_vec())
-            .collect::<Vec<F>>()
-            .as_slice(),
-    );
-    public_input[1100 + 3 + 3 * DIMENSION..][..DIMENSION].copy_from_slice(poly_eq.as_basis_coefficients_slice());
+    public_input[1100 + M + M * DIMENSION..][..DIMENSION]
+        .copy_from_slice(poly_eq_be_result.as_basis_coefficients_slice());
+
+    // poly_eq_ee result at 1300: prod_i (ext_a[i]*ext_b[i] + (1-ext_a[i])*(1-ext_b[i]))
+    let poly_eq_ee_result: EF = (0..N)
+        .map(|i| ext_a_slice[i] * ext_b_slice[i] + (EF::ONE - ext_a_slice[i]) * (EF::ONE - ext_b_slice[i]))
+        .fold(EF::ONE, |acc, x| acc * x);
+    public_input[1300..][..DIMENSION].copy_from_slice(poly_eq_ee_result.as_basis_coefficients_slice());
 
     test_zk_vm_helper(program_str, (&public_input, &[]), fuzzing);
 }

@@ -27,9 +27,6 @@ def main():
 #[test]
 fn test_div_extension_field() {
     let program = r#"
-# Dot product precompile:
-BE = 1  # base-extension
-EE = 0  # extension-extension
 DIM = 5
 
 def main():
@@ -49,12 +46,12 @@ def assert_eq_ext(x, y):
 
 def div_ext_1(n, d):
     quotient = Array(DIM)
-    dot_product(d, quotient, n, 1, EE)
+    dot_product_ee(d, quotient, n)
     return quotient
 
 def div_ext_2(n, d):
     quotient = Array(DIM)
-    dot_product(quotient, d, n, 1, EE)
+    dot_product_ee(quotient, d, n)
     return quotient
     "#;
 

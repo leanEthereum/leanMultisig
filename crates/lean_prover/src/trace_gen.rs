@@ -102,8 +102,8 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
     fill_trace_poseidon_16(&mut poseidon_trace.base);
 
-    let dot_product_trace = traces.get_mut(&Table::dot_product()).unwrap();
-    fill_trace_dot_product(dot_product_trace, &memory_padded);
+    let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
+    fill_trace_extension_op(extension_op_trace, &memory_padded);
 
     traces.insert(
         Table::execution(),
