@@ -104,9 +104,14 @@ def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits: Const):
     states = Array(num_chunks * DIGEST_LEN)
     poseidon16(ZERO_VEC_PTR, data, states)
     n_iters = num_chunks - 1
-    for j in dynamic_unroll(0, n_iters, num_chunks_bits):
-        poseidon16(states + j * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + (j + 1) * DIGEST_LEN)
-    return states + (num_chunks - 1) * DIGEST_LEN
+    state_ptr: Mut = states
+    data_ptr: Mut = data + DIGEST_LEN
+    for _ in dynamic_unroll(0, n_iters, num_chunks_bits):
+        new_state = state_ptr + DIGEST_LEN
+        poseidon16(state_ptr, data_ptr, new_state)
+        state_ptr = new_state
+        data_ptr = data_ptr + DIGEST_LEN
+    return state_ptr
 
 
 def fill_padded_chunk(dst, src, n):
