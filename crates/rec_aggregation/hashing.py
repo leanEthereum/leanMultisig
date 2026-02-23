@@ -140,7 +140,8 @@ def modulo_8(n, n_bits: Const):
 
 
 def hash_and_verify_merkle_batch_hint(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, num_chunks):
-    match_range(height, range(10, 26), lambda h: hash_and_verify_merkle_batch_hint_height(
+    debug_assert(height < 25)
+    match_range(height, range(10, 25), lambda h: hash_and_verify_merkle_batch_hint_height(
         num_queries, all_leaf_ptrs, stir_challenges_indexes, root, h, num_chunks,
     ))
     return
@@ -180,28 +181,132 @@ def hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_cha
 
 
 @inline
-def hash_and_verify_merkle_hint(leaf_position_bits, root, height, num_chunks):
+def whir_do_4_merkle_levels(b, state_in, path_chunk, state_out):
+    b0 = b % 2
+    r1 = (b - b0) / 2
+    b1 = r1 % 2
+    r2 = (r1 - b1) / 2
+    b2 = r2 % 2
+    r3 = (r2 - b2) / 2
+    b3 = r3 % 2
+
+    temps = Array(3 * DIGEST_LEN)
+
+    if b0 == 0:
+        poseidon16(state_in, path_chunk, temps)
+    else:
+        poseidon16(path_chunk, state_in, temps)
+
+    if b1 == 0:
+        poseidon16(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
+    else:
+        poseidon16(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
+
+    if b2 == 0:
+        poseidon16(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
+    else:
+        poseidon16(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
+
+    if b3 == 0:
+        poseidon16(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
+    else:
+        poseidon16(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
+    return
+
+@inline
+def whir_do_3_merkle_levels(b, state_in, path_chunk, state_out):
+    b0 = b % 2
+    r1 = (b - b0) / 2
+    b1 = r1 % 2
+    r2 = (r1 - b1) / 2
+    b2 = r2 % 2
+
+    temps = Array(2 * DIGEST_LEN)
+
+    if b0 == 0:
+        poseidon16(state_in, path_chunk, temps)
+    else:
+        poseidon16(path_chunk, state_in, temps)
+
+    if b1 == 0:
+        poseidon16(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
+    else:
+        poseidon16(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
+
+    if b2 == 0:
+        poseidon16(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, state_out)
+    else:
+        poseidon16(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, state_out)
+    return
+
+
+@inline
+def whir_do_2_merkle_levels(b, state_in, path_chunk, state_out):
+    b0 = b % 2
+    r1 = (b - b0) / 2
+    b1 = r1 % 2
+
+    temp = Array(DIGEST_LEN)
+
+    if b0 == 0:
+        poseidon16(state_in, path_chunk, temp)
+    else:
+        poseidon16(path_chunk, state_in, temp)
+
+    if b1 == 0:
+        poseidon16(temp, path_chunk + DIGEST_LEN, state_out)
+    else:
+        poseidon16(path_chunk + DIGEST_LEN, temp, state_out)
+    return
+
+
+@inline
+def whir_do_1_merkle_level(b, state_in, path_chunk, state_out):
+    b0 = b % 2
+
+    if b0 == 0:
+        poseidon16(state_in, path_chunk, state_out)
+    else:
+        poseidon16(path_chunk, state_in, state_out)
+    return
+
+
+@inline
+def hash_and_verify_merkle_hint(leaf_position_nibbles, root, height, num_chunks):
     # Hint and hash leaf
     data = Array(num_chunks * DIGEST_LEN)
     hint_merkle(data, num_chunks * DIGEST_LEN)
     leaf_hash = slice_hash_rtl(data, num_chunks)
 
-    # Hint and verify merkle path
+    # Hint and verify merkle path (processing 4 levels per nibble)
     merkle_path = Array(height * DIGEST_LEN)
     hint_merkle(merkle_path, height * DIGEST_LEN)
-    states = Array(height * DIGEST_LEN)
-    match leaf_position_bits[0]:
-        case 0:
-            poseidon16(leaf_hash, merkle_path, states)
-        case 1:
-            poseidon16(merkle_path, leaf_hash, states)
-    for j in unroll(1, height):
-        match leaf_position_bits[j]:
-            case 0:
-                poseidon16(states + (j - 1) * DIGEST_LEN, merkle_path + j * DIGEST_LEN, states + j * DIGEST_LEN)
-            case 1:
-                poseidon16(merkle_path + j * DIGEST_LEN, states + (j - 1) * DIGEST_LEN, states + j * DIGEST_LEN)
-    copy_8(states + (height - 1) * DIGEST_LEN, root)
+
+    states = Array((div_ceil(height, 4) - 1) * DIGEST_LEN)
+
+    # First full nibble: leaf_hash -> states[0]
+    match_range(leaf_position_nibbles[0], range(0, 16),
+        lambda b: whir_do_4_merkle_levels(b, leaf_hash, merkle_path, states))
+
+    # Middle nibble chunks: states[k-1] -> states[k]
+    for k in unroll(1, div_ceil(height, 4) - 1):
+        match_range(leaf_position_nibbles[k], range(0, 16),
+            lambda b: whir_do_4_merkle_levels(b, states + (k - 1) * DIGEST_LEN, merkle_path + 4 * k * DIGEST_LEN, states + k * DIGEST_LEN))
+
+    # Last chunk -> root
+    if height % 4 == 0:
+        match_range(leaf_position_nibbles[div_ceil(height, 4) - 1], range(0, 16),
+            lambda b: whir_do_4_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * (div_ceil(height, 4) - 1) * DIGEST_LEN, root))
+    elif height % 4 == 1:
+        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
+            lambda b: whir_do_1_merkle_level(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+    elif height % 4 == 2:
+        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
+            lambda b: whir_do_2_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+    elif height % 4 == 3:
+        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
+            lambda b: whir_do_3_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+
     return data
 
 
@@ -219,9 +324,9 @@ def merkle_verif_batch(merkle_paths, leaves_digests, leave_positions, root, heig
 
 def merkle_verif_batch_const(n_paths, merkle_paths, leaves_digests, leave_positions, root, height: Const):
     # n_paths: F
-    # leaves_digests: pointer to a slice of n_paths vectorized pointers, each pointing to 1 chunk of 8 field elements
+    # leaves_digests: pointer to a slice of n_paths pointers, each pointing to 1 chunk of 8 field elements
     # leave_positions: pointer to a slice of n_paths field elements (each < 2^height)
-    # root: vectorized pointer to 1 chunk of 8 field elements
+    # root: pointer to 1 chunk of 8 field elements
     # height: F
 
     for i in range(0, n_paths):

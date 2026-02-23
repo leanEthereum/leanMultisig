@@ -473,7 +473,6 @@ fn compile_time_transform_in_program(
                 unroll_counter,
                 inline_counter,
             )?;
-            // Add new specialized functions - they'll be processed in the next iteration of this loop
             for (name, new_func) in new_functions {
                 program.functions.entry(name).or_insert(new_func);
             }

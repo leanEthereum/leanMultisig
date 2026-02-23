@@ -442,33 +442,40 @@ def checked_decompose_bits(a):
     return bits, partial_sums_24
 
 def checked_decompose_bits_and_compute_root_pow_const(a, domain_size: Const):
-    # Hint 24 individual bits + 1 top-7-bit value = 25 hints (instead of 31)
-    bits = Array(24)
+    # Hint 6 nibbles (4 bits each) + 1 top-7-bit value = 7 hints
+    nibbles = Array(6)
     top7 = Array(1)
     a_ptr = Array(1)
     a_ptr[0] = a
-    hint_decompose_bits_xmss(bits, top7, a_ptr, 1, 1)
+    hint_decompose_bits_xmss(nibbles, top7, a_ptr, 1, 4)
 
-    for i in unroll(0, 24):
-        assert bits[i] * (1 - bits[i]) == 0
+    for i in unroll(0, 6):
+        assert nibbles[i] < 16
 
     assert top7[0] < 2**7
 
-    partial_sum: Mut = bits[0]
-    for i in unroll(1, 24):
-        partial_sum += bits[i] * 2**i
+    partial_sum: Mut = nibbles[0]
+    for i in unroll(1, 6):
+        partial_sum += nibbles[i] * 16**i
 
     if top7[0] == 2**7 - 1:
         assert partial_sum == 0
 
     assert partial_sum + top7[0] * 2**24 == a
 
-    # Compute root power from local bits (no DEREF needed)
-    prod: Mut = (bits[0] * ROOT ** (2 ** (TWO_ADICITY - domain_size))) + (1 - bits[0])
-    for i in unroll(1, domain_size):
-        prod *= (bits[i] * ROOT ** (2 ** (TWO_ADICITY - domain_size + i))) + (1 - bits[i])
+    # Compute domain_generator^index
+    prod: Mut = 1
+    for k in unroll(0, (domain_size - domain_size % 4) / 4):
+        nib_pow = match_range(nibbles[k], range(0, 16),
+            lambda v: ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * k) * v))
+        prod *= nib_pow
 
-    return bits, prod
+    if domain_size % 4 != 0:
+        edge_pow = match_range(nibbles[(domain_size - domain_size % 4) / 4], range(0, 16),
+            lambda v: ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * ((domain_size - domain_size % 4) / 4)) * (v % 2 ** (domain_size % 4))))
+        prod *= edge_pow
+
+    return nibbles, prod
 
 
 def checked_decompose_bits_and_compute_root_pow(a, domain_size):
