@@ -20,21 +20,6 @@ pub struct RawProof<F> {
     pub merkle_openings: Vec<MerkleOpening<F>>,
 }
 
-impl<F> RawProof<F> {
-    pub fn len(&self) -> usize {
-        self.transcript.len()
-            + self
-                .merkle_openings
-                .iter()
-                .map(|o| o.leaf_data.len() + o.path.len() * DIGEST_LEN_FE)
-                .sum::<usize>()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.transcript.is_empty() && self.merkle_openings.is_empty()
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TranscriptData<F, MerklePaths> {
     Interraction(Vec<F>),
