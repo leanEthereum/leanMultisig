@@ -7,6 +7,7 @@ def main():
         for j in unroll(0, n):
             i += j
     assert i == 45
+    return
 
 def one():
     return 1

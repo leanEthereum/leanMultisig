@@ -4095,15 +4095,16 @@ impl Display for SimpleProgram {
     }
 }
 
-// ── Dead fp-relative ADD analysis ──────────────────────────────────────────
+// ── Dead variable analysis ────────────────────────────────────────────────
 //
-// Determines which const_malloc pointer vars and derived fp-relative vars
-// have their pointer-storing ADD instructions dead — i.e. all runtime uses
-// are encodable as FpRelative in precompile instructions.
+// Unified analysis producing two sets:
+// 1. Dead fp-relative vars: pointer-storing ADD instructions whose uses are
+//    all encodable as FpRelative in precompile instructions.
+// 2. Dead store vars: variables declared/assigned but never referenced.
 
 /// Walk `lines` (recursively into nested blocks) to find:
 /// - const_malloc vars (always fp-rel-capable)
-/// - derived vars: `v = fp_rel_var + constant` (also fp-rel-capable)
+/// - derived vars: `v = fp_rel_var +/- constant` (also fp-rel-capable)
 ///
 /// `derived_base` maps each derived var to its immediate base var.
 fn collect_fp_rel_capable(
@@ -4123,7 +4124,6 @@ fn collect_fp_rel_capable(
                 arg1,
             } if *operation == MathOperation::Add || *operation == MathOperation::Sub => {
                 let base_var = match (operation, arg0, arg1) {
-                    // Add: commutative, either order
                     (
                         MathOperation::Add,
                         SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
@@ -4134,7 +4134,6 @@ fn collect_fp_rel_capable(
                         SimpleExpr::Constant(c),
                         SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
                     ) if fp_rel_capable.contains(x) && c.naive_eval().is_some() => Some(x.clone()),
-                    // Sub: only var - constant
                     (
                         MathOperation::Sub,
                         SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
@@ -4155,182 +4154,20 @@ fn collect_fp_rel_capable(
     }
 }
 
-/// Count total var uses and precompile-fp-relative uses across all lines.
+/// Single walk over the IR to collect declarations, total uses, and fp-rel uses.
 ///
-/// For `Precompile` lines:
-/// - All var args contribute to `total_uses`
-/// - args\[0\] and args\[1\] contribute to `fp_rel_uses` only if BOTH are fp-rel-capable
-/// - args\[2\] contributes to `fp_rel_uses` independently if fp-rel-capable
-///
-/// For all other lines: only `total_uses` is incremented.
-fn count_uses_for_dead_analysis(
+/// Uses `operand_exprs()` for total use counting (instead of manually matching
+/// every SimpleLine variant). Precompile fp-rel counting is the only
+/// variant-specific logic.
+fn collect_use_info(
     lines: &[SimpleLine],
     fp_rel_capable: &BTreeSet<Var>,
+    declared: &mut BTreeSet<Var>,
     total_uses: &mut BTreeMap<Var, usize>,
     fp_rel_uses: &mut BTreeMap<Var, usize>,
 ) {
-    fn count_expr_total(expr: &SimpleExpr, total_uses: &mut BTreeMap<Var, usize>) {
-        if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = expr {
-            *total_uses.entry(v.clone()).or_default() += 1;
-        }
-    }
-
     for line in lines {
-        match line {
-            SimpleLine::Precompile { args, .. } => {
-                // Total uses for every var arg
-                for arg in args {
-                    count_expr_total(arg, total_uses);
-                }
-                // fp-rel uses: args[0] & args[1] only if both are fp-rel-capable
-                let a0_capable = matches!(&args[0], SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) if fp_rel_capable.contains(v));
-                let a1_capable = matches!(&args[1], SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) if fp_rel_capable.contains(v));
-                if a0_capable && a1_capable {
-                    if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = &args[0] {
-                        *fp_rel_uses.entry(v.clone()).or_default() += 1;
-                    }
-                    if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = &args[1] {
-                        *fp_rel_uses.entry(v.clone()).or_default() += 1;
-                    }
-                }
-                // args[2]: independently fp-rel-capable
-                if args.len() > 2
-                    && let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = &args[2]
-                    && fp_rel_capable.contains(v)
-                {
-                    *fp_rel_uses.entry(v.clone()).or_default() += 1;
-                }
-            }
-            SimpleLine::Assignment { arg0, arg1, .. } => {
-                count_expr_total(arg0, total_uses);
-                count_expr_total(arg1, total_uses);
-            }
-            SimpleLine::AssertZero { arg0, arg1, .. } => {
-                count_expr_total(arg0, total_uses);
-                count_expr_total(arg1, total_uses);
-            }
-            SimpleLine::RawAccess { res, index, .. } => {
-                count_expr_total(res, total_uses);
-                count_expr_total(index, total_uses);
-            }
-            SimpleLine::FunctionCall { args, .. } => {
-                for arg in args {
-                    count_expr_total(arg, total_uses);
-                }
-            }
-            SimpleLine::FunctionRet { return_data } => {
-                for expr in return_data {
-                    count_expr_total(expr, total_uses);
-                }
-            }
-            SimpleLine::Print { content, .. } => {
-                for expr in content {
-                    count_expr_total(expr, total_uses);
-                }
-            }
-            SimpleLine::HintMAlloc { size, .. } => {
-                count_expr_total(size, total_uses);
-            }
-            SimpleLine::CustomHint(_, args) => {
-                for arg in args {
-                    count_expr_total(arg, total_uses);
-                }
-            }
-            SimpleLine::DebugAssert(bool_expr, _) => {
-                count_expr_total(&bool_expr.left, total_uses);
-                count_expr_total(&bool_expr.right, total_uses);
-            }
-            SimpleLine::RangeCheck { val, bound } => {
-                count_expr_total(val, total_uses);
-                count_expr_total(bound, total_uses);
-            }
-            SimpleLine::ForwardDeclaration { .. }
-            | SimpleLine::ConstMalloc { .. }
-            | SimpleLine::Panic { .. }
-            | SimpleLine::LocationReport { .. }
-            | SimpleLine::Match { .. }
-            | SimpleLine::IfNotZero { .. } => {}
-        }
-        // Recurse into nested blocks (Match arms, IfNotZero branches)
-        for block in line.nested_blocks() {
-            count_uses_for_dead_analysis(block, fp_rel_capable, total_uses, fp_rel_uses);
-        }
-    }
-}
-
-/// Compute the set of vars whose pointer-storing ADD instructions are dead.
-///
-/// A var's ADD is dead when all of its runtime uses are as FpRelative precompile args
-/// (plus uses in derived ADDs that are themselves dead).
-/// Analyzes the full function body including nested blocks.
-pub(crate) fn compute_dead_fp_relative_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
-    // Phase 1: identify fp-rel-capable vars and derived relationships
-    let mut fp_rel_capable = BTreeSet::new();
-    let mut derived_base: BTreeMap<Var, Var> = BTreeMap::new();
-    collect_fp_rel_capable(lines, &mut fp_rel_capable, &mut derived_base);
-
-    if fp_rel_capable.is_empty() {
-        return BTreeSet::new();
-    }
-
-    // Phase 2: count total and fp-rel uses
-    let mut total_uses: BTreeMap<Var, usize> = BTreeMap::new();
-    let mut fp_rel_uses: BTreeMap<Var, usize> = BTreeMap::new();
-    count_uses_for_dead_analysis(lines, &fp_rel_capable, &mut total_uses, &mut fp_rel_uses);
-
-    // Phase 3: mark dead derived vars (iterate until fixpoint for multi-level chains)
-    let mut dead_vars = BTreeSet::new();
-    let mut dead_derived_child_count: BTreeMap<Var, usize> = BTreeMap::new();
-    loop {
-        let mut changed = false;
-        for (var, base_var) in &derived_base {
-            if dead_vars.contains(var) {
-                continue;
-            }
-            let total = total_uses.get(var).copied().unwrap_or(0);
-            let fp_rel = fp_rel_uses.get(var).copied().unwrap_or(0);
-            let dead_children = dead_derived_child_count.get(var).copied().unwrap_or(0);
-            if total > 0 && total == fp_rel + dead_children {
-                dead_vars.insert(var.clone());
-                *dead_derived_child_count.entry(base_var.clone()).or_default() += 1;
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
-    // Phase 4: mark dead const_malloc vars
-    for var in &fp_rel_capable {
-        if derived_base.contains_key(var) {
-            continue; // derived vars already handled above
-        }
-        let total = total_uses.get(var).copied().unwrap_or(0);
-        let fp_rel = fp_rel_uses.get(var).copied().unwrap_or(0);
-        let dead_children = dead_derived_child_count.get(var).copied().unwrap_or(0);
-        if total == fp_rel + dead_children {
-            dead_vars.insert(var.clone());
-        }
-    }
-
-    dead_vars
-}
-
-/// Identify variables that are ForwardDeclared and assigned but never referenced
-/// as operands in any runtime instruction. These are "dead stores" whose
-/// ForwardDeclaration and Assignment can be skipped entirely.
-pub(crate) fn compute_dead_store_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
-    let mut declared = BTreeSet::new();
-    let mut runtime_used = BTreeSet::new();
-    collect_dead_store_info(lines, &mut declared, &mut runtime_used);
-    // Dead = declared but never used at runtime
-    declared.retain(|v| !runtime_used.contains(v));
-    declared
-}
-
-fn collect_dead_store_info(lines: &[SimpleLine], declared: &mut BTreeSet<Var>, runtime_used: &mut BTreeSet<Var>) {
-    for line in lines {
+        // Track declarations (for dead-store analysis)
         match line {
             SimpleLine::ForwardDeclaration { var } => {
                 declared.insert(var.clone());
@@ -4343,13 +4180,104 @@ fn collect_dead_store_info(lines: &[SimpleLine], declared: &mut BTreeSet<Var>, r
             }
             _ => {}
         }
+
+        // Total uses via operand_exprs()
         for expr in line.operand_exprs() {
-            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = expr {
-                runtime_used.insert(var.clone());
+            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = expr {
+                *total_uses.entry(v.clone()).or_default() += 1;
             }
         }
+
+        // Fp-rel uses: precompile-specific
+        if let SimpleLine::Precompile { args, .. } = line {
+            // args[0] & args[1] count only if both are fp-rel-capable
+            let both_capable = args[..2]
+                .iter()
+                .all(|a| matches!(a, SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) if fp_rel_capable.contains(v)));
+            if both_capable {
+                for arg in &args[..2] {
+                    if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = arg {
+                        *fp_rel_uses.entry(v.clone()).or_default() += 1;
+                    }
+                }
+            }
+            // args[2]: independently fp-rel-capable
+            if let Some(SimpleExpr::Memory(VarOrConstMallocAccess::Var(v))) = args.get(2)
+                && fp_rel_capable.contains(v)
+            {
+                *fp_rel_uses.entry(v.clone()).or_default() += 1;
+            }
+        }
+
         for block in line.nested_blocks() {
-            collect_dead_store_info(block, declared, runtime_used);
+            collect_use_info(block, fp_rel_capable, declared, total_uses, fp_rel_uses);
         }
     }
+}
+
+/// Post-order DFS over the derivation forest: a var is dead when all its uses
+/// are fp-rel-eligible or in dead children. Returns whether `var` is dead.
+fn mark_dead_fp_rel(
+    var: &Var,
+    children: &BTreeMap<&Var, Vec<&Var>>,
+    total_uses: &BTreeMap<Var, usize>,
+    fp_rel_uses: &BTreeMap<Var, usize>,
+    dead: &mut BTreeSet<Var>,
+) -> bool {
+    let mut dead_child_count = 0usize;
+    if let Some(kids) = children.get(var) {
+        for kid in kids {
+            if mark_dead_fp_rel(kid, children, total_uses, fp_rel_uses, dead) {
+                dead_child_count += 1;
+            }
+        }
+    }
+    let total = total_uses.get(var).copied().unwrap_or(0);
+    let fp_rel = fp_rel_uses.get(var).copied().unwrap_or(0);
+    let is_dead = total == fp_rel + dead_child_count;
+    if is_dead {
+        dead.insert(var.clone());
+    }
+    is_dead
+}
+
+/// Compute both dead-variable sets in a single analysis pass.
+///
+/// Returns `(dead_fp_relative_vars, dead_store_vars)`.
+pub(crate) fn compute_dead_vars(lines: &[SimpleLine]) -> (BTreeSet<Var>, BTreeSet<Var>) {
+    // Identify fp-rel-capable vars and derivation tree
+    let mut fp_rel_capable = BTreeSet::new();
+    let mut derived_base: BTreeMap<Var, Var> = BTreeMap::new();
+    collect_fp_rel_capable(lines, &mut fp_rel_capable, &mut derived_base);
+
+    // Single walk: declarations + total uses + fp-rel uses
+    let mut declared = BTreeSet::new();
+    let mut total_uses: BTreeMap<Var, usize> = BTreeMap::new();
+    let mut fp_rel_uses: BTreeMap<Var, usize> = BTreeMap::new();
+    collect_use_info(lines, &fp_rel_capable, &mut declared, &mut total_uses, &mut fp_rel_uses);
+
+    // Dead stores: declared but never referenced as operand
+    let dead_store_vars = declared
+        .into_iter()
+        .filter(|v| total_uses.get(v).copied().unwrap_or(0) == 0)
+        .collect();
+
+    // Dead fp-relative: post-order DFS over derivation forest
+    let dead_fp_relative_vars = if fp_rel_capable.is_empty() {
+        BTreeSet::new()
+    } else {
+        let mut children: BTreeMap<&Var, Vec<&Var>> = BTreeMap::new();
+        for (child, parent) in &derived_base {
+            children.entry(parent).or_default().push(child);
+        }
+        let mut dead = BTreeSet::new();
+        for var in &fp_rel_capable {
+            if !derived_base.contains_key(var) {
+                mark_dead_fp_rel(var, &children, &total_uses, &fp_rel_uses, &mut dead);
+            }
+        }
+        dead
+    };
+
+    (dead_fp_relative_vars, dead_store_vars)
 }

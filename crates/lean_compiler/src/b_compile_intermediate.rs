@@ -147,8 +147,7 @@ fn compile_function(
     compiler.args_count = function.arguments.len();
     compiler.const_mallocs.clear();
     compiler.const_malloc_vars.clear();
-    compiler.dead_fp_relative_vars = compute_dead_fp_relative_vars(&function.instructions);
-    compiler.dead_store_vars = compute_dead_store_vars(&function.instructions);
+    (compiler.dead_fp_relative_vars, compiler.dead_store_vars) = compute_dead_vars(&function.instructions);
 
     compile_lines(
         &Label::function(function.name.clone()),
