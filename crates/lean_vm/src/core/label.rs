@@ -42,7 +42,7 @@ pub enum BuiltinSymbol {
     PublicInputStart,
     /// @ZERO_VEC_PTR
     PointerToZeroVector,
-    /// @ONE_VEC_PTR
+    /// @ONE_EF_PTR
     PointerToOneVector,
 }
 

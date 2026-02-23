@@ -186,13 +186,13 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root):
 
 @inline
 def copy_7(x, y):
-    dot_product_ee(x, ONE_VEC_PTR, y)
-    dot_product_ee(x + (7-DIM), ONE_VEC_PTR, y + (7-DIM))
+    dot_product_ee(x, ONE_EF_PTR, y)
+    dot_product_ee(x + (7-DIM), ONE_EF_PTR, y + (7-DIM))
     return
 
 
 @inline
 def copy_6(x, y):
-    dot_product_ee(x, ONE_VEC_PTR, y)
+    dot_product_ee(x, ONE_EF_PTR, y)
     y[DIM] = x[DIM]
     return

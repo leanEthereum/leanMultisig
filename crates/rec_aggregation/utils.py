@@ -51,7 +51,7 @@ def unit_root_pow_const(domain_size: Const, index_bits):
 
 def poly_eq_extension_dynamic(point, n):
     debug_assert(n < 9)
-    res = match_range(n, range(0, 1), lambda i: ONE_VEC_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
+    res = match_range(n, range(0, 1), lambda i: ONE_EF_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
     return res
 
 
@@ -252,12 +252,6 @@ def add_extension_ret(a, b):
 
 
 @inline
-def add_extension(a, b, c):
-    add_ee(a, b, c)
-    return
-
-
-@inline
 def one_minus_self_extension_ret(a):
     res = Array(DIM)
     one_minus_self_extension(a, res)
@@ -350,21 +344,21 @@ def sub_extension_ret(a, b):
 
 @inline
 def copy_5(a, b):
-    dot_product_ee(a, ONE_VEC_PTR, b)
+    dot_product_ee(a, ONE_EF_PTR, b)
     return
 
 
 @inline
 def set_to_5_zeros(a):
     zero_ptr = ZERO_VEC_PTR
-    dot_product_ee(a, ONE_VEC_PTR, zero_ptr)
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
 
 
 @inline
 def set_to_7_zeros(a):
     zero_ptr = ZERO_VEC_PTR
-    dot_product_ee(a, ONE_VEC_PTR, zero_ptr)
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     a[5] = 0
     a[6] = 0
     return
@@ -373,23 +367,23 @@ def set_to_7_zeros(a):
 @inline
 def set_to_8_zeros(a):
     zero_ptr = ZERO_VEC_PTR
-    dot_product_ee(a, ONE_VEC_PTR, zero_ptr)
-    dot_product_ee(a + (8 - DIM), ONE_VEC_PTR, zero_ptr)
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    dot_product_ee(a + (8 - DIM), ONE_EF_PTR, zero_ptr)
     return
 
 
 @inline
 def copy_8(a, b):
-    dot_product_ee(a, ONE_VEC_PTR, b)
-    dot_product_ee(a + (8 - DIM), ONE_VEC_PTR, b + (8 - DIM))
+    dot_product_ee(a, ONE_EF_PTR, b)
+    dot_product_ee(a + (8 - DIM), ONE_EF_PTR, b + (8 - DIM))
     return
 
 
 @inline
 def copy_16(a, b):
-    dot_product_ee(a, ONE_VEC_PTR, b)
-    dot_product_ee(a + 5, ONE_VEC_PTR, b + 5)
-    dot_product_ee(a + 10, ONE_VEC_PTR, b + 10)
+    dot_product_ee(a, ONE_EF_PTR, b)
+    dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
+    dot_product_ee(a + 10, ONE_EF_PTR, b + 10)
     a[15] = b[15]
     return
 
@@ -397,13 +391,13 @@ def copy_16(a, b):
 @inline
 def copy_many_ef(a, b, n):
     for i in unroll(0, n):
-        dot_product_ee(a + i * DIM, ONE_VEC_PTR, b + i * DIM)
+        dot_product_ee(a + i * DIM, ONE_EF_PTR, b + i * DIM)
     return
 
 
 @inline
 def set_to_one(a):
-    dot_product_ee(ONE_VEC_PTR, ONE_VEC_PTR, a)
+    dot_product_ee(ONE_EF_PTR, ONE_EF_PTR, a)
     return
 
 
@@ -603,9 +597,9 @@ def next_mle(x, y, n):
 @inline
 def dot_product_with_the_base_vectors(slice):
     # slice: pointer to DIM extension field elements
-    # cf constants.rs: by convention, [10000] [01000] [00100] [00010] [00001] is hardcoded in memory, starting at ONE_VEC_PTR
+    # cf constants.rs: by convention, [10000] [01000] [00100] [00010] [00001] is hardcoded in memory, starting at ONE_EF_PTR
     res = Array(DIM)
-    dot_product_ee(slice, ONE_VEC_PTR, res, DIM)
+    dot_product_ee(slice, ONE_EF_PTR, res, DIM)
     return res
 
 

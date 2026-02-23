@@ -412,7 +412,7 @@ from dir.subdir.file import *  # imports dir/subdir/file.py
 ```
 NONRESERVED_PROGRAM_INPUT_START        # pointer to public input
 ZERO_VEC_PTR    # pre-initialized zeros
-ONE_VEC_PTR     # [1, 0, 0, ...]
+ONE_EF_PTR     # [1, 0, 0, ...]
 ```
 
 ## Precompiles
@@ -448,7 +448,7 @@ dot_product(a, b, result, length, mode)
 dot_product(x, y, z, 1, EE)           # z = x * y
 
 # Copy extension element (multiply by [1,0,0,0,0])
-dot_product(src, ONE_VEC_PTR, dst, 1, EE)
+dot_product(src, ONE_EF_PTR, dst, 1, EE)
 ```
 
 ## Debugging

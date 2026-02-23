@@ -69,7 +69,7 @@ pub const EQ_MLE_COEFFS_PTR: usize = REPEATED_ONES_PTR + NUM_REPEATED_ONES_IN_RE
 pub const NONRESERVED_PROGRAM_INPUT_START: usize = (EQ_MLE_COEFFS_PTR + EQ_MLE_COEFFS_LEN).next_multiple_of(DIMENSION);
 
 /// The first element of basis corresponds to one
-pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;
+pub const ONE_EF_PTR: usize = EXTENSION_BASIS_PTR;
 
 #[cfg(test)]
 mod tests {

@@ -59,13 +59,13 @@ def assert_eq_3(x, y):
 
 
 def assert_eq_4(x, y):
-    dot_product_ee(x, ONE_VEC_PTR, y)
-    dot_product_ee(x + 3, ONE_VEC_PTR, y + 3)
+    dot_product_ee(x, ONE_EF_PTR, y)
+    dot_product_ee(x + 3, ONE_EF_PTR, y + 3)
     return
 
 
 @inline
 def assert_eq_5(x, y):
-    dot_product_ee(x, ONE_VEC_PTR, y)
-    dot_product_ee(x + 3, ONE_VEC_PTR, y + 3)
+    dot_product_ee(x, ONE_EF_PTR, y)
+    dot_product_ee(x + 3, ONE_EF_PTR, y + 3)
     return

@@ -34,5 +34,5 @@ def main():
 
 @inline
 def copy_5(a, b):
-    dot_product_ee(a, ONE_VEC_PTR, b)
+    dot_product_ee(a, ONE_EF_PTR, b)
     return
