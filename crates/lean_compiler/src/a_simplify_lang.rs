@@ -472,6 +472,7 @@ fn compile_time_transform_in_program(
                 &mut new_functions,
                 unroll_counter,
                 inline_counter,
+                &BTreeMap::new(),
             )?;
             for (name, new_func) in new_functions {
                 program.functions.entry(name).or_insert(new_func);
@@ -481,6 +482,7 @@ fn compile_time_transform_in_program(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_time_transform_in_lines(
     lines: &mut Vec<Line>,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
@@ -489,9 +491,10 @@ fn compile_time_transform_in_lines(
     new_functions: &mut BTreeMap<String, Function>,
     unroll_counter: &mut Counter,
     inline_counter: &mut Counter,
+    parent_const_var_exprs: &BTreeMap<Var, F>,
 ) -> Result<(), String> {
     let mut vector_len_tracker = VectorLenTracker::default();
-    let mut const_var_exprs: BTreeMap<Var, F> = BTreeMap::new(); // used to simplify expressions containing variables with known constant values
+    let mut const_var_exprs: BTreeMap<Var, F> = parent_const_var_exprs.clone(); // used to simplify expressions containing variables with known constant values
 
     let mut i = 0;
     while i < lines.len() {
@@ -743,6 +746,20 @@ fn compile_time_transform_in_lines(
             _ => {}
         }
 
+        // Propagate const vars into blocks which stay inline
+        let parent = if matches!(
+            lines[i],
+            Line::IfCondition { .. }
+                | Line::Match { .. }
+                | Line::ForLoop {
+                    loop_kind: LoopKind::Unroll | LoopKind::DynamicUnroll { .. },
+                    ..
+                }
+        ) {
+            &const_var_exprs
+        } else {
+            &BTreeMap::new()
+        };
         for block in lines[i].nested_blocks_mut() {
             compile_time_transform_in_lines(
                 block,
@@ -752,8 +769,10 @@ fn compile_time_transform_in_lines(
                 new_functions,
                 unroll_counter,
                 inline_counter,
+                parent,
             )?;
         }
+
         i += 1;
     }
     Ok(())
