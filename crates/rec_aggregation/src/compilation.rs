@@ -505,6 +505,7 @@ fn write_down_air_constraint_eval(
 
             let new_var = match *op {
                 SymbolicOperation::Neg => {
+                    tracing::warn!("Neg in AIR is not optimal, use substraction instead");
                     assert_eq!(args.len(), 1);
                     let arg_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
                     let aux_var = format!("aux_{}", vars_counter.get_next());

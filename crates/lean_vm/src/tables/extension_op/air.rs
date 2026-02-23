@@ -132,7 +132,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
             (computation.clone() - (v_a.clone() + value_b.clone() + comp_tail.clone())) * flag_add.clone(),
         );
         builder.assert_zero_ef((computation.clone() - (v_a.clone() * value_b.clone() + comp_tail)) * flag_mul.clone());
-        let poly_eq_val = (v_a.clone() * value_b.clone()).double() + -v_a - value_b + AB::F::ONE;
+        let poly_eq_val = (v_a.clone() * value_b.clone()).double() - v_a - value_b + AB::F::ONE;
         let comp_down_or_one = computation_down * not_start_down.clone() + start_down.clone();
         builder.assert_zero_ef((computation.clone() - poly_eq_val * comp_down_or_one) * flag_poly_eq.clone());
 
