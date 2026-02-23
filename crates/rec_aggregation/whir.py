@@ -202,7 +202,7 @@ def sample_stir_indexes_and_fold(
     folded_domain_size = domain_size - folding_factor
 
     fs = fs_grinding(fs, query_grinding_bits)
-    fs, stir_challenges_indexes = sample_bits_dynamic(fs, num_queries)
+    fs, stir_challenges_indexes, circle_values = sample_bits_and_compute_root_pow(fs, num_queries, folded_domain_size)
 
     answers = Array(num_queries)
 
@@ -228,12 +228,6 @@ def sample_stir_indexes_and_fold(
     else:
         for i in range(0, num_queries):
             dot_product_ee_dynamic(answers[i], poly_eq, folds + i * DIM, two_pow_folding_factor)
-
-    circle_values = Array(num_queries)  # ROOT^each_stir_index
-    for i in range(0, num_queries):
-        stir_index_bits = stir_challenges_indexes[i]
-        circle_value = unit_root_pow_dynamic(folded_domain_size, stir_index_bits)
-        circle_values[i] = circle_value
 
     return fs, circle_values, folds
 

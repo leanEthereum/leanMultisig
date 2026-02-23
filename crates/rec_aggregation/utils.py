@@ -32,23 +32,6 @@ def powers_const(alpha, n: Const):
         mul_extension(res + i * DIM, alpha, res + (i + 1) * DIM)
     return res
 
-
-@inline
-def unit_root_pow_dynamic(domain_size, index_bits):
-    # index_bits is a pointer to domain_size bits
-    debug_assert(domain_size < 26)
-    debug_assert(0 < domain_size)
-    res = match_range(domain_size, range(1, 26), lambda i: unit_root_pow_const(i, index_bits))
-    return res
-
-
-def unit_root_pow_const(domain_size: Const, index_bits):
-    prod: Mut = (index_bits[0] * ROOT ** (2 ** (TWO_ADICITY - domain_size))) + (1 - index_bits[0])
-    for i in unroll(1, domain_size):
-        prod *= (index_bits[i] * ROOT ** (2 ** (TWO_ADICITY - domain_size + i))) + (1 - index_bits[i])
-    return prod
-
-
 def poly_eq_extension_dynamic(point, n):
     debug_assert(n < 9)
     res = match_range(n, range(0, 1), lambda i: ONE_EF_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
@@ -457,6 +440,46 @@ def checked_decompose_bits(a):
 
     assert a == partial_sums_24[23] + sum_7 * 2**24
     return bits, partial_sums_24
+
+def checked_decompose_bits_and_compute_root_pow_const(a, domain_size: Const):
+    bits = Array(F_BITS)
+    hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN)
+
+    for i in unroll(0, F_BITS):
+        assert bits[i] * (1 - bits[i]) == 0
+
+    partial_sums_24 = Array(24)
+    partial_sums_24[0] = bits[0]
+    for i in unroll(1, 24):
+        partial_sums_24[i] = partial_sums_24[i - 1] + bits[i] * 2**i
+
+    sum_7: Mut = bits[24]
+    for i in unroll(1, 7):
+        sum_7 += bits[24 + i] * 2**i
+
+    if sum_7 == 127:
+        assert partial_sums_24[23] == 0
+
+    assert a == partial_sums_24[23] + sum_7 * 2**24
+
+    prod: Mut = (bits[0] * ROOT ** (2 ** (TWO_ADICITY - domain_size))) + (1 - bits[0])
+    for i in unroll(1, domain_size):
+        prod *= (bits[i] * ROOT ** (2 ** (TWO_ADICITY - domain_size + i))) + (1 - bits[i])
+
+    return bits, prod
+
+
+def checked_decompose_bits_and_compute_root_pow(a, domain_size):
+    debug_assert(domain_size < 25)
+    debug_assert(0 < domain_size)
+    bits: Imu
+    root_pow: Imu
+    bits, root_pow = match_range(
+        domain_size, range(1, 25),
+        lambda ds: checked_decompose_bits_and_compute_root_pow_const(a, ds)
+    )
+    return bits, root_pow
+
 
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
