@@ -92,3 +92,9 @@ pub struct ExecutionResult {
     pub traces: BTreeMap<Table, TableTrace>,
     pub metadata: ExecutionMetadata,
 }
+
+impl ExecutionResult {
+    pub fn n_cycles(&self) -> usize {
+        self.pcs.len()
+    }
+}

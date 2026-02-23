@@ -186,7 +186,29 @@ fn debug_file_program() {
 }
 
 #[test]
-fn debug_str_program() {
+fn test_fp_negative_offset() {
+    let program = r#"
+def main():
+    a = Array(16)
+    for i in unroll(0, 8):
+        a[i] = i
+    b = a - 1000
+    for i in unroll(0, 1000):
+        func(a, b + 1008)
+    return
+
+@inline
+def func(a, b):
+    poseidon16(a, a, b)
+    return
+   "#;
+    let bytecode = compile_program(&ProgramSource::Raw(program.to_string()));
+    let n_cycles = execute_bytecode(&bytecode, &[], &ExecutionWitness::empty(), false).n_cycles();
+    assert!(n_cycles < 1100);
+}
+
+#[test]
+fn debug_str_program_good() {
     let program = r#"
 def main():
     n = 10000

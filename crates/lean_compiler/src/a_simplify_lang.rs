@@ -4078,14 +4078,25 @@ fn collect_fp_rel_capable(
                 operation,
                 arg0,
                 arg1,
-            } if *operation == MathOperation::Add => {
-                let base_var = match (arg0, arg1) {
-                    (SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)), SimpleExpr::Constant(c))
-                    | (SimpleExpr::Constant(c), SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)))
-                        if fp_rel_capable.contains(x) && c.naive_eval().is_some() =>
-                    {
-                        Some(x.clone())
-                    }
+            } if *operation == MathOperation::Add || *operation == MathOperation::Sub => {
+                let base_var = match (operation, arg0, arg1) {
+                    // Add: commutative, either order
+                    (
+                        MathOperation::Add,
+                        SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                        SimpleExpr::Constant(c),
+                    )
+                    | (
+                        MathOperation::Add,
+                        SimpleExpr::Constant(c),
+                        SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                    ) if fp_rel_capable.contains(x) && c.naive_eval().is_some() => Some(x.clone()),
+                    // Sub: only var - constant
+                    (
+                        MathOperation::Sub,
+                        SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                        SimpleExpr::Constant(c),
+                    ) if fp_rel_capable.contains(x) && c.naive_eval().is_some() => Some(x.clone()),
                     _ => None,
                 };
                 if let Some(base) = base_var {
@@ -4224,15 +4235,26 @@ pub(crate) fn compute_dead_fp_relative_vars(lines: &[SimpleLine]) -> BTreeSet<Va
     let mut fp_rel_uses: BTreeMap<Var, usize> = BTreeMap::new();
     count_uses_for_dead_analysis(lines, &fp_rel_capable, &mut total_uses, &mut fp_rel_uses);
 
-    // Phase 3: mark dead derived vars
+    // Phase 3: mark dead derived vars (iterate until fixpoint for multi-level chains)
     let mut dead_vars = BTreeSet::new();
     let mut dead_derived_child_count: BTreeMap<Var, usize> = BTreeMap::new();
-    for (var, base_var) in &derived_base {
-        let total = total_uses.get(var).copied().unwrap_or(0);
-        let fp_rel = fp_rel_uses.get(var).copied().unwrap_or(0);
-        if total > 0 && total == fp_rel {
-            dead_vars.insert(var.clone());
-            *dead_derived_child_count.entry(base_var.clone()).or_default() += 1;
+    loop {
+        let mut changed = false;
+        for (var, base_var) in &derived_base {
+            if dead_vars.contains(var) {
+                continue;
+            }
+            let total = total_uses.get(var).copied().unwrap_or(0);
+            let fp_rel = fp_rel_uses.get(var).copied().unwrap_or(0);
+            let dead_children = dead_derived_child_count.get(var).copied().unwrap_or(0);
+            if total > 0 && total == fp_rel + dead_children {
+                dead_vars.insert(var.clone());
+                *dead_derived_child_count.entry(base_var.clone()).or_default() += 1;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
         }
     }
 
