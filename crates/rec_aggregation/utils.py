@@ -441,7 +441,8 @@ def checked_decompose_bits(a):
     assert a == partial_sums_24[23] + sum_7 * 2**24
     return bits, partial_sums_24
 
-def checked_decompose_bits_and_compute_root_pow_const(a, domain_size: Const):
+@inline
+def checked_decompose_bits_and_compute_root_pow_const(a, domain_size):
     # Hint 6 nibbles (4 bits each) + 1 top-7-bit value = 7 hints
     nibbles = Array(6)
     top7 = Array(1)
@@ -476,18 +477,6 @@ def checked_decompose_bits_and_compute_root_pow_const(a, domain_size: Const):
         prod *= edge_pow
 
     return nibbles, prod
-
-
-def checked_decompose_bits_and_compute_root_pow(a, domain_size):
-    debug_assert(domain_size < 25)
-    debug_assert(0 < domain_size)
-    bits: Imu
-    root_pow: Imu
-    bits, root_pow = match_range(
-        domain_size, range(1, 25),
-        lambda ds: checked_decompose_bits_and_compute_root_pow_const(a, ds)
-    )
-    return bits, root_pow
 
 
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):

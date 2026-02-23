@@ -723,7 +723,9 @@ fn handle_const_malloc(
         instructions.push(IntermediateInstruction::Computation {
             operation: Operation::Add,
             arg_a: IntermediateValue::Constant(compiler.stack_pos.into()),
-            arg_b: IntermediateValue::FpRelative { offset: ConstExpression::zero() },
+            arg_b: IntermediateValue::FpRelative {
+                offset: ConstExpression::zero(),
+            },
             res: IntermediateValue::MemoryAfterFp {
                 offset: compiler.get_offset(&var.clone().into()),
             },
@@ -752,7 +754,9 @@ fn setup_function_call(
         IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
             shift_1: ConstExpression::one(),
-            res: IntermediateValue::FpRelative { offset: ConstExpression::zero() },
+            res: IntermediateValue::FpRelative {
+                offset: ConstExpression::zero(),
+            },
         },
     ];
 

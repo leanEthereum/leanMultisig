@@ -145,7 +145,8 @@ def fs_finalize_sample(fs, total_n_chunks):
     return new_fs
 
 
-def sample_bits_and_compute_root_pow(fs: Mut, n_samples, domain_size):
+@inline
+def fs_sample_queries(fs, n_samples):
     debug_assert(n_samples < 256)
     # Compute total_chunks = ceil(n_samples / 8) via bit decomposition.
     # Big-endian: nb[0]=bit7 (MSB), nb[7]=bit0 (LSB).
@@ -155,12 +156,4 @@ def sample_bits_and_compute_root_pow(fs: Mut, n_samples, domain_size):
     total_chunks = floor_div + has_remainder
     # Sample exactly the needed chunks (dispatch via match_range to keep n_chunks const)
     sampled = match_range(total_chunks, range(0, 33), lambda nc: fs_sample_data_with_offset(fs, nc, 0))
-    # Decompose each sampled field element into nibbles and compute root power in the same frame
-    sampled_nibbles = Array(n_samples)
-    circle_values = Array(n_samples)
-    for i in dynamic_unroll(0, n_samples, 8):
-        nibbles, root_pow = checked_decompose_bits_and_compute_root_pow(sampled[i], domain_size)
-        sampled_nibbles[i] = nibbles
-        circle_values[i] = root_pow
-    new_fs = fs_finalize_sample(fs, total_chunks)
-    return new_fs, sampled_nibbles, circle_values
+    return sampled, total_chunks

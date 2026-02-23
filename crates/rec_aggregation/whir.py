@@ -187,6 +187,46 @@ def sumcheck_verify_with_grinding(fs: Mut, n_steps, claimed_sum: Mut, degree: Co
 
     return fs, challenges, claimed_sum
 
+@inline
+def decompose_and_verify_merkle_batch(num_queries, sampled, root, height, num_chunks, circle_values, answers):
+    debug_assert(height < 25)
+    match_range(height, range(10, 25), lambda h: decompose_and_verify_merkle_batch_with_height(
+        num_queries, sampled, root, h, num_chunks, circle_values, answers))
+    return
+
+
+def decompose_and_verify_merkle_batch_with_height(num_queries, sampled, root, height: Const, num_chunks, circle_values, answers):
+    if num_chunks == DIM * 2:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, DIM * 2, circle_values, answers)
+        return
+    if num_chunks == 16:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 16, circle_values, answers)
+        return
+    if num_chunks == 8:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 8, circle_values, answers)
+        return
+    if num_chunks == 20:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 20, circle_values, answers)
+        return
+    if num_chunks == 1:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 1, circle_values, answers)
+        return
+    if num_chunks == 4:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 4, circle_values, answers)
+        return
+    if num_chunks == 5:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 5, circle_values, answers)
+        return
+    print(num_chunks)
+    assert False, "decompose_and_verify_merkle_batch called with unsupported num_chunks"
+
+
+def decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height: Const, num_chunks: Const, circle_values, merkle_leaves):
+    for i in range(0, num_queries):
+        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], height)
+        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, root, height, num_chunks)
+    return
+
 
 def sample_stir_indexes_and_fold(
     fs: Mut,
@@ -202,9 +242,10 @@ def sample_stir_indexes_and_fold(
     folded_domain_size = domain_size - folding_factor
 
     fs = fs_grinding(fs, query_grinding_bits)
-    fs, stir_challenges_indexes, circle_values = sample_bits_and_compute_root_pow(fs, num_queries, folded_domain_size)
+    sampled, total_chunks = fs_sample_queries(fs, num_queries)
 
-    answers = Array(num_queries)
+    merkle_leaves = Array(num_queries)
+    circle_values = Array(num_queries)
 
     n_chunks_per_answer: Imu
     # the number of chunk of 8 field elements per merkle leaf opened
@@ -213,10 +254,12 @@ def sample_stir_indexes_and_fold(
     else:
         n_chunks_per_answer = two_pow_folding_factor * DIM
 
-    hash_and_verify_merkle_batch_hint(
-        num_queries, answers, stir_challenges_indexes, prev_root,
-        folded_domain_size, n_chunks_per_answer / DIGEST_LEN,
+    decompose_and_verify_merkle_batch(
+        num_queries, sampled, prev_root, folded_domain_size,
+        n_chunks_per_answer / DIGEST_LEN, circle_values, merkle_leaves,
     )
+
+    fs = fs_finalize_sample(fs, total_chunks)
 
     folds = Array(num_queries * DIM)
 
@@ -224,10 +267,10 @@ def sample_stir_indexes_and_fold(
 
     if merkle_leaves_in_basefield == 1:
         for i in range(0, num_queries):
-            dot_product_be_dynamic(answers[i], poly_eq, folds + i * DIM, two_pow_folding_factor)
+            dot_product_be_dynamic(merkle_leaves[i], poly_eq, folds + i * DIM, two_pow_folding_factor)
     else:
         for i in range(0, num_queries):
-            dot_product_ee_dynamic(answers[i], poly_eq, folds + i * DIM, two_pow_folding_factor)
+            dot_product_ee_dynamic(merkle_leaves[i], poly_eq, folds + i * DIM, two_pow_folding_factor)
 
     return fs, circle_values, folds
 
