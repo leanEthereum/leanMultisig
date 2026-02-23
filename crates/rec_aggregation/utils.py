@@ -374,9 +374,7 @@ def set_to_7_zeros(a):
 def set_to_8_zeros(a):
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_VEC_PTR, zero_ptr)
-    a[5] = 0
-    a[6] = 0
-    a[7] = 0
+    dot_product_ee(a + (8 - DIM), ONE_VEC_PTR, zero_ptr)
     return
 
 

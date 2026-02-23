@@ -198,6 +198,31 @@ impl SimpleLine {
             | Self::RangeCheck { .. } => vec![],
         }
     }
+
+    /// Returns references to all `SimpleExpr` operands in this instruction
+    /// (excludes assignment target vars, includes everything the compiler resolves).
+    pub(crate) fn operand_exprs(&self) -> Vec<&SimpleExpr> {
+        match self {
+            Self::Assignment { arg0, arg1, .. } | Self::AssertZero { arg0, arg1, .. } => {
+                vec![arg0, arg1]
+            }
+            Self::RawAccess { res, index, .. } => vec![res, index],
+            Self::RangeCheck { val, bound } => vec![val, bound],
+            Self::Match { value, .. } => vec![value],
+            Self::IfNotZero { condition, .. } => vec![condition],
+            Self::HintMAlloc { size, .. } => vec![size],
+            Self::Precompile { args, .. } | Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => {
+                args.iter().collect()
+            }
+            Self::FunctionRet { return_data } => return_data.iter().collect(),
+            Self::Print { content, .. } => content.iter().collect(),
+            Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::ForwardDeclaration { .. }
+            | Self::ConstMalloc { .. }
+            | Self::LocationReport { .. }
+            | Self::Panic { .. } => vec![],
+        }
+    }
 }
 
 fn ends_with_early_exit(block: &[SimpleLine]) -> bool {
@@ -4272,4 +4297,41 @@ pub(crate) fn compute_dead_fp_relative_vars(lines: &[SimpleLine]) -> BTreeSet<Va
     }
 
     dead_vars
+}
+
+/// Identify variables that are ForwardDeclared and assigned but never referenced
+/// as operands in any runtime instruction. These are "dead stores" whose
+/// ForwardDeclaration and Assignment can be skipped entirely.
+pub(crate) fn compute_dead_store_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
+    let mut declared = BTreeSet::new();
+    let mut runtime_used = BTreeSet::new();
+    collect_dead_store_info(lines, &mut declared, &mut runtime_used);
+    // Dead = declared but never used at runtime
+    declared.retain(|v| !runtime_used.contains(v));
+    declared
+}
+
+fn collect_dead_store_info(lines: &[SimpleLine], declared: &mut BTreeSet<Var>, runtime_used: &mut BTreeSet<Var>) {
+    for line in lines {
+        match line {
+            SimpleLine::ForwardDeclaration { var } => {
+                declared.insert(var.clone());
+            }
+            SimpleLine::Assignment {
+                var: VarOrConstMallocAccess::Var(v),
+                ..
+            } => {
+                declared.insert(v.clone());
+            }
+            _ => {}
+        }
+        for expr in line.operand_exprs() {
+            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = expr {
+                runtime_used.insert(var.clone());
+            }
+        }
+        for block in line.nested_blocks() {
+            collect_dead_store_info(block, declared, runtime_used);
+        }
+    }
 }

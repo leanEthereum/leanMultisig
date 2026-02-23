@@ -18,6 +18,7 @@ struct Compiler {
     const_mallocs: BTreeMap<ConstMallocLabel, usize>, // label -> start offset from fp
     const_malloc_vars: BTreeMap<Var, isize>, // var -> start offset from fp (can be negative for intermediate derived vars)
     dead_fp_relative_vars: BTreeSet<Var>,    // vars whose pointer-storing ADD is dead
+    dead_store_vars: BTreeSet<Var>,          // vars that are never used as runtime operands
 }
 
 #[derive(Default)]
@@ -147,6 +148,7 @@ fn compile_function(
     compiler.const_mallocs.clear();
     compiler.const_malloc_vars.clear();
     compiler.dead_fp_relative_vars = compute_dead_fp_relative_vars(&function.instructions);
+    compiler.dead_store_vars = compute_dead_store_vars(&function.instructions);
 
     compile_lines(
         &Label::function(function.name.clone()),
@@ -167,7 +169,7 @@ fn compile_lines(
     for (i, line) in lines.iter().enumerate() {
         match line {
             SimpleLine::ForwardDeclaration { var } => {
-                if !compiler.dead_fp_relative_vars.contains(var) {
+                if !compiler.dead_fp_relative_vars.contains(var) && !compiler.dead_store_vars.contains(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout
                         .var_positions
@@ -222,6 +224,13 @@ fn compile_lines(
 
                 if is_dead_derived {
                     // No slot needed: all uses go through const_malloc_vars, not var_positions
+                    continue;
+                }
+
+                // Skip assignments to vars that are never used as runtime operands
+                if let VarOrConstMallocAccess::Var(v) = var
+                    && compiler.dead_store_vars.contains(v)
+                {
                     continue;
                 }
 

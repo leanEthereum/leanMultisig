@@ -69,22 +69,28 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks
     
     wots_public_key = Array(V * DIGEST_LEN)
 
+    local_zero_buff = Array(DIGEST_LEN)
+    set_to_8_zeros(local_zero_buff)
+
     for i in unroll(0, V / 2):
         # num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
         chain_start = chain_starts + i * (DIGEST_LEN * 2)
         chain_end = wots_public_key + i * (DIGEST_LEN * 2)
         pair_chain_length_sum_ptr = Array(1)
-        match_range(encoding[i], range(0, CHAIN_LENGTH**2), lambda n: chain_hash(chain_start, n, chain_end, pair_chain_length_sum_ptr))
+        match_range(encoding[i], range(0, CHAIN_LENGTH**2), lambda n: chain_hash(chain_start, n, chain_end, pair_chain_length_sum_ptr, local_zero_buff))
         target_sum += pair_chain_length_sum_ptr[0]
 
     assert target_sum == TARGET_SUM
 
     wots_pubkey_hashed = slice_hash(wots_public_key, V)
+
     xmss_merkle_verify(wots_pubkey_hashed, merkle_path, merkle_chunks, merkle_root)
+
     return
 
 
-def chain_hash(input_left, n: Const, output_left, pair_chain_length_sum_ptr):
+@inline
+def chain_hash(input_left, n, output_left, pair_chain_length_sum_ptr, local_zero_buff):
     debug_assert(n < CHAIN_LENGTH**2)
 
     raw_left = n % CHAIN_LENGTH
@@ -94,13 +100,13 @@ def chain_hash(input_left, n: Const, output_left, pair_chain_length_sum_ptr):
     if n_left == 0:
         copy_8(input_left, output_left)
     elif n_left == 1:
-        poseidon16(input_left, ZERO_VEC_PTR, output_left)
+        poseidon16(input_left, local_zero_buff, output_left)
     else:
         states_left = Array((n_left-1) * DIGEST_LEN)
-        poseidon16(input_left, ZERO_VEC_PTR, states_left)
+        poseidon16(input_left, local_zero_buff, states_left)
         for i in unroll(1, n_left-1):
-            poseidon16(states_left + (i - 1) * DIGEST_LEN, ZERO_VEC_PTR, states_left + i * DIGEST_LEN)
-        poseidon16(states_left + (n_left - 2) * DIGEST_LEN, ZERO_VEC_PTR, output_left)
+            poseidon16(states_left + (i - 1) * DIGEST_LEN, local_zero_buff, states_left + i * DIGEST_LEN)
+        poseidon16(states_left + (n_left - 2) * DIGEST_LEN, local_zero_buff, output_left)
 
     n_right = (CHAIN_LENGTH - 1) - raw_right
     debug_assert(raw_right < CHAIN_LENGTH)
@@ -109,13 +115,13 @@ def chain_hash(input_left, n: Const, output_left, pair_chain_length_sum_ptr):
     if n_right == 0:
         copy_8(input_right, output_right)
     elif n_right == 1:
-        poseidon16(input_right, ZERO_VEC_PTR, output_right)
+        poseidon16(input_right, local_zero_buff, output_right)
     else:
         states_right = Array((n_right-1) * DIGEST_LEN)
-        poseidon16(input_right, ZERO_VEC_PTR, states_right)
+        poseidon16(input_right, local_zero_buff, states_right)
         for i in unroll(1, n_right-1):
-            poseidon16(states_right + (i - 1) * DIGEST_LEN, ZERO_VEC_PTR, states_right + i * DIGEST_LEN)
-        poseidon16(states_right + (n_right - 2) * DIGEST_LEN, ZERO_VEC_PTR, output_right)
+            poseidon16(states_right + (i - 1) * DIGEST_LEN, local_zero_buff, states_right + i * DIGEST_LEN)
+        poseidon16(states_right + (n_right - 2) * DIGEST_LEN, local_zero_buff, output_right)
 
     pair_chain_length_sum_ptr[0] = raw_left + raw_right
 

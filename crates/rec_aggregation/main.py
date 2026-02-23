@@ -15,7 +15,7 @@ def main():
     debug_assert(MAX_N_SIGS + MAX_N_DUPS <= 2**16) # because of range checking, TODO increase
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     n_sigs = pub_mem[0]
-    assert 1 < n_sigs
+    assert n_sigs != 0
     assert n_sigs - 1 < MAX_N_SIGS
     pubkeys_hash_expected = pub_mem + 1
     message = pubkeys_hash_expected + DIGEST_LEN
