@@ -439,7 +439,6 @@ impl IntermediateValue {
             Self::MemoryAfterFp { offset } => Ok(MemOrFpOrConstant::MemoryAfterFp {
                 offset: eval_const_expression_usize(offset, compiler),
             }),
-            Self::Fp => Ok(MemOrFpOrConstant::FpRelative { offset: 0 }),
             Self::FpRelative { offset } => Ok(MemOrFpOrConstant::FpRelative {
                 offset: eval_const_expression_usize(offset, compiler),
             }),
