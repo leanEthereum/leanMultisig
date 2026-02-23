@@ -16,8 +16,9 @@ struct Compiler {
     stack_size: usize,
     stack_pos: usize,
     const_mallocs: BTreeMap<ConstMallocLabel, usize>, // label -> start offset from fp
-    const_malloc_vars: BTreeMap<Var, usize>,          // var -> start offset from fp (same data, different key)
-    dead_fp_relative_vars: BTreeSet<Var>,             // vars whose pointer-storing ADD is dead
+    const_malloc_vars: BTreeMap<Var, isize>, // var -> start offset from fp (can be negative for intermediate derived vars)
+    dead_fp_relative_vars: BTreeSet<Var>,    // vars whose pointer-storing ADD is dead
+    dead_store_vars: BTreeSet<Var>,          // vars that are never used as runtime operands
 }
 
 #[derive(Default)]
@@ -95,7 +96,10 @@ fn try_precompile_fp_relative(expr: &SimpleExpr, compiler: &Compiler) -> Option<
         compiler
             .const_malloc_vars
             .get(var)
-            .map(|&start| IntermediateValue::FpRelative { offset: start.into() })
+            .filter(|&&offset| offset >= 0)
+            .map(|&start| IntermediateValue::FpRelative {
+                offset: (start as usize).into(),
+            })
     } else {
         None
     }
@@ -144,6 +148,7 @@ fn compile_function(
     compiler.const_mallocs.clear();
     compiler.const_malloc_vars.clear();
     compiler.dead_fp_relative_vars = compute_dead_fp_relative_vars(&function.instructions);
+    compiler.dead_store_vars = compute_dead_store_vars(&function.instructions);
 
     compile_lines(
         &Label::function(function.name.clone()),
@@ -164,7 +169,7 @@ fn compile_lines(
     for (i, line) in lines.iter().enumerate() {
         match line {
             SimpleLine::ForwardDeclaration { var } => {
-                if !compiler.dead_fp_relative_vars.contains(var) {
+                if !compiler.dead_fp_relative_vars.contains(var) && !compiler.dead_store_vars.contains(var) {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout
                         .var_positions
@@ -179,18 +184,36 @@ fn compile_lines(
                 arg0,
                 arg1,
             } => {
-                // Track derived fp-relative variables: if result = fp_relative_var + constant,
-                // then the result is also fp-relative (e.g. `ptr = arr + 8` where arr is const_malloc)
+                // Track derived fp-relative variables: if result = fp_relative_var +/- constant,
+                // then the result is also fp-relative (e.g. `ptr = arr + 8` or `ptr = arr - 1`)
                 let mut is_dead_derived = false;
                 if let VarOrConstMallocAccess::Var(v) = var
-                    && *operation == MathOperation::Add
+                    && (*operation == MathOperation::Add || *operation == MathOperation::Sub)
                 {
-                    let fp_offset = match (arg0, arg1) {
-                        (SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)), SimpleExpr::Constant(c))
-                        | (SimpleExpr::Constant(c), SimpleExpr::Memory(VarOrConstMallocAccess::Var(x))) => compiler
+                    let fp_offset = match (operation, arg0, arg1) {
+                        // Add: commutative, either order
+                        (
+                            MathOperation::Add,
+                            SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                            SimpleExpr::Constant(c),
+                        )
+                        | (
+                            MathOperation::Add,
+                            SimpleExpr::Constant(c),
+                            SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                        ) => compiler
                             .const_malloc_vars
                             .get(x)
-                            .and_then(|&base| c.naive_eval().map(|f| base + f.to_usize())),
+                            .and_then(|&base| c.naive_eval().map(|f| base + f.to_usize() as isize)),
+                        // Sub: only var - constant
+                        (
+                            MathOperation::Sub,
+                            SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                            SimpleExpr::Constant(c),
+                        ) => compiler
+                            .const_malloc_vars
+                            .get(x)
+                            .and_then(|&base| c.naive_eval().map(|f| base - f.to_usize() as isize)),
                         _ => None,
                     };
                     if let Some(offset) = fp_offset {
@@ -201,6 +224,13 @@ fn compile_lines(
 
                 if is_dead_derived {
                     // No slot needed: all uses go through const_malloc_vars, not var_positions
+                    continue;
+                }
+
+                // Skip assignments to vars that are never used as runtime operands
+                if let VarOrConstMallocAccess::Var(v) = var
+                    && compiler.dead_store_vars.contains(v)
+                {
                     continue;
                 }
 
@@ -686,7 +716,9 @@ fn handle_const_malloc(
     label: &ConstMallocLabel,
 ) {
     compiler.const_mallocs.insert(*label, compiler.stack_pos);
-    compiler.const_malloc_vars.insert(var.clone(), compiler.stack_pos);
+    compiler
+        .const_malloc_vars
+        .insert(var.clone(), compiler.stack_pos as isize);
     if !compiler.dead_fp_relative_vars.contains(var) {
         instructions.push(IntermediateInstruction::Computation {
             operation: Operation::Add,

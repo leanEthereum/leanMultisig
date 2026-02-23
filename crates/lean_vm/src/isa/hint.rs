@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use utils::{ToUsize, pretty_integer, to_big_endian_in_field, to_little_endian_in_field};
+use xmss::SIG_SIZE_FE;
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -81,15 +82,19 @@ pub enum CustomHint {
     LessThan,
     Log2Ceil,
     PrivateInputStart,
+    Xmss,
+    Merkle,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 6] = [
+pub const CUSTOM_HINTS: [CustomHint; 8] = [
     CustomHint::DecomposeBitsXMSS,
     CustomHint::DecomposeBits,
     CustomHint::Decompose16,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
     CustomHint::PrivateInputStart,
+    CustomHint::Xmss,
+    CustomHint::Merkle,
 ];
 
 impl CustomHint {
@@ -101,6 +106,8 @@ impl CustomHint {
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
             Self::PrivateInputStart => "hint_private_input_start",
+            Self::Xmss => "hint_xmss",
+            Self::Merkle => "hint_merkle",
         }
     }
 
@@ -112,6 +119,8 @@ impl CustomHint {
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
             Self::PrivateInputStart => 1,
+            Self::Xmss => 1,
+            Self::Merkle => 2,
         }
     }
 
@@ -182,6 +191,33 @@ impl CustomHint {
                 let res_ptr = args[0].memory_address(ctx.fp)?;
                 ctx.memory.set(res_ptr, F::from_usize(ctx.private_input_start))?;
             }
+            Self::Xmss => {
+                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let offset = *ctx.counter_hint * SIG_SIZE_FE;
+                assert!(
+                    offset + SIG_SIZE_FE <= ctx.xmss_hint_data.len(),
+                    "hint_xmss: not enough XMSS hint data (counter={})",
+                    *ctx.counter_hint
+                );
+                ctx.memory
+                    .set_slice(buf_ptr, &ctx.xmss_hint_data[offset..offset + SIG_SIZE_FE])?;
+                *ctx.counter_hint += 1;
+            }
+            Self::Merkle => {
+                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let n = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let offset = *ctx.merkle_hint_offset;
+                assert!(
+                    offset + n <= ctx.merkle_hint_data.len(),
+                    "hint_merkle: not enough Merkle hint data (offset={}, requested={}, available={})",
+                    offset,
+                    n,
+                    ctx.merkle_hint_data.len()
+                );
+                ctx.memory
+                    .set_slice(buf_ptr, &ctx.merkle_hint_data[offset..offset + n])?;
+                *ctx.merkle_hint_offset += n;
+            }
         }
         Ok(())
     }
@@ -222,6 +258,9 @@ pub struct HintExecutionContext<'a> {
     pub profiling: bool,
     pub memory_profile: &'a mut MemoryProfile,
     pub private_input_start: usize,
+    pub xmss_hint_data: &'a [F],
+    pub merkle_hint_data: &'a [F],
+    pub merkle_hint_offset: &'a mut usize,
     /// Pending deref hints: (target_addr, src_addr)
     /// Constraint: memory[target_addr] = memory[memory[src_addr]]
     /// Resolved at end of execution in correct order.

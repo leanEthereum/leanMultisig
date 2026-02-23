@@ -30,8 +30,8 @@ where
         }
     }
 
-    pub fn raw_proof(&self) -> Vec<PF<EF>> {
-        self.transcript.raw_proof()
+    pub fn raw_proof(self) -> RawProof<PF<EF>> {
+        self.transcript.into_raw_proof()
     }
 
     pub fn pruned_proof(&self) -> PrunedProof<PF<EF>> {
@@ -74,14 +74,14 @@ where
 
     fn state(&self) -> String {
         format!(
-            "state: {} (len: {})",
+            "state: {} (n_items: {})",
             self.challenger
                 .state
                 .iter()
                 .map(|f| f.to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
-            self.transcript.raw_proof().len()
+            self.transcript.0.len()
         )
     }
 

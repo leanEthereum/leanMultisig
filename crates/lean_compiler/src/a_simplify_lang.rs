@@ -198,6 +198,31 @@ impl SimpleLine {
             | Self::RangeCheck { .. } => vec![],
         }
     }
+
+    /// Returns references to all `SimpleExpr` operands in this instruction
+    /// (excludes assignment target vars, includes everything the compiler resolves).
+    pub(crate) fn operand_exprs(&self) -> Vec<&SimpleExpr> {
+        match self {
+            Self::Assignment { arg0, arg1, .. } | Self::AssertZero { arg0, arg1, .. } => {
+                vec![arg0, arg1]
+            }
+            Self::RawAccess { res, index, .. } => vec![res, index],
+            Self::RangeCheck { val, bound } => vec![val, bound],
+            Self::Match { value, .. } => vec![value],
+            Self::IfNotZero { condition, .. } => vec![condition],
+            Self::HintMAlloc { size, .. } => vec![size],
+            Self::Precompile { args, .. } | Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => {
+                args.iter().collect()
+            }
+            Self::FunctionRet { return_data } => return_data.iter().collect(),
+            Self::Print { content, .. } => content.iter().collect(),
+            Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::ForwardDeclaration { .. }
+            | Self::ConstMalloc { .. }
+            | Self::LocationReport { .. }
+            | Self::Panic { .. } => vec![],
+        }
+    }
 }
 
 fn ends_with_early_exit(block: &[SimpleLine]) -> bool {
@@ -4078,14 +4103,25 @@ fn collect_fp_rel_capable(
                 operation,
                 arg0,
                 arg1,
-            } if *operation == MathOperation::Add => {
-                let base_var = match (arg0, arg1) {
-                    (SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)), SimpleExpr::Constant(c))
-                    | (SimpleExpr::Constant(c), SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)))
-                        if fp_rel_capable.contains(x) && c.naive_eval().is_some() =>
-                    {
-                        Some(x.clone())
-                    }
+            } if *operation == MathOperation::Add || *operation == MathOperation::Sub => {
+                let base_var = match (operation, arg0, arg1) {
+                    // Add: commutative, either order
+                    (
+                        MathOperation::Add,
+                        SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                        SimpleExpr::Constant(c),
+                    )
+                    | (
+                        MathOperation::Add,
+                        SimpleExpr::Constant(c),
+                        SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                    ) if fp_rel_capable.contains(x) && c.naive_eval().is_some() => Some(x.clone()),
+                    // Sub: only var - constant
+                    (
+                        MathOperation::Sub,
+                        SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
+                        SimpleExpr::Constant(c),
+                    ) if fp_rel_capable.contains(x) && c.naive_eval().is_some() => Some(x.clone()),
                     _ => None,
                 };
                 if let Some(base) = base_var {
@@ -4224,15 +4260,26 @@ pub(crate) fn compute_dead_fp_relative_vars(lines: &[SimpleLine]) -> BTreeSet<Va
     let mut fp_rel_uses: BTreeMap<Var, usize> = BTreeMap::new();
     count_uses_for_dead_analysis(lines, &fp_rel_capable, &mut total_uses, &mut fp_rel_uses);
 
-    // Phase 3: mark dead derived vars
+    // Phase 3: mark dead derived vars (iterate until fixpoint for multi-level chains)
     let mut dead_vars = BTreeSet::new();
     let mut dead_derived_child_count: BTreeMap<Var, usize> = BTreeMap::new();
-    for (var, base_var) in &derived_base {
-        let total = total_uses.get(var).copied().unwrap_or(0);
-        let fp_rel = fp_rel_uses.get(var).copied().unwrap_or(0);
-        if total > 0 && total == fp_rel {
-            dead_vars.insert(var.clone());
-            *dead_derived_child_count.entry(base_var.clone()).or_default() += 1;
+    loop {
+        let mut changed = false;
+        for (var, base_var) in &derived_base {
+            if dead_vars.contains(var) {
+                continue;
+            }
+            let total = total_uses.get(var).copied().unwrap_or(0);
+            let fp_rel = fp_rel_uses.get(var).copied().unwrap_or(0);
+            let dead_children = dead_derived_child_count.get(var).copied().unwrap_or(0);
+            if total > 0 && total == fp_rel + dead_children {
+                dead_vars.insert(var.clone());
+                *dead_derived_child_count.entry(base_var.clone()).or_default() += 1;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
         }
     }
 
@@ -4250,4 +4297,41 @@ pub(crate) fn compute_dead_fp_relative_vars(lines: &[SimpleLine]) -> BTreeSet<Va
     }
 
     dead_vars
+}
+
+/// Identify variables that are ForwardDeclared and assigned but never referenced
+/// as operands in any runtime instruction. These are "dead stores" whose
+/// ForwardDeclaration and Assignment can be skipped entirely.
+pub(crate) fn compute_dead_store_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
+    let mut declared = BTreeSet::new();
+    let mut runtime_used = BTreeSet::new();
+    collect_dead_store_info(lines, &mut declared, &mut runtime_used);
+    // Dead = declared but never used at runtime
+    declared.retain(|v| !runtime_used.contains(v));
+    declared
+}
+
+fn collect_dead_store_info(lines: &[SimpleLine], declared: &mut BTreeSet<Var>, runtime_used: &mut BTreeSet<Var>) {
+    for line in lines {
+        match line {
+            SimpleLine::ForwardDeclaration { var } => {
+                declared.insert(var.clone());
+            }
+            SimpleLine::Assignment {
+                var: VarOrConstMallocAccess::Var(v),
+                ..
+            } => {
+                declared.insert(v.clone());
+            }
+            _ => {}
+        }
+        for expr in line.operand_exprs() {
+            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)) = expr {
+                runtime_used.insert(var.clone());
+            }
+        }
+        for block in line.nested_blocks() {
+            collect_dead_store_info(block, declared, runtime_used);
+        }
+    }
 }

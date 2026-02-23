@@ -8,6 +8,18 @@ use crate::{PrunedMerklePaths, challenger::RATE};
 
 pub(crate) const DIGEST_LEN_FE: usize = 8;
 
+#[derive(Debug, Clone)]
+pub struct MerkleOpening<F> {
+    pub leaf_data: Vec<F>,
+    pub path: Vec<[F; DIGEST_LEN_FE]>,
+}
+
+#[derive(Clone)]
+pub struct RawProof<F> {
+    pub transcript: Vec<F>,
+    pub merkle_openings: Vec<MerkleOpening<F>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TranscriptData<F, MerklePaths> {
     Interraction(Vec<F>),
@@ -30,34 +42,37 @@ pub struct MerklePaths<Data, F>(pub(crate) Vec<MerklePath<Data, F>>);
 pub struct Proof<F>(pub(crate) Vec<TranscriptData<F, MerklePaths<F, F>>>);
 
 impl<F: Field> Proof<F> {
-    pub fn raw_proof(&self) -> Vec<F> {
-        let mut proof = Vec::new();
-        for item in &self.0 {
+    pub fn into_raw_proof(self) -> RawProof<F> {
+        let mut transcript = Vec::new();
+        let mut merkle_openings = Vec::new();
+        for item in self.0 {
             match item {
                 TranscriptData::Interraction(scalars) => {
-                    proof.extend_from_slice(scalars);
                     let padding = scalars.len().next_multiple_of(RATE) - scalars.len();
-                    proof.extend(repeat_n(F::ZERO, padding));
+                    transcript.extend(scalars);
+                    transcript.extend(repeat_n(F::ZERO, padding));
                 }
                 TranscriptData::GrindingWitness(scalar) => {
-                    proof.push(*scalar);
-                    proof.extend(repeat_n(F::ZERO, RATE - 1));
+                    transcript.push(scalar);
+                    transcript.extend(repeat_n(F::ZERO, RATE - 1));
                 }
                 TranscriptData::MerklePaths(paths) => {
-                    for path in &paths.0 {
-                        proof.extend_from_slice(&path.leaf_data);
+                    for path in paths.0 {
                         assert!(path.leaf_data.len() % RATE == 0);
-                    }
-                    for path in &paths.0 {
-                        for hash in &path.sibling_hashes {
-                            proof.extend_from_slice(hash);
-                        }
+                        merkle_openings.push(MerkleOpening {
+                            leaf_data: path.leaf_data,
+                            path: path.sibling_hashes,
+                        });
                     }
                 }
             }
         }
-        proof
+        RawProof {
+            transcript,
+            merkle_openings,
+        }
     }
+
     pub fn prune(self) -> PrunedProof<F> {
         PrunedProof(
             self.0

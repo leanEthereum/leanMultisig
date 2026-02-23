@@ -139,6 +139,72 @@ def modulo_8(n, n_bits: Const):
     return partial_sums[2]
 
 
+def hash_and_verify_merkle_batch_hint(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, num_chunks):
+    match_range(height, range(10, 26), lambda h: hash_and_verify_merkle_batch_hint_height(
+        num_queries, all_leaf_ptrs, stir_challenges_indexes, root, h, num_chunks,
+    ))
+    return
+
+
+def hash_and_verify_merkle_batch_hint_height(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height: Const, num_chunks):
+    if num_chunks == DIM * 2:
+        hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, DIM * 2)
+        return
+    if num_chunks == 16:
+        hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, 16)
+        return
+    if num_chunks == 8:
+        hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, 8)
+        return
+    if num_chunks == 20:
+        hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, 20)
+        return
+    if num_chunks == 1:
+        hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, 1)
+        return
+    if num_chunks == 4:
+        hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, 4)
+        return
+    if num_chunks == 5:
+        hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height, 5)
+        return
+    print(num_chunks)
+    assert False, "hash_and_verify_merkle_batch_hint called with unsupported num_chunks"
+
+
+def hash_and_verify_merkle_batch_hint_const(num_queries, all_leaf_ptrs, stir_challenges_indexes, root, height: Const, num_chunks: Const):
+    for i in range(0, num_queries):
+        leaf_ptr = hash_and_verify_merkle_hint(stir_challenges_indexes[i], root, height, num_chunks)
+        all_leaf_ptrs[i] = leaf_ptr
+    return
+
+
+@inline
+def hash_and_verify_merkle_hint(leaf_position_bits, root, height, num_chunks):
+    # Hint and hash leaf
+    data = Array(num_chunks * DIGEST_LEN)
+    hint_merkle(data, num_chunks * DIGEST_LEN)
+    leaf_hash = slice_hash_rtl(data, num_chunks)
+
+    # Hint and verify merkle path
+    merkle_path = Array(height * DIGEST_LEN)
+    hint_merkle(merkle_path, height * DIGEST_LEN)
+    states = Array(height * DIGEST_LEN)
+    match leaf_position_bits[0]:
+        case 0:
+            poseidon16(leaf_hash, merkle_path, states)
+        case 1:
+            poseidon16(merkle_path, leaf_hash, states)
+    for j in unroll(1, height):
+        match leaf_position_bits[j]:
+            case 0:
+                poseidon16(states + (j - 1) * DIGEST_LEN, merkle_path + j * DIGEST_LEN, states + j * DIGEST_LEN)
+            case 1:
+                poseidon16(merkle_path + j * DIGEST_LEN, states + (j - 1) * DIGEST_LEN, states + j * DIGEST_LEN)
+    copy_8(states + (height - 1) * DIGEST_LEN, root)
+    return data
+
+
 def merkle_verif_batch(merkle_paths, leaves_digests, leave_positions, root, height, num_queries):
     match_range(height, range(10, 26), lambda h: merkle_verif_batch_const(
         num_queries,

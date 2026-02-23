@@ -60,7 +60,7 @@ impl LiveTree {
             "cycles",
             "memory",
             "poseidons",
-            "dot-products",
+            "extension-ops",
             s::R,
         )
     }
