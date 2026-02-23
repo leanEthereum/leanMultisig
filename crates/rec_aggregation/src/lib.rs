@@ -398,7 +398,7 @@ pub fn aggregate(
         xmss_hint_data: &xmss_hint_data,
         merkle_hint_data: &merkle_hint_data,
     };
-    let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, true);
+    let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);
 
     AggregatedSigs {
         pub_keys: global_pub_keys,

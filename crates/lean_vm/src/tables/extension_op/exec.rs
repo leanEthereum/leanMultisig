@@ -8,23 +8,77 @@ use crate::tables::extension_op::{EXT_OP_LEN_MULTIPLIER, air::*};
 use backend::*;
 use utils::ToUsize;
 
-/// Compute elem value for a single (v_a, v_b) pair depending on mode.
-fn compute_elem(v_a: EF, v_b: EF, flag_add: bool, flag_mul: bool) -> EF {
-    if flag_add {
-        v_a + v_b
-    } else if flag_mul {
-        v_a * v_b
-    } else {
+#[derive(Clone, Copy, PartialEq)]
+enum Op {
+    Add,
+    Mul,
+    PolyEq,
+}
+
+/// Compute elem value for a single (v_a, v_b) pair.
+fn compute_elem(v_a: EF, v_b: EF, op: Op) -> EF {
+    match op {
+        Op::Add => v_a + v_b,
+        Op::Mul => v_a * v_b,
         // poly_eq: a*b + (1-a)*(1-b)
-        (v_a * v_b).double() - v_a - v_b + F::ONE
+        Op::PolyEq => (v_a * v_b).double() - v_a - v_b + F::ONE,
     }
 }
 
 /// Accumulate elem into running computation.
-/// For additive modes (ADD, MUL): comp = elem + comp_tail
-/// For multiplicative mode (POLY_EQ): comp = elem * comp_tail
-fn accumulate(elem: EF, comp_tail: EF, is_poly_eq: bool) -> EF {
-    if is_poly_eq { elem * comp_tail } else { elem + comp_tail }
+/// Add/Mul accumulate additively (dot product), PolyEq accumulates multiplicatively.
+fn accumulate(elem: EF, comp_tail: EF, op: Op) -> EF {
+    match op {
+        Op::PolyEq => elem * comp_tail,
+        _ => elem + comp_tail,
+    }
+}
+
+/// For single-element Add/Mul ops, solve for an unknown operand when the result is known.
+/// A op B = C: if A unknown, A = C inv_op B; if B unknown, B = C inv_op A.
+fn solve_unknowns(ptr_a: F, ptr_b: F, ptr_res: F, is_be: bool, op: Op, memory: &mut Memory) -> Result<(), RunnerError> {
+    let addr_a = ptr_a.to_usize();
+    let addr_b = ptr_b.to_usize();
+    let addr_res = ptr_res.to_usize();
+
+    let a = if is_be {
+        memory.get(addr_a).map(EF::from)
+    } else {
+        memory.get_ef_element(addr_a)
+    };
+    let b = memory.get_ef_element(addr_b);
+    let c = memory.get_ef_element(addr_res);
+
+    match (a, b, c) {
+        (Ok(a), Ok(b), Ok(c)) => {
+            if compute_elem(a, b, op) != c {
+                return Err(RunnerError::InvalidExtensionOp);
+            }
+        }
+        (Ok(_), Ok(_), Err(_)) => {} // result unknown: compute normally
+        (Err(_), Ok(b), Ok(c)) => {
+            let a = match op {
+                Op::Add => c - b,
+                Op::Mul => c / b,
+                Op::PolyEq => unreachable!(),
+            };
+            if is_be {
+                memory.set(addr_a, a.as_base().expect("solved A not in base field"))?;
+            } else {
+                memory.set_ef_element(addr_a, a)?;
+            }
+        }
+        (Ok(a), Err(_), Ok(c)) => {
+            let b = match op {
+                Op::Add => c - a,
+                Op::Mul => c / a,
+                Op::PolyEq => unreachable!(),
+            };
+            memory.set_ef_element(addr_b, b)?;
+        }
+        _ => return Err(RunnerError::InvalidExtensionOp),
+    }
+    Ok(())
 }
 
 /// Execute a multi-row extension_op and push N trace rows (backward accumulation).
@@ -42,13 +96,16 @@ fn exec_multi_row(
     ptr_res: F,
     size: usize,
     is_be: bool,
-    flag_add: bool,
-    flag_mul: bool,
-    flag_poly_eq: bool,
+    op: Op,
     memory: &mut Memory,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     assert!(size >= 1);
+
+    if size == 1 && op != Op::PolyEq {
+        solve_unknowns(ptr_a, ptr_b, ptr_res, is_be, op, memory)?;
+    }
+
     let a_stride = if is_be { 1 } else { DIMENSION };
 
     // 1. Read all operands and compute elem values
@@ -75,8 +132,7 @@ fn exec_multi_row(
         };
         let v_b = memory.get_ef_element(addr_b)?;
 
-        let elem = compute_elem(v_a, v_b, flag_add, flag_mul);
-        elems.push(elem);
+        elems.push(compute_elem(v_a, v_b, op));
         v_bs.push(v_b);
         arg_as.push(arg_a_f);
         idx_bs.push(idx_b_f);
@@ -86,7 +142,7 @@ fn exec_multi_row(
     let mut computations = vec![EF::ZERO; size];
     computations[size - 1] = elems[size - 1];
     for i in (0..size - 1).rev() {
-        computations[i] = accumulate(elems[i], computations[i + 1], flag_poly_eq);
+        computations[i] = accumulate(elems[i], computations[i + 1], op);
     }
 
     // 3. Write result to memory
@@ -95,6 +151,9 @@ fn exec_multi_row(
 
     // 4. Push trace rows
     let is_be_f = F::from_bool(is_be);
+    let flag_add = op == Op::Add;
+    let flag_mul = op == Op::Mul;
+    let flag_poly_eq = op == Op::PolyEq;
     let flag_add_f = F::from_bool(flag_add);
     let flag_mul_f = F::from_bool(flag_mul);
     let flag_poly_eq_f = F::from_bool(flag_poly_eq);
@@ -126,46 +185,6 @@ fn exec_multi_row(
     Ok(())
 }
 
-/// Special handling for dot_product_ee: supports solving for unknown operands.
-fn exec_dot_product_ee_multi(
-    ptr_a: F,
-    ptr_b: F,
-    ptr_res: F,
-    size: usize,
-    memory: &mut Memory,
-    trace: &mut TableTrace,
-) -> Result<(), RunnerError> {
-    if size == 1 {
-        // Single-element: support solving for unknown operands
-        match (
-            memory.get_ef_element(ptr_a.to_usize()),
-            memory.get_ef_element(ptr_b.to_usize()),
-            memory.get_ef_element(ptr_res.to_usize()),
-        ) {
-            (Ok(val_a), Ok(val_b), Ok(res)) => {
-                if val_a * val_b != res {
-                    return Err(RunnerError::InvalidDotProduct);
-                }
-            }
-            (Ok(_val_a), Ok(_val_b), Err(_)) => {
-                // Result unknown: compute normally via exec_multi_row
-            }
-            (Err(_), Ok(val_b), Ok(res)) => {
-                let val_a = res / val_b;
-                memory.set_ef_element(ptr_a.to_usize(), val_a)?;
-            }
-            (Ok(val_a), Err(_), Ok(res)) => {
-                let val_b = res / val_a;
-                memory.set_ef_element(ptr_b.to_usize(), val_b)?;
-            }
-            _ => {
-                return Err(RunnerError::InvalidDotProduct);
-            }
-        }
-    }
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, false, true, false, memory, trace)
-}
-
 // ─── Public execution functions ───
 
 pub(super) fn exec_add_be(
@@ -176,7 +195,7 @@ pub(super) fn exec_add_be(
     memory: &mut Memory,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, true, false, false, memory, trace)
+    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::Add, memory, trace)
 }
 
 pub(super) fn exec_add_ee(
@@ -187,7 +206,7 @@ pub(super) fn exec_add_ee(
     memory: &mut Memory,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, true, false, false, memory, trace)
+    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::Add, memory, trace)
 }
 
 pub(super) fn exec_dot_product_be(
@@ -198,7 +217,7 @@ pub(super) fn exec_dot_product_be(
     memory: &mut Memory,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, false, true, false, memory, trace)
+    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::Mul, memory, trace)
 }
 
 pub(super) fn exec_dot_product_ee(
@@ -209,7 +228,7 @@ pub(super) fn exec_dot_product_ee(
     memory: &mut Memory,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
-    exec_dot_product_ee_multi(ptr_a, ptr_b, ptr_res, size, memory, trace)
+    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::Mul, memory, trace)
 }
 
 pub(super) fn exec_poly_eq_be(
@@ -220,7 +239,7 @@ pub(super) fn exec_poly_eq_be(
     memory: &mut Memory,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, false, false, true, memory, trace)
+    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::PolyEq, memory, trace)
 }
 
 pub(super) fn exec_poly_eq_ee(
@@ -231,7 +250,7 @@ pub(super) fn exec_poly_eq_ee(
     memory: &mut Memory,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, false, false, true, memory, trace)
+    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::PolyEq, memory, trace)
 }
 
 /// Fill the VALUE_A_EF column after execution by looking up memory at ARG_A addresses.

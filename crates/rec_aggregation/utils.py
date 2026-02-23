@@ -254,16 +254,8 @@ def add_extension_ret(a, b):
 @inline
 def one_minus_self_extension_ret(a):
     res = Array(DIM)
-    one_minus_self_extension(a, res)
+    add_ee(a, res, ONE_EF_PTR)
     return res
-
-
-@inline
-def one_minus_self_extension(a, res):
-    res[0] = 1 - a[0]
-    for i in unroll(1, DIM):
-        res[i] = 0 - a[i]
-    return
 
 
 @inline
@@ -279,9 +271,9 @@ def add_base_extension_ret(a, b):
     # a: base
     # b: extension
     res = Array(DIM)
-    res[0] = a + b[0]
-    for i in unroll(1, DIM):
-        res[i] = b[i]
+    a_ptr = Array(1)
+    a_ptr[0] = a
+    add_be(a_ptr, b, res)
     return res
 
 
@@ -305,8 +297,8 @@ def div_extension_ret(n, d):
 
 @inline
 def sub_extension(a, b, c):
-    for i in unroll(0, DIM):
-        c[i] = a[i] - b[i]
+    # c = a - b <=> a = c + b
+    add_ee(b, c, a)
     return
 
 
@@ -328,9 +320,9 @@ def sub_extension_base_ret(a, b):
     # b: base
     # return a - b
     res = Array(DIM)
-    res[0] = a[0] - b
-    for i in unroll(1, DIM):
-        res[i] = a[i]
+    b_ptr = Array(1)
+    b_ptr[0] = b
+    add_be(b_ptr, res, a)
     return res
 
 
