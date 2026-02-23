@@ -16,9 +16,9 @@ def div_ceil_dynamic(a, b: Const):
 def powers(alpha, n):
     # alpha: EF
     # n: F
-    assert n < 256
+    assert n < 512
     assert 0 < n
-    res = match_range(n, range(1, 256), lambda i: powers_const(alpha, i))
+    res = match_range(n, range(1, 512), lambda i: powers_const(alpha, i))
     return res
 
 

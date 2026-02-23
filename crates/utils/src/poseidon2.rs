@@ -3,9 +3,9 @@ use std::sync::OnceLock;
 pub type Poseidon16 = Poseidon2KoalaBear<16>;
 pub type Poseidon24 = Poseidon2KoalaBear<24>;
 
-pub const QUARTER_FULL_ROUNDS_16: usize = 2;
-pub const HALF_FULL_ROUNDS_16: usize = 4;
-pub const PARTIAL_ROUNDS_16: usize = 20;
+pub const QUARTER_FULL_ROUNDS_16: usize = 4;
+pub const HALF_FULL_ROUNDS_16: usize = 8;
+pub const PARTIAL_ROUNDS_16: usize = 40;
 
 static POSEIDON_16_INSTANCE: OnceLock<Poseidon16> = OnceLock::new();
 static POSEIDON_16_OF_ZERO: OnceLock<[KoalaBear; 8]> = OnceLock::new();
