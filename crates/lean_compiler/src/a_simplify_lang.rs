@@ -2144,7 +2144,7 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for extension_op precompile functions
+                        // Special handling for extension_op precompile
                         // Signature: func(ptr_a, ptr_b, ptr_res) or func(ptr_a, ptr_b, ptr_res, length)
                         if let Some(mode) = EXT_OP_FUNCTIONS
                             .iter()
@@ -2181,7 +2181,7 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for precompile functions (poseidon16)
+                        // Special handling for poseidon16 precompile
                         if function_name == Table::poseidon16().name() {
                             if !targets.is_empty() {
                                 return Err(format!(
@@ -2278,7 +2278,6 @@ fn simplify_lines(
                             let simplified_index = simplify_expr(ctx, state, const_malloc, &index, &mut res)?;
                             let simplified_value = VarOrConstMallocAccess::Var(temp_vars[i].clone()).into();
                             handle_array_assignment(
-                                ctx,
                                 state,
                                 const_malloc,
                                 &mut res,
@@ -2347,7 +2346,6 @@ fn simplify_lines(
                                                 });
                                             }
                                             handle_array_assignment(
-                                                ctx,
                                                 state,
                                                 const_malloc,
                                                 &mut res,
@@ -2426,7 +2424,6 @@ fn simplify_lines(
                                     // General case: pre-simplify value and use handle_array_assignment
                                     let simplified_value = simplify_expr(ctx, state, const_malloc, value, &mut res)?;
                                     handle_array_assignment(
-                                        ctx,
                                         state,
                                         const_malloc,
                                         &mut res,
@@ -3000,7 +2997,6 @@ fn simplify_expr(
 
             let simplified_index = simplify_expr(ctx, state, const_malloc, &index, lines)?;
             handle_array_assignment(
-                ctx,
                 state,
                 const_malloc,
                 lines,
@@ -3472,7 +3468,6 @@ pub enum ArrayAccessType {
 }
 
 fn handle_array_assignment(
-    ctx: &SimplifyContext<'_>,
     state: &mut SimplifyState<'_>,
     const_malloc: &ConstMalloc,
     res: &mut Vec<SimpleLine>,
@@ -3483,26 +3478,7 @@ fn handle_array_assignment(
     // Convert array name to versioned name if it's a mutable variable
     let array = state.mut_tracker.current_name(array);
 
-    if let ArrayAccessType::VarIsAssigned(var) = &access_type
-        && let Some(const_array) = ctx.const_arrays.get(&array)
-    {
-        let idx = simplified_index
-            .iter()
-            .map(|idx| {
-                idx.as_constant()
-                    .expect("Const array access index should be constant")
-                    .naive_eval()
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-        let value = const_array
-            .navigate(&idx)
-            .expect("Const array access index out of bounds")
-            .as_scalar()
-            .expect("Const array access should return a scalar");
-        res.push(SimpleLine::equality(var.clone(), ConstExpression::scalar(value)));
-        return;
-    }
+   
 
     // Use ConstMallocAccess when the array is a const_malloc and the index is a constant.
     // This compiles to a direct ADD (fp + offset) instead of a DEREF (double dereference).
@@ -4123,7 +4099,7 @@ fn collect_fp_rel_capable(
                 arg1,
             } if *operation == MathOperation::Add || *operation == MathOperation::Sub => {
                 let base_var = match (operation, arg0, arg1) {
-                    // Add: commutative, either order
+                    // Add: either order
                     (
                         MathOperation::Add,
                         SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
