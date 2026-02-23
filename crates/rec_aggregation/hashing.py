@@ -88,18 +88,19 @@ def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
             poseidon16(h0, right, result)
             return result
 
+    partial_hash = slice_hash_chunks_with_iv(data, num_full_chunks, len_bits)
     if remainder == 0:
-        return slice_hash_chunks_with_iv(data, num_full_chunks, len_bits)
+        return partial_hash
     else:
-        hash = slice_hash_chunks_with_iv(data, num_full_chunks, len_bits)
         padded_last = Array(DIGEST_LEN)
         fill_padded_chunk(padded_last, data + num_full_elements, remainder)
         final_hash = Array(DIGEST_LEN)
-        poseidon16(hash, padded_last, final_hash)
+        poseidon16(partial_hash, padded_last, final_hash)
         return final_hash
 
 
-def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits: Const):
+@inline
+def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits):
     debug_assert(1 < num_chunks)
     states = Array(num_chunks * DIGEST_LEN)
     poseidon16(ZERO_VEC_PTR, data, states)
