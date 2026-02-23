@@ -442,26 +442,28 @@ def checked_decompose_bits(a):
     return bits, partial_sums_24
 
 def checked_decompose_bits_and_compute_root_pow_const(a, domain_size: Const):
-    bits = Array(F_BITS)
-    hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN)
+    # Hint 24 individual bits + 1 top-7-bit value = 25 hints (instead of 31)
+    bits = Array(24)
+    top7 = Array(1)
+    a_ptr = Array(1)
+    a_ptr[0] = a
+    hint_decompose_bits_xmss(bits, top7, a_ptr, 1, 1)
 
-    for i in unroll(0, F_BITS):
+    for i in unroll(0, 24):
         assert bits[i] * (1 - bits[i]) == 0
 
-    partial_sums_24 = Array(24)
-    partial_sums_24[0] = bits[0]
+    assert top7[0] < 2**7
+
+    partial_sum: Mut = bits[0]
     for i in unroll(1, 24):
-        partial_sums_24[i] = partial_sums_24[i - 1] + bits[i] * 2**i
+        partial_sum += bits[i] * 2**i
 
-    sum_7: Mut = bits[24]
-    for i in unroll(1, 7):
-        sum_7 += bits[24 + i] * 2**i
+    if top7[0] == 2**7 - 1:
+        assert partial_sum == 0
 
-    if sum_7 == 127:
-        assert partial_sums_24[23] == 0
+    assert partial_sum + top7[0] * 2**24 == a
 
-    assert a == partial_sums_24[23] + sum_7 * 2**24
-
+    # Compute root power from local bits (no DEREF needed)
     prod: Mut = (bits[0] * ROOT ** (2 ** (TWO_ADICITY - domain_size))) + (1 - bits[0])
     for i in unroll(1, domain_size):
         prod *= (bits[i] * ROOT ** (2 ** (TWO_ADICITY - domain_size + i))) + (1 - bits[i])
