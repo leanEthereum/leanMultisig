@@ -4,21 +4,20 @@ use crate::{
 };
 use backend::*;
 
-// F columns (AIR, 10 total)
+// F columns
 pub(super) const COL_IS_BE: usize = 0;
 pub(super) const COL_START: usize = 1;
 pub(super) const COL_FLAG_ADD: usize = 2;
 pub(super) const COL_FLAG_MUL: usize = 3;
 pub(super) const COL_FLAG_POLY_EQ: usize = 4;
 pub(super) const COL_LEN: usize = 5;
-pub(super) const COL_ARG_A: usize = 6;
+pub(super) const COL_IDX_A: usize = 6;
 pub(super) const COL_IDX_B: usize = 7;
-pub(super) const COL_IDX_R: usize = 8;
+pub(super) const COL_IDX_RES: usize = 8;
 pub(super) const COL_VALUE_A_F: usize = 9;
-// F columns (non-AIR, 2 total)
-// activation_flag = start * active (virtual, used as bus selector)
+
+// Virtual (F) columns
 pub(super) const COL_ACTIVATION_FLAG: usize = 10;
-// aux = 2*is_be + 4*flag_add + 8*flag_mul + 16*flag_poly_eq + 32*len
 pub(super) const COL_AUX_EXTENSION_OP: usize = 11;
 
 // EF columns (AIR, 4 total)
@@ -50,7 +49,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
             COL_FLAG_ADD,
             COL_FLAG_MUL,
             COL_FLAG_POLY_EQ,
-            COL_ARG_A,
+            COL_IDX_A,
             COL_IDX_B,
         ]
     }
@@ -71,7 +70,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let flag_mul = up_f[COL_FLAG_MUL].clone();
         let flag_poly_eq = up_f[COL_FLAG_POLY_EQ].clone();
         let len = up_f[COL_LEN].clone();
-        let arg_a = up_f[COL_ARG_A].clone();
+        let idx_a = up_f[COL_IDX_A].clone();
         let idx_b = up_f[COL_IDX_B].clone();
         let value_a_f = up_f[COL_VALUE_A_F].clone();
 
@@ -81,7 +80,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let flag_add_down = down_f[3].clone(); // COL_FLAG_ADD
         let flag_mul_down = down_f[4].clone(); // COL_FLAG_MUL
         let flag_poly_eq_down = down_f[5].clone(); // COL_FLAG_POLY_EQ
-        let arg_a_down = down_f[6].clone(); // COL_ARG_A
+        let idx_a_down = down_f[6].clone(); // COL_IDX_A
         let idx_b_down = down_f[7].clone(); // COL_IDX_B
 
         let value_a_ef = up_ef[COL_VALUE_A_EF].clone();
@@ -102,17 +101,17 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
             + flag_poly_eq.clone() * AB::F::from_usize(16)
             + len.clone() * AB::F::from_usize(EXT_OP_LEN_MULTIPLIER);
 
-        let idx_r = up_f[COL_IDX_R].clone();
+        let idx_r = up_f[COL_IDX_RES].clone();
 
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 activation_flag,
-                &[aux, arg_a.clone(), idx_b.clone(), idx_r],
+                &[aux, idx_a.clone(), idx_b.clone(), idx_r],
             ));
         } else {
             builder.declare_values(&[activation_flag]);
-            builder.declare_values(&[aux, arg_a.clone(), idx_b.clone(), idx_r]);
+            builder.declare_values(&[aux, idx_a.clone(), idx_b.clone(), idx_r]);
         }
 
         let is_ee = AB::F::ONE - is_be.clone();
@@ -144,7 +143,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         builder.assert_zero(not_start_down.clone() * (flag_mul - flag_mul_down));
         builder.assert_zero(not_start_down.clone() * (flag_poly_eq - flag_poly_eq_down));
         let a_increment = is_be.clone() + is_ee * AB::F::from_usize(crate::DIMENSION);
-        builder.assert_zero(not_start_down.clone() * (arg_a_down - arg_a - a_increment));
+        builder.assert_zero(not_start_down.clone() * (idx_a_down - idx_a - a_increment));
         builder.assert_zero(not_start_down * (idx_b_down - idx_b - AB::F::from_usize(crate::DIMENSION)));
 
         builder.assert_zero(start_down * (len - AB::F::ONE));

@@ -15,7 +15,6 @@ enum Op {
     PolyEq,
 }
 
-/// Compute elem value for a single (v_a, v_b) pair.
 fn compute_elem(v_a: EF, v_b: EF, op: Op) -> EF {
     match op {
         Op::Add => v_a + v_b,
@@ -25,12 +24,10 @@ fn compute_elem(v_a: EF, v_b: EF, op: Op) -> EF {
     }
 }
 
-/// Accumulate elem into running computation.
-/// Add/Mul accumulate additively (dot product), PolyEq accumulates multiplicatively.
 fn accumulate(elem: EF, comp_tail: EF, op: Op) -> EF {
     match op {
         Op::PolyEq => elem * comp_tail,
-        _ => elem + comp_tail,
+        Op::Add | Op::Mul => elem + comp_tail,
     }
 }
 
@@ -81,14 +78,6 @@ fn solve_unknowns(ptr_a: F, ptr_b: F, ptr_res: F, is_be: bool, op: Op, memory: &
     Ok(())
 }
 
-/// Execute a multi-row extension_op and push N trace rows (backward accumulation).
-///
-/// Row ordering: row 0 is the START row (flag=1, len=N, computation=result),
-/// row N-1 is the last row (len=1, computation=elem[N-1]).
-///
-/// For BE mode: arg_A increments by 1 per row (base field elements).
-/// For EE mode: arg_A increments by DIMENSION per row (extension field elements).
-/// idx_B always increments by DIMENSION per row.
 #[allow(clippy::too_many_arguments)]
 fn exec_multi_row(
     ptr_a: F,
@@ -112,13 +101,13 @@ fn exec_multi_row(
     let mut elems = Vec::with_capacity(size);
     let mut v_a_fs = Vec::with_capacity(size);
     let mut v_bs = Vec::with_capacity(size);
-    let mut arg_as = Vec::with_capacity(size);
+    let mut idx_as = Vec::with_capacity(size);
     let mut idx_bs = Vec::with_capacity(size);
 
     for i in 0..size {
         let addr_a = ptr_a.to_usize() + i * a_stride;
         let addr_b = ptr_b.to_usize() + i * DIMENSION;
-        let arg_a_f = F::from_usize(addr_a);
+        let idx_a_f = F::from_usize(addr_a);
         let idx_b_f = F::from_usize(addr_b);
 
         let v_a = if is_be {
@@ -134,7 +123,7 @@ fn exec_multi_row(
 
         elems.push(compute_elem(v_a, v_b, op));
         v_bs.push(v_b);
-        arg_as.push(arg_a_f);
+        idx_as.push(idx_a_f);
         idx_bs.push(idx_b_f);
     }
 
@@ -170,9 +159,9 @@ fn exec_multi_row(
         trace.base[COL_FLAG_MUL].push(flag_mul_f);
         trace.base[COL_FLAG_POLY_EQ].push(flag_poly_eq_f);
         trace.base[COL_LEN].push(F::from_usize(current_len));
-        trace.base[COL_ARG_A].push(arg_as[i]);
+        trace.base[COL_IDX_A].push(idx_as[i]);
         trace.base[COL_IDX_B].push(idx_bs[i]);
-        trace.base[COL_IDX_R].push(ptr_res);
+        trace.base[COL_IDX_RES].push(ptr_res);
         trace.base[COL_VALUE_A_F].push(v_a_fs[i]);
         trace.base[COL_AUX_EXTENSION_OP].push(F::from_usize(mode_bits + EXT_OP_LEN_MULTIPLIER * current_len));
 
@@ -184,8 +173,6 @@ fn exec_multi_row(
 
     Ok(())
 }
-
-// ─── Public execution functions ───
 
 pub(super) fn exec_add_be(
     ptr_a: F,
@@ -253,14 +240,14 @@ pub(super) fn exec_poly_eq_ee(
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::PolyEq, memory, trace)
 }
 
-/// Fill the VALUE_A_EF column after execution by looking up memory at ARG_A addresses.
+/// Fill the VALUE_A_EF column after execution by looking up memory at idx_A addresses.
 /// This is done post-execution because the lookup always happens (unconditionally).
 pub fn fill_trace_extension_op(trace: &mut TableTrace, memory: &[F]) {
     assert!(trace.ext[COL_VALUE_A_EF].is_empty());
-    let n = trace.base[COL_ARG_A].len();
+    let n = trace.base[COL_IDX_A].len();
     trace.ext[COL_VALUE_A_EF] = EF::zero_vec(n);
     for i in 0..n {
-        let addr = trace.base[COL_ARG_A][i].to_usize();
+        let addr = trace.base[COL_IDX_A][i].to_usize();
         let value_ef = EF::from_basis_coefficients_slice(&memory[addr..][..DIMENSION]).unwrap();
         trace.ext[COL_VALUE_A_EF][i] = value_ef;
     }

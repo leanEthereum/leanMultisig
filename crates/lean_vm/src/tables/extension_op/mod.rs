@@ -32,9 +32,6 @@ pub const EXT_OP_FUNCTIONS: [(&str, usize); 6] = [
     ("poly_eq_be", EXT_OP_POLY_EQ_BE),
 ];
 
-/// Extension field operation: ADD, MUL, or POLY_EQ on extension field elements.
-/// Supports multi-row operations (length N) with backward accumulation.
-/// Operand A can be either a direct base field value (BE) or a pointer to EF element (EE).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ExtensionOpPrecompile<const BUS: bool>;
 
@@ -49,7 +46,7 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
 
     fn lookups_f(&self) -> Vec<LookupIntoMemory> {
         vec![LookupIntoMemory {
-            index: COL_ARG_A,
+            index: COL_IDX_A,
             values: vec![COL_VALUE_A_F],
         }]
     }
@@ -57,7 +54,7 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
     fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
         vec![
             ExtensionFieldLookupIntoMemory {
-                index: COL_ARG_A,
+                index: COL_IDX_A,
                 values: COL_VALUE_A_EF,
             },
             ExtensionFieldLookupIntoMemory {
@@ -65,7 +62,7 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
                 values: COL_VALUE_B,
             },
             ExtensionFieldLookupIntoMemory {
-                index: COL_IDX_R,
+                index: COL_IDX_RES,
                 values: COL_VALUE_RES,
             },
         ]
@@ -77,9 +74,9 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
             selector: COL_ACTIVATION_FLAG,
             data: vec![
                 BusData::Column(COL_AUX_EXTENSION_OP),
-                BusData::Column(COL_ARG_A),
+                BusData::Column(COL_IDX_A),
                 BusData::Column(COL_IDX_B),
-                BusData::Column(COL_IDX_R),
+                BusData::Column(COL_IDX_RES),
             ],
         }
     }

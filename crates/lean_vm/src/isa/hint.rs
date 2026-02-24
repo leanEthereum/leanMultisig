@@ -193,30 +193,36 @@ impl CustomHint {
             }
             Self::Xmss => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let offset = *ctx.counter_hint * SIG_SIZE_FE;
+                let index = *ctx.xmss_hint_index;
                 assert!(
-                    offset + SIG_SIZE_FE <= ctx.xmss_hint_data.len(),
-                    "hint_xmss: not enough XMSS hint data (counter={})",
-                    *ctx.counter_hint
+                    index < ctx.xmss_signatures.len(),
+                    "hint_xmss: not enough XMSS signatures (index={})",
+                    index
                 );
-                ctx.memory
-                    .set_slice(buf_ptr, &ctx.xmss_hint_data[offset..offset + SIG_SIZE_FE])?;
-                *ctx.counter_hint += 1;
+                let sig = &ctx.xmss_signatures[index];
+                assert_eq!(sig.len(), SIG_SIZE_FE);
+                ctx.memory.set_slice(buf_ptr, sig)?;
+                *ctx.xmss_hint_index += 1;
             }
             Self::Merkle => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let n = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let offset = *ctx.merkle_hint_offset;
+                let index = *ctx.merkle_hint_index;
                 assert!(
-                    offset + n <= ctx.merkle_hint_data.len(),
-                    "hint_merkle: not enough Merkle hint data (offset={}, requested={}, available={})",
-                    offset,
-                    n,
-                    ctx.merkle_hint_data.len()
+                    index < ctx.merkle_paths.len(),
+                    "hint_merkle: not enough Merkle paths (index={})",
+                    index
                 );
-                ctx.memory
-                    .set_slice(buf_ptr, &ctx.merkle_hint_data[offset..offset + n])?;
-                *ctx.merkle_hint_offset += n;
+                let path = &ctx.merkle_paths[index];
+                assert_eq!(
+                    path.len(),
+                    n,
+                    "hint_merkle: path length mismatch (expected={}, got={})",
+                    n,
+                    path.len()
+                );
+                ctx.memory.set_slice(buf_ptr, path)?;
+                *ctx.merkle_hint_index += 1;
             }
         }
         Ok(())
@@ -248,7 +254,6 @@ pub struct HintExecutionContext<'a> {
     pub memory: &'a mut Memory,
     pub fp: usize,
     pub ap: &'a mut usize,
-    pub counter_hint: &'a mut usize,
     pub std_out: &'a mut String,
     pub instruction_history: &'a mut ExecutionHistory,
     pub cpu_cycles_before_new_line: &'a mut usize,
@@ -258,9 +263,10 @@ pub struct HintExecutionContext<'a> {
     pub profiling: bool,
     pub memory_profile: &'a mut MemoryProfile,
     pub private_input_start: usize,
-    pub xmss_hint_data: &'a [F],
-    pub merkle_hint_data: &'a [F],
-    pub merkle_hint_offset: &'a mut usize,
+    pub xmss_signatures: &'a [Vec<F>],
+    pub xmss_hint_index: &'a mut usize,
+    pub merkle_paths: &'a [Vec<F>],
+    pub merkle_hint_index: &'a mut usize,
     /// Pending deref hints: (target_addr, src_addr)
     /// Constraint: memory[target_addr] = memory[memory[src_addr]]
     /// Resolved at end of execution in correct order.

@@ -301,11 +301,8 @@ pub fn aggregate(
     let mut dup_pub_keys: Vec<Digest> = Vec::new();
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
-    // Build XMSS hint data (passed separately, not in private input)
-    let xmss_hint_data: Vec<F> = raw_xmss
-        .iter()
-        .flat_map(|(_, sig)| encode_xmss_signature(sig))
-        .collect();
+    // Build XMSS signatures (one Vec<F> per signature, consumed by hint_xmss)
+    let xmss_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
 
     // Source 0: raw XMSS (indices only; signature data goes via hint_xmss)
     {
@@ -380,23 +377,23 @@ pub fn aggregate(
     // TODO precompute all the other poseidons
     let xmss_poseidons_16_precomputed = precompute_poseidons(&raw_xmss, message);
 
-    // Build Merkle hint data from all child proofs (consumed by hint_merkle in whir.py)
-    let merkle_hint_data: Vec<F> = child_raw_proofs
+    // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
+    // Each opening produces two entries: leaf_data, then the flattened path.
+    let merkle_paths: Vec<Vec<F>> = child_raw_proofs
         .iter()
         .flat_map(|p| p.merkle_openings.iter())
         .flat_map(|o| {
-            o.leaf_data
-                .iter()
-                .copied()
-                .chain(o.path.iter().flat_map(|d| d.iter().copied()))
+            let leaf = o.leaf_data.clone();
+            let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
+            [leaf, path]
         })
         .collect();
 
     let witness = ExecutionWitness {
         private_input: &private_input,
         poseidons_16_precomputed: &xmss_poseidons_16_precomputed,
-        xmss_hint_data: &xmss_hint_data,
-        merkle_hint_data: &merkle_hint_data,
+        xmss_signatures: &xmss_signatures,
+        merkle_paths: &merkle_paths,
     };
     let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);
 

@@ -199,7 +199,7 @@ where
         reversed_point.reverse();
         let final_value = eval_multilinear_coeffs(&final_coefficients, &reversed_point);
         if claimed_sum != evaluation_of_weights * final_value {
-            panic!();
+            return Err(ProofError::InvalidProof);
         }
 
         Ok(folding_randomness)
@@ -312,7 +312,7 @@ where
 
             for (i, &index) in indices.iter().enumerate() {
                 if !merkle_verify::<PF<EF>, F>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i]) {
-                    panic!();
+                    return Err(ProofError::InvalidProof);
                 }
             }
 
@@ -332,7 +332,7 @@ where
 
             for (i, &index) in indices.iter().enumerate() {
                 if !merkle_verify::<PF<EF>, EF>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i]) {
-                    panic!();
+                    return Err(ProofError::InvalidProof);
                 }
             }
 
@@ -417,7 +417,7 @@ where
 
         // Verify claimed sum is consistent with polynomial
         if poly.evaluate(EF::ZERO) + poly.evaluate(EF::ONE) != *claimed_sum {
-            panic!();
+            return Err(ProofError::InvalidProof);
         }
 
         verifier_state.check_pow_grinding(pow_bits)?;
