@@ -60,6 +60,7 @@ sub_protocols = { path = "crates/sub_protocols" }
 lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
+blake3_air = { path = "crates/blake3_air" }
 
 # External
 clap = { version = "4.5.59", features = ["derive"] }
@@ -92,6 +93,7 @@ utils.workspace = true
 
 lean_vm.workspace = true
 backend.workspace = true
+blake3_air.workspace = true
 
 
 [profile.release]

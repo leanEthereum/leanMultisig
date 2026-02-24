@@ -1,7 +1,9 @@
 use clap::Parser;
 use rec_aggregation::{AggregationTopology, benchmark::run_aggregation_benchmark};
+mod prove_blake3;
 mod prove_poseidons;
 
+use crate::prove_blake3::benchmark_prove_blake3;
 use crate::prove_poseidons::benchmark_prove_poseidon_16;
 
 #[derive(Parser)]
@@ -28,6 +30,13 @@ enum Cli {
     Poseidon {
         #[arg(long, help = "log2(number of Poseidons)")]
         log_n_perms: usize,
+        #[arg(long, help = "Enable tracing")]
+        tracing: bool,
+    },
+    #[command(about = "Prove validity of Blake3 hashes")]
+    Blake3 {
+        #[arg(long, help = "log2(number of Blake3 hashes)")]
+        log_n_hashes: usize,
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
@@ -75,6 +84,9 @@ fn main() {
             tracing,
         } => {
             benchmark_prove_poseidon_16(log_count, tracing);
+        }
+        Cli::Blake3 { log_n_hashes, tracing } => {
+            benchmark_prove_blake3(log_n_hashes, tracing);
         }
         Cli::FancyAggregation {} => {
             let topology = AggregationTopology {

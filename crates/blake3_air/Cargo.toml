@@ -1,0 +1,13 @@
+[package]
+name = "blake3_air"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+backend.workspace = true
+itertools.workspace = true
+rand.workspace = true
+rayon.workspace = true

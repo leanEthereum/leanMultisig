@@ -113,6 +113,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3_air"
+version = "0.1.0"
+dependencies = [
+ "backend",
+ "itertools",
+ "rand",
+ "rayon",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -344,6 +354,7 @@ version = "0.1.0"
 dependencies = [
  "air",
  "backend",
+ "blake3_air",
  "clap",
  "lean_vm",
  "rand",
