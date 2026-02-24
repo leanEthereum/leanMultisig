@@ -36,22 +36,23 @@ cargo run --release -- xmss --n-signatures 1400
 
 | WHIR rate \ regime | Proven               | Conjectured          |
 | ------------------ | -------------------- | -------------------- |
-| 1/2                | 610 XMSS/s - 383 KiB | 610 XMSS/s - 209 KiB |
-| 1/4                | 490 XMSS/s - 252 KiB | 490 XMSS/s - 148 KiB |
+| 1/2                | 775 XMSS/s - 374 KiB | 775 XMSS/s - 204 KiB |
+| 1/4                | 650 XMSS/s - 246 KiB | 650 XMSS/s - 146 KiB |
 
 (Proving throughput - proof size)
 
 ### Recursion
 
+2 to 1 recursion (WHIR rate = 1/4):
+
+
 ```bash
 cargo run --release -- recursion --n 2
 ```
 
-2 to 1 recursion (WHIR rate = 1/4):
-
 | Proven          | Conjectured     |
 | --------------- | --------------- |
-| 1.08s - 223 KiB | 1.03s - 134 KiB |
+| 0.77s - 223 KiB | 0.59s - 128 KiB |
 
 
 ### Bonus: unbounded recursive aggregation
