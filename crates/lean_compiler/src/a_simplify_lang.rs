@@ -1222,30 +1222,17 @@ fn transform_mutable_in_loops_in_lines(
 
                 let location = *location;
 
-                let start_is_zero = start.as_scalar() == Some(F::ZERO);
-
                 // Create size variable: @loop_size_{suffix} = end - start
-                // When start is zero, use end directly as the size
                 let size_var = format!("@loop_size_{suffix}");
-                if start_is_zero {
-                    new_lines.push(Line::Statement {
-                        targets: vec![AssignmentTarget::Var {
-                            var: size_var.clone(),
-                            is_mutable: false,
-                        }],
-                        value: end.clone(),
-                        location,
-                    });
-                } else {
-                    new_lines.push(Line::Statement {
-                        targets: vec![AssignmentTarget::Var {
-                            var: size_var.clone(),
-                            is_mutable: false,
-                        }],
-                        value: Expression::MathExpr(MathOperation::Sub, vec![end.clone(), start.clone()]),
-                        location,
-                    });
-                }
+
+                new_lines.push(Line::Statement {
+                    targets: vec![AssignmentTarget::Var {
+                        var: size_var.clone(),
+                        is_mutable: false,
+                    }],
+                    value: Expression::MathExpr(MathOperation::Sub, vec![end.clone(), start.clone()]),
+                    location,
+                });
 
                 let mut var_to_buff: BTreeMap<Var, (Var, Var)> = BTreeMap::new(); // var -> (buff_name, body_name)
 
@@ -1290,28 +1277,18 @@ fn transform_mutable_in_loops_in_lines(
 
                 // buff_idx = i - start (or just i when start is zero)
                 let buff_idx_var = format!("@loop_buff_idx_{suffix}");
-                if start_is_zero {
-                    new_body.push(Line::Statement {
-                        targets: vec![AssignmentTarget::Var {
-                            var: buff_idx_var.clone(),
-                            is_mutable: false,
-                        }],
-                        value: Expression::var(iterator.clone()),
-                        location,
-                    });
-                } else {
-                    new_body.push(Line::Statement {
-                        targets: vec![AssignmentTarget::Var {
-                            var: buff_idx_var.clone(),
-                            is_mutable: false,
-                        }],
-                        value: Expression::MathExpr(
-                            MathOperation::Sub,
-                            vec![Expression::var(iterator.clone()), start.clone()],
-                        ),
-                        location,
-                    });
-                }
+
+                new_body.push(Line::Statement {
+                    targets: vec![AssignmentTarget::Var {
+                        var: buff_idx_var.clone(),
+                        is_mutable: false,
+                    }],
+                    value: Expression::MathExpr(
+                        MathOperation::Sub,
+                        vec![Expression::var(iterator.clone()), start.clone()],
+                    ),
+                    location,
+                });
 
                 // For each modified variable: mut body_var = buff[buff_idx]
                 for (var, (buff_name, body_name)) in &var_to_buff {
@@ -3477,8 +3454,6 @@ fn handle_array_assignment(
 ) {
     // Convert array name to versioned name if it's a mutable variable
     let array = state.mut_tracker.current_name(array);
-
-   
 
     // Use ConstMallocAccess when the array is a const_malloc and the index is a constant.
     // This compiles to a direct ADD (fp + offset) instead of a DEREF (double dereference).
