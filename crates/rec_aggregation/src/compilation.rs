@@ -450,31 +450,28 @@ where
     }
     // dot product: bus_res = sum(buff[i] * logup_alphas_eq_poly[i]) for i in 0..bus_data.len()
     res += "\n    bus_res_init = Array(DIM)";
-    res += "\n    dot_product_ee(buff, logup_alphas_eq_poly, bus_res_init)";
-    res += "\n    bus_res: Mut = bus_res_init";
-    for i in 1..bus_data.len() {
-        res += &format!(
-            "\n    bus_res_tmp_{i} = Array(DIM)\
-             \n    dot_product_ee(buff + {off} * DIM, logup_alphas_eq_poly + {off} * DIM, bus_res_tmp_{i})\
-             \n    bus_res = add_extension_ret(bus_res, bus_res_tmp_{i})",
-            off = i,
-        );
-    }
     res += &format!(
-        "\n    bus_res = add_extension_ret(mul_base_extension_ret(LOGUP_PRECOMPILE_DOMAINSEP, logup_alphas_eq_poly + {} * DIM), bus_res)",
+        "\n    dot_product_ee(buff, logup_alphas_eq_poly, bus_res_init, {})",
+        bus_data.len()
+    );
+    res += &format!(
+        "\n    bus_res: Mut = add_extension_ret(mul_base_extension_ret(LOGUP_PRECOMPILE_DOMAINSEP, logup_alphas_eq_poly + {} * DIM), bus_res_init)",
         max_bus_width().next_power_of_two() - 1
     );
     res += "\n    bus_res = mul_extension_ret(bus_res, bus_beta)";
     res += &format!("\n    sum: Mut = add_extension_ret(bus_res, {})", flag);
 
+    let n_constraints = constraints_evals.len();
+    res += &format!("\n    constraints_buf = Array(DIM * {})", n_constraints);
     for (index, constraint_eval) in constraints_evals.iter().enumerate() {
-        res += format!(
-            "\n    sum = add_extension_ret(sum, mul_extension_ret(air_alpha_powers + {} * DIM, {}))",
-            index + 1,
-            constraint_eval
-        )
-        .as_str();
+        res += &format!("\n    copy_5({}, constraints_buf + {} * DIM)", constraint_eval, index);
     }
+    res += "\n    weighted_constraints = Array(DIM)";
+    res += &format!(
+        "\n    dot_product_ee(air_alpha_powers + DIM, constraints_buf, weighted_constraints, {})",
+        n_constraints
+    );
+    res += "\n    sum = add_extension_ret(sum, weighted_constraints)";
 
     res += "\n    return sum";
     res += "\n";
