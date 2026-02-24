@@ -78,14 +78,12 @@ pub fn benchmark_prove_blake3(log_n_rows: usize, tracing: bool) {
         );
     }
 
-
     println!(
         "{} Blake3 hashes / s",
         (n_rows as f64 / time.elapsed().as_secs_f64()) as usize
     );
     let proof_size = (prover_state.pruned_proof().proof_size_fe() * 31 / 8) / 1024;
     println!("Proof size: {} KB", proof_size);
-    
 
     {
         let mut verifier_state = build_verifier_state(prover_state);

@@ -1,7 +1,7 @@
 use std::{any::TypeId, iter::repeat_n};
 
 use field::Field;
-use koala_bear::{KoalaBear, default_koalabear_poseidon2_16};
+use koala_bear::KoalaBear;
 use serde::{Deserialize, Serialize};
 
 use crate::{PrunedMerklePaths, challenger::RATE};
@@ -104,7 +104,7 @@ impl<F: Field> PrunedProof<F> {
                                 // TODO avoid ugly unsafe
                                 let paths: PrunedMerklePaths<KoalaBear, KoalaBear> =
                                     unsafe { std::mem::transmute(paths) };
-                                let perm = default_koalabear_poseidon2_16();
+                                let perm = symetric::default_blake3_compressor();
                                 let hash_fn = |data: &[KoalaBear]| {
                                     symetric::hash_slice::<_, _, 16, 8, DIGEST_LEN_FE>(&perm, data)
                                 };
