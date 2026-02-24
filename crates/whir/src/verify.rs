@@ -3,7 +3,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
 use fiat_shamir::{FSVerifier, ProofError, ProofResult, pack_scalars_to_extension};
-use field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
+use field::{ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
 use poly::*;
 
 use crate::*;
@@ -199,7 +199,7 @@ where
         reversed_point.reverse();
         let final_value = eval_multilinear_coeffs(&final_coefficients, &reversed_point);
         if claimed_sum != evaluation_of_weights * final_value {
-            panic!();
+            return Err(ProofError::InvalidProof);
         }
 
         Ok(folding_randomness)
@@ -293,91 +293,52 @@ where
         indices: &[usize],
         dimensions: &[Dimensions],
         leafs_base_field: bool,
-        round_index: usize,
-        var_shift: usize,
+        _round_index: usize,
+        _var_shift: usize,
     ) -> ProofResult<Vec<Vec<EF>>>
     where
         F: Field + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
     {
-        // Branch depending on whether the committed leafs are base field or extension field.
         let res = if leafs_base_field {
-            // Merkle leaves
             let mut answers = Vec::<Vec<F>>::new();
-            let merkle_leaf_size = 1 << (self.folding_factor.at_round(round_index) - var_shift);
-            for _ in 0..indices.len() {
-                answers.push(pack_scalars_to_extension::<PF<EF>, F>(
-                    &verifier_state
-                        .receive_hint_base_scalars(merkle_leaf_size * <F as BasedVectorSpace<PF<EF>>>::DIMENSION)?,
-                ));
-            }
-
-            // Merkle proofs
             let mut merkle_proofs = Vec::new();
+
             for _ in 0..indices.len() {
-                let mut merkle_path = vec![];
-                for _ in 0..self.merkle_tree_height(round_index) {
-                    let digest: [PF<EF>; DIGEST_ELEMS] = verifier_state
-                        .receive_hint_base_scalars(DIGEST_ELEMS)?
-                        .try_into()
-                        .unwrap();
-                    merkle_path.push(digest);
-                }
-                merkle_proofs.push(merkle_path);
+                let opening = verifier_state.next_merkle_opening()?;
+                answers.push(pack_scalars_to_extension::<PF<EF>, F>(&opening.leaf_data));
+                merkle_proofs.push(opening.path);
             }
 
-            // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
-                // Verify the Merkle opening for the claimed leaf against the Merkle root.
                 if !merkle_verify::<PF<EF>, F>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i]) {
-                    panic!();
+                    return Err(ProofError::InvalidProof);
                 }
             }
 
-            // Convert the base field values to EF and collect them into a result vector.
             answers
                 .into_iter()
                 .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
                 .collect()
         } else {
-            // Merkle leaves
             let mut answers = vec![];
-            let merkle_leaf_size = if round_index == 0 {
-                1 << (self.folding_factor.at_round(round_index) - var_shift)
-            } else {
-                1 << self.folding_factor.at_round(round_index)
-            };
-            for _ in 0..indices.len() {
-                answers.push(verifier_state.receive_hint_extension_scalars(merkle_leaf_size)?);
-            }
-
-            // Merkle proofs
             let mut merkle_proofs = Vec::new();
+
             for _ in 0..indices.len() {
-                let mut merkle_path = vec![];
-                for _ in 0..self.merkle_tree_height(round_index) {
-                    let digest: [PF<EF>; DIGEST_ELEMS] = verifier_state
-                        .receive_hint_base_scalars(DIGEST_ELEMS)?
-                        .try_into()
-                        .unwrap();
-                    merkle_path.push(digest);
-                }
-                merkle_proofs.push(merkle_path);
+                let opening = verifier_state.next_merkle_opening()?;
+                answers.push(pack_scalars_to_extension::<PF<EF>, EF>(&opening.leaf_data));
+                merkle_proofs.push(opening.path);
             }
 
-            // For each queried index:
             for (i, &index) in indices.iter().enumerate() {
-                // Verify the Merkle opening against the extension MMCS.
                 if !merkle_verify::<PF<EF>, EF>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i]) {
-                    panic!();
+                    return Err(ProofError::InvalidProof);
                 }
             }
 
-            // Return the extension field answers as-is.
             answers
         };
 
-        // Return the verified leaf values.
         Ok(res)
     }
 
@@ -456,7 +417,7 @@ where
 
         // Verify claimed sum is consistent with polynomial
         if poly.evaluate(EF::ZERO) + poly.evaluate(EF::ONE) != *claimed_sum {
-            panic!();
+            return Err(ProofError::InvalidProof);
         }
 
         verifier_state.check_pow_grinding(pow_bits)?;

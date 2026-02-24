@@ -110,6 +110,8 @@ pub trait PrimeCharacteristicRing:
     /// If the field has characteristic 2 this is equal to ONE.
     const NEG_ONE: Self;
 
+    const INVERSE_OF_TWO: Self;
+
     /// Embed an element of the prime field `ℤ/p` into the ring `R`.
     ///
     /// Given any element `[r] ∈ ℤ/p`, represented by an integer `r` between `0` and `p - 1`

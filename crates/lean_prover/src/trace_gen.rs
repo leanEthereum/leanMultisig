@@ -33,27 +33,32 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             let field_repr = &bytecode.instructions_multilinear[pc * N_INSTRUCTION_COLUMNS.next_power_of_two()..]
                 [..N_INSTRUCTION_COLUMNS];
 
+            let flag_a = field_repr[instr_idx(COL_FLAG_A)];
+            let flag_b = field_repr[instr_idx(COL_FLAG_B)];
+            let flag_c = field_repr[instr_idx(COL_FLAG_C)];
+            let flag_c_fp = field_repr[instr_idx(COL_FLAG_C_FP)];
+            let flag_ab_fp = field_repr[instr_idx(COL_FLAG_AB_FP)];
+            let aux = field_repr[instr_idx(COL_AUX)];
+            let is_deref = aux == F::TWO;
+
             let mut addr_a = F::ZERO;
-            if field_repr[instr_idx(COL_FLAG_A)].is_zero() {
-                // flag_a == 0
-                addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)]; // fp + operand_a
+            if flag_a.is_zero() && flag_ab_fp.is_zero() {
+                addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)];
             }
             let value_a = memory.0.get(addr_a.to_usize()).copied().flatten().unwrap_or_default();
+
             let mut addr_b = F::ZERO;
-            if field_repr[instr_idx(COL_FLAG_B)].is_zero() {
-                // flag_b == 0
-                addr_b = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_B)]; // fp + operand_b
+            if flag_b.is_zero() && flag_ab_fp.is_zero() {
+                addr_b = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_B)];
+            } else if is_deref {
+                // DEREF: addr_B = value_A + operand_B
+                addr_b = value_a + field_repr[instr_idx(COL_OPERAND_B)];
             }
             let value_b = memory.0.get(addr_b.to_usize()).copied().flatten().unwrap_or_default();
 
             let mut addr_c = F::ZERO;
-            if field_repr[instr_idx(COL_FLAG_C)].is_zero() {
-                // flag_c == 0
-                addr_c = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)]; // fp + operand_c
-            } else if let Instruction::Deref { shift_1, .. } = instruction {
-                let operand_c = F::from_usize(*shift_1);
-                assert_eq!(field_repr[instr_idx(COL_OPERAND_C)], operand_c); // debug purpose
-                addr_c = value_a + operand_c;
+            if flag_c.is_zero() && flag_c_fp.is_zero() {
+                addr_c = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)];
             }
             let value_c = memory.0.get(addr_c.to_usize()).copied().flatten().unwrap_or_default();
 
@@ -61,12 +66,15 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
                 *trace_row[j + N_RUNTIME_COLUMNS] = *field;
             }
 
-            let nu_a = field_repr[instr_idx(COL_FLAG_A)] * field_repr[instr_idx(COL_OPERAND_A)]
-                + (F::ONE - field_repr[instr_idx(COL_FLAG_A)]) * value_a;
-            let nu_b = field_repr[instr_idx(COL_FLAG_B)] * field_repr[instr_idx(COL_OPERAND_B)]
-                + (F::ONE - field_repr[instr_idx(COL_FLAG_B)]) * value_b;
-            let nu_c = field_repr[instr_idx(COL_FLAG_C)] * F::from_usize(fp)
-                + (F::ONE - field_repr[instr_idx(COL_FLAG_C)]) * value_c;
+            let nu_a = flag_a * field_repr[instr_idx(COL_OPERAND_A)]
+                + (F::ONE - flag_a - flag_ab_fp) * value_a
+                + flag_ab_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)]);
+            let nu_b = flag_b * field_repr[instr_idx(COL_OPERAND_B)]
+                + (F::ONE - flag_b - flag_ab_fp) * value_b
+                + flag_ab_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_B)]);
+            let nu_c = flag_c * field_repr[instr_idx(COL_OPERAND_C)]
+                + (F::ONE - flag_c - flag_c_fp) * value_c
+                + flag_c_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)]);
             if let Instruction::Precompile { .. } = instruction {
                 *trace_row[COL_IS_PRECOMPILE] = F::ONE;
             }
@@ -94,8 +102,8 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
     fill_trace_poseidon_16(&mut poseidon_trace.base);
 
-    let dot_product_trace = traces.get_mut(&Table::dot_product()).unwrap();
-    fill_trace_dot_product(dot_product_trace, &memory_padded);
+    let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
+    fill_trace_extension_op(extension_op_trace, &memory_padded);
 
     traces.insert(
         Table::execution(),

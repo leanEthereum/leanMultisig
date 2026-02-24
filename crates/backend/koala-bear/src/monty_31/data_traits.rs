@@ -55,6 +55,7 @@ pub trait FieldParameters: PackedMontyParameters + Sized {
     const MONTY_ONE: MontyField31<Self> = MontyField31::new(1);
     const MONTY_TWO: MontyField31<Self> = MontyField31::new(2);
     const MONTY_NEG_ONE: MontyField31<Self> = MontyField31::new(Self::PRIME - 1);
+    const MONTY_INVERSE_OF_TWO: MontyField31<Self> = MontyField31::new((Self::PRIME + 1) >> 1);
 
     // A generator of the fields multiplicative group. Needs to be given in Monty Form.
     const MONTY_GEN: MontyField31<Self>;

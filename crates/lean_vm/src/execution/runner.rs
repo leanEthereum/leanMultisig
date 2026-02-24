@@ -15,6 +15,31 @@ use std::collections::{BTreeMap, BTreeSet};
 use utils::{ToUsize, get_poseidon_16_of_zero};
 use xmss::Poseidon16History;
 
+#[derive(Debug)]
+pub struct ExecutionWitness<'a> {
+    /// Private field elements loaded into memory after public memory.
+    pub private_input: &'a [F],
+    /// Used for performance.
+    pub poseidons_16_precomputed: &'a Poseidon16History,
+    /// XMSS signatures, one Vec<F> per signature (each of length SIG_SIZE_FE)
+    pub xmss_signatures: &'a [Vec<F>],
+    /// Merkle paths for WHIR recursion, one Vec<F> per hint_merkle call
+    pub merkle_paths: &'a [Vec<F>],
+}
+
+impl ExecutionWitness<'_> {
+    pub fn empty() -> Self {
+        // Use a reference to a local static to provide a &Poseidon16History
+        static EMPTY: Poseidon16History = vec![];
+        Self {
+            private_input: &[],
+            poseidons_16_precomputed: &EMPTY,
+            xmss_signatures: &[],
+            merkle_paths: &[],
+        }
+    }
+}
+
 /// Build public memory with standard initialization
 pub fn build_public_memory(non_reserved_public_input: &[F]) -> Vec<F> {
     // padded to a power of two
@@ -47,25 +72,21 @@ pub fn build_public_memory(non_reserved_public_input: &[F]) -> Vec<F> {
     public_memory
 }
 
-/// Execute bytecode with the given inputs and execution context, returning a Result
-///
-/// This is the main VM execution entry point that processes bytecode instructions
-/// and generates execution traces with witness data.
 pub fn try_execute_bytecode(
     bytecode: &Bytecode,
-    (public_input, private_input): (&[F], &[F]),
+    public_input: &[F],
+    witness: &ExecutionWitness<'_>,
     profiling: bool,
-    poseidons_16_precomputed: &Poseidon16History,
 ) -> Result<ExecutionResult, RunnerError> {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
     let result = execute_bytecode_helper(
         bytecode,
-        (public_input, private_input),
+        public_input,
+        witness,
         &mut std_out,
         &mut instruction_history,
         profiling,
-        poseidons_16_precomputed,
     )
     .map_err(|(last_pc, err)| {
         eprintln!(
@@ -83,22 +104,14 @@ pub fn try_execute_bytecode(
     Ok(result)
 }
 
-/// Execute bytecode with the given inputs and execution context
-///
-/// Panics on execution errors. Use `try_execute_bytecode` for error handling.
 pub fn execute_bytecode(
     bytecode: &Bytecode,
-    (public_input, private_input): (&[F], &[F]),
+    public_input: &[F],
+    witness: &ExecutionWitness<'_>,
     profiling: bool,
-    poseidons_16_precomputed: &Poseidon16History,
 ) -> ExecutionResult {
-    try_execute_bytecode(
-        bytecode,
-        (public_input, private_input),
-        profiling,
-        poseidons_16_precomputed,
-    )
-    .unwrap_or_else(|err| panic!("Error during bytecode execution: {err:?}"))
+    try_execute_bytecode(bytecode, public_input, witness, profiling)
+        .unwrap_or_else(|err| panic!("Error during bytecode execution: {err:?}"))
 }
 
 /// Resolve pending deref hints in correct order
@@ -144,12 +157,17 @@ fn resolve_deref_hints(memory: &mut Memory, pending: &[(usize, usize)]) {
 #[allow(clippy::too_many_arguments)] // TODO
 fn execute_bytecode_helper(
     bytecode: &Bytecode,
-    (public_input, private_input): (&[F], &[F]),
+    public_input: &[F],
+    witness: &ExecutionWitness<'_>,
     std_out: &mut String,
     instruction_history: &mut ExecutionHistory,
     profiling: bool,
-    poseidons_precomputed: &Poseidon16History,
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
+    let private_input = witness.private_input;
+    let poseidons_precomputed = witness.poseidons_16_precomputed;
+    let xmss_signatures = witness.xmss_signatures;
+    let merkle_paths = witness.merkle_paths;
+
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));
 
@@ -192,7 +210,8 @@ fn execute_bytecode_helper(
     let mut deref_counts = 0;
     let mut jump_counts = 0;
 
-    let mut counter_hint = 0;
+    let mut xmss_hint_index = 0;
+    let mut merkle_hint_index = 0;
     let mut cpu_cycles_before_new_line = 0;
 
     // Pending deref hints: (target_addr, src_addr) constraints to resolve at end
@@ -214,7 +233,6 @@ fn execute_bytecode_helper(
                 memory: &mut memory,
                 fp,
                 ap: &mut ap,
-                counter_hint: &mut counter_hint,
                 std_out,
                 instruction_history,
                 cpu_cycles_before_new_line: &mut cpu_cycles_before_new_line,
@@ -224,6 +242,10 @@ fn execute_bytecode_helper(
                 profiling,
                 memory_profile: &mut mem_profile,
                 private_input_start: public_memory_size,
+                xmss_signatures,
+                xmss_hint_index: &mut xmss_hint_index,
+                merkle_paths,
+                merkle_hint_index: &mut merkle_hint_index,
                 pending_deref_hints: &mut pending_deref_hints,
             };
             hint.execute_hint(&mut hint_ctx).map_err(|e| (pc, e))?;
@@ -256,7 +278,17 @@ fn execute_bytecode_helper(
     assert_eq!(
         n_poseidon_precomputed_used,
         poseidons_precomputed.len(),
-        "Warning: not all precomputed Poseidon16 were used"
+        "Not all precomputed Poseidon16 were used"
+    );
+    assert_eq!(
+        xmss_hint_index,
+        xmss_signatures.len(),
+        "Not all XMSS hints were consumed"
+    );
+    assert_eq!(
+        merkle_hint_index,
+        merkle_paths.len(),
+        "Not all Merkle hints were consumed"
     );
 
     assert_eq!(pc, ENDING_PC);
@@ -288,7 +320,7 @@ fn execute_bytecode_helper(
         cycles,
         memory: memory.0.len(),
         n_poseidons: traces[&Table::poseidon16()].base[0].len(),
-        n_dot_products: traces[&Table::dot_product()].base[0].len(),
+        n_extension_ops: traces[&Table::extension_op()].base[0].len(),
         bytecode_size: bytecode.instructions.len(),
         public_input_size: public_input.len(),
         private_input_size: private_input.len(),

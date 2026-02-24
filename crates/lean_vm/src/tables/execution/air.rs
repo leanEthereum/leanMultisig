@@ -1,4 +1,4 @@
-use crate::{ALL_TABLES, EF, ExecutionTable, ExtraDataForBuses, F, eval_virtual_bus_column};
+use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 use backend::*;
 
 pub const N_RUNTIME_COLUMNS: usize = 8;
@@ -22,12 +22,12 @@ pub const COL_OPERAND_C: usize = 10;
 pub const COL_FLAG_A: usize = 11;
 pub const COL_FLAG_B: usize = 12;
 pub const COL_FLAG_C: usize = 13;
-pub const COL_ADD: usize = 14;
-pub const COL_MUL: usize = 15;
-pub const COL_DEREF: usize = 16;
+pub const COL_FLAG_C_FP: usize = 14;
+pub const COL_FLAG_AB_FP: usize = 15;
+pub const COL_MUL: usize = 16;
 pub const COL_JUMP: usize = 17;
 pub const COL_AUX: usize = 18;
-pub const COL_PRECOMPILE_INDEX: usize = 19;
+pub const COL_PRECOMPILE_DATA: usize = 19;
 
 // Temporary columns (stored to avoid duplicate computations)
 pub const N_TEMPORARY_EXEC_COLUMNS: usize = 4;
@@ -35,25 +35,6 @@ pub const COL_IS_PRECOMPILE: usize = 20;
 pub const COL_EXEC_NU_A: usize = 21;
 pub const COL_EXEC_NU_B: usize = 22;
 pub const COL_EXEC_NU_C: usize = 23;
-
-const PRECOMPILE_A_INDEX: F = F::new(ALL_TABLES[1].index() as u32);
-const PRECOMPILE_B_INDEX: F = F::new(ALL_TABLES[2].index() as u32);
-const MINUS_ONE_OVER_AB_PRECOMPILES: usize = 1065353216;
-const MINUS_A_MINUS_B_PRECOMPILES: usize = 2130706430;
-
-#[test]
-fn test_precompile_indices() {
-    const _: () = assert!(crate::N_TABLES - 1 == 2); // ONLY 2 PRECOMPILES
-    assert!(crate::TableT::is_execution_table(&ALL_TABLES[0])); // First table must be execution table
-    assert_eq!(
-        -(PRECOMPILE_A_INDEX * PRECOMPILE_B_INDEX).inverse(),
-        F::from_usize(MINUS_ONE_OVER_AB_PRECOMPILES)
-    );
-    assert_eq!(
-        -PRECOMPILE_A_INDEX - PRECOMPILE_B_INDEX,
-        F::from_usize(MINUS_A_MINUS_B_PRECOMPILES)
-    );
-}
 
 impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
@@ -74,7 +55,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        14
+        13
     }
 
     #[inline]
@@ -91,12 +72,12 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
             up[COL_OPERAND_C].clone(),
         );
         let (flag_a, flag_b, flag_c) = (up[COL_FLAG_A].clone(), up[COL_FLAG_B].clone(), up[COL_FLAG_C].clone());
-        let add = up[COL_ADD].clone();
+        let flag_c_fp = up[COL_FLAG_C_FP].clone();
+        let flag_ab_fp = up[COL_FLAG_AB_FP].clone();
         let mul = up[COL_MUL].clone();
-        let deref = up[COL_DEREF].clone();
         let jump = up[COL_JUMP].clone();
         let aux = up[COL_AUX].clone();
-        let precompile_index = up[COL_PRECOMPILE_INDEX].clone();
+        let precompile_data = up[COL_PRECOMPILE_DATA].clone();
 
         let (value_a, value_b, value_c) = (
             up[COL_MEM_VALUE_A].clone(),
@@ -111,13 +92,19 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
             up[COL_MEM_ADDRESS_C].clone(),
         );
 
-        let flag_a_minus_one = flag_a.clone() - AB::F::ONE;
-        let flag_b_minus_one = flag_b.clone() - AB::F::ONE;
-        let flag_c_minus_one = flag_c.clone() - AB::F::ONE;
+        let one_minus_flag_a_and_flag_ab_fp = AB::F::ONE - (flag_a.clone() + flag_ab_fp.clone());
+        let one_minus_flag_b_and_flag_ab_fp = AB::F::ONE - (flag_b.clone() + flag_ab_fp.clone());
+        let one_minus_flag_c_and_flag_c_fp = AB::F::ONE - (flag_c.clone() + flag_c_fp.clone());
 
-        let nu_a = flag_a * operand_a.clone() + value_a.clone() * -flag_a_minus_one.clone();
-        let nu_b = flag_b * operand_b.clone() + value_b.clone() * -flag_b_minus_one.clone();
-        let nu_c = flag_c * fp.clone() + value_c.clone() * -flag_c_minus_one.clone();
+        let nu_a = flag_a.clone() * operand_a.clone()
+            + one_minus_flag_a_and_flag_ab_fp.clone() * value_a.clone()
+            + flag_ab_fp.clone() * (fp.clone() + operand_a.clone());
+        let nu_b = flag_b.clone() * operand_b.clone()
+            + one_minus_flag_b_and_flag_ab_fp.clone() * value_b.clone()
+            + flag_ab_fp.clone() * (fp.clone() + operand_b.clone());
+        let nu_c = flag_c.clone() * operand_c.clone()
+            + one_minus_flag_c_and_flag_c_fp.clone() * value_c.clone()
+            + flag_c_fp.clone() * (fp.clone() + operand_c.clone());
 
         let fp_plus_operand_a = fp.clone() + operand_a.clone();
         let fp_plus_operand_b = fp.clone() + operand_b.clone();
@@ -125,38 +112,31 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a.clone() - AB::F::ONE;
 
-        /*
-        A = index_of_precompile_A
-        B = index_of_precompile_B
-        X = precompile_index (0 by default, set to A or B when calling precompile)
-        is_precompile = X * (-1/(A*B)) * (X + (-A - B)) (= 1 if X == A or X == B, 0 if X == 0)
-        */
-        let is_precompile = precompile_index.clone()
-            * AB::F::from_usize(MINUS_ONE_OVER_AB_PRECOMPILES)
-            * (precompile_index.clone() + AB::F::from_usize(MINUS_A_MINUS_B_PRECOMPILES));
+        let add = aux.clone() * (AB::F::TWO - aux.clone()); // equals 1 when aux = 1, else equals 0 (when aux = 0 or aux = 2)
+        let deref = aux.clone() * (aux.clone() - AB::F::ONE) * AB::F::INVERSE_OF_TWO; // equals 1 when aux = 2, else equals 0 (when aux = 0 or aux = 1)
+        let is_precompile = AB::F::ONE - (add.clone() + mul.clone() + deref.clone() + jump.clone());
 
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
-                precompile_index.clone(),
                 is_precompile.clone(),
-                &[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()],
+                &[precompile_data.clone(), nu_a.clone(), nu_b.clone(), nu_c.clone()],
             ));
         } else {
             builder.declare_values(&[is_precompile]);
-            builder.declare_values(&[nu_a.clone(), nu_b.clone(), nu_c.clone(), aux.clone()]);
+            builder.declare_values(&[precompile_data.clone(), nu_a.clone(), nu_b.clone(), nu_c.clone()]);
         }
 
-        builder.assert_zero(flag_a_minus_one * (addr_a.clone() - fp_plus_operand_a));
-        builder.assert_zero(flag_b_minus_one * (addr_b.clone() - fp_plus_operand_b));
-        builder.assert_zero(flag_c_minus_one * (addr_c.clone() - fp_plus_operand_c));
+        builder.assert_zero(one_minus_flag_a_and_flag_ab_fp * (addr_a.clone() - fp_plus_operand_a));
+        builder.assert_zero(one_minus_flag_b_and_flag_ab_fp * (addr_b.clone() - fp_plus_operand_b));
+        builder.assert_zero(one_minus_flag_c_and_flag_c_fp.clone() * (addr_c.clone() - fp_plus_operand_c));
 
         builder.assert_zero(add * (nu_b.clone() - (nu_a.clone() + nu_c.clone())));
         builder.assert_zero(mul * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
 
-        builder.assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
-        builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
-        builder.assert_zero(deref.clone() * (aux.clone() - AB::F::ONE) * (value_c.clone() - fp.clone()));
+        // DEREF: addr_B = value_A + operand_B, result in value_B, compared to nu_C
+        builder.assert_zero(deref.clone() * (addr_b.clone() - (value_a.clone() + operand_b.clone())));
+        builder.assert_zero(deref * (value_b.clone() - nu_c.clone()));
 
         let jump_and_condition = jump.clone() * nu_a.clone();
 

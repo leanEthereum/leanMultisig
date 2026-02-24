@@ -12,6 +12,8 @@ const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 
 const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
 const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
 
+pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation between Poseidon / ExtensionOp precompiles
+
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_A: ColIndex = 1;
 pub const POSEIDON_16_COL_B: ColIndex = 2;
@@ -55,10 +57,14 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
 
     fn bus(&self) -> Bus {
         Bus {
-            table: BusTable::Constant(self.table()),
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
-            data: vec![POSEIDON_16_COL_A, POSEIDON_16_COL_B, POSEIDON_16_COL_RES],
+            data: vec![
+                BusData::Constant(POSEIDON_PRECOMPILE_DATA),
+                BusData::Column(POSEIDON_16_COL_A),
+                BusData::Column(POSEIDON_16_COL_B),
+                BusData::Column(POSEIDON_16_COL_RES),
+            ],
         }
     }
 
@@ -145,16 +151,26 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
             unsafe { std::ptr::read(&shorts[0]) }
         };
 
+        // Bus data: [POSEIDON_PRECOMPILE_DATA (constant), a, b, res]
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
-                AB::F::from_usize(self.table().index()),
                 cols.flag.clone(),
-                &[cols.index_a.clone(), cols.index_b.clone(), cols.index_res.clone()],
+                &[
+                    AB::F::from_usize(POSEIDON_PRECOMPILE_DATA),
+                    cols.index_a.clone(),
+                    cols.index_b.clone(),
+                    cols.index_res.clone(),
+                ],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag));
-            builder.declare_values(&[cols.index_a.clone(), cols.index_b.clone(), cols.index_res.clone()]);
+            builder.declare_values(&[
+                AB::F::from_usize(POSEIDON_PRECOMPILE_DATA),
+                cols.index_a.clone(),
+                cols.index_b.clone(),
+                cols.index_res.clone(),
+            ]);
         }
 
         builder.assert_bool(cols.flag.clone());

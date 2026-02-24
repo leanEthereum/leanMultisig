@@ -69,7 +69,7 @@ class DynArray:
 # Built-in constants
 ZERO_VEC_PTR = 0
 SAMPLING_DOMAIN_SEPARATOR_PTR = 16
-ONE_VEC_PTR = 24
+ONE_EF_PTR = 24
 POSEIDON_16_NULL_HASH_PTR = 49
 REPEATED_ONES_PTR = 57
 NUM_REPEATED_ONES_IN_RESERVED_MEMORY = 16
@@ -81,8 +81,28 @@ def poseidon16(left, right, output, mode):
     _ = left, right, output, mode
 
 
-def dot_product(a, b, result, length, mode):
-    _ = a, b, result, length, mode
+def add_be(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def add_ee(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def dot_product_be(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def dot_product_ee(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def poly_eq_be(a, b, result, length=None):
+    _ = a, b, result, length
+
+
+def poly_eq_ee(a, b, result, length=None):
+    _ = a, b, result, length
 
 
 def hint_decompose_bits(value, bits, n_bits, endian):
@@ -143,3 +163,10 @@ def hint_decompose_bits_xmss(*args):
 
 def hint_log2_ceil(n):
     return log2_ceil(n)
+
+def hint_xmss(buff):
+    _ = buff
+
+def hint_merkle(buff, n):
+    _ = buff
+    _ = n

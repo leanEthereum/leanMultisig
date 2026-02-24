@@ -118,8 +118,8 @@ fn test_run_whir() {
 
     let proof_size_single = pruned_proof.proof_size_fe() as f64 * F::bits() as f64 / 8.0;
 
-    let transcript = pruned_proof.restore().unwrap().raw_proof();
-    let mut verifier_state = VerifierState::new(transcript, poseidon16.clone());
+    let raw_proof = pruned_proof.restore().unwrap().into_raw_proof();
+    let mut verifier_state = VerifierState::new(raw_proof, poseidon16.clone());
 
     let parsed_commitment = params.parse_commitment::<F>(&mut verifier_state).unwrap();
 

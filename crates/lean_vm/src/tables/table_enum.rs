@@ -3,13 +3,13 @@ use backend::*;
 use crate::*;
 
 pub const N_TABLES: usize = 3;
-pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::dot_product(), Table::poseidon16()];
+pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(usize)]
 pub enum Table {
     Execution(ExecutionTable<true>),
-    DotProduct(DotProductPrecompile<true>),
+    ExtensionOp(ExtensionOpPrecompile<true>),
     Poseidon16(Poseidon16Precompile<true>),
 }
 
@@ -18,7 +18,7 @@ macro_rules! delegate_to_inner {
     // Existing pattern for method calls
     ($self:expr, $method:ident $(, $($arg:expr),*)?) => {
         match $self {
-            Self::DotProduct(p) => p.$method($($($arg),*)?),
+            Self::ExtensionOp(p) => p.$method($($($arg),*)?),
             Self::Poseidon16(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
         }
@@ -26,7 +26,7 @@ macro_rules! delegate_to_inner {
     // New pattern for applying a macro to the inner value
     ($self:expr => $macro_name:ident) => {
         match $self {
-            Table::DotProduct(p) => $macro_name!(p),
+            Table::ExtensionOp(p) => $macro_name!(p),
             Table::Poseidon16(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
         }
@@ -37,8 +37,8 @@ impl Table {
     pub const fn execution() -> Self {
         Self::Execution(ExecutionTable)
     }
-    pub const fn dot_product() -> Self {
-        Self::DotProduct(DotProductPrecompile)
+    pub const fn extension_op() -> Self {
+        Self::ExtensionOp(ExtensionOpPrecompile)
     }
     pub const fn poseidon16() -> Self {
         Self::Poseidon16(Poseidon16Precompile)
@@ -131,16 +131,12 @@ pub fn max_air_constraints() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use utils::{BYTECODE_TABLE_INDEX, MEMORY_TABLE_INDEX};
-
     use super::*;
 
     #[test]
     fn test_table_indices() {
         for (i, table) in ALL_TABLES.iter().enumerate() {
             assert_eq!(table.index(), i);
-            assert_ne!(table.index(), MEMORY_TABLE_INDEX);
-            assert_ne!(table.index(), BYTECODE_TABLE_INDEX);
         }
     }
 }

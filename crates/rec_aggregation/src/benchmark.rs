@@ -60,7 +60,7 @@ impl LiveTree {
             "cycles",
             "memory",
             "poseidons",
-            "dot-products",
+            "extension-ops",
             s::R,
         )
     }
@@ -287,7 +287,7 @@ fn build_aggregation(
                 cycles: result.metadata.as_ref().unwrap().cycles,
                 memory: result.metadata.as_ref().unwrap().memory,
                 poseidons: result.metadata.as_ref().unwrap().n_poseidons,
-                dots: result.metadata.as_ref().unwrap().n_dot_products,
+                dots: result.metadata.as_ref().unwrap().n_extension_ops,
                 n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
             },
         );

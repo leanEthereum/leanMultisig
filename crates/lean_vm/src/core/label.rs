@@ -37,16 +37,6 @@ pub enum IfKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum BuiltinSymbol {
-    /// @NONRESERVED_PROGRAM_INPUT_START
-    PublicInputStart,
-    /// @ZERO_VEC_PTR
-    PointerToZeroVector,
-    /// @ONE_VEC_PTR
-    PointerToOneVector,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum AuxKind {
     /// @aux_var_{id}
     AuxVar,
@@ -130,63 +120,6 @@ impl Label {
 
     pub fn return_from_call(id: usize, location: SourceLocation) -> Self {
         Self::ReturnFromCall(id, location)
-    }
-
-    pub fn loop_label(id: usize, location: SourceLocation) -> Self {
-        Self::Loop(id, location)
-    }
-
-    pub fn aux_var(id: usize) -> Self {
-        Self::AuxVar {
-            kind: AuxKind::AuxVar,
-            id,
-        }
-    }
-
-    pub fn array_aux(id: usize) -> Self {
-        Self::AuxVar {
-            kind: AuxKind::ArrayAux,
-            id,
-        }
-    }
-
-    pub fn diff(id: usize) -> Self {
-        Self::AuxVar {
-            kind: AuxKind::Diff,
-            id,
-        }
-    }
-
-    pub fn inlined_var(count: usize, var: impl Into<String>) -> Self {
-        Self::AuxVar {
-            kind: AuxKind::InlinedVar { count, var: var.into() },
-            id: 0, // Not used for this variant
-        }
-    }
-
-    pub fn unrolled_var(index: usize, value: usize, var: impl Into<String>) -> Self {
-        Self::AuxVar {
-            kind: AuxKind::UnrolledVar {
-                index,
-                value,
-                var: var.into(),
-            },
-            id: 0, // Not used for this variant
-        }
-    }
-
-    pub fn incremented(var: impl Into<String>) -> Self {
-        Self::AuxVar {
-            kind: AuxKind::Incremented(var.into()),
-            id: 0, // Not used for this variant
-        }
-    }
-
-    pub fn trash(id: usize) -> Self {
-        Self::AuxVar {
-            kind: AuxKind::Trash,
-            id,
-        }
     }
 
     pub fn custom(label: impl Into<String>) -> Self {

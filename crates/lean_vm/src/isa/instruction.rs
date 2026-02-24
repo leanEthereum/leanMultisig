@@ -1,7 +1,7 @@
 //! VM instruction definitions
 
 use super::Operation;
-use super::operands::{MemOrConstant, MemOrFp, MemOrFpOrConstant};
+use super::operands::{MemOrConstant, MemOrFpOrConstant};
 use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
@@ -17,13 +17,12 @@ use utils::ToUsize;
 pub enum Instruction {
     /// Basic arithmetic computation instruction (ADD, MUL)
     Computation {
-        /// The arithmetic operation to perform
         operation: Operation,
-        /// First operand (can be constant or memory location)
+        /// First operand
         arg_a: MemOrConstant,
-        /// Second operand (can be memory location or frame pointer)
-        arg_c: MemOrFp,
-        /// Result destination (can be constant or memory location)
+        /// Second operand
+        arg_c: MemOrFpOrConstant,
+        /// Result
         res: MemOrConstant,
     },
 
@@ -46,14 +45,14 @@ pub enum Instruction {
         /// Jump destination address
         dest: MemOrConstant,
         /// New frame pointer value after jump
-        updated_fp: MemOrFp,
+        updated_fp: MemOrFpOrConstant,
     },
 
     Precompile {
         table: Table,
-        arg_a: MemOrConstant,
-        arg_b: MemOrConstant,
-        arg_c: MemOrFp,
+        arg_a: MemOrFpOrConstant,
+        arg_b: MemOrFpOrConstant,
+        arg_c: MemOrFpOrConstant,
         aux_1: usize,
         aux_2: usize,
     },

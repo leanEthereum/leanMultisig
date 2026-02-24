@@ -164,13 +164,13 @@ The small 2-addicity (24) is not a limiting factor in WHIR, thanks to the use of
 
 % As in Cairo:
 \begin{itemize}
-    \item \fbox{pc: program counter}
+    \item \fbox{\textbf{pc}: program counter} : points to the current instruction
     % \item \textbf{ap}: allocation pointer = Points to the first untouched memory cell
-    \item \fbox{fp: frame pointer} : points to the start of the current stack
+    \item \fbox{\textbf{fp}: frame pointer} : points to the start of the current "stack frame" in memory
 \end{itemize}
 
 
-\textbf{Difference with Cairo: no "ap" register} (allocation pointer).
+Difference with Cairo: no \textbf{ap} register (allocation pointer).
 
 
 \subsection{Instruction Set Architecture}
@@ -185,25 +185,26 @@ Notations:
 
 \subsubsection{ADD / MUL}
 
-$a + c = b$ or $a \cdot c = b$ with: 
+ADD: $\nu_a + \nu_c = \nu_b$ \hspace{3mm} and \hspace{3mm} MUL: $\nu_a \cdot \nu_c = \nu_b$ with: 
 
 \begin{align*}
-a &= 
+\nu_a &= 
 \begin{cases}
 \alpha \\
-\textbf{m}[\text{fp} + \alpha]
+\textbf{m}[\textbf{fp} + \alpha]
 \end{cases}
 &
-b &= 
+\nu_b &= 
 \begin{cases}
 \beta \\
-\textbf{m}[\text{fp} + \beta]
+\textbf{m}[\textbf{fp} + \beta]
 \end{cases}
 &
-c &= 
+\nu_c &= 
 \begin{cases}
-\text{fp} \\
-\textbf{m}[\text{fp} + \gamma]
+\gamma \\
+\textbf{m}[\textbf{fp} + \gamma]  \\
+\textbf{fp} + \gamma
 \end{cases}
 \end{align*}
 
@@ -211,72 +212,116 @@ c &=
 \subsubsection{DEREF}
 
 $$
-\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = 
+\textbf{m}[\textbf{m}[\textbf{fp} + \alpha] + \beta] = 
 \begin{cases}
 & \gamma \\
-& \textbf{m}[\text{fp} + \gamma]   \\
-& \text{fp}  
+& \textbf{m}[\textbf{fp} + \gamma]   \\
+& \textbf{fp} + \gamma
 
 \end{cases}
 $$
 
 \subsubsection{JUMP (Conditional)}
 
+Using the following values:
+
 \begin{align*}
 \text{condition} &= 
 \begin{cases}
 \alpha \\
-\textbf{m}[\text{fp} + \alpha]
+\textbf{m}[\textbf{fp} + \alpha]
 \end{cases} \in \{0, 1\}
 &
 \text{dest} &= 
 \begin{cases}
 \beta \\
-\textbf{m}[\text{fp} + \beta]
+\textbf{m}[\textbf{fp} + \beta]
 \end{cases}
 &
 \text{updated\_fp} &=
 \begin{cases}
-\text{fp} \\
-\textbf{m}[\text{fp} + \gamma]
+\textbf{fp} + \gamma \\
+\textbf{m}[\textbf{fp} + \gamma]
 \end{cases}
 \end{align*}
 
+... we have the following update rules:
+
 $$
-\text{next(pc)} =
+\text{next(\textbf{pc})} =
 \begin{cases}
 \text{dest} & \text{if condition} = 1 \\
-\text{pc} + 1 & \text{if condition} = 0
+\text{\textbf{pc}} + 1 & \text{if condition} = 0
 \end{cases}
 \qquad
-\text{next(fp)} =
+\text{next(\textbf{fp})} =
 \begin{cases}
 \text{updated\_fp} & \text{if condition} = 1 \\
-\text{fp} & \text{if condition} = 0
+\textbf{fp} & \text{if condition} = 0
 \end{cases}
 $$
 
 \subsection{Precompiles}
 
-The ISA supports two precompile instructions, each delegated to a dedicated table in the proving system (Section~\ref{sec:proving}).
+There are two "precompile" instructions: EXTENSION\_OP and POSEIDON2, used for special computation (extension field operations and hashing). Each precompile instruction has three (potentially runtime) parameters $\nu_A$, $\nu_B$, $\nu_C$, and a compile-time value \texttt{PRECOMPILE\_DATA}.
 
-\subsubsection{Poseidon}
+$\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, with the additional possibility of $\nu_A = \textbf{fp} + \alpha$ and $\nu_B = \textbf{fp} + \beta$, but these two must be used simultaneously (if $\nu_A$ is fp-relative, then $\nu_B$ must be fp-relative too, and vice versa).
 
-TODO
+\subsubsection{POSEIDON2}
 
-\subsubsection{Dot product}
+Compression of 16 field elements (two blocks of 8) into 8 field elements.
 
-Computes $\text{res} = \sum_{i=0}^{n-1} a_i \cdot b_i \in \Fq$, where:
-\begin{itemize}
-    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i \in \Fp$, $b_i \in \Fq$ (base $\times$ extension).
-    The $a_i$ are read from consecutive memory addresses starting at $\alpha$, and the $b_i$ from consecutive blocks of 5 starting at $\beta$.
-    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i \in \Fq$, $b_i \in \Fq$ (extension $\times$ extension).
-    Both slices are read from consecutive blocks of 5, starting at $\alpha$ and $\beta$ respectively.
-\end{itemize}
+$$
+\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon2}(\textbf{m}[\nu_A..\nu_A + 8] | \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
+$$
 
 \vspace{2mm}
 
-Parameters: memory addresses $\alpha$ (first operand), $\beta$ (second operand), $\gamma$ (result), a size $n > 0$, and the mode flag \texttt{is\_be} $\in \{0, 1\}$. The result is written as 5 consecutive field elements at $\textbf{m}[\gamma .. \gamma + 5]$.
+\texttt{PRECOMPILE\_DATA} $= 1$
+
+\subsubsection{EXTENSION\_OP}\label{extension_op_instruction}
+
+EXTENSION\_OP enables computations of one these 3 forms in the extension field $\Fq$:
+
+\[
+\sum_{i=0}^{N-1} (a_i + b_i), \qquad
+\sum_{i=0}^{N-1} (a_i \cdot b_i), \qquad
+\prod_{i=0}^{N-1} (a_i b_i + (1 - a_i)(1 - b_i))
+\]
+
+\vspace{2mm}
+
+\underbar{Details}
+
+\vspace{2mm}
+
+For $i = 0, \ldots, N-1$, define:
+$$b_i = \textbf{m}[\nu_B + 5i \,..\, \nu_B + 5i + 5] \in \Fq$$
+and $a_i$ depends on the mode:
+\begin{itemize}
+    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i = \textbf{m}[\nu_A + i] \in \Fp$, embedded in $\Fq$ as $[a_i, 0, 0, 0, 0]$.
+    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i = \textbf{m}[\nu_A + 5i \,..\, \nu_A + 5i + 5] \in \Fq$.
+\end{itemize}
+
+(Chunks of 5 field elements $\textbf{m}[x..x+5]$ are interpreted as an extension field element ($\Fq = {\mathbb F_{p^5}}$)).
+
+\vspace{2mm}
+
+Three operation modes determine both the per-element computation $e_i$ and the accumulation method:
+\begin{itemize}
+    \item \textbf{ADD}: $e_i = a_i + b_i$, \quad $\text{result} = \displaystyle\sum_{i=0}^{N-1} e_i$ \hfill (additive accumulation)
+    \item \textbf{MUL}: $e_i = a_i \cdot b_i$, \quad $\text{result} = \displaystyle\sum_{i=0}^{N-1} e_i$ \hfill (additive accumulation = dot product)
+    \item \textbf{POLY\_EQ}: $e_i = a_i b_i + (1 - a_i)(1 - b_i)$, \quad $\text{result} = \displaystyle\prod_{i=0}^{N-1} e_i$ \hfill (multiplicative)
+\end{itemize}
+
+The result is stored at $\textbf{m}[\nu_C \,..\, \nu_C + 5] \in \Fq$.
+
+\vspace{2mm}
+
+\texttt{PRECOMPILE\_DATA} encodes the mode, the operand type, and the length:
+$$\texttt{PRECOMPILE\_DATA} = 2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot N$$
+where exactly one of \texttt{flag\_add}, \texttt{flag\_mul}, \texttt{flag\_poly\_eq} is 1, and $N \geq 1$. This encoding is injective and always disjoint from Poseidon ($= 1$) and no-precompile ($= 0$).
+
 
 \subsection{ISA programming}
 
@@ -284,7 +329,7 @@ Parameters: memory addresses $\alpha$ (first operand), $\beta$ (second operand),
 
 \begin{enumerate}
     \item Each function has a deterministic memory footprint: the length of the continuous frame in memory that is allocated for each of the its calls.
-    \item At runtime, each time we call our function, we receive via a memory cell a hint pointing to a free range of memory. We then store the current values of pc / fp at the start of this newly allocated frame, alongside the function's arguments, we can then jump, to enter the function bytecode, and modify fp with the hinted value. The intuition here is that the verifier does not care where the new memory frame will be placed (we use a read-only memory, so we cannot overwrite previous frames). In practice, the prover that runs the program would need to keep the value of the allocation pointer "ap", in order to adequately allocate new memory frames, but there is no need to keep track of it from the versifier's perspective.
+    \item At runtime, each time we call our function, we receive via a memory cell a hint pointing to a free range of memory. We then store the current values of \textbf{pc} / \textbf{fp} at the start of this newly allocated frame, alongside the function's arguments, we can then jump, to enter the function bytecode, and modify \textbf{fp} with the hinted value. The intuition here is that the verifier does not care where the new memory frame will be placed (we use a read-only memory, so we cannot overwrite previous frames). In practice, the prover that runs the program would need to keep the value of the allocation pointer "ap", in order to adequately allocate new memory frames, but there is no need to keep track of it from the versifier's perspective.
 \end{enumerate}
 
 
@@ -303,22 +348,22 @@ The remaining loops are transformed into recursive functions (by the leanISA com
 
 \fbox{It's possible to check that a given memory cell is smaller than some value $t$ (for $t \leq 2^{16})$ in 3 cycles.}
 
-We denote by \textbf{m}[fp + $x$] the memory cell for which we want to ensure \textbf{m}[fp + $x$] $< t$.
-We also denote by \textbf{m}[fp + $i$], \textbf{m}[fp + $j$] and \textbf{m}[fp + $k$] 3 auxiliary memory cells (that have not been used yet).
+We denote by \textbf{m}[\textbf{fp} + $x$] the memory cell for which we want to ensure \textbf{m}[\textbf{fp} + $x$] $< t$.
+We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] and \textbf{m}[\textbf{fp} + $k$] 3 auxiliary memory cells (that have not been used yet).
 \begin{enumerate}
-    \item \textbf{m}[\textbf{m}[fp + $x$]] = \textbf{m}[fp + $i$] (using DEREF, this ensures \textbf{m}[fp + $x$] $ < M$, the memory size)
-    \item \textbf{m}[\textbf{m}[fp + $x$]] + \textbf{m}[fp + $j$] = (t-1) (using ADD)
-        \item \textbf{m}[\textbf{m}[fp + $j$]] = \textbf{m}[fp + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[fp + $x$] $ < M$)
+    \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] = \textbf{m}[\textbf{fp} + $i$] (using DEREF, this ensures \textbf{m}[\textbf{fp} + $x$] $ < M$, the memory size)
+    \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] + \textbf{m}[\textbf{fp} + $j$] = (t-1) (using ADD)
+        \item \textbf{m}[\textbf{m}[\textbf{fp} + $j$]] = \textbf{m}[\textbf{fp} + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $ < M$)
 \end{enumerate}
 
-Given $t \leq 2^{16} \leq M$, \textbf{m}[fp + $x$] $ < M$, $t - 1 - $ \textbf{m}[fp + $x$] $< M$, and $M \leq 2^{29} < p / 2$, we have: \textbf{m}[fp + $x$] $ < t$.
+Given $t \leq 2^{16} \leq M$, \textbf{m}[\textbf{fp} + $x$] $ < M$, $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $< M$, and $M \leq 2^{29} < p / 2$, we have: \textbf{m}[\textbf{fp} + $x$] $ < t$.
 
-Note: From the point of view of the prover running the program, some hints are necessary (filling the values of \textbf{m}[fp + $i$] and \textbf{m}[fp + $k$] must be done at end of execution).
+Note: From the point of view of the prover running the program, some hints are necessary (filling the values of \textbf{m}[\textbf{fp} + $i$] and \textbf{m}[\textbf{fp} + $k$] must be done at end of execution).
 
 This idea was pointed out by D. Khovratovich, and is an unplanned use of the DEREF instruction.
 
 \begin{exmp}
-	Let's say we want to write a function with 2 arguments $x = \textbf{m}$[fp + 2] and $y = \textbf{m}$[fp + 3] ($\textbf{m}$[fp + 0] and $\textbf{m}$[fp + 1] are used, by convention, to store the caller's pc and fp, to return to the previous context at the end of the function), which perform the following:
+	Let's say we want to write a function with 2 arguments $x = \textbf{m}$[\textbf{fp} + 2] and $y = \textbf{m}$[\textbf{fp} + 3] ($\textbf{m}$[\textbf{fp} + 0] and $\textbf{m}$[\textbf{fp} + 1] are used, by convention, to store the caller's \textbf{pc} and \textbf{fp}, to return to the previous context at the end of the function), which perform the following:
 	
 	\begin{enumerate}
 		\item assert(x $<$ 10)
@@ -329,15 +374,15 @@ This idea was pointed out by D. Khovratovich, and is an unplanned use of the DER
 	Which can be compiled to:
 	
 	\begin{enumerate}
-		\item \textbf{m}[fp + 4] = \textbf{m}[$\big[$fp + 2$\big]$] // check that $x$ is "small"
-		\item \textbf{m}[fp + 2] + \textbf{m}[fp + 5] = 9 // compute $9 - x$
-		\item \textbf{m}[fp + 6] = \textbf{m}[$\big[$fp + 5$\big]$] // check that $9 - x$ is "small"
-		\item \textbf{m}[fp + 7] = \textbf{m}[fp + 2] * \textbf{m}[fp + 3] // compute $x.y$
-		\item \textbf{m}[fp + 8] = \textbf{m}[fp + 7] + 100 // compute $z = x.y + 100$
-		\item \textbf{m}[fp + 9] = \textbf{m}[$\big[$fp + 8$\big]$] // check that $z$ is "small"
-		\item \textbf{m}[fp + 8] + \textbf{m}[fp + 10] = 999 // compute $999 - z$
-		\item \textbf{m}[fp + 11] = \textbf{m}[$\big[$fp + 10$\big]$] // check that $999 - z$ is "small"
-		\item JUMP with next(pc) = \textbf{m}[fp + 0], next(fp) = \textbf{m}[fp + 1], condition = 1 // return
+		\item \textbf{m}[\textbf{fp} + 4] = \textbf{m}[$\big[$\textbf{fp} + 2$\big]$] // check that $x$ is "small"
+		\item \textbf{m}[\textbf{fp} + 2] + \textbf{m}[\textbf{fp} + 5] = 9 // compute $9 - x$
+		\item \textbf{m}[\textbf{fp} + 6] = \textbf{m}[$\big[$\textbf{fp} + 5$\big]$] // check that $9 - x$ is "small"
+		\item \textbf{m}[\textbf{fp} + 7] = \textbf{m}[\textbf{fp} + 2] * \textbf{m}[\textbf{fp} + 3] // compute $x.y$
+		\item \textbf{m}[\textbf{fp} + 8] = \textbf{m}[\textbf{fp} + 7] + 100 // compute $z = x.y + 100$
+		\item \textbf{m}[\textbf{fp} + 9] = \textbf{m}[$\big[$\textbf{fp} + 8$\big]$] // check that $z$ is "small"
+		\item \textbf{m}[\textbf{fp} + 8] + \textbf{m}[\textbf{fp} + 10] = 999 // compute $999 - z$
+		\item \textbf{m}[\textbf{fp} + 11] = \textbf{m}[$\big[$\textbf{fp} + 10$\big]$] // check that $999 - z$ is "small"
+		\item JUMP with next(\textbf{pc}) = \textbf{m}[\textbf{fp} + 0], next(\textbf{fp}) = \textbf{m}[\textbf{fp} + 1], condition = 1 // return
 	\end{enumerate}
 	
 	 
@@ -366,7 +411,7 @@ Each table has a maximum number of rows (as a power of two):
 Table & Max rows \\
 \midrule
 Execution & $2^{25}$ \\
-Dot product & $2^{21}$ \\
+Extension op & $2^{20}$ \\
 Poseidon & $2^{21}$ \\
 \bottomrule
 \end{tabular}
@@ -396,8 +441,8 @@ TODO: describe how to prove AIR via sumcheck.
 \fbox{At each cycle, we commit to 20 (base) field elements:}
 
 \begin{itemize}
-    \item pc (program counter)
-    \item fp (frame pointer)
+    \item \textbf{pc} (program counter)
+    \item \textbf{fp} (frame pointer)
     % \item jump (non zero when a jump occurs)
     \item $\text{addr}_A$, $\text{addr}_B$, $\text{addr}_C$
     \item $\text{value}_A = \textbf{m}[\text{addr}_A]$, $\text{value}_B = \textbf{m}[\text{addr}_B]$, $\text{value}_C = \textbf{m}[\text{addr}_C]$
@@ -407,71 +452,104 @@ TODO: describe how to prove AIR via sumcheck.
 
 \subsubsection{Instruction Encoding}
 
-Each instruction is described by 12 field elements:
+Each instruction is described by 12 field elements ($\Fp$):
 
 \begin{itemize}
-    \item 3 operands ($\in \Fp$): $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
-    \item 3 associated flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$
-    \item 5 opcode flags ($\in \{0, 1\}$): ADD, MUL, DEREF, JUMP, PRECOMPILE\_INDEX
-    \item 1 multi-purpose operand: AUX
+    \item 3 operands: $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
+    \item 5 flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$, $\text{flag}^{C}_\textbf{fp}$, $\text{flag}^{AB}_\textbf{fp}$
+    \item 3 opcode flags: MUL ($\in \{0, 1\}$), JUMP ($\in \{0, 1\}$), AUX ($\in \{0, 1, 2\}$) (AUX handles both ADD and DEREF)
+    \item PRECOMPILE\_DATA
 \end{itemize}
+
+$\text{flag}^{AB}_\textbf{fp}$ is only used by precompile instructions; for ADD, MUL, DEREF, and JUMP it is always 0.
 
 
 \subsubsection{AIR transition constraints}
 
-We use \fbox{transition constraints of degree 5}, but it's always possible to make them quadratic with additional columns in the execution table.
+\fbox{We use transition constraints of degree 5.}
 
 \vspace{5mm}
 
-We define the following quantities:
+We define the following values:
 \begin{itemize}
-    \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A) \cdot \text{value}_A$ 
-    \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B) \cdot \text{value}_B$ 
-    \item $\nu_C = \text{flag}_C \cdot \text{fp} + (1 - \text{flag}_C) \cdot \text{value}_C$ 
+    \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A - \text{flag}^{AB}_\textbf{fp}) \cdot \text{value}_A + \text{flag}^{AB}_\textbf{fp} \cdot (\textbf{fp} + \alpha)$ 
+    \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B - \text{flag}^{AB}_\textbf{fp}) \cdot \text{value}_B + \text{flag}^{AB}_\textbf{fp} \cdot (\textbf{fp} + \beta)$
+    \item $\nu_C = \text{flag}_C \cdot \text{operand}_C + (1 - \text{flag}_C - \text{flag}_\textbf{fp}) \cdot \text{value}_C + \text{flag}_\textbf{fp} \cdot (\textbf{fp} + \gamma)$
 \end{itemize}
 
-With the associated constraints: $\forall X \in \{A, B, C\}: (1 -\text{flag}_X) \cdot (\text{address}_X - (\text{fp} + \text{operand}_X)) = 0$
+
+With the associated constraints:
+\begin{itemize}
+    \item $(1 - \text{flag}_A - \text{flag}^{AB}_\textbf{fp}) \cdot (\text{address}_A - (\textbf{fp} + \text{operand}_A)) = 0$
+    \item $(1 - \text{flag}_B - \text{flag}^{AB}_\textbf{fp}) \cdot (\text{address}_B - (\textbf{fp} + \text{operand}_B)) = 0$
+    \item $(1 - \text{flag}_C - \text{flag}^{C}_\textbf{fp}) \cdot (\text{address}_C - (\textbf{fp} + \text{operand}_C)) = 0$
+\end{itemize}
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-For addition and multiplication:
+Let $P_0, P_1, P_2$ be the Lagrange basis polynomials at points $0, 1, 2$. Explicitely:
+
+$$P_0(x) = (x-1)\cdot(x-2) / 2 \hspace{10mm} P_1(x) = x \cdot (2-x) \hspace{10mm} P_2(x) = x \cdot (x-1) / 2$$
+
+We define the following values:
+
+\begin{itemize}
+    \item ADD = $P_1(\text{AUX})$
+    \item DEREF = $P_2(\text{AUX})$
+    \item IS\_PRECOMPILE = $1 - (\text{ADD} + \text{MUL} + \text{DEREF} + \text{JUMP})$
+\end{itemize}
+
+IS\_PRECOMPILE is used a "bus selector" (see \ref{buses}).
+
+\vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
+
+PRECOMPILE\_DATA encodes the precompile being called, and the parameters of the call:
+\begin{itemize}
+    \item No precompile $\rightarrow$ PRECOMPILE\_DATA $= 0$
+    \item Poseidon precompile $\rightarrow$ PRECOMPILE\_DATA $= 1$
+    \item Extension op precompile $\rightarrow$ PRECOMPILE\_DATA $= 2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot N$ \hfill ($N$ = length)
+\end{itemize}
+
+\vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
+
+For addition, set AUX $= 1$.
 \begin{itemize}
     \item $\text{ADD} \cdot(\nu_B - (\nu_A + \nu_C)) = 0$
+\end{itemize}
+
+
+\vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
+
+For multiplication, set MUL $= 1$.
+\begin{itemize}
     \item $\text{MUL} \cdot(\nu_B - \nu_A \cdot \nu_C) = 0$
 \end{itemize}
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-When DEREF $= 1$, set $\text{flag}_A = 0$, $\text{flag}_C = 1$ and:
-$$
-\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = 
-\left\{
-\begin{array}{lcl}
-\gamma & \xrightarrow{} & \text{AUX} = 1, \text{ flag}_B = 1 \\
-\textbf{m}[\text{fp} + \gamma] & \xrightarrow{} & \text{AUX} = 1, \text{ flag}_B = 0 \\
-\text{fp} & \xrightarrow{} & \text{AUX}  = 0 \text{ (flag}_B = 1)
-\end{array}
-\right.
-$$
+For DEREF instructions, set AUX $= 2$, $\text{flag}_A = 0$, $\text{flag}_B = 1$ and $\text{flag}_C$ / $\text{flag}^{C}_\textbf{fp}$ according to whether the third operand is an immediate value, a memory read, or fp-relative.
+
+The relation $\textbf{m}[\textbf{m}[\textbf{fp} + \alpha] + \beta] = \nu_C$ is then captured by:
 
 \begin{itemize}
-    \item $\text{DEREF} \cdot (\text{addr}_C - (\text{value}_A + \text{operand}_C)) = 0$
-    \item $\text{DEREF} \cdot \text{AUX} \cdot (\text{value}_C - \nu_B) = 0$
-    \item $\text{DEREF} \cdot (1 - \text{AUX}) \cdot (\text{value}_C - \text{fp}) = 0$
+    \item $\text{DEREF} \cdot (\text{addr}_B - (\text{value}_A + \text{operand}_B)) = 0$
+    \item $\text{DEREF} \cdot (\text{value}_B - \nu_C) = 0$
 \end{itemize}
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-For jump and conditional state transitions, let $J = \text{JUMP} \cdot \nu_A$:
+For (conditional) jumps, set JUMP = 1, with the following constraints, using $J = \text{JUMP} \cdot \nu_A$:
 \begin{itemize}
-    \item $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$
-    \item $J \cdot ( \text{next(pc)} - \nu_B) = 0$
+    \item $J \cdot (1 - \nu_A) = 0$
+    \item $J \cdot ( \text{next(\textbf{pc})} - \nu_B) = 0$
     \item $J \cdot ( \text{next(fp)} - \nu_C) = 0$
-    \item $(1 - J) \cdot ( \text{next(pc)} - (\text{pc} + 1)) = 0$
-    \item $(1 - J) \cdot (\text{next(fp)} - \text{fp}) = 0$
+    \item $(1 - J) \cdot ( \text{next(\textbf{pc})} - (\text{\textbf{pc}} + 1)) = 0$
+    \item $(1 - J) \cdot (\text{next(fp)} - \textbf{fp}) = 0$
 \end{itemize}
 
-Note: the constraint $\text{JUMP} \cdot \nu_A \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
+Note: the constraint $J \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
+
+\vspace{3mm}
 
 TODO: Verify and (formally) prove soundness.
 
@@ -479,119 +557,159 @@ TODO: Verify and (formally) prove soundness.
 
 TODO
 
-\subsection{Dot product table}
+\subsection{Extension op table}
 
-The dot product precompile computes $\text{res} = \sum_{i=0}^{n-1} a_i \cdot b_i \in \Fq$, where:
-\begin{itemize}
-    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i \in \Fp$, $b_i \in \Fq$ (base $\times$ extension)
-    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i \in \Fq$, $b_i \in \Fq$ (extension $\times$ extension)
-\end{itemize}
+See \ref{extension_op_instruction} for the instruction specification.
 
 \subsubsection{Trace layout}
 
-Each dot product of length $n$ occupies $n$ consecutive rows. The first row (\texttt{start} $= 1$) carries the full accumulated result; subsequent rows (\texttt{start} $= 0$) count down via \texttt{len}. Multiple dot products are stacked vertically.
+Each extension field operation occupies $N$ consecutive rows (one row per element pair). Within a group, rows are ordered from first element to last, but the \texttt{computation} column accumulates backward: the first row holds the full result, the last row holds only the final element's value. Padding rows have all operation flags set to 0 and $\texttt{start} = 1$, $\texttt{len} = 1$.
 
 \vspace{3mm}
 
 \noindent\resizebox{\textwidth}{!}{%
-\begin{tabular}{cccccccc|cccc|c}
+\begin{tabular}{cccccccccc|cccc|c}
 \toprule
-\multicolumn{8}{c|}{Base field columns ($\Fp$)} & \multicolumn{4}{c|}{Extension field columns ($\Fq$)} & \\
-\texttt{is\_be} & \texttt{flag} & \texttt{start} & \texttt{len} & $\text{idx}_A$ & $\text{idx}_B$ & $\text{idx}_R$ & $v_{A,\Fp}$ & $v_{A,\Fq}$ & $v_B$ & \texttt{res} & \texttt{comp} & \texttt{aux} \\
+\multicolumn{10}{c|}{Base field columns ($\Fp$)} & \multicolumn{4}{c|}{Extension field columns ($\Fq$)} & \\
+\texttt{start} & $\texttt{f}_\texttt{add}$ & $\texttt{f}_\texttt{mul}$ & $\texttt{f}_\texttt{peq}$ & \texttt{len} & $\text{idx}_A$ & $\text{idx}_B$ & $\text{idx}_R$ & \texttt{is\_be} & $v_{A,\Fp}$ & $v_{A,\Fq}$ & $v_B$ & \texttt{comp} & \texttt{res} & \texttt{aux} \\
 \midrule
-\multicolumn{13}{l}{\textit{BE dot product ($n=3$, $\alpha\!=\!90$, $\beta\!=\!200$, $\gamma\!=\!50$): \quad $\texttt{res} = \sum_{i=0}^{2} \textbf{m}[90\!+\!i] \cdot \textbf{m}[200\!+\!5i\,..\,205\!+\!5i]$}} \\[2pt]
-1 & 1 & 1 & 3 & 90 & 200 & 50 & $\textbf{m}[90]$ & $\textbf{m}[90..95]$ & $\textbf{m}[200..205]$ & $\textbf{m}[50..55]$ & $c_2$ & 7 \\
-1 & 0 & 0 & 2 & 91 & 205 & 50 & $\textbf{m}[91]$ & $\textbf{m}[91..96]$ & $\textbf{m}[205..210]$ & $\textbf{m}[50..55]$ & $c_1$ & 5 \\
-1 & 0 & 0 & 1 & 92 & 210 & 50 & $\textbf{m}[92]$ & $\textbf{m}[92..97]$ & $\textbf{m}[210..215]$ & $\textbf{m}[50..55]$ & $c_0$ & 3 \\
+\multicolumn{15}{l}{\textit{MUL, BE, $N\!=\!4$ ($\nu_A\!=\!90$, $\nu_B\!=\!211$, $\nu_C\!=\!74$): \quad $\texttt{res} = \sum_{i=0}^{3} \textbf{m}[90\!+\!i] \cdot \textbf{m}[211\!+\!5i..216\!+\!5i]$}} \\[2pt]
+1 & 0 & 1 & 0 & 4 & 90  & 211 & 74 & 1 & $\textbf{m}[90]$  & $\textbf{m}[90..95]$  & $\textbf{m}[211..216]$ & $e_0\!+\!e_1\!+\!e_2\!+\!e_3$ & $\textbf{m}[74..79]$ & 138 \\
+0 & 0 & 1 & 0 & 3 & 91  & 216 & 74 & 1 & $\textbf{m}[91]$  & $\textbf{m}[91..96]$  & $\textbf{m}[216..221]$ & $e_1\!+\!e_2\!+\!e_3$       & $\textbf{m}[74..79]$ & 106 \\
+0 & 0 & 1 & 0 & 2 & 92  & 221 & 74 & 1 & $\textbf{m}[92]$  & $\textbf{m}[92..97]$  & $\textbf{m}[221..226]$ & $e_2\!+\!e_3$               & $\textbf{m}[74..79]$ & 74 \\
+0 & 0 & 1 & 0 & 1 & 93  & 226 & 74 & 1 & $\textbf{m}[93]$  & $\textbf{m}[93..98]$  & $\textbf{m}[226..231]$ & $e_3$                       & $\textbf{m}[74..79]$ & 42  \\
 \midrule
-\multicolumn{13}{l}{\textit{EE dot product ($n=2$, $\alpha\!=\!300$, $\beta\!=\!400$, $\gamma\!=\!500$): \quad $\texttt{res} = \sum_{i=0}^{1} \textbf{m}[300\!+\!5i\,..\,305\!+\!5i] \cdot \textbf{m}[400\!+\!5i\,..\,405\!+\!5i]$}} \\[2pt]
-0 & 1 & 1 & 2 & 300 & 400 & 500 & $\textbf{m}[300]$ & $\textbf{m}[300..305]$ & $\textbf{m}[400..405]$ & $\textbf{m}[500..505]$ & $d_1$ & 4 \\
-0 & 0 & 0 & 1 & 305 & 405 & 500 & $\textbf{m}[305]$ & $\textbf{m}[305..310]$ & $\textbf{m}[405..410]$ & $\textbf{m}[500..505]$ & $d_0$ & 2 \\
+\multicolumn{15}{l}{\textit{ADD, EE, $N\!=\!3$ ($\nu_A\!=\!400$, $\nu_B\!=\!500$, $\nu_C\!=\!300$): \quad $\texttt{res} = \sum_{i=0}^{2} (\textbf{m}[400\!+\!5i..405\!+\!5i] + \textbf{m}[500\!+\!5i..505\!+\!5i])$}} \\[2pt]
+1 & 1 & 0 & 0 & 3 & 400 & 500 & 300 & 0 & $\textbf{m}[400]$ & $\textbf{m}[400..405]$ & $\textbf{m}[500..505]$ & $e_0\!+\!e_1\!+\!e_2$ & $\textbf{m}[300..305]$ & 100 \\
+0 & 1 & 0 & 0 & 2 & 405 & 505 & 300 & 0 & $\textbf{m}[405]$ & $\textbf{m}[405..410]$ & $\textbf{m}[505..510]$ & $e_1\!+\!e_2$         & $\textbf{m}[300..305]$ & 68 \\
+0 & 1 & 0 & 0 & 1 & 410 & 510 & 300 & 0 & $\textbf{m}[410]$ & $\textbf{m}[410..415]$ & $\textbf{m}[510..515]$ & $e_2$                 & $\textbf{m}[300..305]$ & 36 \\
+\midrule
+\multicolumn{15}{l}{\textit{POLY\_EQ, EE, $N\!=\!3$ ($\nu_A\!=\!600$, $\nu_B\!=\!700$, $\nu_C\!=\!800$): \quad $\texttt{res} = \prod_{i=0}^{2} [a_i b_i + (1\!-\!a_i)(1\!-\!b_i)]$}} \\[2pt]
+1 & 0 & 0 & 1 & 3 & 600 & 700 & 800 & 0 & $\textbf{m}[600]$ & $\textbf{m}[600..605]$ & $\textbf{m}[700..705]$ & $e_0 \cdot e_1 \cdot e_2$ & $\textbf{m}[800..805]$ & 112 \\
+0 & 0 & 0 & 1 & 2 & 605 & 705 & 800 & 0 & $\textbf{m}[605]$ & $\textbf{m}[605..610]$ & $\textbf{m}[705..710]$ & $e_1 \cdot e_2$           & $\textbf{m}[800..805]$ & 80 \\
+0 & 0 & 0 & 1 & 1 & 610 & 710 & 800 & 0 & $\textbf{m}[610]$ & $\textbf{m}[610..615]$ & $\textbf{m}[710..715]$ & $e_2$                     & $\textbf{m}[800..805]$ & 48 \\
+\midrule
+\multicolumn{15}{l}{\textit{Padding row}} \\[2pt]
+1 & 0 & 0 & 0 & 1 & 0   & 0   & 0  & 0 & $\textbf{m}[0]$ & $\textbf{m}[0..5]$ & $\textbf{m}[0..5]$ & 0 & $\textbf{m}[0..5]$ & 32 \\
 \bottomrule
 \end{tabular}%
 }
 
 \vspace{3mm}
 
-\textbf{Recurrence} (over $\Fq$):
-\begin{itemize}
-    \item BE: $c_0 = \textbf{m}[92] \cdot \textbf{m}[210..215]$, \; $c_1 = \textbf{m}[91] \cdot \textbf{m}[205..210] + c_0$, \; $c_2 = \textbf{m}[90] \cdot \textbf{m}[200..205] + c_1 = \texttt{res}$
-    \item EE: $d_0 = \textbf{m}[305..310] \cdot \textbf{m}[405..410]$, \; $d_1 = \textbf{m}[300..305] \cdot \textbf{m}[400..405] + d_0 = \texttt{res}$
-\end{itemize}
-
-\vspace{2mm}
-
-Notes: In BE mode, $\text{idx}_A$ increments by 1 (base field elements); in EE mode, by 5 (extension field elements). $\text{idx}_B$ always increments by 5. $\texttt{aux} = \texttt{is\_be} + 2 \cdot \texttt{len}$ is a non-committed column (used only for bus fingerprinting). Both $v_{A,\Fp}$ and $v_{A,\Fq}$ are read from memory on every row, but only the relevant one (depending on \texttt{is\_be}) is used in the computation.
+Notes: $e_i$ denotes the per-element result (virtual, not a committed column). Both lookups $v_{A,\Fp} = \textbf{m}[\text{idx}_A]$ and $v_{A,\Fq} = \textbf{m}[\text{idx}_A..+5]$ are performed unconditionally; in BE mode only $v_{A,\Fp}$ is used, in EE mode only $v_{A,\Fq}$ is used. \texttt{aux} is a non-committed bus fingerprinting column, equal to $2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot \texttt{len}$ on each row. The bus selector is the virtual column $\texttt{activation\_flag} = \texttt{start} \cdot \texttt{active}$ (not shown; equals \texttt{start} on active rows, 0 on padding).
 
 \subsubsection{Columns}
 
-\fbox{8 base field columns + 4 extension field columns = 28 $\Fp$-columns.}
+\fbox{10 base field columns + 4 extension field columns = 30 $\Fp$-columns.}
 
 \vspace{3mm}
 
-\textbf{Base field columns ($\Fp$):}
+\textbf{Base field columns ($\Fp$, 10 AIR + 2 non-AIR):}
 \begin{itemize}
-    \item \texttt{is\_be} $\in \{0,1\}$: mode flag (1 = base$\times$extension, 0 = extension$\times$extension)
-    \item \texttt{flag} $\in \{0,1\}$: bus selector (1 only on the first row of a real (non-padding) dot product)
-    \item \texttt{start} $\in \{0,1\}$: 1 on the first row of each group (and on padding rows)
-    \item \texttt{len}: countdown from $n$ to $1$
-    \item $\text{idx}_A$, $\text{idx}_B$, $\text{idx}_R$: memory addresses for $A$, $B$, and the result
+    \item \texttt{is\_be} $\in \{0,1\}$: mode flag (1: base $\times$ extension, 0: xextension $\times$ extension)
+    \item \texttt{start} $\in \{0,1\}$: group boundary (1 on first row of each group and on padding, 0 elsewhere)
+    \item $\texttt{flag\_add}$, $\texttt{flag\_mul}$, $\texttt{flag\_poly\_eq}$ $\in \{0,1\}$: operation selectors (exactly one is 1 on active rows, all 0 on padding)
+    \item \texttt{len}: countdown from $N$ to 1 within each group (1 on padding)
+    \item $\text{idx}_A$: memory address (increments by 1 in BE, by 5 in EE within a group)
+    \item $\text{idx}_B$: memory address (increments by 5 within a group)
+    \item $\text{idx}_R$: memory address for the result (constant within a group)
     \item $v_{A,\Fp}$: base field value $\textbf{m}[\text{idx}_A]$ (used in BE mode)
 \end{itemize}
 
-\textbf{Extension field columns ($\Fq$):}
+\textbf{Extension field columns ($\Fq$, 4 AIR):}
 \begin{itemize}
-    \item $v_{A,\Fq}$: extension field value $\textbf{m}[\text{idx}_A .. \text{idx}_A + 5]$
+    \item $v_{A,\Fq}$: extension field value $\textbf{m}[\text{idx}_A .. \text{idx}_A + 5]$ (used in EE mode)
     \item $v_B$: extension field value $\textbf{m}[\text{idx}_B .. \text{idx}_B + 5]$
-    \item \texttt{res}: result value $\textbf{m}[\text{idx}_R .. \text{idx}_R + 5]$
-    \item \texttt{comp}: running computation (accumulated dot product)
+    \item \texttt{res}: result value $\textbf{m}[\text{idx}_R .. \text{idx}_R + 5]$ (same on every row of a group)
+    \item \texttt{computation}: running accumulation; equals \texttt{res} on \texttt{start} rows
 \end{itemize}
 
-\textbf{Non-committed column} (used for bus fingerprinting):
+\textbf{Non-committed columns} (used for bus interaction):
 \begin{itemize}
-    \item \texttt{aux} $= \texttt{is\_be} + 2 \cdot \texttt{len}$
+    \item $\texttt{activation\_flag} = \texttt{start} \cdot \texttt{active}$: bus selector (1 on first row of each active group, 0 elsewhere)
+    \item \texttt{aux} $= 2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot \texttt{len}$
 \end{itemize}
 
 \subsubsection{Memory lookups}
-Every row performs:
 \begin{itemize}
-    \item 1 base field lookup: $v_{A,\Fp} = \textbf{m}[\text{idx}_A]$
-    \item 3 extension field lookups: $v_{A,\Fq} = \textbf{m}[\text{idx}_A..+5]$, $\; v_B = \textbf{m}[\text{idx}_B..+5]$, $\; \texttt{res} = \textbf{m}[\text{idx}_R..+5]$
+    \item $v_{A,\Fp} = \textbf{m}[\text{idx}_A]$ \hfill
+    \item $v_{A,\Fq} = \textbf{m}[\text{idx}_A..+5]$ \hfill
+    \item $v_B = \textbf{m}[\text{idx}_B..+5]$
+    \item $\texttt{res} = \textbf{m}[\text{idx}_R..+5]$
 \end{itemize}
 
 \subsubsection{Bus interaction}
-On rows where $\texttt{flag} = 1$, the table \textsc{Pull}s $(\text{idx}_A, \text{idx}_B, \text{idx}_R, \texttt{aux})$ from the corresponding bus. The execution table \textsc{Push}es a matching tuple for each dot product instruction.
+On rows where $\texttt{activation\_flag} = 1$ (i.e.\ $\texttt{start} = 1$ and $\texttt{active} = 1$), the table \textsc{Pull}s $(\texttt{aux}, \text{idx}_A, \text{idx}_B, \text{idx}_R)$ from the precompile bus. The execution table \textsc{Push}es a matching tuple for each EXTENSION\_OP instruction.
 
-The \texttt{aux} encoding ensures both the mode and the length are bound to the bus data. Since \texttt{is\_be} is constrained to be boolean (constraint~\ref{dot:bool-isbe}), if an adversary flips \texttt{is\_be} while keeping \texttt{aux} constant, the adversary would need a length $\texttt{len}'$ such that $\texttt{aux} = (1 - \texttt{is\_be}) + 2 \cdot \texttt{len}'$, i.e.\ $2\cdot\texttt{len}' = 2\cdot\texttt{len} \pm 1$ over $\Fp$. By Lemma~\ref{lem:len-bound}, both $\texttt{len}$ and $\texttt{len}'$ are $\leq 2^{21} < p/2$, so the equation cannot overflow modulo $p$ and must hold over $\mathbb{Z}$. Over $\mathbb{Z}$, this is impossible by parity.
+
+The $\texttt{aux}$ encoding ensures both the mode and the length are bound to the bus data. Since $\texttt{is\_be}$, $\texttt{flag\_add}$, $\texttt{flag\_mul}$, and $\texttt{flag\_poly\_eq}$ are constrained to be boolean, and since the length is constrained to be $\leq 2^{20}$ (by Lemma~\ref{lem:len-bound}), no overflow can occur modulo $p$ and the $\texttt{aux}$ value is unique for each combination of parameters, which enforces that all values of PRECOMPILE\_DATA sent by the execution table are correctly received by the extension\_op table.
+
 
 \subsubsection{AIR constraints}
 
-We write $\text{next}(x)$ for the value of column $x$ on the \textbf{next row} (down).
+\fbox{Degree 6.}
 
-\vspace{3mm}
+\vspace{2mm}
 
-\textbf{Value selection:} Define
+\textbf{Value selection:} Define:
 $$v_A = \texttt{is\_be} \cdot v_{A,\Fp} + (1 - \texttt{is\_be}) \cdot v_{A,\Fq} \;\in \Fq$$
 
-\textbf{Constraints:}
+Let $\texttt{active} = \texttt{flag\_add} + \texttt{flag\_mul} + \texttt{flag\_poly\_eq}$ (1 on active rows, 0 on padding), and define the per-element results (virtual):
+\begin{align*}
+    e_\text{add} &= v_A + v_B \\
+    e_\text{mul} &= v_A \cdot v_B \\
+    e_\text{peq} &= v_A \cdot v_B + (1 - v_A)(1 - v_B)
+\end{align*}
+
+Let $\texttt{comp\_tail} = \text{next}(\texttt{comp}) \cdot (1 - \text{next}(\texttt{start}))$ (zero when the next row is a new group).
+
+\vspace{2mm}
+
+\textbf{Boolean constraints:}
 \begin{enumerate}
-    \item\label{dot:bool-start} $\texttt{start} \cdot (1 - \texttt{start}) = 0$ \hfill (\texttt{start} is boolean)
-    \item\label{dot:bool-flag} $\texttt{flag} \cdot (1 - \texttt{flag}) = 0$ \hfill (\texttt{flag} is boolean)
-    \item\label{dot:bool-isbe} $\texttt{is\_be} \cdot (1 - \texttt{is\_be}) = 0$ \hfill (\texttt{is\_be} is boolean)
-    \item\label{dot:flag-start} $\texttt{flag} \cdot (1 - \texttt{start}) = 0$ \hfill (\texttt{flag} $\Rightarrow$ \texttt{start})
-    \item\label{dot:mode-consistent} $(\text{next}(\texttt{is\_be}) - \texttt{is\_be})^2 \cdot (1 - \text{next}(\texttt{start})) = 0$ \hfill (mode consistent within group)
-    \item\label{dot:recurrence} $\texttt{comp} - v_A \cdot v_B - \text{next}(\texttt{comp}) \cdot (1 - \text{next}(\texttt{start})) = 0$ \hfill (recurrence, over $\Fq$)
-    \item\label{dot:len-decrement} $(1 - \text{next}(\texttt{start})) \cdot (\texttt{len} - \text{next}(\texttt{len}) - 1) = 0$ \hfill (length countdown)
-    \item\label{dot:len-terminate} $\text{next}(\texttt{start}) \cdot (\texttt{len} - 1) = 0$ \hfill (must reach 1 before new group)
-    \item\label{dot:idx-a} $(1 - \text{next}(\texttt{start})) \cdot (\text{idx}_A - \text{next}(\text{idx}_A) + \delta_A) = 0$ \hfill (with $\delta_A = 5(1 - \texttt{is\_be}) + \texttt{is\_be}$)
-    \item\label{dot:idx-b} $(1 - \text{next}(\texttt{start})) \cdot (\text{idx}_B - \text{next}(\text{idx}_B) + 5) = 0$
-    \item\label{dot:result} $(\texttt{comp} - \texttt{res}) \cdot \texttt{start} = 0$ \hfill (result check, over $\Fq$)
+    \item $\texttt{is\_be} \cdot (1 - \texttt{is\_be}) = 0$
+    \item $\texttt{start} \cdot (1 - \texttt{start}) = 0$
+    \item $\texttt{flag\_add} \cdot (1 - \texttt{flag\_add}) = 0$
+    \item $\texttt{flag\_mul} \cdot (1 - \texttt{flag\_mul}) = 0$
+    \item $\texttt{flag\_poly\_eq} \cdot (1 - \texttt{flag\_poly\_eq}) = 0$
 \end{enumerate}
 
-Constraint~\ref{dot:recurrence}: when $\text{next}(\texttt{start}) = 1$ (next row starts a new group), the tail term vanishes: $\texttt{comp} = v_A \cdot v_B$. Otherwise the partial sum is accumulated. Constraint~\ref{dot:result}: on the first row of each group, the accumulated computation must equal the result read from memory.
+\textbf{Accumulation constraint:}
+\begin{enumerate}
+    \setcounter{enumi}{5}
+    \item $\texttt{f}_\texttt{add} \cdot (\texttt{comp} - e_\text{add} - \texttt{comp\_tail}) = 0$ \hfill (additive ADD)
+    \item $\texttt{f}_\texttt{mul} \cdot (\texttt{comp} - e_\text{mul} - \texttt{comp\_tail}) = 0$ \hfill (additive MUL)
+    \item $\texttt{f}_\texttt{peq} \cdot (\texttt{comp} - e_\text{peq} \cdot (\texttt{comp\_tail} + \text{next}(\texttt{start}))) = 0$ \hfill (multiplicative POLY\_EQ)
+\end{enumerate}
 
+\vspace{2mm}
 
-TODO: Verify and (formally) prove soundness.
+\textbf{Result constraint:}
+\begin{enumerate}
+    \setcounter{enumi}{8}
+    \item $\texttt{start} \cdot (\texttt{comp} - \texttt{res}) = 0$ \hfill (on start rows, computation equals result)
+\end{enumerate}
+
+\textbf{Intra-group consistency:}
+\begin{enumerate}
+    \setcounter{enumi}{9}
+    \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{len} - \text{next}(\texttt{len}) - 1) = 0$ \hfill (len countdown)
+    \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{is\_be} - \text{next}(\texttt{is\_be})) = 0$ \hfill (mode consistent)
+    \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{f}_\texttt{add} - \text{next}(\texttt{f}_\texttt{add})) = 0$
+    \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{f}_\texttt{mul} - \text{next}(\texttt{f}_\texttt{mul})) = 0$
+    \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{f}_\texttt{peq} - \text{next}(\texttt{f}_\texttt{peq})) = 0$
+    \item $(1 - \text{next}(\texttt{start})) \cdot (\text{next}(\text{idx}_A) - \text{idx}_A - (\texttt{is\_be} + (1 - \texttt{is\_be}) \cdot 5)) = 0$
+    \item $(1 - \text{next}(\texttt{start})) \cdot (\text{next}(\text{idx}_B) - \text{idx}_B - 5) = 0$
+\end{enumerate}
+
+\textbf{Boundary:}
+\begin{enumerate}
+    \setcounter{enumi}{16}
+    \item $\text{next}(\texttt{start}) \cdot (\texttt{len} - 1) = 0$ \hfill (when next row is a group start, current len must be 1)
+\end{enumerate}
+
+\vspace{5mm}
 
 \begin{lemma}\label{lem:len-bound}
 On every row $r$ of the dot product table, $\texttt{len}_r \leq H - r$ (as an integer in $\{0, \dots, p-1\}$), where $H \leq 2^{21}$ is the table height. In particular, $\texttt{len}_r \leq H$.
@@ -602,17 +720,21 @@ By backward induction on $r$, from $r = H - 1$ down to $r = 0$.
 
 \vspace{2mm}
 
-\textbf{Base case ($r = H - 1$):} On the wrapping pair (row $H\!-\!1$ paired with itself, see Section~\ref{sec:air-eval}), $\text{next}(x) = x$ for every column $x$. Constraint~\ref{dot:len-decrement} becomes $(1 - \texttt{start}) \cdot (\texttt{len} - \texttt{len} - 1) = -(1 - \texttt{start}) = 0$, forcing $\texttt{start}_{H-1} = 1$. Then constraint~\ref{dot:len-terminate} becomes $1 \cdot (\texttt{len} - 1) = 0$, giving $\texttt{len}_{H-1} = 1 = H - (H-1)$. 
+\textbf{Base case ($r = H - 1$):} On the wrapping pair (row $H\!-\!1$ paired with itself, see Section~\ref{sec:air-eval}), $\text{next}(x) = x$ for every column $x$. Constraint~10 becomes $(1 - \texttt{start}) \cdot (\texttt{len} - \texttt{len} - 1) = -(1 - \texttt{start}) = 0$, forcing $\texttt{start}_{H-1} = 1$. Then constraint~17 becomes $1 \cdot (\texttt{len} - 1) = 0$, giving $\texttt{len}_{H-1} = 1 = H - (H-1)$.
 
 \vspace{2mm}
 
-\textbf{Inductive step ($r < H - 1$):} Assume $\texttt{len}_s \leq H - s$ for all $s > r$. The pair (row $r$, row $r\!+\!1$) gives two cases depending on $\texttt{start}_{r+1} \in \{0,1\}$ (constraint~\ref{dot:bool-start}):
+\textbf{Inductive step ($r < H - 1$):} Assume $\texttt{len}_s \leq H - s$ for all $s > r$. The pair (row $r$, row $r\!+\!1$) gives two cases depending on $\texttt{start}_{r+1} \in \{0,1\}$ (constraint~2):
 
 \begin{itemize}
-    \item If $\texttt{start}_{r+1} = 1$: constraint~\ref{dot:len-terminate} gives $1 \cdot (\texttt{len}_r - 1) = 0$, so $\texttt{len}_r = 1 \leq H - r$.
-    \item If $\texttt{start}_{r+1} = 0$: constraint~\ref{dot:len-decrement} gives $(1 - 0) \cdot (\texttt{len}_r - \texttt{len}_{r+1} - 1) = 0$, so $\texttt{len}_r = \texttt{len}_{r+1} + 1$ in $\Fp$. By induction, $\texttt{len}_{r+1} \leq H - (r+1)$, so $\texttt{len}_{r+1} + 1 \leq H - r$. Since $H - r \leq H \leq 2^{21} < p$, the addition does not overflow modulo $p$, so $\texttt{len}_r = \texttt{len}_{r+1} + 1 \leq H - r$ as integers. 
+    \item If $\texttt{start}_{r+1} = 1$: constraint~17 gives $1 \cdot (\texttt{len}_r - 1) = 0$, so $\texttt{len}_r = 1 \leq H - r$.
+    \item If $\texttt{start}_{r+1} = 0$: constraint~10 gives $(1 - 0) \cdot (\texttt{len}_r - \texttt{len}_{r+1} - 1) = 0$, so $\texttt{len}_r = \texttt{len}_{r+1} + 1$ in $\Fp$. By induction, $\texttt{len}_{r+1} \leq H - (r+1)$, so $\texttt{len}_{r+1} + 1 \leq H - r$. Since $H - r \leq H \leq 2^{21} < p$, the addition does not overflow modulo $p$, so $\texttt{len}_r = \texttt{len}_{r+1} + 1 \leq H - r$ as integers.
 \end{itemize}
 \end{proof}
+
+\vspace{3mm}
+
+TODO: Verify and (formally) prove soundness.
 
 \subsection{Data flow between tables / memory}
 
@@ -655,55 +777,54 @@ $$\sum_{T \in \mathcal{T}} \sum_{i<n_T} \sum_{j<H_T} \frac{1}{X - (\text{col}_{\
 
 This can be computed via GKR, as introduced in \cite{logup_gkr}.
 
-\subsubsection{Buses: Data flow between tables}
+\subsubsection{Precompile bus: Data flow between tables}\label{buses}
 
 See OpenVM \cite{openvm}, definition 2.2.2, for more details.
 
-To each table is associated a list of buses. Declaring a bus for a given table requires specifying:
+At each cycle when IS\_PRECOMPILE = 1, the execution table \textsc{Push}es $$\sigma = (\text{PRECOMPILE\_DATA}, \nu_A, \nu_B, \nu_C)$$ to the "precompile bus".
 
-\begin{enumerate}
-    \item \textbf{Direction}: either \textsc{Pull} or \textsc{Push}
-    \item \textbf{Bus index}: can be either a constant or given by a column
-    \item \textbf{Data columns}: a list (of arbitrary size) of columns defining which data is passed to the bus
-    \item \textbf{Selector column}: enforced via AIR constraint to only contain Boolean values ($\in \{0, 1\}$), indicating at which row the bus is active (1) or silenced (0)
-\end{enumerate}
+In case of Poseidon call, PRECOMPILE\_DATA = 1 and $\nu_A$, $\nu_B$, $\nu_C$ represent the left input address, the right input address, and the output address (3 pointers to a chunk of 8 field elements in memory).
+
+In case of extension op call, PRECOMPILE\_DATA $= 2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot N$ encodes the mode, the operation, and the length $N$, and $\nu_A$, $\nu_B$, $\nu_C$ represent the starting address of the first operand, the starting address of the second operand, and the address of the result.
+
+Each such tuple $\sigma$ (counting multiplicity) must be \textsc{Pulled} by one of the precompile tables. Given that the Poseidon table only pulls tuples with PRECOMPILE\_DATA $= 1$, and the extension op table only pulls tuples with PRECOMPILE\_DATA $\geq 32$, the bus is effectively partitioned into two disjoint sub-buses, one for each precompile.
+
+Similarly to the IS\_PRECOMPILE (virtual) column for the execution table, each one of the two precompile tables has a boolean (virtual) column acting as a bus selector, indicating at which rows the table is pulling from the bus (1) or not (0).
 
 \vspace{3mm}
 
-\textbf{Balance rule:} At the end of execution, every bus (identified by its index) must be \textit{balanced} across all tables: for each data tuple, the number of pushes must equal the number of pulls.
+\textbf{Balance rule:} At the end of execution, for each tuple $\sigma$, the number of pushes must equal the number of pulls accross the 3 tables: execution, poseidon, and extension op.
 
 \vspace{5mm}
 
 \textbf{Proving system (logup):}
 
-Let $\mathcal{T}$ denote the set of all tables in the system. For each table $T \in \mathcal{T}$ with $H_T$ rows, let $\mathcal{B}_T$ denote the set of buses associated with $T$. For each bus $b \in \mathcal{B}_T$, we have:
+Let $\mathcal{T}$ denote the set of all tables in the system. Each table $T \in \mathcal{T}$ has $H_T$ rows. The bus interaction of the table $T$ is defined by:
 \begin{itemize}
-    \item $\text{dir}_{T,b} \in \{+1, -1\}$: the direction ($+1$ for \textsc{Push}, $-1$ for \textsc{Pull})
-    \item $\text{sel}_{T,b}: [0, H_T) \to \{0, 1\}$: the selector column
-    \item $\text{bus\_idx}_{T,b}: [0, H_T) \to \Fp$: the bus index (assumed to be a column here, but could also be a constant)
-    \item $\text{data}_{T,b} = (d_0, d_1, \ldots, d_{k-1})$: the $k$ data columns
+    \item $\text{dir}_{T} \in \{+1, -1\}$: the direction ($+1$ for \textsc{Push}, $-1$ for \textsc{Pull})
+    \item $\text{sel}_{T}: [0, H_T) \to \{0, 1\}$: the selector (virtual) column
+    \item $\sigma_{T} = (\sigma_0, \ldots, \sigma_{k-1})$: the $k$ data columns
 \end{itemize}
 
 \vspace{3mm}
 
-The verifier sends a random challenge $\alpha \in \Fq$ (TODO quantify soundness error). For a bus with index $\beta$ and data tuple $(c_0, c_1, \ldots, c_{k-1})$, define the encoding:
-$$\text{encode}(\beta, c_0, \ldots, c_{k-1}) = \beta + \sum_{i=0}^{k-1} \alpha^{i+1} \cdot c_i$$
+The verifier sends a random challenge $\alpha \in \Fq$. Define the encoding of a tuple $\sigma = (\sigma_0, \ldots, \sigma_{k-1})$ by:
+$$\text{encode}(\sigma_0, \ldots, \sigma_{k-1}) = \sum_{i=0}^{k-1} \alpha^{i} \cdot \sigma_i$$
 
 \vspace{3mm}
 
-Except with probability $N/q$, where $N = \sum_{T \in \mathcal{T}} |\mathcal{B}_T| \cdot H_T$ is the total number of bus interactions, the bus balance constraint is satisfied if for a randomly sampled $X \in \Fq$:
+Except with negligible probability probability (TODO quantify precisely), the bus is balanced if for a randomly sampled $X \in \Fq$:
 
-$$\sum_{T \in \mathcal{T}} \sum_{b \in \mathcal{B}_T} \sum_{j=0}^{H_T - 1} \frac{\text{dir}_{T,b} \cdot \text{sel}_{T,b}(j)}{X - \text{encode}\big(\text{bus\_idx}_{T,b}(j), \text{data}_{T,b}(j)\big)} = 0$$
+$$\sum_{T \in \mathcal{T}} \sum_{j=0}^{H_T - 1} \frac{\text{dir}_{T} \cdot \text{sel}_{T}(j)}{X - \text{encode}(\sigma_{T}(j))} = 0$$
 
-
-\vspace{3mm}
-
-\textit{Overflow constraint:} For soundness, we must ensure that multiplicities do not overflow modulo $p$. This requires that for each bus index $\beta$, the total number of interactions (pushes and pulls combined) is strictly less than $p$:
-$$\forall \beta: \quad \sum_{\substack{T \in \mathcal{T}, b \in \mathcal{B}_T \\ \text{bus\_idx}_{T,b} = \beta}} H_T < p$$
 
 \vspace{3mm}
 
-As with the indexed lookup into memory, this sum can be computed efficiently via GKR \cite{logup_gkr}. In practice, all logup sums (bus balance and memory lookups) are batched into a single GKR instance, using random linear combination.
+\textit{Overflow constraint:} We must ensure that multiplicities do not overflow modulo $p$. This is enforced by limitting the maximum height of each table.
+
+\vspace{3mm}
+
+As with the indexed lookup into memory, this sum can be computed efficiently via GKR \cite{logup_gkr}. In practice, all logup instances (bus balance and memory lookups) are batched into a single GKR instance, using an addition field element passed to the encoding tuple for domain separation.
 
 \vspace{3mm} TODO: Unified vision in which memory is just another table, and memory accesses are just bus interactions?
 

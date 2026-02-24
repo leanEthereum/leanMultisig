@@ -6,10 +6,6 @@ F_BITS = 31  # koala-bear = 31 bits
 TWO_ADICITY = 24
 ROOT = 1791270792  # of order 2^TWO_ADICITY
 
-# Dot product precompile:
-BE = 1  # base-extension
-EE = 0  # extension-extension
-
 def div_ceil_dynamic(a, b: Const):
     debug_assert(a <= 150)
     res = match_range(a, range(0, 151), lambda i: div_ceil(i, b))
@@ -36,26 +32,9 @@ def powers_const(alpha, n: Const):
         mul_extension(res + i * DIM, alpha, res + (i + 1) * DIM)
     return res
 
-
-@inline
-def unit_root_pow_dynamic(domain_size, index_bits):
-    # index_bits is a pointer to domain_size bits
-    debug_assert(domain_size < 26)
-    debug_assert(0 < domain_size)
-    res = match_range(domain_size, range(1, 26), lambda i: unit_root_pow_const(i, index_bits))
-    return res
-
-
-def unit_root_pow_const(domain_size: Const, index_bits):
-    prod: Mut = (index_bits[0] * ROOT ** (2 ** (TWO_ADICITY - domain_size))) + (1 - index_bits[0])
-    for i in unroll(1, domain_size):
-        prod *= (index_bits[i] * ROOT ** (2 ** (TWO_ADICITY - domain_size + i))) + (1 - index_bits[i])
-    return prod
-
-
 def poly_eq_extension_dynamic(point, n):
     debug_assert(n < 9)
-    res = match_range(n, range(0, 1), lambda i: ONE_VEC_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
+    res = match_range(n, range(0, 1), lambda i: ONE_EF_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
     return res
 
 
@@ -79,94 +58,27 @@ def poly_eq_extension(point, n: Const):
 def eq_mle_extension(a, b, n):
     debug_assert(n < 30)
     debug_assert(0 < n)
-    res = match_range(n, range(1, 30), lambda i: eq_mle_extension_const(a, b, i))
+    res = Array(DIM)
+    match_range(n, range(1, 30), lambda i: poly_eq_ee(a, b, res, i))
     return res
-
-
-def eq_mle_extension_const(a, b, n: Const):
-    # eq(a, b) = prod_i (a_i * b_i + (1-a_i)*(1-b_i)) = prod_i (2*a_i*b_i - a_i - b_i + 1)
-
-    eqs = Array(n * DIM)
-
-    for i in unroll(0, n):
-        ai = a + i * DIM
-        bi = b + i * DIM
-        temp = Array(4 * DIM)
-        mul_extension(ai, bi, temp)
-        copy_5(ai, temp + DIM)
-        copy_5(bi, temp + 2 * DIM)
-        set_to_one(temp + 3 * DIM)
-        dot_product(EQ_MLE_COEFFS_PTR, temp, eqs + i * DIM, 4, BE)
-
-    prods = Array(n * DIM)
-    copy_5(eqs, prods)
-    for i in unroll(0, n - 1):
-        mul_extension(prods + i * DIM, eqs + (i + 1) * DIM, prods + (i + 1) * DIM)
-    return prods + (n - 1) * DIM
 
 
 @inline
 def eq_mle_base_extension(a, b, n):
     debug_assert(n <= 30)
     debug_assert(0 < n)
-    res = match_range(n, range(1, 31), lambda i: eq_mle_extension_base_const(a, b, i))
+    res = Array(DIM)
+    match_range(n, range(1, 31), lambda i: poly_eq_be(a, b, res, i))
     return res
 
 
 def eq_mle_extension_base_const(a, b, n: Const):
-    # a: base
-    # b: extension
-
-    buff = Array(n * (DIM + 1))
-
-    for i in unroll(0, n):
-        ai = a[i]
-        bi = b + i * DIM
-        ai_double = ai * 2
-        ai_double_minus_one = ai_double - 1
-        buff[i * (DIM + 1)] = 1 + ai_double_minus_one * bi[0] - ai
-        ai_double_minus_one_ptr = Array(1)
-        ai_double_minus_one_ptr[0] = ai_double_minus_one
-        dot_product(ai_double_minus_one_ptr, bi + 1, buff + i * (DIM + 1) + 1, 1, BE)
-        # for j in unroll(1, DIM):
-        #     buff[i * DIM +j] = ai_double_minus_one * bi[j]
-
-    prods = Array(n * DIM)
-    copy_5(buff, prods)
-    for i in unroll(0, n - 1):
-        mul_extension(prods + i * DIM, buff + (i + 1) * (DIM + 1), prods + (i + 1) * DIM)
-    return prods + (n - 1) * DIM
-
-@inline
-def eq_mle_base_extension_boolean(a, b, n):
-    debug_assert(n <= 30)
-    debug_assert(0 < n)
-    res = match_range(n, range(1, 31), lambda i: eq_mle_extension_base_const_boolean(a, b, i))
+    # a: base (n elements, stride 1)
+    # b: extension (n elements, stride DIM)
+    # poly_eq_be with length n computes prod_i poly_eq(a[i], b[i]) via multiplicative accumulation
+    res = Array(DIM)
+    poly_eq_be(a, b, res, n)
     return res
-
-
-def eq_mle_extension_base_const_boolean(a, b, n: Const):
-    # a: base, full of booleans
-    # b: extension
-
-    buff = Array(n * DIM)
-
-    match a[0]:
-        case 0:
-            one_minus_self_extension(b, buff)
-        case 1:
-            copy_5(b, buff)
-    
-    for i in unroll(1, n):
-        match a[i]:
-            case 0:
-                one_minus_bi = one_minus_self_extension_ret(b + i * DIM)
-                mul_extension(buff + (i - 1) * DIM, one_minus_bi, buff + i * DIM)
-            case 1:
-                mul_extension(buff + (i - 1) * DIM, b + i * DIM, buff + i * DIM)
-
-    return buff + (n - 1) * DIM
-
 
 @inline
 def expand_from_univariate_base(alpha, n):
@@ -205,7 +117,7 @@ def univariate_eval_on_base(coeffs, alpha, n: Const):
     for i in unroll(0, 2**n - 1):
         alpha_powers[i + 1] = alpha_powers[i] * alpha
     result = Array(DIM)
-    dot_product(alpha_powers, coeffs, result, 2**n, BE)
+    dot_product_be(alpha_powers, coeffs, result, 2**n)
     return result
 
 
@@ -217,19 +129,29 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
         for j in unroll(0, 2**k):
             mul_extension(basis + j * DIM, point + k * DIM, basis + (j + 2**k) * DIM)
     result = Array(DIM)
-    dot_product(coeffs, basis, result, 2**n, EE)
+    dot_product_ee(coeffs, basis, result, 2**n)
     return result
 
 
 def dot_product_be_dynamic(a, b, res, n):
     debug_assert(n <= 256)
-    match_range(n, range(1, 257), lambda i: dot_product(a, b, res, i, BE))
+    match_range(n, range(1, 257), lambda i: dot_product_be(a, b, res, i))
+    return
+
+
+def dot_product_be_const(a, b, res, n: Const):
+    dot_product_be(a, b, res, n)
     return
 
 
 def dot_product_ee_dynamic(a, b, res, n):
     debug_assert(n <= 256)
-    match_range(n, range(1, 257), lambda i: dot_product(a, b, res, i, EE))
+    match_range(n, range(1, 257), lambda i: dot_product_ee(a, b, res, i))
+    return
+
+
+def dot_product_ee_const(a, b, res, n: Const):
+    dot_product_ee(a, b, res, n)
     return
 
 
@@ -294,50 +216,33 @@ def powers_of_two(n):
 
 @inline
 def mul_extension_ret(a, b):
-    return dot_product_ret(a, b, 1, EE)
+    res = Array(DIM)
+    dot_product_ee(a, b, res)
+    return res
 
 
 @inline
 def mul_extension(a, b, c):
-    dot_product(a, b, c, 1, EE)
+    dot_product_ee(a, b, c)
     return
 
 
 @inline
 def add_extension_ret(a, b):
-    # TODO if a and b are adjacent we can do it in one cycle using the dot_product precompile
     c = Array(DIM)
-    for i in unroll(0, DIM):
-        c[i] = a[i] + b[i]
+    add_ee(a, b, c)
     return c
-
-
-@inline
-def add_extension(a, b, c):
-    # TODO if a and b are adjacent we can do it in one cycle using the dot_product precompile
-    for i in unroll(0, DIM):
-        c[i] = a[i] + b[i]
-    return
 
 
 @inline
 def one_minus_self_extension_ret(a):
     res = Array(DIM)
-    one_minus_self_extension(a, res)
+    add_ee(a, res, ONE_EF_PTR)
     return res
 
 
 @inline
-def one_minus_self_extension(a, res):
-    res[0] = 1 - a[0]
-    for i in unroll(1, DIM):
-        res[i] = 0 - a[i]
-    return
-
-
-@inline
 def opposite_extension_ret(a):
-    # todo use dot_product precompile
     res = Array(DIM)
     for i in unroll(0, DIM):
         res[i] = 0 - a[i]
@@ -349,37 +254,34 @@ def add_base_extension_ret(a, b):
     # a: base
     # b: extension
     res = Array(DIM)
-    res[0] = a + b[0]
-    for i in unroll(1, DIM):
-        res[i] = b[i]
+    a_ptr = Array(1)
+    a_ptr[0] = a
+    add_be(a_ptr, b, res)
     return res
 
 
 @inline
 def mul_base_extension_ret(a, b):
-    # a: base
-    # b: extension
-
-    # TODO: use dot_product_be
-
+    # a: base field value (not a pointer)
+    # b: extension pointer
+    a_ptr = Array(1)
+    a_ptr[0] = a
     res = Array(DIM)
-    for i in unroll(0, DIM):
-        res[i] = a * b[i]
+    dot_product_be(a_ptr, b, res)
     return res
 
 
 @inline
 def div_extension_ret(n, d):
     quotient = Array(DIM)
-    dot_product(d, quotient, n, 1, EE)
+    dot_product_ee(d, quotient, n)
     return quotient
 
 
 @inline
 def sub_extension(a, b, c):
-    # TODO if a and b are adjacent we can do it in one cycle using the dot_product precompile
-    for i in unroll(0, DIM):
-        c[i] = a[i] - b[i]
+    # c = a - b <=> a = c + b
+    add_ee(b, c, a)
     return
 
 
@@ -401,15 +303,14 @@ def sub_extension_base_ret(a, b):
     # b: base
     # return a - b
     res = Array(DIM)
-    res[0] = a[0] - b
-    for i in unroll(1, DIM):
-        res[i] = a[i]
+    b_ptr = Array(1)
+    b_ptr[0] = b
+    add_be(b_ptr, res, a)
     return res
 
 
 @inline
 def sub_extension_ret(a, b):
-    # TODO if a and b are adjacent we can do it in one cycle using the dot_product precompile
     c = Array(DIM)
     for i in unroll(0, DIM):
         c[i] = a[i] - b[i]
@@ -418,21 +319,21 @@ def sub_extension_ret(a, b):
 
 @inline
 def copy_5(a, b):
-    dot_product(a, ONE_VEC_PTR, b, 1, EE)
+    dot_product_ee(a, ONE_EF_PTR, b)
     return
 
 
 @inline
 def set_to_5_zeros(a):
     zero_ptr = ZERO_VEC_PTR
-    dot_product(a, ONE_VEC_PTR, zero_ptr, 1, EE)
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
 
 
 @inline
 def set_to_7_zeros(a):
     zero_ptr = ZERO_VEC_PTR
-    dot_product(a, ONE_VEC_PTR, zero_ptr, 1, EE)
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     a[5] = 0
     a[6] = 0
     return
@@ -441,25 +342,23 @@ def set_to_7_zeros(a):
 @inline
 def set_to_8_zeros(a):
     zero_ptr = ZERO_VEC_PTR
-    dot_product(a, ONE_VEC_PTR, zero_ptr, 1, EE)
-    a[5] = 0
-    a[6] = 0
-    a[7] = 0
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    dot_product_ee(a + (8 - DIM), ONE_EF_PTR, zero_ptr)
     return
 
 
 @inline
 def copy_8(a, b):
-    dot_product(a, ONE_VEC_PTR, b, 1, EE)
-    dot_product(a + (8 - DIM), ONE_VEC_PTR, b + (8 - DIM), 1, EE)
+    dot_product_ee(a, ONE_EF_PTR, b)
+    dot_product_ee(a + (8 - DIM), ONE_EF_PTR, b + (8 - DIM))
     return
 
 
 @inline
 def copy_16(a, b):
-    dot_product(a, ONE_VEC_PTR, b, 1, EE)
-    dot_product(a + 5, ONE_VEC_PTR, b + 5, 1, EE)
-    dot_product(a + 10, ONE_VEC_PTR, b + 10, 1, EE)
+    dot_product_ee(a, ONE_EF_PTR, b)
+    dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
+    dot_product_ee(a + 10, ONE_EF_PTR, b + 10)
     a[15] = b[15]
     return
 
@@ -467,13 +366,13 @@ def copy_16(a, b):
 @inline
 def copy_many_ef(a, b, n):
     for i in unroll(0, n):
-        dot_product(a + i * DIM, ONE_VEC_PTR, b + i * DIM, 1, EE)
+        dot_product_ee(a + i * DIM, ONE_EF_PTR, b + i * DIM)
     return
 
 
 @inline
 def set_to_one(a):
-    dot_product(ONE_VEC_PTR, ONE_VEC_PTR, a, 1, EE)
+    dot_product_ee(ONE_EF_PTR, ONE_EF_PTR, a)
     return
 
 
@@ -499,7 +398,7 @@ def read_memory(ptr):
 def univariate_polynomial_eval(coeffs, point, degree):
     powers = powers_const(point, degree + 1)
     res = Array(DIM)
-    dot_product(coeffs, powers, res, degree + 1, EE)
+    dot_product_ee(coeffs, powers, res, degree + 1)
     return res
 
 
@@ -542,6 +441,44 @@ def checked_decompose_bits(a):
     assert a == partial_sums_24[23] + sum_7 * 2**24
     return bits, partial_sums_24
 
+@inline
+def checked_decompose_bits_and_compute_root_pow_const(a, domain_size):
+    # Hint 6 nibbles (4 bits each) + 1 top-7-bit value = 7 hints
+    nibbles = Array(6)
+    top7 = Array(1)
+    a_ptr = Array(1)
+    a_ptr[0] = a
+    hint_decompose_bits_xmss(nibbles, top7, a_ptr, 1, 4)
+
+    for i in unroll(0, 6):
+        assert nibbles[i] < 16
+
+    assert top7[0] < 2**7
+
+    partial_sum: Mut = nibbles[0]
+    for i in unroll(1, 6):
+        partial_sum += nibbles[i] * 16**i
+
+    if top7[0] == 2**7 - 1:
+        assert partial_sum == 0
+
+    assert partial_sum + top7[0] * 2**24 == a
+
+    # Compute domain_generator^index
+    prod: Mut = 1
+    for k in unroll(0, (domain_size - domain_size % 4) / 4):
+        nib_pow = match_range(nibbles[k], range(0, 16),
+            lambda v: ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * k) * v))
+        prod *= nib_pow
+
+    if domain_size % 4 != 0:
+        edge_pow = match_range(nibbles[(domain_size - domain_size % 4) / 4], range(0, 16),
+            lambda v: ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * ((domain_size - domain_size % 4) / 4)) * (v % 2 ** (domain_size % 4))))
+        prod *= edge_pow
+
+    return nibbles, prod
+
+
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
     hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)
@@ -569,9 +506,9 @@ def checked_decompose_bits_small_value(to_decompose, n_bits):
 
 
 @inline
-def dot_product_ret(a, b, n, mode):
+def dot_product_ee_ret(a, b, n):
     res = Array(DIM)
-    dot_product(a, b, res, n, mode)
+    dot_product_ee_dynamic(a, b, res, n)
     return res
 
 
@@ -579,7 +516,7 @@ def dot_product_ret(a, b, n, mode):
 def sum_continuous_ef(slice_ef, len):
     debug_assert(len <= NUM_REPEATED_ONES_IN_RESERVED_MEMORY)
     res = Array(DIM)
-    dot_product(REPEATED_ONES_PTR, slice_ef, res, len, BE)
+    dot_product_be_dynamic(REPEATED_ONES_PTR, slice_ef, res, len)
     return res
 
 
@@ -632,13 +569,8 @@ def next_mle(x, y, n):
     for i in range(0, n):
         xi = x + i * DIM
         yi = y + i * DIM
-        temp = Array(4 * DIM)
-        mul_extension(xi, yi, temp)
-        copy_5(xi, temp + DIM)
-        copy_5(yi, temp + 2 * DIM)
-        set_to_one(temp + 3 * DIM)
         eq_i = Array(DIM)
-        dot_product(EQ_MLE_COEFFS_PTR, temp, eq_i, 4, BE)
+        poly_eq_ee(xi, yi, eq_i)
         mul_extension(eq_prefix + i * DIM, eq_i, eq_prefix + (i + 1) * DIM)
 
     # Build low_suffix[0..n+1] where low_suffix[i] = prod_{j>=i} (x[j] * (1-y[j]))
@@ -678,8 +610,10 @@ def next_mle(x, y, n):
 @inline
 def dot_product_with_the_base_vectors(slice):
     # slice: pointer to DIM extension field elements
-    # cf constants.rs: by convention, [10000] [01000] [00100] [00010] [00001] is harcoded in memory, starting at ONE_VEC_PTR
-    return dot_product_ret(slice, ONE_VEC_PTR, DIM, EE)
+    # cf constants.rs: by convention, [10000] [01000] [00100] [00010] [00001] is hardcoded in memory, starting at ONE_EF_PTR
+    res = Array(DIM)
+    dot_product_ee(slice, ONE_EF_PTR, res, DIM)
+    return res
 
 
 def _verify_log2_small(n, partial_sums_24, log2: Const):

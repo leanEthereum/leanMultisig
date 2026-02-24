@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
-use utils::{BYTECODE_TABLE_INDEX, Counter, MEMORY_TABLE_INDEX};
+use utils::Counter;
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
@@ -213,12 +213,16 @@ fn build_replacements(
     );
     replacements.insert("MAX_BUS_WIDTH_PLACEHOLDER".to_string(), max_bus_width().to_string());
     replacements.insert(
-        "MEMORY_TABLE_INDEX_PLACEHOLDER".to_string(),
-        MEMORY_TABLE_INDEX.to_string(),
+        "LOGUP_MEMORY_DOMAINSEP_PLACEHOLDER".to_string(),
+        LOGUP_MEMORY_DOMAINSEP.to_string(),
     );
     replacements.insert(
-        "BYTECODE_TABLE_INDEX_PLACEHOLDER".to_string(),
-        BYTECODE_TABLE_INDEX.to_string(),
+        "LOGUP_PRECOMPILE_DOMAINSEP_PLACEHOLDER".to_string(),
+        LOGUP_PRECOMPILE_DOMAINSEP.to_string(),
+    );
+    replacements.insert(
+        "LOGUP_BYTECODE_DOMAINSEP_PLACEHOLDER".to_string(),
+        LOGUP_BYTECODE_DOMAINSEP.to_string(),
     );
     replacements.insert(
         "LOG_GUEST_BYTECODE_LEN_PLACEHOLDER".to_string(),
@@ -406,7 +410,7 @@ fn build_replacements(
 fn all_air_evals_in_zk_dsl() -> String {
     let mut res = String::new();
     res += &air_eval_in_zk_dsl(ExecutionTable::<false> {});
-    res += &air_eval_in_zk_dsl(DotProductPrecompile::<false> {});
+    res += &air_eval_in_zk_dsl(ExtensionOpPrecompile::<false> {});
     res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {});
     res
 }
@@ -427,144 +431,199 @@ where
         AIR_INNER_VALUES_VAR
     );
 
-    let mut constraints_evals = vec![];
-    for constraint in &constraints {
-        constraints_evals.push(write_down_air_constraint_eval(
-            constraint,
-            &mut cache,
-            &mut res,
-            &mut vars_counter,
-        ));
+    let n_constraints = constraints.len();
+    res += &format!("\n    constraints_buf = Array(DIM * {})", n_constraints);
+    for (index, constraint) in constraints.iter().enumerate() {
+        let dest = format!("constraints_buf + {} * DIM", index);
+        eval_air_constraint(constraint, Some(&dest), &mut cache, &mut res, &mut vars_counter);
     }
 
     // first: bus data
-    let table_index = match table.bus().table {
-        BusTable::Constant(c) => format!("embed_in_ef({})", c.index()),
-        BusTable::Variable(col) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, col),
-    };
-    let flag = write_down_air_constraint_eval(&bus_flag, &mut cache, &mut res, &mut vars_counter);
+    let flag = eval_air_constraint(&bus_flag, None, &mut cache, &mut res, &mut vars_counter);
     res += &format!("\n    buff = Array(DIM * {})", bus_data.len());
     for (i, data) in bus_data.iter().enumerate() {
-        let data_str = write_down_air_constraint_eval(data, &mut cache, &mut res, &mut vars_counter);
+        let data_str = eval_air_constraint(data, None, &mut cache, &mut res, &mut vars_counter);
         res += &format!("\n    copy_5({}, buff + DIM * {})", data_str, i);
     }
+    // dot product: bus_res = sum(buff[i] * logup_alphas_eq_poly[i]) for i in 0..bus_data.len()
+    res += "\n    bus_res_init = Array(DIM)";
     res += &format!(
-        "\n    bus_res: Mut = dot_product_ret(buff, logup_alphas_eq_poly, {}, EE)",
+        "\n    dot_product_ee(buff, logup_alphas_eq_poly, bus_res_init, {})",
         bus_data.len()
     );
     res += &format!(
-        "\n    bus_res = add_extension_ret(mul_extension_ret({}, logup_alphas_eq_poly + {} * DIM), bus_res)",
-        table_index,
+        "\n    bus_res: Mut = add_extension_ret(mul_base_extension_ret(LOGUP_PRECOMPILE_DOMAINSEP, logup_alphas_eq_poly + {} * DIM), bus_res_init)",
         max_bus_width().next_power_of_two() - 1
     );
     res += "\n    bus_res = mul_extension_ret(bus_res, bus_beta)";
     res += &format!("\n    sum: Mut = add_extension_ret(bus_res, {})", flag);
 
-    for (index, constraint_eval) in constraints_evals.iter().enumerate() {
-        res += format!(
-            "\n    sum = add_extension_ret(sum, mul_extension_ret(air_alpha_powers + {} * DIM, {}))",
-            index + 1,
-            constraint_eval
-        )
-        .as_str();
-    }
+    // Batch constraint weighting: single dot_product_ee(alpha_powers, constraints_buf, result, n_constraints)
+    res += "\n    weighted_constraints = Array(DIM)";
+    res += &format!(
+        "\n    dot_product_ee(air_alpha_powers + DIM, constraints_buf, weighted_constraints, {})",
+        n_constraints
+    );
+    res += "\n    sum = add_extension_ret(sum, weighted_constraints)";
 
     res += "\n    return sum";
     res += "\n";
     res
 }
 
-fn write_down_air_constraint_eval(
-    constraint: &SymbolicExpression<F>,
+/// Evaluate a symbolic AIR constraint expression, emitting zkDSL code into `res`.
+/// If `dest` is Some, writes the result directly there (avoids a copy_5).
+/// If `dest` is None, allocates an aux var. Returns the var/pointer where the result lives.
+fn eval_air_constraint(
+    expr: &SymbolicExpression<F>,
+    dest: Option<&str>,
     cache: &mut HashMap<*const (), String>,
     res: &mut String,
-    vars_counter: &mut Counter,
+    ctr: &mut Counter,
 ) -> String {
-    match constraint {
-        SymbolicExpression::Constant(_) => {
-            unreachable!()
+    match expr {
+        SymbolicExpression::Constant(c) => {
+            let v = format!("aux_{}", ctr.get_next());
+            res.push_str(&format!("\n    {} = embed_in_ef({})", v, c.as_canonical_u32()));
+            v
         }
-        SymbolicExpression::Variable(v) => {
-            format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index)
-        }
+        SymbolicExpression::Variable(v) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index),
         SymbolicExpression::Operation(operation) => {
             let key = Rc::as_ptr(operation) as *const ();
-            if let Some(var_name) = cache.get(&key) {
-                return var_name.clone();
+            if let Some(v) = cache.get(&key) {
+                if let Some(d) = dest {
+                    res.push_str(&format!("\n    copy_5({}, {})", v, d));
+                }
+                return v.clone();
             }
             let (op, args) = &**operation;
-
-            let new_var = match *op {
+            let v = match *op {
                 SymbolicOperation::Neg => {
                     assert_eq!(args.len(), 1);
-                    let arg_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
-                    let aux_var = format!("aux_{}", vars_counter.get_next());
-                    res.push_str(&format!("\n    {} = opposite_extension_ret({})", aux_var, arg_str));
-                    return aux_var;
+                    let a = eval_air_constraint(&args[0], None, cache, res, ctr);
+                    let v = format!("aux_{}", ctr.get_next());
+                    res.push_str(&format!("\n    {} = opposite_extension_ret({})", v, a));
+                    v
                 }
-                SymbolicOperation::Add => handle_operation_on_two(
-                    args,
-                    cache,
-                    res,
-                    vars_counter,
-                    ("add_base_extension_ret", "add_base_extension_ret", "add_extension_ret"),
-                    true,
-                ),
-                SymbolicOperation::Sub => handle_operation_on_two(
-                    args,
-                    cache,
-                    res,
-                    vars_counter,
-                    ("sub_base_extension_ret", "sub_extension_base_ret", "sub_extension_ret"),
-                    false,
-                ),
-                SymbolicOperation::Mul => handle_operation_on_two(
-                    args,
-                    cache,
-                    res,
-                    vars_counter,
-                    ("mul_base_extension_ret", "mul_base_extension_ret", "mul_extension_ret"),
-                    true,
-                ),
+                _ => {
+                    assert_eq!(args.len(), 2);
+                    eval_air_binop(*op, args, dest, cache, res, ctr)
+                }
             };
-            assert!(!cache.contains_key(&key));
-            cache.insert(key, new_var.clone());
-            new_var
+            // If dest was requested but the result landed elsewhere, copy it
+            if let Some(d) = dest
+                && v != d
+            {
+                res.push_str(&format!("\n    copy_5({}, {})", v, d));
+            }
+            cache.insert(key, v.clone());
+            v
         }
     }
 }
 
-fn handle_operation_on_two(
+/// Evaluate a binary operation (Add/Sub/Mul). When `dest` is Some and the operation
+/// supports it, writes directly to dest and returns dest; otherwise allocates an aux var.
+fn eval_air_binop(
+    op: SymbolicOperation,
     args: &[SymbolicExpression<F>],
+    dest: Option<&str>,
     cache: &mut HashMap<*const (), String>,
     res: &mut String,
-    vars_counter: &mut Counter,
-    (be_func, eb_func, ee_func): (&str, &str, &str),
-    switch_args: bool,
+    ctr: &mut Counter,
 ) -> String {
-    assert_eq!(args.len(), 2);
-    if let SymbolicExpression::Constant(c1) = args[0] {
-        let arg2_str = write_down_air_constraint_eval(&args[1], cache, res, vars_counter);
-        let aux_var = format!("aux_{}", vars_counter.get_next());
-        res.push_str(&format!("\n    {} = {}({}, {})", aux_var, be_func, c1, arg2_str));
-        return aux_var;
+    let c0 = match &args[0] {
+        SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
+        _ => None,
+    };
+    let c1 = match &args[1] {
+        SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
+        _ => None,
+    };
+
+    match (c0, c1) {
+        // Both extension
+        (None, None) => {
+            let a = eval_air_constraint(&args[0], None, cache, res, ctr);
+            let b = eval_air_constraint(&args[1], None, cache, res, ctr);
+            if let Some(d) = dest {
+                let f = match op {
+                    SymbolicOperation::Mul => "mul_extension",
+                    SymbolicOperation::Add => "add_ee",
+                    SymbolicOperation::Sub => "sub_extension",
+                    _ => unreachable!(),
+                };
+                res.push_str(&format!("\n    {}({}, {}, {})", f, a, b, d));
+                d.to_string()
+            } else {
+                let f = match op {
+                    SymbolicOperation::Mul => "mul_extension_ret",
+                    SymbolicOperation::Add => "add_extension_ret",
+                    SymbolicOperation::Sub => "sub_extension_ret",
+                    _ => unreachable!(),
+                };
+                let v = format!("aux_{}", ctr.get_next());
+                res.push_str(&format!("\n    {} = {}({}, {})", v, f, a, b));
+                v
+            }
+        }
+        // Mul/Add with a constant (commutative for base-ext)
+        _ if matches!(op, SymbolicOperation::Mul | SymbolicOperation::Add) => {
+            let (c, ext_idx) = match (c0, c1) {
+                (Some(c), _) => (c, 1),
+                (_, Some(c)) => (c, 0),
+                _ => unreachable!(),
+            };
+            let ext = eval_air_constraint(&args[ext_idx], None, cache, res, ctr);
+            if let Some(d) = dest {
+                let f = if matches!(op, SymbolicOperation::Mul) {
+                    "dot_product_be"
+                } else {
+                    "add_be"
+                };
+                emit_base_precompile(res, ctr, f, c, &ext, d);
+                d.to_string()
+            } else {
+                let f = if matches!(op, SymbolicOperation::Mul) {
+                    "mul_base_extension_ret"
+                } else {
+                    "add_base_extension_ret"
+                };
+                let v = format!("aux_{}", ctr.get_next());
+                res.push_str(&format!("\n    {} = {}({}, {})", v, f, c, ext));
+                v
+            }
+        }
+        // Sub: base - ext
+        (Some(c), _) => {
+            let ext = eval_air_constraint(&args[1], None, cache, res, ctr);
+            let v = format!("aux_{}", ctr.get_next());
+            res.push_str(&format!("\n    {} = sub_base_extension_ret({}, {})", v, c, ext));
+            v
+        }
+        // Sub: ext - base
+        (_, Some(c)) => {
+            let ext = eval_air_constraint(&args[0], None, cache, res, ctr);
+            if let Some(d) = dest {
+                // add_be(tmp, dest, ext) asserts ext = tmp + dest, i.e. dest = ext - tmp
+                emit_base_precompile(res, ctr, "add_be", c, d, &ext);
+                d.to_string()
+            } else {
+                let v = format!("aux_{}", ctr.get_next());
+                res.push_str(&format!("\n    {} = sub_extension_base_ret({}, {})", v, ext, c));
+                v
+            }
+        }
     }
-    if let SymbolicExpression::Constant(c2) = args[1] {
-        let arg1_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
-        let aux_var = format!("aux_{}", vars_counter.get_next());
-        let (term0, term1) = if switch_args {
-            (c2.to_string(), arg1_str)
-        } else {
-            (arg1_str, c2.to_string())
-        };
-        res.push_str(&format!("\n    {} = {}({}, {})", aux_var, eb_func, term0, term1));
-        return aux_var;
-    }
-    let arg1_str = write_down_air_constraint_eval(&args[0], cache, res, vars_counter);
-    let arg2_str = write_down_air_constraint_eval(&args[1], cache, res, vars_counter);
-    let aux_var = format!("aux_{}", vars_counter.get_next());
-    res.push_str(&format!("\n    {} = {}({}, {})", aux_var, ee_func, arg1_str, arg2_str));
-    aux_var
+}
+
+/// Emit: `tmp = Array(1); tmp[0] = c; func(tmp, arg2, arg3)`
+fn emit_base_precompile(res: &mut String, ctr: &mut Counter, func: &str, c: u32, arg2: &str, arg3: &str) {
+    let tmp = format!("aux_{}", ctr.get_next());
+    res.push_str(&format!(
+        "\n    {} = Array(1)\n    {}[0] = {}\n    {}({}, {}, {})",
+        tmp, tmp, c, func, tmp, arg2, arg3
+    ));
 }
 
 #[test]

@@ -27,9 +27,6 @@ def main():
 #[test]
 fn test_div_extension_field() {
     let program = r#"
-# Dot product precompile:
-BE = 1  # base-extension
-EE = 0  # extension-extension
 DIM = 5
 
 def main():
@@ -49,12 +46,12 @@ def assert_eq_ext(x, y):
 
 def div_ext_1(n, d):
     quotient = Array(DIM)
-    dot_product(d, quotient, n, 1, EE)
+    dot_product_ee(d, quotient, n)
     return quotient
 
 def div_ext_2(n, d):
     quotient = Array(DIM)
-    dot_product(quotient, d, n, 1, EE)
+    dot_product_ee(quotient, d, n)
     return quotient
     "#;
 
@@ -163,7 +160,7 @@ def main():
         let run = |end_val: u32| -> usize {
             let expected_sum = (start..end_val).map(|i| i as u64).sum::<u64>() as u32;
             let public_input = [F::new(end_val), F::new(expected_sum)];
-            let result = try_execute_bytecode(&bytecode, (&public_input, &[]), false, &vec![]).unwrap();
+            let result = try_execute_bytecode(&bytecode, &public_input, &ExecutionWitness::empty(), false).unwrap();
             result.pcs.len()
         };
 
@@ -189,10 +186,35 @@ fn debug_file_program() {
 }
 
 #[test]
+fn test_fp_negative_offset() {
+    let program = r#"
+def main():
+    a = Array(16)
+    for i in unroll(0, 8):
+        a[i] = i
+    b = a - 1000
+    for i in unroll(0, 1000):
+        func(a, b + 1008)
+    return
+
+@inline
+def func(a, b):
+    poseidon16(a, a, b)
+    return
+   "#;
+    let bytecode = compile_program(&ProgramSource::Raw(program.to_string()));
+    let n_cycles = execute_bytecode(&bytecode, &[], &ExecutionWitness::empty(), false).n_cycles();
+    assert!(n_cycles < 1100);
+}
+
+#[test]
 fn debug_str_program() {
     let program = r#"
 def main():
-    
+    a = 2
+    b = 3
+    for i in unroll(0, a * b):
+        print(i)
     return
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);

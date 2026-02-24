@@ -412,7 +412,7 @@ from dir.subdir.file import *  # imports dir/subdir/file.py
 ```
 NONRESERVED_PROGRAM_INPUT_START        # pointer to public input
 ZERO_VEC_PTR    # pre-initialized zeros
-ONE_VEC_PTR     # [1, 0, 0, ...]
+ONE_EF_PTR     # [1, 0, 0, ...]
 ```
 
 ## Precompiles
@@ -429,26 +429,60 @@ poseidon16(leaf_a, leaf_b, parent_hash)
 poseidon16(state, data, new_state)
 ```
 
-### dot_product
-```
-DIM = 5           # extension field degree
-BE = 1            # base × extension
-EE = 0            # extension × extension
+### Extension Operations
 
-dot_product(a, b, result, length, mode)
+Six built-in functions route through a single `extension_op` precompile table. Each combines an element-wise operation with an accumulation over `length` element pairs.
+
 ```
-- `length`: number of elements in the dot product
-- `b`: pointer to `length * DIM` field elements (extension elements)
-- `result`: pointer to output (DIM=5 field elements)
-- `mode`:
-  - `EE`: `a` points to `length * DIM` field elements (extension field elements)
-  - `BE`: `a` points to `length` field elements (base field elements)
+func(ptr_a, ptr_b, ptr_result)            # length defaults to 1
+func(ptr_a, ptr_b, ptr_result, length)    # explicit length (N elements)
 ```
-# Multiply two extension field elements (EE mode, length=1)
-dot_product(x, y, z, 1, EE)           # z = x * y
+
+**Operand types (suffix):**
+- `_ee`: both `ptr_a` and `ptr_b` point to extension field elements (5 consecutive field elements each, stride = DIM)
+- `_be`: `ptr_a` points to base field elements (stride 1), `ptr_b` points to extension field elements (stride DIM)
+
+`ptr_result` always points to a single extension field element (DIM=5 field elements).
+
+**Operations:**
+
+| Function | Element-wise | Accumulation |
+|----------|-------------|--------------|
+| `add_ee` / `add_be` | `e_i = a_i + b_i` | `result = sum(e_i)` |
+| `dot_product_ee` / `dot_product_be` | `e_i = a_i * b_i` | `result = sum(e_i)` |
+| `poly_eq_ee` / `poly_eq_be` | `e_i = a_i*b_i + (1-a_i)*(1-b_i)` | `result = prod(e_i)` |
+
+**Note:** `length` must be a compile-time constant. For runtime-known lengths, use `match_range` to dispatch (see example below).
+
+```
+# Multiply two extension field elements (length=1, default)
+dot_product_ee(x, y, z)              # z = x * y
 
 # Copy extension element (multiply by [1,0,0,0,0])
-dot_product(src, ONE_VEC_PTR, dst, 1, EE)
+dot_product_ee(src, ONE_EF_PTR, dst)
+
+# Dot product of N extension field elements
+dot_product_ee(coeffs, basis, result, N)
+
+# Dot product with base-field scalars
+dot_product_be(alpha_powers, coeffs, result, N)
+
+# Extension field addition: c = a + b
+add_ee(a, b, c)
+
+# Extension field subtraction via constraint: c = a - b  <=>  b + c = a
+add_ee(b, c, a)
+
+# Equality polynomial: eq(a, b) = a*b + (1-a)*(1-b)
+poly_eq_ee(a, b, eq_result)
+
+# Multi-point equality polynomial: prod_{i=0}^{n-1} eq(a[i], b[i])
+poly_eq_ee(a, b, result, n)
+
+# Runtime-known length via match_range
+def dot_product_ee_dynamic(a, b, res, n):
+    debug_assert(n <= 256)
+    match_range(n, range(1, 257), lambda i: dot_product_ee(a, b, res, i))
 ```
 
 ## Debugging

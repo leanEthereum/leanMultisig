@@ -4,7 +4,7 @@ use crate::{
     parser::{ConstArrayValue, parse_program},
 };
 use backend::PrimeCharacteristicRing;
-use lean_vm::{ALL_TABLES, Boolean, BooleanExpr, CustomHint, FunctionName, SourceLocation, Table, TableT};
+use lean_vm::{Boolean, BooleanExpr, CustomHint, EXT_OP_FUNCTIONS, FunctionName, SourceLocation, Table, TableT};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -196,6 +196,31 @@ impl SimpleLine {
             | Self::LocationReport { .. }
             | Self::DebugAssert(..)
             | Self::RangeCheck { .. } => vec![],
+        }
+    }
+
+    /// Returns references to all `SimpleExpr` operands in this instruction
+    /// (excludes assignment target vars, includes everything the compiler resolves).
+    pub(crate) fn operand_exprs(&self) -> Vec<&SimpleExpr> {
+        match self {
+            Self::Assignment { arg0, arg1, .. } | Self::AssertZero { arg0, arg1, .. } => {
+                vec![arg0, arg1]
+            }
+            Self::RawAccess { res, index, .. } => vec![res, index],
+            Self::RangeCheck { val, bound } => vec![val, bound],
+            Self::Match { value, .. } => vec![value],
+            Self::IfNotZero { condition, .. } => vec![condition],
+            Self::HintMAlloc { size, .. } => vec![size],
+            Self::Precompile { args, .. } | Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => {
+                args.iter().collect()
+            }
+            Self::FunctionRet { return_data } => return_data.iter().collect(),
+            Self::Print { content, .. } => content.iter().collect(),
+            Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::ForwardDeclaration { .. }
+            | Self::ConstMalloc { .. }
+            | Self::LocationReport { .. }
+            | Self::Panic { .. } => vec![],
         }
     }
 }
@@ -447,8 +472,8 @@ fn compile_time_transform_in_program(
                 &mut new_functions,
                 unroll_counter,
                 inline_counter,
+                &BTreeMap::new(),
             )?;
-            // Add new specialized functions - they'll be processed in the next iteration of this loop
             for (name, new_func) in new_functions {
                 program.functions.entry(name).or_insert(new_func);
             }
@@ -457,6 +482,7 @@ fn compile_time_transform_in_program(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_time_transform_in_lines(
     lines: &mut Vec<Line>,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
@@ -465,9 +491,10 @@ fn compile_time_transform_in_lines(
     new_functions: &mut BTreeMap<String, Function>,
     unroll_counter: &mut Counter,
     inline_counter: &mut Counter,
+    parent_const_var_exprs: &BTreeMap<Var, F>,
 ) -> Result<(), String> {
     let mut vector_len_tracker = VectorLenTracker::default();
-    let mut const_var_exprs: BTreeMap<Var, F> = BTreeMap::new(); // used to simplify expressions containing variables with known constant values
+    let mut const_var_exprs: BTreeMap<Var, F> = parent_const_var_exprs.clone(); // used to simplify expressions containing variables with known constant values
 
     let mut i = 0;
     while i < lines.len() {
@@ -719,6 +746,20 @@ fn compile_time_transform_in_lines(
             _ => {}
         }
 
+        // Propagate const vars into blocks which stay inline
+        let parent = if matches!(
+            lines[i],
+            Line::IfCondition { .. }
+                | Line::Match { .. }
+                | Line::ForLoop {
+                    loop_kind: LoopKind::Unroll | LoopKind::DynamicUnroll { .. },
+                    ..
+                }
+        ) {
+            &const_var_exprs
+        } else {
+            &BTreeMap::new()
+        };
         for block in lines[i].nested_blocks_mut() {
             compile_time_transform_in_lines(
                 block,
@@ -728,8 +769,10 @@ fn compile_time_transform_in_lines(
                 new_functions,
                 unroll_counter,
                 inline_counter,
+                parent,
             )?;
         }
+
         i += 1;
     }
     Ok(())
@@ -1180,8 +1223,8 @@ fn transform_mutable_in_loops_in_lines(
                 let location = *location;
 
                 // Create size variable: @loop_size_{suffix} = end - start
-                // TODO opti if start is zero
                 let size_var = format!("@loop_size_{suffix}");
+
                 new_lines.push(Line::Statement {
                     targets: vec![AssignmentTarget::Var {
                         var: size_var.clone(),
@@ -1232,8 +1275,9 @@ fn transform_mutable_in_loops_in_lines(
                 let iterator = iterator.clone();
                 let mut new_body = Vec::new();
 
-                // buff_idx = i - start
+                // buff_idx = i - start (or just i when start is zero)
                 let buff_idx_var = format!("@loop_buff_idx_{suffix}");
+
                 new_body.push(Line::Statement {
                     targets: vec![AssignmentTarget::Var {
                         var: buff_idx_var.clone(),
@@ -1241,7 +1285,7 @@ fn transform_mutable_in_loops_in_lines(
                     }],
                     value: Expression::MathExpr(
                         MathOperation::Sub,
-                        vec![Expression::var(iterator.clone()), start.clone()], // TODO opti if start is zero
+                        vec![Expression::var(iterator.clone()), start.clone()],
                     ),
                     location,
                 });
@@ -2077,10 +2121,45 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for precompile functions (poseidon16, dot_product)
-                        if let Some(table) = ALL_TABLES.into_iter().find(|p| p.name() == function_name)
-                            && !table.is_execution_table()
+                        // Special handling for extension_op precompile
+                        // Signature: func(ptr_a, ptr_b, ptr_res) or func(ptr_a, ptr_b, ptr_res, length)
+                        if let Some(mode) = EXT_OP_FUNCTIONS
+                            .iter()
+                            .find(|(name, _)| *name == function_name.as_str())
+                            .map(|(_, mode)| *mode)
                         {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "Precompile {function_name} should not return values, at {location}"
+                                ));
+                            }
+                            if args.len() != 3 && args.len() != 4 {
+                                return Err(format!(
+                                    "Precompile {function_name} expects 3 or 4 arguments (a, b, result[, length]), got {}, at {location}",
+                                    args.len()
+                                ));
+                            }
+                            let mut simplified_args: Vec<SimpleExpr> = args[..3]
+                                .iter()
+                                .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            // Inject size (aux_1) and mode (aux_2)
+                            let size: SimpleExpr = if args.len() == 4 {
+                                simplify_expr(ctx, state, const_malloc, &args[3], &mut res)?
+                            } else {
+                                SimpleExpr::one()
+                            };
+                            simplified_args.push(size);
+                            simplified_args.push(SimpleExpr::Constant(mode.into()));
+                            res.push(SimpleLine::Precompile {
+                                table: Table::extension_op(),
+                                args: simplified_args,
+                            });
+                            continue;
+                        }
+
+                        // Special handling for poseidon16 precompile
+                        if function_name == Table::poseidon16().name() {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2091,7 +2170,7 @@ fn simplify_lines(
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
                             res.push(SimpleLine::Precompile {
-                                table,
+                                table: Table::poseidon16(),
                                 args: simplified_args,
                             });
                             continue;
@@ -2176,8 +2255,8 @@ fn simplify_lines(
                             let simplified_index = simplify_expr(ctx, state, const_malloc, &index, &mut res)?;
                             let simplified_value = VarOrConstMallocAccess::Var(temp_vars[i].clone()).into();
                             handle_array_assignment(
-                                ctx,
                                 state,
+                                const_malloc,
                                 &mut res,
                                 &array,
                                 &[simplified_index],
@@ -2244,8 +2323,8 @@ fn simplify_lines(
                                                 });
                                             }
                                             handle_array_assignment(
-                                                ctx,
                                                 state,
+                                                const_malloc,
                                                 &mut res,
                                                 array,
                                                 &simplified_index,
@@ -2322,8 +2401,8 @@ fn simplify_lines(
                                     // General case: pre-simplify value and use handle_array_assignment
                                     let simplified_value = simplify_expr(ctx, state, const_malloc, value, &mut res)?;
                                     handle_array_assignment(
-                                        ctx,
                                         state,
+                                        const_malloc,
                                         &mut res,
                                         array,
                                         &[simplified_index],
@@ -2895,8 +2974,8 @@ fn simplify_expr(
 
             let simplified_index = simplify_expr(ctx, state, const_malloc, &index, lines)?;
             handle_array_assignment(
-                ctx,
                 state,
+                const_malloc,
                 lines,
                 array,
                 &[simplified_index],
@@ -3366,8 +3445,8 @@ pub enum ArrayAccessType {
 }
 
 fn handle_array_assignment(
-    ctx: &SimplifyContext<'_>,
     state: &mut SimplifyState<'_>,
+    const_malloc: &ConstMalloc,
     res: &mut Vec<SimpleLine>,
     array: &Var,
     simplified_index: &[SimpleExpr],
@@ -3376,24 +3455,24 @@ fn handle_array_assignment(
     // Convert array name to versioned name if it's a mutable variable
     let array = state.mut_tracker.current_name(array);
 
-    if let ArrayAccessType::VarIsAssigned(var) = &access_type
-        && let Some(const_array) = ctx.const_arrays.get(&array)
+    // Use ConstMallocAccess when the array is a const_malloc and the index is a constant.
+    // This compiles to a direct ADD (fp + offset) instead of a DEREF
+    if simplified_index.len() == 1
+        && let SimpleExpr::Constant(offset) = &simplified_index[0]
+        && let Some(&label) = const_malloc.map.get(&array)
     {
-        let idx = simplified_index
-            .iter()
-            .map(|idx| {
-                idx.as_constant()
-                    .expect("Const array access index should be constant")
-                    .naive_eval()
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-        let value = const_array
-            .navigate(&idx)
-            .expect("Const array access index out of bounds")
-            .as_scalar()
-            .expect("Const array access should return a scalar");
-        res.push(SimpleLine::equality(var.clone(), ConstExpression::scalar(value)));
+        let const_access = VarOrConstMallocAccess::ConstMallocAccess {
+            malloc_label: label,
+            offset: offset.clone(),
+        };
+        match access_type {
+            ArrayAccessType::VarIsAssigned(var) => {
+                res.push(SimpleLine::equality(var, const_access));
+            }
+            ArrayAccessType::ArrayIsAssigned(expr) => {
+                res.push(SimpleLine::equality(const_access, expr));
+            }
+        }
         return;
     }
 
@@ -3402,7 +3481,6 @@ fn handle_array_assignment(
         ArrayAccessType::ArrayIsAssigned(expr) => expr,
     };
 
-    // TODO opti: in some case we could use ConstMallocAccess
     assert_eq!(simplified_index.len(), 1);
     let simplified_index = simplified_index[0].clone();
     let (index_var, shift) = match simplified_index {
@@ -3741,76 +3819,30 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
 
 fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
     for line in lines {
+        // Debug: assert target vars are not const-replaced
         match line {
-            Line::Match { value, arms, .. } => {
-                replace_vars_by_const_in_expr(value, map);
-                for (_, statements) in arms {
-                    replace_vars_by_const_in_lines(statements, map);
-                }
-            }
             Line::ForwardDeclaration { var, .. } => {
                 assert!(!map.contains_key(var), "Variable {var} is a constant");
             }
-            Line::Statement { targets, value, .. } => {
-                replace_vars_by_const_in_expr(value, map);
-                for target in targets {
+            Line::Statement { targets, .. } => {
+                for target in targets.iter() {
                     match target {
                         AssignmentTarget::Var { var, .. } => {
                             assert!(!map.contains_key(var), "Variable {var} is a constant");
                         }
-                        AssignmentTarget::ArrayAccess { array, index } => {
+                        AssignmentTarget::ArrayAccess { array, .. } => {
                             assert!(!map.contains_key(array), "Array {array} is a constant");
-                            replace_vars_by_const_in_expr(index, map);
                         }
                     }
                 }
             }
-            Line::IfCondition {
-                condition,
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                match condition {
-                    Condition::Comparison(cond) => {
-                        replace_vars_by_const_in_expr(&mut cond.left, map);
-                        replace_vars_by_const_in_expr(&mut cond.right, map);
-                    }
-                    Condition::AssumeBoolean(expr) => {
-                        replace_vars_by_const_in_expr(expr, map);
-                    }
-                }
-                replace_vars_by_const_in_lines(then_branch, map);
-                replace_vars_by_const_in_lines(else_branch, map);
-            }
-            Line::ForLoop {
-                body,
-                start,
-                end,
-                loop_kind,
-                ..
-            } => {
-                replace_vars_by_const_in_expr(start, map);
-                replace_vars_by_const_in_expr(end, map);
-                if let LoopKind::DynamicUnroll { n_bits } = loop_kind {
-                    replace_vars_by_const_in_expr(n_bits, map);
-                }
-                replace_vars_by_const_in_lines(body, map);
-            }
-            Line::Assert { boolean, .. } => {
-                replace_vars_by_const_in_expr(&mut boolean.left, map);
-                replace_vars_by_const_in_expr(&mut boolean.right, map);
-            }
-            Line::FunctionRet { return_data } => {
-                for ret in return_data {
-                    replace_vars_by_const_in_expr(ret, map);
-                }
-            }
-            Line::LocationReport { .. } | Line::Panic { .. } => {}
-            Line::VecDeclaration { .. } | Line::Push { .. } | Line::Pop { .. } => {
-                // VecDeclaration, Push and Pop contain VecLiteral elements which may have expressions
-                // but these are compile-time constructs handled separately
-            }
+            _ => {}
+        }
+        for expr in line.expressions_mut() {
+            replace_vars_by_const_in_expr(expr, map);
+        }
+        for block in line.nested_blocks_mut() {
+            replace_vars_by_const_in_lines(block, map);
         }
     }
 }

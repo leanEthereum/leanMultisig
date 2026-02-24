@@ -15,7 +15,7 @@ def main():
     debug_assert(MAX_N_SIGS + MAX_N_DUPS <= 2**16) # because of range checking, TODO increase
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     n_sigs = pub_mem[0]
-    assert 1 < n_sigs
+    assert n_sigs != 0
     assert n_sigs - 1 < MAX_N_SIGS
     pubkeys_hash_expected = pub_mem + 1
     message = pubkeys_hash_expected + DIGEST_LEN
@@ -49,7 +49,6 @@ def main():
     source_0 = sub_slice_starts[0]
     n_raw_xmss = source_0[0]
     raw_indices = source_0 + 1
-    raw_sigs = raw_indices + n_raw_xmss
 
     for i in range(0, n_raw_xmss): # TODO dynamic unroll ?
         # mark buffer for partition verification
@@ -59,7 +58,8 @@ def main():
         counter += 1
         # Verify raw XMSS signatures
         pk = all_pubkeys + idx * DIGEST_LEN
-        sig = raw_sigs + i * SIG_SIZE
+        sig = Array(SIG_SIZE)
+        hint_xmss(sig)
         xmss_verify(pk, message, sig, slot_lo, slot_hi, merkle_chunks_for_slot)
 
     # Recursive sources

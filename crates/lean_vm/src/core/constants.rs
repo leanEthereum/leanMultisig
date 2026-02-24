@@ -1,5 +1,10 @@
 use crate::Table;
 
+/// Domain separation in logup
+pub const LOGUP_MEMORY_DOMAINSEP: usize = 0;
+pub const LOGUP_PRECOMPILE_DOMAINSEP: usize = 1;
+pub const LOGUP_BYTECODE_DOMAINSEP: usize = 2;
+
 /// Large field = extension field of degree DIMENSION over koala-bear
 pub const DIMENSION: usize = 5;
 
@@ -16,7 +21,7 @@ pub const MAX_LOG_MEMORY_SIZE: usize = 26;
 pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to each at least, if this minimum is not reached, (ensuring AIR / GKR work fine, with SIMD, without too much edge cases). Long term, we should find a more elegant solution.
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
     (Table::execution(), 25),
-    (Table::dot_product(), 21),
+    (Table::extension_op(), 20),
     (Table::poseidon16(), 21),
 ];
 
@@ -64,7 +69,7 @@ pub const EQ_MLE_COEFFS_PTR: usize = REPEATED_ONES_PTR + NUM_REPEATED_ONES_IN_RE
 pub const NONRESERVED_PROGRAM_INPUT_START: usize = (EQ_MLE_COEFFS_PTR + EQ_MLE_COEFFS_LEN).next_multiple_of(DIMENSION);
 
 /// The first element of basis corresponds to one
-pub const ONE_VEC_PTR: usize = EXTENSION_BASIS_PTR;
+pub const ONE_EF_PTR: usize = EXTENSION_BASIS_PTR;
 
 #[cfg(test)]
 mod tests {

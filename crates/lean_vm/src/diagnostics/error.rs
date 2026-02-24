@@ -19,7 +19,7 @@ pub enum RunnerError {
     UndefinedMemory(usize),
     PCOutOfBounds,
     DebugAssertFailed(String, SourceLocation),
-    InvalidDotProduct,
+    InvalidExtensionOp,
 }
 
 pub type VMResult<T> = Result<T, RunnerError>;
