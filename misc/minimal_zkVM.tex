@@ -568,31 +568,36 @@ Each extension field operation occupies $N$ consecutive rows (one row per elemen
 \vspace{3mm}
 
 \noindent\resizebox{\textwidth}{!}{%
-\begin{tabular}{ccccccc|cccc|c}
+\begin{tabular}{cccccccccc|cccc|c}
 \toprule
-\multicolumn{7}{c|}{Selected base field columns ($\Fp$)} & \multicolumn{4}{c|}{Extension field columns ($\Fq$)} & \\
-\texttt{start} & $\texttt{f}_\texttt{mul}$ & \texttt{len} & $\text{arg}_A$ & $\text{idx}_B$ & $\text{idx}_R$ & \texttt{is\_be} & $v_{A,\Fq}$ & $v_B$ & \texttt{comp} & \texttt{res} & \texttt{aux} \\
+\multicolumn{10}{c|}{Base field columns ($\Fp$)} & \multicolumn{4}{c|}{Extension field columns ($\Fq$)} & \\
+\texttt{start} & $\texttt{f}_\texttt{add}$ & $\texttt{f}_\texttt{mul}$ & $\texttt{f}_\texttt{peq}$ & \texttt{len} & $\text{idx}_A$ & $\text{idx}_B$ & $\text{idx}_R$ & \texttt{is\_be} & $v_{A,\Fp}$ & $v_{A,\Fq}$ & $v_B$ & \texttt{comp} & \texttt{res} & \texttt{aux} \\
 \midrule
-\multicolumn{12}{l}{\textit{MUL, BE, $N\!=\!4$ ($\nu_A\!=\!90$, $\nu_B\!=\!211$, $\nu_C\!=\!74$): \quad $\texttt{res} = \sum_{i=0}^{3} \textbf{m}[90\!+\!i] \cdot \textbf{m}[211\!+\!5i..216\!+\!5i]$}} \\[2pt]
-1 & 1 & 4 & 90  & 211 & 74 & 1 & $\textbf{m}[90..95]$  & $\textbf{m}[211..216]$ & $e_0\!+\!e_1\!+\!e_2\!+\!e_3$ & $\textbf{m}[74..79]$ & 138 \\
-0 & 1 & 3 & 91  & 216 & 74 & 1 & $\textbf{m}[91..96]$  & $\textbf{m}[216..221]$ & $e_1\!+\!e_2\!+\!e_3$       & $\textbf{m}[74..79]$ & 106 \\
-0 & 1 & 2 & 92  & 221 & 74 & 1 & $\textbf{m}[92..97]$  & $\textbf{m}[221..226]$ & $e_2\!+\!e_3$               & $\textbf{m}[74..79]$ & 74 \\
-0 & 1 & 1 & 93  & 226 & 74 & 1 & $\textbf{m}[93..98]$  & $\textbf{m}[226..231]$ & $e_3$                       & $\textbf{m}[74..79]$ & 42  \\
+\multicolumn{15}{l}{\textit{MUL, BE, $N\!=\!4$ ($\nu_A\!=\!90$, $\nu_B\!=\!211$, $\nu_C\!=\!74$): \quad $\texttt{res} = \sum_{i=0}^{3} \textbf{m}[90\!+\!i] \cdot \textbf{m}[211\!+\!5i..216\!+\!5i]$}} \\[2pt]
+1 & 0 & 1 & 0 & 4 & 90  & 211 & 74 & 1 & $\textbf{m}[90]$  & $\textbf{m}[90..95]$  & $\textbf{m}[211..216]$ & $e_0\!+\!e_1\!+\!e_2\!+\!e_3$ & $\textbf{m}[74..79]$ & 138 \\
+0 & 0 & 1 & 0 & 3 & 91  & 216 & 74 & 1 & $\textbf{m}[91]$  & $\textbf{m}[91..96]$  & $\textbf{m}[216..221]$ & $e_1\!+\!e_2\!+\!e_3$       & $\textbf{m}[74..79]$ & 106 \\
+0 & 0 & 1 & 0 & 2 & 92  & 221 & 74 & 1 & $\textbf{m}[92]$  & $\textbf{m}[92..97]$  & $\textbf{m}[221..226]$ & $e_2\!+\!e_3$               & $\textbf{m}[74..79]$ & 74 \\
+0 & 0 & 1 & 0 & 1 & 93  & 226 & 74 & 1 & $\textbf{m}[93]$  & $\textbf{m}[93..98]$  & $\textbf{m}[226..231]$ & $e_3$                       & $\textbf{m}[74..79]$ & 42  \\
 \midrule
-\multicolumn{12}{l}{\textit{POLY\_EQ, EE, $N\!=\!3$ ($\nu_A\!=\!600$, $\nu_B\!=\!700$, $\nu_C\!=\!800$): \quad $\texttt{res} = \prod_{i=0}^{2} [a_i b_i + (1\!-\!a_i)(1\!-\!b_i)]$}} \\[2pt]
-1 & 0 & 3 & 600 & 700 & 800 & 0 & $\textbf{m}[600..605]$ & $\textbf{m}[700..705]$ & $e_0 \cdot e_1 \cdot e_2$ & $\textbf{m}[800..805]$ & 112 \\
-0 & 0 & 2 & 605 & 705 & 800 & 0 & $\textbf{m}[605..610]$ & $\textbf{m}[705..710]$ & $e_1 \cdot e_2$           & $\textbf{m}[800..805]$ & 80 \\
-0 & 0 & 1 & 610 & 710 & 800 & 0 & $\textbf{m}[610..615]$ & $\textbf{m}[710..715]$ & $e_2$                     & $\textbf{m}[800..805]$ & 48 \\
+\multicolumn{15}{l}{\textit{ADD, EE, $N\!=\!3$ ($\nu_A\!=\!400$, $\nu_B\!=\!500$, $\nu_C\!=\!300$): \quad $\texttt{res} = \sum_{i=0}^{2} (\textbf{m}[400\!+\!5i..405\!+\!5i] + \textbf{m}[500\!+\!5i..505\!+\!5i])$}} \\[2pt]
+1 & 1 & 0 & 0 & 3 & 400 & 500 & 300 & 0 & $\textbf{m}[400]$ & $\textbf{m}[400..405]$ & $\textbf{m}[500..505]$ & $e_0\!+\!e_1\!+\!e_2$ & $\textbf{m}[300..305]$ & 100 \\
+0 & 1 & 0 & 0 & 2 & 405 & 505 & 300 & 0 & $\textbf{m}[405]$ & $\textbf{m}[405..410]$ & $\textbf{m}[505..510]$ & $e_1\!+\!e_2$         & $\textbf{m}[300..305]$ & 68 \\
+0 & 1 & 0 & 0 & 1 & 410 & 510 & 300 & 0 & $\textbf{m}[410]$ & $\textbf{m}[410..415]$ & $\textbf{m}[510..515]$ & $e_2$                 & $\textbf{m}[300..305]$ & 36 \\
 \midrule
-\multicolumn{12}{l}{\textit{Padding row}} \\[2pt]
-1 & 0 & 1 & 0   & 0   & 0  & 0 & $\textbf{m}[0..5]$ & $\textbf{m}[0..5]$ & 0 & $\textbf{m}[0..5]$ & 32 \\
+\multicolumn{15}{l}{\textit{POLY\_EQ, EE, $N\!=\!3$ ($\nu_A\!=\!600$, $\nu_B\!=\!700$, $\nu_C\!=\!800$): \quad $\texttt{res} = \prod_{i=0}^{2} [a_i b_i + (1\!-\!a_i)(1\!-\!b_i)]$}} \\[2pt]
+1 & 0 & 0 & 1 & 3 & 600 & 700 & 800 & 0 & $\textbf{m}[600]$ & $\textbf{m}[600..605]$ & $\textbf{m}[700..705]$ & $e_0 \cdot e_1 \cdot e_2$ & $\textbf{m}[800..805]$ & 112 \\
+0 & 0 & 0 & 1 & 2 & 605 & 705 & 800 & 0 & $\textbf{m}[605]$ & $\textbf{m}[605..610]$ & $\textbf{m}[705..710]$ & $e_1 \cdot e_2$           & $\textbf{m}[800..805]$ & 80 \\
+0 & 0 & 0 & 1 & 1 & 610 & 710 & 800 & 0 & $\textbf{m}[610]$ & $\textbf{m}[610..615]$ & $\textbf{m}[710..715]$ & $e_2$                     & $\textbf{m}[800..805]$ & 48 \\
+\midrule
+\multicolumn{15}{l}{\textit{Padding row}} \\[2pt]
+1 & 0 & 0 & 0 & 1 & 0   & 0   & 0  & 0 & $\textbf{m}[0]$ & $\textbf{m}[0..5]$ & $\textbf{m}[0..5]$ & 0 & $\textbf{m}[0..5]$ & 32 \\
 \bottomrule
 \end{tabular}%
 }
 
 \vspace{3mm}
 
-Notes: $e_i$ denotes the per-element result (virtual, not a committed column). In BE mode, $\text{arg}_A$ is a memory address pointing to a base field element; the lookup $v_{A,\Fq} = \textbf{m}[\text{arg}_A..+5]$ still happens unconditionally but only the first coordinate is used. \texttt{aux} is a non-committed bus fingerprinting column, equal to $2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot \texttt{len}$ on each row. The bus selector is the virtual column $\texttt{activation\_flag} = \texttt{start} \cdot \texttt{active}$ (not shown; equals \texttt{start} on active rows, 0 on padding).
+Notes: $e_i$ denotes the per-element result (virtual, not a committed column). Both lookups $v_{A,\Fp} = \textbf{m}[\text{idx}_A]$ and $v_{A,\Fq} = \textbf{m}[\text{idx}_A..+5]$ are performed unconditionally; in BE mode only $v_{A,\Fp}$ is used, in EE mode only $v_{A,\Fq}$ is used. \texttt{aux} is a non-committed bus fingerprinting column, equal to $2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot \texttt{len}$ on each row. The bus selector is the virtual column $\texttt{activation\_flag} = \texttt{start} \cdot \texttt{active}$ (not shown; equals \texttt{start} on active rows, 0 on padding).
 
 \subsubsection{Columns}
 
@@ -602,22 +607,22 @@ Notes: $e_i$ denotes the per-element result (virtual, not a committed column). I
 
 \textbf{Base field columns ($\Fp$, 10 AIR + 2 non-AIR):}
 \begin{itemize}
-    \item \texttt{is\_be} $\in \{0,1\}$: mode flag (1 = base $\times$ extension, 0 = extension $\times$ extension)
-    \item \texttt{start} $\in \{0,1\}$: group boundary (1 on first row of each group \textbf{and} on padding, 0 elsewhere)
+    \item \texttt{is\_be} $\in \{0,1\}$: mode flag (1: base $\times$ extension, 0: xextension $\times$ extension)
+    \item \texttt{start} $\in \{0,1\}$: group boundary (1 on first row of each group and on padding, 0 elsewhere)
     \item $\texttt{flag\_add}$, $\texttt{flag\_mul}$, $\texttt{flag\_poly\_eq}$ $\in \{0,1\}$: operation selectors (exactly one is 1 on active rows, all 0 on padding)
     \item \texttt{len}: countdown from $N$ to 1 within each group (1 on padding)
-    \item $\text{arg}_A$: memory address (increments by 1 in BE, by 5 in EE within a group)
+    \item $\text{idx}_A$: memory address (increments by 1 in BE, by 5 in EE within a group)
     \item $\text{idx}_B$: memory address (increments by 5 within a group)
     \item $\text{idx}_R$: memory address for the result (constant within a group)
-    \item $v_{A,\Fp}$: base field value $\textbf{m}[\text{arg}_A]$ (for base field memory lookup)
+    \item $v_{A,\Fp}$: base field value $\textbf{m}[\text{idx}_A]$ (used in BE mode)
 \end{itemize}
 
 \textbf{Extension field columns ($\Fq$, 4 AIR):}
 \begin{itemize}
-    \item $v_{A,\Fq}$: extension field value $\textbf{m}[\text{arg}_A .. \text{arg}_A + 5]$ (always looked up; used only in EE mode)
+    \item $v_{A,\Fq}$: extension field value $\textbf{m}[\text{idx}_A .. \text{idx}_A + 5]$ (used in EE mode)
     \item $v_B$: extension field value $\textbf{m}[\text{idx}_B .. \text{idx}_B + 5]$
     \item \texttt{res}: result value $\textbf{m}[\text{idx}_R .. \text{idx}_R + 5]$ (same on every row of a group)
-    \item \texttt{computation}: running accumulation (\textbf{up and down} column); equals \texttt{res} on \texttt{start} rows
+    \item \texttt{computation}: running accumulation; equals \texttt{res} on \texttt{start} rows
 \end{itemize}
 
 \textbf{Non-committed columns} (used for bus interaction):
@@ -627,40 +632,41 @@ Notes: $e_i$ denotes the per-element result (virtual, not a committed column). I
 \end{itemize}
 
 \subsubsection{Memory lookups}
-Every row performs 1 base field lookup and 3 extension field lookups (unconditionally):
 \begin{itemize}
-    \item $v_{A,\Fp} = \textbf{m}[\text{arg}_A]$ \hfill (base field lookup)
-    \item $v_{A,\Fq} = \textbf{m}[\text{arg}_A..+5]$ \hfill (in BE mode, only the first coordinate is used)
+    \item $v_{A,\Fp} = \textbf{m}[\text{idx}_A]$ \hfill
+    \item $v_{A,\Fq} = \textbf{m}[\text{idx}_A..+5]$ \hfill
     \item $v_B = \textbf{m}[\text{idx}_B..+5]$
     \item $\texttt{res} = \textbf{m}[\text{idx}_R..+5]$
 \end{itemize}
 
 \subsubsection{Bus interaction}
-On rows where $\texttt{activation\_flag} = 1$ (i.e.\ $\texttt{start} = 1$ and $\texttt{active} = 1$), the table \textsc{Pull}s $(\texttt{aux}, \text{arg}_A, \text{idx}_B, \text{idx}_R)$ from the precompile bus. The execution table \textsc{Push}es a matching tuple for each extension op instruction. There is exactly one bus pull per multi-row group.
+On rows where $\texttt{activation\_flag} = 1$ (i.e.\ $\texttt{start} = 1$ and $\texttt{active} = 1$), the table \textsc{Pull}s $(\texttt{aux}, \text{idx}_A, \text{idx}_B, \text{idx}_R)$ from the precompile bus. The execution table \textsc{Push}es a matching tuple for each EXTENSION\_OP instruction.
 
-Since \texttt{aux} $\geq 32$ on all active rows, the encoding is disjoint from the Poseidon precompile (1).
+
+The $\texttt{aux}$ encoding ensures both the mode and the length are bound to the bus data. Since $\texttt{is\_be}$, $\texttt{flag\_add}$, $\texttt{flag\_mul}$, and $\texttt{flag\_poly\_eq}$ are constrained to be boolean, and since the length is constrained to be $\leq 2^{20}$ (by Lemma~\ref{lem:len-bound}), no overflow can occur modulo $p$ and the $\texttt{aux}$ value is unique for each combination of parameters, which enforces that all values of PRECOMPILE\_DATA sent by the execution table are correctly received by the extension\_op table.
+
 
 \subsubsection{AIR constraints}
 
-\fbox{17 constraints, degree $\leq$ 6.}
+\fbox{Degree 6.}
 
 \vspace{2mm}
 
-\textbf{Value selection:} Define (over $\Fq$, embedding $v_{A,\Fp} \in \Fp$ as $[v_{A,\Fp}, 0, 0, 0, 0]$):
-$$v_A = \texttt{is\_be} \cdot v_{A,\Fp} + (1 - \texttt{is\_be}) \cdot v_{A,\Fq} \;\in \Fq \qquad \text{(virtual, degree 2)}$$
+\textbf{Value selection:} Define:
+$$v_A = \texttt{is\_be} \cdot v_{A,\Fp} + (1 - \texttt{is\_be}) \cdot v_{A,\Fq} \;\in \Fq$$
 
 Let $\texttt{active} = \texttt{flag\_add} + \texttt{flag\_mul} + \texttt{flag\_poly\_eq}$ (1 on active rows, 0 on padding), and define the per-element results (virtual):
 \begin{align*}
-    e_\text{add} &= v_A + v_B & \text{(degree 2)} \\
-    e_\text{mul} &= v_A \cdot v_B & \text{(degree 3)} \\
-    e_\text{peq} &= v_A \cdot v_B + (1 - v_A)(1 - v_B) & \text{(degree 3)}
+    e_\text{add} &= v_A + v_B \\
+    e_\text{mul} &= v_A \cdot v_B \\
+    e_\text{peq} &= v_A \cdot v_B + (1 - v_A)(1 - v_B)
 \end{align*}
 
-Let $\texttt{comp\_tail} = \text{next}(\texttt{comp}) \cdot (1 - \text{next}(\texttt{start}))$ (degree 2; zero when the next row is a new group).
+Let $\texttt{comp\_tail} = \text{next}(\texttt{comp}) \cdot (1 - \text{next}(\texttt{start}))$ (zero when the next row is a new group).
 
 \vspace{2mm}
 
-\textbf{Boolean constraints (5):}
+\textbf{Boolean constraints:}
 \begin{enumerate}
     \item $\texttt{is\_be} \cdot (1 - \texttt{is\_be}) = 0$
     \item $\texttt{start} \cdot (1 - \texttt{start}) = 0$
@@ -669,24 +675,23 @@ Let $\texttt{comp\_tail} = \text{next}(\texttt{comp}) \cdot (1 - \text{next}(\te
     \item $\texttt{flag\_poly\_eq} \cdot (1 - \texttt{flag\_poly\_eq}) = 0$
 \end{enumerate}
 
-\textbf{Accumulation constraints (3, over $\Fq$):}
+\textbf{Accumulation constraint:}
 \begin{enumerate}
     \setcounter{enumi}{5}
-    \item $\texttt{f}_\texttt{add} \cdot (\texttt{comp} - e_\text{add} - \texttt{comp\_tail}) = 0$ \hfill (additive ADD, degree 3)
-    \item $\texttt{f}_\texttt{mul} \cdot (\texttt{comp} - e_\text{mul} - \texttt{comp\_tail}) = 0$ \hfill (additive MUL, degree 4)
-    \item $\texttt{f}_\texttt{peq} \cdot (\texttt{comp} - e_\text{peq} \cdot (\texttt{comp\_tail} + \text{next}(\texttt{start}))) = 0$ \hfill (multiplicative POLY\_EQ, degree 6)
+    \item $\texttt{f}_\texttt{add} \cdot (\texttt{comp} - e_\text{add} - \texttt{comp\_tail}) = 0$ \hfill (additive ADD)
+    \item $\texttt{f}_\texttt{mul} \cdot (\texttt{comp} - e_\text{mul} - \texttt{comp\_tail}) = 0$ \hfill (additive MUL)
+    \item $\texttt{f}_\texttt{peq} \cdot (\texttt{comp} - e_\text{peq} \cdot (\texttt{comp\_tail} + \text{next}(\texttt{start}))) = 0$ \hfill (multiplicative POLY\_EQ)
 \end{enumerate}
-The backward accumulation works as follows. On the last row of a group ($\text{next}(\texttt{start}) = 1$), $\texttt{comp\_tail} = 0$, so the additive constraints give $\texttt{comp} = e_i$ and the multiplicative gives $\texttt{comp} = e_i \cdot 1 = e_i$. On earlier rows ($\text{next}(\texttt{start}) = 0$), $\texttt{comp} = e_i + \text{next}(\texttt{comp})$ (additive) or $\texttt{comp} = e_i \cdot \text{next}(\texttt{comp})$ (multiplicative). Combined with constraint 9, this gives $\texttt{res} = \sum e_i$ or $\texttt{res} = \prod e_i$.
 
 \vspace{2mm}
 
-\textbf{Result constraint (1, over $\Fq$):}
+\textbf{Result constraint:}
 \begin{enumerate}
     \setcounter{enumi}{8}
     \item $\texttt{start} \cdot (\texttt{comp} - \texttt{res}) = 0$ \hfill (on start rows, computation equals result)
 \end{enumerate}
 
-\textbf{Intra-group consistency (7; enforced when $\text{next}(\texttt{start}) = 0$):}
+\textbf{Intra-group consistency:}
 \begin{enumerate}
     \setcounter{enumi}{9}
     \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{len} - \text{next}(\texttt{len}) - 1) = 0$ \hfill (len countdown)
@@ -694,23 +699,38 @@ The backward accumulation works as follows. On the last row of a group ($\text{n
     \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{f}_\texttt{add} - \text{next}(\texttt{f}_\texttt{add})) = 0$
     \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{f}_\texttt{mul} - \text{next}(\texttt{f}_\texttt{mul})) = 0$
     \item $(1 - \text{next}(\texttt{start})) \cdot (\texttt{f}_\texttt{peq} - \text{next}(\texttt{f}_\texttt{peq})) = 0$
-    \item $(1 - \text{next}(\texttt{start})) \cdot (\text{next}(\text{arg}_A) - \text{arg}_A - \delta_A) = 0$ \hfill ($\delta_A = \texttt{is\_be} + (1 - \texttt{is\_be}) \cdot 5$)
+    \item $(1 - \text{next}(\texttt{start})) \cdot (\text{next}(\text{idx}_A) - \text{idx}_A - (\texttt{is\_be} + (1 - \texttt{is\_be}) \cdot 5)) = 0$
     \item $(1 - \text{next}(\texttt{start})) \cdot (\text{next}(\text{idx}_B) - \text{idx}_B - 5) = 0$
 \end{enumerate}
 
-\textbf{Boundary (1):}
+\textbf{Boundary:}
 \begin{enumerate}
     \setcounter{enumi}{16}
     \item $\text{next}(\texttt{start}) \cdot (\texttt{len} - 1) = 0$ \hfill (when next row is a group start, current len must be 1)
 \end{enumerate}
 
-\vspace{3mm}
+\vspace{5mm}
 
-The maximum constraint degree is \textbf{6} (from constraint 8: $\texttt{f\_peq}$ (1) $\times$ $e_\text{peq}$ (3) $\times$ $(\texttt{comp\_tail} + \text{next}(\texttt{start}))$ (2) $= 6$).
+\begin{lemma}\label{lem:len-bound}
+On every row $r$ of the dot product table, $\texttt{len}_r \leq H - r$ (as an integer in $\{0, \dots, p-1\}$), where $H \leq 2^{21}$ is the table height. In particular, $\texttt{len}_r \leq H$.
+\end{lemma}
 
-\vspace{3mm}
+\begin{proof}
+By backward induction on $r$, from $r = H - 1$ down to $r = 0$.
 
-\textbf{Down (next-row) columns:} 8 base field: \texttt{start}, \texttt{is\_be}, \texttt{len}, $\texttt{f}_\texttt{add}$, $\texttt{f}_\texttt{mul}$, $\texttt{f}_\texttt{peq}$, $\text{arg}_A$, $\text{idx}_B$. 1 extension field: \texttt{computation}.
+\vspace{2mm}
+
+\textbf{Base case ($r = H - 1$):} On the wrapping pair (row $H\!-\!1$ paired with itself, see Section~\ref{sec:air-eval}), $\text{next}(x) = x$ for every column $x$. Constraint~10 becomes $(1 - \texttt{start}) \cdot (\texttt{len} - \texttt{len} - 1) = -(1 - \texttt{start}) = 0$, forcing $\texttt{start}_{H-1} = 1$. Then constraint~17 becomes $1 \cdot (\texttt{len} - 1) = 0$, giving $\texttt{len}_{H-1} = 1 = H - (H-1)$.
+
+\vspace{2mm}
+
+\textbf{Inductive step ($r < H - 1$):} Assume $\texttt{len}_s \leq H - s$ for all $s > r$. The pair (row $r$, row $r\!+\!1$) gives two cases depending on $\texttt{start}_{r+1} \in \{0,1\}$ (constraint~2):
+
+\begin{itemize}
+    \item If $\texttt{start}_{r+1} = 1$: constraint~17 gives $1 \cdot (\texttt{len}_r - 1) = 0$, so $\texttt{len}_r = 1 \leq H - r$.
+    \item If $\texttt{start}_{r+1} = 0$: constraint~10 gives $(1 - 0) \cdot (\texttt{len}_r - \texttt{len}_{r+1} - 1) = 0$, so $\texttt{len}_r = \texttt{len}_{r+1} + 1$ in $\Fp$. By induction, $\texttt{len}_{r+1} \leq H - (r+1)$, so $\texttt{len}_{r+1} + 1 \leq H - r$. Since $H - r \leq H \leq 2^{21} < p$, the addition does not overflow modulo $p$, so $\texttt{len}_r = \texttt{len}_{r+1} + 1 \leq H - r$ as integers.
+\end{itemize}
+\end{proof}
 
 \vspace{3mm}
 
@@ -767,7 +787,7 @@ In case of Poseidon call, PRECOMPILE\_DATA = 1 and $\nu_A$, $\nu_B$, $\nu_C$ rep
 
 In case of extension op call, PRECOMPILE\_DATA $= 2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot N$ encodes the mode, the operation, and the length $N$, and $\nu_A$, $\nu_B$, $\nu_C$ represent the starting address of the first operand, the starting address of the second operand, and the address of the result.
 
-Each such tuple $\sigma$ (counting multiplicity) must be \textsc{Pulled} by one of the precompile tables. Given that the Poseidon table only pulls tuples with PRECOMPILE\_DATA $= 1$, and the extension op table only pulls tuples with PRECOMPILE\_DATA $\geq 32$ (always even), the bus is effectively partitioned into two disjoint sub-buses, one for each precompile.
+Each such tuple $\sigma$ (counting multiplicity) must be \textsc{Pulled} by one of the precompile tables. Given that the Poseidon table only pulls tuples with PRECOMPILE\_DATA $= 1$, and the extension op table only pulls tuples with PRECOMPILE\_DATA $\geq 32$, the bus is effectively partitioned into two disjoint sub-buses, one for each precompile.
 
 Similarly to the IS\_PRECOMPILE (virtual) column for the execution table, each one of the two precompile tables has a boolean (virtual) column acting as a bus selector, indicating at which rows the table is pulling from the bus (1) or not (0).
 
@@ -804,7 +824,7 @@ $$\sum_{T \in \mathcal{T}} \sum_{j=0}^{H_T - 1} \frac{\text{dir}_{T} \cdot \text
 
 \vspace{3mm}
 
-As with the indexed lookup into memory, this sum can be computed efficiently via GKR \cite{logup_gkr}. In practice, all logup instances (bus balance and memory lookups) are batched into a single GKR instance, using an addition field element passed to the encoding tuple for domain separation: LOGUP\_MEMORY = 0 for the memory interraction, and LOGUP\_PRECOMPILE = 1.
+As with the indexed lookup into memory, this sum can be computed efficiently via GKR \cite{logup_gkr}. In practice, all logup instances (bus balance and memory lookups) are batched into a single GKR instance, using an addition field element passed to the encoding tuple for domain separation.
 
 \vspace{3mm} TODO: Unified vision in which memory is just another table, and memory accesses are just bus interactions?
 
