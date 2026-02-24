@@ -164,13 +164,13 @@ The small 2-addicity (24) is not a limiting factor in WHIR, thanks to the use of
 
 % As in Cairo:
 \begin{itemize}
-    \item \fbox{pc: program counter}
+    \item \fbox{\textbf{pc}: program counter} : points to the current instruction
     % \item \textbf{ap}: allocation pointer = Points to the first untouched memory cell
-    \item \fbox{fp: frame pointer} : points to the start of the current stack
+    \item \fbox{\textbf{fp}: frame pointer} : points to the start of the current "stack frame" in memory
 \end{itemize}
 
 
-\textbf{Difference with Cairo: no "ap" register} (allocation pointer).
+Difference with Cairo: no \textbf{ap} register (allocation pointer).
 
 
 \subsection{Instruction Set Architecture}
@@ -191,20 +191,20 @@ ADD: $\nu_a + \nu_c = \nu_b$ \hspace{3mm} and \hspace{3mm} MUL: $\nu_a \cdot \nu
 \nu_a &= 
 \begin{cases}
 \alpha \\
-\textbf{m}[\text{fp} + \alpha]
+\textbf{m}[\textbf{fp} + \alpha]
 \end{cases}
 &
 \nu_b &= 
 \begin{cases}
 \beta \\
-\textbf{m}[\text{fp} + \beta]
+\textbf{m}[\textbf{fp} + \beta]
 \end{cases}
 &
 \nu_c &= 
 \begin{cases}
 \gamma \\
-\textbf{m}[\text{fp} + \gamma]  \\
-\text{fp} + \gamma
+\textbf{m}[\textbf{fp} + \gamma]  \\
+\textbf{fp} + \gamma
 \end{cases}
 \end{align*}
 
@@ -212,56 +212,60 @@ ADD: $\nu_a + \nu_c = \nu_b$ \hspace{3mm} and \hspace{3mm} MUL: $\nu_a \cdot \nu
 \subsubsection{DEREF}
 
 $$
-\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = 
+\textbf{m}[\textbf{m}[\textbf{fp} + \alpha] + \beta] = 
 \begin{cases}
 & \gamma \\
-& \textbf{m}[\text{fp} + \gamma]   \\
-& \text{fp} + \gamma
+& \textbf{m}[\textbf{fp} + \gamma]   \\
+& \textbf{fp} + \gamma
 
 \end{cases}
 $$
 
 \subsubsection{JUMP (Conditional)}
 
+Using the following values:
+
 \begin{align*}
 \text{condition} &= 
 \begin{cases}
 \alpha \\
-\textbf{m}[\text{fp} + \alpha]
+\textbf{m}[\textbf{fp} + \alpha]
 \end{cases} \in \{0, 1\}
 &
 \text{dest} &= 
 \begin{cases}
 \beta \\
-\textbf{m}[\text{fp} + \beta]
+\textbf{m}[\textbf{fp} + \beta]
 \end{cases}
 &
 \text{updated\_fp} &=
 \begin{cases}
-\text{fp} + \gamma \\
-\textbf{m}[\text{fp} + \gamma]
+\textbf{fp} + \gamma \\
+\textbf{m}[\textbf{fp} + \gamma]
 \end{cases}
 \end{align*}
 
+... we have the following update rules:
+
 $$
-\text{next(pc)} =
+\text{next(\textbf{pc})} =
 \begin{cases}
 \text{dest} & \text{if condition} = 1 \\
-\text{pc} + 1 & \text{if condition} = 0
+\text{\textbf{pc}} + 1 & \text{if condition} = 0
 \end{cases}
 \qquad
-\text{next(fp)} =
+\text{next(\textbf{fp})} =
 \begin{cases}
 \text{updated\_fp} & \text{if condition} = 1 \\
-\text{fp} & \text{if condition} = 0
+\textbf{fp} & \text{if condition} = 0
 \end{cases}
 $$
 
 \subsection{Precompiles}
 
-There are two "precompile" instructions: EXTENSION\_OP and POSEIDON2. Each precompile instruction has three (potentially runtime) parameters $\nu_A$, $\nu_B$, $\nu_C$, and a compile-time value \texttt{PRECOMPILE\_DATA}.
+There are two "precompile" instructions: EXTENSION\_OP and POSEIDON2, used for special computation (extension field operations and hashing). Each precompile instruction has three (potentially runtime) parameters $\nu_A$, $\nu_B$, $\nu_C$, and a compile-time value \texttt{PRECOMPILE\_DATA}.
 
-$\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, with the additional possibility of $\nu_A = \text{fp} + \alpha$ and $\nu_B = \text{fp} + \beta$, but these two must be used simultaneously (if $\nu_A$ is fp-relative, then $\nu_B$ must be fp-relative too, and vice versa).
+$\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, with the additional possibility of $\nu_A = \textbf{fp} + \alpha$ and $\nu_B = \textbf{fp} + \beta$, but these two must be used simultaneously (if $\nu_A$ is fp-relative, then $\nu_B$ must be fp-relative too, and vice versa).
 
 \subsubsection{POSEIDON2}
 
@@ -277,7 +281,21 @@ $$
 
 \subsubsection{EXTENSION\_OP}\label{extension_op_instruction}
 
-Performs an accumulated extension field operation over $N$ element pairs ($N \geq 1$). For $i = 0, \ldots, N-1$, define:
+EXTENSION\_OP enables computations of one these 3 forms in the extension field $\Fq$:
+
+\[
+\sum_{i=0}^{N-1} (a_i + b_i), \qquad
+\sum_{i=0}^{N-1} (a_i \cdot b_i), \qquad
+\prod_{i=0}^{N-1} (a_i b_i + (1 - a_i)(1 - b_i))
+\]
+
+\vspace{2mm}
+
+\underbar{Details}
+
+\vspace{2mm}
+
+For $i = 0, \ldots, N-1$, define:
 $$b_i = \textbf{m}[\nu_B + 5i \,..\, \nu_B + 5i + 5] \in \Fq$$
 and $a_i$ depends on the mode:
 \begin{itemize}
@@ -302,19 +320,8 @@ The result is stored at $\textbf{m}[\nu_C \,..\, \nu_C + 5] \in \Fq$.
 
 \texttt{PRECOMPILE\_DATA} encodes the mode, the operand type, and the length:
 $$\texttt{PRECOMPILE\_DATA} = 2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot N$$
-where exactly one of \texttt{flag\_add}, \texttt{flag\_mul}, \texttt{flag\_poly\_eq} is 1, and $N \geq 1$. This is a pure bit-field encoding (each flag occupies a distinct bit position). Since the result is always even and $\geq 32$, it is disjoint from Poseidon ($= 1$) and no-precompile ($= 0$).
+where exactly one of \texttt{flag\_add}, \texttt{flag\_mul}, \texttt{flag\_poly\_eq} is 1, and $N \geq 1$. This encoding is injective and always disjoint from Poseidon ($= 1$) and no-precompile ($= 0$).
 
-\begin{center}
-\begin{tabular}{lccc}
-\toprule
-Operation & EE ($N\!=\!1$) & BE ($N\!=\!1$) & General \\
-\midrule
-ADD & 36 & 38 & $32N + 4 + 2 \cdot \texttt{is\_be}$ \\
-MUL & 40 & 42 & $32N + 8 + 2 \cdot \texttt{is\_be}$ \\
-POLY\_EQ & 48 & 50 & $32N + 16 + 2 \cdot \texttt{is\_be}$ \\
-\bottomrule
-\end{tabular}
-\end{center}
 
 \subsection{ISA programming}
 
@@ -322,7 +329,7 @@ POLY\_EQ & 48 & 50 & $32N + 16 + 2 \cdot \texttt{is\_be}$ \\
 
 \begin{enumerate}
     \item Each function has a deterministic memory footprint: the length of the continuous frame in memory that is allocated for each of the its calls.
-    \item At runtime, each time we call our function, we receive via a memory cell a hint pointing to a free range of memory. We then store the current values of pc / fp at the start of this newly allocated frame, alongside the function's arguments, we can then jump, to enter the function bytecode, and modify fp with the hinted value. The intuition here is that the verifier does not care where the new memory frame will be placed (we use a read-only memory, so we cannot overwrite previous frames). In practice, the prover that runs the program would need to keep the value of the allocation pointer "ap", in order to adequately allocate new memory frames, but there is no need to keep track of it from the versifier's perspective.
+    \item At runtime, each time we call our function, we receive via a memory cell a hint pointing to a free range of memory. We then store the current values of \textbf{pc} / \textbf{fp} at the start of this newly allocated frame, alongside the function's arguments, we can then jump, to enter the function bytecode, and modify \textbf{fp} with the hinted value. The intuition here is that the verifier does not care where the new memory frame will be placed (we use a read-only memory, so we cannot overwrite previous frames). In practice, the prover that runs the program would need to keep the value of the allocation pointer "ap", in order to adequately allocate new memory frames, but there is no need to keep track of it from the versifier's perspective.
 \end{enumerate}
 
 
@@ -341,22 +348,22 @@ The remaining loops are transformed into recursive functions (by the leanISA com
 
 \fbox{It's possible to check that a given memory cell is smaller than some value $t$ (for $t \leq 2^{16})$ in 3 cycles.}
 
-We denote by \textbf{m}[fp + $x$] the memory cell for which we want to ensure \textbf{m}[fp + $x$] $< t$.
-We also denote by \textbf{m}[fp + $i$], \textbf{m}[fp + $j$] and \textbf{m}[fp + $k$] 3 auxiliary memory cells (that have not been used yet).
+We denote by \textbf{m}[\textbf{fp} + $x$] the memory cell for which we want to ensure \textbf{m}[\textbf{fp} + $x$] $< t$.
+We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] and \textbf{m}[\textbf{fp} + $k$] 3 auxiliary memory cells (that have not been used yet).
 \begin{enumerate}
-    \item \textbf{m}[\textbf{m}[fp + $x$]] = \textbf{m}[fp + $i$] (using DEREF, this ensures \textbf{m}[fp + $x$] $ < M$, the memory size)
-    \item \textbf{m}[\textbf{m}[fp + $x$]] + \textbf{m}[fp + $j$] = (t-1) (using ADD)
-        \item \textbf{m}[\textbf{m}[fp + $j$]] = \textbf{m}[fp + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[fp + $x$] $ < M$)
+    \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] = \textbf{m}[\textbf{fp} + $i$] (using DEREF, this ensures \textbf{m}[\textbf{fp} + $x$] $ < M$, the memory size)
+    \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] + \textbf{m}[\textbf{fp} + $j$] = (t-1) (using ADD)
+        \item \textbf{m}[\textbf{m}[\textbf{fp} + $j$]] = \textbf{m}[\textbf{fp} + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $ < M$)
 \end{enumerate}
 
-Given $t \leq 2^{16} \leq M$, \textbf{m}[fp + $x$] $ < M$, $t - 1 - $ \textbf{m}[fp + $x$] $< M$, and $M \leq 2^{29} < p / 2$, we have: \textbf{m}[fp + $x$] $ < t$.
+Given $t \leq 2^{16} \leq M$, \textbf{m}[\textbf{fp} + $x$] $ < M$, $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $< M$, and $M \leq 2^{29} < p / 2$, we have: \textbf{m}[\textbf{fp} + $x$] $ < t$.
 
-Note: From the point of view of the prover running the program, some hints are necessary (filling the values of \textbf{m}[fp + $i$] and \textbf{m}[fp + $k$] must be done at end of execution).
+Note: From the point of view of the prover running the program, some hints are necessary (filling the values of \textbf{m}[\textbf{fp} + $i$] and \textbf{m}[\textbf{fp} + $k$] must be done at end of execution).
 
 This idea was pointed out by D. Khovratovich, and is an unplanned use of the DEREF instruction.
 
 \begin{exmp}
-	Let's say we want to write a function with 2 arguments $x = \textbf{m}$[fp + 2] and $y = \textbf{m}$[fp + 3] ($\textbf{m}$[fp + 0] and $\textbf{m}$[fp + 1] are used, by convention, to store the caller's pc and fp, to return to the previous context at the end of the function), which perform the following:
+	Let's say we want to write a function with 2 arguments $x = \textbf{m}$[\textbf{fp} + 2] and $y = \textbf{m}$[\textbf{fp} + 3] ($\textbf{m}$[\textbf{fp} + 0] and $\textbf{m}$[\textbf{fp} + 1] are used, by convention, to store the caller's \textbf{pc} and \textbf{fp}, to return to the previous context at the end of the function), which perform the following:
 	
 	\begin{enumerate}
 		\item assert(x $<$ 10)
@@ -367,15 +374,15 @@ This idea was pointed out by D. Khovratovich, and is an unplanned use of the DER
 	Which can be compiled to:
 	
 	\begin{enumerate}
-		\item \textbf{m}[fp + 4] = \textbf{m}[$\big[$fp + 2$\big]$] // check that $x$ is "small"
-		\item \textbf{m}[fp + 2] + \textbf{m}[fp + 5] = 9 // compute $9 - x$
-		\item \textbf{m}[fp + 6] = \textbf{m}[$\big[$fp + 5$\big]$] // check that $9 - x$ is "small"
-		\item \textbf{m}[fp + 7] = \textbf{m}[fp + 2] * \textbf{m}[fp + 3] // compute $x.y$
-		\item \textbf{m}[fp + 8] = \textbf{m}[fp + 7] + 100 // compute $z = x.y + 100$
-		\item \textbf{m}[fp + 9] = \textbf{m}[$\big[$fp + 8$\big]$] // check that $z$ is "small"
-		\item \textbf{m}[fp + 8] + \textbf{m}[fp + 10] = 999 // compute $999 - z$
-		\item \textbf{m}[fp + 11] = \textbf{m}[$\big[$fp + 10$\big]$] // check that $999 - z$ is "small"
-		\item JUMP with next(pc) = \textbf{m}[fp + 0], next(fp) = \textbf{m}[fp + 1], condition = 1 // return
+		\item \textbf{m}[\textbf{fp} + 4] = \textbf{m}[$\big[$\textbf{fp} + 2$\big]$] // check that $x$ is "small"
+		\item \textbf{m}[\textbf{fp} + 2] + \textbf{m}[\textbf{fp} + 5] = 9 // compute $9 - x$
+		\item \textbf{m}[\textbf{fp} + 6] = \textbf{m}[$\big[$\textbf{fp} + 5$\big]$] // check that $9 - x$ is "small"
+		\item \textbf{m}[\textbf{fp} + 7] = \textbf{m}[\textbf{fp} + 2] * \textbf{m}[\textbf{fp} + 3] // compute $x.y$
+		\item \textbf{m}[\textbf{fp} + 8] = \textbf{m}[\textbf{fp} + 7] + 100 // compute $z = x.y + 100$
+		\item \textbf{m}[\textbf{fp} + 9] = \textbf{m}[$\big[$\textbf{fp} + 8$\big]$] // check that $z$ is "small"
+		\item \textbf{m}[\textbf{fp} + 8] + \textbf{m}[\textbf{fp} + 10] = 999 // compute $999 - z$
+		\item \textbf{m}[\textbf{fp} + 11] = \textbf{m}[$\big[$\textbf{fp} + 10$\big]$] // check that $999 - z$ is "small"
+		\item JUMP with next(\textbf{pc}) = \textbf{m}[\textbf{fp} + 0], next(\textbf{fp}) = \textbf{m}[\textbf{fp} + 1], condition = 1 // return
 	\end{enumerate}
 	
 	 
@@ -404,7 +411,7 @@ Each table has a maximum number of rows (as a power of two):
 Table & Max rows \\
 \midrule
 Execution & $2^{25}$ \\
-Extension op & $2^{21}$ \\
+Extension op & $2^{20}$ \\
 Poseidon & $2^{21}$ \\
 \bottomrule
 \end{tabular}
@@ -434,8 +441,8 @@ TODO: describe how to prove AIR via sumcheck.
 \fbox{At each cycle, we commit to 20 (base) field elements:}
 
 \begin{itemize}
-    \item pc (program counter)
-    \item fp (frame pointer)
+    \item \textbf{pc} (program counter)
+    \item \textbf{fp} (frame pointer)
     % \item jump (non zero when a jump occurs)
     \item $\text{addr}_A$, $\text{addr}_B$, $\text{addr}_C$
     \item $\text{value}_A = \textbf{m}[\text{addr}_A]$, $\text{value}_B = \textbf{m}[\text{addr}_B]$, $\text{value}_C = \textbf{m}[\text{addr}_C]$
@@ -449,12 +456,12 @@ Each instruction is described by 12 field elements ($\Fp$):
 
 \begin{itemize}
     \item 3 operands: $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
-    \item 5 flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$, $\text{flag}^{C}_\text{fp}$, $\text{flag}^{AB}_\text{fp}$
+    \item 5 flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$, $\text{flag}^{C}_\textbf{fp}$, $\text{flag}^{AB}_\textbf{fp}$
     \item 3 opcode flags: MUL ($\in \{0, 1\}$), JUMP ($\in \{0, 1\}$), AUX ($\in \{0, 1, 2\}$) (AUX handles both ADD and DEREF)
     \item PRECOMPILE\_DATA
 \end{itemize}
 
-$\text{flag}^{AB}_\text{fp}$ is only used by precompile instructions; for ADD, MUL, DEREF, and JUMP it is always 0.
+$\text{flag}^{AB}_\textbf{fp}$ is only used by precompile instructions; for ADD, MUL, DEREF, and JUMP it is always 0.
 
 
 \subsubsection{AIR transition constraints}
@@ -465,17 +472,17 @@ $\text{flag}^{AB}_\text{fp}$ is only used by precompile instructions; for ADD, M
 
 We define the following values:
 \begin{itemize}
-    \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A - \text{flag}^{AB}_\text{fp}) \cdot \text{value}_A + \text{flag}^{AB}_\text{fp} \cdot (\text{fp} + \alpha)$ 
-    \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B - \text{flag}^{AB}_\text{fp}) \cdot \text{value}_B + \text{flag}^{AB}_\text{fp} \cdot (\text{fp} + \beta)$
-    \item $\nu_C = \text{flag}_C \cdot \text{operand}_C + (1 - \text{flag}_C - \text{flag}_\text{fp}) \cdot \text{value}_C + \text{flag}_\text{fp} \cdot (\text{fp} + \gamma)$
+    \item $\nu_A = \text{flag}_A \cdot \text{operand}_A + (1 - \text{flag}_A - \text{flag}^{AB}_\textbf{fp}) \cdot \text{value}_A + \text{flag}^{AB}_\textbf{fp} \cdot (\textbf{fp} + \alpha)$ 
+    \item $\nu_B = \text{flag}_B \cdot \text{operand}_B + (1 - \text{flag}_B - \text{flag}^{AB}_\textbf{fp}) \cdot \text{value}_B + \text{flag}^{AB}_\textbf{fp} \cdot (\textbf{fp} + \beta)$
+    \item $\nu_C = \text{flag}_C \cdot \text{operand}_C + (1 - \text{flag}_C - \text{flag}_\textbf{fp}) \cdot \text{value}_C + \text{flag}_\textbf{fp} \cdot (\textbf{fp} + \gamma)$
 \end{itemize}
 
 
 With the associated constraints:
 \begin{itemize}
-    \item $(1 - \text{flag}_A - \text{flag}^{AB}_\text{fp}) \cdot (\text{address}_A - (\text{fp} + \text{operand}_A)) = 0$
-    \item $(1 - \text{flag}_B - \text{flag}^{AB}_\text{fp}) \cdot (\text{address}_B - (\text{fp} + \text{operand}_B)) = 0$
-    \item $(1 - \text{flag}_C - \text{flag}^{C}_\text{fp}) \cdot (\text{address}_C - (\text{fp} + \text{operand}_C)) = 0$
+    \item $(1 - \text{flag}_A - \text{flag}^{AB}_\textbf{fp}) \cdot (\text{address}_A - (\textbf{fp} + \text{operand}_A)) = 0$
+    \item $(1 - \text{flag}_B - \text{flag}^{AB}_\textbf{fp}) \cdot (\text{address}_B - (\textbf{fp} + \text{operand}_B)) = 0$
+    \item $(1 - \text{flag}_C - \text{flag}^{C}_\textbf{fp}) \cdot (\text{address}_C - (\textbf{fp} + \text{operand}_C)) = 0$
 \end{itemize}
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
@@ -520,9 +527,9 @@ For multiplication, set MUL $= 1$.
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-For DEREF instructions, set AUX $= 2$, $\text{flag}_A = 0$, $\text{flag}_B = 1$ and $\text{flag}_C$ / $\text{flag}^{C}_\text{fp}$ according to whether the third operand is an immediate value, a memory read, or fp-relative.
+For DEREF instructions, set AUX $= 2$, $\text{flag}_A = 0$, $\text{flag}_B = 1$ and $\text{flag}_C$ / $\text{flag}^{C}_\textbf{fp}$ according to whether the third operand is an immediate value, a memory read, or fp-relative.
 
-The relation $\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = \nu_C$ is then captured by:
+The relation $\textbf{m}[\textbf{m}[\textbf{fp} + \alpha] + \beta] = \nu_C$ is then captured by:
 
 \begin{itemize}
     \item $\text{DEREF} \cdot (\text{addr}_B - (\text{value}_A + \text{operand}_B)) = 0$
@@ -531,13 +538,13 @@ The relation $\textbf{m}[\textbf{m}[\text{fp} + \alpha] + \beta] = \nu_C$ is the
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-For (conditional) jumps, let $J = \text{JUMP} \cdot \nu_A$:
+For (conditional) jumps, set JUMP = 1, with the following constraints, using $J = \text{JUMP} \cdot \nu_A$:
 \begin{itemize}
     \item $J \cdot (1 - \nu_A) = 0$
-    \item $J \cdot ( \text{next(pc)} - \nu_B) = 0$
+    \item $J \cdot ( \text{next(\textbf{pc})} - \nu_B) = 0$
     \item $J \cdot ( \text{next(fp)} - \nu_C) = 0$
-    \item $(1 - J) \cdot ( \text{next(pc)} - (\text{pc} + 1)) = 0$
-    \item $(1 - J) \cdot (\text{next(fp)} - \text{fp}) = 0$
+    \item $(1 - J) \cdot ( \text{next(\textbf{pc})} - (\text{\textbf{pc}} + 1)) = 0$
+    \item $(1 - J) \cdot (\text{next(fp)} - \textbf{fp}) = 0$
 \end{itemize}
 
 Note: the constraint $J \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
@@ -556,7 +563,7 @@ See \ref{extension_op_instruction} for the instruction specification.
 
 \subsubsection{Trace layout}
 
-Each extension field operation occupies $N$ consecutive rows (one row per element pair). Within a group, rows are ordered from first element to last, but the \texttt{computation} column accumulates \textbf{backward}: the first row holds the full result, the last row holds only the final element's value. Padding rows have all operation flags set to 0 and $\texttt{start} = 1$, $\texttt{len} = 1$.
+Each extension field operation occupies $N$ consecutive rows (one row per element pair). Within a group, rows are ordered from first element to last, but the \texttt{computation} column accumulates backward: the first row holds the full result, the last row holds only the final element's value. Padding rows have all operation flags set to 0 and $\texttt{start} = 1$, $\texttt{len} = 1$.
 
 \vspace{3mm}
 
