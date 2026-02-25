@@ -148,7 +148,7 @@ The small 2-addicity (24) is not a limiting factor in WHIR, thanks to the use of
 \begin{itemize}
     \item Read-Only Memory
     \item Word = KoalaBear field element
-    \item Memory size: $M = 2^m$ with $16 \leq m \leq 29$ ($m$ depends on the execution and is communicated at the beginning of the proof).
+    \item Memory size: $M = 2^m$ with $16 \leq m \leq 26$ ($m$ depends on the execution and is communicated at the beginning of the proof).
     \item The first $M' = 2^{m'}$ memory cells hold the "public input", on which both prover and verifier must agree.
     This enables to pass the arguments that the leanISA program receives as input (in our case: message to sign and XMSS public keys).
 \end{itemize}
@@ -356,7 +356,7 @@ We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] a
         \item \textbf{m}[\textbf{m}[\textbf{fp} + $j$]] = \textbf{m}[\textbf{fp} + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $ < M$)
 \end{enumerate}
 
-Given $t \leq 2^{16} \leq M$, \textbf{m}[\textbf{fp} + $x$] $ < M$, $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $< M$, and $M \leq 2^{29} < p / 2$, we have: \textbf{m}[\textbf{fp} + $x$] $ < t$.
+Given $t \leq 2^{16} \leq M$, \textbf{m}[\textbf{fp} + $x$] $ < M$, $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $< M$, and $M \leq 2^{26} < p / 2$, we have: \textbf{m}[\textbf{fp} + $x$] $ < t$.
 
 Note: From the point of view of the prover running the program, some hints are necessary (filling the values of \textbf{m}[\textbf{fp} + $i$] and \textbf{m}[\textbf{fp} + $k$] must be done at end of execution).
 
