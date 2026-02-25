@@ -8,6 +8,11 @@ pub struct PrunedMerklePaths<Data, F> {
     pub original_order: Vec<usize>,
     pub leaf_data: Vec<Vec<Data>>,
     pub paths: Vec<(usize, Vec<[F; DIGEST_LEN_FE]>)>,
+    /// Number of trailing zeros stripped from each leaf (same for all leaves in one tree).
+    /// Due to sponge padding, every leaf in a Merkle tree ends with the same zero suffix.
+    /// We strip it during `prune()` and restore it during `restore()` (cf. `precompute_zero_suffix_state`).
+    #[serde(default)]
+    pub n_trailing_zeros: usize,
 }
 
 fn lca_level(a: usize, b: usize) -> usize {
@@ -15,7 +20,10 @@ fn lca_level(a: usize, b: usize) -> usize {
 }
 
 impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
-    pub fn prune(self) -> PrunedMerklePaths<Data, F> {
+    pub fn prune(self) -> PrunedMerklePaths<Data, F>
+    where
+        Data: Default + PartialEq,
+    {
         assert!(!self.0.is_empty());
         let merkle_height = self.0[0].sibling_hashes.len();
 
@@ -33,6 +41,26 @@ impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
                 deduped.push(path);
             }
         }
+
+        // Detect common trailing zeros across all deduplicated leaves.
+        // Due to sponge padding, every leaf in a Merkle tree ends with the same
+        // zero suffix (cf. precompute_zero_suffix_state in sponge.rs).
+        let n_trailing_zeros = if deduped.is_empty() {
+            0
+        } else {
+            let default = Data::default();
+            let leaf_len = deduped[0].leaf_data.len();
+            let mut count = 0;
+            'outer: for offset in (0..leaf_len).rev() {
+                for path in &deduped {
+                    if path.leaf_data[offset] != default {
+                        break 'outer;
+                    }
+                }
+                count += 1;
+            }
+            count
+        };
 
         let paths = deduped
             .iter()
@@ -56,8 +84,15 @@ impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
         PrunedMerklePaths {
             merkle_height,
             original_order,
-            leaf_data: deduped.into_iter().map(|p| p.leaf_data).collect(),
+            leaf_data: deduped
+                .into_iter()
+                .map(|p| {
+                    let effective_len = p.leaf_data.len() - n_trailing_zeros;
+                    p.leaf_data[..effective_len].to_vec()
+                })
+                .collect(),
             paths,
+            n_trailing_zeros,
         }
     }
 }
@@ -67,26 +102,42 @@ impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
         self,
         hash_leaf: &impl Fn(&[Data]) -> [F; DIGEST_LEN_FE],
         hash_combine: &impl Fn(&[F; DIGEST_LEN_FE], &[F; DIGEST_LEN_FE]) -> [F; DIGEST_LEN_FE],
-    ) -> Option<MerklePaths<Data, F>> {
-        let n = self.paths.len();
-        let h = self.merkle_height;
+    ) -> Option<MerklePaths<Data, F>>
+    where
+        Data: Default,
+    {
+        let PrunedMerklePaths {
+            merkle_height: h,
+            original_order,
+            leaf_data: raw_leaf_data,
+            paths,
+            n_trailing_zeros,
+        } = self;
 
-        let levels = |i: usize| {
-            i.checked_sub(1)
-                .map_or(h, |j| lca_level(self.paths[j].0, self.paths[i].0))
-        };
-        let skip = |i: usize| self.paths.get(i + 1).map(|p| lca_level(self.paths[i].0, p.0) - 1);
+        let n = paths.len();
+
+        // Pad leaf data back to original length (restore the stripped zero suffix).
+        let leaf_data: Vec<Vec<Data>> = raw_leaf_data
+            .into_iter()
+            .map(|mut d| {
+                d.resize(d.len() + n_trailing_zeros, Data::default());
+                d
+            })
+            .collect();
+
+        let levels = |i: usize| i.checked_sub(1).map_or(h, |j| lca_level(paths[j].0, paths[i].0));
+        let skip = |i: usize| paths.get(i + 1).map(|p| lca_level(paths[i].0, p.0) - 1);
 
         // Backward pass: compute subtree hashes needed to restore skipped siblings
         let mut subtree_hashes: Vec<Vec<[F; DIGEST_LEN_FE]>> = vec![vec![]; n];
 
         for i in (0..n).rev() {
-            let (leaf_idx, ref stored) = self.paths[i];
+            let (leaf_idx, ref stored) = paths[i];
             if leaf_idx >= (1 << h) {
                 return None;
             }
             let mut stored = stored.iter();
-            let mut hash = hash_leaf(self.leaf_data.get(i)?);
+            let mut hash = hash_leaf(leaf_data.get(i)?);
 
             subtree_hashes[i].push(hash.clone());
             for lvl in 0..levels(i) {
@@ -108,7 +159,7 @@ impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
         let mut restored: Vec<MerklePath<Data, F>> = Vec::with_capacity(n);
 
         for i in 0..n {
-            let (leaf_idx, ref stored) = self.paths[i];
+            let (leaf_idx, ref stored) = paths[i];
             let mut stored = stored.iter();
 
             let mut siblings = Vec::with_capacity(h);
@@ -126,14 +177,14 @@ impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
             }
 
             restored.push(MerklePath {
-                leaf_data: self.leaf_data.get(i)?.clone(),
+                leaf_data: leaf_data.get(i)?.clone(),
                 sibling_hashes: siblings,
                 leaf_index: leaf_idx,
             });
         }
 
         Some(MerklePaths(
-            self.original_order
+            original_order
                 .into_iter()
                 .map(|idx| restored.get(idx).cloned())
                 .collect::<Option<Vec<_>>>()?,
@@ -388,12 +439,70 @@ mod tests {
     }
 
     #[test]
+    fn test_trailing_zeros_stripped() {
+        // Build a tree with 8 leaves where each leaf has trailing zeros (simulating sponge padding)
+        let leaves: Vec<Vec<u8>> = (0u8..8).map(|i| vec![i + 1, i + 10, 0, 0, 0]).collect();
+        let tree = build_merkle_tree(&leaves);
+
+        let indices = [2, 5, 7];
+        let paths = MerklePaths(
+            indices
+                .iter()
+                .map(|&i| generate_auth_path(leaves[i].clone(), i, &tree))
+                .collect(),
+        );
+
+        let pruned = paths.clone().prune();
+
+        // Should detect 3 trailing zeros
+        assert_eq!(pruned.n_trailing_zeros, 3);
+        // Each leaf data should have only 2 effective elements
+        for leaf in &pruned.leaf_data {
+            assert_eq!(leaf.len(), 2);
+        }
+
+        // Restore and verify all paths match
+        let restored = pruned.restore(&simple_hash, &hash_combine).unwrap();
+        for (orig, rest) in paths.0.iter().zip(restored.0.iter()) {
+            assert_eq!(orig.leaf_index, rest.leaf_index);
+            assert_eq!(orig.leaf_data, rest.leaf_data);
+            assert_eq!(orig.sibling_hashes, rest.sibling_hashes);
+        }
+    }
+
+    #[test]
+    fn test_no_trailing_zeros() {
+        // Leaves without trailing zeros should have n_trailing_zeros = 0
+        let leaves: Vec<Vec<u8>> = (0u8..4).map(|i| vec![i + 1, i + 10]).collect();
+        let tree = build_merkle_tree(&leaves);
+
+        let paths = MerklePaths(vec![
+            generate_auth_path(leaves[0].clone(), 0, &tree),
+            generate_auth_path(leaves[2].clone(), 2, &tree),
+        ]);
+
+        let pruned = paths.clone().prune();
+        assert_eq!(pruned.n_trailing_zeros, 0);
+        for leaf in &pruned.leaf_data {
+            assert_eq!(leaf.len(), 2);
+        }
+
+        let restored = pruned.restore(&simple_hash, &hash_combine).unwrap();
+        for (orig, rest) in paths.0.iter().zip(restored.0.iter()) {
+            assert_eq!(orig.leaf_index, rest.leaf_index);
+            assert_eq!(orig.leaf_data, rest.leaf_data);
+            assert_eq!(orig.sibling_hashes, rest.sibling_hashes);
+        }
+    }
+
+    #[test]
     fn test_restore_returns_none_on_missing_leaf_data() {
         let pruned: PrunedMerklePaths<u8, u8> = PrunedMerklePaths {
             merkle_height: 2,
             original_order: vec![0],
             leaf_data: vec![], // Empty - should cause failure
             paths: vec![(0, vec![[1; DIGEST_LEN_FE], [2; DIGEST_LEN_FE]])],
+            n_trailing_zeros: 0,
         };
         assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
     }
@@ -405,6 +514,7 @@ mod tests {
             original_order: vec![5], // Out of bounds index
             leaf_data: vec![vec![0]],
             paths: vec![(0, vec![[1; DIGEST_LEN_FE], [2; DIGEST_LEN_FE]])],
+            n_trailing_zeros: 0,
         };
         assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
     }
@@ -416,6 +526,7 @@ mod tests {
             original_order: vec![0],
             leaf_data: vec![vec![0]],
             paths: vec![(0, vec![[1; DIGEST_LEN_FE]])], // Only 1 sibling, need 3
+            n_trailing_zeros: 0,
         };
         assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
     }
@@ -427,6 +538,7 @@ mod tests {
             original_order: vec![0, 1],
             leaf_data: vec![vec![0]], // Only 1, but paths has 2
             paths: vec![(0, vec![[1; DIGEST_LEN_FE]]), (1, vec![[2; DIGEST_LEN_FE]])],
+            n_trailing_zeros: 0,
         };
         assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
     }
@@ -438,6 +550,7 @@ mod tests {
             original_order: vec![0],
             leaf_data: vec![],
             paths: vec![],
+            n_trailing_zeros: 0,
         };
         // original_order[0] = 0, but restored is empty
         assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
