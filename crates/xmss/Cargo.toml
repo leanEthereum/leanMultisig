@@ -11,3 +11,4 @@ workspace = true
 rand.workspace = true
 utils.workspace = true
 backend.workspace = true
+serde.workspace = true

@@ -1,5 +1,6 @@
 use backend::*;
 use rand::{CryptoRng, Rng, SeedableRng, rngs::StdRng};
+use serde::{Deserialize, Serialize};
 
 use crate::*;
 
@@ -19,7 +20,7 @@ pub struct XmssSignature {
     pub merkle_proof: Vec<Digest>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct XmssPublicKey {
     pub merkle_root: Digest,
 }

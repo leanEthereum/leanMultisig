@@ -38,12 +38,12 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
     topology.raw_xmss + child_count - overlap * n_overlaps
 }
 
-pub fn hash_pubkeys(pub_keys: &[Digest]) -> Digest {
+pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> Digest {
     let iv = [F::ZERO; DIGEST_LEN];
     let flat: Vec<F> = iv
         .iter()
         .copied()
-        .chain(pub_keys.iter().flat_map(|pk| pk.0.iter().copied()))
+        .chain(pub_keys.iter().flat_map(|pk| pk.merkle_root.iter().copied()))
         .collect();
     Digest(poseidon_compress_slice(&flat))
 }
@@ -95,8 +95,8 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AggregatedSigs {
-    pub pub_keys: Vec<Digest>,
+pub struct AggregatedXMSS {
+    pub pub_keys: Vec<XmssPublicKey>,
     pub proof: PrunedProof<F>,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
     // benchmark / debug purpose
@@ -104,7 +104,7 @@ pub struct AggregatedSigs {
     pub metadata: Option<ExecutionMetadata>,
 }
 
-impl AggregatedSigs {
+impl AggregatedXMSS {
     pub fn raw_proof(&self) -> Option<RawProof<F>> {
         self.proof.clone().restore().map(|p| p.into_raw_proof())
     }
@@ -152,31 +152,31 @@ impl AggregatedSigs {
 }
 
 pub fn verify_aggregation(
-    sigs: &AggregatedSigs,
+    agg_sig: &AggregatedXMSS,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
 ) -> Result<ProofVerificationDetails, ProofError> {
-    if !sigs.pub_keys.is_sorted() {
+    if !agg_sig.pub_keys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
-    let public_input = sigs.public_input(message, slot);
+    let public_input = agg_sig.public_input(message, slot);
     let bytecode = get_aggregation_bytecode();
     verify_execution(
         bytecode,
         &public_input,
-        sigs.raw_proof().ok_or(ProofError::InvalidProof)?,
+        agg_sig.raw_proof().ok_or(ProofError::InvalidProof)?,
     )
 }
 
 /// panics if one of the sub-proof (children) is invalid
 #[instrument(skip_all)]
 pub fn aggregate(
-    children: &[AggregatedSigs],
+    children: &[AggregatedXMSS],
     mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     log_inv_rate: usize,
-) -> AggregatedSigs {
+) -> AggregatedXMSS {
     raw_xmss.sort_by_key(|(a, _)| Digest(a.merkle_root));
     raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
 
@@ -189,7 +189,7 @@ pub fn aggregate(
     let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
     // Build global_pub_keys as sorted deduplicated union
-    let mut global_pub_keys: Vec<Digest> = raw_xmss.iter().map(|(pk, _)| Digest(pk.merkle_root)).collect();
+    let mut global_pub_keys: Vec<XmssPublicKey> = raw_xmss.iter().map(|(pk, _)| pk.clone()).collect();
     for child in children.iter() {
         assert!(child.pub_keys.is_sorted(), "child pub_keys must be sorted");
         global_pub_keys.extend_from_slice(&child.pub_keys);
@@ -297,8 +297,8 @@ pub fn aggregate(
     let pubkeys_start = public_memory.len() + header_size;
 
     // Build source blocks (also discovers duplicate pub_keys)
-    let mut claimed: HashSet<Digest> = HashSet::new();
-    let mut dup_pub_keys: Vec<Digest> = Vec::new();
+    let mut claimed: HashSet<XmssPublicKey> = HashSet::new();
+    let mut dup_pub_keys: Vec<XmssPublicKey> = Vec::new();
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
     // Build XMSS signatures (one Vec<F> per signature, consumed by hint_xmss)
@@ -308,10 +308,9 @@ pub fn aggregate(
     {
         let mut block = vec![F::from_usize(raw_count)];
         for (pk, _) in &raw_xmss {
-            let key = Digest(pk.merkle_root);
-            let pos = global_pub_keys.binary_search(&key).unwrap();
+            let pos = global_pub_keys.binary_search(pk).unwrap();
             block.push(F::from_usize(pos));
-            claimed.insert(key);
+            claimed.insert(pk.clone());
         }
         source_blocks.push(block);
     }
@@ -320,12 +319,12 @@ pub fn aggregate(
     for (i, child) in children.iter().enumerate() {
         let mut block = vec![F::from_usize(child.pub_keys.len())];
         for key in &child.pub_keys {
-            if claimed.insert(*key) {
+            if claimed.insert(key.clone()) {
                 let pos = global_pub_keys.binary_search(key).unwrap();
                 block.push(F::from_usize(pos));
             } else {
                 block.push(F::from_usize(n_sigs + dup_pub_keys.len()));
-                dup_pub_keys.push(*key);
+                dup_pub_keys.push(key.clone());
             }
         }
 
@@ -364,10 +363,10 @@ pub fn aggregate(
     assert_eq!(private_input.len(), header_size);
 
     for pk in &global_pub_keys {
-        private_input.extend_from_slice(&pk.0);
+        private_input.extend_from_slice(&pk.merkle_root);
     }
     for pk in &dup_pub_keys {
-        private_input.extend_from_slice(&pk.0);
+        private_input.extend_from_slice(&pk.merkle_root);
     }
     for block in &source_blocks {
         private_input.extend_from_slice(block);
@@ -397,7 +396,7 @@ pub fn aggregate(
     };
     let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);
 
-    AggregatedSigs {
+    AggregatedXMSS {
         pub_keys: global_pub_keys,
         proof: execution_proof.proof,
         bytecode_point,

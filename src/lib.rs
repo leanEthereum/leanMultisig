@@ -1,7 +1,7 @@
 use backend::*;
 
 pub use backend::ProofError;
-pub use rec_aggregation::{AggregatedSigs, AggregationTopology, Digest, aggregate, verify_aggregation};
+pub use rec_aggregation::{AggregatedXMSS, AggregationTopology, Digest, aggregate, verify_aggregation};
 pub use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSecretKey, XmssSignature, xmss_key_gen, xmss_sign, xmss_verify};
 
 pub type F = KoalaBear;
@@ -70,7 +70,7 @@ mod tests {
 
         let serialized_final = aggregated_final.serialize();
         println!("Serialized aggregated final: {} KiB", serialized_final.len() / 1024);
-        let deserialized_final = AggregatedSigs::deserialize(&serialized_final).unwrap();
+        let deserialized_final = AggregatedXMSS::deserialize(&serialized_final).unwrap();
 
         verify_aggregation(&deserialized_final, &message, slot).unwrap();
     }

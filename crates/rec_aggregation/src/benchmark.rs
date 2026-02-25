@@ -10,7 +10,7 @@ use xmss::{XmssPublicKey, XmssSignature};
 use utils::ansi as s;
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
-use crate::{AggregatedSigs, AggregationTopology, aggregate, count_signers};
+use crate::{AggregatedXMSS, AggregationTopology, aggregate, count_signers};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
@@ -225,7 +225,7 @@ fn build_aggregation(
     signatures: &[XmssSignature],
     overlap: usize,
     tracing: bool,
-) -> (AggregatedSigs, f64) {
+) -> (AggregatedXMSS, f64) {
     let message = message_for_benchmark();
     let slot = BENCHMARK_SLOT;
     let raw_count = topology.raw_xmss;
