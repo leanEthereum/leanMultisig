@@ -52,6 +52,25 @@ def slice_hash_rtl(data, num_chunks):
 
 
 
+def slice_hash_rtl_with_initial_state(initial_state, data, n_effective, n_effective_bits: Const):
+    debug_assert(0 < n_effective)
+    if n_effective == 1:
+        result = Array(DIGEST_LEN)
+        poseidon16(initial_state, data, result)
+        return result
+    states = Array(n_effective * DIGEST_LEN)
+    poseidon16(initial_state, data + (n_effective - 1) * DIGEST_LEN, states)
+    n_iters = n_effective - 1
+    state_ptr: Mut = states
+    data_ptr: Mut = data + (n_effective - 2) * DIGEST_LEN
+    for _ in dynamic_unroll(0, n_iters, n_effective_bits):
+        new_state = state_ptr + DIGEST_LEN
+        poseidon16(state_ptr, data_ptr, new_state)
+        state_ptr = new_state
+        data_ptr = data_ptr - DIGEST_LEN
+    return state_ptr
+
+
 @inline
 def slice_hash(data, num_chunks):
     states = Array((num_chunks - 1) * DIGEST_LEN)
@@ -242,6 +261,45 @@ def hash_and_verify_merkle_hint(leaf_position_nibbles, root, height, num_chunks)
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_merkle(leaf_data, num_chunks * DIGEST_LEN)
     leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
+
+    # Hint and verify merkle path (processing 4 levels per nibble)
+    merkle_path = Array(height * DIGEST_LEN)
+    hint_merkle(merkle_path, height * DIGEST_LEN)
+
+    states = Array((div_ceil(height, 4) - 1) * DIGEST_LEN)
+
+    # First full nibble: leaf_hash -> states[0]
+    match_range(leaf_position_nibbles[0], range(0, 16),
+        lambda b: whir_do_4_merkle_levels(b, leaf_hash, merkle_path, states))
+
+    # Middle nibble chunks: states[k-1] -> states[k]
+    for k in unroll(1, div_ceil(height, 4) - 1):
+        match_range(leaf_position_nibbles[k], range(0, 16),
+            lambda b: whir_do_4_merkle_levels(b, states + (k - 1) * DIGEST_LEN, merkle_path + 4 * k * DIGEST_LEN, states + k * DIGEST_LEN))
+
+    # Last chunk -> root
+    if height % 4 == 0:
+        match_range(leaf_position_nibbles[div_ceil(height, 4) - 1], range(0, 16),
+            lambda b: whir_do_4_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * (div_ceil(height, 4) - 1) * DIGEST_LEN, root))
+    elif height % 4 == 1:
+        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
+            lambda b: whir_do_1_merkle_level(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+    elif height % 4 == 2:
+        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
+            lambda b: whir_do_2_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+    elif height % 4 == 3:
+        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
+            lambda b: whir_do_3_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+
+    return leaf_data
+
+
+@inline
+def hash_and_verify_merkle_hint_with_initial_state(leaf_position_nibbles, root, height, num_chunks, initial_state, n_effective_chunks, n_effective_bits):
+    # Hint and hash leaf (hint full data for dot product, but only hash effective chunks)
+    leaf_data = Array(num_chunks * DIGEST_LEN)
+    hint_merkle(leaf_data, num_chunks * DIGEST_LEN)
+    leaf_hash = slice_hash_rtl_with_initial_state(initial_state, leaf_data, n_effective_chunks, n_effective_bits)
 
     # Hint and verify merkle path (processing 4 levels per nibble)
     merkle_path = Array(height * DIGEST_LEN)

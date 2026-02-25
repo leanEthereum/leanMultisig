@@ -378,14 +378,21 @@ pub fn aggregate(
     let xmss_poseidons_16_precomputed = precompute_poseidons(&raw_xmss, message);
 
     // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
-    // Each opening produces two entries: leaf_data, then the flattened path.
+    // Each child proof's openings are preceded by an initial-state hint (9 FE)
+    // for the zero-suffix optimization on the first WHIR round.
     let merkle_paths: Vec<Vec<F>> = child_raw_proofs
         .iter()
-        .flat_map(|p| p.merkle_openings.iter())
-        .flat_map(|o| {
-            let leaf = o.leaf_data.clone();
-            let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
-            [leaf, path]
+        .flat_map(|p| {
+            let mut entries: Vec<Vec<F>> = Vec::new();
+            // Insert precomputed zero-suffix initial state hint before first opening
+            if let Some(first_opening) = p.merkle_openings.first() {
+                entries.push(compute_initial_state_hint(&first_opening.leaf_data));
+            }
+            for o in &p.merkle_openings {
+                entries.push(o.leaf_data.clone());
+                entries.push(o.path.iter().flat_map(|d| d.iter().copied()).collect());
+            }
+            entries
         })
         .collect();
 
@@ -425,6 +432,41 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         running_hash = poseidon16_compress_pair(running_hash, claim_hash);
     }
     running_hash
+}
+
+/// Compute the initial-state hint for the zero-suffix Merkle leaf optimization.
+/// Returns a Vec of DIGEST_LEN + 1 field elements: [capacity_state..., n_effective_chunks].
+/// When there are >= 2 trailing zero rate-chunks in the leaf data, the capacity state is
+/// precomputed from absorbing those zero chunks. The recursive verifier can then skip
+/// hashing those zero chunks. When there are < 2 trailing zero chunks, the hint signals
+/// "no optimization" by setting n_effective = n_total_chunks.
+fn compute_initial_state_hint(first_leaf_data: &[F]) -> Vec<F> {
+    let rate = DIGEST_LEN;
+    let n_chunks = first_leaf_data.len() / rate;
+
+    // Count trailing zero rate-chunks
+    let mut n_zero_chunks = 0;
+    for i in (0..n_chunks).rev() {
+        let chunk = &first_leaf_data[i * rate..(i + 1) * rate];
+        if chunk.iter().all(|&x| x == F::ZERO) {
+            n_zero_chunks += 1;
+        } else {
+            break;
+        }
+    }
+
+    let n_effective = n_chunks - n_zero_chunks;
+    let mut hint = Vec::with_capacity(rate + 1);
+
+    if n_zero_chunks >= 2 {
+        let perm = default_koalabear_poseidon2_16();
+        let state: [F; 16] = precompute_zero_suffix_state::<F, _, 16, 8, 8>(&perm, n_zero_chunks);
+        hint.extend_from_slice(&state[..rate]);
+    } else {
+        hint.extend(std::iter::repeat_n(F::ZERO, rate));
+    }
+    hint.push(F::from_usize(n_effective));
+    hint
 }
 
 #[instrument(skip_all)]

@@ -228,6 +228,47 @@ def decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height: 
     return
 
 
+@inline
+def decompose_and_verify_merkle_batch_initial_state(
+    num_queries, sampled, root, height, num_chunks, initial_state, n_effective_chunks,
+    circle_values, merkle_leaves):
+    debug_assert(height < 25)
+    match_range(height, range(10, 25), lambda h:
+        decompose_and_verify_merkle_batch_initial_state_h(
+            num_queries, sampled, root, h, num_chunks, initial_state, n_effective_chunks,
+            circle_values, merkle_leaves))
+    return
+
+
+def decompose_and_verify_merkle_batch_initial_state_h(
+    num_queries, sampled, root, height: Const, num_chunks, initial_state, n_effective_chunks,
+    circle_values, merkle_leaves):
+    if num_chunks == 16:
+        decompose_and_verify_merkle_batch_initial_state_c(
+            num_queries, sampled, root, height, 16, initial_state, n_effective_chunks,
+            circle_values, merkle_leaves)
+        return
+    if num_chunks == 8:
+        decompose_and_verify_merkle_batch_initial_state_c(
+            num_queries, sampled, root, height, 8, initial_state, n_effective_chunks,
+            circle_values, merkle_leaves)
+        return
+    # Fallback: ignore initial state, use original dispatch path
+    decompose_and_verify_merkle_batch_with_height(
+        num_queries, sampled, root, height, num_chunks, circle_values, merkle_leaves)
+    return
+
+
+def decompose_and_verify_merkle_batch_initial_state_c(
+    num_queries, sampled, root, height: Const, num_chunks: Const, initial_state, n_effective_chunks,
+    circle_values, merkle_leaves):
+    for i in range(0, num_queries):
+        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], height)
+        merkle_leaves[i] = hash_and_verify_merkle_hint_with_initial_state(
+            nibbles, root, height, num_chunks, initial_state, n_effective_chunks, log2_ceil(num_chunks))
+    return
+
+
 def sample_stir_indexes_and_fold(
     fs: Mut,
     num_queries,
@@ -251,13 +292,31 @@ def sample_stir_indexes_and_fold(
     # the number of chunk of 8 field elements per merkle leaf opened
     if merkle_leaves_in_basefield == 1:
         n_chunks_per_answer = two_pow_folding_factor
+
+        # Read precomputed zero-suffix initial state hint (8 FE capacity + 1 FE n_effective)
+        initial_state_hint = Array(DIGEST_LEN + 1)
+        hint_merkle(initial_state_hint, DIGEST_LEN + 1)
+        n_effective_chunks = initial_state_hint[DIGEST_LEN]
+
+        num_chunks = n_chunks_per_answer / DIGEST_LEN
+        if n_effective_chunks != num_chunks:
+            decompose_and_verify_merkle_batch_initial_state(
+                num_queries, sampled, prev_root, folded_domain_size,
+                num_chunks, initial_state_hint, n_effective_chunks,
+                circle_values, merkle_leaves,
+            )
+        else:
+            decompose_and_verify_merkle_batch(
+                num_queries, sampled, prev_root, folded_domain_size,
+                num_chunks, circle_values, merkle_leaves,
+            )
     else:
         n_chunks_per_answer = two_pow_folding_factor * DIM
 
-    decompose_and_verify_merkle_batch(
-        num_queries, sampled, prev_root, folded_domain_size,
-        n_chunks_per_answer / DIGEST_LEN, circle_values, merkle_leaves,
-    )
+        decompose_and_verify_merkle_batch(
+            num_queries, sampled, prev_root, folded_domain_size,
+            n_chunks_per_answer / DIGEST_LEN, circle_values, merkle_leaves,
+        )
 
     fs = fs_finalize_sample(fs, total_chunks)
 
