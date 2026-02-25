@@ -10,7 +10,7 @@ use xmss::{XmssPublicKey, XmssSignature};
 use utils::ansi as s;
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
-use crate::{AggregatedXMSS, AggregationTopology, aggregate, count_signers};
+use crate::{AggregatedXMSS, AggregationTopology, count_signers, xmss_aggregate};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
@@ -256,7 +256,7 @@ fn build_aggregation(
     }
 
     let time = Instant::now();
-    let result = aggregate(&child_results, raw_xmss, &message, slot, topology.log_inv_rate);
+    let result = xmss_aggregate(&child_results, raw_xmss, &message, slot, topology.log_inv_rate);
     let elapsed = time.elapsed();
 
     if tracing {
@@ -333,7 +333,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
 
     // Verify root proof
     let message = message_for_benchmark();
-    crate::verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT).unwrap();
+    crate::xmss_verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT).unwrap();
     time
 }
 

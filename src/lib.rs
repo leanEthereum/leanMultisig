@@ -1,7 +1,7 @@
 use backend::*;
 
 pub use backend::ProofError;
-pub use rec_aggregation::{AggregatedXMSS, AggregationTopology, aggregate, verify_aggregation};
+pub use rec_aggregation::{AggregatedXMSS, AggregationTopology, xmss_aggregate, xmss_verify_aggregation};
 pub use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSecretKey, XmssSignature, xmss_key_gen, xmss_sign, xmss_verify};
 
 pub type F = KoalaBear;
@@ -49,18 +49,18 @@ mod tests {
         let pub_keys_and_sigs_a: Vec<_> = (0..3)
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
-        let aggregated_a = aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate);
+        let aggregated_a = xmss_aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate);
 
         let pub_keys_and_sigs_b: Vec<_> = (3..5)
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
-        let aggregated_b = aggregate(&[], pub_keys_and_sigs_b, &message, slot, log_inv_rate);
+        let aggregated_b = xmss_aggregate(&[], pub_keys_and_sigs_b, &message, slot, log_inv_rate);
 
         let pub_keys_and_sigs_c: Vec<_> = (5..6)
             .map(|i| reconstruct_signer_for_benchmark(i, find_randomness_for_benchmark(i)))
             .collect();
 
-        let aggregated_final = aggregate(
+        let aggregated_final = xmss_aggregate(
             &[aggregated_a, aggregated_b],
             pub_keys_and_sigs_c,
             &message,
@@ -72,6 +72,6 @@ mod tests {
         println!("Serialized aggregated final: {} KiB", serialized_final.len() / 1024);
         let deserialized_final = AggregatedXMSS::deserialize(&serialized_final).unwrap();
 
-        verify_aggregation(&deserialized_final, &message, slot).unwrap();
+        xmss_verify_aggregation(&deserialized_final, &message, slot).unwrap();
     }
 }

@@ -142,7 +142,7 @@ impl AggregatedXMSS {
     }
 }
 
-pub fn verify_aggregation(
+pub fn xmss_verify_aggregation(
     agg_sig: &AggregatedXMSS,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
@@ -161,7 +161,7 @@ pub fn verify_aggregation(
 
 /// panics if one of the sub-proof (children) is invalid
 #[instrument(skip_all)]
-pub fn aggregate(
+pub fn xmss_aggregate(
     children: &[AggregatedXMSS],
     mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
     message: &[F; MESSAGE_LEN_FE],
