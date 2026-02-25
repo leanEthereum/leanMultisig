@@ -15,24 +15,19 @@ impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for ProductComputation 
         2
     }
     #[inline(always)]
-    fn eval_base(&self, _point: &[PF<EF>], _: &[EF], _: &Self::ExtraData) -> EF {
+    fn eval_base(&self, _point: &[PF<EF>], _: &Self::ExtraData) -> EF {
         unreachable!()
     }
     #[inline(always)]
-    fn eval_extension(&self, point: &[EF], _: &[EF], _: &Self::ExtraData) -> EF {
+    fn eval_extension(&self, point: &[EF], _: &Self::ExtraData) -> EF {
         point[0] * point[1]
     }
     #[inline(always)]
-    fn eval_packed_base(&self, point: &[PFPacking<EF>], _: &[EFPacking<EF>], _: &Self::ExtraData) -> EFPacking<EF> {
+    fn eval_packed_base(&self, point: &[PFPacking<EF>], _: &Self::ExtraData) -> EFPacking<EF> {
         EFPacking::<EF>::from(point[0] * point[1])
     }
     #[inline(always)]
-    fn eval_packed_extension(
-        &self,
-        point: &[EFPacking<EF>],
-        _: &[EFPacking<EF>],
-        _: &Self::ExtraData,
-    ) -> EFPacking<EF> {
+    fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &Self::ExtraData) -> EFPacking<EF> {
         point[0] * point[1]
     }
 }
@@ -104,9 +99,8 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     let r2: EF = prover_state.sample();
     sum = second_sumcheck_poly.evaluate(r2);
 
-    let (mut challenges, folds, _, sum) = sumcheck_prove_many_rounds(
+    let (mut challenges, folds, sum) = sumcheck_prove_many_rounds(
         folded,
-        None,
         Some(r2),
         &ProductComputation {},
         &vec![],

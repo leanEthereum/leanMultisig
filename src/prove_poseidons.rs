@@ -46,13 +46,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
 
     let air = Poseidon16Precompile::<false>;
 
-    check_air_validity(
-        &air,
-        &ExtraDataForBuses::default(),
-        &collect_refs(&trace),
-        &[] as &[&[EF]],
-    )
-    .unwrap();
+    check_air_validity::<_, EF>(&air, &ExtraDataForBuses::default(), &collect_refs(&trace)).unwrap();
 
     let mut prover_state = build_prover_state();
 
@@ -76,21 +70,13 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             ..Default::default()
         };
 
-        let air_claims = prove_air::<EF, _>(
-            &mut prover_state,
-            &air,
-            extra_data,
-            &collect_refs(&trace),
-            &[] as &[&[EF]],
-            None,
-            true,
-        );
+        let air_claims = prove_air::<EF, _>(&mut prover_state, &air, extra_data, &collect_refs(&trace), None, true);
         assert!(air_claims.down_point.is_none());
-        assert_eq!(air_claims.evals_f.len(), air.n_columns_air());
+        assert_eq!(air_claims.evals.len(), air.n_columns());
 
         let betas = prover_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
         let packed_point = MultilinearPoint([betas.clone(), air_claims.point.0].concat());
-        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals_f).evaluate(&MultilinearPoint(betas));
+        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals).evaluate(&MultilinearPoint(betas));
 
         whir_config.prove(
             &mut prover_state,
@@ -120,7 +106,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
 
         let betas = verifier_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
         let packed_point = MultilinearPoint([betas.clone(), air_claims.point.0].concat());
-        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals_f).evaluate(&MultilinearPoint(betas));
+        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals).evaluate(&MultilinearPoint(betas));
 
         whir_config
             .verify(

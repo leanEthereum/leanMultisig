@@ -33,7 +33,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         Table::poseidon16()
     }
 
-    fn lookups_f(&self) -> Vec<LookupIntoMemory> {
+    fn lookups(&self) -> Vec<LookupIntoMemory> {
         vec![
             LookupIntoMemory {
                 index: POSEIDON_16_COL_A,
@@ -51,10 +51,6 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         ]
     }
 
-    fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        vec![]
-    }
-
     fn bus(&self) -> Bus {
         Bus {
             direction: BusDirection::Pull,
@@ -68,12 +64,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         }
     }
 
-    fn padding_row_f(&self) -> Vec<F> {
+    fn padding_row(&self) -> Vec<F> {
         default_poseidon_row()
-    }
-
-    fn padding_row_ef(&self) -> Vec<EF> {
-        vec![]
     }
 
     #[inline(always)]
@@ -123,19 +115,13 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
 
 impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
-    fn n_columns_f_air(&self) -> usize {
+    fn n_columns(&self) -> usize {
         num_cols_poseidon_16()
-    }
-    fn n_columns_ef_air(&self) -> usize {
-        0
     }
     fn degree_air(&self) -> usize {
         9
     }
-    fn down_column_indexes_f(&self) -> Vec<usize> {
-        vec![]
-    }
-    fn down_column_indexes_ef(&self) -> Vec<usize> {
+    fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
@@ -143,7 +129,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon2Cols<AB::F> = {
-            let up = builder.up_f();
+            let up = builder.up();
             let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon2Cols<AB::F>>() };
             debug_assert!(prefix.is_empty(), "Alignment should match");
             debug_assert!(suffix.is_empty(), "Alignment should match");

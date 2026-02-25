@@ -568,61 +568,57 @@ Each extension field operation occupies $N$ consecutive rows (one row per elemen
 \vspace{3mm}
 
 \noindent\resizebox{\textwidth}{!}{%
-\begin{tabular}{cccccccccc|cccc|c}
+\begin{tabular}{ccccccccccccccc}
 \toprule
-\multicolumn{10}{c|}{Base field columns ($\Fp$)} & \multicolumn{4}{c|}{Extension field columns ($\Fq$)} & \\
-\texttt{start} & $\texttt{f}_\texttt{add}$ & $\texttt{f}_\texttt{mul}$ & $\texttt{f}_\texttt{peq}$ & \texttt{len} & $\text{idx}_A$ & $\text{idx}_B$ & $\text{idx}_R$ & \texttt{is\_be} & $v_{A,\Fp}$ & $v_{A,\Fq}$ & $v_B$ & \texttt{comp} & \texttt{res} & \texttt{aux} \\
+\multicolumn{14}{c}{29 base field columns (AIR)} & \\
+\texttt{is\_be} & \texttt{start} & $\texttt{f}_\texttt{add}$ & $\texttt{f}_\texttt{mul}$ & $\texttt{f}_\texttt{poly\_eq}$ & \texttt{len} & $\text{idx}_A$ & $\text{idx}_B$ & $\text{idx}_R$ & $v_A$ \tiny{(5 cols)} & $v_B$ \tiny{(5 cols)} & \texttt{res} \tiny{(5 cols)} & \texttt{comp} \tiny{(5 cols)} & & \texttt{aux} \\
 \midrule
 \multicolumn{15}{l}{\textit{MUL, BE, $N\!=\!4$ ($\nu_A\!=\!90$, $\nu_B\!=\!211$, $\nu_C\!=\!74$): \quad $\texttt{res} = \sum_{i=0}^{3} \textbf{m}[90\!+\!i] \cdot \textbf{m}[211\!+\!5i..216\!+\!5i]$}} \\[2pt]
-1 & 0 & 1 & 0 & 4 & 90  & 211 & 74 & 1 & $\textbf{m}[90]$  & $\textbf{m}[90..95]$  & $\textbf{m}[211..216]$ & $e_0\!+\!e_1\!+\!e_2\!+\!e_3$ & $\textbf{m}[74..79]$ & 138 \\
-0 & 0 & 1 & 0 & 3 & 91  & 216 & 74 & 1 & $\textbf{m}[91]$  & $\textbf{m}[91..96]$  & $\textbf{m}[216..221]$ & $e_1\!+\!e_2\!+\!e_3$       & $\textbf{m}[74..79]$ & 106 \\
-0 & 0 & 1 & 0 & 2 & 92  & 221 & 74 & 1 & $\textbf{m}[92]$  & $\textbf{m}[92..97]$  & $\textbf{m}[221..226]$ & $e_2\!+\!e_3$               & $\textbf{m}[74..79]$ & 74 \\
-0 & 0 & 1 & 0 & 1 & 93  & 226 & 74 & 1 & $\textbf{m}[93]$  & $\textbf{m}[93..98]$  & $\textbf{m}[226..231]$ & $e_3$                       & $\textbf{m}[74..79]$ & 42  \\
+1 & 1 & 0 & 1 & 0 & 4 & 90  & 211 & 74 & $\textbf{m}[90..95]$  & $\textbf{m}[211..216]$ & $\textbf{m}[74..79]$ & $e_0\!+\!e_1\!+\!e_2\!+\!e_3$ & & 138 \\
+1 & 0 & 0 & 1 & 0 & 3 & 91  & 216 & 74 & $\textbf{m}[91..96]$  & $\textbf{m}[216..221]$ & $\textbf{m}[74..79]$ & $e_1\!+\!e_2\!+\!e_3$       & & 106 \\
+1 & 0 & 0 & 1 & 0 & 2 & 92  & 221 & 74 & $\textbf{m}[92..97]$  & $\textbf{m}[221..226]$ & $\textbf{m}[74..79]$ & $e_2\!+\!e_3$               & & 74 \\
+1 & 0 & 0 & 1 & 0 & 1 & 93  & 226 & 74 & $\textbf{m}[93..98]$  & $\textbf{m}[226..231]$ & $\textbf{m}[74..79]$ & $e_3$                       & & 42  \\
 \midrule
 \multicolumn{15}{l}{\textit{ADD, EE, $N\!=\!3$ ($\nu_A\!=\!400$, $\nu_B\!=\!500$, $\nu_C\!=\!300$): \quad $\texttt{res} = \sum_{i=0}^{2} (\textbf{m}[400\!+\!5i..405\!+\!5i] + \textbf{m}[500\!+\!5i..505\!+\!5i])$}} \\[2pt]
-1 & 1 & 0 & 0 & 3 & 400 & 500 & 300 & 0 & $\textbf{m}[400]$ & $\textbf{m}[400..405]$ & $\textbf{m}[500..505]$ & $e_0\!+\!e_1\!+\!e_2$ & $\textbf{m}[300..305]$ & 100 \\
-0 & 1 & 0 & 0 & 2 & 405 & 505 & 300 & 0 & $\textbf{m}[405]$ & $\textbf{m}[405..410]$ & $\textbf{m}[505..510]$ & $e_1\!+\!e_2$         & $\textbf{m}[300..305]$ & 68 \\
-0 & 1 & 0 & 0 & 1 & 410 & 510 & 300 & 0 & $\textbf{m}[410]$ & $\textbf{m}[410..415]$ & $\textbf{m}[510..515]$ & $e_2$                 & $\textbf{m}[300..305]$ & 36 \\
+0 & 1 & 1 & 0 & 0 & 3 & 400 & 500 & 300 & $\textbf{m}[400..405]$ & $\textbf{m}[500..505]$ & $\textbf{m}[300..305]$ & $e_0\!+\!e_1\!+\!e_2$ & & 100 \\
+0 & 0 & 1 & 0 & 0 & 2 & 405 & 505 & 300 & $\textbf{m}[405..410]$ & $\textbf{m}[505..510]$ & $\textbf{m}[300..305]$ & $e_1\!+\!e_2$         & & 68 \\
+0 & 0 & 1 & 0 & 0 & 1 & 410 & 510 & 300 & $\textbf{m}[410..415]$ & $\textbf{m}[510..515]$ & $\textbf{m}[300..305]$ & $e_2$                 & & 36 \\
 \midrule
 \multicolumn{15}{l}{\textit{POLY\_EQ, EE, $N\!=\!3$ ($\nu_A\!=\!600$, $\nu_B\!=\!700$, $\nu_C\!=\!800$): \quad $\texttt{res} = \prod_{i=0}^{2} [a_i b_i + (1\!-\!a_i)(1\!-\!b_i)]$}} \\[2pt]
-1 & 0 & 0 & 1 & 3 & 600 & 700 & 800 & 0 & $\textbf{m}[600]$ & $\textbf{m}[600..605]$ & $\textbf{m}[700..705]$ & $e_0 \cdot e_1 \cdot e_2$ & $\textbf{m}[800..805]$ & 112 \\
-0 & 0 & 0 & 1 & 2 & 605 & 705 & 800 & 0 & $\textbf{m}[605]$ & $\textbf{m}[605..610]$ & $\textbf{m}[705..710]$ & $e_1 \cdot e_2$           & $\textbf{m}[800..805]$ & 80 \\
-0 & 0 & 0 & 1 & 1 & 610 & 710 & 800 & 0 & $\textbf{m}[610]$ & $\textbf{m}[610..615]$ & $\textbf{m}[710..715]$ & $e_2$                     & $\textbf{m}[800..805]$ & 48 \\
+0 & 1 & 0 & 0 & 1 & 3 & 600 & 700 & 800 & $\textbf{m}[600..605]$ & $\textbf{m}[700..705]$ & $\textbf{m}[800..805]$ & $e_0 \cdot e_1 \cdot e_2$ & & 112 \\
+0 & 0 & 0 & 0 & 1 & 2 & 605 & 705 & 800 & $\textbf{m}[605..610]$ & $\textbf{m}[705..710]$ & $\textbf{m}[800..805]$ & $e_1 \cdot e_2$           & & 80 \\
+0 & 0 & 0 & 0 & 1 & 1 & 610 & 710 & 800 & $\textbf{m}[610..615]$ & $\textbf{m}[710..715]$ & $\textbf{m}[800..805]$ & $e_2$                     & & 48 \\
 \midrule
 \multicolumn{15}{l}{\textit{Padding row}} \\[2pt]
-1 & 0 & 0 & 0 & 1 & 0   & 0   & 0  & 0 & $\textbf{m}[0]$ & $\textbf{m}[0..5]$ & $\textbf{m}[0..5]$ & 0 & $\textbf{m}[0..5]$ & 32 \\
+0 & 1 & 0 & 0 & 0 & 1 & 0   & 0   & 0   & $\textbf{m}[0..5]$ & $\textbf{m}[0..5]$ & $\textbf{m}[0..5]$ & 0 & & 32 \\
 \bottomrule
 \end{tabular}%
 }
 
 \vspace{3mm}
 
-Notes: $e_i$ denotes the per-element result (virtual, not a committed column). Both lookups $v_{A,\Fp} = \textbf{m}[\text{idx}_A]$ and $v_{A,\Fq} = \textbf{m}[\text{idx}_A..+5]$ are performed unconditionally; in BE mode only $v_{A,\Fp}$ is used, in EE mode only $v_{A,\Fq}$ is used. \texttt{aux} is a non-committed bus fingerprinting column, equal to $2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot \texttt{len}$ on each row. The bus selector is the virtual column $\texttt{activation\_flag} = \texttt{start} \cdot \texttt{active}$ (not shown; equals \texttt{start} on active rows, 0 on padding).
+Notes: $e_i$ denotes the per-element result (virtual, not a committed column). $v_A$ stores 5 base-field coordinates $\textbf{m}[\text{idx}_A..\text{idx}_A\!+\!5]$; in BE mode only the first coordinate is used, in EE mode all 5 are used. \texttt{aux} is a non-committed bus fingerprinting column, equal to $2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot \texttt{len}$ on each row. The bus selector is the virtual column $\texttt{activation\_flag} = \texttt{start} \cdot \texttt{active}$ (not shown; equals \texttt{start} on active rows, 0 on padding).
 
 \subsubsection{Columns}
 
-\fbox{10 base field columns + 4 extension field columns = 30 $\Fp$-columns.}
+\fbox{29 columns.}
 
 \vspace{3mm}
 
-\textbf{Base field columns ($\Fp$, 10 AIR + 2 non-AIR):}
+All columns are base field ($\Fp$) columns. Extension field values are represented as 5 consecutive base field columns.
+
+\vspace{2mm}
+
 \begin{itemize}
-    \item \texttt{is\_be} $\in \{0,1\}$: mode flag (1: base $\times$ extension, 0: xextension $\times$ extension)
+    \item \texttt{is\_be} $\in \{0,1\}$: mode flag (1: base $\times$ extension, 0: extension $\times$ extension)
     \item \texttt{start} $\in \{0,1\}$: group boundary (1 on first row of each group and on padding, 0 elsewhere)
     \item $\texttt{flag\_add}$, $\texttt{flag\_mul}$, $\texttt{flag\_poly\_eq}$ $\in \{0,1\}$: operation selectors (exactly one is 1 on active rows, all 0 on padding)
     \item \texttt{len}: countdown from $N$ to 1 within each group (1 on padding)
-    \item $\text{idx}_A$: memory address (increments by 1 in BE, by 5 in EE within a group)
-    \item $\text{idx}_B$: memory address (increments by 5 within a group)
-    \item $\text{idx}_R$: memory address for the result (constant within a group)
-    \item $v_{A,\Fp}$: base field value $\textbf{m}[\text{idx}_A]$ (used in BE mode)
-\end{itemize}
-
-\textbf{Extension field columns ($\Fq$, 4 AIR):}
-\begin{itemize}
-    \item $v_{A,\Fq}$: extension field value $\textbf{m}[\text{idx}_A .. \text{idx}_A + 5]$ (used in EE mode)
-    \item $v_B$: extension field value $\textbf{m}[\text{idx}_B .. \text{idx}_B + 5]$
-    \item \texttt{res}: result value $\textbf{m}[\text{idx}_R .. \text{idx}_R + 5]$ (same on every row of a group)
-    \item \texttt{computation}: running accumulation; equals \texttt{res} on \texttt{start} rows
+    \item $\text{idx}_A$, $\text{idx}_B$, $\text{idx}_R$: memory addresses
+    \item $v_A$ (5 cols). In BE mode only the first coordinate is used; in EE mode all 5.
+    \item $v_B$ (5 cols)
+    \item \texttt{res} (5 cols) (same on every row of a group)
+    \item \texttt{comp} (5 cols): running accumulation; equals \texttt{res} on \texttt{start} rows
 \end{itemize}
 
 \textbf{Non-committed columns} (used for bus interaction):
@@ -633,8 +629,7 @@ Notes: $e_i$ denotes the per-element result (virtual, not a committed column). B
 
 \subsubsection{Memory lookups}
 \begin{itemize}
-    \item $v_{A,\Fp} = \textbf{m}[\text{idx}_A]$ \hfill
-    \item $v_{A,\Fq} = \textbf{m}[\text{idx}_A..+5]$ \hfill
+    \item $v_A = \textbf{m}[\text{idx}_A..+5]$
     \item $v_B = \textbf{m}[\text{idx}_B..+5]$
     \item $\texttt{res} = \textbf{m}[\text{idx}_R..+5]$
 \end{itemize}
@@ -652,8 +647,7 @@ The $\texttt{aux}$ encoding ensures both the mode and the length are bound to th
 
 \vspace{2mm}
 
-\textbf{Value selection:} Define:
-$$v_A = \texttt{is\_be} \cdot v_{A,\Fp} + (1 - \texttt{is\_be}) \cdot v_{A,\Fq} \;\in \Fq$$
+\textbf{Value selection:} In BE mode, $v_A$ is treated as a base field element (only the first of its 5 coordinates matters); in EE mode all 5 coordinates are used. Formally, for $k = 1, \dots, 4$: $v_A[k]$ is multiplied by $(1 - \texttt{is\_be})$ in the constraints, so only $v_A[0]$ survives in BE mode.
 
 Let $\texttt{active} = \texttt{flag\_add} + \texttt{flag\_mul} + \texttt{flag\_poly\_eq}$ (1 on active rows, 0 on padding), and define the per-element results (virtual):
 \begin{align*}

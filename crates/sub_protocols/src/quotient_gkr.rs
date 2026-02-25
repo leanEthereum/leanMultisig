@@ -74,15 +74,17 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
 
     let alpha = prover_state.sample();
 
+    assert_eq!(claims.len(), 2);
+    let claims_vec: Vec<EF> = claims.to_vec();
+    let sum = claims_vec[0] + claims_vec[1] * alpha;
     let (mut next_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
         prev_numerators_and_denominators_split,
-        None,
         &GKRQuotientComputation {},
         &alpha.powers().take(2).collect(),
         Some((claim_point.0.clone(), None)),
         false,
         prover_state,
-        dot_product(claims.iter().copied(), alpha.powers()),
+        sum,
         false,
     );
 
@@ -140,7 +142,6 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
             * GKRQuotientComputation::eval_extension(
                 &Default::default(),
                 &inner_evals,
-                &[],
                 &alpha.powers().take(2).collect(),
             )
     {

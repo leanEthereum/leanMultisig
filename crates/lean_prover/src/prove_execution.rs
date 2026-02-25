@@ -74,16 +74,9 @@ pub fn prove_execution(
     let mut memory_acc = F::zero_vec(memory.len());
     info_span!("Building memory access count").in_scope(|| {
         for (table, trace) in &traces {
-            for lookup in table.lookups_f() {
+            for lookup in table.lookups() {
                 for i in &trace.base[lookup.index] {
                     for j in 0..lookup.values.len() {
-                        memory_acc[i.to_usize() + j] += F::ONE;
-                    }
-                }
-            }
-            for lookup in table.lookups_ef() {
-                for i in &trace.base[lookup.index] {
-                    for j in 0..DIMENSION {
                         memory_acc[i.to_usize() + j] += F::ONE;
                     }
                 }
@@ -246,10 +239,9 @@ fn prove_bus_and_air(
                     prover_state,
                     $t,
                     extra_data,
-                    &trace.base[..$t.n_columns_f_air()],
-                    &trace.ext[..$t.n_columns_ef_air()],
+                    &trace.base[..$t.n_columns()],
                     Some(bus_virtual_statement),
-                    $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
+                    $t.n_columns() + $t.n_down_columns() > 5, // heuristic
                 )
             };
         }
@@ -258,56 +250,17 @@ fn prove_bus_and_air(
 
     let mut res = vec![];
     if let Some(down_point) = air_claims.down_point {
-        assert_eq!(air_claims.evals_f_on_down_columns.len(), table.n_down_columns_f());
+        assert_eq!(air_claims.evals_on_down_columns.len(), table.n_down_columns());
         let mut down_evals = BTreeMap::new();
-        for (value_f, col_index) in air_claims
-            .evals_f_on_down_columns
-            .iter()
-            .zip(table.down_column_indexes_f())
-        {
+        for (value_f, col_index) in air_claims.evals_on_down_columns.iter().zip(table.down_column_indexes()) {
             down_evals.insert(col_index, *value_f);
         }
 
-        assert_eq!(air_claims.evals_ef_on_down_columns.len(), table.n_down_columns_ef());
-        for (col_index, value) in table
-            .down_column_indexes_ef()
-            .into_iter()
-            .zip(air_claims.evals_ef_on_down_columns)
-        {
-            let transposed = transpose_slice_to_basis_coefficients::<F, EF>(&trace.ext[col_index])
-                .iter()
-                .map(|base_col| base_col.evaluate(&down_point))
-                .collect::<Vec<_>>();
-            assert_eq!(dot_product_with_base(&transposed), value); // sanity check
-            prover_state.add_extension_scalars(&transposed);
-            for (j, v) in transposed.iter().enumerate() {
-                let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-                down_evals.insert(virtual_index, *v);
-            }
-        }
         res.push((down_point, down_evals));
     }
 
-    assert_eq!(air_claims.evals_f.len(), table.n_columns_f_air());
-    assert_eq!(air_claims.evals_ef.len(), table.n_columns_ef_air());
-    let mut evals = air_claims
-        .evals_f
-        .iter()
-        .copied()
-        .enumerate()
-        .collect::<BTreeMap<_, _>>();
-    for (col_index, (value, col)) in air_claims.evals_ef.into_iter().zip(&trace.ext).enumerate() {
-        let transposed = transpose_slice_to_basis_coefficients::<F, EF>(col)
-            .iter()
-            .map(|base_col| base_col.evaluate(&air_claims.point))
-            .collect::<Vec<_>>();
-        prover_state.add_extension_scalars(&transposed);
-        assert_eq!(dot_product_with_base(&transposed), value); // sanity check
-        for (j, v) in transposed.into_iter().enumerate() {
-            let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-            evals.insert(virtual_index, v);
-        }
-    }
+    assert_eq!(air_claims.evals.len(), table.n_columns());
+    let evals = air_claims.evals.iter().copied().enumerate().collect::<BTreeMap<_, _>>();
 
     res.push((air_claims.point.clone(), evals));
 

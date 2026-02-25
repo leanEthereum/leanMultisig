@@ -607,15 +607,6 @@ def next_mle(x, y, n):
     return result
 
 
-@inline
-def dot_product_with_the_base_vectors(slice):
-    # slice: pointer to DIM extension field elements
-    # cf constants.rs: by convention, [10000] [01000] [00100] [00010] [00001] is hardcoded in memory, starting at ONE_EF_PTR
-    res = Array(DIM)
-    dot_product_ee(slice, ONE_EF_PTR, res, DIM)
-    return res
-
-
 def _verify_log2_small(n, partial_sums_24, log2: Const):
     # For log2 in [3, 23]: verify n has exactly log2 bits
     assert partial_sums_24[log2 - 1] == n

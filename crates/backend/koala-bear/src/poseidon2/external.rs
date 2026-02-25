@@ -196,14 +196,14 @@ impl<T, const WIDTH: usize> ExternalLayerConstants<T, WIDTH> {
     where
         StandardUniform: Distribution<[T; WIDTH]>,
     {
-        let half_f = external_round_number / 2;
+        let half = external_round_number / 2;
         assert_eq!(
-            2 * half_f,
+            2 * half,
             external_round_number,
             "The total number of external rounds should be even"
         );
-        let initial_constants = rng.sample_iter(StandardUniform).take(half_f).collect();
-        let terminal_constants = rng.sample_iter(StandardUniform).take(half_f).collect();
+        let initial_constants = rng.sample_iter(StandardUniform).take(half).collect();
+        let terminal_constants = rng.sample_iter(StandardUniform).take(half).collect();
 
         Self::new(initial_constants, terminal_constants)
     }

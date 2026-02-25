@@ -1,4 +1,4 @@
-use crate::{DIMENSION, EF, F, InstructionContext, RunnerError, Table};
+use crate::{EF, F, InstructionContext, RunnerError, Table};
 use backend::*;
 
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
@@ -13,12 +13,6 @@ pub struct LookupIntoMemory {
     pub index: ColIndex, // should be in base field columns
     /// For (i, col_index) in values.iter().enumerate(), For j in 0..num_rows, columns_f[col_index][j] = memory[index[j] + i]
     pub values: Vec<ColIndex>,
-}
-
-#[derive(Debug)]
-pub struct ExtensionFieldLookupIntoMemory {
-    pub index: ColIndex, // should be in base field columns
-    pub values: ColIndex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +46,6 @@ pub struct Bus {
 #[derive(Debug, Default)]
 pub struct TableTrace {
     pub base: Vec<Vec<F>>,
-    pub ext: Vec<Vec<EF>>,
     pub non_padded_n_rows: usize,
     pub log_n_rows: VarCount,
 }
@@ -60,8 +53,7 @@ pub struct TableTrace {
 impl TableTrace {
     pub fn new<A: TableT>(air: &A) -> Self {
         Self {
-            base: vec![Vec::new(); air.n_columns_f_total()],
-            ext: vec![Vec::new(); air.n_columns_ef_total()],
+            base: vec![Vec::new(); air.n_columns_total()],
             non_padded_n_rows: 0, // filled later
             log_n_rows: 0,        // filled later
         }
@@ -117,11 +109,9 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
 pub trait TableT: Air {
     fn name(&self) -> &'static str;
     fn table(&self) -> Table;
-    fn lookups_f(&self) -> Vec<LookupIntoMemory>;
-    fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory>;
+    fn lookups(&self) -> Vec<LookupIntoMemory>;
     fn bus(&self) -> Bus;
-    fn padding_row_f(&self) -> Vec<F>;
-    fn padding_row_ef(&self) -> Vec<EF>;
+    fn padding_row(&self) -> Vec<F>;
     fn execute(
         &self,
         arg_a: F,
@@ -132,13 +122,9 @@ pub trait TableT: Air {
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError>;
 
-    fn n_columns_f_total(&self) -> usize {
-        // by default, we assume all the columns are used in AIR
-        self.n_columns_f_air()
-    }
-    fn n_columns_ef_total(&self) -> usize {
-        // by default, we assume all the columns are used in AIR
-        self.n_columns_ef_air()
+    // number of columns committed + potentially some virtual columns (useful to keep in memory for logup)
+    fn n_columns_total(&self) -> usize {
+        self.n_columns()
     }
 
     fn is_execution_table(&self) -> bool {
@@ -146,32 +132,19 @@ pub trait TableT: Air {
     }
 
     fn n_committed_columns(&self) -> usize {
-        self.n_columns_ef_air() * DIMENSION + self.n_columns_f_air()
+        self.n_columns()
     }
 
-    fn lookup_index_columns_f<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
-        self.lookups_f()
+    fn lookup_index_columns<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
+        self.lookups()
             .iter()
             .map(|lookup| &trace.base[lookup.index][..])
             .collect()
     }
-    fn lookup_index_columns_ef<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
-        self.lookups_ef()
-            .iter()
-            .map(|lookup| &trace.base[lookup.index][..])
-            .collect()
-    }
-    fn lookup_f_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<Vec<&'a [F]>> {
+    fn lookup_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<Vec<&'a [F]>> {
         let mut cols = Vec::new();
-        for lookup in self.lookups_f() {
+        for lookup in self.lookups() {
             cols.push(lookup.values.iter().map(|&c| &trace.base[c][..]).collect());
-        }
-        cols
-    }
-    fn lookup_ef_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<&'a [EF]> {
-        let mut cols = Vec::new();
-        for lookup in self.lookups_ef() {
-            cols.push(&trace.ext[lookup.values][..]);
         }
         cols
     }

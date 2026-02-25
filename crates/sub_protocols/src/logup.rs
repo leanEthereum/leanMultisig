@@ -160,46 +160,30 @@ pub fn prove_generic_logup(
         offset += 1 << log_n_rows;
 
         // II] Lookup into memory
-        let mut value_columns_f = Vec::<Vec<_>>::new();
-        for cols_f in table.lookup_f_value_columns(trace) {
-            value_columns_f.push(cols_f.iter().map(|s| VecOrSlice::Slice(s)).collect());
-        }
-        let mut value_columns_ef = Vec::<Vec<_>>::new();
-        for col_ef in table.lookup_ef_value_columns(trace) {
-            value_columns_ef.push(
-                transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef)
-                    .into_iter()
-                    .map(VecOrSlice::Vec)
-                    .collect(),
-            );
-        }
-        for (index_columns, value_columns) in [
-            (table.lookup_index_columns_f(trace), &value_columns_f),
-            (table.lookup_index_columns_ef(trace), &value_columns_ef),
-        ] {
-            for (col_index, col_values) in index_columns.iter().zip(value_columns) {
-                numerators[offset..][..col_values.len() << log_n_rows]
-                    .par_iter_mut()
-                    .for_each(|num| {
-                        *num = EF::ONE;
-                    }); // TODO embedding overhead
-                denominators[offset..][..col_values.len() << log_n_rows]
-                    .par_chunks_exact_mut(1 << log_n_rows)
-                    .enumerate()
-                    .for_each(|(i, denom_chunk)| {
-                        let i_field = F::from_usize(i);
-                        denom_chunk.par_iter_mut().enumerate().for_each(|(j, denom)| {
-                            let index = col_index[j] + i_field;
-                            let mem_value = col_values[i].as_slice()[j];
-                            *denom = c - finger_print(
-                                F::from_usize(LOGUP_MEMORY_DOMAINSEP),
-                                &[mem_value, index],
-                                alphas_eq_poly,
-                            )
-                        });
+        let value_columns = table.lookup_value_columns(trace);
+        let index_columns = table.lookup_index_columns(trace);
+        for (col_index, col_values) in index_columns.iter().zip(&value_columns) {
+            numerators[offset..][..col_values.len() << log_n_rows]
+                .par_iter_mut()
+                .for_each(|num| {
+                    *num = EF::ONE;
+                }); // TODO embedding overhead
+            denominators[offset..][..col_values.len() << log_n_rows]
+                .par_chunks_exact_mut(1 << log_n_rows)
+                .enumerate()
+                .for_each(|(i, denom_chunk)| {
+                    let i_field = F::from_usize(i);
+                    denom_chunk.par_iter_mut().enumerate().for_each(|(j, denom)| {
+                        let index = col_index[j] + i_field;
+                        let mem_value = col_values[i][j];
+                        *denom = c - finger_print(
+                            F::from_usize(LOGUP_MEMORY_DOMAINSEP),
+                            &[mem_value, index],
+                            alphas_eq_poly,
+                        )
                     });
-                offset += col_values.len() << log_n_rows;
-            }
+                });
+            offset += col_values.len() << log_n_rows;
         }
     }
 
@@ -295,13 +279,13 @@ pub fn prove_generic_logup(
         bus_denominators_values.insert(*table, eval_on_data);
 
         // II] Lookup into memory
-        for lookup_f in table.lookups_f() {
-            let index_eval = trace.base[lookup_f.index].evaluate(&inner_point);
+        for lookup in table.lookups() {
+            let index_eval = trace.base[lookup.index].evaluate(&inner_point);
             prover_state.add_extension_scalar(index_eval);
-            assert!(!table_values.contains_key(&lookup_f.index));
-            table_values.insert(lookup_f.index, index_eval);
+            assert!(!table_values.contains_key(&lookup.index));
+            table_values.insert(lookup.index, index_eval);
 
-            for col_index in &lookup_f.values {
+            for col_index in &lookup.values {
                 let value_eval = trace.base[*col_index].evaluate(&inner_point);
                 prover_state.add_extension_scalar(value_eval);
                 assert!(!table_values.contains_key(col_index));
@@ -309,25 +293,6 @@ pub fn prove_generic_logup(
             }
         }
 
-        for lookup_ef in table.lookups_ef() {
-            let index_eval = trace.base[lookup_ef.index].evaluate(&inner_point);
-            prover_state.add_extension_scalar(index_eval);
-            assert_eq!(table_values.get(&lookup_ef.index).unwrap_or(&index_eval), &index_eval);
-            table_values.insert(lookup_ef.index, index_eval);
-
-            let col_ef = &trace.ext[lookup_ef.values];
-
-            for (i, col) in transpose_slice_to_basis_coefficients::<PF<EF>, EF>(col_ef)
-                .iter()
-                .enumerate()
-            {
-                let value_eval = col.evaluate(&inner_point);
-                prover_state.add_extension_scalar(value_eval);
-                let global_index = table.n_columns_f_air() + lookup_ef.values * DIMENSION + i;
-                assert!(!table_values.contains_key(&global_index));
-                table_values.insert(global_index, value_eval);
-            }
-        }
         points.insert(*table, inner_point);
         columns_values.insert(*table, table_values);
 
@@ -484,12 +449,12 @@ pub fn verify_generic_logup(
         offset += 1 << log_n_rows;
 
         // II] Lookup into memory
-        for lookup_f in table.lookups_f() {
+        for lookup in table.lookups() {
             let index_eval = verifier_state.next_extension_scalar()?;
-            assert!(!table_values.contains_key(&lookup_f.index));
-            table_values.insert(lookup_f.index, index_eval);
+            assert!(!table_values.contains_key(&lookup.index));
+            table_values.insert(lookup.index, index_eval);
 
-            for (i, col_index) in lookup_f.values.iter().enumerate() {
+            for (i, col_index) in lookup.values.iter().enumerate() {
                 let value_eval = verifier_state.next_extension_scalar()?;
                 assert!(!table_values.contains_key(col_index));
                 table_values.insert(*col_index, value_eval);
@@ -507,29 +472,6 @@ pub fn verify_generic_logup(
             }
         }
 
-        for lookup_ef in table.lookups_ef() {
-            let index_eval = verifier_state.next_extension_scalar()?;
-            assert_eq!(table_values.get(&lookup_ef.index).unwrap_or(&index_eval), &index_eval);
-            table_values.insert(lookup_ef.index, index_eval);
-
-            for i in 0..DIMENSION {
-                let value_eval = verifier_state.next_extension_scalar()?;
-
-                let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
-                let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
-                retrieved_numerators_value += pref;
-                retrieved_denominators_value += pref
-                    * (c - finger_print(
-                        F::from_usize(LOGUP_MEMORY_DOMAINSEP),
-                        &[value_eval, index_eval + F::from_usize(i)],
-                        alphas_eq_poly,
-                    ));
-                let global_index = table.n_columns_f_air() + lookup_ef.values * DIMENSION + i;
-                assert!(!table_values.contains_key(&global_index));
-                table_values.insert(global_index, value_eval);
-                offset += 1 << log_n_rows;
-            }
-        }
         columns_values.insert(table, table_values);
     }
 
@@ -557,8 +499,7 @@ pub fn verify_generic_logup(
 }
 
 fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {
-    let num_cols =
-        table.lookups_f().iter().map(|l| l.values.len()).sum::<usize>() + table.lookups_ef().len() * DIMENSION + 1; // +1 for the bus
+    let num_cols = table.lookups().iter().map(|l| l.values.len()).sum::<usize>() + 1; // +1 for the bus
     num_cols << log_n_rows
 }
 

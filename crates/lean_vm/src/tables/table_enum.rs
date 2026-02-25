@@ -58,11 +58,8 @@ impl TableT for Table {
     fn table(&self) -> Table {
         delegate_to_inner!(self, table)
     }
-    fn lookups_f(&self) -> Vec<LookupIntoMemory> {
-        delegate_to_inner!(self, lookups_f)
-    }
-    fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        delegate_to_inner!(self, lookups_ef)
+    fn lookups(&self) -> Vec<LookupIntoMemory> {
+        delegate_to_inner!(self, lookups)
     }
     fn is_execution_table(&self) -> bool {
         delegate_to_inner!(self, is_execution_table)
@@ -70,11 +67,8 @@ impl TableT for Table {
     fn bus(&self) -> Bus {
         delegate_to_inner!(self, bus)
     }
-    fn padding_row_f(&self) -> Vec<PF<EF>> {
-        delegate_to_inner!(self, padding_row_f)
-    }
-    fn padding_row_ef(&self) -> Vec<EF> {
-        delegate_to_inner!(self, padding_row_ef)
+    fn padding_row(&self) -> Vec<PF<EF>> {
+        delegate_to_inner!(self, padding_row)
     }
     fn execute(
         &self,
@@ -87,11 +81,8 @@ impl TableT for Table {
     ) -> Result<(), RunnerError> {
         delegate_to_inner!(self, execute, arg_a, arg_b, arg_c, aux_1, aux_2, ctx)
     }
-    fn n_columns_f_total(&self) -> usize {
-        delegate_to_inner!(self, n_columns_f_total)
-    }
-    fn n_columns_ef_total(&self) -> usize {
-        delegate_to_inner!(self, n_columns_ef_total)
+    fn n_columns_total(&self) -> usize {
+        delegate_to_inner!(self, n_columns_total)
     }
 }
 
@@ -100,20 +91,14 @@ impl Air for Table {
     fn degree_air(&self) -> usize {
         delegate_to_inner!(self, degree_air)
     }
-    fn n_columns_f_air(&self) -> usize {
-        delegate_to_inner!(self, n_columns_f_air)
-    }
-    fn n_columns_ef_air(&self) -> usize {
-        delegate_to_inner!(self, n_columns_ef_air)
+    fn n_columns(&self) -> usize {
+        delegate_to_inner!(self, n_columns)
     }
     fn n_constraints(&self) -> usize {
         delegate_to_inner!(self, n_constraints)
     }
-    fn down_column_indexes_f(&self) -> Vec<usize> {
-        delegate_to_inner!(self, down_column_indexes_f)
-    }
-    fn down_column_indexes_ef(&self) -> Vec<usize> {
-        delegate_to_inner!(self, down_column_indexes_ef)
+    fn down_column_indexes(&self) -> Vec<usize> {
+        delegate_to_inner!(self, down_column_indexes)
     }
     fn eval<AB: AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()

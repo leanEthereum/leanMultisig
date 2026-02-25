@@ -8,10 +8,8 @@ where
     NF: ExtensionField<PF<EF>>,
     EF: ExtensionField<NF>,
 {
-    pub up_f: &'a [NF],
-    pub up_ef: &'a [EF],
-    pub down_f: &'a [NF],
-    pub down_ef: &'a [EF],
+    pub up: &'a [NF],
+    pub down: &'a [NF],
     pub extra_data: &'a ExtraData,
     pub accumulator: EF,
     pub constraint_index: usize,
@@ -26,23 +24,13 @@ where
     type EF = EF;
 
     #[inline]
-    fn up_f(&self) -> &[Self::F] {
-        self.up_f
+    fn up(&self) -> &[Self::F] {
+        self.up
     }
 
     #[inline]
-    fn up_ef(&self) -> &[Self::EF] {
-        self.up_ef
-    }
-
-    #[inline]
-    fn down_f(&self) -> &[Self::F] {
-        self.down_f
-    }
-
-    #[inline]
-    fn down_ef(&self) -> &[Self::EF] {
-        self.down_ef
+    fn down(&self) -> &[Self::F] {
+        self.down
     }
 
     #[inline]

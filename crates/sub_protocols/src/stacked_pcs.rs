@@ -1,13 +1,13 @@
 use backend::*;
 use lean_vm::{
-    ALL_TABLES, COL_PC, CommittedStatements, DIMENSION, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
+    ALL_TABLES, COL_PC, CommittedStatements, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
     N_INSTRUCTION_COLUMNS, STARTING_PC, sort_tables_by_height,
 };
 use lean_vm::{EF, F, Table, TableT, TableTrace};
 use std::collections::BTreeMap;
 use tracing::instrument;
+use utils::VarCount;
 use utils::ansi::Colorize;
-use utils::{VarCount, transpose_slice_to_basis_coefficients};
 
 /*
 Stacking of various (multilinear) polynomials into a single -big- (multilinear) polynomial, which is committed via WHIR.
@@ -116,18 +116,10 @@ pub fn stack_polynomials_and_commit(
 
     for (table, log_n_rows) in &tables_heights_sorted {
         let n_rows = 1 << *log_n_rows;
-        for col_index_f in 0..table.n_columns_f_air() {
-            let col = &traces[table].base[col_index_f];
+        for col_index in 0..table.n_columns() {
+            let col = &traces[table].base[col_index];
             global_polynomial[offset..][..n_rows].copy_from_slice(&col[..n_rows]);
             offset += n_rows;
-        }
-        for col_index_ef in 0..table.n_columns_ef_air() {
-            let col = &traces[table].ext[col_index_ef];
-            let transposed = transpose_slice_to_basis_coefficients(col);
-            for basis_col in transposed {
-                global_polynomial[offset..][..n_rows].copy_from_slice(&basis_col);
-                offset += n_rows;
-            }
         }
     }
     assert_eq!(log2_ceil_usize(offset), stacked_n_vars);
@@ -201,16 +193,15 @@ pub fn min_stacked_n_vars(log_bytecode: usize) -> usize {
 }
 
 pub fn total_whir_statements() -> usize {
-    5 // memory + memory_acc + public_memory + bytecode_acc + pc_start + pc_end
+    6 // memory + memory_acc + public_memory + bytecode_acc + pc_start + pc_end
      + ALL_TABLES
         .iter()
         .map(|table| {
             // AIR
             table.n_committed_columns()
-            + table.n_down_columns_f() + table.n_down_columns_ef() * DIMENSION
+            + table.n_down_columns()
             // Lookups into memory
-            + table.lookups_f().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
-            + table.lookups_ef().len() * (1 + DIMENSION)
+            + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
         })
         .sum::<usize>()
         // bytecode lookup

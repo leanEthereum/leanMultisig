@@ -16,22 +16,14 @@ LOGUP_PRECOMPILE_DOMAINSEP = LOGUP_PRECOMPILE_DOMAINSEP_PLACEHOLDER
 LOGUP_BYTECODE_DOMAINSEP = LOGUP_BYTECODE_DOMAINSEP_PLACEHOLDER
 EXECUTION_TABLE_INDEX = EXECUTION_TABLE_INDEX_PLACEHOLDER
 
-LOOKUPS_F_INDEXES = LOOKUPS_F_INDEXES_PLACEHOLDER  # [[_; ?]; N_TABLES]
-LOOKUPS_F_VALUES = LOOKUPS_F_VALUES_PLACEHOLDER  # [[[_; ?]; ?]; N_TABLES]
+LOOKUPS_INDEXES = LOOKUPS_INDEXES_PLACEHOLDER  # [[_; ?]; N_TABLES]
+LOOKUPS_VALUES = LOOKUPS_VALUES_PLACEHOLDER  # [[[_; ?]; ?]; N_TABLES]
 
-LOOKUPS_EF_INDEXES = LOOKUPS_EF_INDEXES_PLACEHOLDER  # [[_; ?]; N_TABLES]
-LOOKUPS_EF_VALUES = LOOKUPS_EF_VALUES_PLACEHOLDER  # [[_; ?]; N_TABLES]
-
-NUM_COLS_F_AIR = NUM_COLS_F_AIR_PLACEHOLDER
-NUM_COLS_EF_AIR = NUM_COLS_EF_AIR_PLACEHOLDER
-
-NUM_COLS_F_COMMITTED = NUM_COLS_F_COMMITTED_PLACEHOLDER
+NUM_COLS_AIR = NUM_COLS_AIR_PLACEHOLDER
 
 AIR_DEGREES = AIR_DEGREES_PLACEHOLDER  # [_; N_TABLES]
-N_AIR_COLUMNS_F = N_AIR_COLUMNS_F_PLACEHOLDER  # [_; N_TABLES]
-N_AIR_COLUMNS_EF = N_AIR_COLUMNS_EF_PLACEHOLDER  # [_; N_TABLES]
-AIR_DOWN_COLUMNS_F = AIR_DOWN_COLUMNS_F_PLACEHOLDER  # [[_; ?]; N_TABLES]
-AIR_DOWN_COLUMNS_EF = AIR_DOWN_COLUMNS_EF_PLACEHOLDER  # [[_; _]; N_TABLES]
+N_AIR_COLUMNS = N_AIR_COLUMNS_PLACEHOLDER  # [_; N_TABLES]
+AIR_DOWN_COLUMNS = AIR_DOWN_COLUMNS_PLACEHOLDER  # [[_; ?]; N_TABLES]
 
 N_INSTRUCTION_COLUMNS = N_INSTRUCTION_COLUMNS_PLACEHOLDER
 N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER
@@ -196,7 +188,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
     for i in unroll(0, N_TABLES):
         pcs_values.push(DynArray([]))
         pcs_values[i].push(DynArray([]))
-        total_num_cols = NUM_COLS_F_AIR[i] + DIM * NUM_COLS_EF_AIR[i]
+        total_num_cols = NUM_COLS_AIR[i]
         for _ in unroll(0, total_num_cols):
             pcs_values[i][0].push(DynArray([]))
 
@@ -253,14 +245,14 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
 
         # II] Lookup into memory
 
-        for lookup_f_index in unroll(0, len(LOOKUPS_F_INDEXES[table_index])):
-            col_index = LOOKUPS_F_INDEXES[table_index][lookup_f_index]
+        for lookup_f_index in unroll(0, len(LOOKUPS_INDEXES[table_index])):
+            col_index = LOOKUPS_INDEXES[table_index][lookup_f_index]
             fs, index_eval = fs_receive_ef_inlined(fs, 1)
             debug_assert(len(pcs_values[table_index][0][col_index]) == 0)
             pcs_values[table_index][0][col_index].push(index_eval)
-            for i in unroll(0, len(LOOKUPS_F_VALUES[table_index][lookup_f_index])):
+            for i in unroll(0, len(LOOKUPS_VALUES[table_index][lookup_f_index])):
                 fs, value_eval = fs_receive_ef_inlined(fs, 1)
-                col_index = LOOKUPS_F_VALUES[table_index][lookup_f_index][i]
+                col_index = LOOKUPS_VALUES[table_index][lookup_f_index][i]
                 debug_assert(len(pcs_values[table_index][0][col_index]) == 0)
                 pcs_values[table_index][0][col_index].push(value_eval)
 
@@ -278,40 +270,6 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
                     retrieved_denominators_value,
                     mul_extension_ret(pref, sub_extension_ret(logup_c, fingerp)),
                 )
-
-                offset += n_rows
-
-        for lookup_ef_index in unroll(0, len(LOOKUPS_EF_INDEXES[table_index])):
-            col_index = LOOKUPS_EF_INDEXES[table_index][lookup_ef_index]
-            fs, index_eval = fs_receive_ef_inlined(fs, 1)
-            if len(pcs_values[table_index][0][col_index]) == 0:
-                pcs_values[table_index][0][col_index].push(index_eval)
-            else:
-                # assert equal
-                copy_5(index_eval, pcs_values[table_index][0][col_index][0])
-
-            for i in unroll(0, DIM):
-                fs, value_eval = fs_receive_ef_inlined(fs, 1)
-                pref = multilinear_location_prefix(
-                    offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr
-                )  # TODO there is some duplication here
-                retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, pref)
-                fingerp = fingerprint_2(
-                    LOGUP_MEMORY_DOMAINSEP,
-                    value_eval,
-                    add_base_extension_ret(i, index_eval),
-                    logup_alphas_eq_poly,
-                )
-                retrieved_denominators_value = add_extension_ret(
-                    retrieved_denominators_value,
-                    mul_extension_ret(pref, sub_extension_ret(logup_c, fingerp)),
-                )
-
-                global_index = (
-                    NUM_COLS_F_COMMITTED[table_index] + LOOKUPS_EF_VALUES[table_index][lookup_ef_index] * DIM + i
-                )
-                debug_assert(len(pcs_values[table_index][0][global_index]) == 0)
-                pcs_values[table_index][0][global_index].push(value_eval)
 
                 offset += n_rows
 
@@ -344,7 +302,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
         log_n_rows = table_log_heights[table_index]
         bus_numerator_value = bus_numerators_values[sorted_pos]
         bus_denominator_value = bus_denominators_values[sorted_pos]
-        total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index]
+        total_num_cols = NUM_COLS_AIR[table_index]
 
         bus_final_value: Mut = bus_numerator_value
         if table_index != EXECUTION_TABLE_INDEX:
@@ -358,12 +316,8 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
 
         fs, outer_point, outer_eval = sumcheck_verify(fs, log_n_rows, bus_final_value, AIR_DEGREES[table_index] + 1)
 
-        n_up_columns_f = N_AIR_COLUMNS_F[table_index]
-        n_up_columns_ef = N_AIR_COLUMNS_EF[table_index]
-        n_down_columns_f = len(AIR_DOWN_COLUMNS_F[table_index])
-        n_down_columns_ef = len(AIR_DOWN_COLUMNS_EF[table_index])
-        n_up_columns = n_up_columns_f + n_up_columns_ef
-        n_down_columns = n_down_columns_f + n_down_columns_ef
+        n_up_columns = N_AIR_COLUMNS[table_index]
+        n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
         fs, inner_evals = fs_receive_ef_inlined(fs, n_up_columns + n_down_columns)
 
         air_constraints_eval = evaluate_air_constraints(
@@ -375,42 +329,20 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
         )
         copy_5(expected_outer_eval, outer_eval)
 
-        if len(AIR_DOWN_COLUMNS_F[table_index]) != 0:
+        if len(AIR_DOWN_COLUMNS[table_index]) != 0:
             fs, batching_scalar = fs_sample_ef(fs)
             batching_scalar_powers = powers_const(batching_scalar, n_down_columns)
-            evals_down_f = inner_evals + n_up_columns_f * DIM
-            evals_down_ef = inner_evals + (n_up_columns_f + n_down_columns_f + n_up_columns_ef) * DIM
-            inner_sum: Mut = dot_product_ee_ret(evals_down_f, batching_scalar_powers, n_down_columns_f)
-            if n_down_columns_ef != 0:
-                inner_sum = add_extension_ret(
-                    inner_sum,
-                    dot_product_ee_ret(
-                        evals_down_ef,
-                        batching_scalar_powers + n_down_columns_f * DIM,
-                        n_down_columns_ef,
-                    ),
-                )
+            evals_down = inner_evals + n_up_columns * DIM
+            inner_sum: Mut = dot_product_ee_ret(evals_down, batching_scalar_powers, n_down_columns)
 
             fs, inner_point, inner_value = sumcheck_verify(fs, log_n_rows, inner_sum, 2)
 
             matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows)
 
-            fs, evals_f_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns_f)
+            fs, evals_f_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns)
             batched_col_down_sc_eval: Mut = dot_product_ee_ret(
-                evals_f_on_down_columns, batching_scalar_powers, n_down_columns_f
+                evals_f_on_down_columns, batching_scalar_powers, n_down_columns
             )
-
-            evals_ef_on_down_columns: Imu
-            if n_down_columns_ef != 0:
-                fs, evals_ef_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns_ef)
-                batched_col_down_sc_eval = add_extension_ret(
-                    batched_col_down_sc_eval,
-                    dot_product_ee_ret(
-                        evals_ef_on_down_columns,
-                        batching_scalar_powers + n_down_columns_f * DIM,
-                        n_down_columns_ef,
-                    ),
-                )
 
             copy_5(
                 inner_value,
@@ -422,37 +354,18 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
             last_index = len(pcs_values[table_index]) - 1
             for _ in unroll(0, total_num_cols):
                 pcs_values[table_index][last_index].push(DynArray([]))
-            for i in unroll(0, n_down_columns_f):
-                pcs_values[table_index][last_index][AIR_DOWN_COLUMNS_F[table_index][i]].push(
+            for i in unroll(0, n_down_columns):
+                pcs_values[table_index][last_index][AIR_DOWN_COLUMNS[table_index][i]].push(
                     evals_f_on_down_columns + i * DIM
                 )
-            for i in unroll(0, n_down_columns_ef):
-                fs, transposed = fs_receive_ef_inlined(fs, DIM)
-                copy_5(
-                    evals_ef_on_down_columns + i * DIM,
-                    dot_product_with_the_base_vectors(transposed),
-                )
-                for j in unroll(0, DIM):
-                    virtual_col_index = n_up_columns_f + AIR_DOWN_COLUMNS_EF[table_index][i] * DIM + j
-                    pcs_values[table_index][last_index][virtual_col_index].push(transposed + j * DIM)
 
         pcs_points[table_index].push(outer_point)
         pcs_values[table_index].push(DynArray([]))
         last_index_2 = len(pcs_values[table_index]) - 1
         for _ in unroll(0, total_num_cols):
             pcs_values[table_index][last_index_2].push(DynArray([]))
-        for i in unroll(0, n_up_columns_f):
+        for i in unroll(0, n_up_columns):
             pcs_values[table_index][last_index_2][i].push(inner_evals + i * DIM)
-
-        for i in unroll(0, n_up_columns_ef):
-            fs, transposed = fs_receive_ef_inlined(fs, DIM)
-            copy_5(
-                inner_evals + (n_up_columns_f + n_down_columns_f + i) * DIM,
-                dot_product_with_the_base_vectors(transposed),
-            )
-            for j in unroll(0, DIM):
-                virtual_col_index = n_up_columns_f + i * DIM + j
-                pcs_values[table_index][last_index_2][virtual_col_index].push(transposed + j * DIM)    
 
     fs, public_memory_random_point = fs_sample_many_ef(fs, INNER_PUBLIC_MEMORY_LOG_SIZE)
     poly_eq_public_mem = poly_eq_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
@@ -596,7 +509,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
             table_index = third_table
         log_n_rows = table_log_heights[table_index]
         n_rows = table_heights[table_index]
-        total_num_cols = NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index]
+        total_num_cols = NUM_COLS_AIR[table_index]
         for i in unroll(0, len(pcs_points[table_index])):
             point = pcs_points[table_index][i]
             eq_factor = eq_mle_extension(
@@ -718,7 +631,7 @@ def compute_stacked_n_vars(log_memory, log_bytecode_padded, tables_heights):
     total += powers_of_two(log_bytecode_padded)
     for table_index in unroll(0, N_TABLES):
         n_rows = tables_heights[table_index]
-        total += n_rows * (NUM_COLS_F_AIR[table_index] + DIM * NUM_COLS_EF_AIR[table_index])
+        total += n_rows * NUM_COLS_AIR[table_index]
     debug_assert(30 - 24 < MIN_LOG_N_ROWS_PER_TABLE) # cf log2_ceil
     return MIN_LOG_N_ROWS_PER_TABLE + log2_ceil_runtime(total / 2**MIN_LOG_N_ROWS_PER_TABLE)
 
@@ -729,9 +642,8 @@ def compute_total_gkr_n_vars(log_memory, log_bytecode_padded, tables_heights):
     for table_index in unroll(0, N_TABLES):
         n_rows = tables_heights[table_index]
         total_lookup_values: Mut = 0
-        for i in unroll(0, len(LOOKUPS_F_INDEXES[table_index])):
-            total_lookup_values += len(LOOKUPS_F_VALUES[table_index][i])
-        total_lookup_values += DIM * len(LOOKUPS_EF_VALUES[table_index])
+        for i in unroll(0, len(LOOKUPS_INDEXES[table_index])):
+            total_lookup_values += len(LOOKUPS_VALUES[table_index][i])
         total_lookup_values += 1 # for the bus
         total += n_rows * total_lookup_values
     return log2_ceil_runtime(total)

@@ -528,84 +528,48 @@ impl<F: TwoAdicField + QuinticExtendable> TwoAdicField for QuinticExtensionField
     }
 }
 
-pub(crate) fn quintic_mul<F, R, R2>(a: &[R; 5], b: &[R2; 5], res: &mut [R; 5])
-where
-    F: Field,
-    R: Algebra<F> + Algebra<R2>,
-    R2: Algebra<F>,
-{
-    // Convert b to R type for computation
-    let b_r: [R; 5] = [
-        b[0].clone().into(),
-        b[1].clone().into(),
-        b[2].clone().into(),
-        b[3].clone().into(),
-        b[4].clone().into(),
-    ];
+/// Quintic extension field multiplication in F[X]/(X^5 + X^2 - 1).
+#[inline]
+pub fn quintic_mul<T: Clone + Sub<Output = T>>(
+    a: &[T; 5],
+    b: &[T; 5],
+    dot_product: impl Fn(&[T; 5], &[T; 5]) -> T,
+) -> [T; 5] {
+    let b_0_m3 = b[0].clone() - b[3].clone();
+    let b_1_m4 = b[1].clone() - b[4].clone();
+    let b_4_m2 = b[4].clone() - b[2].clone();
 
-    let b_0_minus_3 = b_r[0].clone() - b_r[3].clone();
-    let b_1_minus_4 = b_r[1].clone() - b_r[4].clone();
-    let b_4_minus_2 = b_r[4].clone() - b_r[2].clone();
-
-    // Constant term = a0*b0 + a1*b4 + a2*b3 + a3*b2 + a4*b1 - a4*b4
-    res[0] = R::dot_product::<5>(
-        a,
-        &[
-            b_r[0].clone(),
-            b_r[4].clone(),
-            b_r[3].clone(),
-            b_r[2].clone(),
-            b_1_minus_4.clone(),
-        ],
-    );
-
-    // Linear term = a0*b1 + a1*b0 + a2*b4 + a3*b3 + a4*b2
-    res[1] = R::dot_product::<5>(
-        a,
-        &[
-            b_r[1].clone(),
-            b_r[0].clone(),
-            b_r[4].clone(),
-            b_r[3].clone(),
-            b_r[2].clone(),
-        ],
-    );
-
-    // Square term = a0*b2 + a1*b1 - a1*b4 + a2*b0 - a2*b3 + a3*b4 - a3*b2 + a4*b3 - a4*b1 + a4*b4
-    res[2] = R::dot_product::<5>(
-        a,
-        &[
-            b_r[2].clone(),
-            b_1_minus_4.clone(),
-            b_0_minus_3.clone(),
-            b_4_minus_2.clone(),
-            b_r[3].clone() - b_1_minus_4.clone(),
-        ],
-    );
-
-    // Cubic term = a0*b3 + a1*b2 + a2*b1 - a2*b4 + a3*b0 - a3*b3 + a4*b4 - a4*b2
-    res[3] = R::dot_product::<5>(
-        a,
-        &[
-            b_r[3].clone(),
-            b_r[2].clone(),
-            b_1_minus_4.clone(),
-            b_0_minus_3.clone(),
-            b_4_minus_2.clone(),
-        ],
-    );
-
-    // Quartic term = a0*b4 + a1*b3 + a2*b2 + a3*b1 - a3*b4 + a4*b0 - a4*b3
-    res[4] = R::dot_product::<5>(
-        a,
-        &[
-            b_r[4].clone(),
-            b_r[3].clone(),
-            b_r[2].clone(),
-            b_1_minus_4.clone(),
-            b_0_minus_3.clone(),
-        ],
-    );
+    [
+        dot_product(
+            a,
+            &[b[0].clone(), b[4].clone(), b[3].clone(), b[2].clone(), b_1_m4.clone()],
+        ),
+        dot_product(
+            a,
+            &[b[1].clone(), b[0].clone(), b[4].clone(), b[3].clone(), b[2].clone()],
+        ),
+        dot_product(
+            a,
+            &[
+                b[2].clone(),
+                b_1_m4.clone(),
+                b_0_m3.clone(),
+                b_4_m2.clone(),
+                b[3].clone() - b_1_m4.clone(),
+            ],
+        ),
+        dot_product(
+            a,
+            &[
+                b[3].clone(),
+                b[2].clone(),
+                b_1_m4.clone(),
+                b_0_m3.clone(),
+                b_4_m2.clone(),
+            ],
+        ),
+        dot_product(a, &[b[4].clone(), b[3].clone(), b[2].clone(), b_1_m4, b_0_m3]),
+    ]
 }
 
 #[inline]

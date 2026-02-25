@@ -6,9 +6,9 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::instruction::InstructionContext;
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, EQ_MLE_COEFFS_LEN, EQ_MLE_COEFFS_PTR, EXTENSION_BASIS_PTR,
-    HintExecutionContext, N_TABLES, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, REPEATED_ONES_PTR,
-    SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC, Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, EQ_MLE_COEFFS_LEN, EQ_MLE_COEFFS_PTR, HintExecutionContext, N_TABLES,
+    NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_EF_PTR, REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC,
+    Table, TableTrace,
 };
 use backend::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -57,12 +57,8 @@ pub fn build_public_memory(non_reserved_public_input: &[F]) -> Vec<F> {
     // sampling domain separator
     public_memory[SAMPLING_DOMAIN_SEPARATOR_PTR] = F::ONE;
 
-    // extension basis
-    for i in 0..DIMENSION {
-        let mut vec = F::zero_vec(DIMENSION);
-        vec[i] = F::ONE;
-        public_memory[EXTENSION_BASIS_PTR + i * DIMENSION..][..DIMENSION].copy_from_slice(&vec);
-    }
+    // ONE in the extension field = [1, 0, 0, 0, 0]
+    public_memory[ONE_EF_PTR] = F::ONE;
 
     public_memory[POSEIDON_16_NULL_HASH_PTR..][..DIGEST_LEN].copy_from_slice(get_poseidon_16_of_zero());
     public_memory[REPEATED_ONES_PTR..][..NUM_REPEATED_ONES_IN_RESERVED_MEMORY].fill(F::ONE);

@@ -401,11 +401,9 @@ where
 
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        let a = self.value;
-        let b = rhs.value;
-        let mut res = Self::default();
-        super::extension::quintic_mul::<F, PF, PF>(&a, &b, &mut res.value);
-        res
+        Self {
+            value: super::extension::quintic_mul(&self.value, &rhs.value, PF::dot_product::<5>),
+        }
     }
 }
 
@@ -418,12 +416,10 @@ where
 
     #[inline]
     fn mul(self, rhs: QuinticExtensionField<F>) -> Self {
-        let a = self.value;
-        let b = rhs.value;
-        let mut res = Self::default();
-        super::extension::quintic_mul(&a, &b, &mut res.value);
-
-        res
+        let b: [PF; 5] = rhs.value.map(|x| x.into());
+        Self {
+            value: super::extension::quintic_mul(&self.value, &b, PF::dot_product::<5>),
+        }
     }
 }
 

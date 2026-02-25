@@ -99,7 +99,6 @@ fn exec_multi_row(
 
     // 1. Read all operands and compute elem values
     let mut elems = Vec::with_capacity(size);
-    let mut v_a_fs = Vec::with_capacity(size);
     let mut v_bs = Vec::with_capacity(size);
     let mut idx_as = Vec::with_capacity(size);
     let mut idx_bs = Vec::with_capacity(size);
@@ -111,13 +110,9 @@ fn exec_multi_row(
         let idx_b_f = F::from_usize(addr_b);
 
         let v_a = if is_be {
-            let val_f = memory.get(addr_a)?;
-            v_a_fs.push(val_f);
-            EF::from(val_f)
+            EF::from(memory.get(addr_a)?)
         } else {
-            let val_ef = memory.get_ef_element(addr_a)?;
-            v_a_fs.push(memory.get(addr_a)?);
-            val_ef
+            memory.get_ef_element(addr_a)?
         };
         let v_b = memory.get_ef_element(addr_b)?;
 
@@ -148,12 +143,13 @@ fn exec_multi_row(
     let flag_poly_eq_f = F::from_bool(flag_poly_eq);
     let mode_bits = 2 * is_be as usize + 4 * flag_add as usize + 8 * flag_mul as usize + 16 * flag_poly_eq as usize;
 
+    let result_coords = result.as_basis_coefficients_slice();
+
     for i in 0..size {
         let is_start = i == 0;
         let current_len = size - i;
 
         trace.base[COL_IS_BE].push(is_be_f);
-        trace.base[COL_ACTIVATION_FLAG].push(F::from_bool(is_start));
         trace.base[COL_START].push(F::from_bool(is_start));
         trace.base[COL_FLAG_ADD].push(flag_add_f);
         trace.base[COL_FLAG_MUL].push(flag_mul_f);
@@ -162,13 +158,24 @@ fn exec_multi_row(
         trace.base[COL_IDX_A].push(idx_as[i]);
         trace.base[COL_IDX_B].push(idx_bs[i]);
         trace.base[COL_IDX_RES].push(ptr_res);
-        trace.base[COL_VALUE_A_F].push(v_a_fs[i]);
-        trace.base[COL_AUX_EXTENSION_OP].push(F::from_usize(mode_bits + EXT_OP_LEN_MULTIPLIER * current_len));
 
-        // EF columns: v_A_EF is filled later by fill_trace_extension_op
-        trace.ext[COL_VALUE_B].push(v_bs[i]);
-        trace.ext[COL_VALUE_RES].push(result);
-        trace.ext[COL_COMPUTATION].push(computations[i]);
+        // COL_VA+0..5: filled later by fill_trace_extension_op (push zeros as placeholders)
+        for k in 0..DIMENSION {
+            trace.base[COL_VA + k].push(F::ZERO);
+        }
+        for (k, &val) in v_bs[i].as_basis_coefficients_slice().iter().enumerate() {
+            trace.base[COL_VB + k].push(val);
+        }
+        for (k, &val) in result_coords.iter().enumerate() {
+            trace.base[COL_VRES + k].push(val);
+        }
+        for (k, &val) in computations[i].as_basis_coefficients_slice().iter().enumerate() {
+            trace.base[COL_COMP + k].push(val);
+        }
+
+        // Virtual columns
+        trace.base[COL_ACTIVATION_FLAG].push(F::from_bool(is_start));
+        trace.base[COL_AUX_EXTENSION_OP].push(F::from_usize(mode_bits + EXT_OP_LEN_MULTIPLIER * current_len));
     }
 
     Ok(())
@@ -240,15 +247,14 @@ pub(super) fn exec_poly_eq_ee(
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::PolyEq, memory, trace)
 }
 
-/// Fill the VALUE_A_EF column after execution by looking up memory at idx_A addresses.
-/// This is done post-execution because the lookup always happens (unconditionally).
+/// Fill the VALUE_A columns (5 base field coordinates) after execution
+/// by looking up memory at idx_A addresses.
 pub fn fill_trace_extension_op(trace: &mut TableTrace, memory: &[F]) {
-    assert!(trace.ext[COL_VALUE_A_EF].is_empty());
     let n = trace.base[COL_IDX_A].len();
-    trace.ext[COL_VALUE_A_EF] = EF::zero_vec(n);
     for i in 0..n {
         let addr = trace.base[COL_IDX_A][i].to_usize();
-        let value_ef = EF::from_basis_coefficients_slice(&memory[addr..][..DIMENSION]).unwrap();
-        trace.ext[COL_VALUE_A_EF][i] = value_ef;
+        for k in 0..DIMENSION {
+            trace.base[COL_VA + k][i] = memory[addr + k];
+        }
     }
 }

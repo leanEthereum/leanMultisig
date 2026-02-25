@@ -109,7 +109,6 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         Table::execution(),
         TableTrace {
             base: Vec::from(main_trace),
-            ext: vec![],
             non_padded_n_rows: n_cycles,
             log_n_rows: log2_ceil_usize(n_cycles),
         },
@@ -139,13 +138,8 @@ fn padd_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
     trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
     let padding_len = (1 << trace.log_n_rows) - h;
-    let padding_row_f = table.padding_row_f();
+    let padding_row = table.padding_row();
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
-        col.extend(repeat_n(padding_row_f[i], padding_len));
-    });
-
-    let padding_row_ef = table.padding_row_ef();
-    trace.ext.par_iter_mut().enumerate().for_each(|(i, col)| {
-        col.extend(repeat_n(padding_row_ef[i], padding_len));
+        col.extend(repeat_n(padding_row[i], padding_len));
     });
 }

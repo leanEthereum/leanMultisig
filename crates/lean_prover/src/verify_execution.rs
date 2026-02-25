@@ -208,52 +208,17 @@ fn verify_bus_and_air(
 
     let mut res = vec![];
     if let Some(down_point) = air_claims.down_point {
-        assert_eq!(air_claims.evals_f_on_down_columns.len(), table.n_down_columns_f());
+        assert_eq!(air_claims.evals_on_down_columns.len(), table.n_down_columns());
         let mut down_evals = BTreeMap::new();
-        for (value_f, col_index) in air_claims
-            .evals_f_on_down_columns
-            .iter()
-            .zip(table.down_column_indexes_f())
-        {
+        for (value_f, col_index) in air_claims.evals_on_down_columns.iter().zip(table.down_column_indexes()) {
             down_evals.insert(col_index, *value_f);
         }
 
-        assert_eq!(air_claims.evals_ef_on_down_columns.len(), table.n_down_columns_ef());
-        for (col_index, value) in table
-            .down_column_indexes_ef()
-            .into_iter()
-            .zip(air_claims.evals_ef_on_down_columns)
-        {
-            let transposed = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-            if dot_product_with_base(&transposed) != value {
-                return Err(ProofError::InvalidProof);
-            }
-            for (j, v) in transposed.iter().enumerate() {
-                let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-                down_evals.insert(virtual_index, *v);
-            }
-        }
         res.push((down_point, down_evals));
     }
 
-    assert_eq!(air_claims.evals_f.len(), table.n_columns_f_air());
-    assert_eq!(air_claims.evals_ef.len(), table.n_columns_ef_air());
-    let mut evals = air_claims
-        .evals_f
-        .iter()
-        .copied()
-        .enumerate()
-        .collect::<BTreeMap<_, _>>();
-    for (col_index, value) in air_claims.evals_ef.into_iter().enumerate() {
-        let transposed = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-        if dot_product_with_base(&transposed) != value {
-            return Err(ProofError::InvalidProof);
-        }
-        for (j, v) in transposed.into_iter().enumerate() {
-            let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-            evals.insert(virtual_index, v);
-        }
-    }
+    assert_eq!(air_claims.evals.len(), table.n_columns());
+    let evals = air_claims.evals.iter().copied().enumerate().collect::<BTreeMap<_, _>>();
 
     res.push((air_claims.point.clone(), evals));
 
