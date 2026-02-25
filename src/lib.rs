@@ -1,7 +1,7 @@
 use backend::*;
 
 pub use backend::ProofError;
-pub use rec_aggregation::{AggregatedXMSS, AggregationTopology, Digest, aggregate, verify_aggregation};
+pub use rec_aggregation::{AggregatedXMSS, AggregationTopology, aggregate, verify_aggregation};
 pub use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSecretKey, XmssSignature, xmss_key_gen, xmss_sign, xmss_verify};
 
 pub type F = KoalaBear;
