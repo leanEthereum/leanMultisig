@@ -58,14 +58,14 @@ impl ExecutionMetadata {
         out.push_str(&format!("Runtime memory: {}\n", pretty_integer(self.runtime_memory)));
         out.push_str(&format!("Memory usage: {:.1}%\n", self.memory_usage_percent));
         out.push_str(&format!(
-            "Poseidon2_16 precomputed used: {}/{}\n",
+            "Poseidon16 precomputed used: {}/{}\n",
             pretty_integer(self.n_poseidon_precomputed_used),
             pretty_integer(self.n_poseidons_precomputed_total)
         ));
         out.push('\n');
         if self.n_poseidons > 0 {
             out.push_str(&format!(
-                "Poseidon2_16 calls: {} (1 poseidon per {} instructions)\n",
+                "Poseidon16 calls: {} (1 poseidon per {} instructions)\n",
                 pretty_integer(self.n_poseidons),
                 self.cycles / self.n_poseidons
             ));

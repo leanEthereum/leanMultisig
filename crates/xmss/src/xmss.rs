@@ -58,7 +58,7 @@ pub fn xmss_key_gen(
     if slot_start > slot_end {
         return Err(XmssKeyGenError::InvalidRange);
     }
-    let perm = default_koalabear_poseidon2_16();
+    let perm = default_koalabear_poseidon1_16();
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
     let leaves: Vec<Digest> = (slot_start..slot_end + 1)
         .into_par_iter()

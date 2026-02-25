@@ -1,24 +1,17 @@
 use backend::*;
 use std::sync::OnceLock;
-pub type Poseidon16 = Poseidon2KoalaBear<16>;
-pub type Poseidon24 = Poseidon2KoalaBear<24>;
 
-pub const QUARTER_FULL_ROUNDS_16: usize = 2;
-pub const HALF_FULL_ROUNDS_16: usize = 4;
-pub const PARTIAL_ROUNDS_16: usize = 20;
+pub type Poseidon16 = Poseidon1KoalaBear16;
+
+pub const HALF_FULL_ROUNDS_16: usize = POSEIDON1_HALF_FULL_ROUNDS;
+pub const PARTIAL_ROUNDS_16: usize = POSEIDON1_PARTIAL_ROUNDS;
 
 static POSEIDON_16_INSTANCE: OnceLock<Poseidon16> = OnceLock::new();
 static POSEIDON_16_OF_ZERO: OnceLock<[KoalaBear; 8]> = OnceLock::new();
 
 #[inline(always)]
 pub fn get_poseidon16() -> &'static Poseidon16 {
-    POSEIDON_16_INSTANCE.get_or_init(|| {
-        let external_constants = ExternalLayerConstants::new(
-            KOALABEAR_RC16_EXTERNAL_INITIAL.to_vec(),
-            KOALABEAR_RC16_EXTERNAL_FINAL.to_vec(),
-        );
-        Poseidon16::new(external_constants, KOALABEAR_RC16_INTERNAL.to_vec())
-    })
+    POSEIDON_16_INSTANCE.get_or_init(default_koalabear_poseidon1_16)
 }
 
 #[inline(always)]

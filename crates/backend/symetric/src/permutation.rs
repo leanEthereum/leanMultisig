@@ -3,7 +3,7 @@
 use field::{Algebra, InjectiveMonomial};
 use koala_bear::{
     ExternalLayer, InternalLayer, KoalaBear, KoalaBearInternalLayerParameters, KoalaBearParameters,
-    Poseidon2ExternalLayerMonty31, Poseidon2InternalLayerMonty31, Poseidon2KoalaBear,
+    Poseidon1KoalaBear16, Poseidon2ExternalLayerMonty31, Poseidon2InternalLayerMonty31, Poseidon2KoalaBear,
 };
 
 pub trait Compression<T: Clone>: Clone + Sync {
@@ -22,6 +22,14 @@ where
     Poseidon2InternalLayerMonty31<KoalaBearParameters, 16, KoalaBearInternalLayerParameters>: InternalLayer<A, 16, 3>,
 {
     fn compress_mut(&self, input: &mut [A; 16]) {
+        self.compress_in_place(input);
+    }
+}
+
+impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync + 'static> Compression<[R; 16]>
+    for Poseidon1KoalaBear16
+{
+    fn compress_mut(&self, input: &mut [R; 16]) {
         self.compress_in_place(input);
     }
 }

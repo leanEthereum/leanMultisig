@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use fiat_shamir::{ProverState, VerifierState};
 use field::{Field, TwoAdicField};
-use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon2_16};
+use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon1_16};
 use mt_whir::*;
 use poly::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -30,7 +30,7 @@ fn test_run_whir() {
             .with(ForestLayer::default())
             .try_init();
     }
-    let poseidon16 = default_koalabear_poseidon2_16();
+    let poseidon16 = default_koalabear_poseidon1_16();
 
     let num_variables = std::env::var("WHIR_NUM_VARIABLES")
         .ok()

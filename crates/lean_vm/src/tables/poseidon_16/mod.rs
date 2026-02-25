@@ -8,9 +8,11 @@ mod trace_gen;
 pub use trace_gen::fill_trace_poseidon_16;
 
 pub(super) const WIDTH: usize = 16;
-const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 2;
-const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
-const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
+/// Number of checkpoint groups for initial full rounds (each group = 2 consecutive rounds).
+const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
+const PARTIAL_ROUNDS: usize = POSEIDON1_PARTIAL_ROUNDS;
+/// Number of checkpoint groups for final full rounds.
+const HALF_FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 
 pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation between Poseidon / ExtensionOp precompiles
 
@@ -142,9 +144,9 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         BUS as usize + 76
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
-        let cols: Poseidon2Cols<AB::F> = {
+        let cols: PoseidonCols<AB::F> = {
             let up = builder.up_f();
-            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon2Cols<AB::F>>() };
+            let (prefix, shorts, suffix) = unsafe { up.align_to::<PoseidonCols<AB::F>>() };
             debug_assert!(prefix.is_empty(), "Alignment should match");
             debug_assert!(suffix.is_empty(), "Alignment should match");
             debug_assert_eq!(shorts.len(), 1);
@@ -181,7 +183,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 
 #[repr(C)]
 #[derive(Debug)]
-pub(super) struct Poseidon2Cols<T> {
+pub(super) struct PoseidonCols<T> {
     pub flag: T,
     pub index_a: T,
     pub index_b: T,
@@ -194,31 +196,34 @@ pub(super) struct Poseidon2Cols<T> {
     pub outputs: [T; WIDTH / 2],
 }
 
-fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
+fn eval<AB: AirBuilder>(builder: &mut AB, local: &PoseidonCols<AB::F>) {
     let mut state: [_; WIDTH] = local.inputs.clone();
 
-    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut state);
+    // Poseidon1: NO initial linear layer (unlike Poseidon2)
 
+    let initial_constants = get_poseidon1_initial_constants();
     for round in 0..HALF_INITIAL_FULL_ROUNDS {
         eval_2_full_rounds(
             &mut state,
             &local.beginning_full_rounds[round],
-            &KOALABEAR_RC16_EXTERNAL_INITIAL[2 * round],
-            &KOALABEAR_RC16_EXTERNAL_INITIAL[2 * round + 1],
+            &initial_constants[2 * round],
+            &initial_constants[2 * round + 1],
             builder,
         );
     }
 
-    for (round, cst) in KOALABEAR_RC16_INTERNAL.iter().enumerate().take(PARTIAL_ROUNDS) {
-        eval_partial_round(&mut state, &local.partial_rounds[round], *cst, builder);
+    let partial_constants = get_poseidon1_partial_constants();
+    for (round, cst) in partial_constants.iter().enumerate().take(PARTIAL_ROUNDS) {
+        eval_partial_round(&mut state, &local.partial_rounds[round], cst, builder);
     }
 
+    let final_constants = get_poseidon1_final_constants();
     for round in 0..HALF_FINAL_FULL_ROUNDS - 1 {
         eval_2_full_rounds(
             &mut state,
             &local.ending_full_rounds[round],
-            &KOALABEAR_RC16_EXTERNAL_FINAL[2 * round],
-            &KOALABEAR_RC16_EXTERNAL_FINAL[2 * round + 1],
+            &final_constants[2 * round],
+            &final_constants[2 * round + 1],
             builder,
         );
     }
@@ -227,14 +232,14 @@ fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
         &local.inputs,
         &mut state,
         &local.outputs,
-        &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
-        &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1) + 1],
+        &final_constants[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
+        &final_constants[2 * (HALF_FINAL_FULL_ROUNDS - 1) + 1],
         builder,
     );
 }
 
 pub const fn num_cols_poseidon_16() -> usize {
-    size_of::<Poseidon2Cols<u8>>()
+    size_of::<PoseidonCols<u8>>()
 }
 
 #[inline]
@@ -249,12 +254,12 @@ fn eval_2_full_rounds<AB: AirBuilder>(
         add_koala_bear(s, *r);
         *s = s.cube();
     }
-    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    mds_circulant_16_karatsuba(state);
     for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
         add_koala_bear(s, *r);
         *s = s.cube();
     }
-    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    mds_circulant_16_karatsuba(state);
     for (state_i, post_i) in state.iter_mut().zip(post_full_round) {
         builder.assert_eq(state_i.clone(), post_i.clone());
         *state_i = post_i.clone();
@@ -274,12 +279,12 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
         add_koala_bear(s, *r);
         *s = s.cube();
     }
-    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    mds_circulant_16_karatsuba(state);
     for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
         add_koala_bear(s, *r);
         *s = s.cube();
     }
-    GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
+    mds_circulant_16_karatsuba(state);
     // add inputs to outputs (for compression)
     for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
         *state_i += init_state_i.clone();
@@ -290,20 +295,27 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
     }
 }
 
+/// Poseidon1 partial round: add constants to ALL 16 elements, cube state[0], apply MDS.
 #[inline]
 fn eval_partial_round<AB: AirBuilder>(
     state: &mut [AB::F; WIDTH],
     post_partial_round: &AB::F,
-    round_constant: F,
+    round_constants: &[F; WIDTH],
     builder: &mut AB,
 ) {
-    add_koala_bear(&mut state[0], round_constant);
+    // Add round constants to ALL elements (Poseidon1 difference from Poseidon2)
+    for (s, r) in state.iter_mut().zip(round_constants.iter()) {
+        add_koala_bear(s, *r);
+    }
+
+    // S-box only on state[0]
     state[0] = state[0].cube();
 
     builder.assert_eq(state[0].clone(), post_partial_round.clone());
     state[0] = post_partial_round.clone();
 
-    GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(state);
+    // Same MDS for all rounds in Poseidon1
+    mds_circulant_16_karatsuba(state);
 }
 
 #[inline(always)]
