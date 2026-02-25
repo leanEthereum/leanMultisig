@@ -6,7 +6,7 @@ use crate::execution::Memory;
 use crate::{N_TABLES, Table, TableTrace};
 use utils::pretty_integer;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ExecutionMetadata {
     pub cycles: usize,
     pub memory: usize,

@@ -13,7 +13,7 @@ pub struct XmssSecretKey {
     pub(crate) merkle_tree: Vec<Vec<Digest>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct XmssSignature {
     pub wots_signature: WotsSignature,
     pub slot: u32,

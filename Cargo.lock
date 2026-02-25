@@ -1124,6 +1124,7 @@ name = "xmss"
 version = "0.1.0"
 dependencies = [
  "backend",
+ "postcard",
  "rand",
  "serde",
  "utils",

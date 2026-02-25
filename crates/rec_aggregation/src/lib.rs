@@ -91,7 +91,7 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
     data
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AggregatedXMSS {
     pub pub_keys: Vec<XmssPublicKey>,
     pub proof: PrunedProof<F>,

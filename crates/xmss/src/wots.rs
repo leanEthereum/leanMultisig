@@ -1,5 +1,6 @@
 use backend::*;
 use rand::{CryptoRng, Rng};
+use serde::{Deserialize, Serialize};
 use utils::{ToUsize, poseidon16_compress_pair, to_little_endian_bits};
 
 use crate::*;
@@ -13,8 +14,12 @@ pub struct WotsSecretKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WotsPublicKey(pub [Digest; V]);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WotsSignature {
+    #[serde(
+        with = "backend::array_serialization",
+        bound(serialize = "F: Serialize", deserialize = "F: Deserialize<'de>")
+    )]
     pub chain_tips: [Digest; V],
     pub randomness: [F; RANDOMNESS_LEN_FE],
 }
