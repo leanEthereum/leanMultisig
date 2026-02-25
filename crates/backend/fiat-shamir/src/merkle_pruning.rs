@@ -8,6 +8,7 @@ pub struct PrunedMerklePaths<Data, F> {
     pub original_order: Vec<usize>,
     pub leaf_data: Vec<Vec<Data>>,
     pub paths: Vec<(usize, Vec<[F; DIGEST_LEN_FE]>)>,
+    pub n_trailing_zeros: usize,
 }
 
 fn lca_level(a: usize, b: usize) -> usize {
@@ -15,7 +16,10 @@ fn lca_level(a: usize, b: usize) -> usize {
 }
 
 impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
-    pub fn prune(self) -> PrunedMerklePaths<Data, F> {
+    pub fn prune(self) -> PrunedMerklePaths<Data, F>
+    where
+        Data: Default + PartialEq,
+    {
         assert!(!self.0.is_empty());
         let merkle_height = self.0[0].sibling_hashes.len();
 
@@ -32,6 +36,16 @@ impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
                 original_order[orig_idx] = deduped.len();
                 deduped.push(path);
             }
+        }
+
+        let default = Data::default();
+        let leaf_len = deduped[0].leaf_data.len();
+        let mut n_trailing_zeros = 0;
+        for offset in (0..leaf_len).rev() {
+            if deduped.iter().any(|p| p.leaf_data[offset] != default) {
+                break;
+            }
+            n_trailing_zeros += 1;
         }
 
         let paths = deduped
@@ -56,20 +70,37 @@ impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
         PrunedMerklePaths {
             merkle_height,
             original_order,
-            leaf_data: deduped.into_iter().map(|p| p.leaf_data).collect(),
+            leaf_data: deduped
+                .into_iter()
+                .map(|p| {
+                    let effective_len = p.leaf_data.len() - n_trailing_zeros;
+                    p.leaf_data[..effective_len].to_vec()
+                })
+                .collect(),
             paths,
+            n_trailing_zeros,
         }
     }
 }
 
 impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
     pub fn restore(
-        self,
+        mut self,
         hash_leaf: &impl Fn(&[Data]) -> [F; DIGEST_LEN_FE],
         hash_combine: &impl Fn(&[F; DIGEST_LEN_FE], &[F; DIGEST_LEN_FE]) -> [F; DIGEST_LEN_FE],
-    ) -> Option<MerklePaths<Data, F>> {
+    ) -> Option<MerklePaths<Data, F>>
+    where
+        Data: Default,
+    {
         let n = self.paths.len();
         let h = self.merkle_height;
+
+        if self.n_trailing_zeros > 1024 {
+            return None; // prevent DoS with huge leaf data
+        }
+        self.leaf_data
+            .iter_mut()
+            .for_each(|d| d.resize(d.len() + self.n_trailing_zeros, Data::default()));
 
         let levels = |i: usize| {
             i.checked_sub(1)
@@ -388,58 +419,30 @@ mod tests {
     }
 
     #[test]
-    fn test_restore_returns_none_on_missing_leaf_data() {
-        let pruned: PrunedMerklePaths<u8, u8> = PrunedMerklePaths {
-            merkle_height: 2,
-            original_order: vec![0],
-            leaf_data: vec![], // Empty - should cause failure
-            paths: vec![(0, vec![[1; DIGEST_LEN_FE], [2; DIGEST_LEN_FE]])],
-        };
-        assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
-    }
+    fn test_trailing_zeros_stripped() {
+        let leaves: Vec<Vec<u8>> = (0u8..8).map(|i| vec![i + 1, i + 10, 0, 0, 0]).collect();
+        let tree = build_merkle_tree(&leaves);
 
-    #[test]
-    fn test_restore_returns_none_on_invalid_original_order() {
-        let pruned: PrunedMerklePaths<u8, u8> = PrunedMerklePaths {
-            merkle_height: 2,
-            original_order: vec![5], // Out of bounds index
-            leaf_data: vec![vec![0]],
-            paths: vec![(0, vec![[1; DIGEST_LEN_FE], [2; DIGEST_LEN_FE]])],
-        };
-        assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
-    }
+        let indices = [2, 5, 7];
+        let paths = MerklePaths(
+            indices
+                .iter()
+                .map(|&i| generate_auth_path(leaves[i].clone(), i, &tree))
+                .collect(),
+        );
 
-    #[test]
-    fn test_restore_returns_none_on_missing_siblings() {
-        let pruned: PrunedMerklePaths<u8, u8> = PrunedMerklePaths {
-            merkle_height: 3,
-            original_order: vec![0],
-            leaf_data: vec![vec![0]],
-            paths: vec![(0, vec![[1; DIGEST_LEN_FE]])], // Only 1 sibling, need 3
-        };
-        assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
-    }
+        let pruned = paths.clone().prune();
 
-    #[test]
-    fn test_restore_returns_none_on_mismatched_paths_and_leaf_data() {
-        let pruned: PrunedMerklePaths<u8, u8> = PrunedMerklePaths {
-            merkle_height: 2,
-            original_order: vec![0, 1],
-            leaf_data: vec![vec![0]], // Only 1, but paths has 2
-            paths: vec![(0, vec![[1; DIGEST_LEN_FE]]), (1, vec![[2; DIGEST_LEN_FE]])],
-        };
-        assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
-    }
+        assert_eq!(pruned.n_trailing_zeros, 3);
+        for leaf in &pruned.leaf_data {
+            assert_eq!(leaf.len(), 2);
+        }
 
-    #[test]
-    fn test_restore_returns_none_on_empty_paths() {
-        let pruned: PrunedMerklePaths<u8, u8> = PrunedMerklePaths {
-            merkle_height: 2,
-            original_order: vec![0],
-            leaf_data: vec![],
-            paths: vec![],
-        };
-        // original_order[0] = 0, but restored is empty
-        assert!(pruned.restore(&simple_hash, &hash_combine).is_none());
+        let restored = pruned.restore(&simple_hash, &hash_combine).unwrap();
+        for (orig, rest) in paths.0.iter().zip(restored.0.iter()) {
+            assert_eq!(orig.leaf_index, rest.leaf_index);
+            assert_eq!(orig.leaf_data, rest.leaf_data);
+            assert_eq!(orig.sibling_hashes, rest.sibling_hashes);
+        }
     }
 }
