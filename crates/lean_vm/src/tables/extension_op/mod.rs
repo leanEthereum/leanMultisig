@@ -44,26 +44,19 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         Table::extension_op()
     }
 
-    fn lookups_f(&self) -> Vec<LookupIntoMemory> {
-        vec![LookupIntoMemory {
-            index: COL_IDX_A,
-            values: vec![COL_VALUE_A_F],
-        }]
-    }
-
-    fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
+    fn lookups(&self) -> Vec<LookupIntoMemory> {
         vec![
-            ExtensionFieldLookupIntoMemory {
+            LookupIntoMemory {
                 index: COL_IDX_A,
-                values: COL_VALUE_A_EF,
+                values: (COL_VA..COL_VA + DIMENSION).collect(),
             },
-            ExtensionFieldLookupIntoMemory {
+            LookupIntoMemory {
                 index: COL_IDX_B,
-                values: COL_VALUE_B,
+                values: (COL_VB..COL_VB + DIMENSION).collect(),
             },
-            ExtensionFieldLookupIntoMemory {
+            LookupIntoMemory {
                 index: COL_IDX_RES,
-                values: COL_VALUE_RES,
+                values: (COL_VRES..COL_VRES + DIMENSION).collect(),
             },
         ]
     }
@@ -81,21 +74,16 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         }
     }
 
-    fn n_columns_f_total(&self) -> usize {
-        self.n_columns_f_air() + 2 // +2 for COL_ACTIVATION_FLAG and COL_AUX_EXTENSION_OP (non-AIR, used in bus logup)
+    fn n_columns_total(&self) -> usize {
+        self.n_columns() + 2 // +2 for COL_ACTIVATION_FLAG and COL_AUX_EXTENSION_OP (non-AIR, used in bus logup)
     }
 
-    fn padding_row_f(&self) -> Vec<F> {
-        // is_be=0, start=1, f_add=0, f_mul=0, f_peq=0, len=1, arg_A=0, idx_B=0, idx_R=0, v_A_F=0, act_flag=0, aux=32
-        let mut row = vec![F::ZERO; self.n_columns_f_total()];
-        row[COL_START] = F::ONE; // start=1
-        row[COL_LEN] = F::ONE; // len=1
-        row[COL_AUX_EXTENSION_OP] = F::from_usize(EXT_OP_LEN_MULTIPLIER); // aux = 0 + 0 + 0 + 0 + 32*1
+    fn padding_row(&self) -> Vec<F> {
+        let mut row = vec![F::ZERO; self.n_columns_total()];
+        row[COL_START] = F::ONE;
+        row[COL_LEN] = F::ONE;
+        row[COL_AUX_EXTENSION_OP] = F::from_usize(EXT_OP_LEN_MULTIPLIER);
         row
-    }
-
-    fn padding_row_ef(&self) -> Vec<EF> {
-        vec![EF::ZERO; self.n_columns_ef_air()]
     }
 
     #[inline(always)]

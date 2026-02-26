@@ -238,36 +238,22 @@ fn build_replacements(
         inner_public_memory_log_size.to_string(),
     );
 
-    let mut lookup_f_indexes_str = vec![];
-    let mut lookup_f_values_str = vec![];
-    let mut lookup_ef_indexes_str = vec![];
-    let mut lookup_ef_values_str = vec![];
-    let mut num_cols_f_air = vec![];
-    let mut num_cols_ef_air = vec![];
-    let mut num_cols_f_committed = vec![];
+    let mut lookup_indexes_str = vec![];
+    let mut lookup_values_str = vec![];
+    let mut num_cols_air = vec![];
     let mut air_degrees = vec![];
-    let mut n_air_columns_f = vec![];
-    let mut n_air_columns_ef = vec![];
-    let mut air_down_columns_f = vec![];
-    let mut air_down_columns_ef = vec![];
+    let mut n_air_columns = vec![];
+    let mut air_down_columns = vec![];
     for table in ALL_TABLES {
         let this_look_f_indexes_str = table
-            .lookups_f()
+            .lookups()
             .iter()
             .map(|lookup_f| lookup_f.index.to_string())
             .collect::<Vec<_>>();
-        let this_look_ef_indexes_str = table
-            .lookups_ef()
-            .iter()
-            .map(|lookup_ef| lookup_ef.index.to_string())
-            .collect::<Vec<_>>();
-        lookup_f_indexes_str.push(format!("[{}]", this_look_f_indexes_str.join(", ")));
-        lookup_ef_indexes_str.push(format!("[{}]", this_look_ef_indexes_str.join(", ")));
-        num_cols_f_air.push(table.n_columns_f_air().to_string());
-        num_cols_ef_air.push(table.n_columns_ef_air().to_string());
-        num_cols_f_committed.push(table.n_columns_f_air().to_string());
+        lookup_indexes_str.push(format!("[{}]", this_look_f_indexes_str.join(", ")));
+        num_cols_air.push(table.n_columns().to_string());
         let this_lookup_f_values_str = table
-            .lookups_f()
+            .lookups()
             .iter()
             .map(|lookup_f| {
                 format!(
@@ -281,29 +267,13 @@ fn build_replacements(
                 )
             })
             .collect::<Vec<_>>();
-        let this_lookup_ef_values_str = table
-            .lookups_ef()
-            .iter()
-            .map(|lookup_ef| lookup_ef.values.to_string())
-            .collect::<Vec<_>>();
-        lookup_f_values_str.push(format!("[{}]", this_lookup_f_values_str.join(", ")));
-        lookup_ef_values_str.push(format!("[{}]", this_lookup_ef_values_str.join(", ")));
+        lookup_values_str.push(format!("[{}]", this_lookup_f_values_str.join(", ")));
         air_degrees.push(table.degree_air().to_string());
-        n_air_columns_f.push(table.n_columns_f_air().to_string());
-        n_air_columns_ef.push(table.n_columns_ef_air().to_string());
-        air_down_columns_f.push(format!(
+        n_air_columns.push(table.n_columns().to_string());
+        air_down_columns.push(format!(
             "[{}]",
             table
-                .down_column_indexes_f()
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-        air_down_columns_ef.push(format!(
-            "[{}]",
-            table
-                .down_column_indexes_ef()
+                .down_column_indexes()
                 .iter()
                 .map(|v| v.to_string())
                 .collect::<Vec<_>>()
@@ -311,32 +281,16 @@ fn build_replacements(
         ));
     }
     replacements.insert(
-        "LOOKUPS_F_INDEXES_PLACEHOLDER".to_string(),
-        format!("[{}]", lookup_f_indexes_str.join(", ")),
+        "LOOKUPS_INDEXES_PLACEHOLDER".to_string(),
+        format!("[{}]", lookup_indexes_str.join(", ")),
     );
     replacements.insert(
-        "LOOKUPS_F_VALUES_PLACEHOLDER".to_string(),
-        format!("[{}]", lookup_f_values_str.join(", ")),
+        "LOOKUPS_VALUES_PLACEHOLDER".to_string(),
+        format!("[{}]", lookup_values_str.join(", ")),
     );
     replacements.insert(
-        "NUM_COLS_F_AIR_PLACEHOLDER".to_string(),
-        format!("[{}]", num_cols_f_air.join(", ")),
-    );
-    replacements.insert(
-        "NUM_COLS_EF_AIR_PLACEHOLDER".to_string(),
-        format!("[{}]", num_cols_ef_air.join(", ")),
-    );
-    replacements.insert(
-        "NUM_COLS_F_COMMITTED_PLACEHOLDER".to_string(),
-        format!("[{}]", num_cols_f_committed.join(", ")),
-    );
-    replacements.insert(
-        "LOOKUPS_EF_INDEXES_PLACEHOLDER".to_string(),
-        format!("[{}]", lookup_ef_indexes_str.join(", ")),
-    );
-    replacements.insert(
-        "LOOKUPS_EF_VALUES_PLACEHOLDER".to_string(),
-        format!("[{}]", lookup_ef_values_str.join(", ")),
+        "NUM_COLS_AIR_PLACEHOLDER".to_string(),
+        format!("[{}]", num_cols_air.join(", ")),
     );
     replacements.insert(
         "EXECUTION_TABLE_INDEX_PLACEHOLDER".to_string(),
@@ -351,20 +305,12 @@ fn build_replacements(
         format!("[{}]", air_degrees.join(", ")),
     );
     replacements.insert(
-        "N_AIR_COLUMNS_F_PLACEHOLDER".to_string(),
-        format!("[{}]", n_air_columns_f.join(", ")),
+        "N_AIR_COLUMNS_PLACEHOLDER".to_string(),
+        format!("[{}]", n_air_columns.join(", ")),
     );
     replacements.insert(
-        "N_AIR_COLUMNS_EF_PLACEHOLDER".to_string(),
-        format!("[{}]", n_air_columns_ef.join(", ")),
-    );
-    replacements.insert(
-        "AIR_DOWN_COLUMNS_F_PLACEHOLDER".to_string(),
-        format!("[{}]", air_down_columns_f.join(", ")),
-    );
-    replacements.insert(
-        "AIR_DOWN_COLUMNS_EF_PLACEHOLDER".to_string(),
-        format!("[{}]", air_down_columns_ef.join(", ")),
+        "AIR_DOWN_COLUMNS_PLACEHOLDER".to_string(),
+        format!("[{}]", air_down_columns.join(", ")),
     );
     replacements.insert(
         "EVALUATE_AIR_FUNCTIONS_PLACEHOLDER".to_string(),

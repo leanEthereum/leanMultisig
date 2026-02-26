@@ -21,36 +21,26 @@ impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for GKRQuotientComputat
     }
 
     #[inline(always)]
-    fn eval_base(&self, point: &[PF<EF>], _: &[EF], alpha_powers: &Self::ExtraData) -> EF {
+    fn eval_base(&self, point: &[PF<EF>], alpha_powers: &Self::ExtraData) -> EF {
         let inner = sum_fractions_const_2_by_2(&point[..2], &point[2..]);
         my_dot_product(&alpha_powers[1..], &inner[1..]) + inner[0]
     }
 
     #[inline(always)]
-    fn eval_extension(&self, point: &[EF], _: &[EF], alpha_powers: &Self::ExtraData) -> EF {
+    fn eval_extension(&self, point: &[EF], alpha_powers: &Self::ExtraData) -> EF {
         let inner = sum_fractions_const_2_by_2(&point[..2], &point[2..]);
         my_dot_product(&alpha_powers[1..], &inner[1..]) + inner[0]
     }
 
     #[inline(always)]
-    fn eval_packed_base(
-        &self,
-        point: &[PFPacking<EF>],
-        _: &[EFPacking<EF>],
-        alpha_powers: &Self::ExtraData,
-    ) -> EFPacking<EF> {
+    fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &Self::ExtraData) -> EFPacking<EF> {
         let inner = sum_fractions_const_2_by_2(&point[..2], &point[2..]);
         let alphas_packed: [_; 2] = array::from_fn(|i| EFPacking::<EF>::from(alpha_powers[i]));
         my_dot_product(&alphas_packed[1..], &inner[1..]) + inner[0]
     }
 
     #[inline(always)]
-    fn eval_packed_extension(
-        &self,
-        point: &[EFPacking<EF>],
-        _: &[EFPacking<EF>],
-        alpha_powers: &Self::ExtraData,
-    ) -> EFPacking<EF> {
+    fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &Self::ExtraData) -> EFPacking<EF> {
         let inner = sum_fractions_const_2_by_2(&point[..2], &point[2..]);
         my_dot_product(&inner[1..], &alpha_powers[1..]) + inner[0]
     }

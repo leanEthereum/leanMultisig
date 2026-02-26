@@ -10,7 +10,8 @@ use crate::KoalaBear;
 )))]
 #[inline]
 pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &mut [KoalaBear; 5]) {
-    super::extension::quintic_mul(a, b, res);
+    use field::PrimeCharacteristicRing;
+    *res = super::extension::quintic_mul(a, b, KoalaBear::dot_product::<5>);
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]

@@ -3,10 +3,8 @@ use tracing::instrument;
 
 #[derive(Debug)]
 pub struct ConstraintChecker<EF: ExtensionField<PF<EF>>> {
-    pub up_f: Vec<PF<EF>>,
-    pub up_ef: Vec<EF>,
-    pub down_f: Vec<PF<EF>>,
-    pub down_ef: Vec<EF>,
+    pub up: Vec<PF<EF>>,
+    pub down: Vec<PF<EF>>,
     pub constraint_index: usize,
     pub errors: Vec<usize>,
 }
@@ -16,23 +14,13 @@ impl<EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintChecker<EF> {
     type EF = EF;
 
     #[inline]
-    fn up_f(&self) -> &[Self::F] {
-        &self.up_f
+    fn up(&self) -> &[Self::F] {
+        &self.up
     }
 
     #[inline]
-    fn up_ef(&self) -> &[Self::EF] {
-        &self.up_ef
-    }
-
-    #[inline]
-    fn down_f(&self) -> &[Self::F] {
-        &self.down_f
-    }
-
-    #[inline]
-    fn down_ef(&self) -> &[Self::EF] {
-        &self.down_ef
+    fn down(&self) -> &[Self::F] {
+        &self.down
     }
 
     #[inline]
@@ -60,13 +48,11 @@ impl<EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintChecker<EF> {
 pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
     air: &A,
     extra_data: &A::ExtraData,
-    columns_f: &[&[PF<EF>]],
-    columns_ef: &[&[EF]],
+    columns: &[&[PF<EF>]],
 ) -> Result<(), String> {
-    let n_rows = columns_f[0].len();
-    assert!(columns_f.iter().all(|col| col.len() == n_rows));
-    assert!(columns_ef.iter().all(|col| col.len() == n_rows));
-    if columns_f.len() != air.n_columns_f_air() || columns_ef.len() != air.n_columns_ef_air() {
+    let n_rows = columns[0].len();
+    assert!(columns.iter().all(|col| col.len() == n_rows));
+    if columns.len() != air.n_columns() {
         return Err("Invalid number of columns".to_string());
     }
     let handle_errors = |row: usize, constraint_checker: &ConstraintChecker<EF>| {
@@ -85,27 +71,15 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
         Ok(())
     };
     for row in 0..n_rows - 1 {
-        let up_f = (0..air.n_columns_f_air())
-            .map(|j| columns_f[j][row])
-            .collect::<Vec<_>>();
-        let up_ef = (0..air.n_columns_ef_air())
-            .map(|j| columns_ef[j][row])
-            .collect::<Vec<_>>();
-        let down_f = air
-            .down_column_indexes_f()
+        let up = (0..air.n_columns()).map(|j| columns[j][row]).collect::<Vec<_>>();
+        let down = air
+            .down_column_indexes()
             .iter()
-            .map(|j| columns_f[*j][row + 1])
-            .collect::<Vec<_>>();
-        let down_ef = air
-            .down_column_indexes_ef()
-            .iter()
-            .map(|j| columns_ef[*j][row + 1])
+            .map(|j| columns[*j][row + 1])
             .collect::<Vec<_>>();
         let mut constraints_checker = ConstraintChecker {
-            up_f,
-            up_ef,
-            down_f,
-            down_ef,
+            up,
+            down,
             constraint_index: 0,
             errors: Vec::new(),
         };
@@ -113,24 +87,13 @@ pub fn check_air_validity<A: Air, EF: ExtensionField<PF<EF>>>(
         handle_errors(row, &constraints_checker)?;
     }
     // last transition:
-    let up_f = (0..air.n_columns_f_air())
-        .map(|j| columns_f[j][n_rows - 1])
-        .collect::<Vec<_>>();
-    let up_ef = (0..air.n_columns_ef_air())
-        .map(|j| columns_ef[j][n_rows - 1])
-        .collect::<Vec<_>>();
+    let up = (0..air.n_columns()).map(|j| columns[j][n_rows - 1]).collect::<Vec<_>>();
     let mut constraints_checker = ConstraintChecker {
-        up_f,
-        up_ef,
-        down_f: air
-            .down_column_indexes_f()
+        up,
+        down: air
+            .down_column_indexes()
             .iter()
-            .map(|j| columns_f[*j][n_rows - 1])
-            .collect::<Vec<_>>(),
-        down_ef: air
-            .down_column_indexes_ef()
-            .iter()
-            .map(|j| columns_ef[*j][n_rows - 1])
+            .map(|j| columns[*j][n_rows - 1])
             .collect::<Vec<_>>(),
         constraint_index: 0,
         errors: Vec::new(),

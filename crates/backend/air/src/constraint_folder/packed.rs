@@ -4,10 +4,8 @@ use poly::*;
 
 #[derive(Debug)]
 pub struct ConstraintFolderPackedBase<'a, EF: ExtensionField<PF<EF>>, ExtraData: AlphaPowers<EF>> {
-    pub up_f: &'a [PFPacking<EF>],
-    pub up_ef: &'a [EFPacking<EF>],
-    pub down_f: &'a [PFPacking<EF>],
-    pub down_ef: &'a [EFPacking<EF>],
+    pub up: &'a [PFPacking<EF>],
+    pub down: &'a [PFPacking<EF>],
     pub extra_data: &'a ExtraData,
     pub accumulator: EFPacking<EF>,
     pub constraint_index: usize,
@@ -20,23 +18,13 @@ impl<'a, EF: ExtensionField<PF<EF>>, ExtraData: AlphaPowers<EF>> AirBuilder
     type EF = EFPacking<EF>;
 
     #[inline]
-    fn up_f(&self) -> &[Self::F] {
-        self.up_f
+    fn up(&self) -> &[Self::F] {
+        self.up
     }
 
     #[inline]
-    fn up_ef(&self) -> &[Self::EF] {
-        self.up_ef
-    }
-
-    #[inline]
-    fn down_f(&self) -> &[Self::F] {
-        self.down_f
-    }
-
-    #[inline]
-    fn down_ef(&self) -> &[Self::EF] {
-        self.down_ef
+    fn down(&self) -> &[Self::F] {
+        self.down
     }
 
     #[inline]
@@ -61,10 +49,8 @@ impl<'a, EF: ExtensionField<PF<EF>>, ExtraData: AlphaPowers<EF>> AirBuilder
 
 #[derive(Debug)]
 pub struct ConstraintFolderPackedExtension<'a, EF: ExtensionField<PF<EF>>, ExtraData: AlphaPowers<EF>> {
-    pub up_f: &'a [EFPacking<EF>],
-    pub up_ef: &'a [EFPacking<EF>],
-    pub down_f: &'a [EFPacking<EF>],
-    pub down_ef: &'a [EFPacking<EF>],
+    pub up: &'a [EFPacking<EF>],
+    pub down: &'a [EFPacking<EF>],
     pub extra_data: &'a ExtraData,
     pub accumulator: EFPacking<EF>,
     pub constraint_index: usize,
@@ -77,23 +63,13 @@ impl<'a, EF: ExtensionField<PF<EF>>, ExtraData: AlphaPowers<EF>> AirBuilder
     type EF = EFPacking<EF>;
 
     #[inline]
-    fn up_f(&self) -> &[Self::F] {
-        self.up_f
+    fn up(&self) -> &[Self::F] {
+        self.up
     }
 
     #[inline]
-    fn up_ef(&self) -> &[Self::EF] {
-        self.up_ef
-    }
-
-    #[inline]
-    fn down_f(&self) -> &[Self::F] {
-        self.down_f
-    }
-
-    #[inline]
-    fn down_ef(&self) -> &[Self::EF] {
-        self.down_ef
+    fn down(&self) -> &[Self::F] {
+        self.down
     }
 
     #[inline]

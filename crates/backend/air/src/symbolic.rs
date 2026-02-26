@@ -201,44 +201,25 @@ impl<F: Field, T: Into<Self>> Product<T> for SymbolicExpression<F> {
 
 #[derive(Debug)]
 struct SymbolicAirBuilder<F: Field> {
-    up_f: Vec<SymbolicExpression<F>>,
-    down_f: Vec<SymbolicExpression<F>>,
-    up_ef: Vec<SymbolicExpression<F>>,
-    down_ef: Vec<SymbolicExpression<F>>,
+    up: Vec<SymbolicExpression<F>>,
+    down: Vec<SymbolicExpression<F>>,
     constraints: Vec<SymbolicExpression<F>>,
     bus_flag_value: Option<SymbolicExpression<F>>,
     bus_data_values: Option<Vec<SymbolicExpression<F>>>,
 }
 
 impl<F: Field> SymbolicAirBuilder<F> {
-    pub fn new(
-        n_columns_f_up: usize,
-        n_columns_f_down: usize,
-        n_columns_ef_up: usize,
-        n_columns_ef_down: usize,
-    ) -> Self {
-        let up_f = (0..n_columns_f_up)
+    pub fn new(n_columns_up: usize, n_columns_down: usize) -> Self {
+        let up = (0..n_columns_up)
             .map(|i| SymbolicExpression::Variable(SymbolicVariable::new(i)))
             .collect();
-        let down_f = (0..n_columns_f_down)
-            .map(|i| SymbolicExpression::Variable(SymbolicVariable::new(n_columns_f_up + i)))
-            .collect();
-        let up_ef = (0..n_columns_ef_up)
-            .map(|i| SymbolicExpression::Variable(SymbolicVariable::new(n_columns_f_up + n_columns_f_down + i)))
-            .collect();
-        let down_ef = (0..n_columns_ef_down)
-            .map(|i| {
-                SymbolicExpression::Variable(SymbolicVariable::new(
-                    n_columns_f_up + n_columns_f_down + n_columns_ef_up + i,
-                ))
-            })
+        let down = (0..n_columns_down)
+            .map(|i| SymbolicExpression::Variable(SymbolicVariable::new(n_columns_up + i)))
             .collect();
 
         Self {
-            up_f,
-            down_f,
-            up_ef,
-            down_ef,
+            up,
+            down,
             constraints: Vec::new(),
             bus_flag_value: None,
             bus_data_values: None,
@@ -254,20 +235,12 @@ impl<F: Field> AirBuilder for SymbolicAirBuilder<F> {
     type F = SymbolicExpression<F>;
     type EF = SymbolicExpression<F>;
 
-    fn up_f(&self) -> &[Self::F] {
-        &self.up_f
+    fn up(&self) -> &[Self::F] {
+        &self.up
     }
 
-    fn down_f(&self) -> &[Self::F] {
-        &self.down_f
-    }
-
-    fn up_ef(&self) -> &[Self::EF] {
-        &self.up_ef
-    }
-
-    fn down_ef(&self) -> &[Self::EF] {
-        &self.down_ef
+    fn down(&self) -> &[Self::F] {
+        &self.down
     }
 
     fn assert_zero(&mut self, x: Self::F) {
@@ -303,12 +276,7 @@ pub fn get_symbolic_constraints_and_bus_data_values<F: Field, A: Air>(
 where
     A::ExtraData: Default,
 {
-    let mut builder = SymbolicAirBuilder::<F>::new(
-        air.n_columns_f_air(),
-        air.n_down_columns_f(),
-        air.n_columns_ef_air(),
-        air.n_down_columns_ef(),
-    );
+    let mut builder = SymbolicAirBuilder::<F>::new(air.n_columns(), air.n_down_columns());
     air.eval(&mut builder, &Default::default());
     (
         builder.constraints(),

@@ -8,7 +8,7 @@ use crate::packing::quintic_mul_packed;
 use crate::quintic_extension::extension::QuinticExtensionField;
 use crate::{KoalaBear, KoalaBearParameters};
 
-pub(crate) mod extension;
+pub mod extension;
 pub(crate) mod packed_extension;
 pub(crate) mod packing;
 

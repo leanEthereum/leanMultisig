@@ -39,20 +39,14 @@ pub const COL_EXEC_NU_C: usize = 23;
 impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
 
-    fn n_columns_f_air(&self) -> usize {
+    fn n_columns(&self) -> usize {
         N_TOTAL_EXECUTION_COLUMNS
-    }
-    fn n_columns_ef_air(&self) -> usize {
-        0
     }
     fn degree_air(&self) -> usize {
         5
     }
-    fn down_column_indexes_f(&self) -> Vec<usize> {
+    fn down_column_indexes(&self) -> Vec<usize> {
         vec![COL_PC, COL_FP]
-    }
-    fn down_column_indexes_ef(&self) -> Vec<usize> {
-        vec![]
     }
     fn n_constraints(&self) -> usize {
         13
@@ -60,8 +54,8 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
 
     #[inline]
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
-        let up = builder.up_f();
-        let down = builder.down_f();
+        let up = builder.up();
+        let down = builder.down();
 
         let next_pc = down[0].clone();
         let next_fp = down[1].clone();

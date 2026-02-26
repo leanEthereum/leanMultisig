@@ -246,7 +246,6 @@ pub fn xmss_aggregate(
 
         let (challenges, final_evals, _) = sumcheck_prove::<EF, _, _>(
             witness,
-            None,
             &ProductComputation {},
             &vec![],
             None,
