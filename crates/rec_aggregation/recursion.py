@@ -54,7 +54,7 @@ BYTECODE_CLAIM_SIZE_PADDED = next_multiple_of(BYTECODE_CLAIM_SIZE, DIGEST_LEN)
 INNER_PUBLIC_MEMORY_LOG_SIZE = INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER
 
 
-def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
+def recursion(inner_public_memory, proof_transcript, bytecode_value_hint, inv_ext_mat, inv_int_mat):
     fs: Mut = fs_new(proof_transcript)
 
     # table dims
@@ -184,15 +184,15 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
 
     # Dispatch based on table height ordering (sorted by descending height)
     if maximum(table_log_heights[1], table_log_heights[2]) == table_log_heights[1]:
-        continue_recursion_ordered(1, 2, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc)
+        continue_recursion_ordered(1, 2, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc, inv_ext_mat, inv_int_mat)
     else:
-        continue_recursion_ordered(2, 1, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc)
+        continue_recursion_ordered(2, 1, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc, inv_ext_mat, inv_int_mat)
 
     return bytecode_claim
 
 
 @inline
-def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc):
+def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc, inv_ext_mat, inv_int_mat):
     bus_numerators_values = DynArray([])
     bus_denominators_values = DynArray([])
     pcs_points = DynArray([])  # [[_; N]; N_TABLES]
@@ -397,7 +397,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
             perm_out_0_7 + i * DIM,
         )
     fs, gkr_input_point, gkr_input_evals = verify_poseidon_gkr(
-        fs, poseidon_log_n_rows, poseidon_logup_point, perm_out_0_7
+        fs, poseidon_log_n_rows, poseidon_logup_point, perm_out_0_7, inv_ext_mat, inv_int_mat
     )
     # Add GKR input claims to pcs
     pcs_points[POSEIDON_TABLE_INDEX].push(gkr_input_point)
@@ -704,7 +704,7 @@ def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_bet
     return res
     
 
-def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0_7):
+def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0_7, inv_ext_mat, inv_int_mat):
     # Receive perm_out[8..15] from prover
     fs, perm_out_8_15 = fs_receive_ef_inlined(fs, DIGEST_LEN)
     # Combine into full 16 claims
@@ -714,25 +714,25 @@ def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0
     point: Mut = output_claim_point
     # Final full rounds (reversed)
     for round_idx in unroll(0, N_FINAL_FULL_ROUNDS):
-        claims = apply_inv_external_matrix(claims)
+        claims = apply_inv_matrix(claims, inv_ext_mat)
         fs, point, claims = verify_poseidon_gkr_round_full(fs, log_n_poseidons, point, claims)
         rc_offset = (N_FINAL_FULL_ROUNDS - 1 - round_idx) * 16
         for i in unroll(0, 16):
             claims = sub_extension_base_at(claims, i, FINAL_ROUND_CONSTANTS[rc_offset + i])
     # Partial rounds (reversed)
     for round_idx in unroll(0, N_PARTIAL_ROUNDS):
-        claims = apply_inv_internal_matrix(claims)
+        claims = apply_inv_matrix(claims, inv_int_mat)
         fs, point, claims = verify_poseidon_gkr_round_partial(fs, log_n_poseidons, point, claims)
         claims = sub_extension_base_at(claims, 0, PARTIAL_ROUND_CONSTANTS[N_PARTIAL_ROUNDS - 1 - round_idx])
     # Initial full rounds (reversed)
     for round_idx in unroll(0, N_INITIAL_FULL_ROUNDS):
-        claims = apply_inv_external_matrix(claims)
+        claims = apply_inv_matrix(claims, inv_ext_mat)
         fs, point, claims = verify_poseidon_gkr_round_full(fs, log_n_poseidons, point, claims)
         rc_offset = (N_INITIAL_FULL_ROUNDS - 1 - round_idx) * 16
         for i in unroll(0, 16):
             claims = sub_extension_base_at(claims, i, INITIAL_ROUND_CONSTANTS[rc_offset + i])
     # Final matrix application
-    claims = apply_inv_external_matrix(claims)
+    claims = apply_inv_matrix(claims, inv_ext_mat)
     return fs, point, claims
 
 
@@ -790,25 +790,11 @@ def sub_extension_base_at(claims, idx, base_val):
     return new_claims
 
 
-def apply_inv_external_matrix(claims):
+@inline
+def apply_inv_matrix(claims, mat):
     result = Array(16 * DIM)
     for i in unroll(0, 16):
-        acc: Mut = Array(DIM)
-        set_to_5_zeros(acc)
-        for j in unroll(0, 16):
-            acc = add_extension_ret(acc, mul_base_extension_ret(INV_EXTERNAL_MATRIX[i * 16 + j], claims + j * DIM))
-        copy_5(acc, result + i * DIM)
-    return result
-
-
-def apply_inv_internal_matrix(claims):
-    result = Array(16 * DIM)
-    for i in unroll(0, 16):
-        acc: Mut = Array(DIM)
-        set_to_5_zeros(acc)
-        for j in unroll(0, 16):
-            acc = add_extension_ret(acc, mul_base_extension_ret(INV_INTERNAL_MATRIX[i * 16 + j], claims + j * DIM))
-        copy_5(acc, result + i * DIM)
+        dot_product_be(mat + i * 16, claims, result + i * DIM, 16)
     return result
 
 
