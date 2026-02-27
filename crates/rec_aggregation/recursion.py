@@ -21,6 +21,19 @@ LOOKUPS_VALUES = LOOKUPS_VALUES_PLACEHOLDER  # [[[_; ?]; ?]; N_TABLES]
 
 NUM_COLS_AIR = NUM_COLS_AIR_PLACEHOLDER
 NUM_COLS_TOTAL = NUM_COLS_TOTAL_PLACEHOLDER
+NUM_COMMITTED_COLS = NUM_COMMITTED_COLS_PLACEHOLDER
+
+POSEIDON_TABLE_INDEX = POSEIDON_TABLE_INDEX_PLACEHOLDER
+POSEIDON_16_COL_INPUT_START = POSEIDON_16_COL_INPUT_START_PLACEHOLDER
+POSEIDON_16_COL_OUTPUT_START = POSEIDON_16_COL_OUTPUT_START_PLACEHOLDER
+INV_EXTERNAL_MATRIX = INV_EXTERNAL_MATRIX_PLACEHOLDER
+INV_INTERNAL_MATRIX = INV_INTERNAL_MATRIX_PLACEHOLDER
+N_INITIAL_FULL_ROUNDS = N_INITIAL_FULL_ROUNDS_PLACEHOLDER
+N_PARTIAL_ROUNDS = N_PARTIAL_ROUNDS_PLACEHOLDER
+N_FINAL_FULL_ROUNDS = N_FINAL_FULL_ROUNDS_PLACEHOLDER
+INITIAL_ROUND_CONSTANTS = INITIAL_ROUND_CONSTANTS_PLACEHOLDER
+PARTIAL_ROUND_CONSTANTS = PARTIAL_ROUND_CONSTANTS_PLACEHOLDER
+FINAL_ROUND_CONSTANTS = FINAL_ROUND_CONSTANTS_PLACEHOLDER
 
 AIR_DEGREES = AIR_DEGREES_PLACEHOLDER  # [_; N_TABLES]
 N_AIR_COLUMNS = N_AIR_COLUMNS_PLACEHOLDER  # [_; N_TABLES]
@@ -193,6 +206,8 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
         for _ in unroll(0, total_num_cols_for_logup):
             pcs_values[i][0].push(DynArray([]))
 
+    poseidon_output_evals = Array(DIGEST_LEN * DIM)
+
     for sorted_pos in unroll(0, N_TABLES):
         table_index: Imu
         if sorted_pos == 0:
@@ -254,8 +269,10 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
             for i in unroll(0, len(LOOKUPS_VALUES[table_index][lookup_f_index])):
                 fs, value_eval = fs_receive_ef_inlined(fs, 1)
                 col_index = LOOKUPS_VALUES[table_index][lookup_f_index][i]
-                debug_assert(len(pcs_values[table_index][0][col_index]) == 0)
-                pcs_values[table_index][0][col_index].push(value_eval)
+                if col_index < POSEIDON_16_COL_OUTPUT_START:
+                    pcs_values[table_index][0][col_index].push(value_eval)
+                else:
+                    copy_5(value_eval, poseidon_output_evals + (col_index - POSEIDON_16_COL_OUTPUT_START) * DIM)
 
                 pref = multilinear_location_prefix(
                     offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr
@@ -303,7 +320,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
         log_n_rows = table_log_heights[table_index]
         bus_numerator_value = bus_numerators_values[sorted_pos]
         bus_denominator_value = bus_denominators_values[sorted_pos]
-        total_num_cols = NUM_COLS_AIR[table_index]
+        total_num_cols = NUM_COMMITTED_COLS[table_index]
 
         bus_final_value: Mut = bus_numerator_value
         if table_index != EXECUTION_TABLE_INDEX:
@@ -367,6 +384,31 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
             pcs_values[table_index][last_index_2].push(DynArray([]))
         for i in unroll(0, n_up_columns):
             pcs_values[table_index][last_index_2][i].push(inner_evals + i * DIM)
+
+    # Poseidon GKR verification
+    poseidon_logup_point = pcs_points[POSEIDON_TABLE_INDEX][0]
+    poseidon_log_n_rows = table_log_heights[POSEIDON_TABLE_INDEX]
+    # perm_out_0_7[i] = output_eval[i] - input_eval[i]
+    perm_out_0_7 = Array(DIGEST_LEN * DIM)
+    for i in unroll(0, DIGEST_LEN):
+        sub_extension(
+            poseidon_output_evals + i * DIM,
+            pcs_values[POSEIDON_TABLE_INDEX][0][POSEIDON_16_COL_INPUT_START + i][0],
+            perm_out_0_7 + i * DIM,
+        )
+    fs, gkr_input_point, gkr_input_evals = verify_poseidon_gkr(
+        fs, poseidon_log_n_rows, poseidon_logup_point, perm_out_0_7
+    )
+    # Add GKR input claims to pcs
+    pcs_points[POSEIDON_TABLE_INDEX].push(gkr_input_point)
+    pcs_values[POSEIDON_TABLE_INDEX].push(DynArray([]))
+    gkr_pcs_idx = len(pcs_values[POSEIDON_TABLE_INDEX]) - 1
+    for _ in unroll(0, NUM_COMMITTED_COLS[POSEIDON_TABLE_INDEX]):
+        pcs_values[POSEIDON_TABLE_INDEX][gkr_pcs_idx].push(DynArray([]))
+    for i in unroll(0, 16):
+        pcs_values[POSEIDON_TABLE_INDEX][gkr_pcs_idx][POSEIDON_16_COL_INPUT_START + i].push(
+            gkr_input_evals + i * DIM
+        )
 
     fs, public_memory_random_point = fs_sample_many_ef(fs, INNER_PUBLIC_MEMORY_LOG_SIZE)
     poly_eq_public_mem = poly_eq_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
@@ -510,7 +552,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
             table_index = third_table
         log_n_rows = table_log_heights[table_index]
         n_rows = table_heights[table_index]
-        total_num_cols = NUM_COLS_AIR[table_index]
+        total_num_cols = NUM_COMMITTED_COLS[table_index]
         for i in unroll(0, len(pcs_points[table_index])):
             point = pcs_points[table_index][i]
             eq_factor = eq_mle_extension(
@@ -632,7 +674,7 @@ def compute_stacked_n_vars(log_memory, log_bytecode_padded, tables_heights):
     total += powers_of_two(log_bytecode_padded)
     for table_index in unroll(0, N_TABLES):
         n_rows = tables_heights[table_index]
-        total += n_rows * NUM_COLS_AIR[table_index]
+        total += n_rows * NUM_COMMITTED_COLS[table_index]
     debug_assert(30 - 24 < MIN_LOG_N_ROWS_PER_TABLE) # cf log2_ceil
     return MIN_LOG_N_ROWS_PER_TABLE + log2_ceil_runtime(total / 2**MIN_LOG_N_ROWS_PER_TABLE)
 
@@ -661,5 +703,113 @@ def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_bet
             res = evaluate_air_constraints_table_2(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
     return res
     
+
+def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0_7):
+    # Receive perm_out[8..15] from prover
+    fs, perm_out_8_15 = fs_receive_ef_inlined(fs, DIGEST_LEN)
+    # Combine into full 16 claims
+    claims: Mut = Array(16 * DIM)
+    copy_many_ef(perm_out_0_7, claims, DIGEST_LEN)
+    copy_many_ef(perm_out_8_15, claims + DIGEST_LEN * DIM, DIGEST_LEN)
+    point: Mut = output_claim_point
+    # Final full rounds (reversed)
+    for round_idx in unroll(0, N_FINAL_FULL_ROUNDS):
+        claims = apply_inv_external_matrix(claims)
+        fs, point, claims = verify_poseidon_gkr_round_full(fs, log_n_poseidons, point, claims)
+        rc_offset = (N_FINAL_FULL_ROUNDS - 1 - round_idx) * 16
+        for i in unroll(0, 16):
+            claims = sub_extension_base_at(claims, i, FINAL_ROUND_CONSTANTS[rc_offset + i])
+    # Partial rounds (reversed)
+    for round_idx in unroll(0, N_PARTIAL_ROUNDS):
+        claims = apply_inv_internal_matrix(claims)
+        fs, point, claims = verify_poseidon_gkr_round_partial(fs, log_n_poseidons, point, claims)
+        claims = sub_extension_base_at(claims, 0, PARTIAL_ROUND_CONSTANTS[N_PARTIAL_ROUNDS - 1 - round_idx])
+    # Initial full rounds (reversed)
+    for round_idx in unroll(0, N_INITIAL_FULL_ROUNDS):
+        claims = apply_inv_external_matrix(claims)
+        fs, point, claims = verify_poseidon_gkr_round_full(fs, log_n_poseidons, point, claims)
+        rc_offset = (N_INITIAL_FULL_ROUNDS - 1 - round_idx) * 16
+        for i in unroll(0, 16):
+            claims = sub_extension_base_at(claims, i, INITIAL_ROUND_CONSTANTS[rc_offset + i])
+    # Final matrix application
+    claims = apply_inv_external_matrix(claims)
+    return fs, point, claims
+
+
+def verify_poseidon_gkr_round_full(fs: Mut, log_n_poseidons, claim_point, output_claims):
+    fs, batching_scalar = fs_sample_ef(fs)
+    batching_powers = powers_const(batching_scalar, 16)
+    batched_claim = Array(DIM)
+    dot_product_ee(output_claims, batching_powers, batched_claim, 16)
+    fs, sumcheck_point, sumcheck_value = sumcheck_verify(fs, log_n_poseidons, batched_claim, 4)
+    fs, inner_evals = fs_receive_ef_inlined(fs, 16)
+    # full round computation: sum(batching_powers[i] * inner_evals[i]^3)
+    comp_eval: Mut = Array(DIM)
+    set_to_5_zeros(comp_eval)
+    for i in unroll(0, 16):
+        cube_i: Mut = mul_extension_ret(inner_evals + i * DIM, inner_evals + i * DIM)
+        cube_i = mul_extension_ret(cube_i, inner_evals + i * DIM)
+        term = mul_extension_ret(batching_powers + i * DIM, cube_i)
+        comp_eval = add_extension_ret(comp_eval, term)
+    eq_factor = eq_mle_extension(claim_point, sumcheck_point, log_n_poseidons)
+    expected = mul_extension_ret(comp_eval, eq_factor)
+    copy_5(expected, sumcheck_value)
+    return fs, sumcheck_point, inner_evals
+
+
+def verify_poseidon_gkr_round_partial(fs: Mut, log_n_poseidons, claim_point, output_claims):
+    fs, batching_scalar = fs_sample_ef(fs)
+    batching_powers = powers_const(batching_scalar, 16)
+    batched_claim = Array(DIM)
+    dot_product_ee(output_claims, batching_powers, batched_claim, 16)
+    fs, sumcheck_point, sumcheck_value = sumcheck_verify(fs, log_n_poseidons, batched_claim, 4)
+    fs, inner_evals = fs_receive_ef_inlined(fs, 16)
+    # partial round computation: batching_powers[0] * inner_evals[0]^3 + sum_{i>0}(batching_powers[i] * inner_evals[i])
+    cube_0: Mut = mul_extension_ret(inner_evals, inner_evals)
+    cube_0 = mul_extension_ret(cube_0, inner_evals)
+    comp_eval: Mut = mul_extension_ret(batching_powers, cube_0)
+    for i in unroll(1, 16):
+        term = mul_extension_ret(batching_powers + i * DIM, inner_evals + i * DIM)
+        comp_eval = add_extension_ret(comp_eval, term)
+    eq_factor = eq_mle_extension(claim_point, sumcheck_point, log_n_poseidons)
+    expected = mul_extension_ret(comp_eval, eq_factor)
+    copy_5(expected, sumcheck_value)
+    return fs, sumcheck_point, inner_evals
+
+
+@inline
+def sub_extension_base_at(claims, idx, base_val):
+    new_claims = Array(16 * DIM)
+    for i in unroll(0, 16):
+        if i == idx:
+            new_claims[i * DIM] = claims[i * DIM] - base_val
+            for k in unroll(1, DIM):
+                new_claims[i * DIM + k] = claims[i * DIM + k]
+        else:
+            copy_5(claims + i * DIM, new_claims + i * DIM)
+    return new_claims
+
+
+def apply_inv_external_matrix(claims):
+    result = Array(16 * DIM)
+    for i in unroll(0, 16):
+        acc: Mut = Array(DIM)
+        set_to_5_zeros(acc)
+        for j in unroll(0, 16):
+            acc = add_extension_ret(acc, mul_base_extension_ret(INV_EXTERNAL_MATRIX[i * 16 + j], claims + j * DIM))
+        copy_5(acc, result + i * DIM)
+    return result
+
+
+def apply_inv_internal_matrix(claims):
+    result = Array(16 * DIM)
+    for i in unroll(0, 16):
+        acc: Mut = Array(DIM)
+        set_to_5_zeros(acc)
+        for j in unroll(0, 16):
+            acc = add_extension_ret(acc, mul_base_extension_ret(INV_INTERNAL_MATRIX[i * 16 + j], claims + j * DIM))
+        copy_5(acc, result + i * DIM)
+    return result
+
 
 EVALUATE_AIR_FUNCTIONS_PLACEHOLDER

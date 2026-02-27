@@ -1,8 +1,8 @@
 use backend::*;
 use lean_vm::*;
 use poseidon_gkr::fill_poseidon_trace;
-use tracing::info_span;
 use std::{array, collections::BTreeMap};
+use tracing::info_span;
 use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]

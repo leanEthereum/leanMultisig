@@ -3,8 +3,8 @@ use std::array;
 use backend::*;
 use tracing::instrument;
 
-use crate::F;
 use crate::EF;
+use crate::F;
 
 #[instrument(skip_all)]
 pub fn build_poseidon_inv_matrices<const WIDTH: usize>() -> ([[F; WIDTH]; WIDTH], [[F; WIDTH]; WIDTH])

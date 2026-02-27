@@ -5,6 +5,7 @@ use lean_prover::{
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
+use poseidon_gkr::{build_poseidon_inv_matrices, poseidon_round_constants};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::rc::Rc;
@@ -242,6 +243,7 @@ fn build_replacements(
     let mut lookup_values_str = vec![];
     let mut num_cols_air = vec![];
     let mut num_cols_total = vec![];
+    let mut num_committed_cols = vec![];
     let mut air_degrees = vec![];
     let mut n_air_columns = vec![];
     let mut air_down_columns = vec![];
@@ -254,6 +256,7 @@ fn build_replacements(
         lookup_indexes_str.push(format!("[{}]", this_look_f_indexes_str.join(", ")));
         num_cols_air.push(table.n_columns().to_string());
         num_cols_total.push(table.n_columns_total().to_string());
+        num_committed_cols.push(table.n_committed_columns().to_string());
         let this_lookup_f_values_str = table
             .lookups()
             .iter()
@@ -298,6 +301,67 @@ fn build_replacements(
         "NUM_COLS_TOTAL_PLACEHOLDER".to_string(),
         format!("[{}]", num_cols_total.join(", ")),
     );
+    replacements.insert(
+        "NUM_COMMITTED_COLS_PLACEHOLDER".to_string(),
+        format!("[{}]", num_committed_cols.join(", ")),
+    );
+
+    // Poseidon GKR constants
+    {
+        replacements.insert(
+            "POSEIDON_TABLE_INDEX_PLACEHOLDER".to_string(),
+            Table::poseidon16().index().to_string(),
+        );
+        replacements.insert(
+            "POSEIDON_16_COL_INPUT_START_PLACEHOLDER".to_string(),
+            POSEIDON_16_COL_INPUT_START.to_string(),
+        );
+        replacements.insert(
+            "POSEIDON_16_COL_OUTPUT_START_PLACEHOLDER".to_string(),
+            POSEIDON_16_COL_OUTPUT_START.to_string(),
+        );
+        let (inv_external, inv_internal) = build_poseidon_inv_matrices::<16>();
+        let (initial_rc, internal_rc, final_rc) = poseidon_round_constants::<16>();
+        let fmt_matrix = |m: &[[F; 16]; 16]| {
+            let vals: Vec<String> = m
+                .iter()
+                .flat_map(|row| row.iter().map(|x| x.as_canonical_u32().to_string()))
+                .collect();
+            format!("[{}]", vals.join(", "))
+        };
+        replacements.insert("INV_EXTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_external));
+        replacements.insert("INV_INTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_internal));
+        let fmt_rc_full = |rounds: &[[F; 16]]| {
+            let vals: Vec<String> = rounds
+                .iter()
+                .flat_map(|rc| rc.iter().map(|x| x.as_canonical_u32().to_string()))
+                .collect();
+            format!("[{}]", vals.join(", "))
+        };
+        replacements.insert(
+            "N_INITIAL_FULL_ROUNDS_PLACEHOLDER".to_string(),
+            initial_rc.len().to_string(),
+        );
+        replacements.insert(
+            "N_PARTIAL_ROUNDS_PLACEHOLDER".to_string(),
+            internal_rc.len().to_string(),
+        );
+        replacements.insert(
+            "N_FINAL_FULL_ROUNDS_PLACEHOLDER".to_string(),
+            final_rc.len().to_string(),
+        );
+        replacements.insert(
+            "INITIAL_ROUND_CONSTANTS_PLACEHOLDER".to_string(),
+            fmt_rc_full(initial_rc),
+        );
+        replacements.insert("FINAL_ROUND_CONSTANTS_PLACEHOLDER".to_string(), fmt_rc_full(final_rc));
+        let internal_vals: Vec<String> = internal_rc.iter().map(|x| x.as_canonical_u32().to_string()).collect();
+        replacements.insert(
+            "PARTIAL_ROUND_CONSTANTS_PLACEHOLDER".to_string(),
+            format!("[{}]", internal_vals.join(", ")),
+        );
+    }
+
     replacements.insert(
         "EXECUTION_TABLE_INDEX_PLACEHOLDER".to_string(),
         Table::execution().index().to_string(),
