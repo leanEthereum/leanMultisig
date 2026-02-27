@@ -59,6 +59,7 @@ xmss = { path = "crates/xmss" }
 sub_protocols = { path = "crates/sub_protocols" }
 lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
+poseidon_gkr = { path = "crates/poseidon_gkr" }
 rec_aggregation = { path = "crates/rec_aggregation" }
 
 # External
@@ -92,6 +93,7 @@ utils.workspace = true
 
 lean_vm.workspace = true
 backend.workspace = true
+poseidon_gkr.workspace = true
 
 
 [profile.release]

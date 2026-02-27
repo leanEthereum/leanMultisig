@@ -241,6 +241,7 @@ fn build_replacements(
     let mut lookup_indexes_str = vec![];
     let mut lookup_values_str = vec![];
     let mut num_cols_air = vec![];
+    let mut num_cols_total = vec![];
     let mut air_degrees = vec![];
     let mut n_air_columns = vec![];
     let mut air_down_columns = vec![];
@@ -252,6 +253,7 @@ fn build_replacements(
             .collect::<Vec<_>>();
         lookup_indexes_str.push(format!("[{}]", this_look_f_indexes_str.join(", ")));
         num_cols_air.push(table.n_columns().to_string());
+        num_cols_total.push(table.n_columns_total().to_string());
         let this_lookup_f_values_str = table
             .lookups()
             .iter()
@@ -291,6 +293,10 @@ fn build_replacements(
     replacements.insert(
         "NUM_COLS_AIR_PLACEHOLDER".to_string(),
         format!("[{}]", num_cols_air.join(", ")),
+    );
+    replacements.insert(
+        "NUM_COLS_TOTAL_PLACEHOLDER".to_string(),
+        format!("[{}]", num_cols_total.join(", ")),
     );
     replacements.insert(
         "EXECUTION_TABLE_INDEX_PLACEHOLDER".to_string(),

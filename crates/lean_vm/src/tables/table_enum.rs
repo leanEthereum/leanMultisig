@@ -84,6 +84,9 @@ impl TableT for Table {
     fn n_columns_total(&self) -> usize {
         delegate_to_inner!(self, n_columns_total)
     }
+    fn n_committed_columns(&self) -> usize {
+        delegate_to_inner!(self, n_committed_columns)
+    }
 }
 
 impl Air for Table {

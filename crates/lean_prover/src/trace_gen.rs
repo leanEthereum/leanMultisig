@@ -1,6 +1,8 @@
 use backend::*;
 use lean_vm::*;
-use std::{array, collections::BTreeMap, iter::repeat_n};
+use poseidon_gkr::fill_poseidon_trace;
+use tracing::info_span;
+use std::{array, collections::BTreeMap};
 use utils::{ToUsize, transposed_par_iter_mut};
 
 #[derive(Debug)]
@@ -99,9 +101,6 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
-    let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
-    fill_trace_poseidon_16(&mut poseidon_trace.base);
-
     let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
     fill_trace_extension_op(extension_op_trace, &memory_padded);
 
@@ -117,6 +116,11 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         padd_table(&table, &mut traces);
     }
 
+    // Fill GKR layers and compressed outputs in poseidon trace
+    info_span!("Poseidon GKR trace fill").in_scope(|| {
+        fill_poseidon_trace(&mut traces.get_mut(&Table::poseidon16()).unwrap().base);
+    });
+
     ExecutionTrace {
         traces,
         public_memory_size: execution_result.public_memory_size,
@@ -129,17 +133,13 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 fn padd_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
     let trace = traces.get_mut(table).unwrap();
     let h = trace.base[0].len();
-    trace
-        .base
-        .iter()
-        .enumerate()
-        .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, table.name()));
 
     trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
-    let padding_len = (1 << trace.log_n_rows) - h;
+    let n_rows = 1 << trace.log_n_rows;
     let padding_row = table.padding_row();
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
-        col.extend(repeat_n(padding_row[i], padding_len));
+        assert!(col.len() <= h); // potentially some columns have not been filled (in Poseidon16 -> we fill it later with SIMD + parallelism), but the first one should always be representative
+        col.resize(n_rows, padding_row[i]);
     });
 }

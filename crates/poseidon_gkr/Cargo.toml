@@ -1,0 +1,15 @@
+[package]
+name = "poseidon_gkr"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing.workspace = true
+backend.workspace = true
+
+[dev-dependencies]
+utils.workspace = true
+rand.workspace = true

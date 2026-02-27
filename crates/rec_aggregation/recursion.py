@@ -20,6 +20,7 @@ LOOKUPS_INDEXES = LOOKUPS_INDEXES_PLACEHOLDER  # [[_; ?]; N_TABLES]
 LOOKUPS_VALUES = LOOKUPS_VALUES_PLACEHOLDER  # [[[_; ?]; ?]; N_TABLES]
 
 NUM_COLS_AIR = NUM_COLS_AIR_PLACEHOLDER
+NUM_COLS_TOTAL = NUM_COLS_TOTAL_PLACEHOLDER
 
 AIR_DEGREES = AIR_DEGREES_PLACEHOLDER  # [_; N_TABLES]
 N_AIR_COLUMNS = N_AIR_COLUMNS_PLACEHOLDER  # [_; N_TABLES]
@@ -188,8 +189,8 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
     for i in unroll(0, N_TABLES):
         pcs_values.push(DynArray([]))
         pcs_values[i].push(DynArray([]))
-        total_num_cols = NUM_COLS_AIR[i]
-        for _ in unroll(0, total_num_cols):
+        total_num_cols_for_logup = NUM_COLS_TOTAL[i]
+        for _ in unroll(0, total_num_cols_for_logup):
             pcs_values[i][0].push(DynArray([]))
 
     for sorted_pos in unroll(0, N_TABLES):

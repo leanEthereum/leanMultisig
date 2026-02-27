@@ -116,7 +116,7 @@ pub fn stack_polynomials_and_commit(
 
     for (table, log_n_rows) in &tables_heights_sorted {
         let n_rows = 1 << *log_n_rows;
-        for col_index in 0..table.n_columns() {
+        for col_index in 0..table.n_committed_columns() {
             let col = &traces[table].base[col_index];
             global_polynomial[offset..][..n_rows].copy_from_slice(&col[..n_rows]);
             offset += n_rows;
@@ -197,8 +197,8 @@ pub fn total_whir_statements() -> usize {
      + ALL_TABLES
         .iter()
         .map(|table| {
-            // AIR
-            table.n_committed_columns()
+            // AIR (evaluates n_columns() AIR columns)
+            table.n_columns()
             + table.n_down_columns()
             // Lookups into memory
             + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
@@ -207,4 +207,8 @@ pub fn total_whir_statements() -> usize {
         // bytecode lookup
         + 1 // PC
         + N_INSTRUCTION_COLUMNS
+        // Poseidon output columns (20-27): claims come from logup, and are proven via GKR ...
+        - 8
+        // ... leading to 16 additional claims on the poseidon inputs
+        + 16
 }
