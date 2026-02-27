@@ -156,14 +156,15 @@ def whir_open(
     return fs, folding_randomness_global, s, final_value, end_sum
 
 
-def sumcheck_verify(fs: Mut, n_steps, claimed_sum, degree: Const):
+@inline
+def sumcheck_verify(fs, n_steps, claimed_sum, degree):
     challenges = Array(n_steps * DIM)
-    fs, new_claimed_sum = sumcheck_verify_helper(fs, n_steps, claimed_sum, degree, challenges)
-    return fs, challenges, new_claimed_sum
+    new_fs, new_claimed_sum = match_range(n_steps, range(0, 31), lambda s: sumcheck_verify_helper(fs, s, claimed_sum, degree, challenges))
+    return new_fs, challenges, new_claimed_sum
 
 
-def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
-    for sc_round in range(0, n_steps):
+def sumcheck_verify_helper(fs: Mut, n_steps: Const, claimed_sum: Mut, degree: Const, challenges):
+    for sc_round in unroll(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
         copy_5(sum_over_boolean_hypercube, claimed_sum)
