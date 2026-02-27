@@ -717,20 +717,28 @@ def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0
         claims = apply_inv_matrix(claims, inv_ext_mat)
         fs, point, claims = verify_poseidon_gkr_round_full(fs, log_n_poseidons, point, claims)
         rc_offset = (N_FINAL_FULL_ROUNDS - 1 - round_idx) * 16
+        rc_sub = Array(16 * DIM)
         for i in unroll(0, 16):
-            claims = sub_extension_base_at(claims, i, FINAL_ROUND_CONSTANTS[rc_offset + i])
+            rc_sub[i * DIM] = claims[i * DIM] - FINAL_ROUND_CONSTANTS[rc_offset + i]
+            for k in unroll(1, DIM):
+                rc_sub[i * DIM + k] = claims[i * DIM + k]
+        claims = rc_sub
     # Partial rounds (reversed)
     for round_idx in unroll(0, N_PARTIAL_ROUNDS):
         claims = apply_inv_matrix(claims, inv_int_mat)
         fs, point, claims = verify_poseidon_gkr_round_partial(fs, log_n_poseidons, point, claims)
-        claims = sub_extension_base_at(claims, 0, PARTIAL_ROUND_CONSTANTS[N_PARTIAL_ROUNDS - 1 - round_idx])
+        claims = sub_first_round_constant(claims, PARTIAL_ROUND_CONSTANTS[N_PARTIAL_ROUNDS - 1 - round_idx])
     # Initial full rounds (reversed)
     for round_idx in unroll(0, N_INITIAL_FULL_ROUNDS):
         claims = apply_inv_matrix(claims, inv_ext_mat)
         fs, point, claims = verify_poseidon_gkr_round_full(fs, log_n_poseidons, point, claims)
         rc_offset = (N_INITIAL_FULL_ROUNDS - 1 - round_idx) * 16
+        rc_sub = Array(16 * DIM)
         for i in unroll(0, 16):
-            claims = sub_extension_base_at(claims, i, INITIAL_ROUND_CONSTANTS[rc_offset + i])
+            rc_sub[i * DIM] = claims[i * DIM] - INITIAL_ROUND_CONSTANTS[rc_offset + i]
+            for k in unroll(1, DIM):
+                rc_sub[i * DIM + k] = claims[i * DIM + k]
+        claims = rc_sub
     # Final matrix application
     claims = apply_inv_matrix(claims, inv_ext_mat)
     return fs, point, claims
@@ -778,15 +786,13 @@ def verify_poseidon_gkr_round_partial(fs: Mut, log_n_poseidons, claim_point, out
 
 
 @inline
-def sub_extension_base_at(claims, idx, base_val):
+def sub_first_round_constant(claims, base_val):
     new_claims = Array(16 * DIM)
-    for i in unroll(0, 16):
-        if i == idx:
-            new_claims[i * DIM] = claims[i * DIM] - base_val
-            for k in unroll(1, DIM):
-                new_claims[i * DIM + k] = claims[i * DIM + k]
-        else:
-            copy_5(claims + i * DIM, new_claims + i * DIM)
+    new_claims[0] = claims[0] - base_val
+    for k in unroll(1, DIM):
+        new_claims[k] = claims[k]
+    for i in unroll(1, 16):
+        copy_5(claims + i * DIM, new_claims + i * DIM)
     return new_claims
 
 
