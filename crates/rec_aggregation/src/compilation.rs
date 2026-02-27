@@ -5,7 +5,7 @@ use lean_prover::{
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
-use poseidon_gkr::{build_poseidon_inv_matrices, poseidon_round_constants};
+use poseidon_gkr::{build_poseidon_inv_matrix, poseidon_round_constants};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::rc::Rc;
@@ -320,8 +320,9 @@ fn build_replacements(
             "POSEIDON_16_COL_OUTPUT_START_PLACEHOLDER".to_string(),
             POSEIDON_16_COL_OUTPUT_START.to_string(),
         );
-        let (inv_external, inv_internal) = build_poseidon_inv_matrices::<16>();
-        let (initial_rc, internal_rc, final_rc) = poseidon_round_constants::<16>();
+        // Poseidon1: single circulant MDS → one inverse matrix (used for both placeholders)
+        let inv_mds = build_poseidon_inv_matrix::<16>();
+        let (initial_rc, partial_rc, final_rc) = poseidon_round_constants::<16>();
         let fmt_matrix = |m: &[[F; 16]; 16]| {
             let vals: Vec<String> = m
                 .iter()
@@ -329,8 +330,8 @@ fn build_replacements(
                 .collect();
             format!("[{}]", vals.join(", "))
         };
-        replacements.insert("INV_EXTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_external));
-        replacements.insert("INV_INTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_internal));
+        replacements.insert("INV_EXTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds));
+        replacements.insert("INV_INTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds));
         let fmt_rc_full = |rounds: &[[F; 16]]| {
             let vals: Vec<String> = rounds
                 .iter()
@@ -342,10 +343,7 @@ fn build_replacements(
             "N_INITIAL_FULL_ROUNDS_PLACEHOLDER".to_string(),
             initial_rc.len().to_string(),
         );
-        replacements.insert(
-            "N_PARTIAL_ROUNDS_PLACEHOLDER".to_string(),
-            internal_rc.len().to_string(),
-        );
+        replacements.insert("N_PARTIAL_ROUNDS_PLACEHOLDER".to_string(), partial_rc.len().to_string());
         replacements.insert(
             "N_FINAL_FULL_ROUNDS_PLACEHOLDER".to_string(),
             final_rc.len().to_string(),
@@ -355,10 +353,10 @@ fn build_replacements(
             fmt_rc_full(initial_rc),
         );
         replacements.insert("FINAL_ROUND_CONSTANTS_PLACEHOLDER".to_string(), fmt_rc_full(final_rc));
-        let internal_vals: Vec<String> = internal_rc.iter().map(|x| x.as_canonical_u32().to_string()).collect();
+        // Poseidon1: partial constants are full [F; 16] arrays (same format as initial/final)
         replacements.insert(
             "PARTIAL_ROUND_CONSTANTS_PLACEHOLDER".to_string(),
-            format!("[{}]", internal_vals.join(", ")),
+            fmt_rc_full(partial_rc),
         );
     }
 

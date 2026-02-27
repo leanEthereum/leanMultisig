@@ -98,9 +98,14 @@ fn generate_benchmark_signers_cache() {
 
     println!("Finding WOTS randomness for {} signers...", n_signers);
     let start = Instant::now();
+    let counter = std::sync::atomic::AtomicUsize::new(0);
     let randomnesses: Vec<[F; RANDOMNESS_LEN_FE]> = (0..n_signers)
         .into_par_iter()
-        .map(find_randomness_for_benchmark)
+        .map(|i| {
+            let counter_value = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            println!("Processing signer {}/{}", counter_value + 1, n_signers);
+            find_randomness_for_benchmark(i)
+        })
         .collect();
     println!("Done in {:.1}s", start.elapsed().as_secs_f64());
 

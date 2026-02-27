@@ -1,7 +1,7 @@
 use backend::*;
 
 use crate::{
-    EF, FullRoundComputation, GKRPoseidonResult, PartialRoundComputation, apply_matrix, build_poseidon_inv_matrices,
+    EF, FullRoundComputation, GKRPoseidonResult, PartialRoundComputation, apply_matrix, build_poseidon_inv_matrix,
     poseidon_round_constants,
 };
 
@@ -10,12 +10,9 @@ pub fn verify_poseidon_gkr<const WIDTH: usize>(
     log_n_poseidons: usize,
     output_claim_point: &MultilinearPoint<EF>,
     perm_out_0_7: &[EF],
-) -> Result<GKRPoseidonResult, ProofError>
-where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-{
-    let (inv_external_matrix, inv_internal_matrix) = build_poseidon_inv_matrices::<WIDTH>();
-    let (initial_constants, internal_constants, final_constants) = poseidon_round_constants::<WIDTH>();
+) -> Result<GKRPoseidonResult, ProofError> {
+    let inv_mds = build_poseidon_inv_matrix::<WIDTH>();
+    let (initial_constants, partial_constants, final_constants) = poseidon_round_constants::<WIDTH>();
 
     assert_eq!(perm_out_0_7.len(), WIDTH / 2);
 
@@ -26,13 +23,13 @@ where
     let mut claims: Vec<EF> = [perm_out_0_7, &perm_out_8_15].concat();
     assert_eq!(claims.len(), WIDTH);
 
-    // final full rounds
+    // Final full rounds (backwards)
     for full_round_constants in final_constants.iter().rev() {
-        claims = apply_matrix(&inv_external_matrix, &claims);
+        claims = apply_matrix(&inv_mds, &claims);
 
         (point, claims) = verify_gkr_round(
             verifier_state,
-            &FullRoundComputation {},
+            &FullRoundComputation::<WIDTH> {},
             log_n_poseidons,
             &point,
             &claims,
@@ -44,9 +41,9 @@ where
         }
     }
 
-    // partial rounds
-    for partial_round_constant in internal_constants.iter().rev() {
-        claims = apply_matrix(&inv_internal_matrix, &claims);
+    // Partial rounds (backwards)
+    for partial_round_constants in partial_constants.iter().rev() {
+        claims = apply_matrix(&inv_mds, &claims);
 
         (point, claims) = verify_gkr_round(
             verifier_state,
@@ -57,16 +54,18 @@ where
             WIDTH,
         )?;
 
-        claims[0] -= *partial_round_constant;
+        for (claim, c) in claims.iter_mut().zip(partial_round_constants) {
+            *claim -= *c;
+        }
     }
 
-    // initial full rounds
+    // Initial full rounds (backwards)
     for full_round_constants in initial_constants.iter().rev() {
-        claims = apply_matrix(&inv_external_matrix, &claims);
+        claims = apply_matrix(&inv_mds, &claims);
 
         (point, claims) = verify_gkr_round(
             verifier_state,
-            &FullRoundComputation {},
+            &FullRoundComputation::<WIDTH> {},
             log_n_poseidons,
             &point,
             &claims,
@@ -77,8 +76,6 @@ where
             *claim -= *c;
         }
     }
-
-    claims = apply_matrix(&inv_external_matrix, &claims);
 
     Ok(GKRPoseidonResult {
         input_point: MultilinearPoint(point),

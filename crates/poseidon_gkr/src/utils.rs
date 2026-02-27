@@ -7,27 +7,16 @@ use crate::EF;
 use crate::F;
 
 #[instrument(skip_all)]
-pub fn build_poseidon_inv_matrices<const WIDTH: usize>() -> ([[F; WIDTH]; WIDTH], [[F; WIDTH]; WIDTH])
-where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-{
-    let mut external_matrix: [[F; WIDTH]; WIDTH] = array::from_fn(|_| array::from_fn(|_| F::ZERO));
-    for (i, row) in external_matrix.iter_mut().enumerate() {
+pub fn build_poseidon_inv_matrix<const WIDTH: usize>() -> [[F; WIDTH]; WIDTH] {
+    assert_eq!(WIDTH, 16);
+    let mut matrix: [[F; WIDTH]; WIDTH] = array::from_fn(|_| array::from_fn(|_| F::ZERO));
+    for (i, row) in matrix.iter_mut().enumerate() {
         row[i] = F::ONE;
-        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(row);
+        let arr: &mut [F; 16] = (&mut row[..]).try_into().unwrap();
+        mds_circulant_16_karatsuba(arr);
     }
-    external_matrix = transpose_matrix(&external_matrix);
-    let inv_external_matrix = inverse_matrix(&external_matrix);
-
-    let mut internal_matrix: [[F; WIDTH]; WIDTH] = array::from_fn(|_| array::from_fn(|_| F::ZERO));
-    for (i, row) in internal_matrix.iter_mut().enumerate() {
-        row[i] = F::ONE;
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(row);
-    }
-    internal_matrix = transpose_matrix(&internal_matrix);
-    let inv_internal_matrix = inverse_matrix(&internal_matrix);
-
-    (inv_external_matrix, inv_internal_matrix)
+    matrix = transpose_matrix(&matrix);
+    inverse_matrix(&matrix)
 }
 
 pub fn apply_matrix<const WIDTH: usize>(matrix: &[[F; WIDTH]; WIDTH], claims: &[EF]) -> Vec<EF> {

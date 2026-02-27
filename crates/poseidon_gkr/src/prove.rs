@@ -1,6 +1,6 @@
 use crate::{
     EF, F, FullRoundComputation, GKRPoseidonResult, POSEIDON_16_GKR_START, POSEIDON_16_N_GKR_COLS,
-    PartialRoundComputation, apply_matrix, build_poseidon_inv_matrices, poseidon_round_constants,
+    PartialRoundComputation, apply_matrix, build_poseidon_inv_matrix, poseidon_round_constants,
 };
 use backend::*;
 use tracing::{info_span, instrument};
@@ -11,19 +11,16 @@ pub fn prove_poseidon_gkr<const WIDTH: usize>(
     trace: &[Vec<F>],
     output_point: MultilinearPoint<EF>,
     perm_out_0_7: &[EF],
-) -> GKRPoseidonResult
-where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-{
-    let (inv_external_matrix, inv_internal_matrix) = build_poseidon_inv_matrices::<WIDTH>();
-    let (initial_constants, internal_constants, final_constants) = poseidon_round_constants::<WIDTH>();
+) -> GKRPoseidonResult {
+    let inv_mds = build_poseidon_inv_matrix::<WIDTH>();
+    let (initial_constants, partial_constants, final_constants) = poseidon_round_constants::<WIDTH>();
 
     let n_poseidons = trace[0].len();
     assert_eq!(output_point.0.len(), log2_strict_usize(n_poseidons));
     assert_eq!(perm_out_0_7.len(), WIDTH / 2);
 
     let n_initial = initial_constants.len();
-    let n_partial = internal_constants.len();
+    let n_partial = partial_constants.len();
     let n_final = final_constants.len();
 
     // Layer offsets in the trace
@@ -47,24 +44,30 @@ where
     let mut point = output_point.0.clone();
     let mut claims: Vec<EF> = [perm_out_0_7, &perm_out_8_15].concat();
 
-    //final full rounds
+    // Final full rounds (backwards)
     for (idx, full_round_constants) in final_constants.iter().enumerate().rev() {
-        claims = apply_matrix(&inv_external_matrix, &claims);
+        claims = apply_matrix(&inv_mds, &claims);
 
         let layer_base = final_start + idx * WIDTH;
         let layer_slices: Vec<&[FPacking<F>]> = (0..WIDTH)
             .map(|j| FPacking::<F>::pack_slice(&trace[layer_base + j]))
             .collect();
-        (point, claims) = prove_gkr_round(prover_state, &FullRoundComputation {}, &layer_slices, &point, &claims);
+        (point, claims) = prove_gkr_round(
+            prover_state,
+            &FullRoundComputation::<WIDTH> {},
+            &layer_slices,
+            &point,
+            &claims,
+        );
 
         for (claim, c) in claims.iter_mut().zip(full_round_constants) {
             *claim -= *c;
         }
     }
 
-    // partial rounds
-    for (idx, partial_round_constant) in internal_constants.iter().enumerate().rev() {
-        claims = apply_matrix(&inv_internal_matrix, &claims);
+    // Partial rounds (backwards)
+    for (idx, partial_round_constants) in partial_constants.iter().enumerate().rev() {
+        claims = apply_matrix(&inv_mds, &claims);
 
         let layer_base = partial_start + idx * WIDTH;
         let layer_slices: Vec<&[FPacking<F>]> = (0..WIDTH)
@@ -77,25 +80,31 @@ where
             &point,
             &claims,
         );
-        claims[0] -= *partial_round_constant;
+        for (claim, c) in claims.iter_mut().zip(partial_round_constants) {
+            *claim -= *c;
+        }
     }
 
-    // initial full rounds
+    // Initial full rounds (backwards)
     for (idx, full_round_constants) in initial_constants.iter().enumerate().rev() {
-        claims = apply_matrix(&inv_external_matrix, &claims);
+        claims = apply_matrix(&inv_mds, &claims);
 
         let layer_base = initial_start + idx * WIDTH;
         let layer_slices: Vec<&[FPacking<F>]> = (0..WIDTH)
             .map(|j| FPacking::<F>::pack_slice(&trace[layer_base + j]))
             .collect();
-        (point, claims) = prove_gkr_round(prover_state, &FullRoundComputation {}, &layer_slices, &point, &claims);
+        (point, claims) = prove_gkr_round(
+            prover_state,
+            &FullRoundComputation::<WIDTH> {},
+            &layer_slices,
+            &point,
+            &claims,
+        );
 
         for (claim, c) in claims.iter_mut().zip(full_round_constants) {
             *claim -= *c;
         }
     }
-
-    claims = apply_matrix(&inv_external_matrix, &claims);
 
     GKRPoseidonResult {
         input_point: MultilinearPoint(point),

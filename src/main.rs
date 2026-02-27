@@ -24,7 +24,7 @@ enum Cli {
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
-    #[command(about = "Prove validity of Poseidon2 permutations over 16 field elements")]
+    #[command(about = "Prove validity of Poseidon permutations over 16 field elements")]
     Poseidon {
         #[arg(long, help = "log2(number of Poseidons)")]
         log_n_perms: usize,

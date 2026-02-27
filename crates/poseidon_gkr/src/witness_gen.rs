@@ -27,43 +27,42 @@ pub fn fill_poseidon_trace(trace: &mut [Vec<F>]) {
     assert!(trace[0].len().is_power_of_two() && trace[0].len() > packing_width::<F>());
     assert!(trace.iter().all(|col| col.len() == trace[0].len()));
 
-    let (initial_constants, internal_constants, final_constants) = poseidon_round_constants::<WIDTH>();
-    let n_gkr_layers = initial_constants.len() + internal_constants.len() + final_constants.len() + 1;
-    assert_eq!(n_gkr_layers, POSEIDON_16_N_GKR_LAYERS);
+    let (initial_constants, partial_constants, final_constants) = poseidon_round_constants::<WIDTH>();
+    let n_initial = initial_constants.len(); // 4
+    let n_partial = partial_constants.len(); // 20
+
+    // Concatenate all 28 rounds of constants for easier indexing
+    let all_constants: Vec<&[F; WIDTH]> = initial_constants
+        .iter()
+        .chain(partial_constants.iter())
+        .chain(final_constants.iter())
+        .collect();
+    assert_eq!(all_constants.len(), 28);
+    assert_eq!(1 + 28, POSEIDON_16_N_GKR_LAYERS);
 
     let mut col = POSEIDON_16_GKR_START;
     let mut prev_in = 4; // input columns start at index 4
 
-    for (i, constants) in initial_constants
-        .iter()
-        .map(Some)
-        .chain(std::iter::once(None))
-        .enumerate()
-    {
-        let (left, right) = trace.split_at_mut(col);
-        apply_full_round::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], constants, i > 0);
-        prev_in = col;
-        col += WIDTH;
-    }
-    add_constant_to_col(&mut trace[prev_in], internal_constants[0]);
+    // Layer 0: input + constants[0] (Poseidon1 has no initial linear layer)
+    add_constants_to_cols::<WIDTH>(trace, prev_in, col, all_constants[0]);
+    prev_in = col;
+    col += WIDTH;
 
-    for constant in internal_constants[1..]
-        .iter()
-        .copied()
-        .chain(std::iter::once(final_constants[0][0]))
-    {
-        let (left, right) = trace.split_at_mut(col);
-        apply_partial_round::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], constant);
-        prev_in = col;
-        col += WIDTH;
-    }
-    for j in 1..WIDTH {
-        add_constant_to_col(&mut trace[prev_in + j], final_constants[0][j]);
-    }
+    // Layers 1..28: each computed from the previous using round k's S-box type
+    for round in 0..28 {
+        let next_constants: Option<&[F; WIDTH]> = if round < 27 {
+            Some(all_constants[round + 1])
+        } else {
+            None
+        };
+        let is_full_round = round < n_initial || round >= n_initial + n_partial;
 
-    for constants in final_constants[1..].iter().map(Some).chain(std::iter::once(None)) {
         let (left, right) = trace.split_at_mut(col);
-        apply_full_round::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], constants, true);
+        if is_full_round {
+            apply_full_round::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], next_constants);
+        } else {
+            apply_partial_round::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], next_constants);
+        }
         prev_in = col;
         col += WIDTH;
     }
@@ -72,7 +71,7 @@ pub fn fill_poseidon_trace(trace: &mut [Vec<F>]) {
 
     // Compressed outputs: output_layer[i] + input[i] for i in 0..8
     let output_col_start = col;
-    let output_layer_start = col - WIDTH;
+    let output_layer_start = prev_in;
     for i in 0..8 {
         let (before, after) = trace.split_at_mut(output_col_start + i);
         let dst = &mut after[0];
@@ -85,21 +84,30 @@ pub fn fill_poseidon_trace(trace: &mut [Vec<F>]) {
     }
 }
 
-fn add_constant_to_col(col: &mut [F], constant: F) {
-    let c = FPacking::<F>::from(constant);
-    for val in FPacking::<F>::pack_slice_mut(col) {
-        *val += c;
+/// Layer 0 helper: output[j] = input[j] + constants[j] for all j.
+fn add_constants_to_cols<const WIDTH: usize>(
+    trace: &mut [Vec<F>],
+    input_start: usize,
+    output_start: usize,
+    constants: &[F; WIDTH],
+) {
+    let n = trace[0].len();
+    for j in 0..WIDTH {
+        let c = FPacking::<F>::from(constants[j]);
+        trace[output_start + j] = trace[input_start + j].clone();
+        for val in FPacking::<F>::pack_slice_mut(&mut trace[output_start + j][..n]) {
+            *val += c;
+        }
     }
 }
 
+/// Full round: cube all → circulant MDS → optionally add constants.
 fn apply_full_round<const WIDTH: usize>(
     input_cols: &[Vec<F>],
     output_cols: &mut [Vec<F>],
     constants: Option<&[F; WIDTH]>,
-    cube: bool,
-) where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-{
+) {
+    assert_eq!(WIDTH, 16);
     let packed_inputs: [&[FPacking<F>]; WIDTH] = array::from_fn(|i| FPacking::<F>::pack_slice(&input_cols[i]));
     let n_packed = packed_inputs[0].len();
 
@@ -109,12 +117,11 @@ fn apply_full_round<const WIDTH: usize>(
 
     (0..n_packed).into_par_iter().for_each(|row| {
         let mut buff: [FPacking<F>; WIDTH] = array::from_fn(|j| packed_inputs[j][row]);
-        if cube {
-            for v in &mut buff {
-                *v = v.cube();
-            }
+        for v in &mut buff {
+            *v = v.cube();
         }
-        GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut buff);
+        let buff16: &mut [FPacking<F>; 16] = (&mut buff[..]).try_into().unwrap();
+        mds_circulant_16_karatsuba(buff16);
         if let Some(constants) = constants {
             for j in 0..WIDTH {
                 buff[j] += constants[j];
@@ -126,26 +133,30 @@ fn apply_full_round<const WIDTH: usize>(
     });
 }
 
-fn apply_partial_round<const WIDTH: usize>(input_cols: &[Vec<F>], output_cols: &mut [Vec<F>], constant: F)
-where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
-{
+/// Partial round: cube state[0] only → circulant MDS → optionally add constants.
+fn apply_partial_round<const WIDTH: usize>(
+    input_cols: &[Vec<F>],
+    output_cols: &mut [Vec<F>],
+    constants: Option<&[F; WIDTH]>,
+) {
+    assert_eq!(WIDTH, 16);
     let packed_inputs: [&[FPacking<F>]; WIDTH] = array::from_fn(|i| FPacking::<F>::pack_slice(&input_cols[i]));
     let n_packed = packed_inputs[0].len();
 
     let mut iter = output_cols.iter_mut();
-    // SAFETY: same as apply_full_round — distinct columns, non-aliasing row indices.
     let out_ptrs: [AtomicPtr<FPacking<F>>; WIDTH] =
         array::from_fn(|_| AtomicPtr::new(FPacking::<F>::pack_slice_mut(iter.next().unwrap()).as_mut_ptr()));
 
     (0..n_packed).into_par_iter().for_each(|row| {
-        let mut buff = [FPacking::<F>::ZERO; WIDTH];
-        buff[0] = packed_inputs[0][row].cube();
-        for j in 1..WIDTH {
-            buff[j] = packed_inputs[j][row];
+        let mut buff: [FPacking<F>; WIDTH] = array::from_fn(|j| packed_inputs[j][row]);
+        buff[0] = buff[0].cube();
+        let buff16: &mut [FPacking<F>; 16] = (&mut buff[..]).try_into().unwrap();
+        mds_circulant_16_karatsuba(buff16);
+        if let Some(constants) = constants {
+            for j in 0..WIDTH {
+                buff[j] += constants[j];
+            }
         }
-        GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(&mut buff);
-        buff[0] += constant;
         for j in 0..WIDTH {
             unsafe { *out_ptrs[j].load(Ordering::Relaxed).add(row) = buff[j] };
         }

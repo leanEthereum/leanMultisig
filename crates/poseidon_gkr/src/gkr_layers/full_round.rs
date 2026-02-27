@@ -7,7 +7,6 @@ pub struct FullRoundComputation<const WIDTH: usize> {}
 
 impl<const WIDTH: usize> SumcheckComputation<EF> for FullRoundComputation<WIDTH>
 where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
     EF: ExtensionField<PF<EF>>,
 {
     type ExtraData = Vec<EF>;
@@ -49,7 +48,6 @@ where
 
 impl<const WIDTH: usize> FullRoundComputation<WIDTH>
 where
-    KoalaBearInternalLayerParameters: InternalLayerBaseParameters<KoalaBearParameters, WIDTH>,
     EF: ExtensionField<PF<EF>>,
 {
     #[inline(always)]

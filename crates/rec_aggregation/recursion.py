@@ -727,7 +727,13 @@ def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0
     for round_idx in unroll(0, N_PARTIAL_ROUNDS):
         claims = apply_inv_matrix(claims, inv_int_mat)
         fs, point, claims = verify_poseidon_gkr_round_partial(fs, log_n_poseidons, point, claims)
-        claims = sub_first_round_constant(claims, PARTIAL_ROUND_CONSTANTS[N_PARTIAL_ROUNDS - 1 - round_idx])
+        rc_offset = (N_PARTIAL_ROUNDS - 1 - round_idx) * 16
+        rc_sub = Array(16 * DIM)
+        for i in unroll(0, 16):
+            rc_sub[i * DIM] = claims[i * DIM] - PARTIAL_ROUND_CONSTANTS[rc_offset + i]
+            for k in unroll(1, DIM):
+                rc_sub[i * DIM + k] = claims[i * DIM + k]
+        claims = rc_sub
     # Initial full rounds (reversed)
     for round_idx in unroll(0, N_INITIAL_FULL_ROUNDS):
         claims = apply_inv_matrix(claims, inv_ext_mat)
@@ -739,8 +745,7 @@ def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0
             for k in unroll(1, DIM):
                 rc_sub[i * DIM + k] = claims[i * DIM + k]
         claims = rc_sub
-    # Final matrix application
-    claims = apply_inv_matrix(claims, inv_ext_mat)
+    # Poseidon1: no initial linear layer, so no final inv_matrix needed
     return fs, point, claims
 
 
@@ -783,17 +788,6 @@ def verify_poseidon_gkr_round_partial(fs: Mut, log_n_poseidons, claim_point, out
     expected = mul_extension_ret(comp_eval, eq_factor)
     copy_5(expected, sumcheck_value)
     return fs, sumcheck_point, inner_evals
-
-
-@inline
-def sub_first_round_constant(claims, base_val):
-    new_claims = Array(16 * DIM)
-    new_claims[0] = claims[0] - base_val
-    for k in unroll(1, DIM):
-        new_claims[k] = claims[k]
-    for i in unroll(1, 16):
-        copy_5(claims + i * DIM, new_claims + i * DIM)
-    return new_claims
 
 
 @inline

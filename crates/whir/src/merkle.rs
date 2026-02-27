@@ -8,7 +8,7 @@ use field::BasedVectorSpace;
 use field::ExtensionField;
 use field::Field;
 use field::PackedValue;
-use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon2_16};
+use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon1_16};
 use poly::*;
 
 use rayon::prelude::*;
@@ -31,7 +31,7 @@ pub(crate) fn merkle_commit<F: Field, EF: ExtensionField<F>>(
     full_n_cols: usize,
     effective_n_cols: usize,
 ) -> ([F; DIGEST_ELEMS], RoundMerkleTree<F, EF>) {
-    let perm = default_koalabear_poseidon2_16();
+    let perm = default_koalabear_poseidon1_16();
     if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, QuinticExtensionFieldKB)>() {
         let matrix = unsafe { std::mem::transmute::<_, DenseMatrix<QuinticExtensionFieldKB>>(matrix) };
         let view = FlatMatrixView::new(matrix);
@@ -89,7 +89,7 @@ pub(crate) fn merkle_verify<F: Field, EF: ExtensionField<F>>(
     data: Vec<EF>,
     proof: &Vec<[F; DIGEST_ELEMS]>,
 ) -> bool {
-    let perm = default_koalabear_poseidon2_16();
+    let perm = default_koalabear_poseidon1_16();
     let log_max_height = utils::log2_strict_usize(dimension.height.next_power_of_two());
     if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, QuinticExtensionFieldKB)>() {
         let merkle_root = unsafe { std::mem::transmute_copy::<_, [KoalaBear; DIGEST_ELEMS]>(&merkle_root) };
