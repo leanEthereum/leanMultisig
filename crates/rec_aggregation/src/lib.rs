@@ -93,7 +93,8 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AggregatedXMSS {
-    pub pub_keys: Vec<XmssPublicKey>,
+    pub pub_keys_0: Vec<XmssPublicKey>,
+    pub pub_keys_1: Vec<XmssPublicKey>,
     pub proof: PrunedProof<F>,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
     // benchmark / debug purpose
@@ -144,7 +145,8 @@ impl AggregatedXMSS {
 
 pub fn xmss_verify_aggregation(
     agg_sig: &AggregatedXMSS,
-    message: &[F; MESSAGE_LEN_FE],
+    message_0: &[F; MESSAGE_LEN_FE],
+    message_1: &[F; MESSAGE_LEN_FE],
     slot: u32,
 ) -> Result<ProofVerificationDetails, ProofError> {
     if !agg_sig.pub_keys.is_sorted() {
@@ -163,8 +165,10 @@ pub fn xmss_verify_aggregation(
 #[instrument(skip_all)]
 pub fn xmss_aggregate(
     children: &[AggregatedXMSS],
-    mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
-    message: &[F; MESSAGE_LEN_FE],
+    mut raw_xmss_0: Vec<(XmssPublicKey, XmssSignature)>,
+    mut raw_xmss_1: Vec<(XmssPublicKey, XmssSignature)>,
+    message_0: &[F; MESSAGE_LEN_FE],
+    message_1: &[F; MESSAGE_LEN_FE],
     slot: u32,
     log_inv_rate: usize,
 ) -> AggregatedXMSS {
