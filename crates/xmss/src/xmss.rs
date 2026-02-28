@@ -86,13 +86,13 @@ pub fn xmss_key_gen(
                     let left = if left_idx >= prev_base && left_idx <= prev_top {
                         prev[(left_idx - prev_base) as usize]
                     } else {
-                        assert!(left_idx < 1u64 << 32);
+                        debug_assert!(left_idx < 1u64 << 32);
                         gen_random_node(&seed, level - 1, left_idx as u32)
                     };
                     let right = if right_idx >= prev_base && right_idx <= prev_top {
                         prev[(right_idx - prev_base) as usize]
                     } else {
-                        assert!(right_idx < 1u64 << 32);
+                        debug_assert!(right_idx < 1u64 << 32);
                         gen_random_node(&seed, level - 1, right_idx as u32)
                     };
                     compress(&perm, [left, right])
@@ -189,7 +189,7 @@ pub fn xmss_verify_with_poseidon_trace(
     message: &[F; MESSAGE_LEN_FE],
     signature: &XmssSignature,
 ) -> Result<Poseidon16History, XmssVerifyError> {
-    let mut poseidon_16_trace = Vec::new();
+    let mut poseidon_16_trace = Vec::with_capacity(NUM_CHAIN_HASHES + V + LOG_LIFETIME);
     let truncated_merkle_root = pub_key.merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
     let wots_public_key = signature
         .wots_signature

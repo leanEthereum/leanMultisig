@@ -7,8 +7,8 @@ use lean_vm::*;
 use tracing::instrument;
 use utils::{build_prover_state, poseidon_compress_slice, poseidon16_compress_pair};
 use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements,
-    xmss_verify_with_poseidon_trace,
+    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, RANDOMNESS_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature,
+    slot_to_field_elements, xmss_verify_with_poseidon_trace,
 };
 
 use serde::{Deserialize, Serialize};
@@ -36,18 +36,19 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
 }
 
 pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
-    let iv = [F::ZERO; DIGEST_LEN];
-    let flat: Vec<F> = iv
-        .iter()
-        .copied()
-        .chain(pub_keys.iter().flat_map(|pk| pk.merkle_root.iter().copied()))
-        .collect();
+    let total = DIGEST_LEN + pub_keys.len() * DIGEST_LEN;
+    let mut flat = vec![F::ZERO; total];
+    // First DIGEST_LEN elements are already zero. Write pub keys directly at offsets.
+    let mut off = DIGEST_LEN;
+    for pk in pub_keys {
+        flat[off..off + DIGEST_LEN].copy_from_slice(&pk.merkle_root);
+        off += DIGEST_LEN;
+    }
     poseidon_compress_slice(&flat)
 }
 
-fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
-    let mut chunks = Vec::with_capacity(N_MERKLE_CHUNKS_FOR_SLOT);
-    for chunk_idx in 0..N_MERKLE_CHUNKS_FOR_SLOT {
+fn compute_merkle_chunks_for_slot(slot: u32) -> [F; N_MERKLE_CHUNKS_FOR_SLOT] {
+    std::array::from_fn(|chunk_idx| {
         let mut nibble_val: usize = 0;
         for bit in 0..4 {
             let level = chunk_idx * 4 + bit;
@@ -56,9 +57,8 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
                 nibble_val |= 1 << bit;
             }
         }
-        chunks.push(F::from_usize(nibble_val));
-    }
-    chunks
+        F::from_usize(nibble_val)
+    })
 }
 
 fn build_non_reserved_public_input(
@@ -68,26 +68,45 @@ fn build_non_reserved_public_input(
     slot: u32,
     bytecode_claim_output: &[F],
 ) -> Vec<F> {
-    let mut pi = vec![];
-    pi.push(F::from_usize(n_sigs));
-    pi.extend_from_slice(slice_hash);
-    pi.extend_from_slice(message);
+    let total = 1 + DIGEST_LEN + MESSAGE_LEN_FE + 2 + N_MERKLE_CHUNKS_FOR_SLOT + bytecode_claim_output.len();
+    let mut pi = Vec::with_capacity(total);
+    // SAFETY: capacity is `total`, all elements written below
+    unsafe { pi.set_len(total) };
+    let mut off = 0;
+    pi[off] = F::from_usize(n_sigs);
+    off += 1;
+    pi[off..off + DIGEST_LEN].copy_from_slice(slice_hash);
+    off += DIGEST_LEN;
+    pi[off..off + MESSAGE_LEN_FE].copy_from_slice(message);
+    off += MESSAGE_LEN_FE;
     let [slot_lo, slot_hi] = slot_to_field_elements(slot);
-    pi.push(slot_lo);
-    pi.push(slot_hi);
-    pi.extend(compute_merkle_chunks_for_slot(slot));
-    pi.extend_from_slice(bytecode_claim_output);
+    pi[off] = slot_lo;
+    pi[off + 1] = slot_hi;
+    off += 2;
+    let chunks = compute_merkle_chunks_for_slot(slot);
+    pi[off..off + N_MERKLE_CHUNKS_FOR_SLOT].copy_from_slice(&chunks);
+    off += N_MERKLE_CHUNKS_FOR_SLOT;
+    pi[off..off + bytecode_claim_output.len()].copy_from_slice(bytecode_claim_output);
+    debug_assert_eq!(off + bytecode_claim_output.len(), total);
     pi
 }
 
 fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
-    let mut data = vec![];
-    data.extend(sig.wots_signature.randomness.to_vec());
-    data.extend(sig.wots_signature.chain_tips.iter().flat_map(|digest| digest.to_vec()));
-    for neighbor in &sig.merkle_proof {
-        data.extend(neighbor.to_vec());
+    let mut data = Vec::with_capacity(SIG_SIZE_FE);
+    // SAFETY: capacity is SIG_SIZE_FE, all bytes written below via copy_from_slice
+    unsafe { data.set_len(SIG_SIZE_FE) };
+    let mut off = 0;
+    data[off..off + RANDOMNESS_LEN_FE].copy_from_slice(&sig.wots_signature.randomness);
+    off += RANDOMNESS_LEN_FE;
+    for digest in &sig.wots_signature.chain_tips {
+        data[off..off + DIGEST_LEN].copy_from_slice(digest);
+        off += DIGEST_LEN;
     }
-    assert_eq!(data.len(), SIG_SIZE_FE);
+    for neighbor in &sig.merkle_proof {
+        data[off..off + DIGEST_LEN].copy_from_slice(neighbor);
+        off += DIGEST_LEN;
+    }
+    debug_assert_eq!(off, SIG_SIZE_FE);
     data
 }
 
@@ -342,26 +361,47 @@ pub fn xmss_aggregate(
     }
     let bytecode_sumcheck_proof_ptr = offset;
 
-    let mut private_input = vec![];
-    private_input.push(F::from_usize(n_recursions));
-    private_input.push(F::from_usize(n_dup));
-    private_input.push(F::from_usize(pubkeys_start));
-    for &ptr in &source_ptrs {
-        private_input.push(F::from_usize(ptr));
-    }
-    private_input.push(F::from_usize(bytecode_sumcheck_proof_ptr));
-    assert_eq!(private_input.len(), header_size);
+    let source_blocks_total: usize = source_blocks.iter().map(|b| b.len()).sum();
+    let private_total = header_size + pubkeys_block_size + source_blocks_total + final_sumcheck_transcript.len();
+    let mut private_input = Vec::with_capacity(private_total);
+    // SAFETY: capacity is private_total, all elements written below via indexed assignment + copy_from_slice
+    unsafe { private_input.set_len(private_total) };
+    let mut off = 0;
 
+    // Header
+    private_input[off] = F::from_usize(n_recursions);
+    private_input[off + 1] = F::from_usize(n_dup);
+    private_input[off + 2] = F::from_usize(pubkeys_start);
+    off += 3;
+    for &ptr in &source_ptrs {
+        private_input[off] = F::from_usize(ptr);
+        off += 1;
+    }
+    private_input[off] = F::from_usize(bytecode_sumcheck_proof_ptr);
+    off += 1;
+    debug_assert_eq!(off, header_size);
+
+    // Pub keys
     for pk in &global_pub_keys {
-        private_input.extend_from_slice(&pk.merkle_root);
+        private_input[off..off + DIGEST_LEN].copy_from_slice(&pk.merkle_root);
+        off += DIGEST_LEN;
     }
     for pk in &dup_pub_keys {
-        private_input.extend_from_slice(&pk.merkle_root);
+        private_input[off..off + DIGEST_LEN].copy_from_slice(&pk.merkle_root);
+        off += DIGEST_LEN;
     }
+
+    // Source blocks
     for block in &source_blocks {
-        private_input.extend_from_slice(block);
+        let blen = block.len();
+        private_input[off..off + blen].copy_from_slice(block);
+        off += blen;
     }
-    private_input.extend_from_slice(&final_sumcheck_transcript);
+
+    // Bytecode sumcheck transcript
+    let tlen = final_sumcheck_transcript.len();
+    private_input[off..off + tlen].copy_from_slice(&final_sumcheck_transcript);
+    debug_assert_eq!(off + tlen, private_total);
 
     // TODO precompute all the other poseidons
     let xmss_poseidons_16_precomputed = precompute_poseidons(&raw_xmss, message);
@@ -372,9 +412,16 @@ pub fn xmss_aggregate(
         .iter()
         .flat_map(|p| p.merkle_openings.iter())
         .flat_map(|o| {
-            let leaf = o.leaf_data.clone();
-            let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
-            [leaf, path]
+            let path_len = o.path.len() * DIGEST_LEN;
+            let mut path = Vec::with_capacity(path_len);
+            // SAFETY: capacity is path_len, all elements written below
+            unsafe { path.set_len(path_len) };
+            let mut off = 0;
+            for d in &o.path {
+                path[off..off + DIGEST_LEN].copy_from_slice(d);
+                off += DIGEST_LEN;
+            }
+            [o.leaf_data.clone(), path]
         })
         .collect();
 
