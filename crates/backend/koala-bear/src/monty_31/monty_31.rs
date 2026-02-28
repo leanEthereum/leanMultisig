@@ -160,6 +160,9 @@ impl<'de, FP: FieldParameters> Deserialize<'de> for MontyField31<FP> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         // It's faster to Serialize and Deserialize in monty form.
         let val = u32::deserialize(d)?;
+        if val >= FP::PRIME {
+            return Err(serde::de::Error::custom("non-canonical MontyField31 value"));
+        }
         Ok(Self::new_monty(val))
     }
 }
