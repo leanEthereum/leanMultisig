@@ -86,12 +86,10 @@ where
 
         prover_state.add_base_scalars(&root);
 
-        let (ood_points, ood_answers) = sample_ood_points::<EF, _>(
-            prover_state,
-            self.committment_ood_samples,
-            self.num_variables,
-            |point| polynomial.evaluate(point),
-        );
+        let (ood_points, ood_answers) =
+            sample_ood_points::<EF, _>(prover_state, self.commitment_ood_samples, self.num_variables, |point| {
+                polynomial.evaluate(point)
+            });
 
         Witness {
             prover_data,

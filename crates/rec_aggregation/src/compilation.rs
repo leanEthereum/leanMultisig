@@ -96,7 +96,7 @@ fn build_replacements(
 
             let mut num_queries = vec![];
             let mut query_grinding_bits = vec![];
-            let mut oods = vec![cfg.committment_ood_samples];
+            let mut oods = vec![cfg.commitment_ood_samples];
             let mut folding_grinding = vec![cfg.starting_folding_pow_bits];
             for round in &cfg.round_parameters {
                 num_queries.push(round.num_queries);

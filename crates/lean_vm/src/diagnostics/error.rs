@@ -1,9 +1,4 @@
-use std::fmt;
-
 use crate::core::{F, SourceLocation};
-use crate::diagnostics::profiler::MemoryProfile;
-use crate::execution::Memory;
-use crate::{TableTrace, error};
 
 #[derive(Debug, Clone)]
 pub enum RunnerError {

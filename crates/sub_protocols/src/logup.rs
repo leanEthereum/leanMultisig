@@ -85,11 +85,10 @@ pub fn prove_generic_logup(
                 .enumerate(),
         )
         .for_each(|(denom, (i, instr))| {
-            *denom = c - finger_print(
-                F::from_usize(LOGUP_BYTECODE_DOMAINSEP),
-                &[instr[..N_INSTRUCTION_COLUMNS].to_vec(), vec![F::from_usize(i)]].concat(),
-                alphas_eq_poly,
-            )
+            let mut data = [F::ZERO; N_INSTRUCTION_COLUMNS + 1];
+            data[..N_INSTRUCTION_COLUMNS].copy_from_slice(&instr[..N_INSTRUCTION_COLUMNS]);
+            data[N_INSTRUCTION_COLUMNS] = F::from_usize(i);
+            *denom = c - finger_print(F::from_usize(LOGUP_BYTECODE_DOMAINSEP), &data, alphas_eq_poly)
         });
     let max_table_height = 1 << tables_log_heights_sorted[0].1;
     if 1 << log_bytecode < max_table_height {
@@ -117,7 +116,7 @@ pub fn prove_generic_logup(
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(i, denom)| {
-                    let mut data = vec![];
+                    let mut data = Vec::with_capacity(1 + N_INSTRUCTION_COLUMNS);
                     for col in &bytecode_columns {
                         data.push(col[i]);
                     }
@@ -238,7 +237,6 @@ pub fn prove_generic_logup(
         let log_n_rows = trace.log_n_rows;
 
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
-        points.insert(*table, inner_point.clone());
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == &Table::execution() {
@@ -477,10 +475,10 @@ pub fn verify_generic_logup(
 
     retrieved_denominators_value += mle_of_zeros_then_ones(offset, &point_gkr); // to compensate for the final padding: XYZ111111...1
     if retrieved_numerators_value != numerators_value {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
     if retrieved_denominators_value != denominators_value {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
 
     Ok(GenericLogupStatements {
