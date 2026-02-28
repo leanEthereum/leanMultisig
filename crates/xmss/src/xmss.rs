@@ -8,7 +8,7 @@ use crate::*;
 pub struct XmssSecretKey {
     pub(crate) slot_start: u32, // inclusive
     pub(crate) slot_end: u32,   // inclusive
-    pub(crate) seed: [u8; 20],
+    pub(crate) seed: [u8; 32],
     // At level l, stored indices go from (slot_start >> l) to (slot_end >> l).
     pub(crate) merkle_tree: Vec<Vec<Digest>>,
 }
@@ -25,22 +25,26 @@ pub struct XmssPublicKey {
     pub merkle_root: Digest,
 }
 
-fn gen_wots_secret_key(seed: &[u8; 20], slot: u32) -> WotsSecretKey {
-    let mut rng_seed = [0u8; 32];
-    rng_seed[..20].copy_from_slice(seed);
-    rng_seed[20] = 0x00;
-    rng_seed[21..25].copy_from_slice(&slot.to_le_bytes());
+fn gen_wots_secret_key(seed: &[u8; 32], slot: u32) -> WotsSecretKey {
+    let mut rng_seed = *seed;
+    // Domain-separate by XORing a tag byte and the slot into fixed positions.
+    rng_seed[0] ^= 0x57; // 'W' for WOTS domain
+    for (i, b) in slot.to_le_bytes().iter().enumerate() {
+        rng_seed[1 + i] ^= b;
+    }
     let mut rng = StdRng::from_seed(rng_seed);
     WotsSecretKey::random(&mut rng)
 }
 
 /// Deterministic pseudo-random digest for an out-of-range tree node.
-fn gen_random_node(seed: &[u8; 20], level: usize, index: u32) -> Digest {
-    let mut rng_seed = [0u8; 32];
-    rng_seed[..20].copy_from_slice(seed);
-    rng_seed[20] = 0x01;
-    rng_seed[21] = level as u8;
-    rng_seed[22..26].copy_from_slice(&index.to_le_bytes());
+fn gen_random_node(seed: &[u8; 32], level: usize, index: u32) -> Digest {
+    let mut rng_seed = *seed;
+    // Domain-separate by XORing a tag byte, level, and index into fixed positions.
+    rng_seed[0] ^= 0x4E; // 'N' for Node domain
+    rng_seed[1] ^= level as u8;
+    for (i, b) in index.to_le_bytes().iter().enumerate() {
+        rng_seed[2 + i] ^= b;
+    }
     let mut rng = StdRng::from_seed(rng_seed);
     rng.random()
 }
@@ -51,7 +55,7 @@ pub enum XmssKeyGenError {
 }
 
 pub fn xmss_key_gen(
-    seed: [u8; 20],
+    seed: [u8; 32],
     slot_start: u32,
     slot_end: u32,
 ) -> Result<(XmssSecretKey, XmssPublicKey), XmssKeyGenError> {

@@ -6,7 +6,7 @@ type F = KoalaBear;
 
 #[test]
 fn test_xmss_serialize_deserialize() {
-    let keygen_seed: [u8; 20] = std::array::from_fn(|i| i as u8);
+    let keygen_seed: [u8; 32] = std::array::from_fn(|i| i as u8);
     let message: [F; MESSAGE_LEN_FE] = std::array::from_fn(|i| F::from_usize(i * 3 + 7));
 
     let (sk, pk) = xmss_key_gen(keygen_seed, 100, 115).unwrap();
@@ -25,7 +25,7 @@ fn test_xmss_serialize_deserialize() {
 
 #[test]
 fn keygen_sign_verify() {
-    let keygen_seed: [u8; 20] = std::array::from_fn(|i| i as u8);
+    let keygen_seed: [u8; 32] = std::array::from_fn(|i| i as u8);
     let message: [F; MESSAGE_LEN_FE] = std::array::from_fn(|i| F::from_usize(i * 3 + 7));
 
     let (sk, pk) = xmss_key_gen(keygen_seed, 100, 115).unwrap();
