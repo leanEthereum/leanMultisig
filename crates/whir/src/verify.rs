@@ -177,8 +177,7 @@ where
             .iter()
             .all(|c| verify_constraint_coeffs(c, &final_coefficients))
             .then_some(())
-            .ok_or(ProofError::InvalidProof)
-            .unwrap();
+            .ok_or(ProofError::InvalidProof)?;
 
         let final_sumcheck_randomness =
             verify_sumcheck_rounds::<F, EF>(verifier_state, &mut claimed_sum, self.final_sumcheck_rounds, 0)?;
