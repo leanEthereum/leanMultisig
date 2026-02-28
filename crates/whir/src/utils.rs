@@ -21,7 +21,18 @@ pub(crate) fn get_challenge_stir_queries<F: Field, Chal: ChallengeSampler<F>>(
     num_queries: usize,
     challenger: &mut Chal,
 ) -> Vec<usize> {
-    challenger.sample_in_range(folded_domain_size.ilog2() as usize, num_queries)
+    let bits = folded_domain_size.ilog2() as usize;
+    let mut indices = Vec::with_capacity(num_queries);
+    let mut seen = std::collections::HashSet::with_capacity(num_queries);
+    while indices.len() < num_queries {
+        let batch = challenger.sample_in_range(bits, num_queries - indices.len());
+        for idx in batch {
+            if seen.insert(idx) {
+                indices.push(idx);
+            }
+        }
+    }
+    indices
 }
 
 /// A utility function to sample Out-of-Domain (OOD) points and evaluate them.
