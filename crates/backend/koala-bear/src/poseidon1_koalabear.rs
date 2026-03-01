@@ -12,6 +12,7 @@ pub const POSEIDON1_PARTIAL_ROUNDS: usize = 20;
 pub const POSEIDON1_SBOX_DEGREE: u64 = 3;
 
 /// First row of the 16x16 circulant MDS matrix (same as BabyBear).
+/// Other alternative: 1, 1, 51, 1, 11, 17, 2, 1, 101, 63, -2, 2, 67, 22, -1, 3
 pub const MDS_CIRC_16_FIRST_ROW: [u64; 16] = [1, 1, 51, 1, 11, 17, 2, 1, 101, 63, 15, 2, 67, 22, 13, 3];
 
 /// First column of the circulant MDS matrix (element 0 stays, elements 1..16 reversed).

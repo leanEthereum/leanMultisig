@@ -23,7 +23,7 @@ fn bench_add_vs_mul_packed() {
             a = a + b;
         }
         let elapsed = time.elapsed();
-        black_box(a);
+        let _ = black_box(a);
         let total_ops = n as f64 * PACKING_WIDTH as f64;
         println!(
             "Packed ADD: {:.2}M ops/s  ({} iters × {} lanes = {:.0}M scalar adds in {:.3}s)",
@@ -44,7 +44,7 @@ fn bench_add_vs_mul_packed() {
             a = a * b;
         }
         let elapsed = time.elapsed();
-        black_box(a);
+        let _ = black_box(a);
         let total_ops = n as f64 * PACKING_WIDTH as f64;
         println!(
             "Packed MUL: {:.2}M ops/s  ({} iters × {} lanes = {:.0}M scalar muls in {:.3}s)",
@@ -65,7 +65,7 @@ fn bench_add_vs_mul_packed() {
             a = a * b;
         }
         let elapsed = time.elapsed();
-        black_box(a);
+        let _ = black_box(a);
         let total_ops = n as f64 * PACKING_WIDTH as f64;
         println!(
             "Packed MUL (by scalar): {:.2}M ops/s  ({} iters × {} lanes = {:.0}M scalar muls in {:.3}s)",
@@ -126,7 +126,7 @@ fn bench_add_vs_mul_packed() {
             a = a + b;
         }
         let elapsed = time.elapsed();
-        black_box(a);
+        let _ = black_box(a);
         println!(
             "Scalar ADD: {:.2}M ops/s  ({:.0}M adds in {:.3}s)",
             n as f64 / elapsed.as_secs_f64() / 1e6,
@@ -144,7 +144,7 @@ fn bench_add_vs_mul_packed() {
             a = a * b;
         }
         let elapsed = time.elapsed();
-        black_box(a);
+        let _ = black_box(a);
         println!(
             "Scalar MUL: {:.2}M ops/s  ({:.0}M muls in {:.3}s)",
             n as f64 / elapsed.as_secs_f64() / 1e6,
