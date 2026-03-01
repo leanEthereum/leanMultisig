@@ -4,7 +4,7 @@ use std::any::TypeId;
 
 use crate::symmetric::Permutation;
 use crate::{KoalaBear, KoalaBearParameters, MontyParameters};
-use field::{Algebra, Field, InjectiveMonomial, PrimeCharacteristicRing};
+use field::{Algebra, InjectiveMonomial};
 
 pub const POSEIDON1_WIDTH: usize = 16;
 pub const POSEIDON1_HALF_FULL_ROUNDS: usize = 4;
@@ -256,10 +256,7 @@ fn negacyclic_conv4_precomputed<R: Algebra<KoalaBear>>(
     output: &mut [R; 4],
 ) {
     for i in 0..4 {
-        output[i] = lhs[0] * matrix[i][0]
-            + lhs[1] * matrix[i][1]
-            + lhs[2] * matrix[i][2]
-            + lhs[3] * matrix[i][3];
+        output[i] = lhs[0] * matrix[i][0] + lhs[1] * matrix[i][1] + lhs[2] * matrix[i][2] + lhs[3] * matrix[i][3];
     }
 }
 
@@ -388,176 +385,10 @@ fn conv16_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 16], output: &mut [R; 16]
     output[8..16].clone_from_slice(&right);
 }
 
-// ---------------------------------------------------------------------------
-// Pre-broadcast packed constants for SIMD fast path.
-// When R = <KoalaBear as Field>::Packing, we avoid per-multiplication broadcasts
-// by storing all Karatsuba constants as Packing (broadcast once at compile time).
-// ---------------------------------------------------------------------------
-
-type FPacking = <KoalaBear as Field>::Packing;
-
-/// Broadcast a 2D KoalaBear const array into a 2D Packing const array.
-const fn broadcast_2d<const N: usize, const M: usize>(input: [[KoalaBear; N]; M]) -> [[FPacking; N]; M] {
-    let zero = FPacking::broadcast(KoalaBear::new_monty(0));
-    let mut output = [[zero; N]; M];
-    let mut i = 0;
-    while i < M {
-        let mut j = 0;
-        while j < N {
-            output[i][j] = FPacking::broadcast(input[i][j]);
-            j += 1;
-        }
-        i += 1;
-    }
-    output
-}
-
-const PACKED_NC4_NEG_EVEN: [[FPacking; 4]; 4] = broadcast_2d(NC4_NEG_EVEN);
-const PACKED_CONV4_ROWS: [[FPacking; 2]; 4] = broadcast_2d(CONV4_ROWS);
-const PACKED_TWO_INV: FPacking = FPacking::broadcast(TWO_INV_KB);
-
-// Pre-broadcast scalar constants for specialized packed Karatsuba functions.
-const PACKED_KB_5: FPacking = FPacking::broadcast(KB_5);
-const PACKED_KB_9: FPacking = FPacking::broadcast(KB_9);
-const PACKED_KB_24: FPacking = FPacking::broadcast(KB_24);
-const PACKED_KB_25: FPacking = FPacking::broadcast(KB_25);
-const PACKED_KB_48: FPacking = FPacking::broadcast(KB_48);
-const PACKED_KB_57: FPacking = FPacking::broadcast(KB_57);
-const PACKED_KB_62: FPacking = FPacking::broadcast(KB_62);
-const PACKED_KB_98: FPacking = FPacking::broadcast(KB_98);
-
-#[inline(always)]
-fn negacyclic_conv4_packed(lhs: [FPacking; 4], matrix: [[FPacking; 4]; 4], output: &mut [FPacking; 4]) {
-    for i in 0..4 {
-        output[i] = lhs[0] * matrix[i][0] + lhs[1] * matrix[i][1] + lhs[2] * matrix[i][2] + lhs[3] * matrix[i][3];
-    }
-}
-
-/// Packed specialized negacyclic conv4 for neg_odd = [2, 5, 1, 62].
-#[inline(always)]
-fn negacyclic_conv4_neg_odd_packed(lhs: [FPacking; 4], output: &mut [FPacking; 4]) {
-    output[0] = lhs[0].double() - lhs[1] * PACKED_KB_62 - lhs[2] - lhs[3] * PACKED_KB_5;
-    output[1] = lhs[0] * PACKED_KB_5 + lhs[1].double() - lhs[2] * PACKED_KB_62 - lhs[3];
-    output[2] = lhs[0] + lhs[1] * PACKED_KB_5 + lhs[2].double() - lhs[3] * PACKED_KB_62;
-    output[3] = lhs[0] * PACKED_KB_62 + lhs[1] + lhs[2] * PACKED_KB_5 + lhs[3].double();
-}
-
-/// Packed specialized negacyclic conv4 for neg_sum = [-98, 2, 57, 9].
-#[inline(always)]
-fn negacyclic_conv4_neg_sum_packed(lhs: [FPacking; 4], output: &mut [FPacking; 4]) {
-    output[0] = -(lhs[0] * PACKED_KB_98 + lhs[1] * PACKED_KB_9 + lhs[2] * PACKED_KB_57 + lhs[3].double());
-    output[1] = lhs[0].double() - lhs[1] * PACKED_KB_98 - lhs[2] * PACKED_KB_9 - lhs[3] * PACKED_KB_57;
-    output[2] = lhs[0] * PACKED_KB_57 + lhs[1].double() - lhs[2] * PACKED_KB_98 - lhs[3] * PACKED_KB_9;
-    output[3] = lhs[0] * PACKED_KB_9 + lhs[1] * PACKED_KB_57 + lhs[2].double() - lhs[3] * PACKED_KB_98;
-}
-
-/// Packed specialized negacyclic conv4 for pos_neg = [24, 1, -48, -25].
-#[inline(always)]
-fn negacyclic_conv4_pos_neg_packed(lhs: [FPacking; 4], output: &mut [FPacking; 4]) {
-    output[0] = lhs[0] * PACKED_KB_24 + lhs[1] * PACKED_KB_25 + lhs[2] * PACKED_KB_48 - lhs[3];
-    output[1] = lhs[0] + lhs[1] * PACKED_KB_24 + lhs[2] * PACKED_KB_25 + lhs[3] * PACKED_KB_48;
-    output[2] = -(lhs[0] * PACKED_KB_48) + lhs[1] + lhs[2] * PACKED_KB_24 + lhs[3] * PACKED_KB_25;
-    output[3] = -(lhs[0] * PACKED_KB_25) - lhs[1] * PACKED_KB_48 + lhs[2] + lhs[3] * PACKED_KB_24;
-}
-
-#[inline(always)]
-fn conv4_packed(lhs: &[FPacking; 4], output: &mut [FPacking; 4]) {
-    let u_p = [lhs[0] + lhs[2], lhs[1] + lhs[3]];
-    let u_m = [lhs[0] - lhs[2], lhs[1] - lhs[3]];
-
-    output[0] = u_m[0] * PACKED_CONV4_ROWS[0][0] + u_m[1] * PACKED_CONV4_ROWS[0][1];
-    output[1] = u_m[0] * PACKED_CONV4_ROWS[1][0] + u_m[1] * PACKED_CONV4_ROWS[1][1];
-    output[2] = u_p[0] * PACKED_CONV4_ROWS[2][0] + u_p[1] * PACKED_CONV4_ROWS[2][1];
-    output[3] = u_p[0] * PACKED_CONV4_ROWS[3][0] + u_p[1] * PACKED_CONV4_ROWS[3][1];
-
-    output[0] += output[2];
-    output[1] += output[3];
-    output[0] *= PACKED_TWO_INV;
-    output[1] *= PACKED_TWO_INV;
-    output[2] -= output[0];
-    output[3] -= output[1];
-}
-
-#[inline(always)]
-fn negacyclic_conv8_packed(lhs: &[FPacking; 8], output: &mut [FPacking; 8]) {
-    let lhs_even: [FPacking; 4] = std::array::from_fn(|i| lhs[2 * i]);
-    let lhs_odd: [FPacking; 4] = std::array::from_fn(|i| lhs[2 * i + 1]);
-    let lhs_sum: [FPacking; 4] = std::array::from_fn(|i| lhs[2 * i] + lhs[2 * i + 1]);
-
-    let mut even_conv = [FPacking::default(); 4];
-    let mut odd_conv = [FPacking::default(); 4];
-    let mut sum_conv = [FPacking::default(); 4];
-
-    negacyclic_conv4_packed(lhs_even, PACKED_NC4_NEG_EVEN, &mut even_conv);
-    negacyclic_conv4_neg_odd_packed(lhs_odd, &mut odd_conv);
-    negacyclic_conv4_neg_sum_packed(lhs_sum, &mut sum_conv);
-
-    sum_conv[0] -= even_conv[0] + odd_conv[0];
-    even_conv[0] -= odd_conv[3];
-    for i in 1..4 {
-        sum_conv[i] -= even_conv[i] + odd_conv[i];
-        even_conv[i] += odd_conv[i - 1];
-    }
-
-    for i in 0..4 {
-        output[2 * i] = even_conv[i];
-        output[2 * i + 1] = sum_conv[i];
-    }
-}
-
-#[inline(always)]
-fn conv8_packed(lhs: &[FPacking; 8], output: &mut [FPacking; 8]) {
-    let lhs_pos: [FPacking; 4] = std::array::from_fn(|i| lhs[i] + lhs[i + 4]);
-    let lhs_neg: [FPacking; 4] = std::array::from_fn(|i| lhs[i] - lhs[i + 4]);
-
-    let mut left = [FPacking::default(); 4];
-    let mut right = [FPacking::default(); 4];
-
-    negacyclic_conv4_pos_neg_packed(lhs_neg, &mut left);
-    conv4_packed(&lhs_pos, &mut right);
-
-    for i in 0..4 {
-        left[i] += right[i];
-        left[i] *= PACKED_TWO_INV;
-        right[i] -= left[i];
-    }
-
-    output[..4].copy_from_slice(&left);
-    output[4..8].copy_from_slice(&right);
-}
-
-#[inline(always)]
-fn conv16_packed(lhs: &[FPacking; 16], output: &mut [FPacking; 16]) {
-    let lhs_pos: [FPacking; 8] = std::array::from_fn(|i| lhs[i] + lhs[i + 8]);
-    let lhs_neg: [FPacking; 8] = std::array::from_fn(|i| lhs[i] - lhs[i + 8]);
-
-    let mut left = [FPacking::default(); 8];
-    let mut right = [FPacking::default(); 8];
-
-    negacyclic_conv8_packed(&lhs_neg, &mut left);
-    conv8_packed(&lhs_pos, &mut right);
-
-    for i in 0..8 {
-        left[i] += right[i];
-        left[i] *= PACKED_TWO_INV;
-        right[i] -= left[i];
-    }
-
-    output[..8].copy_from_slice(&left);
-    output[8..16].copy_from_slice(&right);
-}
-
-#[inline]
-fn mds_circulant_16_karatsuba_packed(state: &mut [FPacking; 16]) {
-    let lhs = *state;
-    conv16_packed(&lhs, state);
-}
-
 /// Apply the 16x16 circulant MDS matrix to a state vector using Karatsuba convolution.
 ///
 /// Uses i64 fast path for scalar KoalaBear (deferred modular reduction).
-/// Uses pre-broadcast packed constants for <KoalaBear as Field>::Packing (avoids per-mul broadcasts).
-/// Uses precomputed Karatsuba constants for all other types (extension fields, etc.).
+/// Uses precomputed Karatsuba constants for all other types (packed, extension fields, etc.).
 /// With Algebra<KoalaBear> bound, all multiplications are scalar (R * KoalaBear).
 #[inline]
 pub fn mds_circulant_16_karatsuba<R: Algebra<KoalaBear> + 'static>(state: &mut [R; 16]) {
@@ -565,13 +396,6 @@ pub fn mds_circulant_16_karatsuba<R: Algebra<KoalaBear> + 'static>(state: &mut [
     if TypeId::of::<R>() == TypeId::of::<KoalaBear>() {
         let state_kb = unsafe { &mut *(state as *mut [R; 16] as *mut [KoalaBear; 16]) };
         mds_circulant_16_karatsuba_i64(state_kb);
-        return;
-    }
-
-    // Fast path for packed KoalaBear: pre-broadcast constants avoid per-mul vdup
-    if TypeId::of::<R>() == TypeId::of::<FPacking>() {
-        let state_packed = unsafe { &mut *(state as *mut [R; 16] as *mut [FPacking; 16]) };
-        mds_circulant_16_karatsuba_packed(state_packed);
         return;
     }
 
@@ -794,7 +618,7 @@ pub fn default_koalabear_poseidon1_16() -> Poseidon1KoalaBear16 {
 mod tests {
     use super::*;
     use crate::KoalaBear;
-    use field::{PrimeCharacteristicRing, PrimeField32};
+    use field::{Field, PrimeCharacteristicRing, PrimeField32};
 
     /// Regenerate and verify the POSEIDON1_ROUND_CONSTANTS array.
     /// Run with: cargo test -p mt-koala-bear -- generate_poseidon1_constants --ignored --nocapture
