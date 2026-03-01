@@ -199,9 +199,6 @@ fn mds_circulant_16_karatsuba_i64(state: &mut [KoalaBear; 16]) {
 /// KoalaBear prime, for computing negatives: -x = KB_P - x.
 const KB_P: u32 = 2130706433;
 
-/// Inverse of 2 in KoalaBear: (KB_P + 1) / 2 = 1065353217.
-const TWO_INV_KB: KoalaBear = KoalaBear::new(1065353217);
-
 // The Karatsuba decomposition of MDS_CIRC_16_FIRST_COL proceeds as follows:
 //
 // conv16 splits rhs into:
@@ -305,8 +302,8 @@ fn conv4_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
 
     output[0] += output[2];
     output[1] += output[3];
-    output[0] = output[0] * TWO_INV_KB;
-    output[1] = output[1] * TWO_INV_KB;
+    output[0] = output[0] .div_2exp_u64(1);
+    output[1] = output[1] .div_2exp_u64(1);
     output[2] -= output[0];
     output[3] -= output[1];
 }
@@ -355,7 +352,7 @@ fn conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
 
     for i in 0..4 {
         left[i] += right[i];
-        left[i] = left[i] * TWO_INV_KB;
+        left[i] = left[i] .div_2exp_u64(1);
         right[i] -= left[i];
     }
 
@@ -377,7 +374,7 @@ fn conv16_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 16], output: &mut [R; 16]
 
     for i in 0..8 {
         left[i] += right[i];
-        left[i] = left[i] * TWO_INV_KB;
+        left[i] = left[i] .div_2exp_u64(1);
         right[i] -= left[i];
     }
 
@@ -746,9 +743,6 @@ mod tests {
             [i64_to_kb(v_p[1]), i64_to_kb(v_p[0])],
         ];
         assert_eq!(CONV4_ROWS, expected_rows);
-
-        // Verify TWO_INV_KB
-        assert_eq!(KoalaBear::TWO * TWO_INV_KB, KoalaBear::ONE);
     }
 
     /// Cross-check packed MDS path against scalar naive implementation.
