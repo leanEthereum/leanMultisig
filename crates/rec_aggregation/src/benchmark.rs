@@ -3,7 +3,6 @@ use std::time::Instant;
 
 use backend::*;
 use lean_vm::*;
-use utils::pretty_integer;
 use xmss::signers_cache::*;
 use xmss::{XmssPublicKey, XmssSignature};
 

@@ -13,9 +13,9 @@ pub fn poseidon_round_constants<const WIDTH: usize>()
     match WIDTH {
         16 => unsafe {
             (
-                &*(get_poseidon1_initial_constants() as *const [[F; 16]] as *const [[F; WIDTH]]),
-                &*(get_poseidon1_partial_constants() as *const [[F; 16]] as *const [[F; WIDTH]]),
-                &*(get_poseidon1_final_constants() as *const [[F; 16]] as *const [[F; WIDTH]]),
+                &*(poseidon1_initial_constants() as *const [[F; 16]] as *const [[F; WIDTH]]),
+                &*(poseidon1_partial_constants() as *const [[F; 16]] as *const [[F; WIDTH]]),
+                &*(poseidon1_final_constants() as *const [[F; 16]] as *const [[F; WIDTH]]),
             )
         },
         _ => panic!("Only Poseidon 16 is supported currently"),

@@ -11,9 +11,6 @@ pub use multilinear::*;
 mod wrappers;
 pub use wrappers::*;
 
-mod display;
-pub use display::*;
-
 mod logs;
 pub use logs::*;
 

@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
+use backend::pretty_integer;
+
 use crate::core::F;
 use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
 use crate::{N_TABLES, Table, TableTrace};
-use utils::pretty_integer;
 
 #[derive(Debug, Default, Clone)]
 pub struct ExecutionMetadata {

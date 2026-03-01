@@ -6,7 +6,7 @@ use backend::*;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use utils::{ToUsize, pretty_integer, to_big_endian_in_field, to_little_endian_in_field};
+use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
 use xmss::SIG_SIZE_FE;
 
 /// VM hints provide execution guidance and debugging information, but does not appear

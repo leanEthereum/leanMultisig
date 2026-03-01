@@ -1,7 +1,6 @@
+use backend::pretty_integer;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Range;
-
-use utils::pretty_integer;
 
 use crate::core::{Label, MemoryAddress, SourceLocation};
 use crate::stack_trace::find_function_for_location;

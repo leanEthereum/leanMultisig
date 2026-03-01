@@ -1,7 +1,4 @@
-//! Poseidon1 permutation for KoalaBear, WIDTH=16, ALPHA=3 (cube S-box).
-//!
-//! Uses the BabyBear circulant MDS matrix for all rounds (both full and partial).
-//! Round structure: 4 initial full rounds + 20 partial rounds + 4 final full rounds.
+// Credits: Plonky3 (https://github.com/Plonky3/Plonky3) (MIT and Apache-2.0 licenses).
 
 use std::any::TypeId;
 
@@ -19,11 +16,19 @@ pub const MDS_CIRC_16_FIRST_ROW: [u64; 16] = [1, 1, 51, 1, 11, 17, 2, 1, 101, 63
 
 /// First column of the circulant MDS matrix (element 0 stays, elements 1..16 reversed).
 /// Used by the Karatsuba convolution fast path.
-const MDS_CIRC_16_FIRST_COL: [i64; 16] = [1, 3, 13, 22, 67, 2, 15, 63, 101, 1, 2, 17, 11, 1, 51, 1];
+const MDS_CIRC_16_FIRST_COL: [i64; 16] = {
+    let mut col = [0i64; 16];
+    col[0] = MDS_CIRC_16_FIRST_ROW[0] as i64;
+    let mut i = 1;
+    while i < 16 {
+        col[i] = MDS_CIRC_16_FIRST_ROW[16 - i] as i64;
+        i += 1;
+    }
+    col
+};
 
 // ---------------------------------------------------------------------------
 // Karatsuba convolution for KoalaBear MDS (i64 fast path)
-// Credits: Plonky3 (https://github.com/Plonky3/Plonky3) (MIT and Apache-2.0 licenses).
 // ---------------------------------------------------------------------------
 
 #[inline(always)]
@@ -333,54 +338,42 @@ pub fn mds_circulant_16_karatsuba<R: PrimeCharacteristicRing + 'static>(state: &
 
 /// The Poseidon1 permutation for KoalaBear, width 16, cube S-box.
 #[derive(Clone, Debug)]
-pub struct Poseidon1KoalaBear16 {
-    /// Round constants: 16 per round, for all 28 rounds.
-    /// Layout: [initial_full_0, initial_full_1, ..., initial_full_3,
-    ///          partial_0, partial_1, ..., partial_19,
-    ///          final_full_0, final_full_1, ..., final_full_3]
-    constants: Vec<[KoalaBear; 16]>,
+pub struct Poseidon1KoalaBear16 {}
+
+/// Get constants for initial full rounds (first 4 rounds).
+#[inline]
+pub fn poseidon1_initial_constants() -> &'static [[KoalaBear; 16]] {
+    &POSEIDON1_ROUND_CONSTANTS[..POSEIDON1_HALF_FULL_ROUNDS]
+}
+
+/// Get constants for partial rounds (middle 20 rounds).
+#[inline]
+pub fn poseidon1_partial_constants() -> &'static [[KoalaBear; 16]] {
+    &POSEIDON1_ROUND_CONSTANTS[POSEIDON1_HALF_FULL_ROUNDS..POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS]
+}
+
+/// Get constants for final full rounds (last 4 rounds).
+#[inline]
+pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
+    &POSEIDON1_ROUND_CONSTANTS[POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS..]
 }
 
 impl Poseidon1KoalaBear16 {
-    pub fn new(constants: Vec<[KoalaBear; 16]>) -> Self {
-        let expected = 2 * POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS;
-        assert_eq!(constants.len(), expected, "Expected {expected} rounds of constants");
-        Self { constants }
-    }
-
-    /// Get constants for initial full rounds (first 4 rounds).
-    #[inline]
-    pub fn initial_constants(&self) -> &[[KoalaBear; 16]] {
-        &self.constants[..POSEIDON1_HALF_FULL_ROUNDS]
-    }
-
-    /// Get constants for partial rounds (middle 20 rounds).
-    #[inline]
-    pub fn partial_constants(&self) -> &[[KoalaBear; 16]] {
-        &self.constants[POSEIDON1_HALF_FULL_ROUNDS..POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS]
-    }
-
-    /// Get constants for final full rounds (last 4 rounds).
-    #[inline]
-    pub fn final_constants(&self) -> &[[KoalaBear; 16]] {
-        &self.constants[POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS..]
-    }
-
     /// Apply the permutation to a state, works generically on any Algebra<KoalaBear>.
     #[inline]
     fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(&self, state: &mut [R; 16]) {
         // Initial full rounds
-        for rc in self.initial_constants() {
+        for rc in poseidon1_initial_constants() {
             Self::full_round(state, rc);
         }
 
         // Partial rounds
-        for rc in self.partial_constants() {
+        for rc in poseidon1_partial_constants() {
             Self::partial_round(state, rc);
         }
 
         // Final full rounds
-        for rc in self.final_constants() {
+        for rc in poseidon1_final_constants() {
             Self::full_round(state, rc);
         }
     }
@@ -549,30 +542,9 @@ pub const POSEIDON1_ROUND_CONSTANTS: [[KoalaBear; 16]; POSEIDON1_N_ROUNDS] = Koa
     ],
 ]);
 
-/// Get constants for initial full rounds (first 4 rounds).
-pub const fn get_poseidon1_initial_constants() -> &'static [[KoalaBear; 16]; POSEIDON1_HALF_FULL_ROUNDS] {
-    let all: &[[KoalaBear; 16]] = &POSEIDON1_ROUND_CONSTANTS;
-    let (initial, _) = all.split_first_chunk().unwrap();
-    initial
-}
-
-/// Get constants for partial rounds (middle 20 rounds).
-pub const fn get_poseidon1_partial_constants() -> &'static [[KoalaBear; 16]; POSEIDON1_PARTIAL_ROUNDS] {
-    let all: &[[KoalaBear; 16]] = &POSEIDON1_ROUND_CONSTANTS;
-    let (_, rest) = all.split_first_chunk::<POSEIDON1_HALF_FULL_ROUNDS>().unwrap();
-    let (partial, _) = rest.split_first_chunk().unwrap();
-    partial
-}
-
-/// Get constants for final full rounds (last 4 rounds).
-pub const fn get_poseidon1_final_constants() -> &'static [[KoalaBear; 16]; POSEIDON1_HALF_FULL_ROUNDS] {
-    let all: &[[KoalaBear; 16]] = &POSEIDON1_ROUND_CONSTANTS;
-    all.last_chunk().unwrap()
-}
-
 /// Create a default Poseidon1 instance for KoalaBear width 16.
 pub fn default_koalabear_poseidon1_16() -> Poseidon1KoalaBear16 {
-    Poseidon1KoalaBear16::new(POSEIDON1_ROUND_CONSTANTS.to_vec())
+    Poseidon1KoalaBear16 {}
 }
 
 #[cfg(test)]
