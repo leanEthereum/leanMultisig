@@ -4,24 +4,24 @@ use std::any::TypeId;
 
 use crate::symmetric::Permutation;
 use crate::{KoalaBear, KoalaBearParameters, MontyParameters};
-use field::{Algebra, Field, InjectiveMonomial};
+use field::{Algebra, Field, InjectiveMonomial, PrimeCharacteristicRing};
 
 pub const POSEIDON1_WIDTH: usize = 16;
 pub const POSEIDON1_HALF_FULL_ROUNDS: usize = 4;
 pub const POSEIDON1_PARTIAL_ROUNDS: usize = 20;
 pub const POSEIDON1_SBOX_DEGREE: u64 = 3;
 
-/// First row of the 16x16 circulant MDS matrix (same as BabyBear).
-pub const MDS_CIRC_16_FIRST_ROW: [u64; 16] = [1, 1, 51, 1, 11, 17, 2, 1, 101, 63, 15, 2, 67, 22, 13, 3];
+/// First row of the 16x16 circulant MDS matrix.
+pub const MDS_CIRC_16_FIRST_ROW: [i64; 16] = [1, 1, 51, 1, 11, 17, 2, 1, 101, 63, -2, 2, 67, 22, -1, 3];
 
 /// First column of the circulant MDS matrix (element 0 stays, elements 1..16 reversed).
 /// Used by the Karatsuba convolution fast path.
 const MDS_CIRC_16_FIRST_COL: [i64; 16] = {
     let mut col = [0i64; 16];
-    col[0] = MDS_CIRC_16_FIRST_ROW[0] as i64;
+    col[0] = MDS_CIRC_16_FIRST_ROW[0];
     let mut i = 1;
     while i < 16 {
-        col[i] = MDS_CIRC_16_FIRST_ROW[16 - i] as i64;
+        col[i] = MDS_CIRC_16_FIRST_ROW[16 - i];
         i += 1;
     }
     col
@@ -181,10 +181,9 @@ fn mds_circulant_16_karatsuba_i64(state: &mut [KoalaBear; 16]) {
     let lhs: [i64; 16] = std::array::from_fn(|i| state[i].value as i64);
     let mut output = [0i64; 16];
     conv16_i64(lhs, MDS_CIRC_16_FIRST_COL, &mut output);
-    let p = KoalaBearParameters::PRIME as u64;
+    let p = KoalaBearParameters::PRIME as i64;
     for i in 0..16 {
-        debug_assert!(output[i] >= 0);
-        state[i] = KoalaBear::new_monty((output[i] as u64 % p) as u32);
+        state[i] = KoalaBear::new_monty(output[i].rem_euclid(p) as u32);
     }
 }
 
@@ -193,6 +192,8 @@ fn mds_circulant_16_karatsuba_i64(state: &mut [KoalaBear; 16]) {
 // All rhs decompositions in the Karatsuba tree are precomputed as KoalaBear
 // constants. Using Algebra<KoalaBear> bound enables scalar multiplication
 // (R * KoalaBear) instead of full R * R multiplication.
+// Where possible, multiplications by 1, -1, 2, -2 are replaced by identity,
+// negation, or .double() for better performance on extension field types.
 // ---------------------------------------------------------------------------
 
 /// KoalaBear prime, for computing negatives: -x = KB_P - x.
@@ -204,20 +205,20 @@ const TWO_INV_KB: KoalaBear = KoalaBear::new(1065353217);
 // The Karatsuba decomposition of MDS_CIRC_16_FIRST_COL proceeds as follows:
 //
 // conv16 splits rhs into:
-//   rhs_neg[i] = col[i] - col[i+8] = [-100, 2, 11, 5, 56, 1, -36, 62]
-//   rhs_pos[i] = col[i] + col[i+8] = [102, 4, 15, 39, 78, 3, 66, 64]
+//   rhs_neg[i] = col[i] - col[i+8] = [-100, 2, -3, 5, 56, 1, -53, 62]
+//   rhs_pos[i] = col[i] + col[i+8] = [102, 4, 1, 39, 78, 3, 49, 64]
 //
 // negacyclic_conv8(rhs_neg) decomposes into:
-//   neg_even = [-100, 11, 56, -36]      (rhs_neg[2i])
-//   neg_odd  = [2, 5, 1, 62]            (rhs_neg[2i+1])
-//   neg_sum  = [-98, 16, 57, 26]        (neg_even + neg_odd)
+//   neg_even = [-100, -3, 56, -53]       (rhs_neg[2i])
+//   neg_odd  = [2, 5, 1, 62]             (rhs_neg[2i+1])
+//   neg_sum  = [-98, 2, 57, 9]           (neg_even + neg_odd)
 //
 // conv8(rhs_pos) decomposes into:
-//   pos_pos = [180, 7, 81, 103]         (rhs_pos[i] + rhs_pos[i+4])
-//   pos_neg = [24, 1, -51, -25]         (rhs_pos[i] - rhs_pos[i+4])
+//   pos_pos = [180, 7, 50, 103]          (rhs_pos[i] + rhs_pos[i+4])
+//   pos_neg = [24, 1, -48, -25]          (rhs_pos[i] - rhs_pos[i+4])
 //
 // conv4(pos_pos) further splits:
-//   v_p = [261, 110], v_m = [99, -96]
+//   v_p = [230, 110], v_m = [130, -96]
 //
 // For a negacyclic circulant with column [a,b,c,d], the 4x4 matrix is:
 //   row0: [a, -d, -c, -b]
@@ -225,42 +226,28 @@ const TWO_INV_KB: KoalaBear = KoalaBear::new(1065353217);
 //   row2: [c,  b,  a, -d]
 //   row3: [d,  c,  b,  a]
 
-/// Negacyclic circulant matrix for neg_even = [-100, 11, 56, -36].
+/// Negacyclic circulant matrix for neg_even = [-100, -3, 56, -53].
 const NC4_NEG_EVEN: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
-    [KB_P - 100, 36, KB_P - 56, KB_P - 11],
-    [11, KB_P - 100, 36, KB_P - 56],
-    [56, 11, KB_P - 100, 36],
-    [KB_P - 36, 56, 11, KB_P - 100],
+    [KB_P - 100, 53, KB_P - 56, 3],
+    [KB_P - 3, KB_P - 100, 53, KB_P - 56],
+    [56, KB_P - 3, KB_P - 100, 53],
+    [KB_P - 53, 56, KB_P - 3, KB_P - 100],
 ]);
 
-/// Negacyclic circulant matrix for neg_odd = [2, 5, 1, 62].
-const NC4_NEG_ODD: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
-    [2, KB_P - 62, KB_P - 1, KB_P - 5],
-    [5, 2, KB_P - 62, KB_P - 1],
-    [1, 5, 2, KB_P - 62],
-    [62, 1, 5, 2],
-]);
+// Scalar constants for the specialized Karatsuba functions below.
+const KB_5: KoalaBear = KoalaBear::new(5);
+const KB_9: KoalaBear = KoalaBear::new(9);
+const KB_24: KoalaBear = KoalaBear::new(24);
+const KB_25: KoalaBear = KoalaBear::new(25);
+const KB_48: KoalaBear = KoalaBear::new(48);
+const KB_57: KoalaBear = KoalaBear::new(57);
+const KB_62: KoalaBear = KoalaBear::new(62);
+const KB_98: KoalaBear = KoalaBear::new(98);
 
-/// Negacyclic circulant matrix for neg_sum = [-98, 16, 57, 26].
-const NC4_NEG_SUM: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
-    [KB_P - 98, KB_P - 26, KB_P - 57, KB_P - 16],
-    [16, KB_P - 98, KB_P - 26, KB_P - 57],
-    [57, 16, KB_P - 98, KB_P - 26],
-    [26, 57, 16, KB_P - 98],
-]);
-
-/// Negacyclic circulant matrix for pos_neg = [24, 1, -51, -25].
-const NC4_POS_NEG: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
-    [24, 25, 51, KB_P - 1],
-    [1, 24, 25, 51],
-    [KB_P - 51, 1, 24, 25],
-    [KB_P - 25, KB_P - 51, 1, 24],
-]);
-
-/// Conv4 dot-product constants from pos_pos = [180, 7, 81, 103].
-/// v_p = [261, 110], v_m = [99, -96].
+/// Conv4 dot-product constants from pos_pos = [180, 7, 50, 103].
+/// v_p = [230, 110], v_m = [130, -96].
 /// Rows: [v_m0, -v_m1], [v_m1, v_m0], [v_p0, v_p1], [v_p1, v_p0].
-const CONV4_ROWS: [[KoalaBear; 2]; 4] = KoalaBear::new_2d_array([[99, 96], [KB_P - 96, 99], [261, 110], [110, 261]]);
+const CONV4_ROWS: [[KoalaBear; 2]; 4] = KoalaBear::new_2d_array([[130, 96], [KB_P - 96, 130], [230, 110], [110, 230]]);
 
 #[inline(always)]
 fn negacyclic_conv4_precomputed<R: Algebra<KoalaBear>>(
@@ -269,77 +256,110 @@ fn negacyclic_conv4_precomputed<R: Algebra<KoalaBear>>(
     output: &mut [R; 4],
 ) {
     for i in 0..4 {
-        output[i] = lhs[0].clone() * matrix[i][0]
-            + lhs[1].clone() * matrix[i][1]
-            + lhs[2].clone() * matrix[i][2]
-            + lhs[3].clone() * matrix[i][3];
+        output[i] = lhs[0] * matrix[i][0]
+            + lhs[1] * matrix[i][1]
+            + lhs[2] * matrix[i][2]
+            + lhs[3] * matrix[i][3];
     }
+}
+
+/// Specialized negacyclic conv4 for neg_odd = [2, 5, 1, 62].
+/// Matrix: [[2,-62,-1,-5],[5,2,-62,-1],[1,5,2,-62],[62,1,5,2]]
+/// Optimized: 4x double, 2x identity, 2x negation (saves 8 of 16 muls).
+#[inline(always)]
+fn negacyclic_conv4_neg_odd<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
+    output[0] = lhs[0].double() - lhs[1] * KB_62 - lhs[2] - lhs[3] * KB_5;
+    output[1] = lhs[0] * KB_5 + lhs[1].double() - lhs[2] * KB_62 - lhs[3];
+    output[2] = lhs[0] + lhs[1] * KB_5 + lhs[2].double() - lhs[3] * KB_62;
+    output[3] = lhs[0] * KB_62 + lhs[1] + lhs[2] * KB_5 + lhs[3].double();
+}
+
+/// Specialized negacyclic conv4 for neg_sum = [-98, 2, 57, 9].
+/// Matrix: [[-98,-9,-57,-2],[2,-98,-9,-57],[57,2,-98,-9],[9,57,2,-98]]
+/// Optimized: 3x double, 1x neg+double (saves 4 of 16 muls).
+#[inline(always)]
+fn negacyclic_conv4_neg_sum<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
+    output[0] = -(lhs[0] * KB_98 + lhs[1] * KB_9 + lhs[2] * KB_57 + lhs[3].double());
+    output[1] = lhs[0].double() - lhs[1] * KB_98 - lhs[2] * KB_9 - lhs[3] * KB_57;
+    output[2] = lhs[0] * KB_57 + lhs[1].double() - lhs[2] * KB_98 - lhs[3] * KB_9;
+    output[3] = lhs[0] * KB_9 + lhs[1] * KB_57 + lhs[2].double() - lhs[3] * KB_98;
+}
+
+/// Specialized negacyclic conv4 for pos_neg = [24, 1, -48, -25].
+/// Matrix: [[24,25,48,-1],[1,24,25,48],[-48,1,24,25],[-25,-48,1,24]]
+/// Optimized: 3x identity, 1x negation (saves 4 of 16 muls).
+#[inline(always)]
+fn negacyclic_conv4_pos_neg<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
+    output[0] = lhs[0] * KB_24 + lhs[1] * KB_25 + lhs[2] * KB_48 - lhs[3];
+    output[1] = lhs[0] + lhs[1] * KB_24 + lhs[2] * KB_25 + lhs[3] * KB_48;
+    output[2] = -(lhs[0] * KB_48) + lhs[1] + lhs[2] * KB_24 + lhs[3] * KB_25;
+    output[3] = -(lhs[0] * KB_25) - lhs[1] * KB_48 + lhs[2] + lhs[3] * KB_24;
 }
 
 #[inline(always)]
 fn conv4_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
-    let u_p = [lhs[0].clone() + lhs[2].clone(), lhs[1].clone() + lhs[3].clone()];
-    let u_m = [lhs[0].clone() - lhs[2].clone(), lhs[1].clone() - lhs[3].clone()];
+    let u_p = [lhs[0] + lhs[2], lhs[1] + lhs[3]];
+    let u_m = [lhs[0] - lhs[2], lhs[1] - lhs[3]];
 
-    output[0] = u_m[0].clone() * CONV4_ROWS[0][0] + u_m[1].clone() * CONV4_ROWS[0][1];
-    output[1] = u_m[0].clone() * CONV4_ROWS[1][0] + u_m[1].clone() * CONV4_ROWS[1][1];
-    output[2] = u_p[0].clone() * CONV4_ROWS[2][0] + u_p[1].clone() * CONV4_ROWS[2][1];
-    output[3] = u_p[0].clone() * CONV4_ROWS[3][0] + u_p[1].clone() * CONV4_ROWS[3][1];
+    output[0] = u_m[0] * CONV4_ROWS[0][0] + u_m[1] * CONV4_ROWS[0][1];
+    output[1] = u_m[0] * CONV4_ROWS[1][0] + u_m[1] * CONV4_ROWS[1][1];
+    output[2] = u_p[0] * CONV4_ROWS[2][0] + u_p[1] * CONV4_ROWS[2][1];
+    output[3] = u_p[0] * CONV4_ROWS[3][0] + u_p[1] * CONV4_ROWS[3][1];
 
-    output[0] += output[2].clone();
-    output[1] += output[3].clone();
-    output[0] = output[0].clone() * TWO_INV_KB;
-    output[1] = output[1].clone() * TWO_INV_KB;
-    output[2] -= output[0].clone();
-    output[3] -= output[1].clone();
+    output[0] += output[2];
+    output[1] += output[3];
+    output[0] = output[0] * TWO_INV_KB;
+    output[1] = output[1] * TWO_INV_KB;
+    output[2] -= output[0];
+    output[3] -= output[1];
 }
 
 /// negacyclic_conv8 via even/odd decomposition with 3x negacyclic_conv4.
 #[inline(always)]
 fn negacyclic_conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
-    let lhs_even: [R; 4] = std::array::from_fn(|i| lhs[2 * i].clone());
-    let lhs_odd: [R; 4] = std::array::from_fn(|i| lhs[2 * i + 1].clone());
-    let lhs_sum: [R; 4] = std::array::from_fn(|i| lhs[2 * i].clone() + lhs[2 * i + 1].clone());
+    let lhs_even: [R; 4] = std::array::from_fn(|i| lhs[2 * i]);
+    let lhs_odd: [R; 4] = std::array::from_fn(|i| lhs[2 * i + 1]);
+    let lhs_sum: [R; 4] = std::array::from_fn(|i| lhs[2 * i] + lhs[2 * i + 1]);
 
     let mut even_conv: [R; 4] = std::array::from_fn(|_| R::default());
     let mut odd_conv: [R; 4] = std::array::from_fn(|_| R::default());
     let mut sum_conv: [R; 4] = std::array::from_fn(|_| R::default());
 
     negacyclic_conv4_precomputed(&lhs_even, &NC4_NEG_EVEN, &mut even_conv);
-    negacyclic_conv4_precomputed(&lhs_odd, &NC4_NEG_ODD, &mut odd_conv);
-    negacyclic_conv4_precomputed(&lhs_sum, &NC4_NEG_SUM, &mut sum_conv);
+    negacyclic_conv4_neg_odd(&lhs_odd, &mut odd_conv);
+    negacyclic_conv4_neg_sum(&lhs_sum, &mut sum_conv);
 
     // Karatsuba recombination
-    sum_conv[0] -= even_conv[0].clone() + odd_conv[0].clone();
-    even_conv[0] -= odd_conv[3].clone();
+    sum_conv[0] -= even_conv[0] + odd_conv[0];
+    even_conv[0] -= odd_conv[3];
     for i in 1..4 {
-        sum_conv[i] -= even_conv[i].clone() + odd_conv[i].clone();
-        even_conv[i] += odd_conv[i - 1].clone();
+        sum_conv[i] -= even_conv[i] + odd_conv[i];
+        even_conv[i] += odd_conv[i - 1];
     }
 
     // Interleave
     for i in 0..4 {
-        output[2 * i] = even_conv[i].clone();
-        output[2 * i + 1] = sum_conv[i].clone();
+        output[2 * i] = even_conv[i];
+        output[2 * i + 1] = sum_conv[i];
     }
 }
 
 /// conv8 via CRT decomposition: negacyclic_conv4 + conv4.
 #[inline(always)]
 fn conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
-    let lhs_pos: [R; 4] = std::array::from_fn(|i| lhs[i].clone() + lhs[i + 4].clone());
-    let lhs_neg: [R; 4] = std::array::from_fn(|i| lhs[i].clone() - lhs[i + 4].clone());
+    let lhs_pos: [R; 4] = std::array::from_fn(|i| lhs[i] + lhs[i + 4]);
+    let lhs_neg: [R; 4] = std::array::from_fn(|i| lhs[i] - lhs[i + 4]);
 
     let mut left: [R; 4] = std::array::from_fn(|_| R::default());
     let mut right: [R; 4] = std::array::from_fn(|_| R::default());
 
-    negacyclic_conv4_precomputed(&lhs_neg, &NC4_POS_NEG, &mut left);
+    negacyclic_conv4_pos_neg(&lhs_neg, &mut left);
     conv4_precomputed(&lhs_pos, &mut right);
 
     for i in 0..4 {
-        left[i] += right[i].clone();
-        left[i] = left[i].clone() * TWO_INV_KB;
-        right[i] -= left[i].clone();
+        left[i] += right[i];
+        left[i] = left[i] * TWO_INV_KB;
+        right[i] -= left[i];
     }
 
     output[..4].clone_from_slice(&left);
@@ -349,8 +369,8 @@ fn conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
 /// conv16 via CRT decomposition: negacyclic_conv8 + conv8.
 #[inline(always)]
 fn conv16_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 16], output: &mut [R; 16]) {
-    let lhs_pos: [R; 8] = std::array::from_fn(|i| lhs[i].clone() + lhs[i + 8].clone());
-    let lhs_neg: [R; 8] = std::array::from_fn(|i| lhs[i].clone() - lhs[i + 8].clone());
+    let lhs_pos: [R; 8] = std::array::from_fn(|i| lhs[i] + lhs[i + 8]);
+    let lhs_neg: [R; 8] = std::array::from_fn(|i| lhs[i] - lhs[i + 8]);
 
     let mut left: [R; 8] = std::array::from_fn(|_| R::default());
     let mut right: [R; 8] = std::array::from_fn(|_| R::default());
@@ -359,9 +379,9 @@ fn conv16_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 16], output: &mut [R; 16]
     conv8_precomputed(&lhs_pos, &mut right);
 
     for i in 0..8 {
-        left[i] += right[i].clone();
-        left[i] = left[i].clone() * TWO_INV_KB;
-        right[i] -= left[i].clone();
+        left[i] += right[i];
+        left[i] = left[i] * TWO_INV_KB;
+        right[i] -= left[i];
     }
 
     output[..8].clone_from_slice(&left);
@@ -393,17 +413,51 @@ const fn broadcast_2d<const N: usize, const M: usize>(input: [[KoalaBear; N]; M]
 }
 
 const PACKED_NC4_NEG_EVEN: [[FPacking; 4]; 4] = broadcast_2d(NC4_NEG_EVEN);
-const PACKED_NC4_NEG_ODD: [[FPacking; 4]; 4] = broadcast_2d(NC4_NEG_ODD);
-const PACKED_NC4_NEG_SUM: [[FPacking; 4]; 4] = broadcast_2d(NC4_NEG_SUM);
-const PACKED_NC4_POS_NEG: [[FPacking; 4]; 4] = broadcast_2d(NC4_POS_NEG);
 const PACKED_CONV4_ROWS: [[FPacking; 2]; 4] = broadcast_2d(CONV4_ROWS);
 const PACKED_TWO_INV: FPacking = FPacking::broadcast(TWO_INV_KB);
+
+// Pre-broadcast scalar constants for specialized packed Karatsuba functions.
+const PACKED_KB_5: FPacking = FPacking::broadcast(KB_5);
+const PACKED_KB_9: FPacking = FPacking::broadcast(KB_9);
+const PACKED_KB_24: FPacking = FPacking::broadcast(KB_24);
+const PACKED_KB_25: FPacking = FPacking::broadcast(KB_25);
+const PACKED_KB_48: FPacking = FPacking::broadcast(KB_48);
+const PACKED_KB_57: FPacking = FPacking::broadcast(KB_57);
+const PACKED_KB_62: FPacking = FPacking::broadcast(KB_62);
+const PACKED_KB_98: FPacking = FPacking::broadcast(KB_98);
 
 #[inline(always)]
 fn negacyclic_conv4_packed(lhs: [FPacking; 4], matrix: [[FPacking; 4]; 4], output: &mut [FPacking; 4]) {
     for i in 0..4 {
         output[i] = lhs[0] * matrix[i][0] + lhs[1] * matrix[i][1] + lhs[2] * matrix[i][2] + lhs[3] * matrix[i][3];
     }
+}
+
+/// Packed specialized negacyclic conv4 for neg_odd = [2, 5, 1, 62].
+#[inline(always)]
+fn negacyclic_conv4_neg_odd_packed(lhs: [FPacking; 4], output: &mut [FPacking; 4]) {
+    output[0] = lhs[0].double() - lhs[1] * PACKED_KB_62 - lhs[2] - lhs[3] * PACKED_KB_5;
+    output[1] = lhs[0] * PACKED_KB_5 + lhs[1].double() - lhs[2] * PACKED_KB_62 - lhs[3];
+    output[2] = lhs[0] + lhs[1] * PACKED_KB_5 + lhs[2].double() - lhs[3] * PACKED_KB_62;
+    output[3] = lhs[0] * PACKED_KB_62 + lhs[1] + lhs[2] * PACKED_KB_5 + lhs[3].double();
+}
+
+/// Packed specialized negacyclic conv4 for neg_sum = [-98, 2, 57, 9].
+#[inline(always)]
+fn negacyclic_conv4_neg_sum_packed(lhs: [FPacking; 4], output: &mut [FPacking; 4]) {
+    output[0] = -(lhs[0] * PACKED_KB_98 + lhs[1] * PACKED_KB_9 + lhs[2] * PACKED_KB_57 + lhs[3].double());
+    output[1] = lhs[0].double() - lhs[1] * PACKED_KB_98 - lhs[2] * PACKED_KB_9 - lhs[3] * PACKED_KB_57;
+    output[2] = lhs[0] * PACKED_KB_57 + lhs[1].double() - lhs[2] * PACKED_KB_98 - lhs[3] * PACKED_KB_9;
+    output[3] = lhs[0] * PACKED_KB_9 + lhs[1] * PACKED_KB_57 + lhs[2].double() - lhs[3] * PACKED_KB_98;
+}
+
+/// Packed specialized negacyclic conv4 for pos_neg = [24, 1, -48, -25].
+#[inline(always)]
+fn negacyclic_conv4_pos_neg_packed(lhs: [FPacking; 4], output: &mut [FPacking; 4]) {
+    output[0] = lhs[0] * PACKED_KB_24 + lhs[1] * PACKED_KB_25 + lhs[2] * PACKED_KB_48 - lhs[3];
+    output[1] = lhs[0] + lhs[1] * PACKED_KB_24 + lhs[2] * PACKED_KB_25 + lhs[3] * PACKED_KB_48;
+    output[2] = -(lhs[0] * PACKED_KB_48) + lhs[1] + lhs[2] * PACKED_KB_24 + lhs[3] * PACKED_KB_25;
+    output[3] = -(lhs[0] * PACKED_KB_25) - lhs[1] * PACKED_KB_48 + lhs[2] + lhs[3] * PACKED_KB_24;
 }
 
 #[inline(always)]
@@ -435,8 +489,8 @@ fn negacyclic_conv8_packed(lhs: &[FPacking; 8], output: &mut [FPacking; 8]) {
     let mut sum_conv = [FPacking::default(); 4];
 
     negacyclic_conv4_packed(lhs_even, PACKED_NC4_NEG_EVEN, &mut even_conv);
-    negacyclic_conv4_packed(lhs_odd, PACKED_NC4_NEG_ODD, &mut odd_conv);
-    negacyclic_conv4_packed(lhs_sum, PACKED_NC4_NEG_SUM, &mut sum_conv);
+    negacyclic_conv4_neg_odd_packed(lhs_odd, &mut odd_conv);
+    negacyclic_conv4_neg_sum_packed(lhs_sum, &mut sum_conv);
 
     sum_conv[0] -= even_conv[0] + odd_conv[0];
     even_conv[0] -= odd_conv[3];
@@ -459,7 +513,7 @@ fn conv8_packed(lhs: &[FPacking; 8], output: &mut [FPacking; 8]) {
     let mut left = [FPacking::default(); 4];
     let mut right = [FPacking::default(); 4];
 
-    negacyclic_conv4_packed(lhs_neg, PACKED_NC4_POS_NEG, &mut left);
+    negacyclic_conv4_pos_neg_packed(lhs_neg, &mut left);
     conv4_packed(&lhs_pos, &mut right);
 
     for i in 0..4 {
@@ -781,21 +835,26 @@ mod tests {
         println!("]);");
     }
 
+    fn i64_to_kb(x: i64) -> KoalaBear {
+        let p = KB_P as i64;
+        KoalaBear::new(((x % p + p) % p) as u32)
+    }
+
+    fn naive_mds(state: &mut [KoalaBear; 16]) {
+        let input = *state;
+        for i in 0..16 {
+            let mut acc = KoalaBear::ZERO;
+            for j in 0..16 {
+                let c = MDS_CIRC_16_FIRST_ROW[(j + 16 - i) % 16];
+                acc += i64_to_kb(c) * input[j];
+            }
+            state[i] = acc;
+        }
+    }
+
     /// Cross-check unrolled MDS against naive loop implementation.
     #[test]
     fn test_mds_circulant_matches_naive() {
-        fn naive_mds(state: &mut [KoalaBear; 16]) {
-            let input = *state;
-            for i in 0..16 {
-                let mut acc = KoalaBear::ZERO;
-                for j in 0..16 {
-                    let c = MDS_CIRC_16_FIRST_ROW[(j + 16 - i) % 16];
-                    acc += KoalaBear::new(c as u32) * input[j];
-                }
-                state[i] = acc;
-            }
-        }
-
         for seed in 0u32..100 {
             let mut state_a: [KoalaBear; 16] = std::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
             let mut state_b = state_a;
@@ -809,17 +868,14 @@ mod tests {
     #[test]
     fn test_precomputed_karatsuba_constants() {
         let col = MDS_CIRC_16_FIRST_COL;
-        let p = KB_P as i64;
-
-        let to_kb = |x: i64| -> KoalaBear { KoalaBear::new(((x % p + p) % p) as u32) };
 
         // Build negacyclic circulant matrix from column [a,b,c,d]
         let nc4_matrix = |c: [i64; 4]| -> [[KoalaBear; 4]; 4] {
             [
-                [to_kb(c[0]), to_kb(-c[3]), to_kb(-c[2]), to_kb(-c[1])],
-                [to_kb(c[1]), to_kb(c[0]), to_kb(-c[3]), to_kb(-c[2])],
-                [to_kb(c[2]), to_kb(c[1]), to_kb(c[0]), to_kb(-c[3])],
-                [to_kb(c[3]), to_kb(c[2]), to_kb(c[1]), to_kb(c[0])],
+                [i64_to_kb(c[0]), i64_to_kb(-c[3]), i64_to_kb(-c[2]), i64_to_kb(-c[1])],
+                [i64_to_kb(c[1]), i64_to_kb(c[0]), i64_to_kb(-c[3]), i64_to_kb(-c[2])],
+                [i64_to_kb(c[2]), i64_to_kb(c[1]), i64_to_kb(c[0]), i64_to_kb(-c[3])],
+                [i64_to_kb(c[3]), i64_to_kb(c[2]), i64_to_kb(c[1]), i64_to_kb(c[0])],
             ]
         };
 
@@ -840,18 +896,30 @@ mod tests {
         let v_p = [pos_pos[0] + pos_pos[2], pos_pos[1] + pos_pos[3]];
         let v_m = [pos_pos[0] - pos_pos[2], pos_pos[1] - pos_pos[3]];
 
-        // Verify NC4 matrices
+        // Verify NC4_NEG_EVEN matrix
         assert_eq!(NC4_NEG_EVEN, nc4_matrix(neg_even));
-        assert_eq!(NC4_NEG_ODD, nc4_matrix(neg_odd));
-        assert_eq!(NC4_NEG_SUM, nc4_matrix(neg_sum));
-        assert_eq!(NC4_POS_NEG, nc4_matrix(pos_neg));
+
+        // Verify decomposition values match expectations
+        assert_eq!(neg_odd, [2, 5, 1, 62]);
+        assert_eq!(neg_sum, [-98, 2, 57, 9]);
+        assert_eq!(pos_neg, [24, 1, -48, -25]);
+
+        // Verify scalar constants used in specialized functions
+        assert_eq!(KB_5, i64_to_kb(5));
+        assert_eq!(KB_9, i64_to_kb(9));
+        assert_eq!(KB_24, i64_to_kb(24));
+        assert_eq!(KB_25, i64_to_kb(25));
+        assert_eq!(KB_48, i64_to_kb(48));
+        assert_eq!(KB_57, i64_to_kb(57));
+        assert_eq!(KB_62, i64_to_kb(62));
+        assert_eq!(KB_98, i64_to_kb(98));
 
         // Verify CONV4_ROWS
         let expected_rows = [
-            [to_kb(v_m[0]), to_kb(-v_m[1])],
-            [to_kb(v_m[1]), to_kb(v_m[0])],
-            [to_kb(v_p[0]), to_kb(v_p[1])],
-            [to_kb(v_p[1]), to_kb(v_p[0])],
+            [i64_to_kb(v_m[0]), i64_to_kb(-v_m[1])],
+            [i64_to_kb(v_m[1]), i64_to_kb(v_m[0])],
+            [i64_to_kb(v_p[0]), i64_to_kb(v_p[1])],
+            [i64_to_kb(v_p[1]), i64_to_kb(v_p[0])],
         ];
         assert_eq!(CONV4_ROWS, expected_rows);
 
@@ -864,18 +932,6 @@ mod tests {
     fn test_mds_circulant_packed_matches_naive() {
         use field::PackedValue;
         type P = <KoalaBear as Field>::Packing;
-
-        fn naive_mds(state: &mut [KoalaBear; 16]) {
-            let input = *state;
-            for i in 0..16 {
-                let mut acc = KoalaBear::ZERO;
-                for j in 0..16 {
-                    let c = MDS_CIRC_16_FIRST_ROW[(j + 16 - i) % 16];
-                    acc += KoalaBear::new(c as u32) * input[j];
-                }
-                state[i] = acc;
-            }
-        }
 
         let width = P::WIDTH;
         for seed in 0u32..100 {
